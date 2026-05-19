@@ -1,6 +1,6 @@
 ---
 name: The orchestration contract
-description: Frames termipod's multi-agent layer as the top of a stack of typing disciplines — LLM → inference decoding → agent harness → orchestration — where each layer is a contract that converts the layer below from potential into directed behaviour. The orchestration layer is the only one with no designed contract: it has band-aids (v1.0.626/630 body prefixes). Notes the stack extends below the LLM (the model is itself typed out of a corpus by training) and that a contract is two-sided — a schema plus the disposition to honour it — so the envelope schema and the prompts that teach it are one design. Argues the forward path (message-routing-to-agents / ADR-032) and the return path (feedback-loop-closure) are not two problems but one bidirectional contract; that a lineage/correlation field threading every message back to its originating directive is the contract's spine and the thing that makes loop efficiency measurable; and that realization efficiency — the cost to turn a directive into a realized outcome — is the design-quality metric for this layer. Recommends re-scoping the message-routing work as the orchestration contract rather than an A2A bug fix, and resolves feedback-loop-closure §9 Q1.
+description: Frames termipod's multi-agent layer as the top of a stack of typing disciplines — LLM → inference decoding → agent harness → orchestration — where each layer is a contract that types the layer below from potential into directed behaviour. The orchestration layer is the only one with no designed contract: it has band-aids (v1.0.626/630 body prefixes). Enunciates what "typing" means (form < type < schema < contract < protocol); notes the stack extends below the LLM and that a contract is two-sided — schema plus the disposition to honour it. Argues the forward path (message-routing-to-agents / ADR-032) and the return path (feedback-loop-closure) are one bidirectional contract; specifies the concrete envelope `{from,to,kind,text,cause,thread}` with a four-value kind set, a lineage `cause` field as the spine, hub-server composition, and a lifecycle walkthrough ratifying the design. Records the 2026-05-18/19 decisions: drop the legacy shim, Layer-B closure enforcement is MVP, realization efficiency is the design metric.
 ---
 
 # The orchestration contract
@@ -12,36 +12,33 @@ description: Frames termipod's multi-agent layer as the top of a stack of typing
 > Sits above [`message-routing-to-agents.md`](message-routing-to-agents.md),
 > [ADR-032](../decisions/032-message-routing-envelope.md), and
 > [`feedback-loop-closure.md`](feedback-loop-closure.md) — it does not
-> replace them; it frames them as one contract. No ADR locked.
+> replace them; it frames them as one contract and specifies it. No
+> ADR locked.
 > **Audience:** contributors · principal
 > **Last verified vs code:** v1.0.631-alpha
 
 **TL;DR.** Termipod is a stack of *typing disciplines*. An LLM is a
 token distribution — pure potential. The inference engine's role and
-control-token labels (`system`/`user`/`assistant`, stop, thinking and
-tool spans) type that stream into a *turn-taking mind*. The agent
-harness — tool schemas, event loop, hooks, state machine — types the
-mind into an *agent* that senses, acts, and remembers. Each layer is a
+control-token labels type that stream into a *turn-taking mind*. The
+agent harness types the mind into an *agent*. Each layer is a
 **contract** that converts the layer below from potential into
 directed behaviour, by *typing* it. The **orchestration layer** — many
 agents plus humans, coordinated to realize a principal's directive —
 is the top of that stack, and it is **the only layer with no designed
 contract.** It has band-aids: v1.0.626 collapsed message kinds,
-v1.0.630 stuffed `[A2A from @sender]` into the body as prose. That is
-layer-3 running without role labels. This doc argues three things:
-(1) the message-routing work is the orchestration layer's missing type
-system, not an A2A bug fix; (2) the forward path (routing *to* agents)
-and the return path (routing *back to* the principal) are **one
-bidirectional contract**, not two docs; (3) a **lineage field** —
-every message carrying the directive it serves — is that contract's
-spine, the thing that closes the loop *and* makes the system's
-efficiency measurable. It also notes the stack has no raw bottom (the
-LLM is itself typed out of a corpus) and that a contract is two-sided
-— a schema plus the disposition to honour it — so the envelope and the
-prompts that teach it are one design, not two wedges. It resolves
+v1.0.630 stuffed `[A2A from @sender]` into the body as prose — layer-3
+running without role labels. This doc argues: (1) the message-routing
+work is the orchestration layer's missing type system, not an A2A bug
+fix; (2) the forward path (routing *to* agents) and the return path
+(routing *back to* the principal) are **one bidirectional contract**;
+(3) a **lineage field** — every message carrying the directive it
+serves — is the contract's spine, closing the loop *and* making
+efficiency measurable. It enunciates what "typing" means (§2),
+specifies the concrete envelope `{from,to,kind,text,cause,thread}`
+(§6), and ratifies it against the project lifecycle (§8). It resolves
 [`feedback-loop-closure.md`](feedback-loop-closure.md)'s §9 Q1 and
 recommends re-scoping [`message-routing-rollout.md`](../plans/message-routing-rollout.md)
-before W1 starts.
+before W1.
 
 ---
 
@@ -75,7 +72,59 @@ agents exist; the humans exist; what coordinates them into a system
 that realizes a directive is, today, a set of band-aids. That gap is
 this doc's subject.
 
-## 2. The stack has no bottom — what is below the LLM
+## 2. What "typing" means
+
+§1 calls each layer a "typing discipline." Precisely:
+
+A **type** is a *classification that licenses operations and carries
+guarantees.* To *type* a stream is to assign its parts to categories
+such that the layer above knows what it can **do** with each part and
+what **holds** of it. A raw token stream is untyped — you can only
+sample it. Label spans `user` / `assistant` / `tool` and you have
+*typed* it: now "take the user's turn," "extract the tool call,"
+"stop at the assistant boundary" are well-defined operations. The type
+is what makes those operations *exist*.
+
+Typing is **lossy and intentional.** A token stream carries
+near-unlimited latent structure; role-labelling *selects* the
+speaker/turn distinction as load-bearing and discards the rest. To
+type is therefore to **choose which distinctions matter** — and that
+choice is the design act. §1's slogan is exact: the right choice of
+distinctions creates the operations the next layer needs; a wrong or
+absent choice leaves potential unrealized. The orchestration contract
+is a choice of which distinctions in agent-to-agent communication are
+load-bearing — `from`, `kind`, `cause` (§6).
+
+The neighbouring terms, ordered from least to most committed:
+
+- **Form** — structure / shape alone, with no commitment to meaning or
+  operations. A JSON object has form. Form is *necessary* for type,
+  not *sufficient*.
+- **Type** — form *plus* the operations it licenses and the guarantees
+  it carries. Typing imposes an *interpretation* on the layer below.
+- **Category** — the bins a type sorts into. Informally, a bucket;
+  formally (category theory) objects plus the morphisms between them —
+  apt, since a type system *is* a category: types are objects,
+  licensed operations are morphisms. This doc uses the informal sense.
+- **Schema** — a *written specification* of a type: the concrete field
+  list. The envelope in §6.1 is the written schema of the L3 message
+  type.
+- **Contract** — a schema *plus the obligation of each party to honour
+  it.* The schema is the classification; the contract adds mutual
+  commitment. (See §2(c) of §3 — a contract is two-sided.)
+- **Protocol** — a contract *plus sequencing*: the state machine of
+  who sends what, when.
+
+So "**each layer types the layer below**" means: each layer imposes a
+*chosen interpretation* on the raw stream beneath it — a classification
+that licenses the operations the layer above needs. The
+producer-and-consumer-agreed version of that interpretation is a
+*contract*; the contract plus its temporal ordering is a *protocol*.
+The orchestration layer needs all three: a message **type** (the
+envelope schema), agreed as a **contract** (both ends honour it), run
+as a **protocol** (the loop — open → advance → close, §8).
+
+## 3. The stack has no bottom — what is below the LLM
 
 §1's table starts at L0, the LLM, as if it were bedrock. It is not.
 "The LLM is a token stream — without labels, just potential" is true
@@ -101,7 +150,7 @@ the layer above and *structure* relative to the layer below. A corpus
 is structured text beside noise, but pure potential beside a trained
 model. "Raw" and "typed" are not properties of a layer — they are
 roles a layer plays in a relation. So "the orchestration layer is a
-contract" (§3) was never a special claim. It is the *universal* one.
+contract" (§4) was never a special claim. It is the *universal* one.
 We notice it at L3 only because L3 is the single place termipod's
 contract is missing.
 
@@ -126,18 +175,13 @@ instruction. The label is the **schema**; post-training is the
 obligations — observed from below: post-training is *how the
 obligation half is compiled into the model.*
 
-Run that upward and it becomes a design instruction. ADR-032's
-envelope is the L3 **schema**. What installs the L3 **obligation** —
-an agent's disposition to actually read and honour the envelope?
-**The prompt layer.** That is what the rollout's W4 ("teach
-per-persona prompts to read the envelope") really is. So the schema
-wedge and the prompt wedge are not sequential niceties — they are the
-*two halves of one contract*, exactly as control-token syntax and
-post-training are the two halves of L1. **A schema with no disposition
-to honour it is the `[A2A from @sender]` prefix again: structure no
-party is bound to read.** Whether a *soft* disposition (a prompt) is a
-sufficient obligation, or the contract also needs *hard* enforcement,
-is §9 Q7.
+Run that upward and it becomes a design instruction. The envelope (§6)
+is the L3 **schema**. What installs the L3 **obligation** — an agent's
+disposition to honour the envelope? Two mechanisms, and the contract
+needs **both**: a *soft* one — the prompt layer (the rollout's W4) —
+and a *hard* one — runtime enforcement at the hub (§6.5, §10). A schema
+with no disposition to honour it is the `[A2A from @sender]` prefix
+again: structure no party is bound to read.
 
 A closing observation. The recurring verb of the whole stack is
 **routing**. Attention routes between tokens (soft, learned). The
@@ -148,7 +192,7 @@ Message-routing is not *a* feature of the orchestration layer; routing
 is the operation every layer performs, and L3 is where termipod must
 make it explicit.
 
-## 3. The orchestration layer is a contract — and it is missing
+## 4. The orchestration layer is a contract — and it is missing
 
 What would the L3 contract type? The thing that crosses agent
 boundaries: **messages.** A message between two agents, or between an
@@ -166,15 +210,14 @@ running the way L1 would run if you deleted the role labels and asked
 the model to infer from wording who was speaking. It works until it
 doesn't, and it cannot be measured, audited, or reasoned about.
 
-[ADR-032](../decisions/032-message-routing-envelope.md)'s envelope —
-`{from, text, reply_via, thread}` with a 4-role taxonomy — **is the
-first piece of the L3 contract.** This reframing matters because it
+[ADR-032](../decisions/032-message-routing-envelope.md)'s envelope is
+the first piece of the L3 contract. This reframing matters because it
 changes the bar the work is held to. As a bug fix, the envelope is
 done when the band-aids are gone. As a contract, it is done when L3
 messages are as well-typed as L1 turns: every message carries who sent
 it, what kind of act it is, and what it is in service of.
 
-## 4. Forward and return are one contract, not two
+## 5. Forward and return are one contract, not two
 
 There are four docs in this cluster and they fragment one thing:
 
@@ -200,68 +243,185 @@ should know instead of debugging"* — is the demand for a closed loop.
 The unit of the orchestration layer is therefore not the message, it
 is **the loop**: directive → action → observable outcome → signal back
 → correction. Forward and return are the same loop traversed in two
-directions, and they should be the **same contract with different
-field values** — a message is `{from, to, kind, caused_by, ...}`
-whether it carries a directive outward or an outcome back. If the
-return path is designed separately, it will grow its *own* band-aids —
-the precise failure mode that produced the A2A prefix hack. The
-v1.0.626 and v1.0.630 incidents are not two bugs; they are one missing
-contract billed twice.
+directions, and they are the **same envelope with different field
+values** — a message is `{from, to, kind, cause, …}` whether it
+carries a directive outward or an outcome back. If the return path is
+designed separately, it will grow its *own* band-aids — the precise
+failure mode that produced the A2A prefix hack. The v1.0.626 and
+v1.0.630 incidents are not two bugs; they are one missing contract
+billed twice.
 
-## 5. The spine: the lineage field
+## 6. The envelope: the schema, and who fills it
 
-A bidirectional envelope is necessary but not sufficient. Messages can
-flow both ways and the loop can still be *open* — because the
-principal receives a stream of outcomes with no way to tell *which
-directive each one closes*.
+This is the concrete result of the 2026-05-18/19 design conversation —
+the L3 message type.
 
-The fix is one field. Every message carries the directive it serves: a
-**lineage field** — `caused_by` / `in_reply_to` / `intent_id` — a
-correlation identifier that threads the whole tree of delegated and
-fanned-out work back to the originating directive. It does three jobs
-at once:
+### 6.1 The schema
 
-1. **It closes the loop.** A returning outcome is not "some report"; it
-   is "the terminal signal for directive X." This is
-   `feedback-loop-closure.md` §6.8's loop-closure invariant made
-   mechanical: the hub holds the set of open directives and a directive
-   is not `done` until a terminal signal *carrying its lineage* reaches
-   the principal's inbox.
+```
+{
+  from:   { role, handle, agent_id },   // who sent it
+  to:     { role, handle, agent_id },   // who receives it
+  kind:   "directive" | "question" | "report" | "notification",
+  text:   "<message body>",
+  cause:  <ULID> | null,                // lineage — the directive this serves
+  thread: { transport: "session" | "a2a" | "attention", id: <ULID> }
+}
+```
 
-2. **It makes efficiency measurable** (see §6).
+`role` ∈ `principal | peer_steward | peer_worker | system` — ADR-032
+D-1's taxonomy, unchanged (it is *source-of-message* semantics, an
+axis orthogonal to L1's *turn-position* `user/assistant`). Both
+endpoints are explicit: a return message and the directive-trace both
+need `from` *and* `to`.
 
-3. **It must not be a new primitive.** Termipod already has Task
-   ([ADR-029](../decisions/029-tasks-as-first-class-primitive.md), the
-   first-class unit of steward-dispatched work), `correlation_id` on
-   channels ([ADR-019](../decisions/019-channels-as-event-log.md)),
-   `parent_agent_id`, and `request_id`. The lineage field should *be*
-   the directive/Task identity propagated, not a fifth parallel
-   identifier. Glossary discipline: this is correlation propagation, not
-   a new concept — it is `feedback-loop-closure.md` §6.1 stamped onto
-   the envelope rather than left as a runtime afterthought.
+This **revises ADR-032 D-1** (`{from, text, reply_via, thread}`): adds
+`to` and `kind`, adds the lineage field `cause`, drops `reply_via` as a
+stored field (it is derived — §6.5), and makes `thread` a tagged union
+rather than three nullable siblings.
 
-**A design heuristic falls out of §1.** Since each layer types the
-layer below, the L3 envelope should be *isomorphic to the L1 turn it
-sits above*: a clear *who* (role), a clear *what kind* (directive /
-report / question / signal), a clear *in service of what* (lineage).
-The agent receiving an envelope is itself an LLM trained on turn-typed
-text; an envelope shaped like the turn structure it already parses
-costs it almost no comprehension overhead. This argues *against*
-exotic envelope fields and *for* keeping the schema small and
-turn-shaped — which is also ADR-032 D-4's "no input polymorphism"
-instinct, generalized.
+### 6.2 `kind` — the four illocutionary forces
 
-## 6. Realization efficiency is the design metric
+`kind` is what the sender is *doing* by sending the message. It is a
+**closed enum**, reasoned not by speech-act aesthetics but by what the
+loop machinery must decide — does this message *open*, *close*,
+*advance*, or *not touch* a directive's loop?
+
+| `kind` | Meaning | Loop effect | Examples |
+|---|---|---|---|
+| `directive` | "do this" | **opens** a loop | principal→steward; steward→worker dispatch; A2A delegation; schedule fire |
+| `question` | "I need an answer/decision to proceed" | opens a **blocking** sub-loop | worker→steward escalation; steward→principal approval |
+| `report` | "here is an outcome / progress" | **advances or closes** a loop | worker→steward result; steward→principal status |
+| `notification` | "the system informs you of a state change" | loop-**neutral** | stall escalation; operator action; infra event |
+
+The set has a deliberate shape — **two openers, one closer, one
+neutral.** It is complete: every message source in termipod's
+lifecycle maps to exactly one (ratified in §8), and none is unused.
+`kind` is **orthogonal to `from.role`** — the *authority* of a
+directive (a principal command vs a peer's collaboration ask) comes
+from `from.role`, not `kind`. The enum is closed but extensible by a
+future ADR; an unknown `kind` falls back to `notification` (the inert
+one), never to `directive`.
+
+Two candidates were considered and dropped: `acknowledgement` —
+receipt is a hub-observable transport fact, not an agent-authored
+message; `signal` / progress-tick — `feedback-loop-closure.md` §5.4's
+progress-tick is UI-only and never enters model context, so it is not
+a message in this contract.
+
+### 6.3 `cause` — the lineage reference
+
+`cause` is the contract's **spine**. A bidirectional envelope is not
+enough: messages can flow both ways and the loop still be *open*,
+because the principal receives outcomes with no way to tell *which
+directive each one closes*. `cause` fixes that.
+
+`cause` is **neither an enum nor free-text — it is a reference** (a
+foreign key): the ULID of the directive/task entity the message
+belongs to. It is **hub-validated** (admission stage 1 — §10 — checks
+it resolves to a live entity). It is nullable: `null` means the
+message is not tied to a tracked directive (incidental chat, a bare
+infra `notification`); every `directive`/`question`/`report` carries
+one. The directive *tree* is reconstructed by walking `entity.parent`
+links (single parent pointer — the 2026-05-19 Q1 resolution); a
+denormalized root id may be added later if rollup queries need it.
+
+`cause` must **not** be a new primitive — it *is* the Task identity
+([ADR-029](../decisions/029-tasks-as-first-class-primitive.md)) or the
+principal-directive `correlation_id` (`feedback-loop-closure.md` §6.1)
+propagated. Glossary discipline: this is correlation propagation
+stamped onto the envelope, not a new concept.
+
+### 6.4 `thread` — transport, not lineage
+
+`thread` and `cause` are different fields, and conflating them is
+exactly the current schema's failure.
+
+- **`thread`** = the **transport / conversational channel** the
+  message rides — *which ongoing exchange* it belongs to at the
+  delivery layer. Used for delivery, rendering continuity, resubscribe
+  dedup.
+- **`cause`** = the **causal lineage** — which directive it realizes.
+  Used for loop closure, the directive trace, efficiency metrics.
+
+They are orthogonal — proof by example: a worker's terminal `report`
+and the original principal `directive` are in **different threads**
+(the directive was typed in a chat session; the report returns via an
+A2A task) but share the **same `cause`**. Conversely two messages in
+the **same thread** can serve **different causes**. A transport handle
+does not thread a directive across hops — the thread changes at every
+hop; the `cause` does not. **All lineage lives in `cause`; `thread`
+carries none.**
+
+### 6.5 Three rules: closure, derivation, authorship
+
+**Closure.** A directive/task entity **E** is closed by a `report`
+whose `cause = E` sent by **E's assignee** (the agent E was addressed
+to). `report` is the *universal* closer — `directive` and `question`
+open loops, `report` closes them, `notification` touches none. A
+`question` is closed the same way: its answer is a `report` with
+`cause` = the question entity. Abnormal closes (timeout, cancel) are
+not `report`s — the Layer-B runtime terminates the loop with a reason
+(the `feedback-loop-closure.md` §9 Q-T taxonomy) and surfaces it as a
+`notification`. **Self-echo** (a message with `from == to`, e.g. a
+fan-out steward seeing its own posts) is filtered before routing and
+excluded from the trace — it never counts as loop activity.
+
+**Derivation.** `reply_via` is *not* a stored field and the agent
+never computes it. The hub derives it deterministically from `from` +
+`thread.transport` + `kind`, and **renders it as an explicit
+instruction** into the agent-facing text ("Reply via:
+`a2a.invoke(handle="…")`"). For a `notification` the rendering states
+the *kind's contract* — "informational re directive X; no reply is
+routed; act if it concerns work you own" — **not** a bald "no reply
+expected," which would wrongly imply no *action* is expected.
+
+**Authorship.** The hub composes the **entire** envelope; the agent
+authors **zero** envelope fields. The agent contributes only `text`
+and the *choice of affordance* (§6.6). This is load-bearing: it is
+*why* the contract can be enforced — if agents filled the schema there
+would be nothing to enforce, and `from`/`cause` would be unverifiable.
+
+### 6.6 Who composes it, and how `kind` is determined
+
+Composition is on **hub-server** (`internal/server`) — the process
+that owns the `agent_events` table; the three write sites
+(`handlers_agent_input.go` principal input, `tunnel_a2a.go` A2A relay,
+`task_notify.go` system wakes) all live there. The **host-runner**
+(`internal/hostrunner`) does *not* compose: its `input_router.go`
+polls the `agent_events` rows and the driver *renders* them per
+engine. It cannot compose authoritatively — A2A crosses hosts (a
+steward on a VPS → a NAT'd worker), and only hub-server owns the
+directive/task registry that `cause` requires. So: **compose +
+admission-gate = hub-server; render + deliver = host-runner driver.**
+
+`kind` is inferred from the **tool the agent calls** — verified
+against both tool registries, no tool schema carries an explicit
+`kind` field, but tool *identity* determines it:
+
+| affordance | → `kind` |
+|---|---|
+| principal `/input` | `directive` (MVP: always) |
+| `a2a_invoke` / `delegate` | `directive`; `report` if it answers an open question |
+| `request_help` / `request_select` / `request_approval` | `question` |
+| `tasks_update(status=…)` / `tasks_complete` / turn-completion | `report` |
+| hub-originated | `directive` (schedule fire) · `notification` (escalation, operator, infra) |
+
+The one genuine inference gap is `a2a_invoke` directive-vs-report,
+closed by reply-detection (does this A2A answer an open question whose
+asker is the recipient?). An explicit `kind`/`intent` parameter on
+`a2a_invoke` is a possible post-MVP tightening — §11.
+
+## 7. Realization efficiency is the design metric
 
 The principal's claim: *the efficiency of the system's operating — how
 easy, how fast, how cheaply a directive is realized — is itself an
-indicator of the level of the design.* This is correct and it gives
-the orchestration layer a **quality metric**, which until now it has
-lacked.
+indicator of the level of the design.* This gives the orchestration
+layer a **quality metric** it has so far lacked.
 
-Name it **realization efficiency**: the cost — in latency, in hop
-count, in clarification round-trips, in human interventions — to
-convert a principal directive into a realized, observed outcome. Two
+Name it **realization efficiency**: the cost — in latency, hop count,
+clarification round-trips, human interventions — to convert a
+principal directive into a realized, observed outcome. Two
 sub-measures:
 
 - **Loop latency** — wall-clock from directive issued to outcome
@@ -269,40 +429,74 @@ sub-measures:
 - **Loop fidelity** — how much signal survives the hops. A steward
   that relays a worker outcome without comprehending it is a
   degradation node (`feedback-loop-closure.md` §6.7, "synthesis is not
-  relay"); fidelity is the measure of that loss.
+  relay"); fidelity measures that loss.
 
-The orchestration layer's design quality *is* these numbers. A
-contract that produces low latency and high fidelity for a directive
-is a good design; one that needs many round-trips and loses signal is
-a poor one — independent of how clever any single agent is. This is
-what the principal meant by the system's "intelligence," and it is
-better stated as realization efficiency, because it is a property of
-the *contract*, not of the models.
+The orchestration layer's design quality *is* these numbers — a
+property of the *contract*, not of the models. This is what the
+principal meant by the system's "intelligence," better stated as
+realization efficiency.
 
-Crucially: **this metric is unmeasurable without the lineage field of
-§5.** You cannot compute loop latency for a directive whose returning
-signals you cannot attribute to it. So the lineage field is not only
-how the loop closes — it is how the orchestration layer becomes
-*observable* at all. The envelope should therefore be designed as an
-instrumentation surface, not just a delivery surface: lineage-tagged
-messages let [ADR-022](../decisions/022-observability-surfaces.md)'s
+Crucially: **this metric is unmeasurable without the `cause` field of
+§6.3.** You cannot compute loop latency for a directive whose
+returning signals you cannot attribute to it. So the envelope must be
+designed as an *instrumentation surface*, not just a delivery surface:
+lineage-tagged messages let [ADR-022](../decisions/022-observability-surfaces.md)'s
 insights compute per-directive realization efficiency directly. The
 contract that delivers the work is the same contract that measures
 whether the design of the work is any good.
 
-## 7. Terms
+## 8. Lifecycle walkthrough — ratifying the design
+
+The schema is only ratified if every message in a project lifecycle
+maps cleanly onto it. The canonical path — **principal directs a
+mission, steward spawns a worker, worker does it, replies back, turn
+ends**:
+
+| # | message | `from` | `to` | `kind` | `cause` | `thread` | loop effect |
+|---|---|---|---|---|---|---|---|
+| 1 | principal: "Build feature X" | principal | steward | `directive` | D1 (minted) | session | **opens D1** (root) |
+| 2 | steward dispatches the task | peer_steward | worker | `directive` | T1 (minted, parent=D1) | session | **opens T1** |
+| 3 | worker finishes | peer_worker | steward | `report` | T1 | a2a | **closes T1** |
+| 4 | steward synthesizes to principal | peer_steward | principal | `report` | D1 | session | **closes D1** |
+
+The loop closes; realization efficiency = latency from msg 1 to msg 4,
+fidelity = whether msg 4 preserved msg 3's result. Note the happy path
+uses only `directive` and `report` — `question` and `notification` are
+for the variants.
+
+**Variant scenarios**, each still `{from,to,kind,cause,thread}`:
+
+- **Worker blocked.** Msg 3 is a `report` with a blocked terminal
+  status (still `kind=report`, `cause=T1`) — T1 closes blocked. The
+  steward then either re-dispatches (a new `directive`) or escalates
+  (`report` to principal, `cause=D1`, blocked).
+- **Worker needs a decision mid-task.** worker→steward `question`
+  (`cause=T1`) opens sub-entity Q1 (parent=T1); steward→worker `report`
+  (`cause=Q1`) closes Q1; the worker resumes T1. The steward's answer
+  is a `report` even though its text says "do A" — it *closes the
+  question*; genuinely new work would be a separate `directive`.
+- **Fan-out.** The steward dispatches T1a/T1b/T1c (three `directive`s,
+  all parent=D1). Three `report`s close them. D1 closes only when the
+  steward emits its own `report` with `cause=D1` — a sibling's report
+  closes *that sibling*, not the parent.
+- **Stall.** A worker goes silent past its deadline; the Layer-B
+  runtime detects it and the hub emits a `notification` to the steward
+  (`cause=T1`); if the steward is also silent, a `notification` to the
+  principal (`cause=D1`). No reply is routed — but the rendering says
+  "act."
+- **Schedule fire.** system→steward `directive`, `cause` = a freshly
+  minted directive entity for the scheduled work.
+
+Every case lands on the four-value `kind` set with no leftover. The
+design covers the lifecycle.
+
+## 9. Terms
 
 The principal invited sharpening; the convention requires it
 (`docs/reference/glossary.md` is canonical for collision-prone terms).
+The form / type / schema / contract / protocol ladder is enunciated in
+§2. In addition:
 
-- **Contract / protocol / constraint** are not synonyms. A *contract*
-  is the schema plus obligations — what fields exist, what each party
-  promises. A *protocol* is a contract plus sequencing — the state
-  machine of who sends what, when. A *constraint* is the *effect* — the
-  possibilities the contract forecloses. ADR-032 should be read as
-  defining a **message contract** (the envelope) and a **routing
-  protocol** (hub-side compose and deliver); "constraint" is the
-  consequence, not the artifact.
 - **"Feedback loop"** is overloaded. Separate the **control loop** —
   directive → outcome → correction, the thing being regulated — from
   the **return transport** — the messages carrying signal back.
@@ -310,122 +504,94 @@ The principal invited sharpening; the convention requires it
   this; keep it.
 - **"Intelligence of the system"** — avoid the word; it imports the
   model-capability sense. The intended concept is **realization
-  efficiency** (§6): a property of the contract.
-- **Proposed new terms** — *orchestration contract*, *lineage field*,
-  *realization efficiency*. If this discussion resolves into an ADR,
-  these go to `glossary.md` for review before they harden; flagged here
-  per the glossary-first convention.
+  efficiency** (§7): a property of the contract.
+- **Proposed new terms** — *orchestration contract*, *lineage field* /
+  `cause`, *realization efficiency*. When this resolves into an ADR,
+  these go to `glossary.md` for review before they harden.
 
-## 8. What this means for the in-flight work
+## 10. What this means for the in-flight work
 
 The next session was set to start [`message-routing-rollout.md`](../plans/message-routing-rollout.md)
-W1. This frame says: **do not start W1 yet.** The plan is correctly
-scoped for a delivery mechanism and under-scoped for a contract. The
-re-scope:
+W1. **Do not start W1 as scoped** — the plan is right for a delivery
+mechanism and under-scoped for a contract. The re-scope:
 
-1. **The envelope is bidirectional from W1.** The schema
-   ([ADR-032](../decisions/032-message-routing-envelope.md) D-1) gains a
-   lineage field and is designed to carry return messages as well as
-   forward ones — same schema, both directions. `reply_via` already
-   half-anticipates this (`feedback-loop-closure.md` §5.2 reads it as
-   the Request-vs-Message hinge).
-2. **`feedback-loop-closure.md` folds in.** Its Layer A (inbox,
-   read-state, the three-tab reframe) is the return-path *application*
-   of the same envelope; its Layer B (deadlines, stall escalation,
-   directive trace) is the *runtime* that the lineage field makes
-   possible.
-3. **ADR-032 evolves.** It is still `Proposed`, so it can be revised
-   rather than superseded: widen it from "envelope metadata on
-   `input.text`" to "the orchestration contract — a bidirectional,
-   lineage-bearing message contract." Alternatively a sibling ADR
-   covers the Layer-B runtime. Either way both derive from **one
-   envelope schema** — that is the non-negotiable.
-4. **Schema and disposition ship together.** Per §2(c) the contract is
-   the envelope schema *and* the disposition to honour it. The schema
-   wedge (W1) and the prompt wedge (W4) are halves of one contract,
-   co-designed — not "build it, then teach it." Whether the prompt is a
-   *sufficient* disposition installer or hard runtime enforcement is
-   also needed is §9 Q7.
-5. **The rollout plan is re-wedged** against the widened scope after
-   this discussion settles.
+1. **The envelope is `{from,to,kind,text,cause,thread}` from W1** —
+   bidirectional, lineage-bearing. ADR-032 D-1 is revised to §6.1.
+2. **ADR-032 evolves** (it is still `Proposed`, so revisable rather
+   than superseded): widen it from "envelope metadata on `input.text`"
+   to "the orchestration contract." A companion ADR covers the
+   Layer-B liveness runtime.
+3. **Layer-B closure enforcement is MVP** (2026-05-19 decision, Q7) —
+   not deferred. The contract needs **hard runtime enforcement**, not
+   only the soft prompt. Three tiers, all MVP:
+   - *soft* — the prompt (W4): installs the agent's *comprehension* of
+     the envelope.
+   - *hard, gate* — a hub-server **message-admission pipeline** at the
+     compose boundary (borrowing Claude Code's permission pipeline:
+     `validateEnvelope → routing-legality → context`, "fail safe not
+     correct," `deny > allow`; ADR-016's worker→non-parent A2A block is
+     already a deny rule of this kind).
+   - *hard, lifecycle* — hub-side orchestration **hooks** (borrowing
+     Claude Code's hook system): `PreMessageDeliver`, `PreAgentIdle`
+     (refuse idle while open directives exist — the loop-closure
+     invariant), `PostDirectiveOutcome` (synthesis-not-relay check).
+4. **The L2 affordances must encode `kind`** — §6.6. The hub's
+   `tool → kind` map is part of the rollout; the `a2a_invoke`
+   reply-detection too.
+5. **Drop the legacy shim** (2026-05-19 decision, Q4) — solo use, no
+   legacy data. ADR-032 D-4 is *deleted*: no backward-compat shim, no
+   v1.1.0 cutoff. The envelope is the only accepted body shape from the
+   rollout commit; cut over on a drained hub.
+6. **The contract lands as a `spine/` axiom** (2026-05-19 decision,
+   Q5) — it serves blueprint axiom 1 (*Human attention ≪ agent
+   output*). Prerequisite: a **spine-synthesis pass** reconciling it
+   against `spine/protocols.md` and `spine/information-architecture.md`.
+7. **Re-wedge `message-routing-rollout.md`** against this scope.
 
-This **resolves `feedback-loop-closure.md` §9 Q1** ("one ADR or two?").
-Answer: one *contract*. The forward envelope and the return envelope
-are the same schema and must ship from one ADR. The Layer-B liveness
-runtime (deadline clock, escalation, trace view) is separable and *may*
-be a second ADR — because it is runtime, not schema — but it is not a
-separate contract.
+This **resolves `feedback-loop-closure.md` §9 Q1** ("one ADR or
+two?"): one *contract*. The forward and return envelope are one
+schema, one ADR. The Layer-B runtime is a separable second ADR — but
+it ships in the same MVP rollout, not after it.
 
-## 9. Open questions
+## 11. Open questions
 
-Resolved in the 2026-05-19 discussion:
-
-- **Q1 — lineage as tree or pointer?** *Resolved:* a single parent
-  pointer (`caused_by`) per message for MVP; the directive tree is
-  reconstructed by walking parents. A denormalized root `intent_id`
-  may be added later if directive-level rollup queries need it.
-- **Q2 — where is the contract enforced / who stamps lineage?**
-  *Resolved:* hub-stamped. A2A tunnels through the hub relay, so the
-  hub is on the path of every message — principal input, A2A, system
-  wake — and can stamp lineage end-to-end, even to a NAT'd host. Any
-  agent-supplied `caused_by` is an optional hint the hub validates.
-- **Q5 — naming / where the contract lives.** *Resolved:* the contract
-  lands as an axiom under `spine/` — it is a system-level design
-  serving blueprint axiom 1 (*Human attention ≪ agent output*). The
-  ADR holds the decision rationale; the schema is reference.
-  **Prerequisite:** a spine-synthesis pass reconciling the new axiom
-  against `spine/protocols.md` and `spine/information-architecture.md`,
-  which already hold overlapping protocol / IA material.
+Resolved in the 2026-05-18/19 discussion: lineage as a single parent
+pointer (Q1); hub-stamped composition (Q2); drop the shim (Q4); the
+`spine/` axiom + synthesis-pass prerequisite (Q5); the W1 schema
+revision (Q6 → §6.1); Layer-B closure enforcement in MVP (Q7 → §10).
+The self-echo question is resolved by the closure rule (§6.5).
 
 Still open:
 
-- **Q3 — self-echo and the loop.** The rollout's W6 self-echo filter
-  and the loop-closure invariant interact: a message an agent sent to
-  itself, or a fan-out sibling's outcome, both carry lineage — which
-  count as *closing* a directive vs noise in the trace?
-- **Q4 — cutoff for the legacy shim.** ADR-032 D-4 names v1.1.0 for
-  dropping the plain-string shim. Does the shim window cover the
-  widened bidirectional + lineage schema, or does lineage ship
-  shim-free because it is new?
-- **Q6 — is the current W1 envelope schema the best-defended design?**
-  ADR-032 D-1's `{from, text, reply_via, thread}` was locked *before*
-  this reframe. Under the bidirectional + lineage + two-sided-contract
-  lens its rationale needs a fresh review: is `reply_via` the right
-  hinge for a return message, is the 4-role taxonomy complete in both
-  directions, does `thread` subsume the lineage field or sit beside it?
-- **Q7 — enforcing the obligation: soft prompt vs hard runtime.**
-  §2(c): a schema binds only if a disposition honours it. Is the prompt
-  layer (W4) a sufficient disposition installer, or does the contract
-  need *hard* runtime enforcement — validation gates, hooks,
-  interception at the hub / host boundary — so a mis-addressed or
-  unrouted message fails fast instead of silently degrading? Prior art
-  to weigh: Claude Code's permission pipeline (four-stage `validateInput
-  → rule match → checkPermissions → prompt`, `deny > ask > allow`) and
-  hook system (lifecycle events with a `decision: block` /
-  `updatedInput` JSON protocol). See the [`feedback-loop-closure.md`](feedback-loop-closure.md)
-  appendix for the same book's coordinator-pattern borrows.
+- **A2A `kind` inference.** Reply-detection covers `a2a_invoke`
+  directive-vs-report for MVP; is it reliable enough, or does
+  `a2a_invoke` need an explicit `kind`/`intent` parameter? (Lean:
+  reply-detection for MVP, explicit parameter post-MVP.)
+- **`cause` for incidental messages.** Is trivial principal chatter
+  modelled as a degenerate `directive` (closes instantly) or as
+  `cause = null`? Minor; deferred.
+- **Deadline ownership and escalation target.** `feedback-loop-closure.md`
+  §9 Q3/Q4 — who owns the per-hop deadline clock, and does a stall
+  escalate up the steward chain or straight to the principal. Belongs
+  to the Layer-B ADR.
+- **The spine-synthesis pass** (§10 item 6) is a prerequisite task,
+  not yet done.
 
----
-
-## 10. Recommendation
+## 12. Recommendation
 
 1. Treat the message-routing work as **the orchestration layer's type
    system**, not an A2A bug fix. The bar is "L3 messages as well-typed
-   as L1 turns," not "the band-aids are gone."
-2. Design **one bidirectional contract.** The forward path
-   ([`message-routing-to-agents.md`](message-routing-to-agents.md)) and
-   the return path ([`feedback-loop-closure.md`](feedback-loop-closure.md))
-   are one loop; one envelope schema serves both directions.
-3. Make the **lineage field** the spine — directive identity
-   propagated, reusing Task / `correlation_id`, not a new primitive. It
-   closes the loop and makes realization efficiency observable.
+   as L1 turns."
+2. Adopt the envelope **`{from,to,kind,text,cause,thread}`** (§6) —
+   one bidirectional schema, `cause` as the spine, `reply_via` derived,
+   hub-server composed.
+3. Enforce the contract in **three tiers — soft prompt + hard
+   admission gate + hard lifecycle hooks — all MVP** (§10). A
+   half-enforced contract is the half-duplex problem again.
 4. Adopt **realization efficiency** (loop latency + loop fidelity) as
-   the orchestration layer's design-quality metric, and design the
-   envelope as an instrumentation surface so the metric is computable.
-5. Design **schema and disposition together** — the envelope and the
-   prompts (and any hard enforcement) that bind agents to it are one
-   contract, per §2(c).
-6. **Hold `message-routing-rollout.md` W1**; revise
-   [ADR-032](../decisions/032-message-routing-envelope.md) to the
-   widened scope; resolve §9's remaining open questions (Q3, Q4, Q6,
-   Q7); then lock the ADR and re-wedge the plan.
+   the design-quality metric; design the envelope as an instrumentation
+   surface so the metric is computable.
+5. **Hold `message-routing-rollout.md` W1**; revise
+   [ADR-032](../decisions/032-message-routing-envelope.md) to §6 + the
+   admission pipeline; draft the companion Layer-B ADR; run the
+   spine-synthesis pass; then lock and re-wedge.

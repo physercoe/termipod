@@ -1,23 +1,26 @@
 // hub-server — Termipod Hub API daemon.
 //
 // Subcommands:
-//   init                Create a fresh data root and issue an owner token.
-//   serve               Run the HTTP API.
-//   tokens issue        Issue a new token for an agent or user.
-//   tokens list         List tokens (hash-only; plaintext is never stored).
-//   reconstruct-db      Rebuild events DB from event_log/ JSONL.
-//   backup              Snapshot DB + team/ + blobs/ into a tar.gz.
-//   restore             Extract a backup archive into a data root.
-//   seed-demo           Insert the lifecycle research-demo portfolio (no-GPU reviewer flow).
-//   shutdown-all        Stop every active session on every live host and
-//                       fire the host.shutdown verb so each runner exits 0.
-//                       Hub-server itself stays up (ADR-028 D-2).
+//
+//	init                Create a fresh data root and issue an owner token.
+//	serve               Run the HTTP API.
+//	tokens issue        Issue a new token for an agent or user.
+//	tokens list         List tokens (hash-only; plaintext is never stored).
+//	reconstruct-db      Rebuild events DB from event_log/ JSONL.
+//	backup              Snapshot DB + team/ + blobs/ into a tar.gz.
+//	restore             Extract a backup archive into a data root.
+//	seed-demo           Insert the lifecycle research-demo portfolio (no-GPU reviewer flow).
+//	shutdown-all        Stop every active session on every live host and
+//	                    fire the host.shutdown verb so each runner exits 0.
+//	                    Hub-server itself stays up (ADR-028 D-2).
+//	self-update         Fetch a release from GitHub, verify SHA256, replace
+//	                    this binary, and exit 75 so systemd respawns it.
 //
 // Exit-code contract (ADR-028 D-2):
 //   - exit 0  — clean shutdown; systemd's Restart=on-failure leaves the
-//               process DOWN. Operators bring hub-server back manually.
+//     process DOWN. Operators bring hub-server back manually.
 //   - exit 75 — bounce (EX_TEMPFAIL); systemd respawns the process.
-//               Phase 2 self-update uses this after writing a new binary.
+//     Phase 2 self-update uses this after writing a new binary.
 //   - exit 1+ — failure; systemd respawns with the same binary.
 package main
 
@@ -63,6 +66,8 @@ func main() {
 		runSeedDemo(os.Args[2:], log)
 	case "shutdown-all":
 		runShutdownAll(os.Args[2:], log)
+	case "self-update":
+		runSelfUpdate(os.Args[2:], log)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -85,6 +90,7 @@ Commands:
   restore           Rehydrate a fresh data root from a backup archive.
   seed-demo         Insert the lifecycle research-demo portfolio for no-GPU reviewer flow.
   shutdown-all      Fleet shutdown: stop sessions, fire host.shutdown verb, hosts exit 0.
+  self-update       Fetch a release from GitHub, verify SHA256, replace this binary, exit 75.
 
 Run "hub-server <command> -h" for flags.`)
 }

@@ -85,6 +85,8 @@ func main() {
 		os.Exit(mcpudsbridge.Run(os.Args[2:]))
 	case "self-update":
 		runSelfUpdate(os.Args[2:])
+	case "doctor":
+		runHostDoctor(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	case "-v", "--version", "version":
@@ -126,7 +128,10 @@ Commands:
   self-update    Fetch a release from GitHub, verify SHA256, replace this
                  binary, and exit 75 so the supervisor respawns it
                  (ADR-028). Flags: --version / --channel / --upstream-repo
-                 / --install-path / --dry-run.`)
+                 / --install-path / --dry-run.
+  doctor         Host-side preflight: HOME, hub reachable, token valid,
+                 engines on PATH, scratch dir writable. Exits 1 on any
+                 red. Flags: --hub / --token / --team / --json.`)
 }
 
 // runSelfUpdate fetches a release of host-runner from GitHub, verifies

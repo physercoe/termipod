@@ -26,7 +26,7 @@ the locked decisions are in
 | 1 | ✅ shipped v1.0.611 | `shutdown-all` + tunnel `kind` field + `host.shutdown` verb + `stopSessionInternal` helper (shared with mobile-Stop) | 0 (stays down) | ~360 | — |
 | 2 | ✅ shipped v1.0.634 | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
 | 3 | ✅ shipped v1.0.634 | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
-| 4 | ⬜ next | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~600 across ~9 wedges | independent |
+| 4 | 🟦 in progress | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~600 across ~9 wedges | independent |
 | 5 | ⬜ | Mobile Admin pane (Flutter) | — | ~700 | Phases 1-4 endpoints |
 
 Phases 1-4 are CLI-only and can ship in any order after 1. Phase
@@ -351,13 +351,21 @@ implied).
 Each wedge is independent; ship in any order based on operator
 demand.
 
-**W13. `hub-server doctor` (~80 LOC).**
+> **Status (2026-05-19):** in progress. The three standalone diagnostic
+> wedges — **W13** (`hub-server doctor`), **W14** local half
+> (`hub-server version`), **W21** (`host-runner doctor`) — are
+> code-complete on `main` and ship in the next release tag. They needed
+> no new tunnel verb, admin endpoint, or migration. Outstanding: W14's
+> `--remote` fan-out and W15 (`hosts ls`/`ping`) — both ride a new
+> read-side `host.ping` verb — plus W16-W20.
+
+**✅ W13. `hub-server doctor` (~80 LOC).**
 - Preflight: DB writable, listen port free, certs valid,
   host-runners reachable, disk space > 1GB free, journald
   forwarding configured.
 - Output: green/red per check + remediation hint.
 
-**W14. `hub-server version [--remote]` (~30 LOC).**
+**W14. `hub-server version [--remote]` (~30 LOC).** *(local half ✅)*
 - Embed git SHA + build date via `-ldflags`.
 - `--remote` fans out to each host and reports the version
   string they're running. Use a new lightweight verb
@@ -395,7 +403,7 @@ demand.
   token in use, then revokes the old.
 - `--force-revoke` skips the ack wait (recovery mode).
 
-**W21. `host-runner doctor` (~60 LOC).**
+**✅ W21. `host-runner doctor` (~60 LOC).**
 - Host-side preflight: hub reachable, install token valid,
   required engines on PATH (`claude` / `codex` / `gemini` /
   `kimi-code`), MCP catalog parses, scratch dir writable.

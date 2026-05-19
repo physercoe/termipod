@@ -18,6 +18,8 @@
 //	restart-all         Bounce every host-runner (exit 75, same binary).
 //	self-update         Fetch a release from GitHub, verify SHA256, replace
 //	                    this binary, and exit 75 so systemd respawns it.
+//	doctor              Preflight checks (data root, DB, disk, listen addr).
+//	version             Print the release tag + git revision + build time.
 //
 // Exit-code contract (ADR-028 D-2):
 //   - exit 0  — clean shutdown; systemd's Restart=on-failure leaves the
@@ -75,6 +77,10 @@ func main() {
 		runRestartAll(os.Args[2:], log)
 	case "self-update":
 		runSelfUpdate(os.Args[2:], log)
+	case "doctor":
+		runDoctor(os.Args[2:], log)
+	case "version", "-v", "--version":
+		runVersion(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -100,6 +106,8 @@ Commands:
   update-all        Fleet update: fan host.update across hosts, then self-update the hub.
   restart-all       Fleet restart: bounce every host-runner (exit 75, same binary).
   self-update       Fetch a release from GitHub, verify SHA256, replace this binary, exit 75.
+  doctor            Preflight: data root writable, DB reachable, disk space, listen address.
+  version           Print the release tag + embedded git revision and build time.
 
 Run "hub-server <command> -h" for flags.`)
 }

@@ -327,6 +327,7 @@ ADR-032 once the on-device verification gate passes.
 - [ADR-029](029-tasks-as-first-class-primitive.md) — Task, the loop-entity this runtime tracks.
 - [ADR-022](022-observability-surfaces.md) — insights consume the trace and loop-latency metrics.
 - [ADR-016](016-subagent-scope-manifest.md) — escalation respects the steward accountability chain.
+- [`../reference/loop-closure-knobs.md`](../reference/loop-closure-knobs.md) — the current configurability status of every loop-closure knob.
 
 ## 7. Amendments
 

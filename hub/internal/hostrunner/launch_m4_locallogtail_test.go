@@ -85,7 +85,7 @@ func TestLaunchM4LocalLogTail_HappyPath_MaterializesConfigAndStartsGateway(t *te
 		Launcher:         tl,
 		Client:           poster,
 		HubURL:           "http://127.0.0.1:41825",
-		GatewayHubClient: &Client{Team: "team-1", Token: "host-token", BaseURL: "http://hub"},
+		GatewayHubClient: NewClient("http://hub", "host-token", "team-1"),
 	})
 	if err != nil {
 		t.Fatalf("launchM4LocalLogTail: %v", err)
@@ -217,7 +217,7 @@ func TestLaunchM4LocalLogTail_AutoDerivesWorkdirFromProjectAndHandle(t *testing.
 		Launcher:         tl,
 		Client:           poster,
 		HubURL:           "http://127.0.0.1:41825",
-		GatewayHubClient: &Client{Team: "team-1", Token: "host-token", BaseURL: "http://hub"},
+		GatewayHubClient: NewClient("http://hub", "host-token", "team-1"),
 	})
 	if err != nil {
 		t.Fatalf("launchM4LocalLogTail: %v", err)

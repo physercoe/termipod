@@ -6,6 +6,8 @@
 //	serve               Run the HTTP API.
 //	tokens issue        Issue a new token for an agent or user.
 //	tokens list         List tokens (hash-only; plaintext is never stored).
+//	tokens rotate       Issue a new host token, push it to every live host
+//	                    via host.token_rotate, then revoke the old ones.
 //	reconstruct-db      Rebuild events DB from event_log/ JSONL.
 //	backup              Snapshot DB + team/ + blobs/ into a tar.gz.
 //	restore             Extract a backup archive into a data root.
@@ -111,6 +113,7 @@ Commands:
   serve             Run the HTTP API.
   tokens issue      Issue a token. Plaintext is printed once.
   tokens list       List token kinds and hashes.
+  tokens rotate     Issue a new host token, push it fleet-wide, revoke the old.
   reconstruct-db    Rebuild DB from event_log/ JSONL.
   backup            Snapshot the live DB + team/ + blobs/ into a tar.gz.
   restore           Rehydrate a fresh data root from a backup archive.
@@ -195,7 +198,7 @@ func runServe(args []string, log *slog.Logger) {
 
 func runTokens(args []string, log *slog.Logger) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: hub-server tokens <issue|list> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: hub-server tokens <issue|list|rotate> [flags]")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -203,6 +206,8 @@ func runTokens(args []string, log *slog.Logger) {
 		runTokensIssue(args[1:], log)
 	case "list":
 		runTokensList(args[1:], log)
+	case "rotate":
+		runTokensRotate(args[1:], log)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown tokens subcommand: %s\n", args[0])
 		os.Exit(2)

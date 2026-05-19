@@ -63,6 +63,70 @@ func TestHandleHostVerb_UnknownVerb_ReturnsNil(t *testing.T) {
 	}
 }
 
+// TestHandleHostTokenRotate_PersistsAndSwaps drives the happy path:
+// the verb persists the new bearer to the state dir AND swaps it into
+// the live Client, and a fresh ResolveBearerToken picks it up.
+func TestHandleHostTokenRotate_PersistsAndSwaps(t *testing.T) {
+	dir := t.TempDir()
+	r := &Runner{
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		StateDir: dir,
+		HostName: "host-a",
+		Client:   NewClient("http://hub.example", "old-token", "team-1"),
+	}
+	payload, _ := json.Marshal(map[string]any{"token": "new-token", "reason": "test"})
+	resp := r.handleHostVerb(context.Background(), &a2a.TunnelEnvelope{
+		ReqID: "r-rot", Kind: "host.token_rotate", Payload: payload,
+	})
+	if resp == nil || resp.Status != http.StatusOK {
+		t.Fatalf("resp = %+v, want 200", resp)
+	}
+	if got := r.Client.Bearer(); got != "new-token" {
+		t.Errorf("live bearer = %q, want new-token", got)
+	}
+	tok, rotated := ResolveBearerToken(dir, "http://hub.example", "team-1", "host-a", "old-token")
+	if !rotated || tok != "new-token" {
+		t.Errorf("ResolveBearerToken = (%q, %v), want (new-token, true)", tok, rotated)
+	}
+}
+
+// TestHandleHostTokenRotate_NoStateDirRefuses pins brick-safety: with
+// no state dir the new token cannot survive a restart, so the verb
+// refuses (500) and does NOT swap the live token.
+func TestHandleHostTokenRotate_NoStateDirRefuses(t *testing.T) {
+	r := &Runner{
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		HostName: "host-a",
+		Client:   NewClient("http://hub", "old-token", "team-1"),
+	}
+	payload, _ := json.Marshal(map[string]any{"token": "new-token"})
+	resp := r.handleHostVerb(context.Background(), &a2a.TunnelEnvelope{
+		ReqID: "r", Kind: "host.token_rotate", Payload: payload,
+	})
+	if resp == nil || resp.Status != http.StatusInternalServerError {
+		t.Fatalf("resp = %+v, want 500", resp)
+	}
+	if r.Client.Bearer() != "old-token" {
+		t.Error("token must not swap when it cannot be persisted")
+	}
+}
+
+// TestHandleHostTokenRotate_EmptyTokenRefuses rejects an empty token.
+func TestHandleHostTokenRotate_EmptyTokenRefuses(t *testing.T) {
+	r := &Runner{
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		StateDir: t.TempDir(),
+		HostName: "host-a",
+		Client:   NewClient("http://hub", "old-token", "team-1"),
+	}
+	resp := r.handleHostVerb(context.Background(), &a2a.TunnelEnvelope{
+		ReqID: "r", Kind: "host.token_rotate",
+	})
+	if resp == nil || resp.Status != http.StatusBadRequest {
+		t.Fatalf("resp = %+v, want 400", resp)
+	}
+}
+
 // TestHandleHostShutdown_AcksAndExits drives the full host.shutdown
 // path with stubbed exit so the test doesn't terminate the process.
 // Asserts: response is 200 with acked body, exit fires with code 0,

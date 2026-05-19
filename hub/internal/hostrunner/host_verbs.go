@@ -45,6 +45,8 @@ func (r *Runner) handleHostVerb(ctx context.Context, env *a2a.TunnelEnvelope) *a
 		return r.handleHostUpdate(ctx, env)
 	case "ping":
 		return r.handleHostPing(env)
+	case "token_rotate":
+		return r.handleHostTokenRotate(env)
 	default:
 		// Unknown verb. Returning nil makes the tunnel loop emit the
 		// canonical unknown_verb envelope with host_version stamped.
@@ -132,6 +134,67 @@ func (r *Runner) handleHostPing(env *a2a.TunnelEnvelope) *a2a.TunnelResponseEnve
 		"modified":   buildinfo.Modified,
 		"ts":         time.Now().UTC().Format(time.RFC3339),
 	})
+	return &a2a.TunnelResponseEnvelope{
+		ReqID:   env.ReqID,
+		Status:  http.StatusOK,
+		Headers: map[string]string{"Content-Type": "application/json"},
+		BodyB64: base64.StdEncoding.EncodeToString(body),
+	}
+}
+
+// hostTokenRotatePayload is the verb-args schema for host.token_rotate
+// (ADR-028 plan W20). Token is the new hub bearer the host should
+// adopt.
+type hostTokenRotatePayload struct {
+	Token  string `json:"token"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// handleHostTokenRotate runs the host.token_rotate verb: persist the
+// new bearer to the state dir, then swap it into the live Client so the
+// next hub call uses it — no restart needed.
+//
+// Order is load-bearing for brick-safety (ADR-028 W20):
+//
+//  1. If there is no state dir the token cannot be persisted, so a
+//     restart would re-auth with the old (about-to-be-revoked) token.
+//     Refuse with 500 — the hub gets no success ack and won't revoke.
+//  2. Persist BEFORE swapping. A failed write leaves the host on the
+//     old token, still authenticated; the hub (no ack) won't revoke it.
+//  3. Swap the live bearer, THEN ack. The ack POST itself then travels
+//     on the new token, so by the time the hub revokes the old one the
+//     host has demonstrably adopted the new one.
+func (r *Runner) handleHostTokenRotate(env *a2a.TunnelEnvelope) *a2a.TunnelResponseEnvelope {
+	var p hostTokenRotatePayload
+	if len(env.Payload) > 0 {
+		_ = json.Unmarshal(env.Payload, &p)
+	}
+	fail := func(status int, msg string) *a2a.TunnelResponseEnvelope {
+		r.Log.Error("host.token_rotate refused; staying on the current token", "err", msg)
+		body, _ := json.Marshal(map[string]any{"acked": true, "ok": false, "error": msg})
+		return &a2a.TunnelResponseEnvelope{
+			ReqID:   env.ReqID,
+			Status:  status,
+			Headers: map[string]string{"Content-Type": "application/json"},
+			BodyB64: base64.StdEncoding.EncodeToString(body),
+		}
+	}
+	if p.Token == "" {
+		return fail(http.StatusBadRequest, "empty token")
+	}
+	if r.StateDir == "" {
+		return fail(http.StatusInternalServerError,
+			"no state dir configured — a rotated token could not survive a restart")
+	}
+	r.Log.Info("host.token_rotate received", "reason", p.Reason)
+	if err := saveStateToken(r.StateDir, r.Client.BaseURL, r.Client.Team,
+		r.HostName, p.Token); err != nil {
+		return fail(http.StatusInternalServerError, "persist token: "+err.Error())
+	}
+	r.Client.SetToken(p.Token)
+	r.Log.Info("host.token_rotate: token swapped and persisted")
+
+	body, _ := json.Marshal(map[string]any{"acked": true, "ok": true})
 	return &a2a.TunnelResponseEnvelope{
 		ReqID:   env.ReqID,
 		Status:  http.StatusOK,

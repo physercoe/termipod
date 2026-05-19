@@ -638,7 +638,7 @@ func (g *McpGateway) forwardJSON(method, path string, body any) (any, *gwRespErr
 		return nil, &gwRespError{Code: -32000, Message: err.Error()}
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+g.hubClient.Token)
+	req.Header.Set("Authorization", "Bearer "+g.hubClient.Bearer())
 	req.Header.Set("X-Agent-Id", g.AgentID)
 
 	resp, err := g.httpClient.Do(req)

@@ -223,10 +223,19 @@ func runDaemon(args []string) {
 	tbDir := fs.String("tb-dir", "", "TensorBoard root logdir; each run's tfevents files live under <tb-dir>/<run-path>. Empty disables the TensorBoard metric-digest poller")
 	_ = fs.Parse(args)
 
-	if *token == "" {
-		die("--token required")
-	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	// Prefer a bearer persisted by a prior host.token_rotate verb
+	// (ADR-028 W20) over the --token flag — otherwise a restart would
+	// re-authenticate with the now-revoked token and the host would go
+	// dark. Either source is sufficient; only an empty result is fatal.
+	effectiveToken, rotated := hostrunner.ResolveBearerToken(*stateDir, *hub, *team, *name, *token)
+	if effectiveToken == "" {
+		die("--token required (or a token persisted from a prior rotation)")
+	}
+	if rotated {
+		log.Info("using rotated host token from state dir", "state_dir", *stateDir)
+	}
 
 	// One-shot audit at startup: which backend-CLI auth env vars are
 	// actually visible to host-runner? Spawned claude/codex/gemini
@@ -259,7 +268,7 @@ func runDaemon(args []string) {
 	}
 
 	r := &hostrunner.Runner{
-		Client:          hostrunner.NewClient(*hub, *token, *team),
+		Client:          hostrunner.NewClient(*hub, effectiveToken, *team),
 		HostName:        *name,
 		HostID:          *hostID,
 		Launcher:        lnch,

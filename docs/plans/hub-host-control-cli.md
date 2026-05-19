@@ -26,7 +26,7 @@ the locked decisions are in
 | 1 | ✅ shipped v1.0.611 | `shutdown-all` + tunnel `kind` field + `host.shutdown` verb + `stopSessionInternal` helper (shared with mobile-Stop) | 0 (stays down) | ~360 | — |
 | 2 | ✅ shipped v1.0.634 | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
 | 3 | ✅ shipped v1.0.634 | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
-| 4 | 🟦 in progress | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~600 across ~9 wedges | independent |
+| 4 | ✅ code-complete (untagged) | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~9 wedges | independent |
 | 5 | ⬜ | Mobile Admin pane (Flutter) | — | ~700 | Phases 1-4 endpoints |
 
 Phases 1-4 are CLI-only and can ship in any order after 1. Phase
@@ -351,19 +351,16 @@ implied).
 Each wedge is independent; ship in any order based on operator
 demand.
 
-> **Status (2026-05-19):** in progress. **W13** (`hub-server doctor`),
-> **W14** (`hub-server version`, incl. `--remote`), **W15** (`hub-server
-> hosts ls`/`ping`), and **W21** (`host-runner doctor`) are
-> code-complete on `main` and ship in the next release tag. W14/W15
-> added a read-side `host.ping` tunnel verb and the owner-gated
-> `GET /v1/admin/hosts` + `POST /v1/admin/hosts/{id}/ping` endpoints.
-> **W18** (`db vacuum`) and **W19** (`db migrate`) are also code-complete
-> — offline sqlite maintenance, no hub process needed. **W17**
-> (`agents ls`/`kill`) adds the owner-gated `GET /v1/admin/agents` +
-> `POST /v1/admin/agents/{id}/kill` endpoints, sharing
-> `applyAgentTerminationEffects` with the mobile-Stop path. **W16**
-> (`logs tail`) ships as a local-only journald wrapper (no tunnel
-> fan-out — see the wedge note). Outstanding: W20 (`tokens rotate`).
+> **Status (2026-05-19):** all 9 wedges code-complete on `main`,
+> **awaiting a release tag**. New surface added by the phase: a
+> read-side `host.ping` tunnel verb + a `host.token_rotate` verb; the
+> owner-gated `/v1/admin/hosts`, `/v1/admin/agents`,
+> `/v1/admin/agents/{id}/kill`, `/v1/admin/hosts/{id}/ping`, and
+> `/v1/admin/tokens/rotate` endpoints; and the `hub-server`
+> subcommands `doctor` / `version` / `hosts` / `agents` / `db` /
+> `logs` / `tokens rotate` plus `host-runner doctor`. Host-runner now
+> persists a rotated bearer to its state dir so a rotation survives a
+> restart. See each wedge for divergences from the original sketch.
 
 **✅ W13. `hub-server doctor` (~80 LOC).**
 - Preflight: DB writable, listen port free, certs valid,
@@ -414,11 +411,21 @@ demand.
   `OpenDB`); the `--no-migrate` opt-out was dropped — it would
   need a `server.New` refactor and the value is marginal.
 
-**W20. `hub-server tokens rotate` (~100 LOC).**
-- Issues a new install token, broadcasts via tunnel verb
-  `host.token_rotate`, waits for every host to ack with new
-  token in use, then revokes the old.
-- `--force-revoke` skips the ack wait (recovery mode).
+**✅ W20. `hub-server tokens rotate` (~260 LOC).**
+- `POST /v1/admin/tokens/rotate` (owner-scope): issue a new host
+  token (scope templated off an existing one), broadcast it via the
+  `host.token_rotate` verb, then revoke the prior host tokens —
+  but **only once every live host has acked**, so an un-acked host
+  keeps working. `--force-revoke` overrides for recovery.
+- Brick-safety: host-runner persists the rotated bearer to its
+  state dir (`host-runner.json`) and prefers it over `--token` on
+  startup, so a restart does not re-authenticate with the revoked
+  token. The verb refuses (no ack) if it has no state dir to
+  persist into. The host swaps the live bearer before acking, so
+  the ack itself rides the new token.
+- *Larger than the ~100-LOC sketch:* the persistence path
+  (`Client` token swap under a mutex, state-file token field,
+  startup resolution) is the bulk of the wedge.
 
 **✅ W21. `host-runner doctor` (~60 LOC).**
 - Host-side preflight: hub reachable, install token valid,

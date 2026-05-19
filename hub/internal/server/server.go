@@ -243,6 +243,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 	r.Post("/v1/admin/hosts/{host}/ping", s.handleAdminHostPing)
 	r.Get("/v1/admin/agents", s.handleAdminListAgents)
 	r.Post("/v1/admin/agents/{agent}/kill", s.handleAdminKillAgent)
+	r.Post("/v1/admin/tokens/rotate", s.handleAdminTokensRotate)
 
 	// /v1/insights — scope-parameterized aggregator (ADR-022 D3).
 	// Phase 1 W2 wires the project scope only:

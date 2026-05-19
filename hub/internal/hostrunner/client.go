@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/termipod/hub/internal/buildinfo"
@@ -21,18 +22,38 @@ import (
 
 type Client struct {
 	BaseURL string
-	Token   string
 	Team    string
 	HTTP    *http.Client
+
+	// token is the hub bearer. It can be swapped at runtime by a
+	// host.token_rotate verb (ADR-028 W20), so every read goes through
+	// Bearer() and every write through SetToken(), guarded by tokenMu.
+	tokenMu sync.RWMutex
+	token   string
 }
 
 func NewClient(baseURL, token, team string) *Client {
 	return &Client{
 		BaseURL: baseURL,
-		Token:   token,
 		Team:    team,
 		HTTP:    &http.Client{Timeout: 15 * time.Second},
+		token:   token,
 	}
+}
+
+// Bearer returns the current hub bearer token. Safe for concurrent use.
+func (c *Client) Bearer() string {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.token
+}
+
+// SetToken swaps the hub bearer in place — the host.token_rotate verb
+// handler calls it so a rotation takes effect without a restart.
+func (c *Client) SetToken(tok string) {
+	c.tokenMu.Lock()
+	c.token = tok
+	c.tokenMu.Unlock()
 }
 
 type HostRegisterIn struct {
@@ -300,7 +321,7 @@ func (c *Client) UploadBlob(ctx context.Context, body []byte, mime string) (Blob
 		return BlobUploadOut{}, err
 	}
 	req.Header.Set("Content-Type", mime)
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+c.Bearer())
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return BlobUploadOut{}, err
@@ -412,7 +433,7 @@ func (c *Client) NextTunnelRequest(ctx context.Context, hostID string, waitMs in
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+c.Bearer())
 	// The long-poll wait dominates request time; override the default
 	// 15s timeout with a slightly looser bound.
 	cli := *c.HTTP
@@ -509,7 +530,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+c.Bearer())
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return err

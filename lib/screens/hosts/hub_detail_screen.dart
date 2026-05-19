@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../admin/admin_screen.dart';
 import 'hub_config_screen.dart';
 
 /// Fullscreen breakdown of `/v1/hub/stats`. Sibling of the per-hostrunner
@@ -49,6 +50,17 @@ class HubDetailScreen extends ConsumerWidget {
               MaterialPageRoute(
                 builder: (_) => const HubRolesConfigScreen(),
               ),
+            ),
+          ),
+          // Fleet ops cockpit (owner-only) — ADR-028 Phase 5. Sits
+          // beside Hub config: same owner audience, same 403-self-
+          // surfacing idiom, so the Admin pane is one AppBar action
+          // here rather than a sixth bottom-nav tab.
+          IconButton(
+            tooltip: 'Admin (owner)',
+            icon: const Icon(Icons.admin_panel_settings_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AdminScreen()),
             ),
           ),
           IconButton(

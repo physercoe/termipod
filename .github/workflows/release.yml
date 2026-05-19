@@ -125,12 +125,20 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: hub/go.sum
 
-      - name: Build hub-server + host-runner binaries
-        # Cross-compile the two server-side binaries for the four
+      - name: Build server-side binaries + per-binary tarballs
+        # Cross-compile hub-server and host-runner for the four
         # platforms operators actually deploy to (linux/{amd64,arm64}
         # for VPS / Pi-style hosts; darwin/{amd64,arm64} for dev
         # machines). modernc.org/sqlite is pure Go so CGO=0 keeps
         # cross-compilation honest with no toolchain juggling.
+        #
+        # Per ADR-028 D-4 / plan W5.5 each binary ships in its OWN
+        # tarball — eight per release tag — so `self-update` pulls
+        # only the ~15MB it needs instead of a ~30MB dual-binary
+        # bundle. Each tarball expands to a single bare binary. One
+        # SHA256SUMS covers all eight; `self-update` verifies its
+        # artifact against the matching entry. Same version tag for
+        # both binaries — D-6 lockstep is preserved.
         run: |
           set -euo pipefail
           VERSION="${{ github.ref_name }}"
@@ -140,41 +148,58 @@ jobs:
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os="${target%/*}"
             arch="${target#*/}"
-            stage="../$OUT_DIR/termipod-hub-${VERSION}-${os}-${arch}"
-            mkdir -p "$stage"
             for bin in hub-server host-runner; do
               echo "::group::build $bin for $os/$arch"
+              stage="$(mktemp -d)"
               CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
                 go build -trimpath -ldflags="-s -w" \
                 -o "$stage/$bin" "./cmd/$bin"
+              tar -C "$stage" -czf \
+                "../$OUT_DIR/termipod-${bin}-${VERSION}-${os}-${arch}.tar.gz" \
+                "$bin"
+              rm -rf "$stage"
               echo "::endgroup::"
             done
-            tar -C "$stage/.." -czf \
-              "../$OUT_DIR/termipod-hub-${VERSION}-${os}-${arch}.tar.gz" \
-              "termipod-hub-${VERSION}-${os}-${arch}"
-            rm -rf "$stage"
           done
           cd ..
+          # Single SHA256SUMS over all eight tarballs; entries are
+          # basenames so `self-update` matches by artifact name.
+          ( cd "$OUT_DIR" && sha256sum termipod-*.tar.gz > SHA256SUMS )
           ls -lh "$OUT_DIR"
+          echo "::group::SHA256SUMS"
+          cat "$OUT_DIR/SHA256SUMS"
+          echo "::endgroup::"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-arm64-v8a.apk
-            dist/hub/termipod-hub-${{ github.ref_name }}-linux-amd64.tar.gz
-            dist/hub/termipod-hub-${{ github.ref_name }}-linux-arm64.tar.gz
-            dist/hub/termipod-hub-${{ github.ref_name }}-darwin-amd64.tar.gz
-            dist/hub/termipod-hub-${{ github.ref_name }}-darwin-arm64.tar.gz
+            dist/hub/termipod-hub-server-${{ github.ref_name }}-linux-amd64.tar.gz
+            dist/hub/termipod-hub-server-${{ github.ref_name }}-linux-arm64.tar.gz
+            dist/hub/termipod-hub-server-${{ github.ref_name }}-darwin-amd64.tar.gz
+            dist/hub/termipod-hub-server-${{ github.ref_name }}-darwin-arm64.tar.gz
+            dist/hub/termipod-host-runner-${{ github.ref_name }}-linux-amd64.tar.gz
+            dist/hub/termipod-host-runner-${{ github.ref_name }}-linux-arm64.tar.gz
+            dist/hub/termipod-host-runner-${{ github.ref_name }}-darwin-amd64.tar.gz
+            dist/hub/termipod-host-runner-${{ github.ref_name }}-darwin-arm64.tar.gz
+            dist/hub/SHA256SUMS
           body: |
             **Mobile (Android):**
             - `termipod-${{ github.ref_name }}-arm64-v8a.apk` — every modern Android phone/tablet (Android 8+). 32-bit and x86_64 builds are no longer published.
 
-            **Server-side binaries** (`hub-server` + `host-runner`, statically linked, no CGO):
-            - `linux-amd64` — VPS, x86_64 servers
-            - `linux-arm64` — ARM servers, Raspberry Pi 4/5, Ampere
-            - `darwin-amd64` — Intel Macs
-            - `darwin-arm64` — Apple Silicon Macs
+            **Server-side binaries** (statically linked, no CGO) — one
+            tarball per binary, per ADR-028. Each expands to a single
+            bare binary:
+            - `termipod-hub-server-*` — for the host running the hub daemon
+            - `termipod-host-runner-*` — for every host that executes agents
 
-            Each tarball expands to a directory containing both binaries; drop them on `$PATH` and run `hub-server help`.
+            Platforms: `linux-amd64` (VPS, x86_64) · `linux-arm64`
+            (ARM servers, Raspberry Pi 4/5, Ampere) · `darwin-amd64`
+            (Intel Macs) · `darwin-arm64` (Apple Silicon Macs).
+
+            `SHA256SUMS` covers all eight tarballs; `hub-server
+            self-update` / `host-runner self-update` verify their
+            artifact against it. Drop the binaries on `$PATH` and run
+            `hub-server help`.
           generate_release_notes: true

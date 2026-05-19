@@ -48,10 +48,15 @@ Assets (where `vX.Y.Z` matches the tag you pushed):
 
 - `termipod-vX.Y.Z-alpha-arm64-v8a.apk`     ← every modern Android phone/tablet
 - `termipod-vX.Y.Z-alpha-ios-unsigned.ipa`  ← sideload via AltStore/Sideloadly
-- `termipod-hub-vX.Y.Z-alpha-linux-amd64.tar.gz`   ← VPS, x86_64 servers
-- `termipod-hub-vX.Y.Z-alpha-linux-arm64.tar.gz`   ← ARM servers, Raspberry Pi 4/5
-- `termipod-hub-vX.Y.Z-alpha-darwin-amd64.tar.gz`  ← Intel Mac
-- `termipod-hub-vX.Y.Z-alpha-darwin-arm64.tar.gz`  ← Apple Silicon Mac
+- `termipod-hub-server-vX.Y.Z-alpha-<os>-<arch>.tar.gz`   ← the hub daemon
+- `termipod-host-runner-vX.Y.Z-alpha-<os>-<arch>.tar.gz`  ← the agent host deputy
+- `SHA256SUMS`                                            ← checksums for all eight
+
+Server-side binaries ship one per tarball (`<os>-<arch>` ∈
+`linux-amd64` for VPS / x86_64, `linux-arm64` for ARM servers and
+Raspberry Pi 4/5, `darwin-amd64` for Intel Macs, `darwin-arm64` for
+Apple Silicon). The split lets `self-update` (ADR-028) pull only the
+binary it needs.
 
 > 32-bit `armeabi-v7a` and `x86_64` APKs were dropped 2026-05-07 — every
 > currently-supported Android device is 64-bit ARM, and Play-Store
@@ -73,19 +78,25 @@ Assets (where `vX.Y.Z` matches the tag you pushed):
 TAG=vX.Y.Z-alpha
 ARCH=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-curl -L -o hub.tar.gz \
-  "https://github.com/physercoe/termipod/releases/download/${TAG}/termipod-hub-${TAG}-${OS}-${ARCH}.tar.gz"
-tar -xzf hub.tar.gz
-sudo install "termipod-hub-${TAG}-${OS}-${ARCH}/hub-server"  /usr/local/bin/
-sudo install "termipod-hub-${TAG}-${OS}-${ARCH}/host-runner" /usr/local/bin/
+BASE="https://github.com/physercoe/termipod/releases/download/${TAG}"
+for bin in hub-server host-runner; do
+  curl -L -o "${bin}.tar.gz" \
+    "${BASE}/termipod-${bin}-${TAG}-${OS}-${ARCH}.tar.gz"
+done
+# Optional but recommended — verify against the release SHA256SUMS:
+curl -L -o SHA256SUMS "${BASE}/SHA256SUMS"
+sha256sum -c --ignore-missing SHA256SUMS
+tar -xzf hub-server.tar.gz   && sudo install hub-server  /usr/local/bin/
+tar -xzf host-runner.tar.gz  && sudo install host-runner /usr/local/bin/
 hub-server help
 ```
 
-The tarball contains both `hub-server` and `host-runner`; `host-runner`
-is needed on every host that will execute agents (see
-[`install-host-runner.md`](install-host-runner.md)). Both binaries are
-statically linked (CGO disabled, pure-Go SQLite via
-`modernc.org/sqlite`) — they run on any kernel of the matching arch.
+Each tarball expands to a single bare binary. `host-runner` is needed
+on every host that will execute agents (see
+[`install-host-runner.md`](install-host-runner.md)) — install only
+`hub-server` on a hub-only host. Both binaries are statically linked
+(CGO disabled, pure-Go SQLite via `modernc.org/sqlite`) — they run on
+any kernel of the matching arch.
 
 ### Option B — build from source
 

@@ -149,12 +149,19 @@ contract* ("informational re directive X; no reply routed; act if it
 concerns work you own"), never a bald "no reply expected."
 Self-echo (`from == to`) is dropped here.
 
-- New helper `hub/internal/hostrunner/input_envelope.go`; called from
-  each driver's `case "text":` branch (claude-code sendkeys,
-  `driver_appserver.go`, `driver_exec_resume.go`, `driver_pane.go`).
+- New helper `hub/internal/hostrunner/input_envelope.go`. It is wired in
+  at **`input_router.go`'s `tick()`** — the single chokepoint that
+  dispatches every `input.*` event to every driver — *not* in each
+  driver's `case "text":` branch. The rendered text replaces
+  `payload["body"]`, the field every driver text branch already reads,
+  so the drivers (claude-code sendkeys, `driver_appserver.go`,
+  `driver_exec_resume.go`, `driver_pane.go`) stay envelope-agnostic and
+  untouched. A no-envelope (legacy/malformed) row falls back to its raw
+  `text` so the engine still receives something.
 - **Acceptance:** envelope → rendered turn with the right reply
   instruction per `kind`/`role`; self-echo dropped. **Tests:**
-  `TestEnvelopeRender_*`, `TestInputRouter_SkipsSelfEcho`.
+  `TestRenderInboundEnvelope_*`, `TestDeriveReplyVia`,
+  `TestInputRouter_SkipsSelfEcho`.
 
 #### A4 — The message-admission pipeline
 
@@ -167,7 +174,10 @@ before the `agent_events` row is written (ADR-032 D-7):
    reuse [ADR-016](../decisions/016-subagent-scope-manifest.md)'s
    worker→non-parent A2A block as a deny rule.
 3. context — an agent-declared `report` must reference an entity
-   assigned to that agent / an open `question` to `to`.
+   assigned to that agent / an open `question` to `to`. (Phase A
+   implements the `cause`-resolvability half in stage 1; the
+   assignee-scoped refinement lands with the loop-entity model in
+   B1.)
 
 Fail-safe: a malformed envelope from a hub writer site fails fast (a
 programming error); a bad envelope from an agent is rejected with an

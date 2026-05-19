@@ -165,6 +165,9 @@ func (s *Server) postSyntheticUserInput(ctx context.Context, agentID, body strin
 	env := composeMessage(systemEndpoint(), s.endpointForAgent(ctx, agentID),
 		KindDirective, body, "",
 		MessageThread{Transport: TransportSession, ID: sessionID})
+	if ae := s.admitEnvelope(ctx, env, false); ae != nil {
+		return fmt.Errorf("synthetic input envelope rejected: %s", ae.Error())
+	}
 	payload, _ := json.Marshal(env.PayloadMap())
 	id := NewID()
 	ts := NowUTC()

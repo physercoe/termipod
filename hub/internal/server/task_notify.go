@@ -139,6 +139,13 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 		systemEndpoint(), s.endpointForAgent(ctx, assignerID.String),
 		KindNotification, inputBody, taskID,
 		MessageThread{Transport: TransportSession, ID: sessionID})
+	if ae := s.admitEnvelope(ctx, env, false); ae != nil {
+		// Hub-composed — a failure here is a programming error. The
+		// render-only task.notify card already landed; skip the wake.
+		s.log.Error("task notify: envelope admission failed",
+			"stage", ae.Stage, "reason", ae.Reason, "task_id", taskID)
+		return
+	}
 	inputPayload := env.PayloadMap()
 	inputPayload["task_id"] = taskID
 	inputPayload["task_title"] = title

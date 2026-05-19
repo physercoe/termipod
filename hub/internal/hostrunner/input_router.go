@@ -202,6 +202,24 @@ func (r *InputRouter) tick(ctx context.Context, agentID string, driver Inputter,
 				continue
 			}
 		}
+		// ADR-032: an input.text payload is a flat message envelope.
+		// Render it into an unambiguous engine-facing turn (sender, kind,
+		// reply mechanism) and drop a self-echo before the driver sees
+		// it. The rendered text replaces payload["body"] — the field
+		// every driver's `case "text"` branch already reads — so the
+		// drivers stay envelope-agnostic.
+		if kind == "text" && len(ev.Payload) > 0 {
+			rendered, selfEcho := renderInboundEnvelope(ev.Payload)
+			if selfEcho {
+				r.Log.Debug("input router skipped self-echo",
+					"agent", agentID, "seq", ev.Seq)
+				continue
+			}
+			if payload == nil {
+				payload = map[string]any{}
+			}
+			payload["body"] = rendered
+		}
 		// Dispatch in a goroutine so a long-running Input doesn't wedge
 		// the poll loop. ACP's Input("text") calls session/prompt and
 		// blocks until the engine replies — which can take minutes when

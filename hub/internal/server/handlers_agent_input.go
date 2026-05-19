@@ -501,6 +501,20 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	// hub-side. Attachment sidecars (images, …) ride alongside it.
 	if in.Kind == "text" {
 		env := s.composeTextInputEnvelope(r.Context(), &in, producer, agent, sessionID)
+		// ADR-032 D-7: admit the envelope before the row is written. An
+		// agent-declared (A2A) envelope that fails is recoverable —
+		// 422 + hint; a hub-composed one that fails is a programming
+		// error — 500, logged loudly.
+		if ae := s.admitEnvelope(r.Context(), env, producer == "a2a"); ae != nil {
+			if ae.AgentRecoverable {
+				writeErrHint(w, http.StatusUnprocessableEntity, ae.Error(), ae.Hint)
+				return
+			}
+			s.log.Error("envelope admission failed (hub-composed)",
+				"stage", ae.Stage, "reason", ae.Reason, "agent", agent)
+			writeErr(w, http.StatusInternalServerError, "envelope admission failed")
+			return
+		}
 		for k, v := range env.PayloadMap() {
 			payloadMap[k] = v
 		}

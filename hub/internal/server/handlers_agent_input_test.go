@@ -263,7 +263,11 @@ func TestPostAgentInput_ProducerAttribution(t *testing.T) {
 			"kind": "text", "body": "hi", "producer": "user",
 		}, "user", http.StatusCreated},
 		{"a2a_peer", map[string]any{
+			// ADR-032: the A2A post-back carries the envelope provenance
+			// the relay stamped — here a steward dispatching a directive.
 			"kind": "text", "body": "hi", "producer": "a2a",
+			"from_role": "peer_steward", "from_handle": "research-steward",
+			"a2a_kind": "directive",
 		}, "a2a", http.StatusCreated},
 		{"unknown_rejected", map[string]any{
 			"kind": "text", "body": "hi", "producer": "bot",

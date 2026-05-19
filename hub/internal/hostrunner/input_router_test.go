@@ -91,7 +91,7 @@ func TestInputRouter_DispatchesUserEvents(t *testing.T) {
 	lister := &fakeInputLister{
 		first: []AgentEvent{
 			ev(1, "agent", "text", `{"text":"hello from agent"}`),
-			ev(2, "user", "input.text", `{"body":"run tests"}`),
+			ev(2, "user", "input.text", `{"text":"run tests"}`),
 			ev(3, "user", "input.cancel", `{"reason":"too slow"}`),
 			ev(4, "system", "lifecycle", `{"phase":"started"}`),
 			ev(5, "user", "input.approval", `{"request_id":"t1","decision":"allow"}`),
@@ -148,7 +148,7 @@ func TestInputRouter_DispatchesUserEvents(t *testing.T) {
 func TestInputRouter_DispatchesSystemInputText(t *testing.T) {
 	lister := &fakeInputLister{
 		first: []AgentEvent{
-			ev(1, "system", "input.text", `{"body":"Task 'X' completed. Decide next step.","task_id":"t1"}`),
+			ev(1, "system", "input.text", `{"text":"Task 'X' completed. Decide next step.","task_id":"t1"}`),
 		},
 	}
 	drv := &capturingInputter{}
@@ -188,10 +188,10 @@ func TestInputRouter_DispatchesSystemInputText(t *testing.T) {
 func TestInputRouter_AdvancesSeqOnError(t *testing.T) {
 	lister := &fakeInputLister{
 		first: []AgentEvent{
-			ev(1, "user", "input.text", `{"body":"boom"}`),
+			ev(1, "user", "input.text", `{"text":"boom"}`),
 		},
 		rest: []AgentEvent{
-			ev(2, "user", "input.text", `{"body":"after error"}`),
+			ev(2, "user", "input.text", `{"text":"after error"}`),
 		},
 	}
 	drv := &capturingInputter{err: &fakeErr{}}
@@ -240,7 +240,7 @@ func TestInputRouter_AdvancesSeqOnError(t *testing.T) {
 func TestInputRouter_NonBlockingDispatch(t *testing.T) {
 	lister := &fakeInputLister{
 		first: []AgentEvent{
-			ev(1, "user", "input.text", `{"body":"slow prompt"}`),
+			ev(1, "user", "input.text", `{"text":"slow prompt"}`),
 			ev(2, "user", "input.approval", `{"request_id":"r1","decision":"allow"}`),
 		},
 	}
@@ -328,8 +328,8 @@ func TestInputRouter_Detach(t *testing.T) {
 // redelivered.
 func TestInputRouter_ReattachCarriesSeq(t *testing.T) {
 	lister := &fakeInputLister{
-		first: []AgentEvent{ev(1, "user", "input.text", `{"body":"first"}`)},
-		rest:  []AgentEvent{ev(2, "user", "input.text", `{"body":"second"}`)},
+		first: []AgentEvent{ev(1, "user", "input.text", `{"text":"first"}`)},
+		rest:  []AgentEvent{ev(2, "user", "input.text", `{"text":"second"}`)},
 	}
 	drv1 := &capturingInputter{}
 	r := NewInputRouter(lister, silentLogger())
@@ -383,7 +383,7 @@ func TestInputRouter_BadPayloadSkipped(t *testing.T) {
 	lister := &fakeInputLister{
 		first: []AgentEvent{
 			{Seq: 1, Producer: "user", Kind: "input.text", Payload: json.RawMessage(`not json`)},
-			ev(2, "user", "input.text", `{"body":"still works"}`),
+			ev(2, "user", "input.text", `{"text":"still works"}`),
 		},
 	}
 	drv := &capturingInputter{}

@@ -23,6 +23,7 @@
 //	                    fans the host.ping verb across the fleet.
 //	hosts               ls / ping — read-side fleet inspection.
 //	db                  vacuum / migrate — offline sqlite maintenance.
+//	agents              ls / kill — fleet-wide agent inspection + stop.
 //
 // Exit-code contract (ADR-028 D-2):
 //   - exit 0  — clean shutdown; systemd's Restart=on-failure leaves the
@@ -88,6 +89,8 @@ func main() {
 		runHosts(os.Args[2:], log)
 	case "db":
 		runDB(os.Args[2:], log)
+	case "agents":
+		runAgents(os.Args[2:], log)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -119,6 +122,8 @@ Commands:
   hosts ping        Round-trip the host.ping verb at one host.
   db vacuum         Rebuild the sqlite file to reclaim space; report before/after.
   db migrate        Apply pending schema migrations explicitly; report the version.
+  agents ls         List live agents across the fleet (--all includes terminal ones).
+  agents kill       Terminate one agent by id, or every live agent with --all.
 
 Run "hub-server <command> -h" for flags.`)
 }

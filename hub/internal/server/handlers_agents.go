@@ -314,36 +314,7 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 	// outcomes (no host command, no agent.terminate audit) so the
 	// session-paused + token-revoke logic stays inline.
 	if in.Status != nil && *in.Status == "terminated" {
-		// Resolve the session that points at this agent so the helper
-		// can do its session-keyed work. Some agents have no live
-		// session (rare — typically already-archived) in which case the
-		// inline branch below handles the side-effects.
-		var sessionID string
-		_ = s.db.QueryRowContext(r.Context(),
-			`SELECT id FROM sessions
-			  WHERE team_id = ? AND current_agent_id = ? AND status = 'active'
-			  LIMIT 1`, team, id).Scan(&sessionID)
-		if sessionID != "" {
-			_, _ = s.stopSessionInternal(r.Context(), team, sessionID, StopSessionOpts{
-				Reason: "agent terminated via PATCH",
-			})
-		} else {
-			// No live session — preserve the legacy side-effects so
-			// PATCH-to-terminated on a session-less agent still revokes
-			// tokens and fires the agent.terminate audit + host kill.
-			_, _ = auth.RevokeAgentTokens(r.Context(), s.db, id, NowUTC())
-			var hostID, paneID sql.NullString
-			var handle string
-			qerr := s.db.QueryRowContext(r.Context(),
-				`SELECT host_id, pane_id, handle FROM agents WHERE team_id = ? AND id = ?`,
-				team, id).Scan(&hostID, &paneID, &handle)
-			if qerr == nil && hostID.Valid && hostID.String != "" {
-				_, _ = s.enqueueHostCommand(r.Context(), hostID.String, id,
-					"terminate", map[string]any{"pane_id": paneID.String})
-			}
-			s.recordAudit(r.Context(), team, "agent.terminate", "agent", id,
-				"terminate "+handle, map[string]any{"handle": handle})
-		}
+		s.applyAgentTerminationEffects(r.Context(), team, id, "agent terminated via PATCH")
 	} else if in.Status != nil &&
 		(*in.Status == "crashed" || *in.Status == "failed") {
 		_, _ = s.db.ExecContext(r.Context(), `
@@ -366,6 +337,43 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 		_ = s.deriveTaskStatusFromAgent(r.Context(), team, id, *in.Status)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// applyAgentTerminationEffects runs the side-effects of an agent
+// reaching the 'terminated' status — the caller has already flipped
+// agents.status. When a live session points at the agent it goes
+// through stopSessionInternal so the audit trail matches the fleet
+// shutdown-all path (ADR-028 W2.5). For a session-less agent (rare —
+// typically already-archived) the legacy side-effects run inline:
+// revoke the agent's tokens, enqueue the host terminate command, and
+// write the agent.terminate audit row.
+//
+// Shared by handlePatchAgent (status→terminated) and the admin
+// `agents kill` endpoint (ADR-028 plan W17) so both produce an
+// identical lifecycle + audit trail. reason is threaded into the
+// session-stop audit.
+func (s *Server) applyAgentTerminationEffects(ctx context.Context, team, id, reason string) {
+	var sessionID string
+	_ = s.db.QueryRowContext(ctx,
+		`SELECT id FROM sessions
+		  WHERE team_id = ? AND current_agent_id = ? AND status = 'active'
+		  LIMIT 1`, team, id).Scan(&sessionID)
+	if sessionID != "" {
+		_, _ = s.stopSessionInternal(ctx, team, sessionID, StopSessionOpts{Reason: reason})
+		return
+	}
+	_, _ = auth.RevokeAgentTokens(ctx, s.db, id, NowUTC())
+	var hostID, paneID sql.NullString
+	var handle string
+	qerr := s.db.QueryRowContext(ctx,
+		`SELECT host_id, pane_id, handle FROM agents WHERE team_id = ? AND id = ?`,
+		team, id).Scan(&hostID, &paneID, &handle)
+	if qerr == nil && hostID.Valid && hostID.String != "" {
+		_, _ = s.enqueueHostCommand(ctx, hostID.String, id,
+			"terminate", map[string]any{"pane_id": paneID.String})
+	}
+	s.recordAudit(ctx, team, "agent.terminate", "agent", id,
+		"terminate "+handle, map[string]any{"handle": handle})
 }
 
 // deriveTaskStatusFromAgent implements ADR-029 D-3 auto-derive. Called

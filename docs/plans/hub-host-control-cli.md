@@ -358,8 +358,11 @@ demand.
 > added a read-side `host.ping` tunnel verb and the owner-gated
 > `GET /v1/admin/hosts` + `POST /v1/admin/hosts/{id}/ping` endpoints.
 > **W18** (`db vacuum`) and **W19** (`db migrate`) are also code-complete
-> — offline sqlite maintenance, no hub process needed. Outstanding:
-> W16 (`logs tail`), W17 (`agents kill`), W20 (`tokens rotate`).
+> — offline sqlite maintenance, no hub process needed. **W17**
+> (`agents ls`/`kill`) adds the owner-gated `GET /v1/admin/agents` +
+> `POST /v1/admin/agents/{id}/kill` endpoints, sharing
+> `applyAgentTerminationEffects` with the mobile-Stop path. Outstanding:
+> W16 (`logs tail`), W20 (`tokens rotate`).
 
 **✅ W13. `hub-server doctor` (~80 LOC).**
 - Preflight: DB writable, listen port free, certs valid,
@@ -385,9 +388,14 @@ demand.
   host-runner.
 - Color-prefixed per source.
 
-**W17. `hub-server agents kill --all` / `kill <id>` (~40 LOC).**
-- Thin wrapper over existing `agents.terminate` REST call.
-- `--all` iterates `agents.list live=true`.
+**✅ W17. `hub-server agents kill --all` / `kill <id>` (~40 LOC).**
+- Owner-gated `GET /v1/admin/agents` (live by default, `?all=1` for
+  terminal rows) + `POST /v1/admin/agents/{id}/kill`. The kill path
+  flips the agent to `terminated` and runs the shared
+  `applyAgentTerminationEffects` — extracted from `handlePatchAgent`
+  so a CLI kill and a mobile Stop produce an identical audit trail.
+- `agents kill --all` iterates the live list; idempotent on an
+  already-terminal agent. `agents ls` exposes the list directly.
 
 **✅ W18. `hub-server db vacuum` (~30 LOC).**
 - Runs sqlite `VACUUM` (a whole-database rebuild — sqlite has no

@@ -361,8 +361,9 @@ demand.
 > — offline sqlite maintenance, no hub process needed. **W17**
 > (`agents ls`/`kill`) adds the owner-gated `GET /v1/admin/agents` +
 > `POST /v1/admin/agents/{id}/kill` endpoints, sharing
-> `applyAgentTerminationEffects` with the mobile-Stop path. Outstanding:
-> W16 (`logs tail`), W20 (`tokens rotate`).
+> `applyAgentTerminationEffects` with the mobile-Stop path. **W16**
+> (`logs tail`) ships as a local-only journald wrapper (no tunnel
+> fan-out — see the wedge note). Outstanding: W20 (`tokens rotate`).
 
 **✅ W13. `hub-server doctor` (~80 LOC).**
 - Preflight: DB writable, listen port free, certs valid,
@@ -382,11 +383,14 @@ demand.
 - `ping`: round-trip a `host.ping` verb (returns timestamp);
   confirms tunnel end-to-end.
 
-**W16. `hub-server logs tail [--host <id>]` (~120 LOC).**
-- Multiplexed tail across hub journald + per-host journald
-  pulled over the tunnel. New verb `host.logs.tail` streams from
-  host-runner.
-- Color-prefixed per source.
+**✅ W16. `hub-server logs tail` (~50 LOC).**
+- Tails the **local** hub journald unit (`journalctl -u
+  termipod-hub.service`); `--lines` / `--follow` / `--unit`.
+- *Divergence from the original sketch:* the `--host` fan-out and
+  the `host.logs.tail` streaming verb were dropped. The tunnel is
+  request/response — live streaming would be a protocol extension —
+  and a host's logs are read on the host. Cross-host log streaming
+  over the tunnel is out of scope (noted in §7).
 
 **✅ W17. `hub-server agents kill --all` / `kill <id>` (~40 LOC).**
 - Owner-gated `GET /v1/admin/agents` (live by default, `?all=1` for
@@ -499,6 +503,9 @@ The hub owner can drive Phases 1-4 from the mobile app.
 - **Multi-team admin scope** if hub ever hosts multiple teams.
 - **`hub-server doctor --remote`** that runs doctor on every
   host too (Phase 4.5 polish).
+- **Cross-host log streaming** — `logs tail --host <id>` over a
+  streaming tunnel verb. W16 shipped local-only; this needs the
+  request/response tunnel to gain a streaming/chunked mode.
 
 ## 8. Status forward-links
 

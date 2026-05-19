@@ -1,6 +1,6 @@
 ---
 name: Message routing rollout
-description: Phased rollout of the orchestration contract — ADR-032 (the message envelope {from,to,kind,text,cause,thread} + the message-admission pipeline) and ADR-034 (the loop-closure runtime — terminal-reason taxonomy, per-hop deadlines, the deadline sweep, stall escalation, lifecycle hooks, the directive trace). Nine wedges across hub-server, host-runner, and persona prompts; the whole rollout is MVP — loop closure is not deferred. Re-wedged 2026-05-19 from the original forward-only envelope plan per the orchestration-contract discussion.
+description: Phased rollout of the orchestration contract — ADR-032 (the message envelope {from,to,kind,text,cause,thread} + the message-admission pipeline) and ADR-034 (the loop-closure runtime — terminal-reason taxonomy, per-hop deadlines, the deadline sweep, stall escalation, lifecycle hooks, the directive trace). Ten wedges across hub-server, host-runner, persona prompts, and the mobile app; the whole rollout is MVP — loop closure is not deferred. Re-wedged 2026-05-19 from the original forward-only envelope plan per the orchestration-contract discussion.
 ---
 
 # Message routing rollout
@@ -8,7 +8,7 @@ description: Phased rollout of the orchestration contract — ADR-032 (the messa
 > **Type:** plan
 > **Status:** Proposed (2026-05-18; **re-wedged 2026-05-19**) — widened
 > from the original forward-only envelope (6 wedges) to the full
-> orchestration contract (9 wedges), per the
+> orchestration contract (10 wedges), per the
 > [orchestration-contract discussion](../discussions/orchestration-contract.md).
 > No work started. Implements [ADR-032](../decisions/032-message-routing-envelope.md)
 > (the message envelope) and [ADR-034](../decisions/034-orchestration-loop-closure.md)
@@ -17,7 +17,7 @@ description: Phased rollout of the orchestration contract — ADR-032 (the messa
 > **Last verified vs code:** v1.0.631-alpha
 
 **TL;DR.** Replace the v1.0.626 / v1.0.630 band-aids with the
-orchestration layer's real type system. Three phases, nine wedges,
+orchestration layer's real type system. Three phases, ten wedges,
 **all MVP** — loop closure is not deferred (2026-05-19 decision):
 
 - **Phase A — The envelope ([ADR-032](../decisions/032-message-routing-envelope.md), 4 wedges).**
@@ -28,8 +28,9 @@ orchestration layer's real type system. Three phases, nine wedges,
   The terminal-reason taxonomy + open-set tracking; per-hop deadlines
   and the sweep; stall escalation; lifecycle hooks; the directive
   trace.
-- **Phase C — Agent-facing (1 wedge).** Per-persona prompts teaching
-  the envelope and the loop.
+- **Phase C — Agent-facing + mobile (2 wedges).** Per-persona prompts
+  teaching the envelope and the loop; the mobile app reads the new
+  envelope and terminal-reason fields.
 
 There is **no backward-compat shim** — the envelope is the only
 accepted body shape from the rollout commit (ADR-032 D-8); cut over on
@@ -50,9 +51,11 @@ a drained hub.
 | B | B3 | Lifecycle hooks — `PreAgentIdle`, `PostDirectiveOutcome` | ~150 LOC | B1 |
 | B | B4 | The directive-trace query endpoint | ~110 LOC | A1, B1 |
 | C | C1 | Per-persona prompts — the envelope + the loop | ~200 prose | A1–A3, B1–B2 |
+| C | C2 | Mobile — render `from`/`kind`, handle `terminal_reason` | ~150 LOC | A1, B1 |
 
-Order: **A1 → {A2, A3} → A4 → B1 → {B2, B3, B4} → C1.** Phase A and
-Phase B's B1 are independent and may proceed in parallel.
+Order: **A1 → {A2, A3} → A4 → B1 → {B2, B3, B4} → {C1, C2}.** Phase A
+and Phase B's B1 are independent and may proceed in parallel; C2 needs
+only A1 + B1.
 
 ---
 
@@ -88,6 +91,13 @@ type MessageThread struct {
 - New file `hub/internal/server/input_envelope.go`; helper
   `composeMessage(...)` — the single authoring point (ADR-032 D-6).
 - `reply_via` is **not** a struct field — A3 derives + renders it.
+- **Payload layout.** The envelope is marshaled **as the
+  `agent_events` payload itself** — `{from,to,kind,text,cause,thread}`
+  at the payload top level, *not* nested under
+  `payload['body']` / `payload['envelope']`. This keeps
+  `payload['text']` resolving for every existing consumer (the driver
+  text branch; the mobile feed — C2), so the envelope is additive,
+  not a breaking change.
 - **Acceptance:** round-trips cleanly; every `kind`/`role` combination
   composes. **Tests:** `TestComposeMessage_*`.
 
@@ -228,6 +238,33 @@ it anyway, but the prompt installs the disposition).
 - **Acceptance:** every main prompt has both sections; the bundled
   template var-ref audit passes. **Tests:** existing audit lint.
 
+#### C2 — Mobile: render `from`/`kind`, handle `terminal_reason`
+
+The mobile app is a second consumer of the envelope and of the
+loop-entity tables — two changes keep it at parity with the schema
+change:
+
+1. **Envelope display.** The transcript feed reads `payload['text']`,
+   which still resolves (A1's flat payload layout). It additionally
+   reads `from` — a sender chip — and `kind` — a badge. This replaces
+   what v1.0.630's `[A2A from @sender]` text prefix carried: without
+   it, an A2A message would render with no visible sender.
+2. **Terminal reasons.** Task / attention status rendering gains the
+   new `terminal_reason` values (`timed_out`, `killed`, `superseded`)
+   as styled chips and labels, so a closed loop-entity does not show
+   as a blank or unknown state.
+
+The app reads hub entities as `Map<String, dynamic>` (no typed Dart
+classes — CLAUDE.md), so this is rendering code: `lib/widgets/agent_feed.dart`
+for the feed, and the task / steward status chips
+(`lib/widgets/steward_strip.dart` and siblings).
+
+- **Acceptance:** an A2A message in the transcript shows its sender; a
+  `timed_out` task renders a styled chip, not a blank.
+- **Tests:** widget tests; CI-verified — there is no local Flutter SDK.
+- This is **parity only.** The directive-trace *screen* and the
+  Layer-A surfaces remain out of scope (§2).
+
 ---
 
 ## 2. Out of scope for this plan
@@ -280,6 +317,8 @@ Acceptance:
   principal with the stalled node named; the directive trace shows it.
 - An agent cannot go idle with an open directive.
 - The v1.0.630 prefix decoration is removed from `tunnel_a2a.go`.
+- The mobile transcript shows an A2A message's sender, and renders the
+  new `terminal_reason` values as styled chips.
 
 On-device verification: principal directs a mission; steward dispatches
 a worker; worker reports back and the loop closes; a deliberately

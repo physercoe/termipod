@@ -29,6 +29,11 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
   late final TextEditingController _docsRoot;
   late final TextEditingController _budgetUsd;
   late final int? _originalBudgetCents;
+  // Per-project loop-closure deadline override (ADR-034 amendment).
+  late final TextEditingController _loopInactivity;
+  late final TextEditingController _loopAbsoluteCap;
+  late final int? _originalLoopInactivity;
+  late final int? _originalLoopAbsoluteCap;
   bool _submitting = false;
 
   @override
@@ -49,6 +54,14 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
     _budgetUsd = TextEditingController(
       text: origCents == null ? '' : (origCents / 100).toStringAsFixed(2),
     );
+    _originalLoopInactivity =
+        (widget.project['loop_inactivity_minutes'] as num?)?.toInt();
+    _originalLoopAbsoluteCap =
+        (widget.project['loop_absolute_cap_minutes'] as num?)?.toInt();
+    _loopInactivity = TextEditingController(
+        text: _originalLoopInactivity?.toString() ?? '');
+    _loopAbsoluteCap = TextEditingController(
+        text: _originalLoopAbsoluteCap?.toString() ?? '');
   }
 
   @override
@@ -59,7 +72,22 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
     _onCreate.dispose();
     _docsRoot.dispose();
     _budgetUsd.dispose();
+    _loopInactivity.dispose();
+    _loopAbsoluteCap.dispose();
     super.dispose();
+  }
+
+  /// Parses a loop-deadline minutes field. A blank field clears an
+  /// existing override (returns 0 — the hub reverts the project to its
+  /// default budget); blank with no prior override, or an unchanged
+  /// value, returns null ("no change"). An invalid entry returns null
+  /// and is caught by the parse guard in _submit.
+  int? _loopMinutesChange(TextEditingController c, int? original) {
+    final raw = c.text.trim();
+    if (raw.isEmpty) return original == null ? null : 0;
+    final n = int.tryParse(raw);
+    if (n == null || n == original) return null;
+    return n;
   }
 
   String? _diffOrNull(String current, String original) {
@@ -99,6 +127,10 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
     final docsRootChange = _diffOrNull(
         _docsRoot.text, (widget.project['docs_root'] ?? '').toString());
     final budgetChange = _budgetCentsChange();
+    final loopInactivityChange =
+        _loopMinutesChange(_loopInactivity, _originalLoopInactivity);
+    final loopCapChange =
+        _loopMinutesChange(_loopAbsoluteCap, _originalLoopAbsoluteCap);
 
     // Catch parse-errors early so invalid budget input doesn't silently
     // no-op after the user hit Save.
@@ -109,6 +141,16 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
       );
       return;
     }
+    for (final c in [_loopInactivity, _loopAbsoluteCap]) {
+      final raw = c.text.trim();
+      if (raw.isNotEmpty && int.tryParse(raw) == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Loop deadlines must be whole minutes')),
+        );
+        return;
+      }
+    }
 
     final anyChange = [
       nameChange,
@@ -116,7 +158,10 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
       templateChange,
       onCreateChange,
       docsRootChange,
-    ].any((v) => v != null) || budgetChange != null;
+    ].any((v) => v != null) ||
+        budgetChange != null ||
+        loopInactivityChange != null ||
+        loopCapChange != null;
     if (!anyChange) {
       Navigator.of(context).pop();
       return;
@@ -132,6 +177,8 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
         onCreateTemplateId: onCreateChange,
         docsRoot: docsRootChange,
         budgetCents: budgetChange,
+        loopInactivityMinutes: loopInactivityChange,
+        loopAbsoluteCapMinutes: loopCapChange,
       );
       if (!mounted) return;
       Navigator.of(context).pop(updated);
@@ -224,6 +271,20 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
               hint: 'e.g. 25.00 — leave blank to keep current',
               mono: true,
               keyboard: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            _field(
+              label: 'Loop stall deadline (minutes)',
+              controller: _loopInactivity,
+              hint: 'inactivity before a hop escalates — blank = hub default',
+              mono: true,
+              keyboard: TextInputType.number,
+            ),
+            _field(
+              label: 'Loop hard cap (minutes)',
+              controller: _loopAbsoluteCap,
+              hint: 'absolute cap before a hop times out — blank = hub default',
+              mono: true,
+              keyboard: TextInputType.number,
             ),
             const SizedBox(height: 20),
             FilledButton(

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"time"
 )
@@ -105,18 +106,45 @@ func isLoopParked(e LoopEntity) bool {
 	return e.Source == LoopSourceTask && e.State == "blocked"
 }
 
+// loopBudgets resolves the inactivity + absolute-cap deadline budgets
+// for a project. A project may override the bundled hub defaults via the
+// loop_inactivity_minutes / loop_absolute_cap_minutes columns (ADR-034
+// amendment 2026-05-19); a NULL / missing / non-positive value falls
+// back to the default.
+func (s *Server) loopBudgets(ctx context.Context, projectID string) (inactivity, absoluteCap time.Duration) {
+	inactivity, absoluteCap = loopInactivityBudget, loopAbsoluteCapBudget
+	if projectID == "" {
+		return
+	}
+	var inMin, capMin sql.NullInt64
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT loop_inactivity_minutes, loop_absolute_cap_minutes
+		   FROM projects WHERE id = ?`, projectID).Scan(&inMin, &capMin); err != nil {
+		return
+	}
+	if inMin.Valid && inMin.Int64 > 0 {
+		inactivity = time.Duration(inMin.Int64) * time.Minute
+	}
+	if capMin.Valid && capMin.Int64 > 0 {
+		absoluteCap = time.Duration(capMin.Int64) * time.Minute
+	}
+	return
+}
+
 // stampLoopDeadlines stamps an entity's per-hop deadline columns on first
 // sight — opened/last-progress now, the inactivity and absolute-cap
-// deadlines at now + the default budgets.
+// deadlines at now + the budgets (per-project override, else the hub
+// default).
 func (s *Server) stampLoopDeadlines(ctx context.Context, e LoopEntity) {
 	now := time.Now().UTC()
+	inactivity, absoluteCap := s.loopBudgets(ctx, e.ProjectID)
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE `+loopTable(e.Source)+`
 		   SET opened_at = ?, last_progress_at = ?,
 		       inactivity_deadline = ?, absolute_cap = ?
 		 WHERE id = ?`,
 		loopTS(now), loopTS(now),
-		loopTS(now.Add(loopInactivityBudget)), loopTS(now.Add(loopAbsoluteCapBudget)),
+		loopTS(now.Add(inactivity)), loopTS(now.Add(absoluteCap)),
 		e.ID)
 	if err != nil {
 		s.log.Warn("loop sweep: stamp deadlines failed", "id", e.ID, "err", err)
@@ -125,20 +153,41 @@ func (s *Server) stampLoopDeadlines(ctx context.Context, e LoopEntity) {
 
 // bumpLoopProgress slides an open task's inactivity deadline forward — it
 // is alive even if slow as long as it is producing events. Called when
-// an agent event lands for the entity's assignee. Best-effort.
+// an agent event lands for the entity's assignee. The slide uses each
+// task's project budget (per-project override, else the hub default),
+// so it is resolved per task rather than in one bulk UPDATE.
+// Best-effort.
 func (s *Server) bumpLoopProgress(ctx context.Context, agentID string) {
 	if agentID == "" {
 		return
 	}
-	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE tasks
-		   SET last_progress_at = ?, inactivity_deadline = ?, escalation_state = 'none'
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, project_id FROM tasks
 		 WHERE assignee_id = ? AND status NOT IN ('done', 'cancelled')
-		   AND opened_at IS NOT NULL`,
-		loopTS(now), loopTS(now.Add(loopInactivityBudget)), agentID)
+		   AND opened_at IS NOT NULL`, agentID)
 	if err != nil {
-		s.log.Warn("loop sweep: bump progress failed", "agent", agentID, "err", err)
+		s.log.Warn("loop sweep: bump progress list failed", "agent", agentID, "err", err)
+		return
+	}
+	type taskRef struct{ id, projectID string }
+	var refs []taskRef
+	for rows.Next() {
+		var r taskRef
+		if rows.Scan(&r.id, &r.projectID) == nil {
+			refs = append(refs, r)
+		}
+	}
+	rows.Close()
+	now := time.Now().UTC()
+	for _, r := range refs {
+		inactivity, _ := s.loopBudgets(ctx, r.projectID)
+		if _, err := s.db.ExecContext(ctx, `
+			UPDATE tasks
+			   SET last_progress_at = ?, inactivity_deadline = ?, escalation_state = 'none'
+			 WHERE id = ?`,
+			loopTS(now), loopTS(now.Add(inactivity)), r.id); err != nil {
+			s.log.Warn("loop sweep: bump progress failed", "task", r.id, "err", err)
+		}
 	}
 }
 
@@ -157,11 +206,12 @@ func (s *Server) escalateStall(ctx context.Context, e LoopEntity) {
 	default:
 		return // already escalated to the principal — nothing further.
 	}
+	inactivity, _ := s.loopBudgets(ctx, e.ProjectID)
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE `+loopTable(e.Source)+`
 		   SET escalation_state = ?, inactivity_deadline = ?
 		 WHERE id = ?`,
-		next, loopTS(time.Now().UTC().Add(loopInactivityBudget)), e.ID)
+		next, loopTS(time.Now().UTC().Add(inactivity)), e.ID)
 	if err != nil {
 		s.log.Warn("loop sweep: escalate failed", "id", e.ID, "err", err)
 		return

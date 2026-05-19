@@ -1122,6 +1122,12 @@ class HubClient {
     /// unknown slugs are accepted by the hub but fall back to the
     /// template-side resolution.
     Map<String, String>? overviewWidgetOverrides,
+
+    /// Per-project loop-closure deadline override (ADR-034 amendment).
+    /// Minutes. Pass 0 to clear the override (the project reverts to the
+    /// hub default budget); null leaves the value unchanged.
+    int? loopInactivityMinutes,
+    int? loopAbsoluteCapMinutes,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
@@ -1130,6 +1136,12 @@ class HubClient {
     if (templateId != null) body['template_id'] = templateId;
     if (parameters != null) body['parameters_json'] = parameters;
     if (budgetCents != null) body['budget_cents'] = budgetCents;
+    if (loopInactivityMinutes != null) {
+      body['loop_inactivity_minutes'] = loopInactivityMinutes;
+    }
+    if (loopAbsoluteCapMinutes != null) {
+      body['loop_absolute_cap_minutes'] = loopAbsoluteCapMinutes;
+    }
     if (stewardAgentId != null) body['steward_agent_id'] = stewardAgentId;
     if (onCreateTemplateId != null) {
       body['on_create_template_id'] = onCreateTemplateId;

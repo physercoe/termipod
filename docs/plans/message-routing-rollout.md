@@ -336,8 +336,13 @@ also carry `terminal_reason`.
   contract; post-MVP.
 - **Per-engine adapter rendering** — engine-specific envelope text
   templates if engines diverge; one rendering for MVP.
-- **Deadline-default calibration** — B2 ships configurable defaults;
-  tuning the values is post-MVP on-device work.
+- **Deadline-default calibration** — B2 ships the bundled default
+  budgets. **Amended 2026-05-19:** per-project overrides shipped —
+  migration `0043` adds `projects.loop_inactivity_minutes` /
+  `loop_absolute_cap_minutes`, resolved by `loopBudgets` and settable
+  from the mobile project-edit sheet (see
+  [ADR-034](../decisions/034-orchestration-loop-closure.md) §7). Tuning
+  the *default* values themselves stays post-MVP on-device work.
 
 ---
 

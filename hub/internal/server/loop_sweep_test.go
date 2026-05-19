@@ -32,6 +32,43 @@ func taskEscalation(t *testing.T, s *Server, id string) string {
 	return st
 }
 
+func TestLoopBudgets_PerProjectOverride(t *testing.T) {
+	s, _ := newTestServer(t)
+	proj := seedProjectInTeam(t, s, "proj-budgets")
+	ctx := context.Background()
+
+	// No override → the bundled hub defaults.
+	inact, absCap := s.loopBudgets(ctx, proj)
+	if inact != loopInactivityBudget || absCap != loopAbsoluteCapBudget {
+		t.Errorf("no override: got (%v, %v), want defaults (%v, %v)",
+			inact, absCap, loopInactivityBudget, loopAbsoluteCapBudget)
+	}
+
+	// A per-project override is honoured.
+	if _, err := s.db.Exec(`
+		UPDATE projects SET loop_inactivity_minutes = 5,
+		                    loop_absolute_cap_minutes = 90 WHERE id = ?`,
+		proj); err != nil {
+		t.Fatalf("set override: %v", err)
+	}
+	inact, absCap = s.loopBudgets(ctx, proj)
+	if inact != 5*time.Minute {
+		t.Errorf("inactivity override: got %v, want 5m", inact)
+	}
+	if absCap != 90*time.Minute {
+		t.Errorf("absolute-cap override: got %v, want 90m", absCap)
+	}
+
+	// A non-positive value falls back to the default.
+	if _, err := s.db.Exec(
+		`UPDATE projects SET loop_inactivity_minutes = 0 WHERE id = ?`, proj); err != nil {
+		t.Fatalf("clear override: %v", err)
+	}
+	if inact, _ = s.loopBudgets(ctx, proj); inact != loopInactivityBudget {
+		t.Errorf("a zero override should fall back to the default; got %v", inact)
+	}
+}
+
 func TestLoopSweep_Stall(t *testing.T) {
 	s, _ := newTestServer(t)
 	proj := seedProjectInTeam(t, s, "proj-stall")

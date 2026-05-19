@@ -327,3 +327,46 @@ ADR-032 once the on-device verification gate passes.
 - [ADR-029](029-tasks-as-first-class-primitive.md) — Task, the loop-entity this runtime tracks.
 - [ADR-022](022-observability-surfaces.md) — insights consume the trace and loop-latency metrics.
 - [ADR-016](016-subagent-scope-manifest.md) — escalation respects the steward accountability chain.
+
+## 7. Amendments
+
+### 2026-05-19 — per-project deadline override
+
+D-2 said the per-hop deadline budgets "come from the agent family /
+template; a directive may override," and the rollout shipped them as
+hardcoded Go constants (`loop_sweep.go` — `loopInactivityBudget`,
+`loopAbsoluteCapBudget`) with deadline-default calibration deferred.
+This amendment realises the override as a **per-project setting**:
+
+- Migration `0043` adds two nullable columns to `projects` —
+  `loop_inactivity_minutes` and `loop_absolute_cap_minutes`. `NULL` =
+  use the hub default; a positive integer overrides it for every
+  loop-entity in the project.
+- `loopBudgets(ctx, projectID)` resolves them; the sweep uses it
+  everywhere it sets a deadline — lazy-stamp, the escalation push, and
+  the per-task progress bump.
+- It is **settable from the mobile project-edit sheet** (two
+  minutes fields) and over the `projects.update` REST/MCP path.
+
+**Why per-project columns, not `policy_overrides_json`.** The deadline
+budgets are a typed, first-class, mobile-settable orchestration
+setting; `policy_overrides_json` is the free-form bag the policy
+engine reads. Dedicated columns keep the value typed end to end (int
+minutes, no JSON merge on the mobile side) and keep loop-closure
+config separate from policy-engine config.
+
+**Still not configurable** (and intentionally so for MVP) — the
+remaining loop-closure enforcement knobs:
+
+- the **sweep interval** (`loopSweepInterval`, 45 s) — a daemon-level
+  operational constant, not a per-project concern;
+- the **escalation-target policy** (always one level up the chain) —
+  §3 already records this as post-MVP config;
+- the **lifecycle-hook config** (`loop_hooks_defaults.yaml`) — bundled
+  via `//go:embed`, so changing it needs a rebuild; it has no disk
+  overlay (unlike agent-family YAML) and no runtime/mobile surface;
+- the **question-kind set** (`questionAttentionKinds`) — a structural
+  Go constant, not a tunable.
+
+A disk overlay for the hook YAML, and surfacing the escalation-target
+policy, are the natural next configurability steps.

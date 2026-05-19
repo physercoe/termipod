@@ -51,6 +51,11 @@ type projectOut struct {
 	StewardAgentID      string          `json:"steward_agent_id,omitempty"`
 	OnCreateTemplateID  string          `json:"on_create_template_id,omitempty"`
 
+	// Per-project loop-closure deadline override (ADR-034 amendment).
+	// nil = the project uses the hub default budget.
+	LoopInactivityMinutes  *int64 `json:"loop_inactivity_minutes,omitempty"`
+	LoopAbsoluteCapMinutes *int64 `json:"loop_absolute_cap_minutes,omitempty"`
+
 	// OverviewWidget is the resolved pluggable hero kind for Project
 	// Detail → Overview (A+B chassis, IA §6.2). Always populated on
 	// the wire: unknown / missing template → overviewWidgetDefault.
@@ -362,7 +367,7 @@ func scanProjectRow(sc interface {
 	var policyJSON, stewardID, onCreateTplID, kind sql.NullString
 	var phase, phaseHistory, phaseTileOverrides sql.NullString
 	var overviewWidgetOverrides sql.NullString
-	var budget sql.NullInt64
+	var budget, loopInactivity, loopCap sql.NullInt64
 	var isTpl int64
 	if err := sc.Scan(
 		&p.ID, &p.TeamID, &p.Name, &p.Status,
@@ -370,9 +375,17 @@ func scanProjectRow(sc interface {
 		&goal, &kind, &parentID, &tplID, &paramsJSON,
 		&isTpl, &budget, &policyJSON, &stewardID, &onCreateTplID,
 		&phase, &phaseHistory, &phaseTileOverrides,
-		&overviewWidgetOverrides,
+		&overviewWidgetOverrides, &loopInactivity, &loopCap,
 	); err != nil {
 		return err
+	}
+	if loopInactivity.Valid {
+		v := loopInactivity.Int64
+		p.LoopInactivityMinutes = &v
+	}
+	if loopCap.Valid {
+		v := loopCap.Int64
+		p.LoopAbsoluteCapMinutes = &v
 	}
 	if archived.Valid {
 		p.ArchivedAt = &archived.String
@@ -424,7 +437,8 @@ const projectSelectCols = `
 	is_template, budget_cents, policy_overrides_json,
 	steward_agent_id, on_create_template_id,
 	phase, phase_history, phase_tile_overrides_json,
-	overview_widget_overrides_json`
+	overview_widget_overrides_json,
+	loop_inactivity_minutes, loop_absolute_cap_minutes`
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
@@ -523,6 +537,12 @@ type projectPatch struct {
 	PolicyOverridesJSON *json.RawMessage `json:"policy_overrides_json,omitempty"`
 	StewardAgentID      *string          `json:"steward_agent_id,omitempty"`
 	OnCreateTemplateID  *string          `json:"on_create_template_id,omitempty"`
+
+	// Per-project loop-closure deadline override (ADR-034 amendment).
+	// A value <= 0 clears the override — the project reverts to the hub
+	// default budget.
+	LoopInactivityMinutes  *int64 `json:"loop_inactivity_minutes,omitempty"`
+	LoopAbsoluteCapMinutes *int64 `json:"loop_absolute_cap_minutes,omitempty"`
 	// PhaseTileOverrides: per-phase shortcut tile composition.
 	//
 	// Plain (non-pointer) `json.RawMessage` so we can distinguish
@@ -547,6 +567,16 @@ type projectPatch struct {
 	// unknown slugs fall through to the template-side default rather
 	// than 400'ing here.
 	OverviewWidgetOverrides json.RawMessage `json:"overview_widget_overrides,omitempty"`
+}
+
+// positiveOrNull maps a deadline-override minutes value to its SQL form:
+// a positive integer is the override, anything <= 0 clears it (NULL —
+// the project reverts to the hub default budget).
+func positiveOrNull(n int64) any {
+	if n <= 0 {
+		return nil
+	}
+	return n
 }
 
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
@@ -587,6 +617,14 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	if in.OnCreateTemplateID != nil {
 		sets = append(sets, "on_create_template_id = ?")
 		args = append(args, nullStringIfEmpty(*in.OnCreateTemplateID))
+	}
+	if in.LoopInactivityMinutes != nil {
+		sets = append(sets, "loop_inactivity_minutes = ?")
+		args = append(args, positiveOrNull(*in.LoopInactivityMinutes))
+	}
+	if in.LoopAbsoluteCapMinutes != nil {
+		sets = append(sets, "loop_absolute_cap_minutes = ?")
+		args = append(args, positiveOrNull(*in.LoopAbsoluteCapMinutes))
 	}
 	if len(in.PhaseTileOverrides) > 0 {
 		sets = append(sets, "phase_tile_overrides_json = ?")

@@ -1,6 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+// `KeepAliveLink` was moved out of the top-level export in
+// flutter_riverpod 3.x — it now lives behind the `misc.dart` opt-in
+// surface alongside the other "low-level / advanced" types. Import it
+// explicitly so [SshNotifier] can hold the link returned by
+// `ref.keepAlive()` (3.1.0+).
+import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 
 import '../services/background/foreground_task_service.dart';
 import '../services/network/network_monitor.dart';

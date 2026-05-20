@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-20)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.638
+> **Last verified vs code:** v1.0.639
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -23,7 +23,30 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.639-alpha — 2026-05-20
+
+Build fix only — v1.0.638-alpha failed CI on a Riverpod 3.x import
+that compiled locally but not in the analyzer's strict export check.
+
+### Fixed
+
+- **`KeepAliveLink` import.** In flutter_riverpod 3.x the class was
+  moved out of the top-level `flutter_riverpod.dart` export and into
+  the `misc.dart` opt-in surface (alongside other low-level types
+  like `ProviderBase` and `ProviderListenable`). `ssh_provider.dart`
+  now explicitly imports `package:flutter_riverpod/misc.dart` for the
+  one symbol it needs. No behavioural change vs v1.0.638 — same
+  keep-alive lifecycle, same Hosts-row indicator, same last-view
+  restore. See the v1.0.638 entry below for the full feature
+  description.
+
+---
+
 ## v1.0.638-alpha — 2026-05-20
+
+> **Note:** This tag failed CI (`KeepAliveLink` import gap). Use
+> v1.0.639-alpha, which carries the same feature work plus the
+> import fix. The entry below is kept for historical accuracy.
 
 Personal-SSH UX: keep the connection alive while the user navigates
 away from the terminal, surface it on the Hosts row, and land directly

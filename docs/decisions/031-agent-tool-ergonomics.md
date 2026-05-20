@@ -6,9 +6,9 @@ description: Lock in the four design picks from the agent-tool-ergonomics discus
 # 031. Agent tool ergonomics — two-tier descriptions, `tools.get`, structured hints, no polymorphism
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-18) — D-1 through D-4 locked in the 2026-05-18 design conversation following the [agent-tool-ergonomics discussion](../discussions/agent-tool-ergonomics.md); D-1 enriched the same day with Claude Code chapter-3 prior art (self-documenting schema + fail-closed operational metadata + deterministic ordering). **Flipped to Accepted v1.0.631-alpha** — the MVP (rollout plan phases 1 + 2: W1, W2.a, W2.b, W3, W4) shipped. Post-MVP polish (W5, W6.b, W2.b.2) tracked in the rollout plan. Companion rollout plan at [`../plans/agent-tool-ergonomics-rollout.md`](../plans/agent-tool-ergonomics-rollout.md).
+> **Status:** Accepted (2026-05-18) — D-1 through D-4 locked in the 2026-05-18 design conversation following the [agent-tool-ergonomics discussion](../discussions/agent-tool-ergonomics.md); D-1 enriched the same day with Claude Code chapter-3 prior art (self-documenting schema + fail-closed operational metadata + deterministic ordering). **Flipped to Accepted v1.0.631-alpha** — the MVP (rollout plan phases 1 + 2: W1, W2.a, W2.b, W3, W4) shipped. Post-MVP polish (W5, W6.b, W2.b.2) tracked in the rollout plan. **2026-05-20 amendment — D-1's `input_schema` upgraded from declarative to enforced**: the MCP dispatcher now validates every `tools/call` against the catalog schema before invoking the handler; see §7 Amendments. Companion rollout plan at [`../plans/agent-tool-ergonomics-rollout.md`](../plans/agent-tool-ergonomics-rollout.md).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.631-alpha
+> **Last verified vs code:** v1.0.637-alpha
 
 **TL;DR.** Close the discovery + documentation-depth + error-recovery gap revealed by the 2026-05-18 steward incident (6 turns guessing the right tool to read a doc by ULID) by locking in four design picks: (D-1) every MCP tool ships a **two-tier description** with a structured payload (short + long + schema + examples + failure_modes + see_also), (D-2) the meta-lookup tool is named **`tools.get`** for consistency with `agents.get` / `documents.get` / etc, (D-3) error responses include a **structured `hint` envelope** `{hint_text, see_tool?, see_doc?}` on every 4xx path, and (D-4) **no new input polymorphism** — each tool keeps one canonical input shape; the two existing legacy aliases (`request_decision` → `request_select`, `templates_propose` → `templates.propose`) are grandfathered with a deprecation hint, and no new aliases are added. MVP enables a steward to read a doc by ULID via `documents.get` in one tool call without guessing across `get_project_doc` / `documents_get` / `search` / `journal_read` / etc.
 
@@ -160,3 +160,107 @@ does not gate acceptance.
 - [`../plans/agent-tool-ergonomics-rollout.md`](../plans/agent-tool-ergonomics-rollout.md) — execution.
 - [`../reference/hub-mcp.md`](../reference/hub-mcp.md) — current MCP surface; this ADR's two-tier split applies to every entry there.
 - [`../discussions/validate-at-every-boundary.md`](../discussions/validate-at-every-boundary.md) §3 Layer 4 — the description ↔ schema audit lint lands as the plan's W5.
+
+## 7. Amendments
+
+### 2026-05-20 — Schema enforcement at the dispatcher + per-tool schema gaps
+
+**Background.** On-device debugging of v1.0.636 surfaced a missing
+`host_id` slipping through `agents.spawn` because the schema's
+`required[]` was decorative, not enforced. An audit found this was
+the systemic state: the authority dispatcher (`handleToolsCall`)
+and the native dispatcher (`dispatchTool`) both decoded
+`{name, arguments}` and forwarded straight to the handler — no
+JSON-Schema check on `required` / `type` / `enum` / numeric
+bounds. Each tool's `call` closure varied: some checked some
+fields (`agents.spawn`, `documents.get`), others (`plans.create`,
+`runs.attach_artifact`, `documents.create`) silently forwarded
+incomplete payloads to the REST layer. The `host_id` miss is the
+same defect class.
+
+This sits squarely inside ADR-031's scope: D-1 named the schema
+as part of the catalog contract; D-3 named structured hints on
+4xx as the recovery channel; both presupposed the schema was
+*enforced*. v1.0.637 made it so.
+
+**Decision A — schema enforcement is a dispatcher invariant.**
+Both `handleToolsCall` (`hub/internal/hubmcpserver/run.go`) and
+`dispatchTool` (`hub/internal/server/mcp.go`) now invoke a
+shared validator on `InputSchema` × `arguments` before forwarding
+to the handler. The validator (~225 LOC, pure-Go, no new deps;
+`hub/internal/hubmcpserver/schema_validate.go`) covers the subset
+the catalog uses today: `type`, `required`, `properties`
+(recursive into nested objects), `enum`, `minimum`, `items`,
+`minItems`. Violations come back as `isError: true` content —
+matching how handler-side errors surface — so an LLM agent
+consuming the result reads "host_id is required" inline and
+self-corrects on the next turn. Pre-existing per-handler manual
+checks stay in place as defence in depth; new tools don't need
+to re-litigate the boundary contract.
+
+This makes D-1's `input_schema` field a real authority surface,
+not documentation alongside the handler's hand-written checks.
+It is independent re-derivation of the same Claude Code
+self-documenting-schema pattern (D-1 §3): the schema *is* the
+contract.
+
+**Decision B — the structured-hint envelope (D-3) co-exists with
+the isError-content path.** A 4xx with a `Hint{hint_text,
+see_tool, see_doc}` envelope (D-3) is the right shape when a
+handler can write a domain-specific recovery hint
+(`get_project_doc` ULID-shaped path → `see_tool: "documents.get"`);
+the dispatcher-side validator can't author hints at that level —
+it only knows "field X is required by the schema" — so it emits
+isError-content with the schema-violation sentence verbatim. The
+two paths are complementary, not alternative: validator gates at
+the catalog level, handler emits Hint at the semantic level.
+
+**Decision C — per-tool schema gap audit cataloged; fixes are
+post-MVP wedges.** With enforcement on, the schemas themselves
+need to actually describe what handlers want. The audit found
+eight schemas that today either declare `required[]` the wrapper
+silently ignores, or omit conditional constraints the prose
+description nevertheless promises:
+
+| Tool | Gap |
+|---|---|
+| `plans.create` | schema requires `project, title`; wrapper doesn't fail-fast (now caught by validator). |
+| `plans.steps.create` | wrapper validates only `plan`; phase_idx/step_idx/kind silently dropped (now caught). `spec_json` conditional (required when kind ≠ `human_decision`) prose-only — needs `if/then` or `oneOf`. |
+| `documents.create` | `content_inline` xor `artifact_id` is prose-only — needs `oneOf`. |
+| `schedules.create` | `cron_expr` required when `trigger_kind="cron"` is prose-only — needs `if/then`. |
+| `plans.steps.update.status` / `reports_post.status` / `request_approval.tier` / `request_help.severity` / `agents_fanout.workers[].permission_mode` | declared `{"type":"string"}` with no `enum`; real values matter. |
+| `list_channels` | schema requires `project_id`; handler treats absent as "list all". **Behavioural decision pending** — the new validator now rejects the lenient case. |
+| `attach` | description promises a `path` option that the schema doesn't expose and the handler doesn't accept. |
+| `get_attention` | short ("Fetch an attention item by id") and long ("List open attention items") disagree about what the tool does. |
+| `reviews.create` | declares no `required` fields; at minimum `project` should be required. |
+
+Validator extensions needed to fully express the conditional ones:
+`oneOf` and `if/then/else` (currently out of scope but additive —
+the validator design notes both). These become **plan wedges W7
+(shipped v1.0.637) and W8 (post-MVP polish)**; see the rollout
+plan's §0 summary.
+
+**Decision D — `list_channels` is the load-bearing open
+question.** v1.0.637 ships the validator with `list_channels`'
+schema still declaring `project_id` required — which the
+validator now rejects on missing. If the mobile app calls
+`list_channels` with no `project_id` expecting the handler's
+silent list-all behaviour, that call now fails. Two paths:
+- (Recommended) **Drop `project_id` from `list_channels` required[]**:
+  the handler's "list all visible channels when omitted" is the
+  more useful affordance and matches what `list_channels` is
+  named for.
+- (Alternative) **Patch every caller** to pass an explicit
+  `project_id`.
+
+Decision belongs in W8, not this amendment — but flagging here so
+the next session sees the dependency.
+
+**Forward links.** The per-tool schema fixes (W8 in the plan) are
+the natural successor to [ADR-033](033-tool-catalog-naming-and-registration.md)'s
+unified-registry: now that there is one declaration site per tool,
+fixing its schema is one diff. The validator's `isError`-content
+shape pairs with [ADR-030](030-governed-actions-and-propose-verb.md)'s
+governed actions — `propose` requests will rely on schema-level
+rejection of malformed `change_spec_json` before the kind
+dispatcher ever sees the payload.

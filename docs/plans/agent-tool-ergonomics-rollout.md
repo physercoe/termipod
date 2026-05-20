@@ -6,9 +6,9 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 # Agent tool ergonomics rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, nine wedges total (W1, W2.a, W2.b, W2.b.2, W3, W4, W5, W6.a, W6.b). **W1 + W2.a + W2.b + W3 + W4 + W6.a shipped — the MVP (phases 1 + 2) is complete.** Post-MVP polish remaining: W5, W6.b, W2.b.2. W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. W3 — `Hint` envelope + `writeErrHint`; four discovery-confusable 4xx paths now carry a structured recovery hint (`search` no-results deferred — its `200`-array success shape can't carry a hint without a breaking change). W4 — all 14 persona prompts gained a `## Tools at a glance` index (10 main: full table; 4 per-engine stewards: one-line `tools_get` pointer). W2.b — `ToolSpec` gained the D-1 structured-payload fields; `ReadOnly` (→ the fail-closed `concurrency_safe`/`side_effecting` pair) and `see_also` are populated for all 92 tools via two overlay tables and surface in `tools_get`. **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). W2.b shipped the structural half of D-1's payload; **W2.b.2** — the per-tool `examples` + `failure_modes` authoring — is post-MVP and fuses with W5's hint work. **W6** (sweep the dangling non-tool refs from the persona prompt bodies) was added to Phase 3 from a finding W4 surfaced; **W6.a** (the clean renames) shipped, **W6.b** (the genuine gaps + drift-lock lint) is post-MVP. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
+> **Status:** Proposed (2026-05-18) — three phases, **eleven** wedges total (W1, W2.a, W2.b, W2.b.2, W3, W4, W5, W6.a, W6.b, **W7, W8**). **W1 + W2.a + W2.b + W3 + W4 + W6.a + W7 shipped — the MVP (phases 1 + 2) is complete; Phase 3 has its first wedge (W7) in.** Post-MVP polish remaining: W5, W6.b, W2.b.2, **W8**. W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. W3 — `Hint` envelope + `writeErrHint`; four discovery-confusable 4xx paths now carry a structured recovery hint (`search` no-results deferred — its `200`-array success shape can't carry a hint without a breaking change). W4 — all 14 persona prompts gained a `## Tools at a glance` index (10 main: full table; 4 per-engine stewards: one-line `tools_get` pointer). W2.b — `ToolSpec` gained the D-1 structured-payload fields; `ReadOnly` (→ the fail-closed `concurrency_safe`/`side_effecting` pair) and `see_also` are populated for all 92 tools via two overlay tables and surface in `tools_get`. **W7 — schema enforcement at the dispatcher (v1.0.637)**: pure-Go validator (~225 LOC, no new deps) wired into both `handleToolsCall` and `dispatchTool`; every `required[]` / `type` / `enum` / `minimum` in the 72-tool catalog is now real authority. The validator drove the discovery of W8. **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). W2.b shipped the structural half of D-1's payload; **W2.b.2** — the per-tool `examples` + `failure_modes` authoring — is post-MVP and fuses with W5's hint work. **W6** (sweep the dangling non-tool refs from the persona prompt bodies) was added to Phase 3 from a finding W4 surfaced; **W6.a** (the clean renames) shipped, **W6.b** (the genuine gaps + drift-lock lint) is post-MVP. **W8 — per-tool schema fixes** (added 2026-05-20 from the audit W7 enabled): eight schemas need real `oneOf`/`if-then`/enum/required fixes; validator extension for `oneOf` + `if-then-else` lands with them. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
 > **Audience:** contributors · principal · QA
-> **Last verified vs code:** W1 + W2.a + W2.b + W3 + W4 + W6.a shipped; ADR-033 W6 teardown complete
+> **Last verified vs code:** W1 + W2.a + W2.b + W3 + W4 + W6.a + W7 shipped; ADR-033 W6 teardown complete
 
 **TL;DR.** Close the discovery / depth / error-recovery gap
 revealed by the 2026-05-18 steward incident (6 turns guessing
@@ -47,11 +47,16 @@ tail.
 | 3 | W5 | Hint pass + CI lint | ~150 LOC | W1, W2, W3 |
 | 3 | W6.a | Sweep dangling non-tool refs — clean renames | ~50 prose | W4 — **✓ shipped** |
 | 3 | W6.b | Dangling-ref genuine gaps + drift-lock lint | ~80 LOC | W6.a |
+| 3 | **W7** | **Schema enforcement at the dispatcher (pure-Go validator)** | **~250 LOC + ~150 tests** | **— — ✓ shipped v1.0.637** |
+| 3 | **W8** | **Per-tool schema fixes + validator `oneOf` / `if-then` extension** | **~200 LOC + ~80 tests** | **W7** |
 
 Implementation order is **W1 ✓ → W2.a ✓ → W3 ✓ → W4 ✓ → W6.a ✓ →
-W2.b ✓ → W5 ‖ W6.b ‖ W2.b.2 (post-MVP polish)**. **MVP (phases 1 + 2)
-is complete** — W1, W2.a, W2.b, W3, W4 all shipped. The post-MVP
-polish — W5, W6.b, W2.b.2 — is three independent wedges.
+W2.b ✓ → W7 ✓ → W5 ‖ W6.b ‖ W2.b.2 ‖ W8 (post-MVP polish)**.
+**MVP (phases 1 + 2) is complete** — W1, W2.a, W2.b, W3, W4 all
+shipped. **Phase 3 has W7 in** (schema enforcement landed under
+the v1.0.637 boundary-fixes umbrella because it was load-bearing
+for the same-day `agents.spawn host_id` fix). Post-MVP polish —
+W5, W6.b, W2.b.2, W8 — is four independent wedges.
 
 ---
 
@@ -476,6 +481,112 @@ dangling ref is introduced.
 **Tests:** the lint is the test; a negative case proving it catches
 a planted dangling ref.
 
+#### W7 — Schema enforcement at the dispatcher — ✓ shipped v1.0.637
+
+> **Shipped.** Pure-Go validator (~225 LOC, no new deps) at
+> `hub/internal/hubmcpserver/schema_validate.go`, wired into both
+> dispatchers (`handleToolsCall` in the standalone hub-mcp-server
+> stdio path and `dispatchTool` in the in-process `/mcp/{token}`
+> path agents actually hit). Every `required[]` / `type` / `enum`
+> / `minimum` in the 72-tool catalog is now real authority.
+
+W7 lands the "schema is the contract" half of D-1 that the MVP
+left implicit. Pre-fix the dispatchers decoded `{name, arguments}`
+and forwarded straight to the handler — no `required[]` enforcement,
+no type checking, no enum validation. Each tool's handler chose
+its own discipline; the v1.0.636 `agents.spawn` host_id miss
+sat in this exact gap and motivated the wedge.
+
+The validator covers the subset of draft-2020-12 the catalog
+actually uses today: `type`, `required`, `properties` (recursive
+into nested objects — `task.title` in `agents.spawn`), `enum`,
+`minimum`, `items`, `minItems`. The
+[ADR-031 §7 amendment](../decisions/031-agent-tool-ergonomics.md#7-amendments)
+records the design choice; the lookups are:
+- `hub/internal/hubmcpserver/schema_validate.go` — the validator.
+- `hub/internal/hubmcpserver/run.go` (`handleToolsCall`) — wire.
+- `hub/internal/server/mcp.go` (`dispatchTool`) — wire.
+- `hub/internal/hubmcpserver/schema_validate_test.go` — coverage.
+
+Violations come back as `isError: true` content (same shape as
+handler-side errors) so an LLM agent reads the message inline
+and self-corrects. Pre-existing per-handler manual checks stay
+in place as defence in depth.
+
+**Acceptance (W7) — met:** every `required[]` field declared in a
+schema is rejected on omission with a clear message naming the
+field; enum violations rejected; type mismatches rejected
+(integer-as-float64 from the JSON wire is accepted); nested
+object subschemas (e.g. `agents.spawn.task.title`) and array
+items (`channels.post_event.parts[].kind`) recurse correctly.
+
+**Out of scope for W7 (lands in W8):** `oneOf`, `anyOf`, `allOf`,
+`if/then/else`, `pattern`, `format`, `dependencies`. The schemas
+in W8 need them; the additive validator extension lands with the
+schema fixes.
+
+#### W8 — Per-tool schema fixes + validator `oneOf` / `if-then` extension
+
+W7's enforcement surfaced a catalog audit: eight schemas declare
+contracts the handler reality contradicts, or omit conditional
+constraints the prose description nevertheless promises. With
+the validator on, the schemas themselves now need to describe
+what handlers actually want.
+
+**Schema fixes (eight tools).**
+
+| Tool | Today | Fix |
+|---|---|---|
+| `plans.create` | required `[project, title]`; wrapper silently forwards | wrapper now fail-fasts via W7; verify message clarity. |
+| `plans.steps.create` | required `[plan, phase_idx, step_idx, kind]`; wrapper checks only `plan`. `spec_json` conditional (required when `kind ≠ human_decision`) prose-only. | W7 catches the four-field case. Add `if/then` so `spec_json` is required when `kind ≠ human_decision`; add per-kind `oneOf` for `spec_json`'s shape. |
+| `documents.create` | `content_inline` xor `artifact_id` documented in prose only. | `oneOf: [{required:[content_inline]}, {required:[artifact_id]}]` — both can't be present, at least one must be. |
+| `schedules.create` | `cron_expr` required when `trigger_kind="cron"` prose-only. | `if: {properties:{trigger_kind:{const:"cron"}}}, then: {required:["cron_expr"]}`. |
+| `plans.steps.update.status` / `reports_post.status` / `request_approval.tier` / `request_help.severity` / `agents_fanout.workers[].permission_mode` | `{"type":"string"}` with no enum. | Add `enum:[…]` to each — values matter for downstream routing. |
+| `list_channels` | required `[project_id]`; handler silently lists all when absent. **Behavioural decision pending — see §0 amendment + ADR-031 §7 Decision D.** | Recommended: drop `project_id` from required; the handler's lenient behaviour is the more useful affordance. Alternative: patch every caller. |
+| `attach` | description promises `path` option; schema and handler don't accept it. | Remove `path` from the description, OR add it to the schema + handler. |
+| `get_attention` | short and long descriptions disagree about what the tool does. | Reconcile — fix one or the other. |
+| `reviews.create` | declares no `required` fields. | Add `project` at minimum. |
+
+**Validator extension.** The conditional-required schemas
+(documents.create's `oneOf`, schedules.create + plans.steps.create's
+`if/then`) need the validator to understand:
+- `oneOf` / `anyOf` / `allOf` — composition keywords.
+- `if/then/else` — conditional schemas.
+- (Optional, low priority) `const` — single-value constraint
+  for the `if` condition.
+
+These are additive; the validator's design notes the structure
+permits clean extension. ~80 LOC + tests.
+
+**Implementation site:**
+- Schema edits: `hub/internal/hubmcpserver/tools.go` (most tools)
+  + `hub/internal/server/native_tools.go` (any native tool fixes
+  the audit surfaced) + the `tools.list` adjustments in
+  `toolspec.go`.
+- Validator extension: `hub/internal/hubmcpserver/schema_validate.go`
+  + matching tests in `schema_validate_test.go`.
+
+**Acceptance (W8):**
+- Every audit row above resolved (either fixed in schema, or
+  closed with a docs-only correction).
+- New `oneOf` / `if-then` validator coverage exercised by at
+  least one bundled schema (documents.create or schedules.create).
+- Lint walks the catalog once and confirms no `type:"string"`
+  field that downstream code treats as an enum.
+
+**Tests:** per-schema rejection cases (documents.create with both
+`content_inline` and `artifact_id` rejected; schedules.create with
+`trigger_kind="cron"` and missing `cron_expr` rejected; etc.) plus
+validator-extension tests for the new keywords.
+
+**Dependency on `list_channels` decision.** W8 cannot land without
+deciding the load-bearing behaviour: today the mobile app may call
+`list_channels` with no `project_id` for the "list all" affordance.
+The W7 validator now rejects that case (since the schema declares
+required). Pick before merging W8:
+- **(Recommended)** Drop `project_id` from required[].
+- (Alternative) Patch every caller to pass an explicit project_id.
+
 ---
 
 ## 2. Out of scope for this plan
@@ -534,6 +645,15 @@ one release; phase 3 in a follow-up):
 - The persona "Tools at a glance" section is present in all 10
   main prompts.
 - The CI lint passes for all tools.
+- **(W7 — met v1.0.637)** Every `required[]` declared in a tool's
+  `InputSchema` is enforced at the dispatcher; agents passing
+  malformed args see a clear "field X is required" message
+  inline (isError content) and self-correct on the next turn.
+- **(W8)** No catalog tool ships a schema whose `required[]` or
+  type/enum constraints contradict the handler's actual
+  expectations; conditional-required relationships
+  (content_inline xor artifact_id, cron_expr when trigger_kind=
+  cron) are expressed in the schema, not only in prose.
 
 Verification on-device with the same smoke task from
 2026-05-18: ask steward to read back a doc by ULID. Steward

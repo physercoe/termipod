@@ -73,6 +73,11 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "handle and kind required")
 		return
 	}
+	// Bare-handle convention (post-v1.0.636): handles are stored without
+	// the `@` display sigil. A caller that passes `@worker` is treated
+	// the same as `worker` so legacy templates keep working while the
+	// data stays clean. See migration 0044 + glossary entry.
+	in.Handle = normalizeAgentHandle(in.Handle)
 	backend := defaultRawObject(in.Backend)
 	caps := defaultRawArray(in.Capabilities)
 	id := NewID()
@@ -785,6 +790,44 @@ type spawnOut struct {
 	FailureReason string `json:"failure_reason,omitempty"`
 }
 
+// normalizeAgentHandle strips a single leading `@` from a handle so
+// the stored form is bare. The `@` is the display sigil
+// (`docs/reference/glossary.md` → handle), never part of the name.
+// Pre-fix templates passed `child_handle="@coder"` literally, which
+// stored `@coder`, which downstream `@{{parent.handle}}` rendering
+// then double-prefixed to `@@coder` — the failure mode that
+// motivated this helper. Idempotent: bare handles pass through
+// unchanged; only one prefix is stripped so a hypothetical
+// double-prefixed input still ends in a well-formed name.
+func normalizeAgentHandle(h string) string {
+	h = strings.TrimSpace(h)
+	return strings.TrimPrefix(h, "@")
+}
+
+// checkSpawnHostReachable verifies the named host exists in the team
+// and is online before the spawn is committed. Without this check a
+// caller can pass a stale, offline, or junk host_id and the resulting
+// agents row carries a host_id that no host-runner ever polls for,
+// leaving the agent stuck in pending forever (the same end state the
+// missing-host_id case produced). Returns a non-nil error with a
+// human-readable reason on rejection; nil on success.
+func (s *Server) checkSpawnHostReachable(ctx context.Context, team, hostID string) error {
+	var status string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT status FROM hosts WHERE team_id = ? AND id = ?`,
+		team, hostID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("host_id " + hostID + " is not registered for this team")
+	}
+	if err != nil {
+		return errors.New("host_id check failed: " + err.Error())
+	}
+	if status != "online" {
+		return errors.New("host_id " + hostID + " is not online (status=" + status + ")")
+	}
+	return nil
+}
+
 // handleSpawn creates a pending agent + an agent_spawns audit row, unless
 // policy gates the action behind an approval_request attention. In the
 // gated case we return 202 + attention_id and the actual spawn happens on
@@ -794,6 +837,37 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	var in spawnIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	// host_id boundary check (matches the MCP schema's required[] now
+	// that the dispatcher-side validator enforces it). REST callers
+	// (mobile bootstrap sheet, internal handlers) pass through this
+	// gate too — a spawn with no host_id lands as a row with host_id=
+	// NULL that no runner ever claims (host-runner polls WHERE host_id
+	// = self), so the agent sits "pending" forever. Fail fast with a
+	// pointer at hosts.list so callers can resolve the id and retry.
+	// DoSpawn (the internal direct-call path used by tests + internal
+	// hub code) is intentionally NOT gated here — that path is for
+	// callers who have already established the host themselves.
+	if strings.TrimSpace(in.HostID) == "" {
+		writeErrHint(w, http.StatusUnprocessableEntity,
+			"host_id is required; resolve via hosts.list",
+			Hint{
+				HintText: "Call hosts.list to discover online host_ids, then retry agents.spawn with the chosen id.",
+				SeeTool:  "hosts_list",
+			})
+		return
+	}
+	// Confirm the named host exists in this team and is reachable
+	// before we burn the spawn row. Offline / stale / unknown hosts
+	// would all leave the agent stuck in pending the same way as a
+	// missing id; surface it at the API boundary with the same hint.
+	if jerr := s.checkSpawnHostReachable(r.Context(), team, in.HostID); jerr != nil {
+		writeErrHint(w, http.StatusUnprocessableEntity, jerr.Error(),
+			Hint{
+				HintText: "Call hosts.list to discover online host_ids, then retry agents.spawn with one of them.",
+				SeeTool:  "hosts_list",
+			})
 		return
 	}
 	if s.policy != nil {
@@ -992,6 +1066,13 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		return spawnOut{}, http.StatusBadRequest,
 			errors.New("child_handle, kind, spawn_spec_yaml required")
 	}
+	// Bare-handle convention (post-v1.0.636): the `@` is a display
+	// sigil, not part of the stored name. We strip a single leading
+	// `@` so bundled templates that historically passed
+	// `child_handle="@coder"` continue to work, but the column always
+	// carries the bare form going forward. See migration 0044 +
+	// glossary entry.
+	in.ChildHandle = normalizeAgentHandle(in.ChildHandle)
 
 	// Expand template vars ({{handle}}, {{journal}}, {{principal}}, …) before
 	// persisting. Render failures are treated as client errors — a malformed

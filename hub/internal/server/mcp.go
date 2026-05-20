@@ -274,6 +274,27 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 			}
 		}
 	}
+	// Enforce the tool's declared InputSchema at the dispatcher
+	// boundary, ahead of either branch below. Required fields, enums,
+	// and types declared in the catalog become real rejections
+	// instead of being silently forwarded to a handler that may or
+	// may not check the same fields. The host_id-missing agents.spawn
+	// incident motivated this gate (and the matching audit of every
+	// schema vs handler in the catalog).
+	//
+	// We surface the violation as an isError content block (matching
+	// how tool-call handler errors already surface) so an LLM agent
+	// reading the result sees the "host_id required" sentence and can
+	// self-correct on the next turn.
+	if spec, ok, _ := lookupToolSpec(call.Name); ok && len(spec.InputSchema) > 0 {
+		var args map[string]any
+		if len(call.Arguments) > 0 {
+			_ = json.Unmarshal(call.Arguments, &args)
+		}
+		if err := hubmcpserver.ValidateArgs(spec.InputSchema, args); err != nil {
+			return mcpResultError(err.Error()), nil
+		}
+	}
 	// ADR-033 (W1–W6): unified-registry dispatch. No tool is routed by
 	// a literal switch case any more — every tool, including the catalog
 	// meta-tool tools_get, resolves through the two ToolSpec registries

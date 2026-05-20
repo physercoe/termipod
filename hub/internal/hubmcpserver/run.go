@@ -262,6 +262,26 @@ func handleToolsCall(c *hubClient, tools []toolDef, raw json.RawMessage) (any, *
 	if !ok {
 		return nil, &jsonrpcError{Code: errMethodNotFound, Message: "unknown tool: " + p.Name}
 	}
+	// Enforce the tool's declared InputSchema before invoking the
+	// handler. Required fields, enums, and types declared in the
+	// catalog become real rejections instead of documentation. Every
+	// per-handler "X is required" check predates this gate and stays
+	// in place as defence in depth, but new tools don't need to
+	// re-litigate the boundary contract per handler.
+	//
+	// We surface the violation as an isError content block (matching
+	// how tool-call errors already surface) rather than as a JSON-RPC
+	// envelope error: an LLM agent reading the result can then see the
+	// "host_id required" sentence and self-correct on the next turn,
+	// the same way it would for any other tool error.
+	if err := ValidateArgs(tool.InputSchema, p.Arguments); err != nil {
+		return map[string]any{
+			"isError": true,
+			"content": []any{
+				map[string]any{"type": "text", "text": err.Error()},
+			},
+		}, nil
+	}
 	out, err := tool.call(c, p.Arguments)
 	if err != nil {
 		// Per MCP convention, tool-level failures come back as an

@@ -1036,6 +1036,9 @@ func TestSpawn_AutoOpenSession_IgnoredOnSwap(t *testing.T) {
 func TestPatchAgent_RenameHandle(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	_, agentID := seedChannelAndAgent(t, s, "", "")
+	// Seed an online host so the spawn at the bottom of this test
+	// passes the new agents.spawn host_id gate.
+	seedTestHost(t, s, defaultTeamID, "host-x", "h1")
 
 	// Successful rename.
 	status, body := doReq(t, s, token, http.MethodPatch,
@@ -1067,6 +1070,7 @@ func TestPatchAgent_RenameHandle(t *testing.T) {
 		map[string]any{
 			"child_handle":    "infra-steward",
 			"kind":            "claude-code",
+			"host_id":         "host-x",
 			"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: claude\n",
 		})
 	var spawned spawnOut
@@ -1204,6 +1208,10 @@ func TestAgentEvents_FilterBySession(t *testing.T) {
 func TestSessions_SwapRefusesDeletedSession(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	_, agentID := seedChannelAndAgent(t, s, "", "")
+	// Seed an online host so the spawn below passes the agents.spawn
+	// host_id gate. The check we're actually exercising is the
+	// deleted-session conflict, which now lands after host validation.
+	seedTestHost(t, s, defaultTeamID, "host-x", "h1")
 
 	// Open + close + delete to reach status=deleted.
 	status, body := doReq(t, s, token, http.MethodPost,
@@ -1224,6 +1232,7 @@ func TestSessions_SwapRefusesDeletedSession(t *testing.T) {
 		map[string]any{
 			"child_handle":    "steward",
 			"kind":            "claude-code",
+			"host_id":         "host-x",
 			"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: claude\n",
 			"session_id":      ses.ID,
 		})

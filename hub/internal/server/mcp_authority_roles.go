@@ -355,13 +355,23 @@ func (s *Server) authorizeMCPCall(ctx interface{}, agentID, scopeRole, tool stri
 // field is not reliably surfaced to the model — so the ADR-031 D-3
 // recovery hint is folded into the message text rather than a nested
 // envelope: name the tool, and name the escalation path.
+//
+// Escalation guidance: a worker reaches its parent steward via
+// `a2a_invoke(handle=<parent.handle>, text=...)` — bare handle, no
+// `@` (post-v1.0.636 normalization; see glossary). The previous
+// wording named `request_help(target=...)` which was wrong on three
+// counts: request_help has no `target` parameter (it routes to the
+// principal, not the parent), and the literal `@<parent_handle>`
+// led LLMs to compose double-prefixed handles like `@@steward.xxx`
+// against the bare-stored card.
 func roleDeniedErr(role, tool string) *jrpcError {
 	return &jrpcError{
 		Code: -32601,
 		Message: "tool " + tool + " not permitted for role: " + role +
 			" — your role's allow set does not include it. To escalate, " +
-			"call request_help(target='@<parent_handle>', question=...) " +
-			"so a steward can act or widen the grant.",
+			"call a2a_invoke(handle=<parent.handle>, text=...) to ask " +
+			"your parent steward to act or widen the grant; or " +
+			"request_help(question=...) to ask the principal directly.",
 	}
 }
 

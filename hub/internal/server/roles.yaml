@@ -70,6 +70,7 @@ roles:
       # --- Self-management ---
       - "tasks.create"
       - "tasks.update"
+      - "tasks.complete"     # ADR-029 W2.8 close-out — the worker-facing finish verb
       - "tasks.list"
       - "update_own_task_status"
       - "pause_self"

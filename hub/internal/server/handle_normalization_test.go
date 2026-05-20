@@ -1,0 +1,153 @@
+package server
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+// TestNormalizeAgentHandle is the unit-level guard on the bare-handle
+// invariant. The string contract is fixed by the glossary entry and
+// load-bearing across every spawn/lookup path; if this helper drifts,
+// agents downstream will start failing in the @@steward.xxx mode.
+func TestNormalizeAgentHandle(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"coder", "coder"},
+		{"@coder", "coder"},
+		{"  @coder  ", "coder"},
+		{"steward.01KRB586", "steward.01KRB586"},
+		{"@steward.01KRB586", "steward.01KRB586"},
+		// Defensive: only strip ONE leading @ so the function stays
+		// idempotent against post-strip data. The a2a.invoke lookup
+		// separately collapses pathological `@@…` from a stochastic
+		// LLM before card lookup.
+		{"@@coder", "@coder"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		got := normalizeAgentHandle(tc.in)
+		if got != tc.want {
+			t.Errorf("normalizeAgentHandle(%q) = %q; want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestDoSpawn_StripsAtFromChildHandle exercises the storage-side
+// boundary: a spawn passing `child_handle="@coder"` (the legacy
+// template form) must land as `coder` in the agents row, with the
+// matching change rippling through audit + a2a_cards.
+func TestDoSpawn_StripsAtFromChildHandle(t *testing.T) {
+	s, _ := newTestServer(t)
+	seedTestHost(t, s, defaultTeamID, "host-x", "h1")
+	out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "@coder",
+		Kind:        "claude-code",
+		HostID:      "host-x",
+		SpawnSpec:   "backend:\n  cmd: echo test\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
+	}
+	var stored string
+	if err := s.db.QueryRow(
+		`SELECT handle FROM agents WHERE id = ?`, out.AgentID,
+	).Scan(&stored); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if stored != "coder" {
+		t.Errorf("stored handle = %q; want %q (bare, no @-prefix)", stored, "coder")
+	}
+}
+
+// TestRoleDenialMessage_NoDoubleAtPattern confirms the new escalation
+// guidance: no literal `@<parent_handle>` template the LLM would
+// double-prefix against an already-`@`-prefixed handle, and names the
+// real tool/arg pair (a2a_invoke + handle) instead of the wrong
+// pre-fix `request_help(target=...)` advice. Worth keeping as a
+// guard so a future copy-edit doesn't reintroduce the failure mode.
+func TestRoleDenialMessage_NoDoubleAtPattern(t *testing.T) {
+	err := roleDeniedErr("worker", "agents_spawn")
+	msg := err.Message
+	if strings.Contains(msg, "@<") {
+		t.Errorf("role-denial reintroduced literal @<...> template: %s", msg)
+	}
+	if strings.Contains(msg, "target=") {
+		t.Errorf("role-denial mentions invalid `target` argument: %s", msg)
+	}
+	for _, want := range []string{"a2a_invoke", "handle=", "parent.handle", "request_help"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("role-denial missing expected phrase %q: %s", want, msg)
+		}
+	}
+}
+
+// TestWorkerCanCallTasksComplete confirms the WorkerEligible flag flip:
+// before this commit, a worker calling tasks.complete (the explicit
+// close-out verb the CLAUDE.md task footer instructs them to use)
+// got -32601 from the role gate. The fix is a single boolean in
+// toolspec.go; this test pins it so it can't silently regress.
+func TestWorkerCanCallTasksComplete(t *testing.T) {
+	if jerr := (&Server{}).authorizeMCPCall(nil, "", "worker", "tasks_complete"); jerr != nil {
+		t.Fatalf("principal bypass (agentID='') should not deny: %s", jerr.Message)
+	}
+	// Authority registry lookup is the path that fires here; we
+	// reach into it via lookupToolSpec to assert the flag without
+	// spinning up the full DB plumbing.
+	spec, ok, _ := lookupToolSpec("tasks_complete")
+	if !ok {
+		t.Fatal("tasks_complete missing from registry")
+	}
+	if !spec.WorkerEligible {
+		t.Errorf("tasks_complete.WorkerEligible = false; workers can't close out their assigned tasks")
+	}
+	// Also check the dotted alias resolves to the same spec.
+	specDotted, ok, _ := lookupToolSpec("tasks.complete")
+	if !ok {
+		t.Fatal("tasks.complete alias missing")
+	}
+	if specDotted.Name != spec.Name {
+		t.Errorf("alias drift: tasks.complete → %q, tasks_complete → %q",
+			specDotted.Name, spec.Name)
+	}
+}
+
+// TestHandleSpawn_RestStripsAt covers the REST entry (not the direct
+// DoSpawn): a POST /v1/teams/{team}/agents/spawn with `child_handle=
+// "@worker"` lands as `worker` in the agents row. The boundary is
+// the same normalizeAgentHandle call; this test pins the wiring.
+func TestHandleSpawn_RestStripsAt(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	seedTestHost(t, s, defaultTeamID, "host-y", "h2")
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/spawn",
+		map[string]any{
+			"child_handle":    "@worker-1",
+			"kind":            "claude-code",
+			"host_id":         "host-y",
+			"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: echo test\n",
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("spawn: status=%d body=%s", status, body)
+	}
+	var n int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM agents WHERE handle = 'worker-1'`,
+	).Scan(&n); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected one 'worker-1' (bare) row; got count=%d", n)
+	}
+	// And no row stored with the leading @.
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM agents WHERE handle = '@worker-1'`,
+	).Scan(&n); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("did not expect any '@worker-1' rows; got count=%d", n)
+	}
+}

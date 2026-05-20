@@ -209,6 +209,17 @@ per agent kind; not a runtime per-spawn choice today.
 The human-readable name of an agent (`agents.handle`). Unique
 within `(team_id, status='live')`. `steward`, `worker-1`, etc.
 
+**Stored bare — no `@` prefix.** The `@` is a *display* sigil
+(used in prose, like Slack/GitHub mentions: `@steward`) and is
+NOT part of the stored name. On the wire — `child_handle` on
+`agents.spawn`, `handle` on `a2a.invoke`, the `agents.handle`
+column, every a2a_card — the value is the bare form. The hub
+strips a single leading `@` on insert (`normalizeAgentHandle`)
+and the a2a lookup tolerates extras for safety, but templates
+and tool callers SHOULD always pass bare; the strip is the
+last-line defence, not the contract. Migration 0044 normalized
+pre-existing `@`-prefixed rows.
+
 ### steward
 An agent role — the principal-facing operator that drives every
 surface. Always lives inside an active hub session. The role has

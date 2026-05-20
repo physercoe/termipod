@@ -737,8 +737,10 @@ don't collapse one into the other:
    `escalation_advanced` audit/push for the same `escalation_state`
    value across ticks — the column is also the dedup key.
 
-The plan's W1 is amended: migration number is **0044** (not 004X),
-and a short paragraph documents the two overlaps.
+The plan's W1 is amended: migration number is **0045** (not 004X
+or 0044 — the 0044 slot was taken by the post-v1.0.636 handle-
+normalization migration shipped between this ADR's audit and W1
+implementation), and a short paragraph documents the two overlaps.
 
 ### 2026-05-20 — Principal ≠ owner
 
@@ -864,8 +866,9 @@ array of handles (resolved via `policy.ApproversFor(tier)`).
 ADR-030 D-3 wants the *tier name itself* alongside, for fast Me-page
 query widening (W19.6) and for the audit metadata.
 
-**Decision:** add `assigned_tier` as a new column in migration 0044
-(per W1). Resolution flow on propose: the dispatcher reads
+**Decision:** add `assigned_tier` as a new column in migration 0045
+(per W1; renumbered from the originally-planned 0044 after the
+post-v1.0.636 handle-normalization migration shipped first). Resolution flow on propose: the dispatcher reads
 `Policy.Kinds[kind].default_tier`, stamps it into `assigned_tier`,
 then expands to `current_assignees_json` via the existing
 `approvers` map (keeping the legacy column populated for the

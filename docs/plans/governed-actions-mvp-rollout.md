@@ -33,7 +33,7 @@ motivation + prior-art audit in
 
 | Phase | Ship | Approx LOC | Depends on |
 |---|---|---|---|
-| 1 | Hub: schema migration (0044), `propose` MCP verb (with cross-project authz check), kind dispatcher, 3 apply functions, permission_prompt strict-parent re-addressing, override audit, alias compat, `kinds:` extension to existing `policy.yaml`, **loop-sweep escalation signal (audit-row only)**, tests | ~1080 | — |
+| 1 | Hub: schema migration (0045), `propose` MCP verb (with cross-project authz check), kind dispatcher, 3 apply functions, permission_prompt strict-parent re-addressing, override audit, alias compat, `kinds:` extension to existing `policy.yaml`, **loop-sweep escalation signal (audit-row only)**, tests | ~1080 | — |
 | 2 | Prompts: re-propose rule in **8** bundled steward templates; deprecate `request_approval+spawnIn` and `template_proposal` patterns in prompt prose; new test-steward-lifecycle scenarios | ~250 prose | Phase 1 |
 | 3 | Mobile: per-kind propose card (4 cards, **each with stalled variant**), override affordance, decided-row visual, **`_filterForAttention('propose')` mapping**, **top-of-Me stalled-decisions digest card**, read-only viewer for the `kinds:` block of `policy.yaml` | ~400 | Phase 1 |
 
@@ -87,7 +87,10 @@ parent re-address to the parent steward.
 >    re-emit `escalation_advanced` for the same `escalation_state`
 >    value across ticks — the column is also the dedup key.
 
-- New migration `0044_attention_items_governed_actions.up.sql`:
+- New migration `0045_attention_items_governed_actions.up.sql`
+  (renumbered from the originally-planned 0044; the 0044 slot was
+  taken by the post-v1.0.636 handle-normalization migration shipped
+  first — see migration 0044 + glossary "handle"):
   ```sql
   ALTER TABLE attention_items
     ADD COLUMN change_kind TEXT;          -- e.g. "deliverable.set_state"

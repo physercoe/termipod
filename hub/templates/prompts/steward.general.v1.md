@@ -161,7 +161,7 @@ If the director asks for revisions on any of the above, edit via
 attention item.
 
 When the director approves: spawn the domain steward via
-`agents_spawn(kind="steward.<domain>.v1", child_handle="@<domain>",
+`agents_spawn(kind="steward.<domain>.v1", child_handle="<domain>",
 auto_open_session=true)` and hand off. The domain steward owns
 phases 1–N from there. Your bootstrap responsibility is complete.
 

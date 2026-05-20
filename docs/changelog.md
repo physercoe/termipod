@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-19)
+> **Status:** Current (2026-05-20)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.636
+> **Last verified vs code:** v1.0.637
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,113 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.637-alpha — 2026-05-20
+
+Three coordinated boundary fixes uncovered by on-device debugging of
+v1.0.636: a spawn validator gap, a workers-can't-finish-tasks gap,
+and a handle-naming gap. Same defect class
+([validate-at-every-boundary](discussions/validate-at-every-boundary.md))
+— names and contracts that drifted between schema, handler, prose,
+and storage. All three closed inside one release.
+
+### Added
+
+- **MCP dispatcher schema validator.** New
+  `hub/internal/hubmcpserver/schema_validate.go` (~225 LOC, no new
+  deps): pure-Go validator covering `type` / `required` / `properties`
+  / `enum` / `minimum` / `items` / `minItems`. Wired into both
+  dispatchers (`handleToolsCall` for the standalone hub-mcp-server
+  stdio path and `dispatchTool` for the in-process `/mcp/{token}`
+  HTTP path agents actually hit). Violations come back as
+  `isError=true` content (matching how handler errors already
+  surface) so an LLM can self-correct on the next turn. Every
+  `required[]` array in the 72-tool catalog is now a real
+  enforcement boundary instead of documentation. See
+  [`docs/reference/glossary.md`](reference/glossary.md) → handle for
+  the matched-storage convention.
+- **`agents.spawn` host gate.** REST and MCP boundaries both reject
+  spawns with empty `host_id`, unknown `host_id`, or offline
+  `host_id` with HTTP 422 + a structured `Hint{see_tool:
+  "hosts_list"}`. Workers were silently sitting in `pending` forever
+  when a caller forgot the field; the schema validator catches the
+  missing case at the MCP layer and `checkSpawnHostReachable` covers
+  the rest at the REST layer.
+- **Migration 0044 — handle normalization.** Strips a single leading
+  `@` from `agents.handle` and `a2a_cards.handle` for every existing
+  row. New rows ship bare via `normalizeAgentHandle` in `DoSpawn`
+  and `handleCreateAgent`. The `@` is a display sigil now — Slack /
+  GitHub style — never part of the stored name. (ADR-030 W1's
+  pencilled-in migration slot moved from 0044 to 0045 to accommodate.)
+
+### Changed
+
+- **`agents.spawn` schema and description.** `host_id` is now in
+  the `required[]` array. The long description was rewritten —
+  "Requires `child_handle`, `kind`, `spawn_spec_yaml`, AND `host_id`;
+  call `hosts.list` first to discover the available host_ids — even
+  on a single-host team, the caller must explicitly name the host
+  so a misconfigured fleet fails loudly instead of leaving the agent
+  stuck in `pending` with no claimer." The short-form catalog entry
+  matches.
+- **`tasks_complete` is now `WorkerEligible: true`.** The
+  pre-fix `false` contradicted the close-out protocol footer the
+  hub bakes into every worker's CLAUDE.md (`renderTaskInstructions`)
+  AND every bundled worker template's `default_capabilities` list.
+  Workers were forced into `request_help` to finish their own
+  assigned tasks. `roles.yaml` worker.allow gets a matching
+  `tasks.complete` entry for the legacy fallback path.
+- **Role-denial message rewritten.** The pre-fix wording —
+  `call request_help(target='@<parent_handle>', question=...)` —
+  was wrong on three counts: `request_help` has no `target` (it
+  routes to the principal, not the parent), the literal `@<…>`
+  template encouraged LLMs to compose double-`@` handles, and
+  `target=` is not the param name (a2a.invoke uses `handle=`). New
+  text: `call a2a_invoke(handle=<parent.handle>, text=...) to ask
+  your parent steward to act or widen the grant; or
+  request_help(question=...) to ask the principal directly.`
+- **Bundled steward + worker templates aligned to bare-handle.**
+  Six prompt templates updated: `steward.research.v1.md` and
+  `steward.general.v1.md` lost the `@` from every `child_handle=`
+  argument (6 sites total); `briefing/critic/coder/ml-worker/
+  paper-writer/lit-reviewer .v1.md` have their `a2a_invoke(target=
+  "@…", body=…)` calls rewritten to the correct schema —
+  `a2a_invoke(handle="…", text=…)` — and `lit-reviewer.v1.md`'s
+  one `request_help(target=…)` call split into the two correct
+  shapes (a2a to parent, request_help to principal).
+- **A2A handle lookup is now `@@`-tolerant.** `a2a.invoke` strips
+  any number of leading `@`s before card lookup, so in-flight
+  workers whose persona files still bake in the pre-fix
+  `@@steward.xxx` form land on the right card instead of "no A2A
+  agent found". Defense in depth — templates SHOULD always pass
+  bare.
+
+### Fixed
+
+- **The `@@steward.xxx` "no A2A agent found" failure mode.**
+  Root cause: storage convention diverged from the documented
+  convention. Templates passed `child_handle="@coder"` literally;
+  `DoSpawn` stored `@coder`; worker prompts rendered
+  `@{{parent.handle}}` against that and produced `@@coder`; the
+  a2a card directory keys on exact match and didn't find it. Fixed
+  end-to-end: migration normalizes existing rows, storage strips
+  on insert, prompts pass bare, lookup is lenient, glossary
+  documents the rule.
+- **Worker stuck after `tasks_complete` denial.** The role gate
+  flipped to `WorkerEligible: true` (above).
+- **Empty `host_id` spawn → agent stuck in `pending` forever.**
+  Schema validator + REST host gate (above).
+- **`docs/reference/glossary.md`** — handle entry gained a
+  paragraph spelling out "stored bare — no `@` prefix" + the
+  strip + lenient-lookup machinery, plus the migration 0044
+  pointer.
+- **`docs/decisions/030-governed-actions-and-propose-verb.md`** and
+  **`docs/plans/governed-actions-mvp-rollout.md`** — both updated
+  to reflect ADR-030 W1's migration slot moving from 0044 → 0045
+  (the 0044 slot was taken by today's handle-normalization
+  migration).
+
+Tag `v1.0.637-alpha`.
 
 ## v1.0.636-alpha — 2026-05-19
 

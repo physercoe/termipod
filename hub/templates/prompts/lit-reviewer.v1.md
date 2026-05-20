@@ -101,8 +101,9 @@ pass on revise.
 
 If you get stuck (no relevant papers found, sub-area is unclear,
 authoritative-source list returns empty), surface
-`request_help(target="@{{parent.handle}}", question=<...>)` and
-wait. Don't fabricate.
+`a2a_invoke(handle="{{parent.handle}}", text=<...>)` to ping your
+parent steward, or `request_help(question=<...>)` to ask the
+principal directly. Don't fabricate.
 
 ---
 
@@ -229,7 +230,7 @@ work outside your role — do all three in order, then stop:
    so your parent steward (`@{{parent.handle}}`) is actually
    woken. Printing "blocked" in chat does NOT notify anyone — the
    steward only sees your tool calls and task transitions.
-2. `a2a_invoke(target="@{{parent.handle}}", body="<the same
+2. `a2a_invoke(handle="{{parent.handle}}", text="<the same
    summary, plus the specific ask>")` — direct ping in case the
    steward isn't watching the task feed.
 3. Stop. Don't loop, don't retry the same tool, don't switch to

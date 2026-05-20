@@ -198,7 +198,7 @@ func toolRegistry() []ToolSpec {
 			"Fetch one agent by id, with full detail. Required: agent (id).",
 			tierTrivial, true),
 		spec("agents_spawn", "agents.spawn",
-			"Spawn a child agent. Required: child_handle, kind, spawn_spec_yaml. Project-bound spawns require the caller to be that project's steward.",
+			"Spawn a child agent. Required: child_handle, kind, spawn_spec_yaml, host_id (call hosts.list first). Project-bound spawns require the caller to be that project's steward.",
 			tierSignificant, false),
 		spec("agents_terminate", "agents.terminate",
 			"Mark an agent terminated; the host-runner kills the process on its next loop. Required: agent (id).",
@@ -248,9 +248,16 @@ func toolRegistry() []ToolSpec {
 		spec("tasks_update", "tasks.update",
 			"Patch a task's fields (title, body_md, status, priority, …). Required: project_id, task.",
 			tierRoutine, true),
+		// tasks_complete is the worker-facing close-out verb (ADR-029
+		// W2.8). The close-out protocol footer rendered into every
+		// worker's CLAUDE.md (renderTaskInstructions) explicitly tells
+		// the worker to call this when its task is done, and every
+		// bundled worker template's default_capabilities lists it. The
+		// pre-fix `false` here contradicted both surfaces and forced
+		// workers into request_help to finish their own tasks.
 		spec("tasks_complete", "tasks.complete",
 			"Close out an assigned task — bundles status=done + result_summary. Required: project_id, task.",
-			tierRoutine, false),
+			tierRoutine, true),
 		spec("tasks_delete", "tasks.delete",
 			"Delete a task. Required: project_id, task. Use tasks_update status=cancelled to keep it for the audit trail.",
 			tierRoutine, false),

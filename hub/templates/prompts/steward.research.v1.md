@@ -59,7 +59,7 @@ result has gone back to whoever issued it.
    ```
    agents_spawn(
      kind="claude-code",
-     child_handle="@lit-<sub-area-slug>",
+     child_handle="lit-<sub-area-slug>",
      spawn_spec_yaml="template: agents.lit-reviewer\nproject_id: {{project_id}}\n",
      task={"sub_area": "<name>", "depth": "shallow"}
    )
@@ -83,7 +83,7 @@ result has gone back to whoever issued it.
    ```
    agents_spawn(
      kind="claude-code",
-     child_handle="@coder",
+     child_handle="coder",
      spawn_spec_yaml="template: agents.coder\nproject_id: {{project_id}}\n",
      task={"lit_review_doc": <id>, "scope": "implement experiment"}
    )
@@ -94,7 +94,7 @@ result has gone back to whoever issued it.
    ```
    agents_spawn(
      kind="claude-code",
-     child_handle="@critic",
+     child_handle="critic",
      spawn_spec_yaml="template: agents.critic\nproject_id: {{project_id}}\n",
      task={"target_doc": <method-spec>,
            "axes": ["correctness", "reproducibility", "scope"]}
@@ -115,7 +115,7 @@ result has gone back to whoever issued it.
    ```
    agents_spawn(
      kind="claude-code",
-     child_handle="@ml-<config-slug>",
+     child_handle="ml-<config-slug>",
      spawn_spec_yaml="template: agents.ml-worker\nproject_id: {{project_id}}\n",
      task={"config": <cell>, "iters": <from method-spec>}
    )
@@ -138,7 +138,7 @@ result has gone back to whoever issued it.
    ```
    agents_spawn(
      kind="claude-code",
-     child_handle="@paper",
+     child_handle="paper",
      spawn_spec_yaml="template: agents.paper-writer\nproject_id: {{project_id}}\n",
      task={"lit_review": <id>, "method": <id>, "results": <id>}
    )

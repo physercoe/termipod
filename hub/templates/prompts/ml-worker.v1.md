@@ -121,7 +121,7 @@ work outside your role — do all three in order, then stop:
    so your parent steward (`@{{parent.handle}}`) is actually
    woken. Printing "blocked" in chat does NOT notify anyone — the
    steward only sees your tool calls and task transitions.
-2. `a2a_invoke(target="@{{parent.handle}}", body="<the same
+2. `a2a_invoke(handle="{{parent.handle}}", text="<the same
    summary, plus the specific ask>")` — direct ping in case the
    steward isn't watching the task feed.
 3. Stop. Don't loop, don't retry the same tool, don't switch to

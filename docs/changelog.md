@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-20)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.639
+> **Last verified vs code:** v1.0.640
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -23,6 +23,24 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.640-alpha — 2026-05-20
+
+Second build fix on top of v1.0.639 — the `KeepAliveLink` import
+landed, but the `alreadyLive` guard introduced a `notifier.state`
+access that Riverpod 3.x flags as `@protected` /
+`@visibleForTesting`, and `flutter analyze` promotes the warning to
+fatal.
+
+### Fixed
+
+- **Read SSH state via provider, not `notifier.state`.**
+  `_connectAndSetup` now reads `ref.read(sshProvider(connId))` for
+  the `isConnected` check and `ref.read(sshProvider(connId).notifier)`
+  for the `client` accessor — same data, public API surface only. No
+  behavioural change vs v1.0.638/v1.0.639.
+
+---
+
 ## v1.0.639-alpha — 2026-05-20
 
 Build fix only — v1.0.638-alpha failed CI on a Riverpod 3.x import
@@ -35,10 +53,9 @@ that compiled locally but not in the analyzer's strict export check.
   the `misc.dart` opt-in surface (alongside other low-level types
   like `ProviderBase` and `ProviderListenable`). `ssh_provider.dart`
   now explicitly imports `package:flutter_riverpod/misc.dart` for the
-  one symbol it needs. No behavioural change vs v1.0.638 — same
-  keep-alive lifecycle, same Hosts-row indicator, same last-view
-  restore. See the v1.0.638 entry below for the full feature
-  description.
+  one symbol it needs. No behavioural change vs v1.0.638. **Note:**
+  this tag also fails CI on a separate `notifier.state` warning that
+  only became reachable once the import compiled; see v1.0.640.
 
 ---
 

@@ -676,8 +676,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       // cells, scrollback, and tmux poll timers that don't survive
       // widget dispose.
       final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
-      final alreadyLive = sshNotifier.state.isConnected &&
-          sshNotifier.client != null;
+      // Read the state through the public provider rather than
+      // `notifier.state` — the latter is `@protected` /
+      // `@visibleForTesting` in Riverpod 3.x, and `flutter analyze`
+      // promotes the access to a warning that CI treats as fatal.
+      final alreadyLive =
+          ref.read(sshProvider(widget.connectionId)).isConnected &&
+              sshNotifier.client != null;
       if (!alreadyLive) {
         await sshNotifier.connectWithoutShell(connection, options);
         if (!mounted || _isDisposed) {

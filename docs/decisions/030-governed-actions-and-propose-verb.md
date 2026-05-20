@@ -10,8 +10,11 @@ description: Generalise apply-on-approve to a single MCP verb `propose(kind, tar
 > the 2026-05-17 design conversation following the
 > [tool-call-approval-patterns reference](../reference/tool-call-approval-patterns.md)
 > and [worker-permission-routing discussion](../discussions/worker-permission-routing-to-steward.md).
+> Amended 2026-05-20 — see §Amendments at end (D-7 superseded by
+> Option 2′; reconciliations with ADR-032 + ADR-034; principal vs
+> owner; line-ref drift fixed).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.619-alpha
+> **Last verified vs code:** v1.0.636-alpha
 
 **TL;DR.** Promote *apply-on-approve* from two bespoke branches
 (`approval_request+spawnIn` → `DoSpawn`; `template_proposal` →
@@ -48,10 +51,10 @@ honour A3 today via system-side apply-on-approve:
 1. `agent.spawn` of a worker by a non-steward — gated through
    `approval_request + spawnIn` payload; the hub calls
    `DoSpawn(...)` only after `/decide(approve)` at
-   `handlers_attention.go:382`.
+   `handlers_attention.go:378`.
 2. `template.install` of a new bundled template — gated through
    `template_proposal`; the hub calls `installProposedTemplate(...)`
-   only after `/decide(approve)` at `handlers_attention.go:405`.
+   only after `/decide(approve)` at `handlers_attention.go:400`.
 
 Everything else load-bearing in termipod's project record
 (deliverable state transitions, phase advance, task close-out,
@@ -558,7 +561,9 @@ the distinction.
 - Foundational axiom: [spine/blueprint.md A3](../spine/blueprint.md#2-design-philosophy-three-axioms)
 - Role ontology: [spine/governance-roles.md](../spine/governance-roles.md)
 - Current apply-on-approve dispatch:
-  `hub/internal/server/handlers_attention.go:378-414`
+  `hub/internal/server/handlers_attention.go:378-419` (the two
+  branches at `:378` for `approval_request+spawnIn` and `:400`
+  for `template_proposal`).
 - Related ADRs:
   [ADR-005](005-owner-authority-model.md) (owner authority),
   [ADR-011](011-turn-based-attention-delivery.md) (turn-based delivery),
@@ -567,3 +572,379 @@ the distinction.
   [ADR-020](020-director-action-surface.md) (director-side mutations on documents/deliverables — agent-side counterpart added here),
   [ADR-025](025-project-steward-accountability.md) (D3 — first kind-gated mutation, precedent for the generalisation),
   [ADR-029](029-tasks-as-first-class-primitive.md) (auto-derive + override pattern; `task.set_status` operates on its rows).
+
+## Amendments
+
+### 2026-05-20 — D-7 superseded by Option 2′ (decision stays, signal walks)
+
+When this ADR was drafted (2026-05-17), D-7 declared
+*"No auto-escalation on timeout — no timeout daemon ships."*
+Two days later, [ADR-034](034-orchestration-loop-closure.md) shipped
+exactly such a daemon as part of the orchestration loop-closure
+runtime (`hub/internal/server/loop_sweep.go`, v1.0.632-alpha). The
+sweep advances `attention_items.escalation_state` along the tier
+ladder (`none → escalated_steward → escalated_principal`) when
+per-hop deadlines pass. D-7 as written contradicts the realised
+behaviour.
+
+A 2026-05-20 review surfaced this and considered three reconciliations:
+
+1. **Opt propose rows out of loop-closure** (set their
+   `inactivity_deadline = NULL` on insert). Preserves D-7 literally
+   but loses the liveness signal it leaned on.
+2. **Visibility-only escalation** — `escalation_state` advances, but
+   `assigned_tier` stays immutable; the principal's pathway remains
+   D-8 override.
+3. **Addressee handoff** — `escalation_state` advances *and*
+   `assigned_tier` mutates to the next tier; the row's decision
+   authority moves up the ladder.
+
+**Option 3 was rejected for MVP** because it forces a cluster of
+additional MVP work that D-7 explicitly deferred: a `/decide` gate
+against `assigned_tier`, per-tier deadline reset on re-address, a
+terminal state when the principal also times out, and matching policy
+schema (`escalate_on_timeout`, `escalate_to`). Each is sound and each
+belongs in the multi-member follow-up ADR; none belongs in this MVP.
+
+**Option 2 was extended (Option 2′)** to address the legitimate "how
+does the principal know it's stuck?" requirement that motivated
+option 3 in the first place. The state-machine stays simple
+(`assigned_tier` is immutable; the original addressee can always
+decide); the *signal* walks the ladder so the principal learns about
+staleness without polling.
+
+#### D-7 (amended)
+
+Quorum stays M=1 of N at each tier (single principal, M decorative).
+**`assigned_tier` is set at row creation by policy and never mutated
+by the sweep.**
+
+ADR-034's loop-closure runtime advances `escalation_state` along the
+tier ladder (`none → escalated_steward → escalated_principal`) when
+per-hop deadlines pass. Each transition:
+
+1. Emits `audit_events.action="attention.escalation_advanced"` with
+   `meta={attention_id, change_kind, from_state, to_state,
+   original_assigned_tier}`.
+2. Surfaces in the mobile **pull** surfaces (no separate push
+   channel in MVP — see the "Pre-W1 blocking decisions" amendment
+   below, item 5). The audit row appears in the `agent_events`
+   stream that Activity tab already consumes; the Me-page query
+   widening (W19.6) makes the escalated row visible in the
+   principal's Me-page on next foreground/pull; the Me-page digest
+   card surfaces the count.
+
+**The row's decision authority does not move.** The original
+addressee can still decide at any point; if they do between
+escalation transitions, the row resolves normally and the audit trail
+records the late-but-valid decision. The principal's pathway to act
+remains **D-8 override** — escalation makes them aware; override is
+the verb. The audit row on principal action is `attention.override`,
+not `attention.decide`, because `assigned_tier` was still below
+principal at decide-time.
+
+Reject remains terminal at the addressed tier. Re-propose-to-higher-
+tier by the requester stays convention-only (prompt rule).
+
+Multi-member quorum (M>1), addressee handoff, per-tier deadline
+reset, and the matching `escalate_to` policy field are deferred to
+the multi-member ADR. The schema hooks in D-6 stay forward-
+compatible; the `escalate_on_timeout` boolean is reinterpreted to
+mean "fire signal", not "move addressee".
+
+When the principal also times out, the row stays open with periodic
+re-notifications on a backoff (e.g. daily). Principal-as-last-stop is
+conceptual, not enforced — no auto-close.
+
+#### IA fit on mobile (Me-page)
+
+The current Me-page (`lib/screens/me/me_screen.dart`) is a single
+scrolling page with a four-chip filter bar — *All · Requests ·
+Agents · Messages* — keyed by attention `kind`, not by escalation
+state. The buckets:
+
+- **Requests** — `approval_request`, `permission_prompt`, `select`,
+  `help_request`, `elicit`, `template_proposal`,
+  `project_steward_request`. The "agent waiting on the user" bucket.
+- **Agents** — `idle`, `agent_error`.
+- **Messages** — every other attention kind (catch-all).
+
+`propose` is a Request by kind (the system is asking someone to
+decide). Stalled propose rows stay in Requests for the principal —
+they don't migrate to Messages or get their own filter chip. The
+"stalled" axis becomes a card decoration plus a top-of-Me digest
+card, mirroring the existing bottom "Since you were last here"
+digest pattern:
+
+- **Per-card stalled variant.** When the viewer is *not* the row's
+  `assigned_tier` but the row's `escalation_state` puts it in their
+  surface, the card renders with: a top pill (`⏱ Stuck 4h —
+  addressed to @steward.proj-92`); action buttons `Override` /
+  `View source` instead of `Approve` / `Reject`. Tapping `Override`
+  opens the D-8 confirmation sheet.
+- **Top-of-Me digest card.** Renders when escalated-row count > 0:
+  *"3 decisions stalled at stewards · 1 stalled with you >24h"*.
+  Tap → narrows the Me-page list to escalated rows.
+- **No filter-chip rename.** Messages stays the catch-all.
+- **No new attention kind.** Escalation is the existing
+  `escalation_state` column from migration 0042; the row stays
+  `kind='propose'` (or `'permission_prompt'` for the worker-tool
+  case).
+
+The push-notification channel from item 2 above fires *once per
+state transition* (deduped by `escalation_state`), not per sweep
+tick.
+
+### 2026-05-20 — Reconciliations with ADR-032 (envelope) and ADR-034 (loop-closure)
+
+Two adjacent ADRs shipped between this ADR's drafting and the
+2026-05-20 review. The reconciliations:
+
+**ADR-032 envelope on propose fan-back.** [ADR-032](032-message-routing-envelope.md)
+(shipped v1.0.632) decorates every `input.text` edge with the
+envelope `{from, to, kind, text, cause, thread}`. The propose
+fan-back uses `input.attention_reply`, not `input.text` — its
+existing payload shape stays, but the hub-side compose site
+(`dispatchAttentionReply`) populates the same envelope fields
+alongside `{request_id, kind:"propose", change_kind, decision,
+reason?, executed?}` so downstream lineage queries (the directive
+trace) can resolve a propose-decision edge the same way they resolve
+a directed-input edge. The plan's W11 is amended to require envelope
+composition at fan-back time.
+
+**ADR-034 loop-entity columns on `attention_items`.** [ADR-034](034-orchestration-loop-closure.md)
+migration 0042 already adds `inactivity_deadline`,
+`last_progress_at`, `opened_at`, `absolute_cap`, `escalation_state`,
+`terminal_reason`, and `cause` to `attention_items`. None of these
+collide with the ADR-030 W1 columns (`change_kind`, `assigned_tier`,
+`change_spec_json`, `target_ref_json`, `executed_json`), but two
+conceptual overlaps need explicit noting so future contributors
+don't collapse one into the other:
+
+1. **`cause` (ADR-034) vs `target_ref_json` (ADR-030).** For a
+   `task.set_status` propose, `target_ref_json.task_id` and `cause`
+   commonly hold the same task ID — but they serve different roles.
+   `cause` is the lineage pointer the directive trace walks
+   (per ADR-034 D-8); `target_ref_json` is the mutation target the
+   apply function reads on approve. The hub's propose handler MUST
+   populate both columns: `cause` from the propose call's enclosing
+   task context (if any), `target_ref_json` from the propose
+   argument.
+2. **`assigned_tier` (ADR-030) vs `escalation_state` (ADR-034).**
+   `assigned_tier='project-steward'` is *who decides*;
+   `escalation_state='escalated_steward'` is *what the sweep has
+   already signalled*. The loop sweep MUST NOT re-emit an
+   `escalation_advanced` audit/push for the same `escalation_state`
+   value across ticks — the column is also the dedup key.
+
+The plan's W1 is amended: migration number is **0044** (not 004X),
+and a short paragraph documents the two overlaps.
+
+### 2026-05-20 — Principal ≠ owner
+
+D-3's principal tier is "director framing at decide-time." This is
+**not** the same as ADR-028's `requireOwner(w, r)` gate on the
+`/v1/admin/*` surface. ADR-028 introduced an owner-kind bearer token
+that gates fleet/host/db/audit operations
+(`hub/internal/server/handlers_admin.go:70` and siblings, v1.0.636).
+
+- **Owner** = hub-admin token bearer; called for cluster operations
+  (host shutdown/restart/update, db vacuum, audit cross-team
+  queries). Today's bearer-kind check.
+- **Principal** = the human director addressed via attention rows;
+  decided through the `/decide` endpoint on
+  `attention_items` rows whose `assigned_tier='principal'`.
+
+The `/decide` handler does **not** today gate on owner-kind; it
+accepts any team-scoped bearer. ADR-030's propose decide path
+should stay that way for MVP (single principal, single team-scoped
+identity). The multi-member follow-up ADR will introduce
+principal-tier identity proofs separately from owner — until then,
+the existing team-scoped bearer is the principal proxy.
+
+This distinction matters because over-restricting the propose decide
+path to owner-kind would make single-principal MVP work fine but
+silently block multi-member; the schema-hooks-for-multi-member work
+in D-6 + D-7 would then be partly undone by the auth gate.
+
+### 2026-05-20 — Plan drift items addressed in the plan rewrite
+
+The 2026-05-20 audit also found stale file/line refs in the plan,
+which are fixed in [plans/governed-actions-mvp-rollout.md](../plans/governed-actions-mvp-rollout.md)
+without being relitigated here. For the record:
+
+- W4's MCP tool registration moved from `hub/internal/hubmcpserver/tools.go`
+  to `hub/internal/server/native_tools.go`'s `buildNativeTools()` —
+  ADR-033 (shipped v1.0.631) reorganised the tool catalog.
+- W10's `mcpPermissionPrompt` is at `mcp_more.go:687`, not `~1045`.
+- W12's bundled steward templates are **8 files**, not 5
+  (`steward.v1.md`, `steward.general.v1.md`,
+  `steward.claude-m4.v1.md`, `steward.codex.v1.md`,
+  `steward.gemini.v1.md`, `steward.kimi.v1.md`,
+  `steward.research.v1.md`, `steward.infra.v1.md`).
+- W13's scenarios renumber to S33-S40 — confirmed (highest
+  existing is S32, ADR-034 stuck-task recovery).
+
+### 2026-05-20 — Pre-W1 blocking decisions resolved
+
+The 2026-05-20 audit surfaced five open questions that would block
+W1 starts (the plan said "no work started"). The decisions, with
+their rationale:
+
+#### 1. Policy file shape — extend the existing `policy.yaml` (single file, two coexisting shapes)
+
+The existing `hub/internal/server/policy.go` already loads
+`<dataRoot>/team/policy.yaml` into a `Policy` struct carrying
+`tiers / approvers / quorum / escalation`. ADR-030 D-6 originally
+proposed a *second* file `team/<team>/policy/governed-actions.yaml`
+with a richer per-`kind` shape.
+
+**Decision:** extend the existing `policy.yaml` with a new top-level
+`kinds:` block. One file, one reader. The new block coexists with
+the legacy `tiers`/`approvers`/`quorum` (which the alias-compat
+spawn/template-install paths still consult during the one-cycle
+deprecation window).
+
+The amended file shape:
+
+```yaml
+# legacy shape — still consulted by alias-compat dispatch
+tiers:
+  spawn: moderate
+  tool:write_file: low
+approvers:
+  moderate: ["@steward", "@principal"]
+quorum:
+  moderate: 1
+
+# new ADR-030 shape — read by the propose dispatcher
+kinds:
+  deliverable.set_state:
+    default_tier: principal
+    quorum:
+      principal: { M: 1 }
+    commits: true
+    override_allowed: true
+    escalate_on_reject: false
+    escalate_on_timeout: false
+  task.set_status:
+    default_tier: project-steward
+    quorum:
+      project-steward: { M: 1 }
+    commits: true
+    override_allowed: true
+    escalate_on_reject: false
+    escalate_on_timeout: false
+  # … rest per D-6
+```
+
+The reader: when handling a propose call of `kind=X`, look up
+`Policy.Kinds[X]` first; if missing, fall through to a permissive
+default (M=1 at `default_tier=principal`) plus a WARN log. Reload on
+mtime change (existing pattern in `policy.go`).
+
+Plan W2's file path correction: **`<dataRoot>/team/policy.yaml`**
+(not `<dataRoot>/policy/governed-actions.yaml`); the new struct
+field is `Kinds map[string]KindPolicy` added to the existing `Policy`
+struct.
+
+The existing `EscalationPolicy.WidenTo` mechanism (which would
+implement option 3 of D-7) is intentionally **not** wired up for
+propose rows in MVP. The D-7 Option 2′ amendment keeps
+`assigned_tier` immutable; using `WidenTo` would re-introduce the
+addressee handoff we deferred to the multi-member follow-up ADR.
+This is a divergence between policy capability (machinery exists)
+and policy use (not exercised for propose) that future contributors
+must respect.
+
+#### 2. `assigned_tier` — add as a new column
+
+The existing `attention_items.current_assignees_json` carries an
+array of handles (resolved via `policy.ApproversFor(tier)`).
+ADR-030 D-3 wants the *tier name itself* alongside, for fast Me-page
+query widening (W19.6) and for the audit metadata.
+
+**Decision:** add `assigned_tier` as a new column in migration 0044
+(per W1). Resolution flow on propose: the dispatcher reads
+`Policy.Kinds[kind].default_tier`, stamps it into `assigned_tier`,
+then expands to `current_assignees_json` via the existing
+`approvers` map (keeping the legacy column populated for the
+existing escalation/widen machinery).
+
+W19.6's query widening uses `assigned_tier` directly (cheap string
+compare), not a `JOIN` against the policy file.
+
+Plan W1's column list is unchanged; this amendment confirms the
+choice is "add the column" rather than "derive at decide-time."
+
+#### 3. W10 worker→steward predicate — strict same-project
+
+When a worker raises `permission_prompt`, the row is re-addressed to
+the parent steward only when:
+
+```
+worker.parent_agent_id IS NOT NULL
+AND parent_agent.kind LIKE 'steward.%'
+AND parent_agent.project_id = worker.project_id
+```
+
+**Decision:** strict. Orphan workers (no parent), workers with a
+non-steward parent, and workers whose parent steward is from a
+different project — all keep their `permission_prompt` rows
+team-wide-addressed as today. This matches ADR-025 D3
+("workers project-scoped + sessioned; one steward per engaged
+project").
+
+The third-clause (`project_id` match) avoids a v1.0.605-class bug
+where a parent-id pointer survived but the project binding had
+drifted. If the binding fails, surface team-wide rather than
+mis-route to a steward of an unrelated project.
+
+#### 4. W4 propose target — caller-`project_id` for workers; stewards/principal may cross
+
+`propose` calls enforce a target-scope check before raising the
+row:
+
+| Caller `kind` | Constraint |
+|---|---|
+| worker | `target_ref.project_id` MUST equal `caller.project_id`. Cross-project propose → 403 with a structured error. |
+| `steward.<domain>.*` (project / domain steward) | May cross projects (a domain steward coordinating across owned projects). |
+| `steward.general.*` (general steward) | May cross projects (the general steward routes work across the team). |
+| principal | May cross (does not typically call MCP; the gate is informational). |
+
+The check lives in `handlers_propose.go`, runs after `kind` validation
+and before policy lookup. Rejection is a 403 with `code: "out_of_scope"`
+so steward prompts can teach workers to delegate cross-project work
+through the steward rather than directly proposing across the boundary.
+
+#### 5. W11.5 escalation channel — audit row only (no separate push infra)
+
+The repo has **no mobile push infrastructure** (no FCM / APNS /
+firebase / device-token tables). The W11.5 wedge previously read as
+if it would build one.
+
+**Decision:** the escalation channel for MVP is the **audit row
+alone**. When `loop_sweep.go` flips `escalation_state`, it
+`s.recordAudit("attention.escalation_advanced", ...)`. That row
+lands in the `agent_events` stream the mobile Activity tab already
+consumes; the Me-page query widening (W19.6) makes the escalated
+row visible on next foreground/pull; the Me-page digest card
+surfaces the count.
+
+This means: **the principal learns about escalation on next
+foreground/pull, not via a real-time push.** Acceptable for
+single-principal MVP — the principal is the human director and
+checks the app on roughly the same cadence as the sweep tick (45s).
+Real-time push is a clean post-MVP add (FCM/APNS adapter + device-
+token table + a notifications service).
+
+W11.5 LOC is correspondingly trimmed (~30 LOC instead of 50): just
+the audit-row emit + dedup-by-`escalation_state`. The plan §1 phase
+table reflects the reduced Phase 1 total (~1080 LOC, not 1100).
+The 24h/7-cap backoff machinery is also dropped from MVP — without
+a real-time push, repeated re-pushes aren't a concern; the principal
+sees the row each time they open Me.
+
+The mobile-side digest card (W19.6) is the visibility surface; the
+audit row is the signal trail. Both pull-shaped, both work without
+push infra.

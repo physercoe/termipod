@@ -74,7 +74,14 @@ class SshState {
 ///
 /// Each connection gets its own isolated SshNotifier. No generation counters
 /// or cross-connection race guards needed — isolation is structural.
-/// Auto-disposed when the last listener (TerminalScreen) is removed.
+///
+/// Lifetime model: the provider is `autoDispose`, but after a successful
+/// connect we grab a `KeepAliveLink` so the SSH socket survives across
+/// screen navigation (Hosts → Project → back to Hosts → back into
+/// Terminal). The user releases the link by tapping **Disconnect** in
+/// the terminal overflow menu, which calls [disconnect]. The Hosts row
+/// shows a live-dot indicator by watching [activeSshConnectionIdsProvider],
+/// which this notifier joins on connect and leaves on disconnect.
 class SshNotifier extends Notifier<SshState> {
   final String connectionId;
 
@@ -82,6 +89,12 @@ class SshNotifier extends Notifier<SshState> {
 
   SshClient? _client;
   final SshForegroundTaskService _foregroundService = SshForegroundTaskService();
+
+  // Keep-alive link grabbed after the first successful connect, released
+  // by [disconnect] (the manual teardown path) or by the `ref.onDispose`
+  // belt-and-braces. While the link is held, popping TerminalScreen no
+  // longer tears down the SSH socket.
+  KeepAliveLink? _keepAliveLink;
 
   // Cached connection info for reconnection
   Connection? _lastConnection;
@@ -115,15 +128,32 @@ class SshNotifier extends Notifier<SshState> {
     // Monitor network state
     _startNetworkMonitoring();
 
-    // Register cleanup — auto-dispose handles calling this
+    // Register cleanup — auto-dispose handles calling this. Reached
+    // only after [disconnect] (which closes [_keepAliveLink]) or app
+    // teardown; otherwise the keep-alive link blocks disposal so the
+    // SSH socket survives screen navigation.
     ref.onDispose(() {
       _reconnectTimer?.cancel();
       _connectionStateSubscription?.cancel();
       _networkStatusSubscription?.cancel();
       _client?.dispose();
-      _foregroundService.stopService();
+      _foregroundService.stopService(connectionId: connectionId);
+      // Belt-and-braces — if we got here without going through
+      // [disconnect] (e.g. app shutdown), make sure the active-IDs
+      // set doesn't carry a stale entry that would leave the Hosts
+      // row showing a live dot for a dead connection.
+      ref.read(activeSshConnectionIdsProvider.notifier).remove(connectionId);
     });
     return const SshState();
+  }
+
+  /// Hold the provider alive across navigation and surface this
+  /// connection in [activeSshConnectionIdsProvider] so the Hosts row
+  /// can render its live-dot indicator. Idempotent — safe to call on
+  /// every successful (re)connect.
+  void _markConnectionLive() {
+    _keepAliveLink ??= ref.keepAlive();
+    ref.read(activeSshConnectionIdsProvider.notifier).add(connectionId);
   }
 
   /// Start network state monitoring
@@ -201,9 +231,11 @@ class SshNotifier extends Notifier<SshState> {
       ref.read(connectionsProvider.notifier).updateLastConnected(connection.id);
 
       await _foregroundService.startService(
+        connectionId: connectionId,
         connectionName: connection.name,
         host: connection.host,
       );
+      _markConnectionLive();
     } on SshConnectionError catch (e) {
       state = state.copyWith(
         connectionState: SshConnectionState.error,
@@ -271,9 +303,11 @@ class SshNotifier extends Notifier<SshState> {
       ref.read(connectionsProvider.notifier).updateLastConnected(connection.id);
 
       await _foregroundService.startService(
+        connectionId: connectionId,
         connectionName: connection.name,
         host: connection.host,
       );
+      _markConnectionLive();
     } on SshConnectionError catch (e) {
       state = state.copyWith(
         connectionState: SshConnectionState.error,
@@ -447,13 +481,15 @@ class SshNotifier extends Notifier<SshState> {
     );
   }
 
-  /// Disconnect
+  /// Disconnect. Closes the keep-alive link so the provider can
+  /// auto-dispose once the last listener (typically TerminalScreen) is
+  /// gone — which restores the original "no live socket" baseline.
   Future<void> disconnect() async {
     _reconnectTimer?.cancel();
     await _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
 
-    await _foregroundService.stopService();
+    await _foregroundService.stopService(connectionId: connectionId);
     await _client?.disconnect();
     _client = null;
 
@@ -466,6 +502,12 @@ class SshNotifier extends Notifier<SshState> {
       reconnectAttempt: 0,
       nextRetryAt: null,
     );
+
+    // Drop from the Hosts-row indicator set + release keep-alive so
+    // the provider becomes eligible for auto-dispose again.
+    ref.read(activeSshConnectionIdsProvider.notifier).remove(connectionId);
+    _keepAliveLink?.close();
+    _keepAliveLink = null;
   }
 
   /// Update session title
@@ -485,7 +527,43 @@ class SshNotifier extends Notifier<SshState> {
 }
 
 /// SSH provider — keyed by connectionId.
-/// Each connection gets its own isolated instance, auto-disposed when no longer watched.
+///
+/// Each connection gets its own isolated instance. The provider is
+/// declared `autoDispose`, but [SshNotifier] grabs a `KeepAliveLink`
+/// after a successful connect so the socket survives screen navigation;
+/// the link is released by [SshNotifier.disconnect]. See
+/// [activeSshConnectionIdsProvider] for the corresponding visibility
+/// signal that drives the Hosts-row live-dot indicator.
 final sshProvider = NotifierProvider.autoDispose.family<SshNotifier, SshState, String>(
   (connectionId) => SshNotifier(connectionId),
+);
+
+/// IDs of personal-host SSH connections whose [SshNotifier] currently
+/// holds a `KeepAliveLink` — i.e. those the user has opened at least
+/// once and not explicitly disconnected from. The Hosts row watches
+/// this set to render a green "alive" dot; the steward and any other
+/// caller can read it to learn which personal hosts are reachable
+/// without a fresh SSH handshake.
+///
+/// Maintained from inside [SshNotifier] on connect/disconnect; widgets
+/// MUST NOT mutate it directly.
+class _ActiveSshConnectionIds extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => const <String>{};
+
+  void add(String id) {
+    if (state.contains(id)) return;
+    state = {...state, id};
+  }
+
+  void remove(String id) {
+    if (!state.contains(id)) return;
+    final next = state.where((x) => x != id).toSet();
+    state = next;
+  }
+}
+
+final activeSshConnectionIdsProvider =
+    NotifierProvider<_ActiveSshConnectionIds, Set<String>>(
+  _ActiveSshConnectionIds.new,
 );

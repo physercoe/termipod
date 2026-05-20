@@ -9,6 +9,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/ssh_provider.dart' show activeSshConnectionIdsProvider;
 import '../../services/keychain/secure_storage.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/hub_tile.dart';
@@ -459,6 +460,17 @@ class _HostTile extends ConsumerWidget {
     final cardBg =
         isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
 
+    // Personal-SSH live indicator: green when an `SshNotifier` holds a
+    // keep-alive link for this connection (user opened the terminal at
+    // least once and hasn't tapped "Disconnect" in its overflow menu).
+    // Team-only hub rows have no `connection` and never show the dot —
+    // hub liveness is already encoded into [_ScopeBadge]'s colour.
+    final activeIds = row.connection != null
+        ? ref.watch(activeSshConnectionIdsProvider)
+        : const <String>{};
+    final isLive =
+        row.connection != null && activeIds.contains(row.connection!.id);
+
     return Material(
       color: cardBg,
       borderRadius: BorderRadius.circular(12),
@@ -485,6 +497,10 @@ class _HostTile extends ConsumerWidget {
                   ],
                 ),
               ),
+              if (isLive) ...[
+                const _LiveDot(),
+                const SizedBox(width: 6),
+              ],
               _ScopeBadge(
                 scope: row.scope,
                 hostStatus: (row.hubHost?['status'] ?? '').toString(),
@@ -613,6 +629,36 @@ class _HostTile extends ConsumerWidget {
     if (ok != true) return;
     await SecureStorageService().deletePassword(c.id);
     await ref.read(connectionsProvider.notifier).remove(c.id);
+  }
+}
+
+/// Small green dot rendered before [_ScopeBadge] when this row's
+/// personal-SSH connection is currently held alive by [SshNotifier]
+/// (a keep-alive link survives screen navigation). The user disconnects
+/// from the Terminal screen's overflow menu — tapping the dot is a
+/// no-op so the row's existing tap-to-open gesture isn't shadowed.
+class _LiveDot extends StatelessWidget {
+  const _LiveDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Connected · disconnect from terminal menu',
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: DesignColors.success,
+          boxShadow: [
+            BoxShadow(
+              color: DesignColors.success.withValues(alpha: 0.45),
+              blurRadius: 4,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

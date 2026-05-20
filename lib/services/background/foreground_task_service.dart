@@ -3,6 +3,14 @@ import 'dart:io';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 /// SSH接続をバックグラウンドで維持するためのForeground Serviceを管理
+///
+/// Refcounted by `connectionId` — once we keep SSH connections alive
+/// across screen navigation (see `ssh_provider.dart` keep-alive link),
+/// it's possible for two or more sockets to be in flight at once. A
+/// global start-on-first / stop-on-any-disconnect model would let the
+/// second SSH's disconnect yank the foreground service out from under
+/// the first. We stop the service only when the last connection
+/// releases its hold.
 class SshForegroundTaskService {
   static final SshForegroundTaskService _instance =
       SshForegroundTaskService._internal();
@@ -12,6 +20,12 @@ class SshForegroundTaskService {
   bool _isInitialized = false;
   bool _isRunning = false;
   String? _currentConnectionName;
+
+  // Refcount of live SSH sockets that need the Android foreground
+  // service to keep the process alive while backgrounded. Adds happen
+  // in [startService]; removes in [stopService]. The service shuts
+  // down only when this set drains.
+  final Set<String> _activeConnectionIds = <String>{};
 
   /// サービスが実行中かどうか
   bool get isRunning => _isRunning;
@@ -76,12 +90,29 @@ class SshForegroundTaskService {
   }
 
   /// SSH接続時にForeground Serviceを開始
+  ///
+  /// [connectionId] joins the refcount. Subsequent calls with new IDs
+  /// keep the same service running and only refresh the notification.
   Future<bool> startService({
+    required String connectionId,
     required String connectionName,
     required String host,
   }) async {
+    _activeConnectionIds.add(connectionId);
+
     if (!Platform.isAndroid) return true;
-    if (_isRunning) return true;
+
+    if (_isRunning) {
+      // Another connection already drives the service; surface the
+      // newest connection in the notification text so the user has a
+      // sense of which host they last reached.
+      _currentConnectionName = connectionName;
+      await updateNotification(
+        title: 'SSH connected: $connectionName',
+        text: 'Host: $host',
+      );
+      return true;
+    }
 
     await initialize();
 
@@ -116,7 +147,17 @@ class SshForegroundTaskService {
   }
 
   /// SSH切断時にForeground Serviceを停止
-  Future<void> stopService() async {
+  ///
+  /// [connectionId] leaves the refcount; the service only actually
+  /// stops when the last connection releases its hold.
+  Future<void> stopService({required String connectionId}) async {
+    _activeConnectionIds.remove(connectionId);
+
+    if (_activeConnectionIds.isNotEmpty) {
+      // Other connections still need the service running.
+      return;
+    }
+
     if (!Platform.isAndroid || !_isRunning) return;
 
     await FlutterForegroundTask.stopService();

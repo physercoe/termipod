@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-20)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.637
+> **Last verified vs code:** v1.0.638
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,77 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.638-alpha — 2026-05-20
+
+Personal-SSH UX: keep the connection alive while the user navigates
+away from the terminal, surface it on the Hosts row, and land directly
+on the last viewed session/window/pane on reopen. Mobile-only —
+hub binary unchanged in behaviour (the buildinfo version is bumped in
+lockstep with the app per the per-release convention).
+
+### Added
+
+- **Live SSH across navigation.** `SshNotifier` grabs a `KeepAliveLink`
+  after a successful connect; releasing happens only on explicit
+  `disconnect()` (the "Disconnect" item in the terminal overflow menu)
+  or app teardown. Popping TerminalScreen no longer drops the socket
+  — re-entering reuses the live client and skips the dial + auth
+  round-trip. `terminal_screen.dart` adds an `alreadyLive` guard in
+  `_connectAndSetup` so the second visit only rebuilds the local
+  backend.
+- **Live-dot indicator on the Hosts row.** New `_LiveDot` widget
+  (`hosts_screen.dart`) — 8px green circle with a soft glow, rendered
+  before `_ScopeBadge` on personal-Connection rows when the
+  connection is in `activeSshConnectionIdsProvider`. Tooltip:
+  *"Connected · disconnect from terminal menu."* Manual disconnect
+  remains in the terminal overflow menu (unchanged).
+- **`activeSshConnectionIdsProvider`.** New `NotifierProvider<Set<String>>`
+  alongside `sshProvider`. `SshNotifier` adds itself on connect and
+  removes on disconnect; the Hosts row watches the set rather than
+  instantiating every connection's notifier eagerly.
+- **Persisted tmux session/window/pane restore on reopen.**
+  `_setupTmuxBackend` now consults `activeSessionsProvider` as a
+  third source after deep-link and constructor-arg paths. Picks the
+  session with the most recent `lastAccessedAt` (when its name is
+  still present server-side), then applies `lastWindowIndex` +
+  `lastPaneId` with the same `orElse: () => session.windows.first` /
+  `() => window.panes.first` fallback the constructor-args branch
+  already used. Stale targets degrade silently to "first available."
+  Also registers the resolved session via `addOrUpdateSession` so a
+  freshly-created session has a row for subsequent `updateLastPane`
+  writes to land in.
+
+### Changed
+
+- **Foreground service refcounted by `connectionId`.**
+  `SshForegroundTaskService.startService` / `stopService` now require
+  a `connectionId` and maintain a `Set<String> _activeConnectionIds`.
+  The underlying `FlutterForegroundTask` only stops when the set
+  drains — needed because keep-alive lets multiple sockets coexist;
+  a global stop-on-any-disconnect would yank the service out from
+  under the others. Notification text updates to the most-recent
+  connection when a second one comes up.
+
+### Notes
+
+- iOS background time is still bounded by the OS — the foreground
+  service is Android-only (`!Platform.isAndroid` short-circuits in
+  `startService`). Existing exponential-backoff reconnect handles
+  wake-up.
+- No new MCP affordance for the steward. Keep-alive only extends the
+  lifetime of a user-initiated personal-host connection; a
+  `mobile.send_text` / `mobile.tmux_send` intent is still post-
+  prototype per `discussions/agent-driven-mobile-ui.md`.
+
+### Tests
+
+- `test/providers/active_ssh_connections_test.dart` (new) — locks
+  `activeSshConnectionIdsProvider`'s add / remove / idempotence
+  semantics so neither the Hosts row nor any future consumer ends up
+  with a stale or duplicated entry.
 
 ---
 

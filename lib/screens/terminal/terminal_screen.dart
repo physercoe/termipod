@@ -667,10 +667,22 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
 
       // 3. SSH接続（シェルは起動しない - execのみ使用）
+      //
+      // Reuse the live socket when one already exists for this
+      // connectionId — the keep-alive link held by `SshNotifier` (see
+      // `ssh_provider.dart`) survives navigation, so a return visit
+      // skips the dial + auth round-trip and just rebuilds the local
+      // backend. We still rebuild the backend below: it owns terminal
+      // cells, scrollback, and tmux poll timers that don't survive
+      // widget dispose.
       final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
-      await sshNotifier.connectWithoutShell(connection, options);
-      if (!mounted || _isDisposed) {
-        return;
+      final alreadyLive = sshNotifier.state.isConnected &&
+          sshNotifier.client != null;
+      if (!alreadyLive) {
+        await sshNotifier.connectWithoutShell(connection, options);
+        if (!mounted || _isDisposed) {
+          return;
+        }
       }
 
       // [forceRawMode] from the Servers page lets a tmux-configured
@@ -761,6 +773,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final tmuxState = ref.read(tmuxProvider(widget.connectionId));
     final sessions = tmuxState.sessions;
 
+    // Persisted "last viewed" record for this connection (if any).
+    // We consult it twice below — first to pick which session to attach
+    // to when the caller didn't name one, then to pick window/pane
+    // inside that session. Reads are one-shot snapshots; mutations
+    // continue to happen via [updateLastPane] on pane select (and
+    // transitively on session/window switch through [_selectPane]).
+    final persistedSessions = ref
+        .read(activeSessionsProvider)
+        .getSessionsForConnection(widget.connectionId);
+
     // Select or create session
     String sessionName;
     if (widget.sessionName != null) {
@@ -780,7 +802,22 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         sessionName = widget.sessionName!;
       }
     } else if (sessions.isNotEmpty) {
-      sessionName = sessions.first.name;
+      // Prefer the session the user was last viewing on this
+      // connection, when it still exists server-side. Falls through to
+      // sessions.first (the original default) if no persisted name
+      // survives — that's the "check failed → fallback" behaviour the
+      // user asked for.
+      final liveNames = sessions.map((s) => s.name).toSet();
+      ActiveSession? lastSeen;
+      for (final p in persistedSessions) {
+        if (!liveNames.contains(p.sessionName)) continue;
+        final pTs = p.lastAccessedAt ?? p.connectedAt;
+        if (lastSeen == null ||
+            pTs.isAfter(lastSeen.lastAccessedAt ?? lastSeen.connectedAt)) {
+          lastSeen = p;
+        }
+      }
+      sessionName = lastSeen?.sessionName ?? sessions.first.name;
     } else {
       sessionName = 'termipod-${DateTime.now().millisecondsSinceEpoch}';
       await sshClient.exec(TmuxCommands.newSession(name: sessionName, detached: true));
@@ -829,6 +866,67 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           );
           ref.read(tmuxProvider(widget.connectionId).notifier).setActivePane(pane.id);
         }
+      }
+    } else {
+      // No explicit hint from the caller — try the persisted record
+      // for the resolved session. The window/pane checks each fall
+      // back to the first available when the saved target has been
+      // killed since the previous visit (matching the constructor-arg
+      // branch above), so a stale id never blocks attach.
+      final persistedRow = persistedSessions
+          .where((s) =>
+              s.sessionName == sessionName && s.lastWindowIndex != null)
+          .firstOrNull;
+      if (persistedRow != null) {
+        final tmuxState = ref.read(tmuxProvider(widget.connectionId));
+        final session = tmuxState.activeSession;
+        if (session != null && session.windows.isNotEmpty) {
+          final window = session.windows.firstWhere(
+            (w) => w.index == persistedRow.lastWindowIndex,
+            orElse: () => session.windows.first,
+          );
+          ref
+              .read(tmuxProvider(widget.connectionId).notifier)
+              .setActiveWindow(window.index);
+          if (persistedRow.lastPaneId != null && window.panes.isNotEmpty) {
+            final pane = window.panes.firstWhere(
+              (p) => p.id == persistedRow.lastPaneId,
+              orElse: () => window.panes.first,
+            );
+            ref
+                .read(tmuxProvider(widget.connectionId).notifier)
+                .setActivePane(pane.id);
+          }
+        }
+      }
+    }
+
+    // Register the resolved session in `activeSessionsProvider` if it
+    // isn't already there — this is the row that subsequent pane
+    // selects write into via [updateLastPane] (which silently no-ops
+    // when no row exists). Without this step, a session created
+    // inside this screen (the `else { sessionName = 'termipod-…' }`
+    // branch above, or a tmux session that other surfaces haven't
+    // refreshed yet) wouldn't have a place to persist its last pane.
+    //
+    // We thread connectionName + host from the [connection] arg
+    // because the persistence layer surfaces those alongside the
+    // session for the home_screen "Active sessions" list — passing
+    // the bare connectionId would render empty subtitles there.
+    {
+      final tmuxStateNow = ref.read(tmuxProvider(widget.connectionId));
+      final attachedSession = tmuxStateNow.sessions.firstWhere(
+        (s) => s.name == sessionName,
+        orElse: () => const TmuxSession(name: '', windowCount: 0),
+      );
+      if (attachedSession.name.isNotEmpty) {
+        ref.read(activeSessionsProvider.notifier).addOrUpdateSession(
+              connectionId: widget.connectionId,
+              connectionName: connection.name,
+              host: connection.host,
+              sessionName: sessionName,
+              windowCount: attachedSession.windowCount,
+            );
       }
     }
 

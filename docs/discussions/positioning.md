@@ -1,9 +1,9 @@
 # Positioning & business analysis
 
 > **Type:** discussion
-> **Status:** Open (extended 2026-05-01 §1.5 strategic frame; reconciled 2026-05-18 — §5 multi-tenant contradiction fixed, §7 README-refresh marked shipped)
+> **Status:** Open (extended 2026-05-01 §1.5 strategic frame; reconciled 2026-05-18 — §5 multi-tenant contradiction fixed, §7 README-refresh marked shipped; reconciled 2026-05-21 — engine list corrected (no Aider; claude-code/codex/gemini-cli/kimi-code), single-session differentiator softened as competitors gained multi-session)
 > **Audience:** principal, reviewers, partners
-> **Last verified vs code:** v1.0.630
+> **Last verified vs code:** v1.0.640
 
 **TL;DR.** Business-side framing. Answers seven positioning
 questions (what is termipod / buyer / differentiator / competitive
@@ -34,7 +34,7 @@ Three layers, each resisting a specific failure mode (blueprint §3.4):
 
 - **Hub** (Go daemon) — authority layer. Stores names, policies, events, references. *Not bytes.*
 - **Host-runner** — deterministic local deputy on each host. Spawns agents, owns panes, enforces budget/policy, relays agent↔hub calls through an MCP gateway.
-- **Agent** — the stochastic executor (Claude Code, Codex, Aider, any LLM-driven CLI).
+- **Agent** — the stochastic executor (Claude Code, Codex, Gemini CLI, Kimi Code, any LLM-driven CLI).
 
 Plus an **A2A protocol** so a steward on a VPS can delegate a train run to a worker on a NAT'd GPU box via a reverse-tunnel relay.
 
@@ -128,7 +128,7 @@ Concrete archetypes, ordered by immediacy of pain:
 | ICP | Day-to-day | Why they hurt today |
 |---|---|---|
 | **Solo ML researcher** running nightly sweeps | writes goals, reviews briefings, ratifies gpu spend | has a VPS + a home GPU box; no tool spans both, no tool gives a phone-glance of overnight runs |
-| **Indie AI hacker** running multiple coding agents | juggles Claude Code, Codex, Aider across projects | each tool has its own session; no unified attention queue; mobile apps cover 1 session at a time |
+| **Indie AI hacker** running multiple coding agents | juggles Claude Code, Codex, Gemini CLI, Kimi Code across projects | each tool has its own session; even the apps that now hold several sessions give no unified attention queue and no coordination across them |
 | **Small autonomy-focused startup (1–5 engineers)** | CTO wants to delegate to agents with governance | needs budget caps, audit log, approvals — no existing tool has them |
 | **Open-source maintainer** | runs triage/review agents on issues overnight | wants to approve agent PRs from bed; current tools need laptop awake |
 | **Homelab enthusiast with a GPU box** | ML experiments + self-hosted infra | wants to pull work out of the house and onto their phone without exposing raw SSH to the internet |
@@ -148,22 +148,22 @@ Concrete archetypes, ordered by immediacy of pain:
 
 One sentence:
 
-> **Everyone else gives you one agent in your pocket. TermiPod gives you a team of agents across your own infrastructure, coordinated by a steward on your behalf — and a phone-shaped cockpit to direct and ratify without operating.**
+> **Everyone else hands you sessions to drive yourself. TermiPod gives you a team of agents across your own infrastructure, coordinated by a steward on your behalf — and a phone-shaped cockpit to direct and ratify without operating.**
 
 Decomposed:
 
-| Dimension | Remote Control / Happy / Tactic | TermiPod |
+| Dimension | Remote Control / Happy / Tactic / Codex | TermiPod |
 |---|---|---|
-| Topology | 1 phone ↔ 1 session ↔ 1 host | 1 director ↔ N agents ↔ M hosts |
-| Agent count | 1 active at a time | Fleet; steward spawns more |
-| Host span | Single local machine | VPS + GPU + Mac + CI, coordinated via A2A |
-| Agent vendor | Claude Code (+ Codex for Happy) | Agent-agnostic — any CLI that takes a pty |
-| Authoring model | User types messages | User writes a goal; steward decomposes into a plan |
+| Topology | You ↔ sessions you launch by hand | 1 director ↔ N agents ↔ M hosts |
+| Agent count | Several sessions, but each started and driven by you | Fleet; steward spawns and coordinates more |
+| Host span | One machine you keep awake (some sync via vendor cloud) | VPS + GPU + Mac + CI, coordinated via A2A |
+| Agent vendor | Claude Code / Codex | Agent-agnostic — any CLI that takes a pty |
+| Authoring model | User types messages turn by turn | User writes a goal; steward decomposes into a plan + tasks |
 | User posture | Operator | Director — ratifies, doesn't operate |
-| Governance | None | Policies, budgets, audit, team roles |
-| Data ownership | Cloud relay or laptop-only | Hub holds names/events; hosts hold bytes; blueprint §4 law |
-| Offline | Requires relay | SQLite snapshot cache; last-known-good on every list |
-| Open source | Happy: yes; others: no | Apache 2.0, self-hosted Go hub |
+| Governance | Minimal | Governed-action propose/ratify, policies, budgets, audit, team roles |
+| Data ownership | Vendor cloud or laptop-only | Hub holds names/events; hosts hold bytes; blueprint §4 law |
+| Offline | Requires a live connection | SQLite snapshot cache; last-known-good on every list |
+| Open source | Mixed (Happy: yes; others: no) | Apache 2.0, self-hosted Go hub |
 
 **The thing none of them can copy cheaply:** TermiPod's three-layer split (hub = names, host-runner = deterministic deputy, agent = stochastic executor) plus A2A routing. Remote Control *can't* add multi-host or multi-vendor without becoming a different product. Happy can't add governance without a hub. OpenHands can't become a mobile director-cockpit without rebuilding its UX top-to-bottom. TermiPod is what you get when you start from "the phone is the cockpit and the agents are distributed" as first principles.
 
@@ -271,9 +271,9 @@ Being honest about all three saves us from trying to be everything and being not
 
 ### One minute
 
-Claude Code, Codex, and Aider write code ten times faster than you can review. The moment you run more than one — or more than one machine — the mobile tools break down: Anthropic's Remote Control is a 1:1 bridge to a single local session, Happy wraps one CLI at a time, Tactic Remote is iOS only. None of them span hosts, none coordinate multiple agents, none have governance.
+Claude Code, Codex, Gemini CLI, and Kimi Code write code ten times faster than you can review. The mobile tools are catching up on session count — several now hold more than one — but they still hand you sessions to drive: Anthropic's Remote Control bridges to local sessions, Happy wraps CLIs one at a time, Tactic Remote is iOS only, the Codex app stays inside one vendor's cloud. None span your own hosts, none decompose a goal into a coordinated fleet, none govern what the agents may do.
 
-TermiPod is built on a different axiom: the user is the director, not the operator. You write a natural-language goal on your phone — "ablation sweep on nanoGPT, tell me which optimizer scales better." A steward agent running on your VPS decomposes it into a 6-step plan. You tap Approve. The steward delegates training runs via A2A to your GPU box, even if it's behind NAT. Three hours later, your Inbox has one attention item: a briefing with loss curves and a recommendation. You ratify and go back to dinner.
+TermiPod is built on a different axiom: the user is the director, not the operator. You write a natural-language goal on your phone — "ablation sweep on nanoGPT, tell me which optimizer scales better." A steward agent running on your VPS decomposes it into a plan and a set of tasks, then *proposes* the spawn for you to Approve. The steward delegates training runs via A2A to your GPU box, even if it's behind NAT, and the loop closes back to you when the work finishes or blocks. Your Inbox gets one attention item: a briefing with loss curves and a recommendation. You ratify and go back to dinner.
 
 Everything stays on your infrastructure — the hub is a Go daemon you host, agents run where compute lives, the mobile app is open-source Flutter. Every action is audit-logged, every budget is policy-enforced, and when you're offline the SQLite snapshot cache still shows you the last-known-good dashboard. Agent-agnostic, multi-host, offline-first, Apache 2.0.
 

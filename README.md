@@ -26,16 +26,17 @@
 
 ## What makes it different
 
-Every other "Claude Code on your phone" tool is a 1:1 bridge to a single local session. TermiPod is a 1:N control plane over a fleet:
+Mobile agent apps are catching up on raw session count — several now juggle more than one session at a time. TermiPod isn't another session multiplexer; it's a **director's control plane**: you state a goal, a steward decomposes it into a plan and tasks, a governed fleet executes across your own machines, and the loop closes back to you.
 
-- **Multi-agent** — coordinate Claude Code, Codex, Aider, or any CLI, each with its own pane, profile, and budget. One inbox for all of them.
-- **Multi-host** — a steward on a $5/mo VPS can delegate work to a GPU box at home behind NAT, via A2A over a reverse-tunnel relay. Nothing else spans hosts cleanly.
-- **Director, not operator** — write a natural-language goal. The steward decomposes it into a plan. You ratify. You don't author DAGs, you don't babysit terminals.
-- **Governance built-in** — budget caps, policy overrides, per-agent usage, immutable audit log, team roles. No other mobile agent tool has these.
+- **Multi-agent fleet** — coordinate Claude Code, Codex, Gemini CLI, Kimi Code, or any CLI that takes a pty, each with its own pane, profile, and budget. One inbox for all of them.
+- **Multi-host over your own infra** — a steward on a $5/mo VPS delegates work to a GPU box at home behind NAT, via A2A over a self-hosted reverse-tunnel relay. No cloud middleman holds your sessions.
+- **Director, not operator** — write a natural-language goal. The steward decomposes it into a plan and a set of first-class **tasks**, dispatches workers, and you ratify. You don't author DAGs or babysit terminals.
+- **Governed actions** — consequential moves are *proposed*, not silently executed: the steward surfaces them, you ratify. Backed by budget caps, policy overrides, per-agent usage, an immutable audit log, and team roles.
+- **Closed-loop orchestration** — dispatched work routes back to you when it finishes or blocks, so you're notified instead of polling. The fleet itself — host-runners, agents, tokens — is startable, stoppable, and updatable from the phone.
 - **Offline-first** — SQLite snapshot cache shows last-known-good lists on every screen when the hub is unreachable. Subway-safe.
 - **Vendor-agnostic, self-hosted** — Apache 2.0 Go hub you run yourself. No account gating, no cloud relay, no vendor lock-in.
 
-**30-second demo.** Type `ablation sweep on nanoGPT, tell me which optimizer scales better` on your phone. Your VPS steward returns a 6-step plan; you tap Approve. Six training runs spawn on your home GPU box. Three hours later, a briefing document with loss curves lands on your **Me** tab. You ratify it on the train home.
+**30-second demo.** Type *ablation sweep on nanoGPT — tell me which optimizer scales better* on your phone. Your VPS steward decomposes it into a plan and a handful of **tasks**, then asks to spawn six training runs on your home GPU box — you tap **Approve**. The runs execute across hosts over A2A while you close the app. When the work finishes (or blocks), the loop closes back to you: a briefing with loss curves lands on your **Me** tab. You ratify it on the train home.
 
 See [docs/discussions/positioning.md](docs/discussions/positioning.md) for the full thesis, ICP, and competitive analysis. The full doc index lives at [docs/README.md](docs/README.md).
 
@@ -62,19 +63,19 @@ See [docs/discussions/positioning.md](docs/discussions/positioning.md) for the f
 
 ## Why TermiPod?
 
-AI agents produce ten times more output than any human can review. The moment you run **more than one** agent, or span **more than one machine**, the existing mobile tools fall apart — session-bridge apps (Claude Code Remote Control, Happy, Tactic Remote) give you one session in your pocket; messenger-bridge agents (OpenClaw, Hermes, Claude Code Channels) give you one chat-style assistant across your chat apps. Neither is a cockpit for a fleet. TermiPod is built on a different axiom: the human is a **director**, not an operator.
+AI agents produce ten times more output than any human can review. The moment you run **more than one** agent, or span **more than one machine**, the existing mobile tools show their seams. Session-bridge apps (Claude Code Remote Control, Happy, Tactic Remote, the Codex app) put a session — or now several — in your pocket, but each is still a window onto agents *you* launch and babysit; messenger-bridge agents (OpenClaw, Hermes, Claude Code Channels) give you one chat-style assistant across your chat apps. Neither decomposes a goal, dispatches a fleet across your own machines, and governs what those agents may do. TermiPod is built on a different axiom: the human is a **director**, not an operator.
 
-| Dimension | Remote Control / Happy / Tactic | TermiPod |
+| Dimension | Remote Control / Happy / Tactic / Codex | TermiPod |
 |---|---|---|
-| Topology | 1 phone ↔ 1 session ↔ 1 host | 1 director ↔ N agents ↔ M hosts |
-| Agent count | One active at a time | Fleet; steward spawns more |
-| Host span | Single local machine, keep it awake | VPS + GPU + laptop, coordinated via A2A |
-| Agent vendor | Claude Code (+ Codex) | Agent-agnostic — any CLI that takes a pty |
-| Authoring model | You type messages | You write a goal; steward decomposes it |
-| Governance | None | Policies, budgets, audit log, team roles |
-| Data ownership | Cloud relay or laptop-only | Hub holds names/events; hosts hold bytes |
-| Offline | Needs live relay | SQLite snapshot cache — last-known-good on every list |
-| Open source | Happy: yes; others: no | Apache 2.0, self-hosted Go hub |
+| Topology | You ↔ sessions you launch by hand | Director → steward → fleet across M hosts |
+| Agent count | Several, but each one started and driven by you | A fleet the steward spawns and coordinates |
+| Host span | One machine you keep awake (some sync via the vendor's cloud) | VPS + GPU + laptop, coordinated over a self-hosted A2A relay |
+| Agent vendor | Claude Code / Codex | claude-code, codex, gemini-cli, kimi-code — plus any pty CLI |
+| Authoring model | You type messages turn by turn | Goal → steward decomposes into a plan + tasks; you ratify |
+| Governance | Minimal | Governed-action propose/ratify, policies, budgets, audit log, roles |
+| Data ownership | Vendor cloud or laptop-only | Hub holds names/events, hosts hold bytes — you run both |
+| Offline | Needs a live connection | SQLite snapshot cache — last-known-good on every list |
+| Open source | Mixed (Happy: yes; others: no) | Apache 2.0, self-hosted Go hub |
 
 ### Who is this for?
 
@@ -169,7 +170,7 @@ Against mobile **agent control** tools (session-bridge category):
 
 | Feature | TermiPod | Claude Code Remote Control | Happy Coder | Tactic Remote |
 |---|---|---|---|---|
-| **Multi-agent fleet** | Yes | One session | One per CLI wrapper | One session |
+| **Multi-agent fleet** | Yes — steward spawns + coordinates | Sessions, not a fleet | Sessions, not a fleet | Sessions, not a fleet |
 | **Multi-host (A2A)** | Yes — VPS + GPU + NAT via relay | No | No | No |
 | **Agent-agnostic** | Yes — any CLI | Claude Code only | Claude Code + Codex | Claude Code + Codex |
 | **Director / steward model** | Yes — steward decomposes goals | No | No | No |

@@ -129,7 +129,12 @@ YAML file, not Go code.
 - **Verify, don't guess.** Reason from first principles and
   well-grounded practice; when a fact isn't certain, confirm it
   against the codebase, the docs, or the web before acting on it or
-  writing it down.
+  writing it down. **Before claiming a tool, test, function, or
+  behaviour exists — or doesn't — grep for it and cite the
+  `file:line`.** A claim you can't cite is a guess; an absence you
+  haven't searched for is a guess. (The invariants are also encoded
+  as executable tests in `*_meta_test.go` / `*_sweep_test.go` — read
+  those before reasoning about the tool catalog.)
 - **Choose terms precisely.** Use the most accurate word for a
   concept; avoid coining or reusing one that collides with an
   existing term. `docs/reference/glossary.md` is canonical for
@@ -154,6 +159,13 @@ YAML file, not Go code.
 - **MCP tools need three things in lockstep** — a `tools/list`
   catalog entry, a dispatcher case, and a handler. A handler without
   the catalog entry is invisible to agents.
+- **The tool catalog has *two* registries — check both.** Authority
+  tools live in `hub/internal/hubmcpserver/toolspec.go` (`ToolSpec`
+  registry); native tools live in `hub/internal/server/native_tools.go`
+  (`buildNativeTools`). A tool you "can't find" in one is often in the
+  other; `SeeAlso`/alias targets cross between them. `tool_registry_test.go`
+  + `native_tools_meta_test.go` + `tool_contract_sweep_test.go` lock
+  the cross-registry invariants.
 - **Behaviour is data.** Agent kinds, prompts, plans, and policies
   are editable YAML templates — adding one is not a code change.
 - **`driving_mode` (M1/M2/M4) ≠ permission mode** (auto-allow vs

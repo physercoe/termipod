@@ -53,6 +53,7 @@ next sequential number — don't reserve, don't skip.
 | [032](032-message-routing-envelope.md) | Message routing — the orchestration message envelope `{from,to,kind,text,cause,thread}` + admission pipeline | Proposed 2026-05-18 (revised 2026-05-19) | — |
 | [033](033-tool-catalog-naming-and-registration.md) | Tool catalog — one naming convention + single registration point | Accepted 2026-05-18 | — |
 | [034](034-orchestration-loop-closure.md) | Orchestration loop-closure runtime — closure invariant, per-hop deadlines, stall escalation, lifecycle hooks | Proposed 2026-05-19 | — |
+| [035](035-antigravity-engine-m4-locallogtail.md) | Antigravity CLI (`agy`) as the fifth engine, via M4 LocalLogTail; Gemini CLI sunset | Proposed 2026-05-22 | — |
 
 ---
 

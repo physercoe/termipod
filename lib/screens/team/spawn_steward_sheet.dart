@@ -751,7 +751,7 @@ class _PermissionModeSelector extends StatelessWidget {
 /// model swap is visible without opening the editor. The operator
 /// changes engine by picking a different template, not a separate
 /// radio. Engines we ship today: claude-code, codex, gemini-cli,
-/// kimi-code.
+/// kimi-code, antigravity.
 class _BackendInfo extends StatelessWidget {
   final String kind;
   final String? drivingMode;
@@ -852,6 +852,19 @@ class _BackendInfo extends StatelessWidget {
             'permission_prompt MCP gate',
           ]),
           icon: Icons.bolt_outlined,
+        );
+      case 'antigravity':
+        return _EngineInfo(
+          label: 'Antigravity',
+          detail: _joinDetail([
+            // M4-only (no ACP / no stream-json on agy); the launcher
+            // tails agy's transcript snapshot and routes turns via
+            // tmux send-keys.
+            modeBlurb,
+            'interactive TUI · transcript tail',
+            'MCP via global config',
+          ]),
+          icon: Icons.rocket_launch_outlined,
         );
       case 'claude-code':
         return _EngineInfo(

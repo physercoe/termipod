@@ -380,7 +380,7 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                     controller: _kindCtl,
                     decoration: const InputDecoration(
                       labelText: 'Kind',
-                      hintText: 'claude-code, kimi-code, …',
+                      hintText: 'claude-code, kimi-code, antigravity, …',
                       border: OutlineInputBorder(),
                     ),
                   ),

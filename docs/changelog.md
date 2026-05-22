@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-20)
+> **Status:** Current (2026-05-22)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.640
+> **Last verified vs code:** v1.0.641
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,49 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.641-alpha — 2026-05-22
+
+Antigravity (`agy`) lands as the **fifth engine** via M4 LocalLogTail
+(ADR-035) — Google retires Gemini CLI 2026-06-18. agy 1.0.1 has no ACP
+(M1) and no `--output-format` (M2), so M4 is the only mode. Phase 0 + 1
++ 2 of the rollout shipped; the on-host smoke (W11) gates the ADR's
+flip to Accepted.
+
+### Added
+
+- **Antigravity adapter** (`internal/drivers/local_log_tail/antigravity`):
+  a conversationId pathresolver (agy's workspace→id cache), a
+  **watch-and-diff snapshot reader** (agy rewrites its transcript in
+  place keyed by `step_index`, RUNNING→DONE — not an append log, so the
+  shared tail-from-offset reader doesn't apply), a mapper locked against
+  a real host-captured transcript, send-keys input, and a CapturePane
+  mechanism. Composes the existing `LocalLogTailDriver`.
+- **Launch path + kind-gate** (`launch_m4_antigravity.go`, `runner.go`):
+  agy spawns use the adapter, falling back to PaneDriver on any failure.
+  Resume via `agy --conversation <id>` (`spliceAntigravityResume`); the
+  adapter posts `session.init` to persist the cursor.
+- **`steward.antigravity.v1`** template (M4-only, auto-approve via
+  `--dangerously-skip-permissions`, "use termipod dispatch not agy's
+  native subagents").
+- **Mobile**: antigravity is first-class in the spawn UI — a dedicated
+  engine chip in the steward sheet + the worker kind hint.
+
+### Changed
+
+- **Family-level mode floor**: an explicit M1/M2 request for an M4-only
+  engine now returns 422 + Hint even on an unprobed host (the host-caps
+  fallback is permissive and would otherwise coerce the mode and hang at
+  launch).
+- agy's MCP config is merged into the **global**
+  `~/.gemini/config/mcp_config.json` (a per-spawn HOME would break agy's
+  HOME-rooted OAuth); attribution rides the `_meta.conversation_id` hook.
+
+### Deprecated
+
+- **`gemini-cli`** — sunset 2026-06-18 for consumer tiers (enterprise
+  licences keep it). Marked deprecated in `agent_families.yaml`; not
+  removed. New Google-engine work targets `antigravity`.
 
 ## v1.0.640-alpha — 2026-05-20
 

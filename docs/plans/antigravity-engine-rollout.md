@@ -1,10 +1,48 @@
 # Antigravity engine rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-22)
+> **Status:** In progress (2026-05-22) — Phase 0 + Phase 1 landed; Phase 2 (W9–W11) remains
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.640 / `agy` 1.0.1 on host
 > **Implements:** [ADR-035](../decisions/035-antigravity-engine-m4-locallogtail.md)
+
+## Implementation status (2026-05-22)
+
+- **Phase 0 — DONE.** W1 family entry (prior commit); **W2** family-level
+  mode floor (`ModeUnsupportedError` in `spawn_mode.go` → 422 + Hint;
+  catches M1/M2 even on an unprobed host where the host-caps fallback is
+  permissive).
+- **Phase 1 — DONE.** New package
+  `internal/drivers/local_log_tail/antigravity/` (pathresolver,
+  watch-and-diff reader, mapper + real-transcript corpus test, sendkeys,
+  adapter) + `launch_m4_antigravity.go` + the kind-gate branch in
+  `runner.go` + W8 resume (`spliceAntigravityResume` + the `antigravity`
+  case in `handlers_sessions.go`; the adapter posts `session.init` to
+  persist the cursor). Falls back to PaneDriver M4 on any launch failure.
+- **Phase 2 — TODO** (W9 capture-pane permissions, W10 templates, W11
+  on-host smoke gate → flip ADR-035 Accepted).
+
+Two host-grounded refinements made while building (verify-don't-guess):
+
+1. **Schema (W5).** Tool *results* arrive as their own typed transcript
+   lines (`LIST_DIRECTORY`/`VIEW_FILE`/`MCP_TOOL`/…) carrying `content`;
+   `PLANNER_RESPONSE` carries **either** `tool_calls[]` **or** `content`
+   (final text); `step_index` skips values. The mapper treats any
+   content-bearing non-planner/non-system type as a `tool_result` (agy's
+   tool vocabulary grows), and surfaces unknown content-less types as
+   drift. Corpus = the real MCP-ping transcript.
+2. **MCP isolation (W7) — decision resolved → global config.** agy's
+   OAuth token, store, and MCP config all live under `~/.gemini`, so a
+   per-spawn `HOME` (D7 option b) would break auth. The launch path
+   therefore idempotently merges a `termipod` stdio entry (`hub-mcp-bridge`
+   + env, the same shape claude-code uses; agy's stdio MCP is verified
+   end-to-end) into the **global** `~/.gemini/config/mcp_config.json`,
+   writing `{}` not empty. The shared file holds one per-spawn token at a
+   time; multi-agent attribution rides the verified
+   `_meta.antigravity.google/conversation_id` correlation hook, not the
+   token (Phase 2 hardening if needed). (agy *does* also support a remote
+   `serverUrl` MCP entry, per its binary — kept in reserve; stdio is the
+   verified path.)
 
 **TL;DR.** Add `antigravity` (Google's `agy`) as the fifth engine,
 driven by **M4 LocalLogTail** only (no M1/M2 — `agy` 1.0.1 lacks ACP and
@@ -95,12 +133,16 @@ paneresolver, state). Reuse the shared skeleton in
   (the `ping`-style round-trip is already proven), resume across a
   respawn, exercise an approval. Then flip ADR-035 → Accepted.
 
-## Open decision (carried from ADR-035)
+## Open decision (carried from ADR-035) — RESOLVED 2026-05-22
 
-**Global-vs-per-spawn MCP config isolation (D7 a/b).** `agy` MCP config
-is host-global, not per-workdir. Pick before W7: (a) one shared global
-entry, or (b) per-spawn `HOME`/config dir. (b) is preferred for tenant
-isolation on shared hosts.
+**Global-vs-per-spawn MCP config isolation (D7 a/b) → (a) global.**
+Resolved during W7: option (b) per-spawn `HOME` is **not viable** because
+agy's OAuth token + store + MCP config all live under `~/.gemini`, so a
+per-spawn HOME breaks auth. The launch path uses one shared global
+`~/.gemini/config/mcp_config.json` entry (idempotent-merged), and
+attributes MCP calls to the spawn via the verified
+`_meta.antigravity.google/conversation_id` hook rather than a per-spawn
+token. See "Implementation status" above.
 
 ## Effort
 

@@ -262,6 +262,12 @@ families:
   - family: gemini-cli
     bin: gemini
     version_flag: --version
+    # DEPRECATED (ADR-035): Google retires gemini-cli on 2026-06-18 for
+    # AI Pro/Ultra and free consumer tiers; enterprise Code Assist
+    # licences keep it. The successor is the `antigravity` family
+    # (`agy`) below. This entry stays for enterprise users and existing
+    # M1/M2/M4 wiring — do not remove; new Google-engine work targets
+    # `antigravity`.
     supports: [M1, M2, M4]
     # ADR-021 D3 / W1.4 — default ACP authentication method when the
     # steward template doesn't specify one. oauth-personal targets the
@@ -816,3 +822,37 @@ families:
     # consult per-engine frame_profiles. Future polish (e.g. promoting
     # SearchWeb tool calls to a typed `web_search` kind) would land a
     # profile here; deferred per docs/plans/kimi-code-engine.md §W6.
+
+  - family: antigravity
+    bin: agy
+    version_flag: --version
+    # ADR-035 — Google's Antigravity CLI (`agy`), the successor to
+    # gemini-cli (which sunsets 2026-06-18 for consumer tiers). M4-only:
+    # agy 1.0.1 has no --output-format (no M2 stream-json) and no ACP
+    # (no M1), so the only driving mode is M4 via LocalLogTailDriver
+    # (ADR-027 D9). The adapter tails
+    # ~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/
+    # logs/transcript_full.jsonl — a rewritten *snapshot* keyed by
+    # step_index (watch-and-diff, not append-follow). Reactivation when
+    # agy ships ACP/stream-json = add M1/M2 to `supports` + a profile,
+    # no Go change. See docs/plans/antigravity-engine-rollout.md.
+    #
+    # NOTE: until the antigravity LocalLogTail adapter lands (plan
+    # Phase 1), launch_m4_locallogtail.go gates on kind=="claude-code"
+    # and an antigravity spawn falls through to the legacy PaneDriver
+    # M4 (graceful degradation), same as the other not-yet-wired engines.
+    supports: [M4]
+    # Reuses the Google OAuth cache (~/.gemini/antigravity-oauth-token);
+    # `agy` authenticates out-of-band, not through a driving protocol,
+    # so there is no ACP authMethod to pre-pick.
+    default_auth_method: ""
+    # M4 (tmux pane / local-log tail) has no inline-multimodal affordance
+    # anywhere; agy exposes no stream-time image/pdf input on this path.
+    prompt_image:
+      M4: false
+    prompt_pdf:
+      M4: false
+    # No frame_profile — M4 LocalLogTail maps the on-disk transcript to
+    # agent_events in Go (the antigravity adapter's mapper.go), exactly
+    # as claude-code's M4 path does; the M4 path does not consult
+    # per-engine YAML frame_profiles.

@@ -163,6 +163,93 @@ func spliceACPResume(specYAML, sessionID string) string {
 	return string(out)
 }
 
+// spliceAntigravityResume rewrites backend.cmd so it carries
+// `--conversation <id>` immediately after the `agy` binary token, letting
+// the respawned process reattach to its prior conversation (ADR-035 D8).
+// agy resumes interactively via this flag; the headless `-p` form hangs,
+// so the M4 launch path (which drives agy interactively) is the only one
+// that uses this. Defensive shape mirrors spliceClaudeResume.
+func spliceAntigravityResume(specYAML, sessionID string) string {
+	if specYAML == "" || sessionID == "" {
+		return specYAML
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(specYAML), &root); err != nil {
+		return specYAML
+	}
+	cmdNode := findScalar(&root, "backend", "cmd")
+	if cmdNode == nil {
+		return specYAML
+	}
+	updated, ok := rewriteAntigravityResumeFlag(cmdNode.Value, sessionID)
+	if !ok || updated == cmdNode.Value {
+		return specYAML
+	}
+	cmdNode.Value = updated
+	out, err := yaml.Marshal(&root)
+	if err != nil {
+		return specYAML
+	}
+	return string(out)
+}
+
+// rewriteAntigravityResumeFlag splices `--conversation <id>` after the
+// `agy` bin token, stripping any prior --conversation pair. Returns false
+// when the cmd doesn't look like an agy invocation (we don't guess where
+// to splice flags for unfamiliar shapes). The cmd commonly leads with a
+// `cd <workdir> && agy …` prefix, so we scan for the `agy` token rather
+// than requiring it be first.
+func rewriteAntigravityResumeFlag(cmd, sessionID string) (string, bool) {
+	tokens := strings.Fields(strings.TrimSpace(cmd))
+	binIdx := -1
+	for i, t := range tokens {
+		if isAgyBin(t) {
+			binIdx = i
+			break
+		}
+	}
+	if binIdx < 0 {
+		return cmd, false
+	}
+	// Strip any existing --conversation <value> / --conversation=<value>
+	// that appears after the bin token.
+	out := make([]string, 0, len(tokens)+2)
+	out = append(out, tokens[:binIdx+1]...)
+	skip := false
+	for _, tok := range tokens[binIdx+1:] {
+		if skip {
+			skip = false
+			continue
+		}
+		if tok == "--conversation" {
+			skip = true
+			continue
+		}
+		if strings.HasPrefix(tok, "--conversation=") {
+			continue
+		}
+		out = append(out, tok)
+	}
+	// Splice --conversation <id> directly after the bin token.
+	spliced := make([]string, 0, len(out)+2)
+	spliced = append(spliced, out[:binIdx+1]...)
+	spliced = append(spliced, "--conversation", sessionID)
+	spliced = append(spliced, out[binIdx+1:]...)
+	return strings.Join(spliced, " "), true
+}
+
+// isAgyBin returns true when tok names the Antigravity CLI — bare `agy`
+// or an absolute path ending in `/agy`.
+func isAgyBin(tok string) bool {
+	if tok == "agy" {
+		return true
+	}
+	if idx := strings.LastIndex(tok, "/"); idx >= 0 && tok[idx+1:] == "agy" {
+		return true
+	}
+	return false
+}
+
 // isClaudeBin returns true when tok names the claude-code CLI. Allows
 // either the bare `claude` or an absolute path ending in `/claude`,
 // the two shapes templates ship today.

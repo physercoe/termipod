@@ -1,0 +1,190 @@
+// M4 launch path for Antigravity (`agy`) — ADR-035 W7. Mirrors
+// launchM4LocalLogTail (claude-code) but much leaner: agy has no
+// host-runner hook surface (no permission-prompt-tool, no UDS gateway)
+// and its session log is a rewritten snapshot, so this path is just
+// "compose the antigravity adapter + driver, write the global MCP
+// config, launch the pane, start the driver." On any failure the runner
+// falls back to the PaneDriver M4 path so the agent still launches.
+package hostrunner
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/termipod/hub"
+	locallogtail "github.com/termipod/hub/internal/drivers/local_log_tail"
+	"github.com/termipod/hub/internal/drivers/local_log_tail/antigravity"
+)
+
+// launchM4Antigravity composes the antigravity adapter into a spawn-time
+// path. It reuses M4LocalLogTailLaunchConfig for symmetry but only
+// consults Spawn / Launcher / Client / HubURL / Log (no gateway fields —
+// agy has no hook surface).
+func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*M4LocalLogTailLaunchResult, error) {
+	if cfg.Log == nil {
+		cfg.Log = slog.Default()
+	}
+	if cfg.Spawn.ChildID == "" {
+		return nil, fmt.Errorf("antigravity M4: empty ChildID")
+	}
+
+	spec, _ := ParseSpec(cfg.Spawn.SpawnSpec)
+
+	// Workdir derivation mirrors the claude-code M4 path. For agy this
+	// directory is load-bearing in a second way: it is the key into agy's
+	// workspace→conversationId cache, so it MUST equal the cwd the
+	// template's backend.cmd cd's into before exec'ing `agy`.
+	rawWD := spec.Backend.DefaultWorkdir
+	if rawWD == "" && cfg.Spawn.ProjectID != "" {
+		pid := cfg.Spawn.ProjectID
+		if len(pid) > 8 {
+			pid = pid[:8]
+		}
+		handle := cfg.Spawn.Handle
+		if handle == "" {
+			handle = cfg.Spawn.ChildID
+		}
+		rawWD = filepath.Join("~", "hub-work", pid, handle)
+	}
+	if rawWD == "" {
+		return nil, fmt.Errorf("antigravity M4: backend.default_workdir empty and no project_id to derive (it keys agy's conversation cache)")
+	}
+	workdir, err := expandHome(rawWD)
+	if err != nil {
+		return nil, fmt.Errorf("antigravity M4: expand default_workdir: %w", err)
+	}
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		return nil, fmt.Errorf("antigravity M4: mkdir workdir %q: %w", workdir, err)
+	}
+
+	// Write/merge the global agy MCP config so `agy` can reach the hub
+	// tool surface. Best-effort: a failure here degrades to "no hub MCP"
+	// but the agent still launches (its transcript is still tailed).
+	if cfg.Spawn.MCPToken != "" && cfg.HubURL != "" {
+		if werr := writeMCPConfigAntigravityGlobal(cfg.HubURL, cfg.Spawn.MCPToken); werr != nil {
+			cfg.Log.Warn("antigravity M4: write global mcp_config failed; launching without hub MCP",
+				"handle", cfg.Spawn.Handle, "err", werr)
+		}
+	}
+
+	adapter, err := antigravity.NewAdapter(antigravity.Config{
+		AgentID: cfg.Spawn.ChildID,
+		Workdir: workdir,
+		Poster:  cfg.Client,
+		Log:     cfg.Log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("antigravity M4: new adapter: %w", err)
+	}
+	// Resume cursor (ADR-035 D8): if the template baked `--conversation
+	// <id>` into backend.cmd (spliced server-side on respawn), resolve
+	// that id directly so Start skips the workspace-cache race.
+	if id := conversationIDFromCmd(spec.Backend.Cmd); id != "" {
+		adapter.ConversationID = id
+	}
+
+	driver := &locallogtail.Driver{
+		Config: locallogtail.Config{
+			AgentID: cfg.Spawn.ChildID,
+			Poster:  cfg.Client,
+			Log:     cfg.Log,
+		},
+		Adapter: adapter,
+	}
+
+	cmd := spec.Backend.Cmd
+	if cmd == "" {
+		return nil, fmt.Errorf("antigravity M4: backend.cmd is empty")
+	}
+	pane, err := cfg.Launcher.LaunchCmd(ctx, cfg.Spawn, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("antigravity M4: tmux launch: %w", err)
+	}
+	adapter.PaneID = pane
+
+	if err := driver.Start(ctx); err != nil {
+		return nil, fmt.Errorf("antigravity M4: driver start: %w", err)
+	}
+
+	return &M4LocalLogTailLaunchResult{
+		PaneID: pane,
+		Driver: driver,
+	}, nil
+}
+
+// writeMCPConfigAntigravityGlobal idempotently merges a `termipod` entry
+// into agy's GLOBAL MCP config at ~/.gemini/config/mcp_config.json
+// (host-verified read location; agy ignores per-workdir files). The entry
+// is a stdio bridge (`hub-mcp-bridge` + env), the same shape claude-code's
+// `.mcp.json` `termipod` entry uses — agy's stdio MCP path is verified
+// end-to-end (the ping round-trip).
+//
+// Why global, not per-spawn: agy's OAuth token, store, and MCP config all
+// live under ~/.gemini, so a per-spawn HOME (the isolation option weighed
+// in ADR-035 D7) would break auth. The cost is that the file holds one
+// `termipod` entry at a time — on a shared host with concurrent agy
+// agents the per-spawn token is last-writer-wins. MVP attributes MCP
+// calls to the spawn via the verified `_meta.antigravity.google/
+// conversation_id` correlation hook rather than a per-spawn token, so the
+// shared entry is acceptable; tighter per-agent isolation is Phase 2.
+//
+// An empty/invalid existing file is replaced from `{}` — agy emits a JSON
+// parse error on every run against a 0-byte file (verified), so we never
+// leave it empty.
+func writeMCPConfigAntigravityGlobal(hubURL, token string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve HOME: %w", err)
+	}
+	path := filepath.Join(home, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir config dir: %w", err)
+	}
+
+	cfg := map[string]any{}
+	if b, rerr := os.ReadFile(path); rerr == nil && len(bytes.TrimSpace(b)) > 0 {
+		_ = json.Unmarshal(b, &cfg) // invalid → start from {} (parse-error fix)
+	}
+	servers, _ := cfg["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	servers[hub.MCPServerName] = map[string]any{
+		"command": "hub-mcp-bridge",
+		"env": map[string]string{
+			"HUB_URL":   hubURL,
+			"HUB_TOKEN": token,
+		},
+	}
+	cfg["mcpServers"] = servers
+
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, body, 0o600)
+}
+
+// conversationIDFromCmd extracts the value of a `--conversation <id>` (or
+// `--conversation=<id>`) flag from a backend.cmd string, or "" if absent.
+// The hub splices this flag on respawn (spliceAntigravityResume); reading
+// it back lets the adapter resolve the conversation deterministically
+// instead of polling agy's workspace cache.
+func conversationIDFromCmd(cmd string) string {
+	tokens := strings.Fields(cmd)
+	for i, tok := range tokens {
+		if tok == "--conversation" && i+1 < len(tokens) {
+			return tokens[i+1]
+		}
+		if v, ok := strings.CutPrefix(tok, "--conversation="); ok {
+			return v
+		}
+	}
+	return ""
+}

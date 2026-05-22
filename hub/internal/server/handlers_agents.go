@@ -891,6 +891,13 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	out, status, err := s.DoSpawn(r.Context(), team, in)
 	if err != nil {
+		// ADR-035 W2: a mode-floor rejection carries a structured Hint
+		// (which modes the engine supports) so the agent can retry.
+		var me *ModeUnsupportedError
+		if errors.As(err, &me) {
+			writeErrHint(w, status, err.Error(), me.Hint())
+			return
+		}
 		writeErr(w, status, err.Error())
 		return
 	}
@@ -1142,6 +1149,14 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	// NULL and host-runner defaults to M4 at launch time.
 	mode, err := s.resolveSpawnMode(ctx, in)
 	if err != nil {
+		// ADR-035 W2: a family-level mode-floor rejection is a 422
+		// (the request is well-formed but asks for a mode the engine
+		// can't speak); handleSpawn surfaces its Hint. Other resolution
+		// failures stay 400.
+		var me *ModeUnsupportedError
+		if errors.As(err, &me) {
+			return spawnOut{}, http.StatusUnprocessableEntity, err
+		}
 		return spawnOut{}, http.StatusBadRequest, err
 	}
 

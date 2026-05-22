@@ -590,6 +590,8 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 			specYAML = spliceClaudeResume(specYAML, engineSessionID.String)
 		case "gemini-cli", "kimi-code":
 			specYAML = spliceACPResume(specYAML, engineSessionID.String)
+		case "antigravity":
+			specYAML = spliceAntigravityResume(specYAML, engineSessionID.String)
 		}
 	}
 

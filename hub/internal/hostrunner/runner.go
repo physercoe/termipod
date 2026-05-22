@@ -597,7 +597,8 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		// agent still launches — degraded UX (text-dump transcript)
 		// but live. Other engines (gemini-cli, codex, kimi-code) stay
 		// on PaneDriver until their adapters ship (Phase 2/3).
-		if sp.Kind == "claude-code" {
+		switch sp.Kind {
+		case "claude-code":
 			hubURLForAgent := a.Client.BaseURL
 			if a.egressProxy != nil {
 				hubURLForAgent = a.egressProxy.LocalURL
@@ -618,6 +619,28 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				pane = res.PaneID
 				drv = res.Driver
 				a.gateways[sp.ChildID] = res.Gateway
+			}
+		case "antigravity":
+			// ADR-035 W7: agy uses the LocalLogTail driver via its own
+			// (gateway-free, snapshot-reader) adapter. Same graceful
+			// fall-through to PaneDriver on any failure.
+			hubURLForAgent := a.Client.BaseURL
+			if a.egressProxy != nil {
+				hubURLForAgent = a.egressProxy.LocalURL
+			}
+			res, lerr := launchM4Antigravity(ctx, M4LocalLogTailLaunchConfig{
+				Spawn:    sp,
+				Launcher: a.Launcher,
+				Client:   a.agentPoster,
+				HubURL:   hubURLForAgent,
+				Log:      a.Log,
+			})
+			if lerr != nil {
+				a.Log.Warn("M4 antigravity launch failed; falling back to PaneDriver",
+					"handle", sp.Handle, "err", lerr)
+			} else {
+				pane = res.PaneID
+				drv = res.Driver
 			}
 		}
 	}

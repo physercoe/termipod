@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -162,6 +163,60 @@ func TestDoSpawn_UnprobedHost_PermissiveFallback(t *testing.T) {
 // the lookup misses on every probed host (caps.Agents only carries family
 // keys: claude-code/codex/gemini-cli) and resolution fails with
 // "no compatible mode" the moment any probe has run.
+// ADR-035 W2: antigravity declares supports:[M4] at the family level
+// (no ACP / no --output-format on agy 1.0.1). An explicit M1/M2 request
+// must fail fast with a 422 + Hint EVEN on an unprobed host, where the
+// host-caps fallback is permissive ([M1,M2,M4]) and would otherwise let
+// the spawn coerce through and hang at launch. The family floor is the
+// boundary that catches it.
+func TestDoSpawn_FamilyModeFloor_AntigravityRejectsM1(t *testing.T) {
+	s, _ := newTestServer(t)
+	hostID := seedHostCaps(t, s, `{}`) // unprobed: permissive host fallback
+
+	_, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "agy1",
+		Kind:        "antigravity",
+		HostID:      hostID,
+		SpawnSpec:   "driving_mode: M1\nbackend:\n  cmd: agy\n",
+	})
+	if err == nil {
+		t.Fatal("want error for M1 against an M4-only engine; got nil")
+	}
+	if status != 422 {
+		t.Fatalf("status = %d; want 422", status)
+	}
+	var me *ModeUnsupportedError
+	if !errors.As(err, &me) {
+		t.Fatalf("want *ModeUnsupportedError; got %T (%v)", err, err)
+	}
+	if me.Family != "antigravity" || me.Mode != "M1" {
+		t.Fatalf("error fields = {%q,%q}; want {antigravity,M1}", me.Family, me.Mode)
+	}
+	if h := me.Hint(); !strings.Contains(h.HintText, "M4") {
+		t.Fatalf("hint should name the supported mode M4; got %q", h.HintText)
+	}
+}
+
+// The floor must NOT block a supported mode: an explicit M4 antigravity
+// spawn resolves normally even on an unprobed host.
+func TestDoSpawn_FamilyModeFloor_AntigravityAcceptsM4(t *testing.T) {
+	s, _ := newTestServer(t)
+	hostID := seedHostCaps(t, s, `{}`)
+
+	out, _, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "agy2",
+		Kind:        "antigravity",
+		HostID:      hostID,
+		SpawnSpec:   "driving_mode: M4\nbackend:\n  cmd: agy\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v", err)
+	}
+	if out.Mode != "M4" {
+		t.Fatalf("out.Mode = %q; want M4", out.Mode)
+	}
+}
+
 func TestDoSpawn_ModeFromBackendKind_TemplateIdAsKind(t *testing.T) {
 	s, _ := newTestServer(t)
 	hostID := seedHostCaps(t, s, `{

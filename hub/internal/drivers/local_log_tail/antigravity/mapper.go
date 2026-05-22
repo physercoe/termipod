@@ -1,0 +1,176 @@
+package antigravity
+
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+)
+
+// MappedEvent is one (kind, producer, payload) tuple ready for
+// EventPoster.PostAgentEvent — the same triple every other driver emits,
+// so no new AgentEvent variants are introduced for this engine. Every
+// payload carries `agy_step_index` and `agy_status` so a downstream
+// consumer can coalesce the ≤2 emissions a single step produces
+// (first-sight + RUNNING→DONE) by step_index.
+type MappedEvent struct {
+	Kind     string
+	Producer string
+	Payload  map[string]any
+}
+
+// transcriptLine is the full per-step envelope. content is a string for
+// every observed type; tool_calls is present only on PLANNER_RESPONSE
+// turns where the model decides to call tools.
+type transcriptLine struct {
+	StepIndex int        `json:"step_index"`
+	Source    string     `json:"source"`
+	Type      string     `json:"type"`
+	Status    string     `json:"status"`
+	Content   string     `json:"content,omitempty"`
+	ToolCalls []toolCall `json:"tool_calls,omitempty"`
+}
+
+type toolCall struct {
+	Name string         `json:"name"`
+	Args map[string]any `json:"args,omitempty"`
+}
+
+// nonToolTypes are the transcript `type`s that are NOT tool-result lines.
+// Everything else that carries content is treated as a tool result (agy's
+// tool vocabulary — RUN_COMMAND, CODE_ACTION, VIEW_FILE, LIST_DIRECTORY,
+// SEARCH_WEB, MCP_TOOL, EDIT_FILE, GENERIC, … — is large and grows, so
+// enumerating it would silently drop new tools). A type outside this set
+// WITHOUT content is surfaced as schema drift rather than guessed at.
+var nonToolTypes = map[string]struct{}{
+	"USER_INPUT":           {},
+	"CONVERSATION_HISTORY": {},
+	"PLANNER_RESPONSE":     {},
+	"SYSTEM_MESSAGE":       {},
+	"INVOKE_SUBAGENT":      {},
+}
+
+// MapStep turns one transcript line into zero or more MappedEvents
+// (ADR-035 schema, host-verified on agy 1.0.1). Returns an error only on
+// a malformed top-level JSON; a known shape with unexpected content
+// degrades gracefully. Mapping:
+//
+//	USER_INPUT, CONVERSATION_HISTORY → drop (the hub composed the prompt)
+//	PLANNER_RESPONSE  → tool_call per tool_calls[]; else text from content
+//	SYSTEM_MESSAGE    → system notice (subagent correlation ignored — MVP)
+//	INVOKE_SUBAGENT   → tool_call (child not tracked — D-subagents MVP)
+//	<tool-result type> → tool_result{name:type, content}
+//	<unknown w/o content> → system{subtype:unknown_type} (drift)
+func MapStep(raw []byte) ([]MappedEvent, error) {
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil, nil
+	}
+	var ln transcriptLine
+	if err := json.Unmarshal(raw, &ln); err != nil {
+		return nil, &mapError{what: "top-level JSON parse", err: err}
+	}
+
+	base := func(extra map[string]any) map[string]any {
+		p := map[string]any{
+			"agy_step_index": ln.StepIndex,
+			"agy_status":     ln.Status,
+		}
+		for k, v := range extra {
+			p[k] = v
+		}
+		return p
+	}
+
+	switch ln.Type {
+	case "USER_INPUT", "CONVERSATION_HISTORY":
+		return nil, nil
+
+	case "PLANNER_RESPONSE":
+		if len(ln.ToolCalls) > 0 {
+			out := make([]MappedEvent, 0, len(ln.ToolCalls))
+			for i, tc := range ln.ToolCalls {
+				out = append(out, MappedEvent{
+					Kind:     "tool_call",
+					Producer: "agent",
+					Payload: base(map[string]any{
+						"name":  tc.Name,
+						"input": tc.Args,
+						// No native call id at the planner level; the result
+						// arrives as the next typed line. step_index pairs them.
+						"tool_use_id": syntheticCallID(ln.StepIndex, i),
+					}),
+				})
+			}
+			return out, nil
+		}
+		if strings.TrimSpace(ln.Content) != "" {
+			return []MappedEvent{{
+				Kind:     "text",
+				Producer: "agent",
+				Payload:  base(map[string]any{"text": ln.Content}),
+			}}, nil
+		}
+		return nil, nil // empty planner turn (e.g. RUNNING placeholder)
+
+	case "SYSTEM_MESSAGE":
+		return []MappedEvent{{
+			Kind:     "system",
+			Producer: "system",
+			Payload: base(map[string]any{
+				"subtype": "agy_system_message",
+				"text":    ln.Content,
+				"src":     ln.Source,
+			}),
+		}}, nil
+
+	case "INVOKE_SUBAGENT":
+		// MVP ignores engine-native subagents (ADR-035 D-subagents): we
+		// surface the dispatch as a tool_call so the operator sees it,
+		// but do not spawn/track the child conversation.
+		return []MappedEvent{{
+			Kind:     "tool_call",
+			Producer: "agent",
+			Payload: base(map[string]any{
+				"name":  "invoke_subagent",
+				"input": map[string]any{"detail": ln.Content},
+			}),
+		}}, nil
+
+	default:
+		if _, isNonTool := nonToolTypes[ln.Type]; !isNonTool && strings.TrimSpace(ln.Content) != "" {
+			return []MappedEvent{{
+				Kind:     "tool_result",
+				Producer: "agent",
+				Payload: base(map[string]any{
+					"name":     strings.ToLower(ln.Type),
+					"content":  ln.Content,
+					"is_error": false,
+				}),
+			}}, nil
+		}
+		// Unknown shape with nothing to render — surface drift, never
+		// silently drop (mirrors the claude-code mapper's §9 policy).
+		return []MappedEvent{{
+			Kind:     "system",
+			Producer: "system",
+			Payload: base(map[string]any{
+				"subtype": "unknown_type",
+				"type":    ln.Type,
+			}),
+		}}, nil
+	}
+}
+
+// syntheticCallID derives a stable id for a planner tool_call so mobile's
+// tool_call card has a key. agy emits no native call id at this layer;
+// the format is agy-<step>-<idx>.
+func syntheticCallID(step, idx int) string {
+	return "agy-" + strconv.Itoa(step) + "-" + strconv.Itoa(idx)
+}
+
+type mapError struct {
+	what string
+	err  error
+}
+
+func (e *mapError) Error() string { return "antigravity mapper: " + e.what + ": " + e.err.Error() }
+func (e *mapError) Unwrap() error { return e.err }

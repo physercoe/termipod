@@ -17,11 +17,72 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/termipod/hub/internal/agentfamilies"
 	"github.com/termipod/hub/internal/modes"
 	"gopkg.in/yaml.v3"
 )
+
+// ModeUnsupportedError is returned by resolveSpawnMode when a spawn
+// *explicitly* requests a driving mode the target engine family does
+// not support (ADR-035 W2). A family's declared `supports` list is a
+// static fact about the engine binary — antigravity 1.0.1 has no ACP
+// (M1) and no --output-format (M2), so it declares supports:[M4]. That
+// floor holds independent of host probing: even on an unprobed host
+// (where loadHostCaps falls back to a permissive [M1,M2,M4]), an M1/M2
+// request for an M4-only engine must fail fast at the boundary rather
+// than resolve to a mode the engine can't speak and then hang at
+// launch. handleSpawn renders this as a 422 carrying Hint().
+type ModeUnsupportedError struct {
+	Family    string
+	Mode      string
+	Supported []string
+}
+
+func (e *ModeUnsupportedError) Error() string {
+	return fmt.Sprintf("engine %q does not support driving mode %s (supports: %s)",
+		e.Family, e.Mode, strings.Join(e.Supported, ", "))
+}
+
+// Hint is the structured recovery envelope handleSpawn surfaces on the
+// 422. It tells the caller which modes the engine actually speaks so an
+// agent can retry without guessing.
+func (e *ModeUnsupportedError) Hint() Hint {
+	return Hint{
+		HintText: fmt.Sprintf(
+			"%s runs only in %s. Omit driving_mode (it auto-resolves) or request one of: %s.",
+			e.Family, strings.Join(e.Supported, "/"), strings.Join(e.Supported, ", ")),
+		SeeDoc: "docs/spine/protocols.md",
+	}
+}
+
+// modeSupported reports whether `mode` (already normalized) appears in a
+// family's declared supports list, comparing case-insensitively so a
+// hand-edited overlay using lower-case still matches.
+func modeSupported(supports []string, mode string) bool {
+	for _, s := range supports {
+		if normalizeMode(s) == mode {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeMode upper-cases and validates a driving-mode token, mirroring
+// modes.normalize (which is unexported). Returns "" for anything that
+// isn't M1/M2/M4 so the family-floor guard ignores blank/garbage values.
+func normalizeMode(m string) string {
+	switch strings.TrimSpace(strings.ToUpper(m)) {
+	case "M1":
+		return "M1"
+	case "M2":
+		return "M2"
+	case "M4":
+		return "M4"
+	}
+	return ""
+}
 
 // spawnModeYAML is the mode-only slice of SpawnSpec we parse on the hub.
 // Keeping it local to the server package avoids a hub→host-runner import;
@@ -134,6 +195,27 @@ func (s *Server) resolveSpawnMode(ctx context.Context, in spawnIn) (string, erro
 	}
 	kindCaps := caps.Agents[family]
 	billing := modes.Billing(caps.BillingDeclarations[family])
+
+	// Family-level mode floor (ADR-035 W2). An explicitly requested mode
+	// (override or template driving_mode) that the engine family does not
+	// declare in `supports` is rejected here — before the host-caps path,
+	// which is permissive on an unprobed host and would otherwise let an
+	// M1/M2 antigravity spawn coerce through and hang at launch. Only an
+	// explicit request trips this; fallback-only specs still resolve
+	// normally so a template can list M4 as a fallback for any engine.
+	if fam, ok := agentfamilies.ByName(family); ok && len(fam.Supports) > 0 {
+		requested := normalizeMode(in.Mode)
+		if requested == "" {
+			requested = normalizeMode(y.DrivingMode)
+		}
+		if requested != "" && !modeSupported(fam.Supports, requested) {
+			return "", &ModeUnsupportedError{
+				Family:    family,
+				Mode:      requested,
+				Supported: fam.Supports,
+			}
+		}
+	}
 
 	// Permissive fallback on an unprobed host: if the host row has no
 	// capabilities yet, assume the agent is installed and trust the

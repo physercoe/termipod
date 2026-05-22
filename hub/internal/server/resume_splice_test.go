@@ -215,3 +215,70 @@ backend:
 		t.Errorf("empty sessionID should pass through unchanged; got:\n%s", out)
 	}
 }
+
+// --- antigravity (ADR-035 D8) ---
+
+// agy resumes via `--conversation <id>`, spliced after the `agy` token.
+// The cmd commonly leads with a `cd <workdir> && agy …` prefix, so the
+// splice must find `agy` mid-command, not assume it's first.
+func TestSpliceAntigravityResume_AddsFlagAfterBin(t *testing.T) {
+	in := `kind: antigravity
+backend:
+  cmd: "cd ~/hub-work/proj/w1 && agy --dangerously-skip-permissions"
+`
+	out := spliceAntigravityResume(in, "conv-xyz")
+	if out == in {
+		t.Fatalf("expected cmd rewrite; got unchanged spec")
+	}
+	if !strings.Contains(out, "agy --conversation conv-xyz --dangerously-skip-permissions") {
+		t.Errorf("expected `agy --conversation conv-xyz …`; got:\n%s", out)
+	}
+	if !strings.Contains(out, "cd ~/hub-work/proj/w1 &&") {
+		t.Errorf("cd prefix dropped:\n%s", out)
+	}
+}
+
+func TestSpliceAntigravityResume_Idempotent(t *testing.T) {
+	in := `backend:
+  cmd: "agy --conversation conv-xyz --dangerously-skip-permissions"
+`
+	out := spliceAntigravityResume(in, "conv-xyz")
+	if strings.Count(out, "--conversation") != 1 {
+		t.Errorf("expected exactly one --conversation, got %d:\n%s",
+			strings.Count(out, "--conversation"), out)
+	}
+}
+
+func TestSpliceAntigravityResume_ReplacesPriorID(t *testing.T) {
+	in := `backend:
+  cmd: "agy --conversation stale-id --dangerously-skip-permissions"
+`
+	out := spliceAntigravityResume(in, "fresh-id")
+	if strings.Contains(out, "stale-id") {
+		t.Errorf("stale id leaked through:\n%s", out)
+	}
+	if !strings.Contains(out, "--conversation fresh-id") {
+		t.Errorf("new id missing:\n%s", out)
+	}
+}
+
+func TestSpliceAntigravityResume_LeavesNonAgyAlone(t *testing.T) {
+	in := `backend:
+  cmd: "claude --print"
+`
+	if out := spliceAntigravityResume(in, "conv-xyz"); out != in {
+		t.Errorf("non-agy cmd should pass through; got:\n%s", out)
+	}
+}
+
+func TestSpliceAntigravityResume_EmptyInputs(t *testing.T) {
+	if out := spliceAntigravityResume("", "x"); out != "" {
+		t.Errorf("empty spec should stay empty; got %q", out)
+	}
+	in := `backend:
+  cmd: "agy"
+`
+	if out := spliceAntigravityResume(in, ""); out != in {
+		t.Errorf("empty sessionID should pass through; got:\n%s", out)
+	}
+}

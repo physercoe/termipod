@@ -19,8 +19,17 @@
   `runner.go` + W8 resume (`spliceAntigravityResume` + the `antigravity`
   case in `handlers_sessions.go`; the adapter posts `session.init` to
   persist the cursor). Falls back to PaneDriver M4 on any launch failure.
-- **Phase 2 — TODO** (W9 capture-pane permissions, W10 templates, W11
-  on-host smoke gate → flip ADR-035 Accepted).
+- **Phase 2 — code/data DONE; on-host gate pending.** **W9** permission
+  handling — auto-approve is the shipped default
+  (`--dangerously-skip-permissions` + steward self-gating via
+  `request_approval`); the verified capture-pane *mechanism* (`CapturePane`)
+  is in place, and the interactive *detector* (marker-matching agy's menu)
+  is intentionally deferred to W11 because pinning agy's exact menu
+  rendering requires a live interactive prompt (verify-don't-guess).
+  **W10** templates — `steward.antigravity.v1.{yaml,md}` (M4-only,
+  auto-approve, "use termipod dispatch not agy subagents"). **W11** is the
+  on-host smoke (see "W11 runbook" below); ADR-035 stays **Proposed** until
+  it passes, then flips to Accepted.
 
 Two host-grounded refinements made while building (verify-don't-guess):
 
@@ -132,6 +141,41 @@ paneresolver, state). Reuse the shared skeleton in
   multi-turn via send-keys, confirm it reaches the hub MCP surface
   (the `ping`-style round-trip is already proven), resume across a
   respawn, exercise an approval. Then flip ADR-035 → Accepted.
+
+  **Runbook** (must run on a host with `agy` logged in + a live hub;
+  needs a real tmux, so it can't run from inside an agent session):
+
+  1. **Auth precheck.** `agy --version` (expect 1.0.1+) and confirm
+     `~/.gemini/antigravity-oauth-token` exists (run `agy` once
+     interactively to populate it otherwise).
+  2. **Spawn.** From the director/steward, spawn `kind: antigravity`
+     using `steward.antigravity.v1` (or any template with
+     `backend.kind: antigravity`). Expect the agent to reach `running`
+     (not stuck `pending`) — i.e. the adapter resolved the conversation
+     + transcript, not a PaneDriver fallback. Confirm via the hub log
+     line `antigravity adapter started … conversation_id=…`.
+  3. **Transcript ingestion.** Send a turn; confirm `text` / `tool_call`
+     / `tool_result` events flow to mobile (USER_INPUT drops). A
+     multi-step turn (e.g. "list this dir then read a file") should
+     surface the tool_call→tool_result pairing.
+  4. **MCP reach.** Have the agent call a `termipod` tool (e.g.
+     `tools_list` or `projects_list`); confirm the call lands on the hub
+     (audit row / response). The global `~/.gemini/config/mcp_config.json`
+     should now contain a `termipod` entry alongside any pre-existing
+     servers (idempotent merge; not clobbered).
+  5. **Resume.** Archive→respawn (or session resume) the agent; confirm
+     the new spawn's `backend.cmd` carries `--conversation <id>` and agy
+     reattaches to the same conversation (transcript continues, not a
+     cold start). `engine_session_id` should equal the conversationId.
+  6. **Permissions (interactive, optional).** If validating the non-default
+     interactive mode: spawn WITHOUT `--dangerously-skip-permissions`,
+     trigger a tool gate, **capture the pane** (`tmux capture-pane -p`),
+     and record the exact menu layout — that capture is the input the
+     deferred interactive detector needs. Answer via the mobile picker
+     (`pick_option`, arrow-nav) and confirm the menu resolves.
+
+  On 1–5 green, flip ADR-035 → Accepted and note the W6 (interactive
+  detector) follow-up if step 6 surfaced a concrete menu layout.
 
 ## Open decision (carried from ADR-035) — RESOLVED 2026-05-22
 

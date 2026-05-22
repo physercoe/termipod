@@ -1,0 +1,88 @@
+# Antigravity steward template.
+#
+# Drives Google's Antigravity CLI (`agy`) as a long-running interactive
+# TUI inside a tmux pane, via the M4 LocalLogTail path (ADR-035). agy
+# 1.0.1 has neither ACP (M1) nor --output-format/stream-json (M2), so M4
+# is the ONLY mode — there is no fallback. The antigravity adapter
+# (internal/drivers/local_log_tail/antigravity) tails agy's rewritten
+# transcript snapshot and routes turns via `tmux send-keys`.
+#
+# ADR-035 is the authoritative design. Key decisions reflected here:
+#   - M4-only (driving_mode M4, no fallback_modes). The family declares
+#     supports:[M4]; a request for M1/M2 is refused at spawn with a 422
+#     (the family-level mode floor, ADR-035 W2).
+#   - Authentication is out-of-band: `agy` reuses the Google OAuth cache
+#     at ~/.gemini/antigravity-oauth-token (run agy once interactively on
+#     the host to populate it). There is no flag-time auth alternative.
+#   - Permissions: --dangerously-skip-permissions auto-approves all
+#     engine-side tool gates (agy has no permission-prompt-tool to route
+#     through, unlike claude-code's M4). The steward therefore gates
+#     itself via request_approval — same consent posture as the kimi
+#     steward's --yolo (ADR-035 D6).
+#   - MCP injection is GLOBAL: the launch path idempotently merges a
+#     `termipod` stdio entry into ~/.gemini/config/mcp_config.json (agy
+#     ignores per-workdir MCP files; a per-spawn HOME would break its
+#     HOME-rooted OAuth). See ADR-035 D7.
+#   - No --model flag: agy selects its model via an in-app setting, not a
+#     CLI flag.
+#
+# Minimum supported agy version: 1.0.1.
+#
+# Built-in. Copied to team/templates/agents/ on first init; user edits
+# win — subsequent inits never overwrite.
+template: agents.steward.antigravity
+version: 1
+extends: null
+
+# M4 (interactive TUI + transcript tail) is the only shape agy ships
+# today. No fallback — M4 IS the binding.
+driving_mode: M4
+fallback_modes: []
+
+backend:
+  kind: antigravity
+  # A fixed workdir so a project-less (general) antigravity steward
+  # always launches — agy keys its conversation cache by cwd, and the
+  # launch path cd's here before exec'ing agy. Project-scoped overlays
+  # should set their own default_workdir (or omit it to auto-derive
+  # ~/hub-work/<pid8>/<handle>) so per-project stewards stay isolated.
+  default_workdir: ~/hub-work/antigravity
+  # cmd is what host-runner runs via `bash -c "cd <workdir> && <cmd>"`.
+  # --dangerously-skip-permissions auto-approves engine-side tool gates;
+  # the steward gates itself via request_approval (see prompt). The
+  # launch path resumes a prior conversation by splicing
+  # `--conversation <id>` after the `agy` token (ADR-035 D8).
+  cmd: "agy --dangerously-skip-permissions"
+
+default_role: team.coordinator
+display_label: "Steward (antigravity)"
+
+# Same governance surface as the claude / codex / gemini / kimi stewards
+# — the antigravity steward coordinates identically once the M4 TUI is
+# hidden behind the driver.
+default_capabilities:
+  - blob.read
+  - blob.write
+  - delegate
+  - decision.vote: significant
+  - spawn.descendants: 20
+  - templates.read
+  - templates_propose
+  - tasks_create
+  - tasks.assign_others
+  - projects_create
+
+prompt: steward.antigravity.v1.md
+
+skills:
+  - id: plan
+    name: plan
+    description: "Decompose a project goal into plan steps"
+    tags: [planning]
+  - id: brief
+    name: brief
+    description: "Write a briefing document summarizing run outputs"
+    tags: [writing]
+
+default_channels:
+  hub-meta: full

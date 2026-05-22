@@ -146,3 +146,36 @@ func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 	}
 	return nil, nil
 }
+
+func TestCapturePane(t *testing.T) {
+	fr := &captureRunner{out: "  > 1. Allow\n    2. Deny\n"}
+	got, err := CapturePane(context.Background(), "%4", fr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fr.out {
+		t.Fatalf("got %q; want %q", got, fr.out)
+	}
+	if fr.lastArgs != "capture-pane -p -t %4" {
+		t.Fatalf("args = %q; want capture-pane -p -t %%4", fr.lastArgs)
+	}
+	if _, err := CapturePane(context.Background(), "", fr); err == nil {
+		t.Fatal("want error for empty pane id")
+	}
+}
+
+type captureRunner struct {
+	out      string
+	lastArgs string
+}
+
+func (c *captureRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	c.lastArgs = ""
+	for i, a := range args {
+		if i > 0 {
+			c.lastArgs += " "
+		}
+		c.lastArgs += a
+	}
+	return []byte(c.out), nil
+}

@@ -260,3 +260,234 @@ func TestLaunchM4LocalLogTail_RejectsMissingToken(t *testing.T) {
 		t.Errorf("err = %v; want mention of MCPToken", err)
 	}
 }
+
+// The cmd passed to the launcher MUST be prefixed with `cd <workdir> &&`
+// so claude lands in the resolved workdir — claude-code keys its
+// session JSONL by encoded-cwd (~/.claude/projects/<encoded-cwd>/),
+// so the adapter's pathresolver only finds the tail if cwd == workdir.
+// Without this prefix the launch hangs at WaitForSession and runner.go
+// reports "M4 LocalLogTail launch failed". Locks the v1.0.657 fix.
+func TestLaunchM4LocalLogTail_PrefixesCmdWithCdWorkdir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	workdir := t.TempDir()
+	projectDir := claudecode.ProjectDirFor(home, workdir)
+	_ = os.MkdirAll(projectDir, 0o755)
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "test-session.jsonl"),
+		[]byte(`{"type":"user","message":{"content":"hi"}}`+"\n"), 0o644,
+	); err != nil {
+		t.Fatalf("seed jsonl: %v", err)
+	}
+
+	tl := &trackingLauncher{paneID: "%9"}
+	poster := &recordingAgentPoster{}
+	sp := Spawn{
+		ChildID: "agent-cd1", Handle: "@cd1", Kind: "claude-code", MCPToken: "tok",
+		SpawnSpec: "backend:\n  cmd: claude --dangerously-skip-permissions\n  default_workdir: " + workdir + "\n",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := launchM4LocalLogTail(ctx, M4LocalLogTailLaunchConfig{
+		Spawn: sp, Launcher: tl, Client: poster, HubURL: "http://127.0.0.1:41825",
+		GatewayHubClient: NewClient("http://hub", "host-token", "team-1"),
+	})
+	if err != nil {
+		t.Fatalf("launchM4LocalLogTail: %v", err)
+	}
+	defer func() {
+		if res.Gateway != nil {
+			_ = res.Gateway.Close()
+		}
+		if res.Driver != nil {
+			res.Driver.Stop()
+		}
+	}()
+
+	// shellEscape may quote the path; check both bare and quoted forms.
+	wantPrefix := "cd " + shellEscape(workdir) + " &&"
+	if !strings.HasPrefix(tl.receivedCmd, wantPrefix) {
+		t.Errorf("launcher cmd = %q; want prefix %q", tl.receivedCmd, wantPrefix)
+	}
+	if !strings.Contains(tl.receivedCmd, "claude --dangerously-skip-permissions") {
+		t.Errorf("launcher cmd = %q; want backend.cmd appended after cd", tl.receivedCmd)
+	}
+}
+
+// When spec.ContextFiles is non-empty the launcher MUST materialize
+// each entry into the workdir. M1 and M2 do this for claude-code's
+// CLAUDE.md persona; the M4 LocalLogTail path was the silent holdout
+// since v1.0.592 — the same gap agy hit at v1.0.651. Without this
+// the steward spawns persona-less and the first turn is bare-claude.
+func TestLaunchM4LocalLogTail_WritesContextFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	workdir := t.TempDir()
+	projectDir := claudecode.ProjectDirFor(home, workdir)
+	_ = os.MkdirAll(projectDir, 0o755)
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "test-session.jsonl"),
+		[]byte(`{"type":"user","message":{"content":"hi"}}`+"\n"), 0o644,
+	); err != nil {
+		t.Fatalf("seed jsonl: %v", err)
+	}
+
+	tl := &trackingLauncher{paneID: "%9"}
+	poster := &recordingAgentPoster{}
+	const personaBody = "# Steward persona\n\nYou are a steward agent.\n"
+	specYAML := strings.Join([]string{
+		"backend:",
+		"  cmd: claude --dangerously-skip-permissions",
+		"  default_workdir: " + workdir,
+		"context_files:",
+		"  CLAUDE.md: |",
+		"    # Steward persona",
+		"",
+		"    You are a steward agent.",
+	}, "\n") + "\n"
+	sp := Spawn{
+		ChildID: "agent-ctx1", Handle: "@ctx1", Kind: "claude-code", MCPToken: "tok",
+		SpawnSpec: specYAML,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := launchM4LocalLogTail(ctx, M4LocalLogTailLaunchConfig{
+		Spawn: sp, Launcher: tl, Client: poster, HubURL: "http://127.0.0.1:41825",
+		GatewayHubClient: NewClient("http://hub", "host-token", "team-1"),
+	})
+	if err != nil {
+		t.Fatalf("launchM4LocalLogTail: %v", err)
+	}
+	defer func() {
+		if res.Gateway != nil {
+			_ = res.Gateway.Close()
+		}
+		if res.Driver != nil {
+			res.Driver.Stop()
+		}
+	}()
+
+	body, rerr := os.ReadFile(filepath.Join(workdir, "CLAUDE.md"))
+	if rerr != nil {
+		t.Fatalf("CLAUDE.md not written: %v", rerr)
+	}
+	if string(body) != personaBody {
+		t.Errorf("CLAUDE.md body = %q; want %q", string(body), personaBody)
+	}
+}
+
+// preTrustWorkspaceClaudeCode MUST mark the workdir trusted in
+// ~/.claude.json so claude doesn't open with the "Do you trust this
+// folder?" welcome-screen dialog the mobile client can't drive.
+func TestPreTrustWorkspaceClaudeCode_FreshFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	workdir := "/home/ubuntu/hub-work/abcd1234/@steward.x"
+	if err := preTrustWorkspaceClaudeCode(workdir); err != nil {
+		t.Fatalf("preTrust: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil {
+		t.Fatalf("read .claude.json: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	projects, _ := cfg["projects"].(map[string]any)
+	entry, _ := projects[workdir].(map[string]any)
+	if entry == nil {
+		t.Fatalf("projects[%q] missing: %+v", workdir, cfg)
+	}
+	if entry["hasTrustDialogAccepted"] != true {
+		t.Errorf("hasTrustDialogAccepted = %v; want true", entry["hasTrustDialogAccepted"])
+	}
+	if entry["hasCompletedProjectOnboarding"] != true {
+		t.Errorf("hasCompletedProjectOnboarding = %v; want true", entry["hasCompletedProjectOnboarding"])
+	}
+}
+
+// Pre-existing top-level fields and OTHER per-project entries MUST be
+// preserved untouched — the user's interactive claude config lives in
+// the same file. Locks the surgical-edit invariant.
+func TestPreTrustWorkspaceClaudeCode_PreservesOtherKeys(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	const existing = `{
+  "numStartups": 30,
+  "installMethod": "native",
+  "projects": {
+    "/home/user/elsewhere": {
+      "hasTrustDialogAccepted": false,
+      "lastCost": 12.5
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(existing), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	workdir := "/home/ubuntu/hub-work/abcd1234/@steward.x"
+	if err := preTrustWorkspaceClaudeCode(workdir); err != nil {
+		t.Fatalf("preTrust: %v", err)
+	}
+
+	body, _ := os.ReadFile(filepath.Join(home, ".claude.json"))
+	var cfg map[string]any
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg["numStartups"].(float64) != 30 {
+		t.Errorf("numStartups lost: %v", cfg["numStartups"])
+	}
+	if cfg["installMethod"] != "native" {
+		t.Errorf("installMethod lost: %v", cfg["installMethod"])
+	}
+	projects, _ := cfg["projects"].(map[string]any)
+	elsewhere, _ := projects["/home/user/elsewhere"].(map[string]any)
+	if elsewhere["hasTrustDialogAccepted"] != false {
+		t.Errorf("elsewhere.hasTrustDialogAccepted mutated: %v", elsewhere["hasTrustDialogAccepted"])
+	}
+	if elsewhere["lastCost"].(float64) != 12.5 {
+		t.Errorf("elsewhere.lastCost mutated: %v", elsewhere["lastCost"])
+	}
+	entry, _ := projects[workdir].(map[string]any)
+	if entry["hasTrustDialogAccepted"] != true {
+		t.Errorf("target entry not flipped trusted: %+v", entry)
+	}
+}
+
+// Re-spawn with an already-trusted workdir MUST be a no-op (idempotent)
+// — should not touch the file at all when both flags are already true.
+func TestPreTrustWorkspaceClaudeCode_AlreadyTrusted_NoMutation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	workdir := "/home/ubuntu/hub-work/abcd1234/@steward.x"
+	preExisting := map[string]any{
+		"projects": map[string]any{
+			workdir: map[string]any{
+				"hasTrustDialogAccepted":        true,
+				"hasCompletedProjectOnboarding": true,
+				"lastCost":                      42.0,
+			},
+		},
+	}
+	body, _ := json.Marshal(preExisting)
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), body, 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	statBefore, _ := os.Stat(filepath.Join(home, ".claude.json"))
+
+	if err := preTrustWorkspaceClaudeCode(workdir); err != nil {
+		t.Fatalf("preTrust: %v", err)
+	}
+
+	statAfter, _ := os.Stat(filepath.Join(home, ".claude.json"))
+	if statBefore.ModTime() != statAfter.ModTime() {
+		t.Errorf("file was rewritten despite already-trusted state (mtime changed)")
+	}
+}

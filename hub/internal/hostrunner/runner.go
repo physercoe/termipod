@@ -631,14 +631,36 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				Log:              a.Log,
 			})
 			if lerr != nil {
-				a.Log.Warn("M4 LocalLogTail launch failed; falling back to PaneDriver",
+				// No PaneDriver fall-through (mirrors the antigravity arm
+				// below — same reasoning). PaneDriver scrapes raw tmux
+				// bytes, which means: (a) the dual-pane / wrong-cwd cascade
+				// agy hit at v1.0.643 (the fall-through path spawns a
+				// SECOND pane with no `cd <workdir>` prefix, leaving the
+				// user with two panes and a session bound to the wrong
+				// driver); (b) the .mcp.json / .claude/settings the M4
+				// path writes go unused because PaneDriver doesn't drive
+				// claude through its hook surface — the agent runs without
+				// permission_prompt, without parked approvals, and without
+				// persona context. Fail cleanly so the agent shows up as
+				// `failed` with the error in the lifecycle event — mobile
+				// then offers respawn.
+				a.Log.Error("M4 LocalLogTail launch failed; marking agent failed (no PaneDriver fallback)",
 					"handle", sp.Handle, "err", lerr)
-				// Continue to the PaneDriver path below.
-			} else {
-				pane = res.PaneID
-				drv = res.Driver
-				a.gateways[sp.ChildID] = res.Gateway
+				_ = a.agentPoster.PostAgentEvent(ctx, sp.ChildID, "lifecycle", "system",
+					map[string]any{
+						"phase":  "failed",
+						"reason": "claude-code M4 LocalLogTail launch failed",
+						"err":    lerr.Error(),
+						"handle": sp.Handle,
+						"kind":   sp.Kind,
+					})
+				status := "failed"
+				_ = a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{Status: &status})
+				return
 			}
+			pane = res.PaneID
+			drv = res.Driver
+			a.gateways[sp.ChildID] = res.Gateway
 		case "antigravity":
 			// ADR-035 W7: agy uses the LocalLogTail driver via its own
 			// (gateway-free, snapshot-reader) adapter. No PaneDriver

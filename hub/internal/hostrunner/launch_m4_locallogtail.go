@@ -7,7 +7,9 @@
 package hostrunner
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -122,6 +124,23 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
 		return nil, fmt.Errorf("locallogtail M4: mkdir workdir %q: %w", workdir, err)
 	}
+
+	// Materialize the persona-memory file the hub rendered for this
+	// spawn (CLAUDE.md — see contextFileNameForKind). M1/M2 do this;
+	// the M4 LocalLogTail path was the lone holdout, so claude-code
+	// stewards spawned without their steward persona — same gap agy
+	// hit at v1.0.651 (project_session_2026_05_23_part2). M4 has no
+	// alternative channel for persona delivery (no `--system-prompt`
+	// flag we drive from outside), so the omission is silent: claude
+	// starts cleanly, runs the empty prompt, and behaves like a bare
+	// claude with no project context. Fatal on failure — a
+	// persona-less steward is not a steward.
+	if len(spec.ContextFiles) > 0 {
+		if err := writeContextFiles(workdir, spec.ContextFiles); err != nil {
+			return nil, fmt.Errorf("locallogtail M4: write context_files: %w", err)
+		}
+	}
+
 	if cfg.Spawn.MCPToken == "" {
 		return nil, fmt.Errorf("locallogtail M4: MCPToken is required (claude needs it to reach permission_prompt)")
 	}
@@ -148,6 +167,21 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	// W6: settings.local.json hooks pointing at mcp__termipod-host__*.
 	if err := installClaudeHooks(workdir); err != nil {
 		return nil, fmt.Errorf("locallogtail M4: install hooks: %w", err)
+	}
+
+	// Pre-trust the workdir in ~/.claude.json so claude-code doesn't
+	// open with its "Do you trust the files in this folder?" prompt —
+	// the mobile client has no affordance to drive that picker, so a
+	// fresh-workdir spawn would otherwise sit blocked on the welcome
+	// screen. claude-code persists trust in ~/.claude.json under
+	// `projects.<workdir>.hasTrustDialogAccepted` (host-verified on
+	// the dev box; also see the agy parallel at v1.0.644). Idempotent
+	// (skips if already accepted); best-effort (a failure just means
+	// the user gets the dialog once and may be unable to dismiss it,
+	// which is still better than failing the spawn outright).
+	if werr := preTrustWorkspaceClaudeCode(workdir); werr != nil {
+		cfg.Log.Warn("locallogtail M4: pre-trust workspace failed; user may see the trust dialog",
+			"handle", cfg.Spawn.Handle, "workdir", workdir, "err", werr)
 	}
 
 	// W2: construct adapter + driver. NewAdapter validates required
@@ -198,6 +232,17 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 		return nil, gatewayTeardown(gwCleanup,
 			fmt.Errorf("locallogtail M4: backend.cmd is empty"))
 	}
+	// Prepend `cd <workdir> &&` so claude's cwd deterministically
+	// equals the workdir we resolved + the .mcp.json / settings.local.json
+	// we just wrote — claude-code's pathresolver keys its session JSONL
+	// by encoded-cwd (~/.claude/projects/<encoded-cwd>/), so the two
+	// MUST agree. TmuxLauncher.LaunchCmd does NOT cd; the M1/M2 paths
+	// build a `paneCmd` that wraps cd around the user cmd, and the agy
+	// M4 path does the same (launch_m4_antigravity.go). Without this
+	// prefix claude lands in the host-runner's cwd and writes its JSONL
+	// somewhere the adapter's pathresolver never looks → the tail wait
+	// stalls → "M4 LocalLogTail launch failed".
+	cmd = fmt.Sprintf("cd %s && %s", shellEscape(workdir), cmd)
 	pane, err := cfg.Launcher.LaunchCmd(ctx, cfg.Spawn, cmd)
 	if err != nil {
 		return nil, gatewayTeardown(gwCleanup, fmt.Errorf("locallogtail M4: tmux launch: %w", err))
@@ -254,4 +299,83 @@ func init() {
 		// otherwise notice.
 		panic("hub.MCPServerName must be a single identifier")
 	}
+}
+
+// preTrustWorkspaceClaudeCode adds workdir to claude-code's per-project
+// trust list in ~/.claude.json so the "Do you trust the files in this
+// folder?" welcome-screen dialog never fires for spawned agents.
+//
+// claude-code persists trust per absolute path inside its top-level
+// JSON config (host-verified on the dev box):
+//
+//	{
+//	  "numStartups": 30,
+//	  "projects": {
+//	    "/some/dir": {
+//	      "hasTrustDialogAccepted": true,
+//	      "hasCompletedProjectOnboarding": true,
+//	      ...other per-project keys...
+//	    }
+//	  },
+//	  ...other top-level keys...
+//	}
+//
+// We touch only the per-project entry for `workdir` — `hasTrustDialogAccepted`
+// + `hasCompletedProjectOnboarding` — and preserve every other field
+// (user's other projects, allowedTools, history, lastCost, etc.).
+//
+// Why launch-time, not template/install: the workdir is dynamic (per
+// project / per handle), so the trust list has to grow as agents spawn.
+// Pre-trusting "~/hub-work" globally would be ideal but claude-code
+// keys by absolute path, not prefix, so per-spawn pre-grant is the
+// only path that doesn't require user intervention.
+//
+// Best-effort: a missing ~/.claude.json is treated as the empty config
+// (the function creates it with just the projects entry); a malformed
+// one falls through with the parse error and the user gets the dialog
+// this once. The function never returns a launch-blocking error from
+// the caller's perspective — the caller logs and continues either way.
+func preTrustWorkspaceClaudeCode(workdir string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve HOME: %w", err)
+	}
+	path := filepath.Join(home, ".claude.json")
+
+	clean := filepath.Clean(workdir)
+
+	cfg := map[string]any{}
+	if b, rerr := os.ReadFile(path); rerr == nil && len(bytes.TrimSpace(b)) > 0 {
+		if jerr := json.Unmarshal(b, &cfg); jerr != nil {
+			return fmt.Errorf("parse existing ~/.claude.json: %w", jerr)
+		}
+	}
+
+	projects, _ := cfg["projects"].(map[string]any)
+	if projects == nil {
+		projects = map[string]any{}
+		cfg["projects"] = projects
+	}
+
+	entry, _ := projects[clean].(map[string]any)
+	if entry == nil {
+		entry = map[string]any{}
+		projects[clean] = entry
+	}
+
+	// Short-circuit if both flags are already set — re-spawn no-op.
+	if accepted, _ := entry["hasTrustDialogAccepted"].(bool); accepted {
+		if onboarded, _ := entry["hasCompletedProjectOnboarding"].(bool); onboarded {
+			return nil
+		}
+	}
+
+	entry["hasTrustDialogAccepted"] = true
+	entry["hasCompletedProjectOnboarding"] = true
+
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, body, 0o600)
 }

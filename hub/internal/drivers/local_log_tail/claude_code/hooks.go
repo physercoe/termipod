@@ -72,6 +72,21 @@ func (a *Adapter) hookStop(ctx context.Context, p map[string]any) (map[string]an
 		"final_message":   final,
 		"permission_mode": mode,
 	})
+	// Emit turn.result so mobile's _isAgentBusy() drops the cancel-on-send
+	// overlay at end-of-turn. The mobile busy-walker explicitly SKIPS
+	// `system` frames (they're a grab-bag of telemetry — status pings,
+	// startup info — that don't, alone, mean a turn is in progress OR
+	// over) and only flips to idle on `turn.result` / `completion` /
+	// `session.init` / certain `lifecycle` phases. Stop is the engine-
+	// level end-of-turn signal, so it must produce a turn.result for
+	// the UI contract to close. ACP and stream-json drivers already do
+	// this; M4 was the holdout. Same fix shape as v1.0.647 for agy.
+	_ = a.post(ctx, "turn.result", "agent", map[string]any{
+		"reason":          "end_of_turn",
+		"status":          "success",
+		"final_message":   final,
+		"permission_mode": mode,
+	})
 	return map[string]any{}, nil
 }
 

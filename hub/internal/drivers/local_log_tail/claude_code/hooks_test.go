@@ -99,6 +99,42 @@ func TestOnHook_StopTransitionsToIdleAndEmitsTurnComplete(t *testing.T) {
 	}
 }
 
+// Stop hook MUST also emit turn.result so mobile's _isAgentBusy()
+// drops the cancel-on-send overlay. The busy walker skips `system`
+// frames (the turn_complete event lives there) and only flips to
+// idle on turn.result / completion / session.init / certain lifecycle
+// phases. Same fix shape as the agy v1.0.647 fix-up. Without
+// turn.result the cancel button sticks forever at end of every turn.
+func TestOnHook_StopEmitsTurnResultForBusyWalker(t *testing.T) {
+	p := &hooksTestPoster{}
+	a := hooksTestAdapter(t, p)
+	a.fsm.Transition(StateStreaming, "seed")
+
+	_, err := a.OnHook(context.Background(), "Stop", map[string]any{
+		"last_assistant_message": "Done.",
+		"permission_mode":        "default",
+	})
+	if err != nil {
+		t.Fatalf("OnHook: %v", err)
+	}
+	ev, ok := findFirstByKind(p.snapshot(), "turn.result")
+	if !ok {
+		t.Fatalf("turn.result not emitted on Stop: %+v", p.snapshot())
+	}
+	if ev.producer != "agent" {
+		t.Errorf("turn.result producer = %q; want agent", ev.producer)
+	}
+	if ev.payload["reason"] != "end_of_turn" {
+		t.Errorf("turn.result reason = %v; want end_of_turn", ev.payload["reason"])
+	}
+	if ev.payload["status"] != "success" {
+		t.Errorf("turn.result status = %v; want success", ev.payload["status"])
+	}
+	if ev.payload["final_message"] != "Done." {
+		t.Errorf("turn.result final_message = %v; want %q", ev.payload["final_message"], "Done.")
+	}
+}
+
 func TestOnHook_NotificationIdlePrompt(t *testing.T) {
 	p := &hooksTestPoster{}
 	a := hooksTestAdapter(t, p)

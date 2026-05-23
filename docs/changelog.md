@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.656
+> **Last verified vs code:** v1.0.657
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,103 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.657-alpha — 2026-05-23
+
+ADR-027 W11 fix-up wedge #1 (mirror of the agy v1.0.643–.652 arc) —
+claude-code M4 LocalLogTail launch had the **same five-bug pattern**
+agy hit in [v1.0.643–.652](#v10643-alpha--2026-05-23) but stayed
+hidden because the path has rarely been exercised end-to-end since
+v1.0.592 (most claude-code spawns run M2 stream-json). On-host smoke
+on star surfaced all of them in one go.
+
+### The five symptoms (verbatim from the smoke report)
+
+1. host-runner spawns M4 cc in its OWN cwd, not the yaml-configured
+   workdir.
+2. `WARN msg="M4 LocalLogTail launch failed; falling back to PaneDriver"`
+   on every spawn.
+3. claude-code shows its "Do you trust this folder?" welcome-screen
+   dialog at start (mobile has no affordance to drive that picker).
+4. Session status stays `busy` / cancel button never clears after a
+   turn ends.
+5. (audit-side) silent gap: spawn never materialises `CLAUDE.md`
+   persona, so stewards launch persona-less.
+
+### Root causes — five-way table
+
+| # | Symptom | File:line | Class | Mirror of |
+|---|---|---|---|---|
+| 1 | wrong cwd | `launch_m4_locallogtail.go:LaunchCmd` had no `cd <workdir> &&` prefix; M1/M2/agy-M4 all do | shell-frame ordering | v1.0.643 |
+| 2 | PaneDriver fall-through warn | `runner.go:633` kept the silent fallback alive | error-handling cascade | v1.0.643 |
+| 3 | trust dialog | no pre-trust of `~/.claude.json` `projects.<workdir>.hasTrustDialogAccepted` | external-tool consent persistence | v1.0.644 (agy equivalent) |
+| 4 | busy state never drops | Stop hook emitted `system{turn_complete}` only; mobile `_isAgentBusy()` explicitly skips `system` kinds | UI contract mismatch | v1.0.647 |
+| 5 | persona missing | `launch_m4_locallogtail.go` never called `writeContextFiles(workdir, spec.ContextFiles)` | M4 forgot the M1/M2 ritual | v1.0.652 |
+
+### Fix shape
+
+`hub/internal/hostrunner/launch_m4_locallogtail.go`:
+
+- after `MkdirAll(workdir)`, call `writeContextFiles(workdir,
+  spec.ContextFiles)` so `CLAUDE.md` lands at the workdir root.
+  Identical shape to M1, M2, and agy-M4.
+- after `installClaudeHooks`, best-effort call
+  `preTrustWorkspaceClaudeCode(workdir)` which writes/updates
+  `~/.claude.json` → `projects.<workdir>.hasTrustDialogAccepted: true`
+  + `hasCompletedProjectOnboarding: true`. Idempotent (re-spawn is a
+  no-op when both flags already set, mtime preserved); preserves
+  every other top-level key + every other project entry.
+- before `LaunchCmd`, prepend `cd <shellEscape(workdir)> && ` to the
+  resolved `spec.Backend.Cmd`. `TmuxLauncher.LaunchCmd` does NOT cd,
+  and claude-code's pathresolver keys its session JSONL by
+  encoded-cwd — without the prefix the launch hung at
+  `WaitForSession` and runner.go reported "M4 LocalLogTail launch
+  failed", which then fed back into symptom #2.
+
+`hub/internal/hostrunner/runner.go`:
+
+- drop the PaneDriver fall-through in the claude-code M4 arm. On
+  `launchM4LocalLogTail` error: emit a `lifecycle:failed` event
+  + `PatchAgent(status=failed)` + return. Mobile then offers respawn.
+  Identical to the antigravity arm (same code shape, same comment).
+
+`hub/internal/drivers/local_log_tail/claude_code/hooks.go`:
+
+- `hookStop` now emits **both** the existing
+  `system{subtype:turn_complete}` (kept for telemetry consumers that
+  already key off it) AND a `turn.result{reason:end_of_turn,
+  status:success}` event (with the same `final_message` +
+  `permission_mode`). Mobile `agent_feed.dart:_isAgentBusy()`
+  explicitly skips `system` frames; `turn.result` is the contract.
+
+### Test additions
+
+- `TestLaunchM4LocalLogTail_PrefixesCmdWithCdWorkdir` — locks the
+  cmd-prefix invariant (recommended-against silent regression).
+- `TestLaunchM4LocalLogTail_WritesContextFiles` — locks
+  CLAUDE.md materialisation.
+- `TestPreTrustWorkspaceClaudeCode_FreshFile` +
+  `_PreservesOtherKeys` + `_AlreadyTrusted_NoMutation` — three-way
+  cover of the trust function (boundary cases + idempotency).
+- `TestOnHook_StopEmitsTurnResultForBusyWalker` — locks the
+  turn.result emission alongside the pre-existing `turn_complete`
+  test which still passes.
+
+### Symptom #5 in the strict sense ("paste-buffer -r")
+
+The `-r` flag specifically does NOT apply to claude-code: its sendkeys
+path uses `tmux send-keys -l` (literal mode) per line, no paste-buffer
+involved. **However** the same family has a different bug:
+`claude_code/sendkeys.go:84-99` splits multi-line bodies on `\n` and
+sends `send-keys Enter` between every line — each Enter submits a
+**separate turn** to claude's TUI. Real multi-line input arrives as N
+mini-turns instead of one. Flagged for a follow-up wedge; not part of
+v1.0.657.
+
+### Tag
+
+- Tag: `v1.0.657-alpha`
+- Built: hub-server + host-runner
 
 ## v1.0.656-alpha — 2026-05-23
 

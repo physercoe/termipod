@@ -2,10 +2,23 @@ package claudecode
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 )
+
+// errFake is a sentinel for tests that need a Run() to fail.
+var errFake = errors.New("fake-runner-failure")
+
+// runnerFunc adapts a function to the CmdRunner interface so tests can
+// inject per-call behaviour (e.g. "succeed on set-buffer, fail on
+// paste-buffer") without growing recordingRunner.
+type runnerFunc func(ctx context.Context, name string, args ...string) ([]byte, error)
+
+func (r runnerFunc) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return r(ctx, name, args...)
+}
 
 // recordingRunner captures the (name, args) pairs Run was called
 // with; tests inspect the captured slice instead of stubbing per-
@@ -82,21 +95,109 @@ func TestHandleInput_SlashCommandRoutesAsText(t *testing.T) {
 	}
 }
 
-func TestHandleInput_TextMultilineUsesPerLineSendKeys(t *testing.T) {
+// Multi-line bodies MUST land as ONE atomic submission via tmux's
+// named-buffer paste path — set-buffer / paste-buffer -d -r / Enter —
+// not as N per-line `send-keys -l + Enter` pairs. The pre-v1.0.658
+// per-line path explicitly inserted `send-keys Enter` between every
+// line, so an N-line message arrived as N separate turns at claude's
+// TUI input. The new path keeps LF as LF on the wire (`-r` flag) and
+// only triggers submission with our explicit final Enter. Same fix
+// shape as the agy v1.0.652 paste-buffer-`-r` flag.
+func TestHandleInput_TextMultilineUsesAtomicPasteBuffer(t *testing.T) {
 	a, r := sendkeysAdapter(t, "%42")
-	body := "line one\nline two"
+	body := "line one\nline two\nline three"
 	if err := a.HandleInput(context.Background(), "text", map[string]any{"body": body}); err != nil {
 		t.Fatalf("HandleInput: %v", err)
 	}
 	calls := r.snapshot()
-	if len(calls) != 4 {
-		t.Fatalf("multiline calls = %d, want 4 (2 lines × (literal + Enter))", len(calls))
+	if len(calls) != 3 {
+		t.Fatalf("multiline calls = %d, want 3 (set-buffer + paste-buffer + Enter); got %+v",
+			len(calls), calls)
 	}
-	if !equalArgs(calls[0], "tmux", "send-keys", "-t", "%42", "-l", "line one") {
-		t.Errorf("call 0 = %+v", calls[0])
+	if !equalArgs(calls[0], "tmux", "set-buffer", "-b", "ccinput_42", body) {
+		t.Errorf("call 0 = %+v; want set-buffer with full body", calls[0])
 	}
-	if !equalArgs(calls[2], "tmux", "send-keys", "-t", "%42", "-l", "line two") {
-		t.Errorf("call 2 = %+v", calls[2])
+	// paste-buffer MUST carry -r so tmux doesn't translate the
+	// body's internal LF bytes into CR (Enter) keystrokes.
+	if !equalArgs(calls[1], "tmux", "paste-buffer", "-b", "ccinput_42", "-d", "-r", "-t", "%42") {
+		t.Errorf("call 1 = %+v; want paste-buffer -d -r", calls[1])
+	}
+	if !equalArgs(calls[2], "tmux", "send-keys", "-t", "%42", "Enter") {
+		t.Errorf("call 2 = %+v; want a single trailing Enter", calls[2])
+	}
+}
+
+// Long single-line bodies (>512 chars, no newlines) take the same
+// atomic paste-buffer path. The 512-char cutoff exists because very
+// long send-keys -l argv strings hit tmux's max argument length on
+// some shells; paste-buffer side-steps that.
+func TestHandleInput_TextLongSingleLineUsesPasteBuffer(t *testing.T) {
+	a, r := sendkeysAdapter(t, "%42")
+	body := strings.Repeat("x", 600)
+	if err := a.HandleInput(context.Background(), "text", map[string]any{"body": body}); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+	calls := r.snapshot()
+	if len(calls) != 3 {
+		t.Fatalf("long-single-line calls = %d, want 3 (set-buffer + paste-buffer + Enter)", len(calls))
+	}
+	if calls[0].name != "tmux" || calls[0].args[0] != "set-buffer" {
+		t.Errorf("call 0 = %+v; want set-buffer", calls[0])
+	}
+	if !equalArgs(calls[1], "tmux", "paste-buffer", "-b", "ccinput_42", "-d", "-r", "-t", "%42") {
+		t.Errorf("call 1 = %+v; want paste-buffer -d -r", calls[1])
+	}
+}
+
+// CRLF bodies (an editor that wrote `\r\n` line endings) MUST also
+// take the paste-buffer path — the cheap-path guard tests for both
+// `\n` AND `\r` via strings.ContainsAny. Pre-v1.0.658 a CRLF body
+// would have fallen through Split(\n) and inserted stray CR bytes
+// into each line; the new path leaves them untouched in the buffer.
+func TestHandleInput_TextCRLFUsesPasteBuffer(t *testing.T) {
+	a, r := sendkeysAdapter(t, "%42")
+	if err := a.HandleInput(context.Background(), "text", map[string]any{"body": "alpha\r\nbeta"}); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+	calls := r.snapshot()
+	if len(calls) != 3 {
+		t.Fatalf("crlf calls = %d, want 3", len(calls))
+	}
+	if calls[0].args[0] != "set-buffer" {
+		t.Errorf("call 0 verb = %q; want set-buffer", calls[0].args[0])
+	}
+}
+
+// On paste-buffer failure the adapter MUST attempt buffer cleanup so a
+// stale buffer doesn't survive to the next call (where it would be
+// silently overwritten with `-b` collision but at least we tried).
+func TestHandleInput_TextMultilineCleansBufferOnPasteFailure(t *testing.T) {
+	a, _ := sendkeysAdapter(t, "%42")
+	// Custom runner: succeed on set-buffer, fail on paste-buffer,
+	// capture every call.
+	calls := []recordedCall{}
+	a.CmdRunner = runnerFunc(func(_ context.Context, name string, args ...string) ([]byte, error) {
+		cp := make([]string, len(args))
+		copy(cp, args)
+		calls = append(calls, recordedCall{name: name, args: cp})
+		if len(args) > 0 && args[0] == "paste-buffer" {
+			return nil, errFake
+		}
+		return nil, nil
+	})
+
+	err := a.HandleInput(context.Background(), "text", map[string]any{"body": "a\nb"})
+	if err == nil {
+		t.Fatal("expected paste-buffer failure to surface as error")
+	}
+	if !strings.Contains(err.Error(), "paste-buffer") {
+		t.Errorf("err = %v; want mention of paste-buffer", err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("calls = %d, want 3 (set-buffer + paste-buffer + delete-buffer cleanup)", len(calls))
+	}
+	if calls[2].args[0] != "delete-buffer" {
+		t.Errorf("call 2 = %+v; want delete-buffer cleanup", calls[2])
 	}
 }
 

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.657
+> **Last verified vs code:** v1.0.658
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,76 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.658-alpha — 2026-05-23
+
+ADR-027 W11 fix-up wedge #2 — the deferred symptom #5 from v1.0.657's
+five-bug parallel: **multi-line text input slicing**.
+
+### Root cause
+
+`claude_code/sendkeys.go:inputText` had two paths:
+
+- single-line short body (≤512 chars, no `\n`/`\r`) → `send-keys -l
+  <body>` + `send-keys Enter`. **Correct.**
+- multi-line OR long body → `strings.Split(body, "\n")` → for each
+  line: `send-keys -l <line>` + `send-keys Enter`. **Wrong.**
+
+Each `send-keys Enter` submits the current input buffer to claude's
+TUI. A 5-line message therefore landed as 5 SEPARATE user turns — only
+the first line's "/" + slash command (or whatever started the body)
+received any meaningful reply, the rest streamed in as bare-text
+prompts the agent then tried to address one at a time. ADR-032 envelope
+bodies (4-line `[<kind> from <sender>]\n<text>\n\n<reply instruction>`)
+were among the worst affected: the agent saw a header alone, then the
+text alone, then the reply instruction alone, never a coherent
+directive.
+
+### Fix shape — same as agy v1.0.652
+
+`hub/internal/drivers/local_log_tail/claude_code/sendkeys.go`:
+
+```go
+if len(body) <= 512 && !strings.ContainsAny(body, "\n\r") {
+    // cheap path unchanged
+} else {
+    bufName := "ccinput_" + strings.TrimPrefix(a.PaneID, "%")
+    runner.Run(ctx, "tmux", "set-buffer", "-b", bufName, body)
+    runner.Run(ctx, "tmux", "paste-buffer", "-b", bufName, "-d", "-r", "-t", a.PaneID)
+    runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter")
+}
+```
+
+`-r` is the load-bearing flag: it suppresses tmux's default LF→CR
+translation, so internal LF bytes in the buffer stay as LF on the
+wire. claude's input field accepts them as in-field newlines (the same
+`\<Enter>` newline-without-submit affordance it offers interactively),
+and only our explicit final `send-keys Enter` triggers submission.
+Buffer name keys off pane id so two concurrent multi-line inputs to
+different agents don't collide.
+
+Failure path: if `paste-buffer` errors, best-effort `delete-buffer` so
+a stale buffer doesn't survive into the next call.
+
+### Test additions
+
+- `TestHandleInput_TextMultilineUsesAtomicPasteBuffer` — the contract
+  for the new path (set-buffer + paste-buffer -d -r + Enter, three
+  calls total, no per-line Enter).
+- `TestHandleInput_TextLongSingleLineUsesPasteBuffer` — bodies >512
+  chars still take the paste-buffer path even with no newlines.
+- `TestHandleInput_TextCRLFUsesPasteBuffer` — `\r\n` line endings also
+  fall through to paste-buffer (the cheap-path guard tests for BOTH
+  `\n` AND `\r` via strings.ContainsAny).
+- `TestHandleInput_TextMultilineCleansBufferOnPasteFailure` — locks
+  the failure-path delete-buffer cleanup.
+
+Replaces the pre-v1.0.658 `TestHandleInput_TextMultilineUsesPerLineSendKeys`
+which had calcified the wrong behaviour into the test suite.
+
+### Tag
+
+- Tag: `v1.0.658-alpha`
 
 ## v1.0.657-alpha — 2026-05-23
 

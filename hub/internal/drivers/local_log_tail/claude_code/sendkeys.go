@@ -63,11 +63,36 @@ func (a *Adapter) requirePane() error {
 	return nil
 }
 
-// inputText sends a free-text body followed by Enter. Short bodies
-// (no embedded newlines, ≤ 512 chars) go via send-keys -l. Longer or
-// multi-line bodies go via load-buffer + paste-buffer so the TUI
-// receives the whole block atomically rather than streaming one
-// character per send-keys round-trip.
+// inputText sends a free-text body as ONE atomic submission, followed
+// by Enter. Single-line short bodies (no embedded newlines, ≤ 512
+// chars) take the cheap path: `send-keys -l <body>` + `send-keys Enter`.
+//
+// Multi-line / long bodies go via tmux's named-buffer paste:
+//
+//	tmux set-buffer  -b <name> <body>
+//	tmux paste-buffer -b <name> -d -r -t <pane>
+//	tmux send-keys                 -t <pane> Enter
+//
+// `-d` deletes the buffer after the paste so concurrent inputs don't
+// stack. `-r` is LOAD-BEARING: without it tmux translates every LF
+// byte in the buffer into a CR (Enter) keystroke on the way to the
+// pane, which means each line of a multi-line body arrives as a
+// SEPARATE user submission. Pre-v1.0.658 the old path was even worse —
+// it explicitly split on `\n` and inserted `send-keys Enter` between
+// every line, so a 5-line body landed as 5 turns at claude's TUI input
+// (a "/code please run \n curl …" multi-line block became 5 distinct
+// prompts, only the last receiving any reply). Same fix shape as the
+// agy v1.0.652 paste-buffer-`-r` flag.
+//
+// With `-r`, LF stays as LF — claude's input field is multi-line
+// capable (the same `\<Enter>` newline-without-submit affordance) and
+// accepts pasted newlines as in-field newline characters. Only our
+// explicit final `send-keys Enter` triggers submission.
+//
+// Buffer name is derived from the pane id so two concurrent inputs to
+// different agents don't clobber each other. Tmux buffer names must be
+// `[A-Za-z0-9_-]+`; the pane id form `%NN` is sanitised by stripping
+// the `%`.
 func (a *Adapter) inputText(ctx context.Context, p map[string]any) error {
 	body, _ := p["body"].(string)
 	if body == "" {
@@ -77,28 +102,31 @@ func (a *Adapter) inputText(ctx context.Context, p map[string]any) error {
 		return err
 	}
 	runner := a.cmdRunner()
+
+	// Single-line, short → cheap path.
 	if len(body) <= 512 && !strings.ContainsAny(body, "\n\r") {
 		if _, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "-l", body); err != nil {
 			return err
 		}
-	} else {
-		// load-buffer reads from stdin; we can't easily plumb stdin
-		// through CmdRunner. As an MVP fallback, fold newlines into
-		// `tmux send-keys -l <line>; tmux send-keys Enter` per line.
-		// Pasting-via-buffer becomes a W2-plus tightening once the
-		// CmdRunner interface grows a Stdin field.
-		for _, line := range strings.Split(body, "\n") {
-			if _, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "-l", line); err != nil {
-				return err
-			}
-			if _, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter"); err != nil {
-				return err
-			}
-		}
-		return nil
+		_, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter")
+		return err
 	}
-	_, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter")
-	return err
+
+	// Multi-line / long → atomic paste-buffer.
+	bufName := "ccinput_" + strings.TrimPrefix(a.PaneID, "%")
+	if _, err := runner.Run(ctx, "tmux", "set-buffer", "-b", bufName, body); err != nil {
+		return fmt.Errorf("set-buffer: %w", err)
+	}
+	if _, err := runner.Run(ctx, "tmux", "paste-buffer", "-b", bufName, "-d", "-r", "-t", a.PaneID); err != nil {
+		// Best-effort buffer cleanup on the failure path so we don't
+		// leave a stale buffer for the next call to clobber.
+		_, _ = runner.Run(ctx, "tmux", "delete-buffer", "-b", bufName)
+		return fmt.Errorf("paste-buffer: %w", err)
+	}
+	if _, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter"); err != nil {
+		return err
+	}
+	return nil
 }
 
 // inputSendKey sends a single named key. The caller passes the tmux

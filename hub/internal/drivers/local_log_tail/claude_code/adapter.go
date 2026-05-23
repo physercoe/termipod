@@ -148,18 +148,31 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 }
 
 // Start composes path resolver → session-wait → tailer → mapper →
-// poster. Two phases:
+// poster. The pipeline is ASYNCHRONOUS — Start returns nil
+// immediately after kicking off the resolver goroutine, mirroring
+// agy's adapter pattern (which itself replaced an earlier sync Start
+// at v1.0.643 after the same deadlock cascade hit it).
 //
-//  1. Synchronously locate the on-disk session JSONL under
-//     <homeDir>/.claude/projects/<encoded-workdir>/. The directory
-//     may not exist yet when Start is called (host-runner spawned
-//     claude-code only moments earlier), so we mkdir-p the parent
-//     and WaitForSession until the first .jsonl appears or the
-//     SessionWaitTimeout fires. A failure here returns from Start
-//     so the W7 caller can fall back to PaneDriver.
-//  2. Spawn the run loop: read MappedEvents from the tailer's
-//     channel via MapLine, post each via Config.Poster. The loop
-//     exits on ctx cancel / Stop / tailer channel close.
+// Why async: WaitForSession blocks until claude writes its first
+// JSONL line, which in turn requires claude to start a session.
+// Claude doesn't start a session until it gets past the welcome
+// screen (any first-run prompts: trust dialog, OAuth, "select a
+// model", hook warnings) AND receives a first user message. A
+// synchronous Start with a 30s deadline therefore failed every
+// spawn where claude wasn't already typing — including normal cold
+// starts on a fresh box. Async means HandleInput's tmux send-keys
+// path (sendkeys.go — requires only PaneID, set BEFORE Start by the
+// W7 launcher) starts working the instant the driver registers, so
+// the user's first message flows naturally and drives claude to
+// mint the JSONL. The resolver picks it up on the next poll and the
+// transcript tail spins up automatically.
+//
+// On goroutine failure (timeout, JSONL never appears, tailer errors)
+// the goroutine logs + posts a `system` notice so the activity feed
+// surfaces the half-broken state instead of looking silently fine.
+// The pane itself is still live; only JSONL-derived events are
+// missing — mobile can still send/receive text via the send-keys
+// path. Same soft-failure shape agy uses.
 //
 // Replay tagging: every event posted before the tailer first
 // reaches EOF carries `replay:true` in its payload so downstream
@@ -174,13 +187,28 @@ func (a *Adapter) Start(parent context.Context) error {
 		return nil
 	}
 	a.started = true
+	ctx, cancel := context.WithCancel(parent)
+	a.cancel = cancel
+	a.fsm = NewFSM(a.AgentID, a.Poster, a.Log, ctx)
 	a.mu.Unlock()
+
+	a.wg.Add(1)
+	go a.resolveAndRun(ctx)
+	return nil
+}
+
+// resolveAndRun is the async pipeline kicked off by Start. Runs
+// until either the parent context cancels or the tailer completes
+// the steady-state loop and `lines` closes.
+func (a *Adapter) resolveAndRun(ctx context.Context) {
+	defer a.wg.Done()
 
 	homeDir := a.HomeDir
 	if homeDir == "" {
 		hd, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("claude-code adapter: resolve HOME: %w", err)
+			a.noteFailure(ctx, "resolve HOME", err)
+			return
 		}
 		homeDir = hd
 	}
@@ -194,36 +222,52 @@ func (a *Adapter) Start(parent context.Context) error {
 
 	waitTimeout := a.SessionWaitTimeout
 	if waitTimeout <= 0 {
-		waitTimeout = 30 * time.Second
+		// 30 min default — mirrors agy's resolver budget. claude's
+		// first JSONL line lands only after the user clears any
+		// first-run dialogs (trust, model picker, hook warnings)
+		// AND sends a first message. 30s (the pre-v1.0.660 sync
+		// default) failed every interactive smoke that wasn't
+		// already typing the moment the pane appeared.
+		waitTimeout = 30 * time.Minute
 	}
-	waitCtx, cancelWait := context.WithTimeout(parent, waitTimeout)
+	waitCtx, cancelWait := context.WithTimeout(ctx, waitTimeout)
 	jsonlPath, err := WaitForSession(waitCtx, projectDir, 0)
 	cancelWait()
 	if err != nil {
-		return fmt.Errorf("claude-code adapter: wait for session jsonl in %s: %w",
-			projectDir, err)
+		a.noteFailure(ctx, "wait for session jsonl in "+projectDir, err)
+		return
 	}
-
-	ctx, cancel := context.WithCancel(parent)
-	a.cancel = cancel
-	a.fsm = NewFSM(a.AgentID, a.Poster, a.Log, ctx)
 
 	a.tailer = &Tailer{Path: jsonlPath, Mode: a.TailMode}
 	lines, err := a.tailer.Start(ctx)
 	if err != nil {
-		cancel()
-		return fmt.Errorf("claude-code adapter: tailer start: %w", err)
+		a.noteFailure(ctx, "tailer start", err)
+		return
 	}
-
-	a.wg.Add(1)
-	go a.runLoop(ctx, lines)
 
 	a.Log.Info("claude-code adapter started",
 		"agent_id", a.AgentID,
 		"workdir", a.Workdir,
 		"jsonl", jsonlPath,
 		"replay", a.TailMode == StartFromBeginning)
-	return nil
+
+	a.runLoop(ctx, lines)
+}
+
+// noteFailure logs and surfaces a soft failure: the pane is still
+// live, but JSONL-derived events won't flow for this session.
+// Best-effort post — a hub blip shouldn't escalate this further.
+// Mirrors the antigravity adapter's noteFailure (same shape).
+func (a *Adapter) noteFailure(ctx context.Context, phase string, err error) {
+	a.Log.Warn("claude-code adapter: async pipeline aborted",
+		"agent_id", a.AgentID, "phase", phase, "err", err)
+	_ = a.Poster.PostAgentEvent(ctx, a.AgentID, "system", "system",
+		map[string]any{
+			"text": fmt.Sprintf(
+				"claude-code JSONL tail unavailable (%s: %v). "+
+					"The pane is still live — type to interact via tmux.",
+				phase, err),
+		})
 }
 
 // runLoop pumps lines from the tailer through the mapper and posts
@@ -232,7 +276,10 @@ func (a *Adapter) Start(parent context.Context) error {
 // will retry. Mapper errors (malformed JSON) log + drop the line so
 // one corrupt write doesn't take down the entire transcript.
 func (a *Adapter) runLoop(ctx context.Context, lines <-chan Line) {
-	defer a.wg.Done()
+	// wg.Done lives on resolveAndRun (the goroutine that owns this
+	// run-loop call). runLoop no longer touches the WaitGroup since
+	// it's invoked synchronously from resolveAndRun, not as its own
+	// goroutine — touching wg here would double-Done and panic.
 	replay := a.TailMode == StartFromBeginning
 	for {
 		select {

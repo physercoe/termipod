@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.659
+> **Last verified vs code:** v1.0.660
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,100 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.660-alpha — 2026-05-23
+
+ADR-027 W11 fix-up wedge #4 — caught on on-host smoke of v1.0.659:
+
+```
+ERROR msg="M4 LocalLogTail launch failed; marking agent failed (no PaneDriver fallback)"
+  handle=claude-m4-steward
+  err="locallogtail M4: driver start: local_log_tail adapter start:
+       claude-code adapter: wait for session jsonl in ...
+       waiting for claude-code session in ...:
+       context deadline exceeded"
+```
+
+### Two failures in one error
+
+1. **30s synchronous deadline.** The claude-code adapter's `Start`
+   blocked on `WaitForSession` (the polling lookup for claude's
+   on-disk session JSONL) with a 30-second default. claude doesn't
+   write a JSONL until it has cleared the welcome screen (any
+   first-run dialogs: trust, model picker, hook warnings) AND
+   received its first message — easily past 30s on a cold start.
+2. **Sync failure escalated to hard fail.** With `Start` returning
+   an error, `launchM4LocalLogTail` returned an error, the W7
+   runner posted `lifecycle:failed` + `PatchAgent(status:failed)`
+   (the no-PaneDriver-fallback path that v1.0.657 introduced), and
+   the agent appeared dead in the mobile UI — even though the tmux
+   pane was perfectly healthy and claude was actively initializing.
+
+Both symptoms are the same defect class agy fixed at v1.0.643 in
+its own adapter — synchronous start with a tight deadline doesn't
+match the human-paced interactive engine reality. v1.0.660 ports
+agy's resolve-and-run shape to the claude-code adapter.
+
+### Fix shape
+
+`hub/internal/drivers/local_log_tail/claude_code/adapter.go`:
+
+- `Adapter.Start` now returns `nil` immediately after kicking off a
+  `resolveAndRun` goroutine. `started=true` + `cancel`/`fsm`
+  initialisation happen synchronously inside the lock so a second
+  `Start` is a no-op (idempotency preserved).
+- `resolveAndRun` owns the lifecycle: HOME resolve → mkdir
+  projectDir → `WaitForSession(waitCtx, ...)` → `Tailer.Start` →
+  `runLoop`. `defer a.wg.Done()` at the top accounts for the
+  goroutine the `Stop` path waits on.
+- Default `SessionWaitTimeout` bumped from **30s → 30 min**, mirroring
+  agy. The wait now budgets the human-paced welcome-screen path, not
+  just a JSONL-flush race.
+- New `noteFailure(ctx, phase, err)` posts a `system{text: "...tail
+  unavailable... pane is still live — type to interact"}` event on
+  any goroutine-side failure. The agent stays in `running` status;
+  HandleInput keeps working (it only needs PaneID, set by the W7
+  launcher before Start). Same noteFailure shape as
+  `antigravity/adapter.go`.
+
+`runLoop` no longer touches the WaitGroup — `resolveAndRun` is its
+caller and owns the `wg.Done`. Pre-async, `runLoop` was its own
+goroutine; post-async it's a synchronous call inside
+`resolveAndRun`, so a stray `defer wg.Done()` here would double-Done
+and panic.
+
+### Tests
+
+- `TestAdapter_Start_AsyncWaitsForSessionFile` (renamed from
+  `TestAdapter_Start_WaitsForSessionFile`) — asserts Start returns
+  promptly (<50ms) AND the delayed session file is still picked up
+  by the goroutine.
+- `TestAdapter_Start_TimesOutPostsSoftFailureEvent` (renamed from
+  `TestAdapter_Start_TimesOutWhenSessionNeverAppears`) — asserts a
+  short SessionWaitTimeout produces a `system{text: "tail
+  unavailable"}` event, not a Start-time error.
+- `TestAdapter_StartIsIdempotent` (renamed from
+  `TestAdapter_StartIsIdempotent_OnFailure`) — Start always returns
+  nil now; the idempotency check is that the second call doesn't
+  spawn a second goroutine (covered by Stop's WaitGroup accounting).
+
+### Net effect for the user
+
+Before v1.0.660 (the smoke report):
+- Launch path: `driver.Start` blocks 30s → times out → agent
+  marked failed → tmux pane orphaned, claude still running.
+
+After v1.0.660:
+- Launch path: `driver.Start` returns immediately → agent marked
+  running → mobile can send text via send-keys → claude finishes
+  its welcome screen and starts a session → JSONL appears →
+  resolver picks it up → events stream live. If claude truly
+  never starts a session within 30 min, a `system` notice surfaces
+  the half-broken state without killing the agent.
+
+### Tag
+
+- Tag: `v1.0.660-alpha`
 
 ## v1.0.659-alpha — 2026-05-23
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -187,7 +188,10 @@ func TestAdapter_Start_StartFromEndSkipsExisting(t *testing.T) {
 	}
 }
 
-func TestAdapter_Start_WaitsForSessionFile(t *testing.T) {
+// Start MUST return immediately (the resolver runs in a background
+// goroutine — v1.0.660 async refactor). The session file appearing
+// later must still be picked up by the goroutine and produce events.
+func TestAdapter_Start_AsyncWaitsForSessionFile(t *testing.T) {
 	cwd := "/home/test/proj3"
 	homeDir, projectDir := makeFakeHome(t, cwd)
 
@@ -196,8 +200,8 @@ func TestAdapter_Start_WaitsForSessionFile(t *testing.T) {
 	a.HomeDir = homeDir
 	a.SessionWaitTimeout = 2 * time.Second
 
-	// Drop the session file after a short delay; Start should
-	// pick it up rather than failing.
+	// Drop the session file after a short delay; the resolver
+	// goroutine should pick it up and emit the event.
 	jsonl := filepath.Join(projectDir, "sess.jsonl")
 	go func() {
 		time.Sleep(150 * time.Millisecond)
@@ -213,8 +217,12 @@ func TestAdapter_Start_WaitsForSessionFile(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	defer a.Stop()
-	if elapsed := time.Since(start); elapsed < 100*time.Millisecond {
-		t.Errorf("Start returned in %v before file appeared; expected ≥100ms wait", elapsed)
+	// Start is async post-v1.0.660 — it must return promptly
+	// (well under the 150ms file-write delay) so the host-runner
+	// launch path doesn't block waiting for claude to produce a
+	// session.
+	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+		t.Errorf("Start blocked for %v; expected immediate return (async resolver)", elapsed)
 	}
 
 	got := waitForN(t, p, 1, 2*time.Second)
@@ -223,20 +231,44 @@ func TestAdapter_Start_WaitsForSessionFile(t *testing.T) {
 	}
 }
 
-func TestAdapter_Start_TimesOutWhenSessionNeverAppears(t *testing.T) {
+// Pre-v1.0.660 Start returned an error when WaitForSession timed
+// out, which blocked the W7 launch path and marked the agent as
+// failed even though the tmux pane was perfectly healthy (claude
+// was just sitting on its welcome screen waiting for input). The
+// async refactor turns the failure into a SOFT event: Start still
+// returns nil, but the resolver goroutine posts a `system` notice
+// with "tail unavailable" text so mobile shows the half-broken
+// state.
+func TestAdapter_Start_TimesOutPostsSoftFailureEvent(t *testing.T) {
 	cwd := "/home/test/proj4"
 	homeDir, _ := makeFakeHome(t, cwd)
 
 	p := &capturingPoster{}
 	a, _ := NewAdapter(Config{AgentID: "ag", Workdir: cwd, Poster: p})
 	a.HomeDir = homeDir
-	a.SessionWaitTimeout = 100 * time.Millisecond
+	a.SessionWaitTimeout = 50 * time.Millisecond
 
-	err := a.Start(context.Background())
-	if err == nil {
-		a.Stop()
-		t.Fatal("Start returned nil when session file never appeared")
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start returned error on async-mode timeout: %v", err)
 	}
+	defer a.Stop()
+
+	// The goroutine's noteFailure should land within a couple
+	// timeout multiples.
+	deadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, ev := range p.snapshot() {
+			if ev.kind != "system" {
+				continue
+			}
+			text, _ := ev.payload["text"].(string)
+			if strings.Contains(text, "tail unavailable") {
+				return // pass
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("noteFailure event never posted; saw events = %+v", p.snapshot())
 }
 
 func TestAdapter_StopDrainsRunLoop(t *testing.T) {

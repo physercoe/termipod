@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.642
+> **Last verified vs code:** v1.0.643
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,52 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.643-alpha — 2026-05-23
+
+First on-host smoke of the antigravity engine (ADR-035 W11) caught two
+bugs in one cascade: the adapter blocked on a conversationId that agy
+mints only **after** the user's first message — but the user can't send
+that message from mobile until the agent leaves `pending`, which only
+happens once the driver returns. Adapter timed out at 60s; runner then
+silently fell back to PaneDriver, which spawned a SECOND tmux pane in
+the host-runner's cwd (no `cd <workdir>` prefix in the fallback path),
+scraped raw TUI bytes into the mobile feed, and left the session bound
+to the wrong driver — "busy" cancel button, input gated. Both fixed.
+
+### Fixed
+
+- **antigravity (M4 adapter):** `Adapter.Start` is now async — it
+  validates, sets up the cancel context, kicks off the
+  resolver+reader pipeline in a goroutine, and returns immediately.
+  The agent flips `pending → running` without waiting for agy's first
+  model turn; mobile input flows via `tmux send-keys` (which only
+  needs PaneID, not ConversationID); the user's first message drives
+  agy to mint the conversation; the resolver picks it up and the
+  transcript tail spins up. Default `SessionWaitTimeout` bumped from
+  60s to 30 min — with async resolution this just governs the
+  background goroutine's give-up window, and 60s was failing every
+  interactive smoke that wasn't already typing. Async-pipeline
+  failures post a `system` notice ("antigravity transcript tail
+  unavailable") instead of vanishing silently
+  (`hub/internal/drivers/local_log_tail/antigravity/adapter.go`).
+- **antigravity (runner):** dropped the silent PaneDriver fall-through
+  on launch failure. PaneDriver scrapes raw bytes — meaningless for
+  agy's TUI — and the fall-through path was reaching the generic M4
+  branch that re-launches the raw `backend.cmd` (no `cd <workdir>`
+  prefix), spawning a SECOND pane in the host-runner's cwd. On
+  `launchM4Antigravity` error the runner now emits `lifecycle.failed`
+  with the underlying error and patches the agent to `failed` so
+  mobile can offer respawn (`hub/internal/hostrunner/runner.go`).
+
+### Notes
+
+ADR-035 stays Proposed; this is the W11 fix-up pass — ADR flips
+Accepted only after a clean end-to-end on-host smoke against
+v1.0.643+. The MCP test rig `/tmp/agymcp/server.py` is still wired
+into the user's global `~/.gemini/config/mcp_config.json`.
 
 ---
 

@@ -622,8 +622,14 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 			}
 		case "antigravity":
 			// ADR-035 W7: agy uses the LocalLogTail driver via its own
-			// (gateway-free, snapshot-reader) adapter. Same graceful
-			// fall-through to PaneDriver on any failure.
+			// (gateway-free, snapshot-reader) adapter. No PaneDriver
+			// fall-through: PaneDriver scrapes raw tmux bytes, which is
+			// nonsense for agy's TUI, AND the fall-through path spawns a
+			// SECOND pane with the wrong cwd (no `cd <workdir>` prefix),
+			// leaving the user with two panes and a session bound to the
+			// wrong driver. v1.0.642 on-host smoke caught this. Fail
+			// cleanly instead so the agent shows up as `failed` with the
+			// error in the lifecycle event — mobile then offers respawn.
 			hubURLForAgent := a.Client.BaseURL
 			if a.egressProxy != nil {
 				hubURLForAgent = a.egressProxy.LocalURL
@@ -636,12 +642,22 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				Log:      a.Log,
 			})
 			if lerr != nil {
-				a.Log.Warn("M4 antigravity launch failed; falling back to PaneDriver",
+				a.Log.Error("M4 antigravity launch failed; marking agent failed (no PaneDriver fallback)",
 					"handle", sp.Handle, "err", lerr)
-			} else {
-				pane = res.PaneID
-				drv = res.Driver
+				_ = a.agentPoster.PostAgentEvent(ctx, sp.ChildID, "lifecycle", "system",
+					map[string]any{
+						"phase":  "failed",
+						"reason": "antigravity M4 launch failed",
+						"err":    lerr.Error(),
+						"handle": sp.Handle,
+						"kind":   sp.Kind,
+					})
+				status := "failed"
+				_ = a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{Status: &status})
+				return
 			}
+			pane = res.PaneID
+			drv = res.Driver
 		}
 	}
 	if mode == "M4" && drv == nil {

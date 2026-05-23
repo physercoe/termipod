@@ -75,12 +75,12 @@ func TestAdapter_StartResolvesAndPosts(t *testing.T) {
 	}
 	defer a.Stop()
 
-	if a.ConversationID != convID {
-		t.Fatalf("ConversationID = %q; want %q (resume cursor)", a.ConversationID, convID)
-	}
-
-	// Expect: a session.init cursor event (W8) + one text event from the
-	// PLANNER_RESPONSE (USER_INPUT drops). Poll until both are present.
+	// Start is now async (v1.0.642 fix — agy mints its conversationId
+	// only after the first user message, so blocking Start created an
+	// unbreakable pending→running deadlock). Poll for both the
+	// session.init cursor event (W8) + the text event from the
+	// PLANNER_RESPONSE AND the ConversationID field — they all land via
+	// the background resolveAndRun goroutine.
 	deadline := time.After(2 * time.Second)
 	for {
 		got := poster.snapshot()
@@ -93,12 +93,14 @@ func TestAdapter_StartResolvesAndPosts(t *testing.T) {
 				sawText = true
 			}
 		}
-		if sawInit && sawText {
+		gotConvID := a.ConversationID
+		if sawInit && sawText && gotConvID == convID {
 			return
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("want session.init(%s)+text; got %+v", convID, got)
+			t.Fatalf("want session.init(%s)+text+ConversationID=%s; got events=%+v conv=%q",
+				convID, convID, got, gotConvID)
 		case <-time.After(20 * time.Millisecond):
 		}
 	}

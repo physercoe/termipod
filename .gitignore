@@ -67,3 +67,6 @@ worktree/
 android/key.properties
 android/app/upload-keystore.jks
 *.apk
+
+# agy creates a per-workspace project shadow when launched in a dir
+.antigravitycli/

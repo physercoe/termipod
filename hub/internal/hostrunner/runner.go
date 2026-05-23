@@ -367,6 +367,17 @@ func (a *Runner) Start(ctx context.Context) error {
 // an attention item per stuck pane (deduped by hash inside Inspect).
 // Errors on a single pane are logged and skipped — one bad pane shouldn't
 // prevent us from watching the others.
+//
+// Agents whose kind matches a registered engine family (claude-code,
+// codex, gemini-cli, kimi-code, antigravity) are skipped: their drivers
+// emit explicit busy/idle signals via lifecycle / turn.result / completion
+// events, so mobile already has authoritative state, and the regex-based
+// pane scrape false-positives on these engines' always-visible chat
+// prompt (the W11 smoke surfaced this — every 30 min an "agent idle at
+// prompt" attention item landed on the Me page even though agy was
+// behaving normally, just sitting at its TUI prompt waiting for input).
+// The detector remains for legacy/unknown agents that PaneDriver runs
+// without structured state.
 func (a *Runner) tickIdle(ctx context.Context) {
 	agents, err := a.Client.ListRunningAgents(ctx, a.HostID)
 	if err != nil {
@@ -377,6 +388,14 @@ func (a *Runner) tickIdle(ctx context.Context) {
 	for _, ag := range agents {
 		seen[ag.ID] = struct{}{}
 		if ag.PaneID == "" || ag.PauseState == "paused" {
+			continue
+		}
+		if hasStructuredDriver(ag.Kind) {
+			// Engine reports its own state; the pane-tail scrape would
+			// false-positive on the always-on chat prompt. Drop any
+			// stored hash so a future regression that re-enables this
+			// path doesn't replay a stale "stuck for hours" baseline.
+			delete(a.panes, ag.ID)
 			continue
 		}
 		text, err := runTmux(ctx, "capture-pane", "-p", "-J", "-t", ag.PaneID)

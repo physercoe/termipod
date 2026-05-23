@@ -91,6 +91,21 @@ class InlineApprovalActions extends ConsumerWidget {
         ],
       );
     }
+    // Informational kinds — the host-runner's idle detector raises
+    // these to surface a "stuck at prompt" pane, and future system
+    // notices land here too. They aren't approval requests; rendering
+    // them with Approve/Reject was misleading (the user has nothing
+    // to "approve" — they just want to acknowledge and clear the row).
+    // A single Dismiss button routes through the same /decide endpoint
+    // with decision='approve' so the audit trail records a resolution
+    // and the row drops off the open list.
+    if (_isInformational(kind)) {
+      return OutlinedButton.icon(
+        icon: const Icon(Icons.check_circle_outline, size: 16),
+        label: const Text('Dismiss'),
+        onPressed: () => _decide(context, ref, 'approve'),
+      );
+    }
     return Row(
       children: [
         OutlinedButton.icon(
@@ -109,6 +124,21 @@ class InlineApprovalActions extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  /// Informational attention kinds — raised by background detectors
+  /// to surface a state worth noticing, not by an agent waiting on a
+  /// principal decision. The Approve/Reject pair doesn't fit; a single
+  /// Dismiss is correct. v1.0.648: extracted so adding a new
+  /// informational kind (e.g. 'system_notice', 'low_disk', 'budget_warning')
+  /// is one-line.
+  static bool _isInformational(String kind) {
+    switch (kind) {
+      case 'idle':
+        return true;
+      default:
+        return false;
+    }
   }
 
   List<String> _options() {

@@ -68,3 +68,35 @@ func TestIdleDetector_ResetOnChange(t *testing.T) {
 	}
 	_ = st
 }
+
+// All five registered engine families must short-circuit idle
+// detection — they emit their own busy/idle signals via lifecycle /
+// turn.result / completion events, and the regex-based pane scrape
+// would false-positive on their always-on TUI prompt (the W11 smoke
+// surfaced "agent idle at prompt" attention items every 30 min for
+// antigravity despite it behaving normally).
+func TestHasStructuredDriver_KnownEnginesSkipped(t *testing.T) {
+	for _, kind := range []string{
+		"claude-code", "codex", "gemini-cli", "kimi-code", "antigravity",
+	} {
+		if !hasStructuredDriver(kind) {
+			t.Errorf("hasStructuredDriver(%q) = false; want true (registered family)", kind)
+		}
+	}
+}
+
+// An unknown kind (legacy spawn, PaneDriver-only engine, future
+// addition not in the registry yet) keeps the legacy detector path.
+func TestHasStructuredDriver_UnknownKindStillScanned(t *testing.T) {
+	if hasStructuredDriver("totally-fake-engine") {
+		t.Errorf("hasStructuredDriver(unknown) = true; want false")
+	}
+}
+
+// Empty kind defaults to skipping detection — better to be silent for
+// one tick than to raise a false attention item on an unsettled row.
+func TestHasStructuredDriver_EmptyKindSkipped(t *testing.T) {
+	if !hasStructuredDriver("") {
+		t.Errorf("hasStructuredDriver(\"\") = false; want true (safe default)")
+	}
+}

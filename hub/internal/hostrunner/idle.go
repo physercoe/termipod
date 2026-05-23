@@ -6,7 +6,31 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/termipod/hub/internal/agentfamilies"
 )
+
+// hasStructuredDriver returns true when `kind` matches a registered
+// agent-family bin (claude-code / codex / gemini-cli / kimi-code /
+// antigravity). Those drivers emit explicit busy/idle signals through
+// lifecycle / turn.result / completion events, so the regex-based idle
+// detector — which was a fallback for engines without structured state
+// — must not fire on them or it will false-positive on their always-
+// visible TUI prompt.
+//
+// Best-effort: an empty kind, or a registry that hasn't loaded yet, are
+// both treated as "structured unknown" → skip detection. We err on the
+// side of NOT raising a false attention item; the legacy detector can
+// stay silent for one tick if state is unsettled.
+func hasStructuredDriver(kind string) bool {
+	if kind == "" {
+		return true
+	}
+	if _, ok := agentfamilies.ByName(kind); ok {
+		return true
+	}
+	return false
+}
 
 // IdleDetector watches tmux panes for the "agent is stuck at a prompt"
 // pattern: the tail of the pane looks like a waiting prompt AND the

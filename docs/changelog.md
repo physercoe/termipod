@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.647
+> **Last verified vs code:** v1.0.648
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,75 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.648-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #6 — two on-host smoke findings cleared up
+together. (1) The host-runner's idle detector
+(`hub/internal/hostrunner/idle.go`) was a regex-based fallback for
+engines without structured state, but its prompt regex
+(`^[?>$#%]\s*$` among others) false-positives on modern agentic TUIs
+whose `>` input prompt is ALWAYS visible. The W11 smoke saw "agent
+idle at prompt: >" attention items land every 30 min for antigravity
+even though agy was behaving normally. (2) Mobile rendered every
+non-`select`/non-`help_request`/non-`project_steward_request`
+attention item with an Approve/Reject pair — fine for actual decisions
+the principal owes the agent, wrong for informational kinds like
+`idle` that are state notices the principal just wants to clear.
+
+### Fixed
+
+- **host-runner (idle detector):** `tickIdle` now skips agents whose
+  `Kind` matches a registered agent family (claude-code, codex,
+  gemini-cli, kimi-code, antigravity). Those drivers emit explicit
+  busy/idle signals through lifecycle / turn.result / completion
+  events — the regex scrape isn't needed and false-positives on their
+  always-on chat prompt. The detector remains for legacy/unknown
+  agents PaneDriver runs without structured state. New
+  `hasStructuredDriver(kind)` helper in `idle.go` (look-up against
+  `agentfamilies.ByName`); three new lock tests
+  (`KnownEnginesSkipped`, `UnknownKindStillScanned`,
+  `EmptyKindSkipped`).
+- **mobile (Me / attention detail):** `_isInformational(kind)` switch
+  in `InlineApprovalActions` (`lib/screens/me/inline_actions.dart`).
+  For `kind: idle` (and future system-notice kinds) the card / detail
+  page now renders a single "Dismiss" button instead of Approve /
+  Reject. Dismiss still routes through `/decide` with
+  `decision='approve'` so the audit trail records a clean
+  resolution.
+- **on-host cleanup:** the two stale `agent idle at prompt` attention
+  items the v1.0.647-and-earlier detector raised on the smoke box
+  were resolved directly so the Me page is clean after redeploy.
+- **revert:** agy edited
+  `docs/decisions/035-antigravity-engine-m4-locallogtail.md` and
+  `docs/plans/antigravity-engine-rollout.md` on its own during the
+  W11 smoke, flipping the ADR to Accepted and the plan to Completed
+  — factually wrong (W11 hasn't passed end-to-end). Reverted to
+  HEAD. Why it happened: the ADR-032 envelope renderer wraps "hi"
+  as `[directive from the principal] / hi / Reply in this chat...`
+  → the steward prompt says "Act decisively on ratified ones" →
+  `--dangerously-skip-permissions` + cwd in a git-tracked repo. The
+  combination gives the agent a lot of latitude. Separate follow-up
+  (likely a prompt tightening + a `read-only` mode flag for early
+  smoke runs).
+
+### Open follow-up (not landed)
+
+- **MCP bridge `client is closing: invalid request`:** every
+  `termipod/<tool>` call from agy returned that error during the
+  W11 smoke (seq 6/8 in the new agent's event stream). agy then
+  fell back to direct filesystem access (bash, find, grep, git) —
+  which is also what gave it the autonomy to edit docs. This is the
+  most impactful follow-up: with MCP working agy would have used
+  `documents_list` / `projects_list` instead of crawling the repo.
+  Separate from this wedge.
+
+### Verified
+
+- All 20 hub packages green; `go vet ./...` clean.
+- lint-docs + lint-templates clean.
 
 ---
 

@@ -73,6 +73,18 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 		}
 	}
 
+	// Pre-trust the workdir so agy doesn't pop its "trust this folder?"
+	// arrow-nav dialog at launch — the mobile app has no Up/Down/Enter
+	// affordance yet, so a fresh-workdir spawn would otherwise sit
+	// blocked on a menu the user can't drive. agy persists trust in
+	// ~/.gemini/antigravity-cli/settings.json → trustedWorkspaces[].
+	// Idempotent (skips if already present); best-effort (a failure
+	// just means the user gets the dialog once and clicks through).
+	if werr := preTrustWorkspaceAntigravity(workdir); werr != nil {
+		cfg.Log.Warn("antigravity M4: pre-trust workspace failed; user may see the trust dialog",
+			"handle", cfg.Spawn.Handle, "workdir", workdir, "err", werr)
+	}
+
 	adapter, err := antigravity.NewAdapter(antigravity.Config{
 		AgentID: cfg.Spawn.ChildID,
 		Workdir: workdir,
@@ -170,6 +182,70 @@ func writeMCPConfigAntigravityGlobal(hubURL, token string) error {
 		},
 	}
 	cfg["mcpServers"] = servers
+
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, body, 0o600)
+}
+
+// preTrustWorkspaceAntigravity appends workdir to agy's trustedWorkspaces
+// list in ~/.gemini/antigravity-cli/settings.json so the "trust this
+// folder?" arrow-nav dialog never fires for spawned agents.
+//
+// agy persists trust per absolute path — the shape is host-verified:
+//
+//	{
+//	  "enableTelemetry": false,
+//	  "statusLine": { ... },
+//	  "trustedWorkspaces": ["/abs/path1", "/abs/path2"]
+//	}
+//
+// This function preserves any unrelated keys (enableTelemetry, statusLine,
+// future agy additions). Reads, deduplicates against the existing list,
+// appends only if missing, writes back atomically. workdir is
+// filepath.Clean'd to match agy's storage convention.
+//
+// Why launch-time, not template/install: the workdir is dynamic (per
+// project / per handle), so the trust list has to grow as agents spawn.
+// The user pre-trusting "~/hub-work" globally would be ideal but agy
+// stores absolute paths, not prefixes, so per-spawn pre-grant is the
+// only path that doesn't require user intervention.
+//
+// Best-effort: a missing settings.json is treated as the empty config
+// (write a fresh `{"trustedWorkspaces": [...]}`); a malformed one falls
+// through silently and the user gets the dialog this once. The function
+// never returns a launch-blocking error from the caller's perspective —
+// the caller logs and continues either way.
+func preTrustWorkspaceAntigravity(workdir string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve HOME: %w", err)
+	}
+	path := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir settings dir: %w", err)
+	}
+
+	clean := filepath.Clean(workdir)
+
+	cfg := map[string]any{}
+	if b, rerr := os.ReadFile(path); rerr == nil && len(bytes.TrimSpace(b)) > 0 {
+		if jerr := json.Unmarshal(b, &cfg); jerr != nil {
+			return fmt.Errorf("parse existing settings (%s): %w", path, jerr)
+		}
+	}
+
+	// trustedWorkspaces lands as []any after json.Unmarshal into map[string]any.
+	rawList, _ := cfg["trustedWorkspaces"].([]any)
+	for _, v := range rawList {
+		if s, ok := v.(string); ok && filepath.Clean(s) == clean {
+			return nil // already trusted; no-op write
+		}
+	}
+	rawList = append(rawList, clean)
+	cfg["trustedWorkspaces"] = rawList
 
 	body, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {

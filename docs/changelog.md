@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.643
+> **Last verified vs code:** v1.0.644
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,44 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.644-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #2: suppress agy's "trust this folder?" arrow-
+nav dialog at spawn time so a fresh workdir doesn't sit blocked on a
+menu the mobile UI has no way to drive yet (no custom keyboard / action
+bar / joystick wired up on the principal side). Host-verified that agy
+persists trust in `~/.gemini/antigravity-cli/settings.json` under a
+`trustedWorkspaces` array of absolute paths — the launch path now
+idempotently appends the resolved workdir to that list before exec'ing
+`agy`. Menu-driving UX (Q1 from the smoke debrief — action keys panel /
+CapturePane menu detector) deliberately deferred until more menus
+appear during smoke; ADR-035 §W9 stays deferred.
+
+### Added
+
+- **antigravity (launch):** `preTrustWorkspaceAntigravity(workdir)` in
+  `hub/internal/hostrunner/launch_m4_antigravity.go` reads
+  `~/.gemini/antigravity-cli/settings.json`, deduplicates against the
+  cleaned absolute workdir, appends if missing, writes back atomically.
+  Preserves any unrelated keys (`enableTelemetry`, `statusLine`, future
+  agy additions). Fresh box (no settings file) creates one with just
+  the `trustedWorkspaces` entry. Best-effort: a malformed or unreadable
+  settings.json logs and continues — the user gets the dialog once
+  rather than blocking the spawn. Three locking tests in
+  `launch_m4_antigravity_test.go` (idempotent re-spawn, fresh box, path
+  dedup with trailing slash).
+
+### Notes
+
+ADR-035 stays Proposed; this is W11 fix-up #2. Re-test after redeploy:
+spawn antigravity in a never-trusted workdir → expect no trust dialog
+→ first message reaches agy → conversation mints → transcript tails →
+mobile feed populates. If a different menu surfaces (e.g. a tool-call
+permission prompt), capture its layout for the W9 detector corpus
+before designing the menu-driving UX.
 
 ---
 

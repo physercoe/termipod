@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.653
+> **Last verified vs code:** v1.0.654
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,98 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.654-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #11 — agy's MCP `tools/call` STILL failed
+after v1.0.653 (different error this time, surfaced as
+`server name termipod failed to load: failed to get tools: calling
+"tools/list": invalid request`). Reproduced manually with the live
+token: hub-mcp-bridge → hub's `/mcp/<token>` returned a 167-entry
+tools list, but 71 of those entries had dot-separated names
+(`documents.list`, `projects.get`, `plans.steps.create`, …).
+
+### Root cause: MCP-spec-noncompliant tool names
+
+MCP spec requires tool names to match `[A-Za-z0-9_-]+` — dots are not
+allowed. Our catalog kept 71 dot-named DEPRECATED aliases for
+backwards-compat with agents still using the legacy spellings
+(ADR-031 / ADR-033 introduced the snake_case canonical names and
+left the dot-named ones as aliases on the dispatcher).
+
+Most MCP clients (claude-code, codex, kimi-code) accept the
+non-compliant names silently. **agy 1.0.1 validates strictly and
+rejects the WHOLE `tools/list` payload with `invalid request` when
+any entry violates the regex** — so agy sees zero tools, marks the
+server as `failed to load`, and every `call_mcp_tool` errors out.
+`agytest` (a user-owned test server) kept working because its only
+tool is `ping`.
+
+### Fix
+
+`tools/list` now filters MCP-spec-noncompliant names off the wire
+in both handler paths:
+
+- `server/mcp.go` `mcpToolListDefs` (the in-process `/mcp/<token>`
+  surface the bridge talks to)
+- `hubmcpserver/run.go` `tools/list` (the standalone daemon path)
+
+The dispatcher still accepts both spellings on `tools/call`, so
+legacy callers don't break — only the catalog is filtered.
+
+Verified by manual probe: every one of the 71 dropped dot-named
+tools has a snake_case sibling already in the wire output (e.g.
+`documents.list` → `documents_list`, `plans.steps.create` →
+`plan_steps_create`), so zero functionality is lost.
+
+Lock tests:
+- `TestMCP_ToolListDefs_FiltersDotNamedAliases` asserts the 8
+  named samples are absent + their snake_case siblings present.
+- `TestIsMCPCompliantToolName` exercises the regex matcher.
+- `TestMCP_ToolListDefs_ServesShort` updated to expect
+  `len(defs) < len(full)` (was `==`).
+- `TestMCPAuthority_RoundTrip` updated: tools/list now checks
+  snake_case names + asserts dot-named are filtered; tools/call
+  still passes the dot-named alias to prove the dispatcher
+  resolves both.
+- `TestToolsList_RoundTrip` (hubmcpserver) updated count expectation.
+
+### On the multi-wedge MCP debug arc
+
+This is the third MCP-related fix in three wedges, each one a
+different layer:
+
+- **v1.0.649**: hub `initialize` hard-coded `protocolVersion:
+  2024-11-05` → agy 1.0.1 sends 2025-11-25 → fatal protocol error
+  on connect.
+- **v1.0.653**: workdir `.mcp.json` pinned a stale per-spawn MCP
+  token because the launch path only wrote the global config →
+  401 invalid token on every `tools/call`.
+- **v1.0.654 (here)**: catalog held dot-named aliases → agy
+  rejected the whole `tools/list` batch as `invalid request`.
+
+Each one surfaced only after the previous one was fixed — strict
+clients fail at the first wall they hit, hiding everything behind
+it. The sequence is the kind of error-cascade-discipline lesson
+worth distilling: when a permissive validator obscures multiple
+nested errors, fix-and-retry surfaces them one at a time.
+
+### Verification + deploy
+
+Builds clean, tests pass. After deploying v1.0.654:
+
+```bash
+sudo cp /tmp/hub-server  /usr/local/bin/hub-server
+cp     /tmp/host-runner  ~/.local/bin/host-runner
+sudo systemctl restart termipod-hub.service
+# restart your tmux host-runner
+```
+
+Then spawn antigravity and ask "list the projects you can see".
+Expected: agy calls `projects_list` natively via MCP, gets the
+team's projects, replies with a short list.
 
 ---
 

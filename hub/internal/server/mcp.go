@@ -235,10 +235,28 @@ func mcpToolDefs() []map[string]any {
 // in the catalog (~30KB), so it is fetched per-tool via tools_get
 // instead (~5KB catalog). `description` stays present and meaningful,
 // so a client that reads only `description` keeps working.
+//
+// MCP-spec-noncompliant tool names (dots, spaces — anything outside
+// `[A-Za-z0-9_-]`) are dropped from the wire here. ADR-031/033 retains
+// dot-named aliases like `documents.list` for backwards-compat with
+// agents still calling the legacy names; the dispatcher accepts them.
+// But strict MCP clients (agy 1.0.1 confirmed) reject the WHOLE
+// tools/list response with `invalid request` when ANY tool name
+// violates the regex — so an agy session sees zero tools and every
+// call_mcp_tool fails with `server name termipod failed to load:
+// failed to get tools: calling "tools/list": invalid request`. Every
+// dot-named entry has a snake_case sibling in the catalog (verified
+// at the call site below), so this filter loses no functionality on
+// the wire; legacy callers can still dispatch dot-named tools via
+// tools/call because the registry resolves both spellings.
 func mcpToolListDefs() []map[string]any {
 	defs := mcpToolDefs()
 	out := make([]map[string]any, 0, len(defs))
 	for _, def := range defs {
+		name, _ := def["name"].(string)
+		if !isMCPCompliantToolName(name) {
+			continue
+		}
 		short, _ := def["short"].(string)
 		entry := map[string]any{
 			"name":        def["name"],
@@ -252,6 +270,29 @@ func mcpToolListDefs() []map[string]any {
 		out = append(out, entry)
 	}
 	return out
+}
+
+// isMCPCompliantToolName reports whether `name` matches the MCP spec's
+// tool-name production: a non-empty string of `[A-Za-z0-9_-]`. Anything
+// else (dots, dollar signs, slashes, …) is dropped from the wire to
+// keep strict clients (agy 1.0.1) from rejecting the whole tools/list
+// payload — they validate every entry and reject the batch on the
+// first failure.
+func isMCPCompliantToolName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // --- Dispatch ---

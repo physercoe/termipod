@@ -48,11 +48,16 @@ func TestToolsList_RoundTrip(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %+v", resp.Error)
 	}
-	if want := len(RegistryCatalogDefs()); len(resp.Result.Tools) != want {
-		t.Fatalf("got %d tools, want %d (RegistryCatalogDefs)", len(resp.Result.Tools), want)
+	// v1.0.654: tools/list filters MCP-spec-noncompliant dot-named
+	// aliases off the wire (strict clients like agy 1.0.1 reject the
+	// whole batch when any name violates `[A-Za-z0-9_-]+`). The
+	// dispatcher still resolves both spellings on tools/call.
+	wantCount := len(filterMCPCompliantNames(RegistryCatalogDefs()))
+	if len(resp.Result.Tools) != wantCount {
+		t.Fatalf("got %d tools, want %d (filtered RegistryCatalogDefs)", len(resp.Result.Tools), wantCount)
 	}
-	// Both the canonical name and its deprecated dotted alias appear,
-	// and every entry carries a one-line `short` contract (ADR-031 W2.a).
+	// Only canonical snake_case names ship; every entry carries a
+	// one-line `short` contract (ADR-031 W2.a).
 	names := map[string]bool{}
 	for _, tl := range resp.Result.Tools {
 		names[tl.Name] = true
@@ -61,11 +66,17 @@ func TestToolsList_RoundTrip(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"projects_list", "projects.list", // canonical + deprecated alias
-		"plans_create", "audit_read", "policy_read",
+		"projects_list", "plans_create", "audit_read", "policy_read",
 	} {
 		if !names[want] {
 			t.Errorf("missing tool %q in tools/list response", want)
+		}
+	}
+	for _, mustNotShip := range []string{
+		"projects.list", "plans.create",
+	} {
+		if names[mustNotShip] {
+			t.Errorf("dot-named alias %q still on the wire — agy 1.0.1 will reject", mustNotShip)
 		}
 	}
 }

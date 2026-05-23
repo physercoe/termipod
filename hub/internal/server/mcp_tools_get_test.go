@@ -64,16 +64,94 @@ func TestMCP_ToolsGet_Unknown(t *testing.T) {
 	}
 }
 
+// MCP spec requires tool names to match `[A-Za-z0-9_-]+` — no dots.
+// Our catalog keeps deprecated dot-named aliases (`documents.list`,
+// `plans.steps.create`) for backwards-compat with agents calling the
+// legacy names; tools/call still resolves them. But strict clients
+// (agy 1.0.1 confirmed) reject the WHOLE tools/list payload with
+// `invalid request` if any entry violates the regex, so we filter
+// dot-named entries off the wire. The post-v1.0.653 smoke caught this
+// — agy's `call_mcp_tool projects_list` failed with `server name
+// termipod failed to load: failed to get tools: calling "tools/list":
+// invalid request` even though the bridge + token were now fine.
+//
+// Every dropped name has a snake_case sibling in the wire output, so
+// no functionality is lost; the dispatcher continues to accept both
+// spellings on tools/call.
+func TestMCP_ToolListDefs_FiltersDotNamedAliases(t *testing.T) {
+	defs := mcpToolListDefs()
+	names := map[string]bool{}
+	for _, def := range defs {
+		n, _ := def["name"].(string)
+		names[n] = true
+	}
+	// Sample dot-named names that DO exist in the full catalog but
+	// MUST be filtered from the wire.
+	mustNotShip := []string{
+		"documents.list", "documents.get",
+		"projects.list", "projects.get",
+		"plans.steps.create", "plans.steps.list",
+		"agents.list", "agents.spawn",
+	}
+	for _, n := range mustNotShip {
+		if names[n] {
+			t.Errorf("tools/list ships %q — MCP spec forbids `.` in tool names; agy 1.0.1 rejects the whole batch", n)
+		}
+	}
+	// Sample snake_case canonical siblings — these MUST ship.
+	mustShip := []string{
+		"documents_list", "documents_get",
+		"projects_list", "projects_get",
+		"plan_steps_create", "plan_steps_list",
+		"agents_list", "agents_spawn",
+	}
+	for _, n := range mustShip {
+		if !names[n] {
+			t.Errorf("tools/list missing canonical %q (was supposed to replace dot-named alias)", n)
+		}
+	}
+}
+
+func TestIsMCPCompliantToolName(t *testing.T) {
+	cases := map[string]bool{
+		"documents_list":     true,
+		"plan-steps-create":  true,
+		"AgentsList":         true,
+		"x":                  true,
+		"abc123":             true,
+		"":                   false,
+		"documents.list":     false,
+		"plans.steps.create": false,
+		"foo bar":            false,
+		"name$":              false,
+		"with/slash":         false,
+	}
+	for name, want := range cases {
+		if got := isMCPCompliantToolName(name); got != want {
+			t.Errorf("isMCPCompliantToolName(%q) = %v; want %v", name, got, want)
+		}
+	}
+}
+
 // W2.a — tools/list serves the slim `short` projection: every entry
 // carries a non-empty `short`, its `description` equals that `short`
 // (the long body is dropped from the wire). tools.get, by contrast,
 // still carries the long body — so the description text it returns is
 // the long one, not the short.
+//
+// v1.0.654: tools/list also drops MCP-spec-noncompliant names (dots),
+// so the wire is shorter than the full catalog — that's intentional.
+// Every dropped entry has a snake_case sibling that stays in the wire,
+// so no functionality is lost.
 func TestMCP_ToolListDefs_ServesShort(t *testing.T) {
 	defs := mcpToolListDefs()
 	full := mcpToolDefs()
-	if len(defs) != len(full) {
-		t.Fatalf("tools/list has %d entries, full catalog %d — projection dropped tools", len(defs), len(full))
+	if len(defs) > len(full) {
+		t.Fatalf("tools/list has %d entries, full catalog %d — projection inflated", len(defs), len(full))
+	}
+	if len(defs) == len(full) {
+		// Should have dropped at least the documents.list / documents.get etc.
+		t.Errorf("tools/list (%d) equals full catalog (%d) — expected dot-named aliases to be filtered for MCP-spec compliance", len(defs), len(full))
 	}
 
 	listDescLen := 0

@@ -62,19 +62,33 @@ func TestMCPAuthority_RoundTrip(t *testing.T) {
 	for _, tt := range listOut.Result.Tools {
 		have[tt.Name] = true
 	}
+	// v1.0.654: tools/list filters MCP-spec-noncompliant dot-named
+	// aliases off the wire (`documents.list`, `projects.list`, …) so
+	// strict clients like agy 1.0.1 don't reject the whole batch.
+	// Check the snake_case canonical names — they're the only ones
+	// that ship now. Both spellings still resolve on tools/call (see
+	// the second probe below).
 	for _, want := range []string{
-		"projects.list", "plans.create", "agents.spawn",
-		"schedules.run", "audit.read", "a2a.invoke",
+		"projects_list", "plans_create", "agents_spawn",
+		"schedules_run", "audit_read", "a2a_invoke",
 	} {
 		if !have[want] {
 			t.Errorf("authority tool %q missing from tools/list", want)
 		}
 	}
+	// And the dot-named legacy aliases MUST be filtered out.
+	for _, mustNotShip := range []string{
+		"projects.list", "plans.create", "agents.spawn",
+	} {
+		if have[mustNotShip] {
+			t.Errorf("dot-named alias %q still on the wire — agy 1.0.1 will reject", mustNotShip)
+		}
+	}
 
 	// tools/call projects.list — exercises the chi-router transport
-	// hitting GET /v1/teams/{team}/projects in-process. Returns an
-	// empty list since no projects exist yet, but a 200 with valid
-	// JSON content proves dispatch worked end-to-end.
+	// hitting GET /v1/teams/{team}/projects in-process. The dot-named
+	// alias must still resolve on tools/call (the dispatcher accepts
+	// both spellings); only the WIRE catalog is filtered.
 	body, _ = json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{

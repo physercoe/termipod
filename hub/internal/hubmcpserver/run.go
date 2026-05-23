@@ -242,7 +242,13 @@ func dispatch(c *hubClient, tools []toolDef, req jsonrpcReq) (any, *jsonrpcError
 		// ADR-033 W6.5: advertise the ToolSpec registry catalog so the
 		// daemon's authority names match the in-process /mcp/{token}
 		// surface. `tools` remains the dispatch table for tools/call.
-		return map[string]any{"tools": RegistryCatalogDefs()}, nil
+		//
+		// Filter out MCP-spec-noncompliant names (dots) — strict
+		// clients like agy 1.0.1 reject the whole tools/list payload
+		// if any entry violates `[A-Za-z0-9_-]+`. The dispatcher still
+		// resolves dot-named aliases on tools/call, so legacy callers
+		// don't break. Mirrors server/mcp.go's mcpToolListDefs.
+		return map[string]any{"tools": filterMCPCompliantNames(RegistryCatalogDefs())}, nil
 
 	case "tools/call":
 		return handleToolsCall(c, tools, req.Params)
@@ -342,6 +348,42 @@ func marshalResp(r jsonrpcResp) []byte {
 		return []byte(fallback)
 	}
 	return b
+}
+
+// filterMCPCompliantNames drops registry entries whose `name` violates
+// the MCP-spec tool-name production `[A-Za-z0-9_-]+`. Mirrors
+// server/mcp.go's isMCPCompliantToolName but kept local to this package
+// to keep the daemon's import surface minimal. Same reason: strict
+// clients (agy 1.0.1) reject the whole tools/list batch if any entry
+// has a dot or other non-spec character; the dispatcher accepts both
+// canonical and aliased names so dot-named tools stay callable.
+func filterMCPCompliantNames(defs []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(defs))
+	for _, def := range defs {
+		name, _ := def["name"].(string)
+		if !isMCPCompliantName(name) {
+			continue
+		}
+		out = append(out, def)
+	}
+	return out
+}
+
+func isMCPCompliantName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // trimEOL strips a single trailing \n or \r\n. We only trim trailing EOL,

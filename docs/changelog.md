@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.646
+> **Last verified vs code:** v1.0.647
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,62 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.647-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #5: a structural busy-state bug exposed by
+the v1.0.646 smoke. Mobile's `_isAgentBusy()`
+(`lib/widgets/agent_feed.dart:1298`) scans the latest non-`system`
+event and decides idle on `turn.result` / `completion` /
+`session.init` / `lifecycle.exited|stopped`; everything else (text,
+tool_call, tool_result) is "still working." The antigravity mapper
+never emitted any of the terminal kinds, so once any agent event
+landed the cancel button stayed on forever — even when agy was
+genuinely idle waiting for the next user message. The user couldn't
+send a follow-up because the composer's send button is replaced by
+the cancel button when busy (`agent_compose.dart:759-774`), which is
+the correct gate — but the busy signal was wrong.
+
+The fix is mapper-side. agy's transcript marks turn end with a
+`PLANNER_RESPONSE` step that has `status=DONE`, empty `tool_calls`,
+and non-empty `content` (the model's final text answer; the next
+step is `USER_INPUT`). The mapper now emits `text` followed by
+`turn.result {reason:"end_of_turn"}` for that shape. Streaming
+intermediate `status=RUNNING` placeholders DO NOT emit `turn.result`
+— that's reserved for the DONE finalisation, so the marker lands
+once per real turn.
+
+### Fixed
+
+- **antigravity (mapper):** synthetic `turn.result` event on
+  end-of-turn `PLANNER_RESPONSE` so mobile's busy-state ladder has
+  the terminal marker it expects. The text and turn.result pair
+  carries the same `agy_step_index` / `agy_status` keys for
+  downstream coalescing, and the latter has
+  `payload.reason = "end_of_turn"` for forensic clarity
+  (`hub/internal/drivers/local_log_tail/antigravity/mapper.go`).
+
+### Verified
+
+- `TestMapStep_PlannerFinalText_EmitsTurnResult` locks the exact
+  shape (text + turn.result) for the W11 transcript's step 147.
+- `TestMapStep_PlannerStreaming_NoTurnResult` confirms RUNNING
+  intermediates DO NOT emit the marker.
+- `TestMapStep_Corpus` updated to expect the new pair on the
+  trailing PLANNER_RESPONSE with content.
+- All 20 hub packages green, 0 fails; `go vet ./...` clean.
+
+### Notes
+
+Send-keys gating itself was already correct: when `isAgentBusy=true`,
+the send button is replaced by the cancel icon, so the UI can't
+submit text through the normal path. The bug was purely the busy
+SIGNAL — fixed it, gating now works as designed. No host-runner
+defense-in-depth check needed (mobile UI is the sole gate; if a
+future bug bypasses it the worst case is a stray `tmux send-keys` to
+agy, which agy can ignore or queue — not a corruption risk).
 
 ---
 

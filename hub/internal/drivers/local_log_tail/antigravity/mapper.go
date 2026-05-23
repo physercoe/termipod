@@ -103,11 +103,32 @@ func MapStep(raw []byte) ([]MappedEvent, error) {
 			return out, nil
 		}
 		if strings.TrimSpace(ln.Content) != "" {
-			return []MappedEvent{{
+			out := []MappedEvent{{
 				Kind:     "text",
 				Producer: "agent",
 				Payload:  base(map[string]any{"text": ln.Content}),
-			}}, nil
+			}}
+			// A PLANNER_RESPONSE with content + no tool_calls + status=DONE
+			// is agy's end-of-turn marker (host-verified on the W11 smoke:
+			// the model's final text answer with no follow-up tool calls;
+			// the next step is USER_INPUT). Emit `turn.result` after the
+			// text so mobile's _isAgentBusy() (agent_feed.dart) sees a
+			// terminal kind and drops the cancel button. Without this,
+			// every turn leaves the agent "busy" forever because text and
+			// tool_call are non-terminal in the busy-state ladder, while
+			// other engines (claude-code, gemini-cli) emit completion or
+			// turn.result naturally. Status≠DONE here is the RUNNING
+			// streamer placeholder — don't terminate the turn on a partial.
+			if strings.EqualFold(ln.Status, "DONE") {
+				out = append(out, MappedEvent{
+					Kind:     "turn.result",
+					Producer: "agent",
+					Payload: base(map[string]any{
+						"reason": "end_of_turn",
+					}),
+				})
+			}
+			return out, nil
 		}
 		return nil, nil // empty planner turn (e.g. RUNNING placeholder)
 

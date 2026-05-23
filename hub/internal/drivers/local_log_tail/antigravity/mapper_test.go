@@ -47,12 +47,14 @@ func TestMapStep_Corpus(t *testing.T) {
 	//  VIEW_FILE             → tool_result
 	//  PLANNER_RESPONSE+calls→ tool_call (read mcp)
 	//  MCP_TOOL              → tool_result
-	//  PLANNER_RESPONSE+text → text (the PONG token)
+	//  PLANNER_RESPONSE+text → text + turn.result (v1.0.647 — the latter
+	//                          is agy's end-of-turn marker so mobile's
+	//                          _isAgentBusy() drops the cancel button)
 	want := []string{
 		"tool_call", "tool_result",
 		"tool_call", "tool_result",
 		"tool_call", "tool_result",
-		"text",
+		"text", "turn.result",
 	}
 	if len(kinds) != len(want) {
 		t.Fatalf("kinds = %v (%d); want %v (%d)", kinds, len(kinds), want, len(want))
@@ -61,6 +63,54 @@ func TestMapStep_Corpus(t *testing.T) {
 		if kinds[i] != want[i] {
 			t.Fatalf("kinds[%d] = %q; want %q (full: %v)", i, kinds[i], want[i], kinds)
 		}
+	}
+}
+
+// PLANNER_RESPONSE with content + no tool_calls + status=DONE is agy's
+// end-of-turn marker. The mapper must emit `text` THEN `turn.result` so
+// mobile's _isAgentBusy() drops the cancel button. v1.0.647.
+func TestMapStep_PlannerFinalText_EmitsTurnResult(t *testing.T) {
+	raw := []byte(`{"step_index":147,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"Yes, I copy you loud and clear."}`)
+	evs, err := MapStep(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 {
+		t.Fatalf("want 2 events (text + turn.result); got %d (%+v)", len(evs), evs)
+	}
+	if evs[0].Kind != "text" || evs[0].Payload["text"] != "Yes, I copy you loud and clear." {
+		t.Errorf("event 0 = %+v; want text with content", evs[0])
+	}
+	if evs[1].Kind != "turn.result" {
+		t.Errorf("event 1 kind = %q; want turn.result", evs[1].Kind)
+	}
+	if evs[1].Producer != "agent" {
+		t.Errorf("turn.result producer = %q; want agent", evs[1].Producer)
+	}
+	if evs[1].Payload["reason"] != "end_of_turn" {
+		t.Errorf("turn.result reason = %v; want end_of_turn", evs[1].Payload["reason"])
+	}
+	// Coalescing keys still required on the synthetic event.
+	if _, ok := evs[1].Payload["agy_step_index"]; !ok {
+		t.Errorf("turn.result missing agy_step_index")
+	}
+}
+
+// A PLANNER_RESPONSE with content but status=RUNNING (streaming
+// placeholder, not yet finalised) must NOT emit turn.result — only the
+// text event. Locks the contract that turn.result lands exactly once
+// per real turn end, on the DONE finalisation.
+func TestMapStep_PlannerStreaming_NoTurnResult(t *testing.T) {
+	raw := []byte(`{"step_index":5,"source":"MODEL","type":"PLANNER_RESPONSE","status":"RUNNING","content":"Yes, I cop"}`)
+	evs, err := MapStep(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("want 1 event (text only on RUNNING); got %d (%+v)", len(evs), evs)
+	}
+	if evs[0].Kind != "text" {
+		t.Errorf("got kind %q; want text", evs[0].Kind)
 	}
 }
 

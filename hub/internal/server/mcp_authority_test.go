@@ -13,6 +13,61 @@ import (
 	"github.com/termipod/hub/internal/auth"
 )
 
+// TestMCP_NotificationsGetNoResponse pins the JSON-RPC 2.0 §4.1
+// contract: the server MUST NOT reply to a notification (a request
+// without `id`). Pre-v1.0.656 the in-process /mcp/<token> handler
+// wrote an error frame for every unknown method including
+// notifications. agy 1.0.1 sends `notifications/roots/list_changed`
+// to every connected MCP server (host-verified in the agytest
+// stderr log); the unsolicited error frame our hub returned looked
+// to agy like a protocol violation, agy closed its MCP client, and
+// subsequent tools/call surfaced as `connection closed: client is
+// closing: invalid request`.
+func TestMCP_NotificationsGetNoResponse(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := dir + "/hub.db"
+	token, err := Init(dir, dbPath)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	srv := httptest.NewServer(s.router)
+	t.Cleanup(srv.Close)
+
+	// Each of these is a notification: no `id` field. Per JSON-RPC
+	// the response body MUST be empty.
+	cases := []string{
+		`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"abc"}}`,
+		`{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"x","progress":0.5}}`,
+		// An unknown notification method must also produce no body —
+		// the default-case must not fire on notifications.
+		`{"jsonrpc":"2.0","method":"this/does/not/exist","params":{}}`,
+	}
+	for _, line := range cases {
+		req, _ := http.NewRequestWithContext(context.Background(), "POST",
+			srv.URL+"/mcp/"+token, bytes.NewReader([]byte(line)))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("notification POST: %v (line=%s)", err, line)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			t.Errorf("notification %q: status=%d want 204 (body=%s)", line, resp.StatusCode, body)
+		}
+		if len(bytes.TrimSpace(body)) != 0 {
+			t.Errorf("notification %q: returned body %q — JSON-RPC notifications must produce no response", line, body)
+		}
+	}
+}
+
 // TestMCPAuthority_RoundTrip verifies the consolidation: a spawned-agent
 // MCP client posting tools/list to /mcp/<token> sees the rich-authority
 // catalog (e.g. projects.list, agents.spawn, schedules.create) advertised

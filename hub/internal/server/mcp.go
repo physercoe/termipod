@@ -117,6 +117,27 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// JSON-RPC 2.0 §4.1: a request without an `id` is a Notification —
+	// "The Server MUST NOT reply to a Notification." Pre-v1.0.656 the
+	// default-case error path below blindly wrote an error response for
+	// every unknown method, including notifications, which produced an
+	// unsolicited frame on the client's stdin. agy 1.0.1 sends
+	// `notifications/roots/list_changed` to every MCP server it
+	// connects to; the unsolicited error frame our hub returned looked
+	// to agy like a protocol violation, agy closed its MCP client, and
+	// every subsequent tools/call surfaced as `connection closed:
+	// client is closing: invalid request`. Drop responses to all
+	// notifications here, before the per-method switch — most methods
+	// arrive as requests, the few that arrive as notifications
+	// (`notifications/initialized`, `notifications/roots/list_changed`,
+	// `notifications/cancelled`, …) all want the same 204-no-content
+	// treatment.
+	isNotification := len(req.ID) == 0 || string(req.ID) == "null"
+	if isNotification {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	switch req.Method {
 	case "initialize":
 		// Parse the client-requested protocolVersion out of params so we

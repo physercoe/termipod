@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.655
+> **Last verified vs code:** v1.0.656
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,134 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.656-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #12 — agy's MCP `tools/call` STILL failed
+after v1.0.654's dot-name filter. Different error, same root family
+(strict-client rejection on protocol non-compliance). Caught from
+agytest's stderr log: agy sends `notifications/roots/list_changed`
+to every connected MCP server, but our `/mcp/<token>` endpoint
+returned a JSON-RPC error response for it.
+
+### Root cause: JSON-RPC 2.0 §4.1 violation
+
+JSON-RPC 2.0 §4.1: *"The Server MUST NOT reply to a Notification."*
+A notification is a request without an `id` field. Our hub's MCP
+handler had a default-case error path that wrote an error frame for
+every unknown method — including notifications. The flow:
+
+1. agy spawns hub-mcp-bridge subprocess, sends `initialize` (works)
+2. agy sends `notifications/initialized` (works — explicitly handled)
+3. agy sends `tools/list` (works after v1.0.654 dot-name filter)
+4. **agy sends `notifications/roots/list_changed`** — this is the
+   trigger. The hub falls through to the default `method not found`
+   error and writes a JSON-RPC error frame back through the bridge
+   to agy's stdin.
+5. agy receives an unsolicited error frame (no request was
+   outstanding) → MCP client treats this as a protocol violation
+   → closes the stdio transport.
+6. Subsequent `tools/call` from the LLM hits a closed transport →
+   `connection closed: calling "tools/call": client is closing:
+   invalid request`.
+
+The same hub also failed any other notification method we didn't
+explicitly enumerate (`notifications/cancelled`,
+`notifications/progress`, etc.) — `notifications/initialized` only
+worked because it had its own case branch.
+
+### The smoking gun
+
+Two pieces of evidence aligned:
+
+1. **agytest's stderr log** captured the exact frame agy sends:
+   ```
+   IN {"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}
+   ```
+   No `id`, periodic, sent to every MCP server. agytest (permissive
+   Python parser) silently ignores it. Our hub didn't.
+
+2. **Manual probe against the deployed bridge** confirmed:
+   ```
+   $ echo '{"jsonrpc":"2.0","method":"notifications/roots/list_changed"}' | hub-mcp-bridge
+   {"jsonrpc":"2.0","error":{"code":-32601,"message":"method not found: ..."}}
+   ```
+   An error frame on stdout where the spec requires silence.
+
+### Fix
+
+Insert a notification gate BEFORE the per-method switch in
+`server/mcp.go`:
+
+```go
+isNotification := len(req.ID) == 0 || string(req.ID) == "null"
+if isNotification {
+    w.WriteHeader(http.StatusNoContent)
+    return
+}
+```
+
+The standalone daemon path (`hubmcpserver/run.go`) already handles
+this correctly — only the in-process `/mcp/<token>` route was buggy.
+
+Lock test: `TestMCP_NotificationsGetNoResponse` exercises 5
+notifications (including the host-verified
+`notifications/roots/list_changed` and an unknown method that must
+also produce no body) and asserts each returns 204 with empty body.
+
+### Why agy's diagnosis missed this
+
+agy's three theories from the prior session were all dead ends:
+
+1. *"hub-mcp-bridge writes non-JSON to stdout"* — wrong, manual
+   probe showed clean stdout.
+2. *"PATH discrepancy / agy can't find the binary"* — wrong, agy
+   logs showed the bridge started fine.
+3. *"sandbox restricts the bridge's network access"* — wrong,
+   manual `tools/call` from a wrapped bridge worked end-to-end.
+
+The actual cause was a wire-level frame agy sent AFTER initialize
+that hadn't been considered. Finding it required reading the
+agytest server's stderr log (where agy ALSO sent
+`notifications/roots/list_changed`) and comparing what agytest's
+permissive parser ignored vs what our strict-handler responded
+to. Verify-don't-guess discipline + cross-server log comparison
+was the load-bearing technique.
+
+### MCP debug arc, summarized
+
+Four wedges, each a distinct layer of the strict-client wall:
+
+| Tag | Bug | What broke |
+|---|---|---|
+| v1.0.649 | hub hard-coded protocolVersion 2024-11-05; agy sends 2025-11-25 | Negotiation |
+| v1.0.653 | workdir .mcp.json pinned stale token | Auth |
+| v1.0.654 | catalog held dot-named aliases (spec violation) | Catalog wire shape |
+| v1.0.656 (here) | hub replied to JSON-RPC notifications | Protocol-frame discipline |
+
+Each surfaced only after the previous was fixed — strict clients
+fail at the first wall they hit, hiding everything behind it.
+
+### Deploy
+
+Builds clean, all tests pass:
+
+```
+ok  github.com/termipod/hub/internal/server 107.7s
+```
+
+```bash
+sudo cp /tmp/hub-server  /usr/local/bin/hub-server
+cp     /tmp/host-runner  ~/.local/bin/host-runner
+sudo systemctl restart termipod-hub.service
+# restart your tmux host-runner
+```
+
+Then spawn an antigravity steward, ask "list termipod projects"
+— agy should invoke `projects_list` via the bridge and return the
+team's projects without "client is closing" errors.
 
 ---
 

@@ -63,6 +63,23 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 		return nil, fmt.Errorf("antigravity M4: mkdir workdir %q: %w", workdir, err)
 	}
 
+	// Materialize the persona-memory file the hub rendered for this spawn
+	// (AGENTS.md for antigravity — see contextFileNameForKind). The
+	// post-v1.0.651 smoke caught the consequence of leaving this off:
+	// agy spawned with NO persona prompt at all, defaulted to bare-agy
+	// behaviour against an empty `[directive from the principal]` envelope,
+	// and improvised 357 steps of self-invented work. M1/M2 launch paths
+	// do this; M4 LocalLogTail must too — the M4 path doesn't have an
+	// alternative channel for persona delivery (no system-prompt CLI flag
+	// on agy, no preface turn). Failure is fatal here for the same reason
+	// it is in M1/M2: an antigravity agent missing its AGENTS.md is a
+	// blank agy session that won't behave like a steward.
+	if len(spec.ContextFiles) > 0 {
+		if err := writeContextFiles(workdir, spec.ContextFiles); err != nil {
+			return nil, fmt.Errorf("antigravity M4: write context_files: %w", err)
+		}
+	}
+
 	// Write/merge the global agy MCP config so `agy` can reach the hub
 	// tool surface. Best-effort: a failure here degrades to "no hub MCP"
 	// but the agent still launches (its transcript is still tailed).

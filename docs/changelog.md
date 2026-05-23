@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.651
+> **Last verified vs code:** v1.0.652
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,121 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.652-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #9 — three independent root-cause fixes from
+the post-v1.0.651 on-host smoke. User reported "say hi, then agy did a
+lot of unexpected work, almost hit quota limit"; traced from the live
+agy session's transcript + agent_events + audit_events. No task was
+ever assigned to agy — every one of the 357 steps it ran came from its
+OWN self-direction after receiving an empty envelope. Three lined-up
+bugs, each load-bearing.
+
+### Fix 1: paste-buffer was splitting the envelope into N submissions
+
+Symptom: agy's transcript shows USER_INPUT step 0 = just
+`[directive from the principal]` (header only — no body, no reply
+instruction), then 357 steps of self-invented work, then USER_INPUT
+step 357 = `hi\nReply in this chat...` (body + footer, no header) five
+minutes later. The 4-line ADR-032 envelope arrived as TWO separate
+user submissions to agy, split by 5 minutes.
+
+Root cause: tmux's `paste-buffer` defaults to translating LF (`\n`) to
+CR (`\r`) on the way to the pane. CR is "Enter pressed" to a TUI, so
+each line of a multi-line paste was being submitted as a separate
+user input. The first one (`[directive from the principal]` alone)
+fired immediately; agy read it as an empty directive, improvised work
+for 5 minutes; the remaining lines drained from the kernel TTY buffer
+after agy returned to the prompt and landed as the second submission.
+
+Fix: pass `-r` to `paste-buffer` so LF stays as LF (agy's input field
+treats LF as a newline character in a multi-line edit, not as submit).
+Only the explicit final `send-keys Enter` triggers submission.
+`hub/internal/drivers/local_log_tail/antigravity/sendkeys.go`. Lock
+test in `adapter_test.go`'s `TestAdapter_TextInput_MultiLineUsesPasteBuffer`
+now asserts the `-r` flag is present.
+
+### Fix 2: agy was spawning with NO persona prompt
+
+Symptom: even with the v1.0.649 prompt's "Hard constraints" section,
+agy autonomously crawled the workdir, ran `list_dir`, `grep_search`,
+`view_file`, `run_command` on its own scratch files, dispatched MCP
+tool tests, edited docs autonomously. The persona's guidance never
+applied.
+
+Root cause: TWO gaps in lockstep, either of which was sufficient to
+break delivery.
+
+(a) `contextFileNameForKind` (server/template.go) had no case for
+    `antigravity` — kind=antigravity fell through to the default
+    `CLAUDE.md`. But agy reads `GEMINI.md` and `AGENTS.md` (host-
+    verified — both strings present in the agy 1.0.1 binary), not
+    `CLAUDE.md`. So the hub inlined the rendered prompt under the
+    wrong filename for agy to ever open.
+
+(b) `launch_m4_antigravity.go` didn't call `writeContextFiles` at
+    all. M1 (launch_m1.go) and M2 (launch_m2.go) launch paths
+    materialize `spec.ContextFiles` into the workdir; the M4
+    LocalLogTail path did not. So even if (a) had been correct,
+    the file would not have landed on disk.
+
+Fix: add `case "antigravity": return "AGENTS.md"` to
+`contextFileNameForKind`, AND call `writeContextFiles(workdir,
+spec.ContextFiles)` from `launch_m4_antigravity.go` right after
+`mkdir -p workdir`. The error path is fatal (matches M1/M2): an agy
+session without its persona is a bare-agy session, which is exactly
+the "behaves nothing like a steward" outcome the smoke caught.
+
+The same gap likely exists in `launch_m4_locallogtail.go` for
+claude-code M4 stewards; deferred as a follow-up (the W11 smoke only
+caught the agy case, and claude-code M4 paths may have an alternate
+delivery channel via `~/.claude/CLAUDE.md` or settings).
+
+### Fix 3: prompt hardened against "discover what to do" reflex
+
+Added two explicit hard constraints to
+`steward.antigravity.v1.md`:
+
+- **Do not crawl your workdir to "discover what to do".** The workdir
+  may contain artifacts from prior runs that are NOT instructions —
+  scratch space, not a to-do list. Ask the principal, don't guess
+  from leftover files.
+- **Do not list_dir / grep_search / view_file / run_command in your
+  workdir or the source repo as a response to a greeting.** A bare
+  "hi" / "what's up" / "status" deserves a one-line acknowledgement
+  and a clarifying question — nothing else.
+- **Do not advance project phase or status.** That's a
+  decision-quality act; the principal owns it.
+
+The second-smoke incident on the seeded research-lit-review demo
+project (agy authored a doc section, resolved redlines, and
+autonomously advanced phase from 1→2 on a casual "hi") motivates the
+phase-advance constraint.
+
+### Verification + redeploy
+
+Builds clean, tests pass. After deploying v1.0.652 binaries to the
+box, the operator should also **purge the polluted workdir** —
+`sudo rm /home/ubuntu/hub-work/antigravity/*.txt` — so a fresh smoke
+starts from a clean state. The .txt files are root-owned SQL-query
+dumps from an earlier agy autonomous-investigation cycle; they were
+load-bearing context for the work cascade.
+
+### Out-of-scope follow-ups noted
+
+- `launch_m4_locallogtail.go` (claude-code M4) likely has the same
+  ContextFiles-not-written gap; untested.
+- "client is closing: invalid request" still surfaces on agy's MCP
+  `tools/call` after a successful `initialize` — protocol-version
+  negotiation works, but something else in the call shape upsets agy.
+  Defer until reproducible.
+- Workdir-pollution detection at spawn (warn if pre-existing files in
+  workdir not owned by the spawn's user) — declined for now; the
+  prompt-level fix tells agy to ignore them, and adding a launch-time
+  check risks false positives on legitimate resumed-workdir cases.
 
 ---
 

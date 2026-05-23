@@ -139,7 +139,7 @@ func TestAdapter_TextInput_MultiLineUsesPasteBuffer(t *testing.T) {
 	}
 	// Expected tmux invocations (in order):
 	//   tmux set-buffer  -b agyinput_7 <body>
-	//   tmux paste-buffer -b agyinput_7 -d -t %7
+	//   tmux paste-buffer -b agyinput_7 -d -r -t %7
 	//   tmux send-keys -t %7 Enter
 	if len(fr.cmds) != 3 {
 		t.Fatalf("want 3 tmux calls; got %d (%+v)", len(fr.cmds), fr.cmds)
@@ -153,6 +153,16 @@ func TestAdapter_TextInput_MultiLineUsesPasteBuffer(t *testing.T) {
 	// The body must reach set-buffer verbatim — no per-line split.
 	if !strings.Contains(fr.cmds[0], body) {
 		t.Errorf("body not preserved in set-buffer call: %q", fr.cmds[0])
+	}
+	// paste-buffer MUST carry `-r` so tmux doesn't translate the
+	// envelope's internal LF bytes into CR (Enter) keystrokes and split
+	// the paste into N separate user submissions. Post-v1.0.650 smoke
+	// caught this — the 4-line ADR-032 envelope arrived as two USER_INPUT
+	// events five minutes apart on the live box, and the first one (just
+	// `[directive from the principal]` with no body) drove agy into a
+	// 357-step self-invented work cascade.
+	if !strings.Contains(fr.cmds[1], " -r ") && !strings.HasSuffix(fr.cmds[1], " -r") {
+		t.Errorf("paste-buffer missing -r (LF→CR suppression): %q", fr.cmds[1])
 	}
 	// Only ONE Enter must be sent.
 	enterCount := 0

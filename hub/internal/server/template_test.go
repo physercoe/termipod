@@ -451,12 +451,17 @@ func TestResolveContextFiles_RespectsEngineSpecificOverride(t *testing.T) {
 // visible without needing to spin up a server.
 func TestContextFileNameForKind(t *testing.T) {
 	cases := map[string]string{
-		"claude-code":         "CLAUDE.md",
-		"codex":               "AGENTS.md",
-		"kimi-code":           "AGENTS.md",
-		"gemini-cli":          "GEMINI.md",
-		"":                    "CLAUDE.md",
-		"totally-new-engine":  "CLAUDE.md",
+		"claude-code":        "CLAUDE.md",
+		"codex":              "AGENTS.md",
+		"kimi-code":          "AGENTS.md",
+		"gemini-cli":         "GEMINI.md",
+		// antigravity reads BOTH AGENTS.md and GEMINI.md (host-verified
+		// — both strings present in agy 1.0.1 binary). We hand it the
+		// cross-engine AGENTS.md name so the persona stays consistent
+		// across agy / codex / kimi without a per-engine fork.
+		"antigravity":        "AGENTS.md",
+		"":                   "CLAUDE.md",
+		"totally-new-engine": "CLAUDE.md",
 	}
 	for kind, want := range cases {
 		t.Run(kind, func(t *testing.T) {

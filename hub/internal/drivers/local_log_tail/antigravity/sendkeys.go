@@ -92,20 +92,26 @@ func (a *Adapter) requirePane() error {
 // Enter. Multi-line bodies go via tmux's named-buffer paste path:
 //
 //	tmux set-buffer  -b <name> <body>
-//	tmux paste-buffer -b <name> -d -t <pane>
+//	tmux paste-buffer -b <name> -d -r -t <pane>
 //	tmux send-keys                 -t <pane> Enter
 //
 // `-d` deletes the buffer after the paste so concurrent inputs don't
-// stack. Doing this as one paste (not line-by-line `-l + Enter`)
-// matters: the ADR-032 envelope renderer wraps every principal/peer
-// message in a three-line block (`[<kind> from <sender>]\n<text>\n\n
-// <reply instruction>`), and sending Enter between lines registered
-// each one as a separate user submission in agy's TUI — the W11 smoke
-// caught it ([directive from the principal] / hi / blank / Reply in
-// this chat... became three messages, and the first one was lost
-// during agy's startup race so the user's actual "hi" looked invisible
-// in the pane). Single-line short bodies still use `-l` for a tighter
-// fast path.
+// stack. `-r` is LOAD-BEARING: without it tmux translates internal LF
+// bytes into CR (Enter) keystrokes on the way to the pane, which means
+// each line of a multi-line paste arrives as a separate user
+// submission. The post-v1.0.650 smoke caught this — the 4-line ADR-032
+// envelope (`[<kind> from <sender>]\n<text>\n\n<reply instruction>`)
+// landed as TWO USER_INPUT events in agy's transcript five minutes
+// apart: the header alone first (which agy treated as an empty
+// "[directive from the principal]" and improvised 357 steps of
+// self-invented work against), then the body + reply drained from the
+// kernel TTY buffer after agy returned to prompt. With `-r`, LF stays
+// as LF — agy's input field accepts it as a newline character (the
+// field is multi-line capable), and only our explicit final
+// `send-keys Enter` triggers submission.
+//
+// Single-line short bodies still use `send-keys -l + Enter` for a
+// tighter fast path (no buffer / paste hop).
 //
 // Buffer name is derived from the pane id so two concurrent inputs to
 // different agents don't clobber each other. Tmux buffer names must be
@@ -135,7 +141,7 @@ func (a *Adapter) inputText(ctx context.Context, p map[string]any) error {
 	if _, err := runner.Run(ctx, "tmux", "set-buffer", "-b", bufName, body); err != nil {
 		return fmt.Errorf("set-buffer: %w", err)
 	}
-	if _, err := runner.Run(ctx, "tmux", "paste-buffer", "-b", bufName, "-d", "-t", a.PaneID); err != nil {
+	if _, err := runner.Run(ctx, "tmux", "paste-buffer", "-b", bufName, "-d", "-r", "-t", a.PaneID); err != nil {
 		// Best-effort buffer cleanup on the failure path.
 		_, _ = runner.Run(ctx, "tmux", "delete-buffer", "-b", bufName)
 		return fmt.Errorf("paste-buffer: %w", err)

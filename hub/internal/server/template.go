@@ -407,14 +407,22 @@ func safeAgentTemplateName(n string) bool {
 // reads as its persona-memory file. Different engines have different
 // conventions — Claude Code reads CLAUDE.md, Codex + Kimi read
 // AGENTS.md (per the AGENTS.md cross-engine spec), Gemini CLI reads
-// GEMINI.md. Hub's job is to land the prompt body under the name the
-// engine will actually open; otherwise the materialized file is dead
-// weight in the workdir and the persona / task body never reaches the
-// running engine. Empty or unknown kind falls back to CLAUDE.md so a
-// hand-rolled spec without a backend block keeps its prior behaviour.
+// GEMINI.md, Antigravity reads BOTH (verified — both strings present in
+// agy 1.0.1 binary). Hub's job is to land the prompt body under the
+// name the engine will actually open; otherwise the materialized file
+// is dead weight in the workdir and the persona / task body never
+// reaches the running engine. Empty or unknown kind falls back to
+// CLAUDE.md so a hand-rolled spec without a backend block keeps its
+// prior behaviour.
+//
+// The post-v1.0.651 smoke caught the antigravity gap as a class — agy
+// spawned with NO persona file, with the result that the empty
+// directive landed against bare agy default behaviour and it improvised
+// 357 steps of self-invented work. The fix lands the cross-engine
+// AGENTS.md name; agy honours it on startup.
 func contextFileNameForKind(kind string) string {
 	switch kind {
-	case "codex", "kimi-code":
+	case "codex", "kimi-code", "antigravity":
 		return "AGENTS.md"
 	case "gemini-cli":
 		return "GEMINI.md"

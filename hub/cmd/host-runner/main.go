@@ -48,6 +48,7 @@ import (
 	"syscall"
 
 	"github.com/termipod/hub/internal/buildinfo"
+	"github.com/termipod/hub/internal/hookfire"
 	"github.com/termipod/hub/internal/hostrunner"
 	"github.com/termipod/hub/internal/mcpbridge"
 	"github.com/termipod/hub/internal/mcpudsbridge"
@@ -83,6 +84,8 @@ func main() {
 		os.Exit(mcpbridge.Run(os.Args[2:]))
 	case "mcp-uds-stdio":
 		os.Exit(mcpudsbridge.Run(os.Args[2:]))
+	case "hook-fire":
+		os.Exit(hookfire.Run(os.Args[2:]))
 	case "self-update":
 		runSelfUpdate(os.Args[2:])
 	case "doctor":
@@ -125,6 +128,12 @@ Commands:
                  Used by claude-code M4 LocalLogTail spawns to reach the
                  mcp__termipod-host__hook_* tools (ADR-027). Reads
                  --socket / MCP_UDS_SOCKET.
+  hook-fire      One-shot stdin → UDS → stdout bridge for claude-code's
+                 settings.local.json hook entries (ADR-027 W6, rebuilt
+                 in v1.0.659). Reads the hook event payload from stdin,
+                 wraps it as a JSON-RPC tools/call for the corresponding
+                 hook_<event> handler on the gateway, writes the
+                 response object to stdout. Flags: --socket --event.
   self-update    Fetch a release from GitHub, verify SHA256, replace this
                  binary, and exit 75 so the supervisor respawns it
                  (ADR-028). Flags: --version / --channel / --upstream-repo

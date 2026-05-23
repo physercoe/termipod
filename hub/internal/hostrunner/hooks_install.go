@@ -1,13 +1,28 @@
-// settings.local.json hook installer — ADR-027 W6.
+// settings.local.json hook installer — ADR-027 W6, rebuilt v1.0.659.
 //
 // Writes the 9 ADR-027 hook entries into `<workdir>/.claude/settings.local.json`
-// so claude-code routes hook events through the host-runner UDS gateway
-// (`mcp__termipod-host__hook_*`, served by mcp_gateway.go W5b). The file
-// may already exist (operator-supplied `.permissions.allow` rules,
-// per-project model overrides, etc.); we merge by appending our matcher
-// blocks under each event rather than overwriting, so user config
-// survives. Other top-level keys (permissions, model, statusLine, …)
-// are not touched.
+// so claude-code routes hook events through the host-runner UDS gateway.
+//
+// v1.0.659 rebuild — root-cause note. The original W6 emitted entries
+// of shape `{"type": "mcp_tool", "tool": "mcp__termipod-host__hook_*"}`
+// on the assumption that claude-code's hook schema would accept MCP
+// tool references directly. claude-code's actual schema only supports
+// `{"type": "command", "command": "<shell string>"}`, so every M4
+// LocalLogTail spawn since v1.0.592 boot-errored with "Expected
+// string, but received undefined" on first run — the entire file
+// failed validation and claude refused to start. v1.0.659 routes
+// around that by emitting `type: "command"` entries that invoke a
+// host-runner stdio shim (`host-runner hook-fire --socket <uds>
+// --event <Event>`) which forwards to the SAME gateway tools.
+//
+// The file may already exist (operator-supplied `.permissions.allow`
+// rules, per-project model overrides, etc.); we merge by appending our
+// matcher blocks under each event rather than overwriting, so user
+// config survives. Other top-level keys (permissions, model,
+// statusLine, …) are not touched. Any prior _termipod_managed matcher
+// block — including the broken `type: "mcp_tool"` ones from
+// pre-v1.0.659 spawns — is stripped before we append our fresh block,
+// so a stale workdir self-heals on next spawn.
 //
 // Atomic write: marshalled JSON goes to a sibling temp file first and
 // is rename(2)'d over the target. A crash partway through never leaves
@@ -24,8 +39,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/termipod/hub"
 )
 
 // claudeHookEvent enumerates the 9 events ADR-027 installs hooks for,
@@ -68,10 +81,20 @@ const termipodManagedKey = "_termipod_managed"
 // absent we create it with just our hooks block; if present we parse
 // it, augment `.hooks`, and atomically rewrite.
 //
+// hookFireExe + udsSocket parameterise the spawned shim command:
+//   - hookFireExe is the absolute path of the host-runner binary
+//     (so the command works even if PATH doesn't carry it). Call
+//     with "host-runner" to keep the basename-resolution semantics.
+//   - udsSocket is the per-spawn UDS path the gateway is listening
+//     on; baked into each hook command so claude doesn't need to
+//     know the path itself.
+//
 // Idempotency: re-running for the same workdir does NOT duplicate
 // entries — for every event we drop any prior matcher block whose
 // `_termipod_managed` marker is true before appending the fresh one.
-func installClaudeHooks(workdir string) error {
+// Pre-v1.0.659 entries (type: "mcp_tool") carry the same marker, so
+// the stale-workdir self-heal kicks in on the first v1.0.659 spawn.
+func installClaudeHooks(workdir, hookFireExe, udsSocket string) error {
 	claudeDir := filepath.Join(workdir, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir .claude: %w", err)
@@ -96,7 +119,9 @@ func installClaudeHooks(workdir string) error {
 	}
 
 	for _, e := range claudeHookEvents {
-		hooks[e.event] = appendTermipodMatcher(hooks[e.event], e.tool, e.timeout)
+		cmd := fmt.Sprintf("%s hook-fire --socket %s --event %s",
+			hookFireExe, shellQuote(udsSocket), e.event)
+		hooks[e.event] = appendTermipodMatcher(hooks[e.event], cmd, e.timeout)
 	}
 
 	body, err := json.MarshalIndent(settings, "", "  ")
@@ -111,7 +136,12 @@ func installClaudeHooks(workdir string) error {
 // matcher block on the end. A nil/empty/non-array prior value is
 // treated as "no existing config" and replaced by a single-element
 // array containing only our block.
-func appendTermipodMatcher(prior any, tool string, timeout int) []any {
+//
+// The matcher value is the empty string per claude-code's hook schema:
+// "" matches all tools, equivalent to the deprecated "*" form. We
+// emitted "*" pre-v1.0.659; both still work but "" matches the
+// canonical example from claude's hook docs / error messages.
+func appendTermipodMatcher(prior any, command string, timeout int) []any {
 	out := []any{}
 	if arr, ok := prior.([]any); ok {
 		for _, b := range arr {
@@ -127,16 +157,20 @@ func appendTermipodMatcher(prior any, tool string, timeout int) []any {
 		}
 	}
 	out = append(out, map[string]any{
-		"matcher":          "*",
+		"matcher":          "",
 		termipodManagedKey: true,
 		"hooks": []any{map[string]any{
-			"type":    "mcp_tool",
-			"tool":    fmt.Sprintf("mcp__%s__%s", hub.MCPServerNameHost, tool),
+			"type":    "command",
+			"command": command,
 			"timeout": timeout,
 		}},
 	})
 	return out
 }
+
+// (shell-quoting of the UDS path goes through markers.go:shellQuote;
+// claude-code parses each `command` with POSIX sh, so any whitespace
+// or special chars in the path would otherwise break the argv split.)
 
 // atomicWriteFile writes body to <target>.<pid>.tmp then renames over
 // target. The rename is atomic on POSIX filesystems even across

@@ -164,8 +164,13 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 		return nil, fmt.Errorf("locallogtail M4: write .mcp.json: %w", err)
 	}
 
-	// W6: settings.local.json hooks pointing at mcp__termipod-host__*.
-	if err := installClaudeHooks(workdir); err != nil {
+	// W6: settings.local.json hooks. v1.0.659 rebuild — emit
+	// type:"command" entries that exec the host-runner hook-fire shim
+	// against the per-spawn UDS gateway. Pre-v1.0.659 emitted the
+	// invalid type:"mcp_tool" form (see hooks_install.go header note);
+	// any stale workdir is self-healed by appendTermipodMatcher's
+	// strip-then-append idempotency.
+	if err := installClaudeHooks(workdir, hostRunnerExe, udsPath); err != nil {
 		return nil, fmt.Errorf("locallogtail M4: install hooks: %w", err)
 	}
 

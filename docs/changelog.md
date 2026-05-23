@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.658
+> **Last verified vs code:** v1.0.659
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,121 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.659-alpha — 2026-05-23
+
+ADR-027 W11 fix-up wedge #3 — **claude-code M4 boot regression: hooks
+have been silently broken since v1.0.592**. On-host smoke of v1.0.658
+caught it on first start: claude-code refuses to launch with
+`Expected string, but received undefined. Hooks use a matcher + hooks
+array. ...`
+
+### Root cause
+
+`hub/internal/hostrunner/hooks_install.go` emitted hook entries of
+shape:
+
+```json
+{"matcher": "*",
+ "_termipod_managed": true,
+ "hooks": [{"type": "mcp_tool",
+            "tool": "mcp__termipod-host__hook_pre_tool_use",
+            "timeout": 30}]}
+```
+
+The `type: "mcp_tool"` form was an ADR-027 W6 speculative design —
+the idea was claude-code would route hook events through MCP tools
+on the `termipod-host` server. **claude-code's actual hook schema
+only supports `type: "command"` with a `command: <string>` field.**
+The `tool` field is unknown; `command` is missing; the validator
+fails at file load and the agent never gets past the welcome screen.
+
+Why it never surfaced for so long: claude-code is mostly run in M2
+stream-json mode (no hook installation). M4 LocalLogTail spawns —
+introduced v1.0.592 — were rarely exercised end-to-end until the
+agy fix-up arc forced parallel smoke on claude-code M4 at v1.0.657.
+
+### Fix: rebuild W6 with a `type: "command"` shim
+
+New host-runner subcommand `hook-fire` (in
+`hub/internal/hookfire/`) — a one-shot stdio bridge that wraps the
+claude-code hook contract over the existing UDS MCP gateway:
+
+```
+claude-code → spawns `host-runner hook-fire --socket <uds> --event <Event>`
+            → writes hook payload (single JSON object) to stdin
+            → reads response JSON from stdout
+hook-fire   → parses stdin as JSON object
+            → wraps as JSON-RPC `tools/call` with name=`hook_<event>`
+            → dials the per-spawn UDS, half-closes write side
+            → reads response line, extracts `result.content[0].text`
+            → writes to stdout, exits 0
+```
+
+Failure semantics tuned for blocking hooks: a transport blip yields
+`{}` on stdout (claude defaults to "allow") + non-zero exit + stderr
+warning — same outcome as an uninstalled hook. The previous design's
+parking semantics (PreToolUse / PreCompact / AskUserQuestion) still
+flow through the gateway's `dispatchHookTool` → `HookSink.OnHook` →
+adapter; the only wire change is the front-end format.
+
+`hooks_install.go` rewrites `appendTermipodMatcher` to emit:
+
+```json
+{"matcher": "",
+ "_termipod_managed": true,
+ "hooks": [{"type": "command",
+            "command": "host-runner hook-fire --socket '/path/to.sock' --event PreToolUse",
+            "timeout": 30}]}
+```
+
+The matcher is the empty string (claude-code canonical "match all"
+form). `_termipod_managed` is retained as the strip-then-append key —
+which lets v1.0.659 spawns self-heal stale workdirs that still hold
+the pre-v1.0.659 invalid `mcp_tool` entries (new test
+`TestInstallClaudeHooks_SelfHealsStaleMcpToolEntries` locks this).
+
+`hostRunnerExe` + `udsPath` are now plumbed through `installClaudeHooks`
+from `launch_m4_locallogtail.go`; the latter already had both values
+in scope (the runner exe is `hostRunnerExePath()`, the UDS is
+`socketPath(ChildID)`).
+
+### Cancel-button restoration
+
+The v1.0.657 `hookStop` → `turn.result` emission has been dead code
+since v1.0.592 (hookStop never fired because no valid hook ever
+registered). With hooks fixed, that emission now lights up: end of
+turn → Stop hook fires → adapter posts `turn.result{reason:end_of_turn}`
+→ mobile `_isAgentBusy()` flips to idle → cancel-on-send overlay
+drops. v1.0.657's symptom #4 fix is now actually load-bearing.
+
+### Test additions
+
+- `hub/internal/hookfire/run_test.go` — 6 tests:
+  - `TestTransport_RoundTrip` — stdin → tools/call → UDS → response
+    JSON unwrap, with an in-process fake gateway.
+  - `TestTransport_GatewayErrorSurfaces` — JSON-RPC `error` frame
+    propagates as a Go error.
+  - `TestTransport_DialFailure` — missing socket → error, no crash.
+  - `TestEventToToolName_Complete` — locks the 9-event coverage
+    against drift between `hookfire/run.go` and
+    `hooks_install.go:claudeHookEvents`.
+  - `TestRun_RejectsMissingSocket` + `TestRun_RejectsUnknownEvent` —
+    CLI contract (exit 2 on usage errors).
+
+- `hub/internal/hostrunner/hooks_install_test.go` — rewritten:
+  - `TestInstallClaudeHooks_NewFile_ValidSchema` — every emitted
+    matcher block obeys claude-code's documented hook schema
+    (matcher:string, hooks[] with type="command" + command:<string>).
+  - `TestInstallClaudeHooks_SelfHealsStaleMcpToolEntries` — a stale
+    workdir with the pre-v1.0.659 `type: "mcp_tool"` entries gets
+    cleanly upgraded on next spawn.
+  - The existing five behaviour tests are updated to the new shape
+    (`extractCommands` replaces `extractToolNames`).
+
+### Tag
+
+- Tag: `v1.0.659-alpha`
 
 ## v1.0.658-alpha — 2026-05-23
 

@@ -4,9 +4,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+)
 
-	"github.com/termipod/hub"
+// Test fixtures — the same path string everywhere so the substring
+// assertions below stay short.
+const (
+	testHookFireExe = "host-runner"
+	testUDSPath     = "/tmp/termipod-agent-abc.sock"
 )
 
 type parsedHookSettings struct {
@@ -29,13 +35,17 @@ func readSettings(t *testing.T, path string) parsedHookSettings {
 	return p
 }
 
-func extractToolNames(t *testing.T, hooks map[string]any, event string) []string {
+// extractCommands returns the `command` strings from every termipod-
+// managed hook entry under `event`. Replaces the pre-v1.0.659 helper
+// that pulled `tool` strings — that field no longer exists on the
+// type:"command" hook shape.
+func extractCommands(t *testing.T, hooks map[string]any, event string) []string {
 	t.Helper()
 	arr, ok := hooks[event].([]any)
 	if !ok {
 		return nil
 	}
-	var names []string
+	var cmds []string
 	for _, b := range arr {
 		m, ok := b.(map[string]any)
 		if !ok {
@@ -44,27 +54,75 @@ func extractToolNames(t *testing.T, hooks map[string]any, event string) []string
 		hooksArr, _ := m["hooks"].([]any)
 		for _, h := range hooksArr {
 			hm, _ := h.(map[string]any)
-			if name, _ := hm["tool"].(string); name != "" {
-				names = append(names, name)
+			if cmd, _ := hm["command"].(string); cmd != "" {
+				cmds = append(cmds, cmd)
 			}
 		}
 	}
-	return names
+	return cmds
 }
 
-func TestInstallClaudeHooks_NewFile(t *testing.T) {
+// Hook entries MUST serialise to claude-code's documented schema:
+// {matcher, hooks[]} where each hooks[] element is {type:"command",
+// command:<string>, timeout?:<int>}. Pre-v1.0.659 wrote type:"mcp_tool"
+// + tool:<...> which claude-code rejected with "Expected string, but
+// received undefined" at first start.
+func TestInstallClaudeHooks_NewFile_ValidSchema(t *testing.T) {
 	workdir := t.TempDir()
-	if err := installClaudeHooks(workdir); err != nil {
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	p := readSettings(t, filepath.Join(workdir, ".claude", "settings.local.json"))
 	if len(p.Hooks) != 9 {
 		t.Errorf("hook events = %d, want 9 (got keys %v)", len(p.Hooks), mapKeysAny(p.Hooks))
 	}
-	want := "mcp__" + hub.MCPServerNameHost + "__hook_pre_tool_use"
-	got := extractToolNames(t, p.Hooks, "PreToolUse")
-	if len(got) != 1 || got[0] != want {
-		t.Errorf("PreToolUse tools = %v, want [%s]", got, want)
+
+	// Every termipod-managed matcher block must obey claude-code's
+	// schema: matcher present (string), hooks[] present (array), and
+	// each element MUST have type="command" + command:<string>.
+	for event, raw := range p.Hooks {
+		arr, _ := raw.([]any)
+		for i, b := range arr {
+			m, _ := b.(map[string]any)
+			if m == nil {
+				t.Errorf("%s[%d] not an object: %v", event, i, b)
+				continue
+			}
+			if _, hasMatcher := m["matcher"].(string); !hasMatcher {
+				t.Errorf("%s[%d] missing string `matcher`: %v", event, i, m)
+			}
+			hs, _ := m["hooks"].([]any)
+			if len(hs) == 0 {
+				t.Errorf("%s[%d] empty `hooks` array", event, i)
+				continue
+			}
+			for j, h := range hs {
+				hm, _ := h.(map[string]any)
+				if t_, _ := hm["type"].(string); t_ != "command" {
+					t.Errorf("%s[%d].hooks[%d] type = %q, want \"command\"", event, i, j, t_)
+				}
+				if cmd, _ := hm["command"].(string); cmd == "" {
+					t.Errorf("%s[%d].hooks[%d] empty `command`: %v", event, i, j, hm)
+				}
+			}
+		}
+	}
+
+	// The PreToolUse command should reference our shim + UDS path +
+	// the right event name. Substring asserts (don't lock the exact
+	// arg order, which could legitimately change).
+	cmds := extractCommands(t, p.Hooks, "PreToolUse")
+	if len(cmds) != 1 {
+		t.Fatalf("PreToolUse commands = %d, want 1; got %v", len(cmds), cmds)
+	}
+	if !strings.Contains(cmds[0], "host-runner hook-fire") {
+		t.Errorf("PreToolUse command missing shim invocation: %q", cmds[0])
+	}
+	if !strings.Contains(cmds[0], "--event PreToolUse") {
+		t.Errorf("PreToolUse command missing --event PreToolUse: %q", cmds[0])
+	}
+	if !strings.Contains(cmds[0], testUDSPath) {
+		t.Errorf("PreToolUse command missing UDS path %q: %q", testUDSPath, cmds[0])
 	}
 }
 
@@ -82,7 +140,7 @@ func TestInstallClaudeHooks_PreservesOperatorKeys(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(claudeDir, "settings.local.json"), existing, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := installClaudeHooks(workdir); err != nil {
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	p := readSettings(t, filepath.Join(claudeDir, "settings.local.json"))
@@ -115,7 +173,7 @@ func TestInstallClaudeHooks_PreservesUserHooksInSameEvent(t *testing.T) {
 }`)
 	_ = os.WriteFile(filepath.Join(claudeDir, "settings.local.json"), existing, 0o644)
 
-	if err := installClaudeHooks(workdir); err != nil {
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	p := readSettings(t, filepath.Join(claudeDir, "settings.local.json"))
@@ -141,12 +199,57 @@ func TestInstallClaudeHooks_PreservesUserHooksInSameEvent(t *testing.T) {
 	}
 }
 
+// Stale workdirs from pre-v1.0.659 spawns hold the invalid `type:
+// "mcp_tool"` entries that broke claude's schema validator. The next
+// v1.0.659 spawn MUST self-heal by stripping the prior _termipod_managed
+// blocks before appending fresh `type: "command"` ones — no leftover
+// from the old shape.
+func TestInstallClaudeHooks_SelfHealsStaleMcpToolEntries(t *testing.T) {
+	workdir := t.TempDir()
+	claudeDir := filepath.Join(workdir, ".claude")
+	_ = os.MkdirAll(claudeDir, 0o755)
+	// Simulate a pre-v1.0.659 settings.local.json with the broken
+	// mcp_tool hook entry that claude refuses to validate.
+	stale := []byte(`{
+  "hooks": {
+    "Stop": [{
+      "matcher": "*",
+      "_termipod_managed": true,
+      "hooks": [{"type": "mcp_tool", "tool": "mcp__termipod-host__hook_stop", "timeout": 5}]
+    }]
+  }
+}`)
+	_ = os.WriteFile(filepath.Join(claudeDir, "settings.local.json"), stale, 0o644)
+
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	p := readSettings(t, filepath.Join(claudeDir, "settings.local.json"))
+	arr, _ := p.Hooks["Stop"].([]any)
+	if len(arr) != 1 {
+		t.Fatalf("Stop matcher blocks = %d, want 1 (the stale block must be stripped, fresh appended): %v",
+			len(arr), arr)
+	}
+	m, _ := arr[0].(map[string]any)
+	hs, _ := m["hooks"].([]any)
+	if len(hs) != 1 {
+		t.Fatalf("Stop hooks[] = %d, want 1: %v", len(hs), hs)
+	}
+	h, _ := hs[0].(map[string]any)
+	if h["type"] != "command" {
+		t.Errorf("Stop hook type = %v, want \"command\" (stale mcp_tool not stripped)", h["type"])
+	}
+	if _, hasTool := h["tool"]; hasTool {
+		t.Errorf("Stop hook still carries pre-v1.0.659 `tool` field: %v", h)
+	}
+}
+
 func TestInstallClaudeHooks_IsIdempotent(t *testing.T) {
 	workdir := t.TempDir()
-	if err := installClaudeHooks(workdir); err != nil {
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
-	if err := installClaudeHooks(workdir); err != nil {
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
 		t.Fatalf("second install: %v", err)
 	}
 	p := readSettings(t, filepath.Join(workdir, ".claude", "settings.local.json"))
@@ -161,7 +264,7 @@ func TestInstallClaudeHooks_IsIdempotent(t *testing.T) {
 
 func TestInstallClaudeHooks_TimeoutPerEvent(t *testing.T) {
 	workdir := t.TempDir()
-	if err := installClaudeHooks(workdir); err != nil {
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	p := readSettings(t, filepath.Join(workdir, ".claude", "settings.local.json"))

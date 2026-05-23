@@ -122,13 +122,21 @@ func TestLaunchM4LocalLogTail_HappyPath_MaterializesConfigAndStartsGateway(t *te
 		t.Errorf(".mcp.json missing termipod-host server entry")
 	}
 
-	// Verify settings.local.json was materialized with hooks.
+	// Verify settings.local.json was materialized with hooks. v1.0.659
+	// shifted the hook shape from type:"mcp_tool" + tool:"mcp__..."
+	// (which claude-code's schema rejected) to type:"command" +
+	// command:"host-runner hook-fire ...". The new shape carries the
+	// event name on the command line; check for both the shim
+	// invocation AND the PreCompact event reference.
 	body, err = os.ReadFile(filepath.Join(workdir, ".claude", "settings.local.json"))
 	if err != nil {
 		t.Fatalf("read settings.local.json: %v", err)
 	}
-	if !strings.Contains(string(body), "mcp__termipod-host__hook_pre_compact") {
-		t.Errorf("settings.local.json missing hook_pre_compact tool reference: %s", body)
+	if !strings.Contains(string(body), "host-runner hook-fire") {
+		t.Errorf("settings.local.json missing hook-fire shim invocation: %s", body)
+	}
+	if !strings.Contains(string(body), "--event PreCompact") {
+		t.Errorf("settings.local.json missing PreCompact event reference: %s", body)
 	}
 
 	// Verify gateway is reachable + the driver implements HookSink.

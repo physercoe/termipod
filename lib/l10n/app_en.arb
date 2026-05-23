@@ -613,13 +613,19 @@
   "backupSummary": "{connections} connections, {keys} keys, {snippets} snippets, {history} history",
   "@backupSummary": { "placeholders": { "connections": { "type": "int" }, "keys": { "type": "int" }, "snippets": { "type": "int" }, "history": { "type": "int" } } },
 
-  "clearOfflineCache": "Clear offline cache",
-  "clearOfflineCacheDesc": "Drop cached hub snapshots used when offline",
+  "clearCurrentHubCache": "Clear cache (this hub)",
+  "clearCurrentHubCacheDesc": "Drop offline snapshots for the active hub only",
+  "clearCurrentHubCacheConfirmTitle": "Clear this hub's cache?",
+  "clearCurrentHubCacheConfirmBody": "Cached snapshots for the active hub will be removed. Other hub profiles and shared blob bytes are untouched.",
+  "clearCurrentHubCacheNoProfile": "No active hub profile",
+
+  "clearOfflineCache": "Clear cache (all hubs)",
+  "clearOfflineCacheDesc": "Drop offline snapshots and blob bytes for every hub profile",
   "clearOfflineCacheEmpty": "Offline cache already empty",
   "clearOfflineCacheCleared": "Cleared {count} cached entries",
   "@clearOfflineCacheCleared": { "placeholders": { "count": { "type": "int" } } },
-  "clearOfflineCacheConfirmTitle": "Clear offline cache?",
-  "clearOfflineCacheConfirmBody": "Snapshots used to show lists while offline will be removed. Fresh data will load the next time the hub is reachable.",
+  "clearOfflineCacheConfirmTitle": "Clear cache for every hub?",
+  "clearOfflineCacheConfirmBody": "Snapshots used to show lists while offline will be removed across every hub profile, along with the shared blob cache. Fresh data will load the next time each hub is reachable.",
   "clearOfflineCacheConfirm": "Clear",
 
   "browseFiles": "Browse Files",

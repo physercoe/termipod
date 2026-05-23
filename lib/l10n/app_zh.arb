@@ -562,13 +562,19 @@
   "backupSummary": "{connections} 个连接、{keys} 个密钥、{snippets} 个代码片段、{history} 条历史",
   "@backupSummary": { "placeholders": { "connections": { "type": "int" }, "keys": { "type": "int" }, "snippets": { "type": "int" }, "history": { "type": "int" } } },
 
-  "clearOfflineCache": "清除离线缓存",
-  "clearOfflineCacheDesc": "删除离线时显示的 Hub 快照缓存",
+  "clearCurrentHubCache": "清除缓存（当前 Hub）",
+  "clearCurrentHubCacheDesc": "仅删除当前 Hub 的离线快照",
+  "clearCurrentHubCacheConfirmTitle": "清除当前 Hub 的缓存？",
+  "clearCurrentHubCacheConfirmBody": "将仅删除当前 Hub 的离线快照；其他 Hub 配置以及共享的二进制缓存不会受影响。",
+  "clearCurrentHubCacheNoProfile": "尚未选择任何 Hub",
+
+  "clearOfflineCache": "清除缓存（全部 Hub）",
+  "clearOfflineCacheDesc": "删除所有 Hub 配置的离线快照与二进制缓存",
   "clearOfflineCacheEmpty": "离线缓存已为空",
   "clearOfflineCacheCleared": "已清除 {count} 条缓存",
   "@clearOfflineCacheCleared": { "placeholders": { "count": { "type": "int" } } },
-  "clearOfflineCacheConfirmTitle": "清除离线缓存？",
-  "clearOfflineCacheConfirmBody": "离线时用于显示列表的快照将被删除。下次 Hub 可达时会重新加载数据。",
+  "clearOfflineCacheConfirmTitle": "清除所有 Hub 的缓存？",
+  "clearOfflineCacheConfirmBody": "将删除所有 Hub 配置的离线快照以及共享的二进制缓存。下次 Hub 可达时会重新加载数据。",
   "clearOfflineCacheConfirm": "清除",
 
   "browseFiles": "浏览文件",

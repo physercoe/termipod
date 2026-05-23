@@ -50,8 +50,16 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
   }
 
   /// Force a refresh — useful after open/close/resume.
+  ///
+  /// Doesn't reset to `AsyncLoading` first: the previous data stays
+  /// rendered until the new build completes, so pull-to-refresh leaves
+  /// the existing list visible under the `RefreshIndicator`'s native
+  /// spinner instead of flashing a centered fullscreen spinner over an
+  /// emptied screen (which read as a *second* refresh on top of the
+  /// pull-down one). Mutations like archive/resume/fork that funnel
+  /// through `_refreshSessionsAndHub` get the same silent-swap
+  /// treatment.
   Future<void> refresh() async {
-    state = const AsyncLoading();
     state = await AsyncValue.guard(build);
   }
 

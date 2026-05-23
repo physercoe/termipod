@@ -552,9 +552,9 @@ class HubNotifier extends AsyncNotifier<HubState> {
   }
 
   /// Nuke every offline snapshot + cached blob across every hub
-  /// partition. Called from the Settings "Clear offline cache" row when
-  /// the user wants a clean slate without also forgetting their hub
-  /// URL/token. Returns `(snapshotRows, blobFiles)` so the UI can
+  /// partition. Called from the Settings "Clear cache (all hubs)" row
+  /// when the user wants a clean slate without also forgetting their
+  /// hub URL/token. Returns `(snapshotRows, blobFiles)` so the UI can
   /// surface "Cleared N entries · M files". Opens the caches lazily if
   /// they weren't already loaded.
   Future<(int, int)> clearOfflineCache() async {
@@ -565,6 +565,26 @@ class HubNotifier extends AsyncNotifier<HubState> {
     _client?.snapshotCache = _cache;
     _client?.blobCache = _blobCache;
     return (rows, files);
+  }
+
+  /// Drop only the active hub's snapshot rows. Called from the Settings
+  /// "Clear cache (this hub)" row when the user wants to invalidate the
+  /// current hub's offline view without touching other profiles.
+  /// Returns the number of rows removed (0 when no profile is active).
+  ///
+  /// The blob cache is content-addressed (sha-keyed) and shared across
+  /// hubs by design — `blob_bytes_cache.dart:11-13` — so it's not
+  /// scoped here. The all-hubs variant ([clearOfflineCache]) is the
+  /// path for clearing blob bytes.
+  Future<int> clearCurrentHubCache() async {
+    final cur = state.value;
+    final cfg = cur?.config;
+    if (cfg == null) return 0;
+    _cache ??= await _openCache();
+    final key = hubCacheKey(baseUrl: cfg.baseUrl, teamId: cfg.teamId);
+    final rows = await _cache!.wipeHub(key);
+    _client?.snapshotCache = _cache;
+    return rows;
   }
 
   /// One-shot fetch of everything the dashboard needs. Tabs show whatever

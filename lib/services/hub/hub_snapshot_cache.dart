@@ -132,12 +132,13 @@ class HubSnapshotCache {
     );
   }
 
-  /// Drop every row for a hub partition. Used by clearConfig and any
+  /// Drop every row for a hub partition. Used by clearConfig, any
   /// "switched hubs" path so data from one deployment never leaks into
-  /// another.
-  Future<void> wipeHub(String hubKey) async {
+  /// another, and the Settings "Clear cache (this hub)" action.
+  /// Returns the number of rows removed so the UI can report a count.
+  Future<int> wipeHub(String hubKey) async {
     final db = await _open();
-    await db.delete(_table, where: 'hub_key = ?', whereArgs: [hubKey]);
+    return db.delete(_table, where: 'hub_key = ?', whereArgs: [hubKey]);
   }
 
   /// Drop every row across every hub partition. Exposed for the Settings

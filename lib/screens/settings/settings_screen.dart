@@ -878,6 +878,12 @@ class _CategoryPage extends ConsumerWidget {
         onTap: () => _handleImport(context, ref),
       ),
       ListTile(
+        leading: const Icon(Icons.cloud_off_outlined),
+        title: Text(l10n.clearCurrentHubCache),
+        subtitle: Text(l10n.clearCurrentHubCacheDesc),
+        onTap: () => _handleClearCurrentHubCache(context, ref),
+      ),
+      ListTile(
         leading: const Icon(Icons.cloud_off),
         title: Text(l10n.clearOfflineCache),
         subtitle: Text(l10n.clearOfflineCacheDesc),
@@ -1923,6 +1929,50 @@ class _CategoryPage extends ConsumerWidget {
       ),
     );
   }
+
+  /// Clear cache for the active hub profile only — leaves other
+  /// profiles' partitions and the shared blob cache alone. The "all
+  /// hubs" path remains [_handleClearOfflineCache]. Aborts gracefully
+  /// with a SnackBar if no profile is currently active.
+  Future<void> _handleClearCurrentHubCache(
+      BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
+    final cfg = ref.read(hubProvider).value?.config;
+    if (cfg == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.clearCurrentHubCacheNoProfile)),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.clearCurrentHubCacheConfirmTitle),
+        content: Text(l10n.clearCurrentHubCacheConfirmBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.buttonCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l10n.clearOfflineCacheConfirm),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final rows =
+        await ref.read(hubProvider.notifier).clearCurrentHubCache();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(rows == 0
+            ? l10n.clearOfflineCacheEmpty
+            : l10n.clearOfflineCacheCleared(rows)),
+      ),
+    );
+  }
 }
 
 /// Small "Beta" chip rendered next to the Floating pad row title so
@@ -2478,6 +2528,8 @@ class _SettingsSearchBarState extends ConsumerState<_SettingsSearchBar> {
           _Category.data),
       _SearchEntry(l10n.importBackup, l10n.importBackupDesc,
           _Category.data),
+      _SearchEntry(l10n.clearCurrentHubCache,
+          l10n.clearCurrentHubCacheDesc, _Category.data),
       _SearchEntry(l10n.clearOfflineCache, l10n.clearOfflineCacheDesc,
           _Category.data),
       _SearchEntry(l10n.browseFiles, l10n.browseFilesDesc,

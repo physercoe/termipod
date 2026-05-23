@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-22)
+> **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.641
+> **Last verified vs code:** v1.0.642
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,43 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.642-alpha — 2026-05-23
+
+Two on-device UX papercuts caught while smoke-testing v1.0.641 against
+the local hub: pull-to-refresh on the Sessions page flashed a fullscreen
+spinner over the existing list (looked like a second refresh on top of
+the pull-down one), and the Settings → Data "Clear offline cache" row
+was wiping every hub profile's snapshot partition, not just the active
+one. Both fixed; mobile-only commit.
+
+### Changed
+
+- **mobile (Sessions):** `SessionsNotifier.refresh()` no longer resets
+  the provider to `AsyncLoading` before guarding the next build —
+  the previous data stays rendered until the new build resolves and
+  swaps in atomically. The `RefreshIndicator`'s native pull-down
+  spinner remains the sole visual indicator. Mutations that funnel
+  through `_refreshSessionsAndHub` (archive / resume / fork / delete)
+  inherit the same silent-swap behaviour
+  ([`72a7e83`](https://github.com/physercoe/termipod/commit/72a7e83)).
+- **mobile (Settings → Data):** the single "Clear offline cache" row
+  splits in two — "Clear cache (this hub)" runs `wipeHub(key)` against
+  the active profile's partition only, "Clear cache (all hubs)" keeps
+  the prior `wipeAll()` behaviour and now names the scope in the row
+  label and confirm dialog. `wipeHub` returns the row count so the
+  per-hub variant reports the same "Cleared N entries" SnackBar. Blob
+  cache (sha-keyed, shared across hubs) stays untouched by the per-hub
+  variant; the all-hubs variant still wipes it. EN + ZH strings updated
+  ([`72a7e83`](https://github.com/physercoe/termipod/commit/72a7e83)).
+
+### Notes
+
+No hub-side changes, no schema migration, no ADR motion. v1.0.641's
+on-host smoke for the antigravity engine (plan §W11) is still the
+outstanding gate before ADR-035 flips Accepted.
 
 ---
 

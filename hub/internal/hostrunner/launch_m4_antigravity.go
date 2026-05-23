@@ -80,13 +80,35 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 		}
 	}
 
-	// Write/merge the global agy MCP config so `agy` can reach the hub
-	// tool surface. Best-effort: a failure here degrades to "no hub MCP"
+	// Write the agy MCP config in TWO places so the token stays fresh
+	// across respawns:
+	//
+	//   - GLOBAL: ~/.gemini/config/mcp_config.json — what new agy
+	//     processes read on first launch. Keys: termipod (this spawn's
+	//     token), plus any user-managed servers (agytest, ...) we
+	//     preserve via merge.
+	//
+	//   - WORKDIR: <workdir>/.mcp.json — what agy reads in addition to
+	//     global, with WORKDIR winning on same-server-name conflicts.
+	//     This file is the load-bearing one for token freshness: agy
+	//     1.0.1 sync-copies the termipod entry from global → workdir on
+	//     first read but never re-syncs on subsequent launches, so a
+	//     workdir snapshot from a prior session pins the OLD token
+	//     forever (post-v1.0.652 smoke caught this — agy got `401
+	//     invalid mcp token` → "client is closing: invalid request"
+	//     even though the global config had the correct fresh token).
+	//     Writing workdir at every spawn keeps the token current.
+	//
+	// Both writes are best-effort: a failure degrades to "no hub MCP"
 	// but the agent still launches (its transcript is still tailed).
 	if cfg.Spawn.MCPToken != "" && cfg.HubURL != "" {
 		if werr := writeMCPConfigAntigravityGlobal(cfg.HubURL, cfg.Spawn.MCPToken); werr != nil {
 			cfg.Log.Warn("antigravity M4: write global mcp_config failed; launching without hub MCP",
 				"handle", cfg.Spawn.Handle, "err", werr)
+		}
+		if werr := writeMCPConfig(workdir, cfg.HubURL, cfg.Spawn.MCPToken); werr != nil {
+			cfg.Log.Warn("antigravity M4: write workdir .mcp.json failed; agy may use a stale cached token",
+				"handle", cfg.Spawn.Handle, "workdir", workdir, "err", werr)
 		}
 	}
 

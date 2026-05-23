@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.652
+> **Last verified vs code:** v1.0.653
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,98 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.653-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #10 — agy's MCP `tools/call` was failing on
+the post-v1.0.652 smoke with `connection closed: calling "tools/call":
+client is closing: invalid request`. User had agy investigate; agy
+correctly identified the bridge process was unhappy but mis-attributed
+the cause to env-var propagation. Actual root cause traced from the
+live `~/.gemini/config/mcp_config.json` + `<workdir>/.mcp.json` pair +
+agy's tool_call args.
+
+### Root cause: stale-token persistence
+
+agy 1.0.1 reads MCP server configs from TWO files and merges them,
+with WORKDIR winning on same-server-name conflicts:
+
+- GLOBAL — `~/.gemini/config/mcp_config.json`
+- WORKDIR — `<cwd>/.mcp.json`
+
+agy auto-syncs the workdir copy from global on FIRST read of a new
+workspace, then never re-syncs. v1.0.640..v1.0.652 wrote the global
+config (with the fresh per-spawn MCP token) but never wrote the
+workdir copy. So a workdir `.mcp.json` from a prior session pinned
+the OLD token forever; every tools/call from the new spawn went out
+through `hub-mcp-bridge` carrying the dead token, the hub returned
+`401 invalid mcp token`, and agy classified the response as `invalid
+request → client is closing`.
+
+Observable mismatch from the smoke session:
+
+| File | Token | Notes |
+|---|---|---|
+| `~/.gemini/config/mcp_config.json` (global) | `firjPlDM…` (fresh, valid) | Written by v1.0.652 launch path. |
+| `<workdir>/.mcp.json` (workdir copy) | **`FIrJO6…` (stale, hub returns 401)** | Modtime 12:35 — from the OLD pre-v1.0.652 session. v1.0.652 didn't touch it; agy reads workdir over global → tools/call fails. |
+
+A manual shell test of `hub-mcp-bridge` with the CORRECT token (which
+agy ran during its investigation) succeeded — proving the bridge,
+hub, and protocol are all healthy. Only the token was wrong.
+
+`agytest` (a user-owned MCP server unrelated to termipod) kept
+working throughout because it lives only in the global config — no
+workdir entry to go stale.
+
+### Fix
+
+`launch_m4_antigravity.go` now writes the workdir `.mcp.json` in
+addition to the global `mcp_config.json` at every spawn, mirroring
+M2's pattern for claude-code. `writeMCPConfig` is idempotent and
+overwrites any prior copy, so the token stays current across respawns.
+
+Both writes are best-effort: a failure degrades to "no hub MCP" but
+the agent still launches. The smoke caught this as a one-way drift
+that compounded silently across sessions; the test
+`TestWriteMCPConfig_OverwritesStaleToken` locks it.
+
+### Verification
+
+Builds clean, tests pass. After deploying v1.0.653 binaries, the
+operator should:
+
+```bash
+sudo cp /tmp/hub-server  /usr/local/bin/hub-server
+cp     /tmp/host-runner  ~/.local/bin/host-runner
+sudo systemctl restart termipod-hub.service
+# restart tmux host-runner
+
+# One-time: purge the stale workdir .mcp.json so the next spawn
+# writes a clean fresh-token copy (the v1.0.653 writer is idempotent,
+# but eyeballing a known-clean state is easier than debugging mid-
+# spawn). Optional — the new writer will overwrite it anyway.
+rm -f /home/ubuntu/hub-work/antigravity/.mcp.json
+```
+
+Then spawn an antigravity steward and ask it to call any termipod
+MCP tool (e.g. "list the projects you can see"). Expected: agy
+invokes `projects_list` natively via call_mcp_tool and gets back the
+team's project list.
+
+### Notes on agy's diagnosis
+
+agy concluded the env-var block in `.mcp.json`'s `"env"` field
+wasn't being propagated to the spawned bridge process. That's
+WRONG — env-var propagation works fine; the workdir `.mcp.json`
+content was correct shape, just with the wrong token value. Agy was
+right that the bridge was unhappy and the connection was marked
+permanently closed; it just localised one level too high in the
+stack. Verify-don't-guess discipline meant we re-checked the actual
+config files before applying agy's proposed workaround
+(wrapper-script with baked env vars), and the file comparison
+surfaced the real culprit.
 
 ---
 

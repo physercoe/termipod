@@ -100,6 +100,45 @@ func TestPreTrustWorkspaceAntigravity_DedupesClean(t *testing.T) {
 	}
 }
 
+// The workdir .mcp.json must carry the CURRENT spawn's MCP token, even
+// when a prior session left a stale copy behind. The post-v1.0.652
+// smoke caught this — agy 1.0.1 auto-syncs the workdir .mcp.json from
+// global on first read but never re-syncs, so an old session pinned
+// the previous token and every tools/call from the new spawn got
+// rejected with `401 invalid mcp token` (surfaced to agy as "client
+// is closing: invalid request"). writeMCPConfig must blow away the
+// old file and write the fresh token.
+func TestWriteMCPConfig_OverwritesStaleToken(t *testing.T) {
+	workdir := t.TempDir()
+
+	// Pre-populate workdir/.mcp.json with a stale token, mimicking
+	// the cross-session leftover the smoke caught.
+	stale := map[string]any{
+		"mcpServers": map[string]any{
+			"termipod": map[string]any{
+				"command": "hub-mcp-bridge",
+				"env": map[string]any{
+					"HUB_TOKEN": "STALE-TOKEN-FROM-PREVIOUS-SESSION",
+					"HUB_URL":   "http://127.0.0.1:41825",
+				},
+			},
+		},
+	}
+	mustWriteJSON(t, filepath.Join(workdir, ".mcp.json"), stale)
+
+	if err := writeMCPConfig(workdir, "http://127.0.0.1:41825", "FRESH-TOKEN"); err != nil {
+		t.Fatalf("writeMCPConfig: %v", err)
+	}
+
+	got := mustReadJSON(t, filepath.Join(workdir, ".mcp.json"))
+	servers, _ := got["mcpServers"].(map[string]any)
+	termipod, _ := servers["termipod"].(map[string]any)
+	env, _ := termipod["env"].(map[string]any)
+	if env["HUB_TOKEN"] != "FRESH-TOKEN" {
+		t.Errorf("HUB_TOKEN = %v; want FRESH-TOKEN (stale write must overwrite)", env["HUB_TOKEN"])
+	}
+}
+
 func mustWriteJSON(t *testing.T, path string, v any) {
 	t.Helper()
 	b, err := json.MarshalIndent(v, "", "  ")

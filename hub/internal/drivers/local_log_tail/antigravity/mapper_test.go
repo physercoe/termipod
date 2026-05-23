@@ -39,7 +39,8 @@ func TestMapStep_Corpus(t *testing.T) {
 	}
 
 	// Expected fan-out for the captured 9-line conversation:
-	//  USER_INPUT            → (drop)
+	//  USER_INPUT            → session.init (model extracted from agy's
+	//                          <USER_SETTINGS_CHANGE> block — v1.0.655)
 	//  CONVERSATION_HISTORY  → (drop)
 	//  PLANNER_RESPONSE+calls→ tool_call (list_dir)
 	//  LIST_DIRECTORY        → tool_result
@@ -51,6 +52,7 @@ func TestMapStep_Corpus(t *testing.T) {
 	//                          is agy's end-of-turn marker so mobile's
 	//                          _isAgentBusy() drops the cancel button)
 	want := []string{
+		"session.init",
 		"tool_call", "tool_result",
 		"tool_call", "tool_result",
 		"tool_call", "tool_result",
@@ -224,6 +226,76 @@ func TestMapStep_UnknownEmptyTypeIsDrift(t *testing.T) {
 	if len(evs) != 1 || evs[0].Kind != "system" || evs[0].Payload["subtype"] != "unknown_type" {
 		t.Fatalf("want one system/unknown_type; got %+v", evs)
 	}
+}
+
+// agy embeds its active model in the <USER_SETTINGS_CHANGE> block on
+// step 0 — the only on-disk signal of which model is answering (token
+// counts + cost stay in-memory only). The mapper extracts that string
+// into a synthetic session.init so mobile's AppBar SessionInitChip can
+// show "Gemini 3.5 Flash (Medium)" instead of an empty model pill. The
+// adapter later stamps `session_id` on the same payload so the mobile
+// merge in _latestSessionInitPayload pairs it with the adapter's
+// earlier session.init.
+func TestMapStep_UserInput_EmitsSessionInitWithModel(t *testing.T) {
+	raw := []byte(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\nhi\n</USER_REQUEST>\n<USER_SETTINGS_CHANGE>\nThe user changed setting ` + "`Model Selection`" + ` from None to Gemini 3.5 Flash (Medium). No need to comment.\n</USER_SETTINGS_CHANGE>"}`)
+	evs, err := MapStep(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Kind != "session.init" {
+		t.Fatalf("want one session.init; got %+v", evs)
+	}
+	if evs[0].Payload["model"] != "Gemini 3.5 Flash (Medium)" {
+		t.Errorf("model = %v; want %q",
+			evs[0].Payload["model"], "Gemini 3.5 Flash (Medium)")
+	}
+	// session_id is stamped by the adapter, not the mapper — must be
+	// absent at this layer so the adapter knows to fill it.
+	if _, ok := evs[0].Payload["session_id"]; ok {
+		t.Error("mapper-emitted session.init should not carry session_id")
+	}
+}
+
+// A USER_INPUT without the <USER_SETTINGS_CHANGE> block must NOT emit
+// any event (resume / follow-up turns don't carry the model
+// announcement; we don't want a stream of empty session.init events).
+func TestMapStep_UserInput_NoSettingsChangeIsDropped(t *testing.T) {
+	raw := []byte(`{"step_index":3,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\nfollow up\n</USER_REQUEST>"}`)
+	evs, err := MapStep(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 0 {
+		t.Errorf("USER_INPUT without USER_SETTINGS_CHANGE should be dropped; got %+v", evs)
+	}
+}
+
+func TestExtractAntigravityModel(t *testing.T) {
+	cases := map[string]string{
+		// Host-verified shape from agy 1.0.1.
+		"<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Gemini 3.5 Flash (Medium). No need to comment.\n</USER_SETTINGS_CHANGE>": "Gemini 3.5 Flash (Medium)",
+		// Same shape with a different model name.
+		"<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from Gemini 3.5 Flash to Gemini 2.5 Pro (Reasoning). Continue.\n</USER_SETTINGS_CHANGE>": "Gemini 2.5 Pro (Reasoning)",
+		// No settings change block → empty.
+		"<USER_REQUEST>\nhello\n</USER_REQUEST>": "",
+		// Settings change but unrelated setting → empty.
+		"<USER_SETTINGS_CHANGE>\nThe user changed setting `Theme` from Light to Dark.\n</USER_SETTINGS_CHANGE>": "",
+		// Empty content.
+		"": "",
+	}
+	for in, want := range cases {
+		got := extractAntigravityModel(in)
+		if got != want {
+			t.Errorf("extractAntigravityModel(%q) = %q; want %q", in[:min(len(in), 60)], got, want)
+		}
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func TestMapStep_MalformedTopLevelErrors(t *testing.T) {

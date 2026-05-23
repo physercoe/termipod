@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.654
+> **Last verified vs code:** v1.0.655
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,121 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.655-alpha — 2026-05-23
+
+Three independent fixes from the post-v1.0.654 review — one UX bug
+(double-spinner on session mutations) and two antigravity polish
+wins (turn-count chip + model name extraction).
+
+### Fix 1: double-spinner on archive / stop / resume
+
+Symptom: tapping Archive, Stop, or Resume on a session flashed a
+centered fullscreen spinner TWICE in quick succession before settling.
+
+Root cause: `sessions_provider.dart`'s `build()` used a bare
+`ref.watch(hubProvider)`, which subscribes the provider to every
+state transition of the hub. `hubProvider.refreshAll()` emits TWO
+transitions internally (`HubState.loading=true` then `loading=false`)
+between sequential `await`s — and every mutation flow funnels
+through `_refreshSessionsAndHub` → `refreshAll`. Each transition
+triggered an auto-rebuild of sessionsProvider, briefly putting state
+back into `AsyncLoading`, which the screen renders as the centered
+spinner. Two transitions → two spinners.
+
+Fix: narrow the watch to a `.select` projection that captures only
+the active hub's identity (baseUrl + teamId tuple). refreshAll
+doesn't touch config, so the projection returns the same string,
+Riverpod skips the rebuild, sessionsProvider stays in AsyncData
+throughout the refresh. Login/logout/hub-switch still rebuild (they
+DO change config). ~10 LOC in `lib/providers/sessions_provider.dart`.
+
+### Fix 2: antigravity telemetry strip surfaces turn count
+
+`_TelemetryStrip` gated the cost tile on `totalCostUsd > 0`. agy
+keeps Gemini `usageMetadata` (token counts, no cost) in memory only
+and never persists it, so the gate was false for every agy session.
+The strip's other tiles (token totals, rate-limit, context-window)
+also all depend on engine-emitted data agy doesn't ship, so the
+whole strip then hid via `tiles.isEmpty → SizedBox.shrink()`.
+
+Fix: split the cost-tile guard. When `totalCostUsd > 0` show the
+cost+turns tile (claude-code shape, unchanged). When cost is unknown
+but `turnCount > 0`, render a "N turns" tile alone with an autorenew
+icon — same affordance for agy and for codex (codex's
+`turn/completed` notification also doesn't carry cost). ~15 LOC in
+`lib/widgets/agent_feed.dart`.
+
+### Fix 3: antigravity model name in AppBar chip
+
+The AppBar `SessionInitChip` reads `payload['model']`, but the
+antigravity adapter's `session.init` emits only `{session_id}`. agy
+keeps the active model in the `<USER_SETTINGS_CHANGE>` block of
+step-0 USER_INPUT in the transcript — that's the ONLY on-disk signal
+of which model is answering (just like usage, agy doesn't write it
+anywhere else).
+
+Fix in three small pieces:
+
+1. **mapper.go**: USER_INPUT was previously dropped wholesale. Now
+   when step 0 contains `<USER_SETTINGS_CHANGE>` with the
+   "Model Selection from … to <X>" sentence, parse `<X>` and emit a
+   synthetic `session.init` with `{model: <X>}`. Returns nothing for
+   USER_INPUT steps without the block (resume / follow-up turns), so
+   no event spam. New helper `extractAntigravityModel` + corpus test
+   updated.
+
+2. **adapter.go**: stamps the convID onto any mapper-emitted
+   session.init missing a `session_id`. Keeps the mapper pure and
+   gives mobile a fully-decorated payload (engine + model + sid).
+
+3. **agent_feed.dart**: `_latestSessionInitPayload` now MERGES across
+   all session.init events (later fields overwrite, earlier-only
+   fields persist). Most engines emit session.init exactly once
+   (claude, codex, gemini-cli) so this is a no-op for them; only
+   antigravity emits twice (one at conv-id resolution, one at step
+   0). Also extends the onSessionInit firing gate to compare
+   `sid|model` so the partial later emit refires the parent callback.
+   Same merge applied to the backfill path (`_maybeBackfillSessionInit`)
+   so cold-loads see the same shape.
+
+After deploy, an antigravity session's AppBar chip will read
+"antigravity · Gemini 3.5 Flash (Medium) · 1 turn" (or whatever
+model the user selected in agy's TUI) instead of "antigravity ·
+(blank) · —".
+
+### Verification + deploy
+
+Builds clean, tests pass:
+
+```
+ok  github.com/termipod/hub/internal/drivers/local_log_tail/antigravity 0.896s
+ok  github.com/termipod/hub/internal/server 107.717s
+ok  github.com/termipod/hub/internal/hostrunner 6.665s
+[+ all other packages]
+```
+
+```bash
+sudo cp /tmp/hub-server  /usr/local/bin/hub-server
+cp     /tmp/host-runner  ~/.local/bin/host-runner
+sudo systemctl restart termipod-hub.service
+# restart your tmux host-runner
+# flutter rebuild required for the mobile fixes; CI tag pushes the APK
+```
+
+### What's still NOT surfaced for agy
+
+These remain genuinely unavailable because agy never writes them:
+
+- per-model token totals (input/output/cache_read)
+- per-call cost
+- rate-limit / quota status
+
+The only way to surface those would be to MITM agy's outgoing
+HTTPS to Google's Code Assist API, which is not practical. Cleanly
+out of scope until agy upstream starts logging.
 
 ---
 

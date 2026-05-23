@@ -415,10 +415,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (_latestSessionInitPayload() != null) return;
     if (widget.onSessionInit == null) return;
     try {
-      // Pull the agent's tail across ALL sessions; scan back from
-      // newest for the most recent session.init. Page size is small
-      // because session.init is rare and usually within the last few
-      // hundred events.
+      // Pull the agent's tail across ALL sessions; merge every
+      // session.init payload we find in chronological order (newer
+      // events overwrite earlier fields, earlier-only fields persist).
+      // Page size is small because session.init is rare. Walk forward
+      // so the merge order matches the live build() path (see
+      // _latestSessionInitPayload above for the rationale).
       final any = await client.listAgentEvents(
         widget.agentId,
         tail: true,
@@ -426,19 +428,28 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // No sessionId — that's the whole point of the fallback.
       );
       if (!mounted) return;
-      for (final e in any.reversed) {
+      Map<String, dynamic>? merged;
+      for (final e in any) {
         if ((e['kind'] ?? '').toString() != 'session.init') continue;
         final p = e['payload'];
         if (p is! Map) continue;
-        final payload = p.cast<String, dynamic>();
-        final sid = (payload['session_id'] ?? '').toString();
-        if (sid == _lastReportedInitSid) return;
-        _lastReportedInitSid = sid;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) widget.onSessionInit?.call(payload);
-        });
-        return;
+        final m = p.cast<String, dynamic>();
+        if (merged == null) {
+          merged = Map<String, dynamic>.from(m);
+        } else {
+          merged.addAll(m);
+        }
       }
+      if (merged == null) return;
+      final sid = (merged['session_id'] ?? '').toString();
+      final model = (merged['model'] ?? '').toString();
+      final key = '$sid|$model';
+      if (key == _lastReportedInitSid) return;
+      _lastReportedInitSid = key;
+      final payload = merged;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onSessionInit?.call(payload);
+      });
     } catch (_) {
       // Silent — chip is decorative.
     }
@@ -896,14 +907,22 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // gets a working composer (the strips hide themselves).
     final initForCompose = _latestSessionInitPayload();
     // Lift session.init to the parent (AppBar) once per change so a
-    // session header doesn't take up a transcript row on mobile. The
-    // payload identity is stable between events, so we compare
-    // session_id to avoid spamming setState when the parent only cares
-    // about new connections, not every event.
+    // session header doesn't take up a transcript row on mobile. We
+    // key on session_id + model so the chip refreshes when an engine
+    // posts session_id first (the adapter's startup emit) and the
+    // model later (mapped from a transcript-side signal): antigravity
+    // works this way — the adapter emits session.init with just
+    // session_id once it resolves the conversation, and the mapper
+    // later emits a second session.init with `model` extracted from
+    // agy's <USER_SETTINGS_CHANGE> block on step 0. Pre-fix the gate
+    // compared session_id alone, so the second emit didn't refire and
+    // the chip's model pill stayed blank.
     if (initForCompose != null) {
       final sid = (initForCompose['session_id'] ?? '').toString();
-      if (sid != _lastReportedInitSid) {
-        _lastReportedInitSid = sid;
+      final model = (initForCompose['model'] ?? '').toString();
+      final key = '$sid|$model';
+      if (key != _lastReportedInitSid) {
+        _lastReportedInitSid = key;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) widget.onSessionInit?.call(initForCompose);
         });
@@ -1332,13 +1351,30 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // sessionInit lookup, but this one needs to run before the visible
   // list is computed so we can pre-build the AgentCompose.
   Map<String, dynamic>? _latestSessionInitPayload() {
-    for (final e in _events.reversed) {
-      if ((e['kind'] ?? '').toString() == 'session.init') {
-        final p = e['payload'];
-        if (p is Map) return p.cast<String, dynamic>();
+    // Merge across all session.init events: later events overwrite
+    // earlier fields, earlier-only fields persist. Most engines emit
+    // session.init exactly once (claude-code, codex, gemini-cli all do)
+    // so the merge is a no-op for them — `merged` ends up identical to
+    // the single payload. antigravity is the exception: the adapter
+    // emits session.init at conversation-id resolution with
+    // `{session_id}`, then the mapper emits a second session.init from
+    // agy's <USER_SETTINGS_CHANGE> block carrying `{model}`. Merging
+    // lets the partial later emit decorate the earlier one instead of
+    // shadowing it — without the merge, the AppBar chip flipped from
+    // "engine + sid" to "model" alone and lost the engine pill.
+    Map<String, dynamic>? merged;
+    for (final e in _events) {
+      if ((e['kind'] ?? '').toString() != 'session.init') continue;
+      final p = e['payload'];
+      if (p is! Map) continue;
+      final m = p.cast<String, dynamic>();
+      if (merged == null) {
+        merged = Map<String, dynamic>.from(m);
+      } else {
+        merged.addAll(m);
       }
     }
-    return null;
+    return merged;
   }
 
   /// ADR-021 W2.5 — find the latest mode + model state advertised by
@@ -4588,11 +4624,22 @@ class _TelemetryStrip extends StatelessWidget {
         ? DesignColors.textPrimary
         : DesignColors.textPrimaryLight;
     final tiles = <Widget>[];
-    // Cost tile is hidden when totalCostUsd is exactly zero — codex's
-    // turn/completed notification doesn't carry cost, so a codex
-    // session would otherwise render `$0.0000 · N turns`, which reads
-    // as "we ran for free" rather than "we don't know what it cost."
-    if (turnCount > 0 && totalCostUsd > 0) {
+    // Cost tile shape depends on whether the engine reports cost:
+    //
+    //   - claude-code   → `$0.0123 · N turns` (cost+turns)
+    //   - codex         → no cost (codex's turn/completed doesn't ship
+    //                     it); falls through to the turns-only branch
+    //   - antigravity   → no cost (agy keeps Gemini usageMetadata
+    //                     in-memory only and never persists it); same
+    //                     turns-only branch
+    //
+    // Pre-fix the tile guarded on `totalCostUsd > 0` and rendered
+    // nothing otherwise — the whole strip then hid (no other tile
+    // passes either, since codex/agy also lack token totals), so the
+    // user lost even the turn count signal. Post-v1.0.654: when
+    // turns are known but cost isn't, surface "N turns" alone with a
+    // turns icon, so the strip still gives a forward-progress cue.
+    if (totalCostUsd > 0) {
       tiles.add(_TelemetryTile(
         icon: Icons.payments_outlined,
         label: '\$${totalCostUsd.toStringAsFixed(4)}',
@@ -4602,6 +4649,17 @@ class _TelemetryStrip extends StatelessWidget {
         muted: mutedColor,
         tooltip:
             'Cumulative cost across $turnCount completed turn${turnCount == 1 ? '' : 's'}.',
+      ));
+    } else if (turnCount > 0) {
+      tiles.add(_TelemetryTile(
+        icon: Icons.autorenew_outlined,
+        label: '$turnCount',
+        sub: turnCount == 1 ? 'turn' : 'turns',
+        color: DesignColors.success,
+        fg: fg,
+        muted: mutedColor,
+        tooltip:
+            'Completed turns this session. Cost not reported by this engine.',
       ));
     }
     if (modelTotals.isNotEmpty) {

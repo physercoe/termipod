@@ -26,11 +26,28 @@ class SessionsState {
 class SessionsNotifier extends AsyncNotifier<SessionsState> {
   @override
   Future<SessionsState> build() async {
-    final hub = ref.watch(hubProvider);
-    final hubState = hub.value;
-    final client = hubState == null
-        ? null
-        : ref.read(hubProvider.notifier).client;
+    // Only watch what identifies the active hub — the config's
+    // baseUrl+teamId tuple. refreshAll() emits TWO state transitions
+    // (HubState.loading=true → loading=false) but doesn't touch
+    // config, so the .select projects to the same string and Riverpod
+    // skips the auto-rebuild. Pre-fix this was a bare
+    // `ref.watch(hubProvider)`, which fired sessionsProvider's
+    // build() on every hub-state change and briefly put state to
+    // AsyncLoading — the screen's `state.when(loading: …)` then
+    // flashed a centered spinner. archive/stop/resume flows all call
+    // _refreshSessionsAndHub → refreshAll, so the user saw the
+    // spinner TWICE in quick succession (once for loading=true,
+    // once for loading=false). Post-v1.0.654 smoke caught this.
+    //
+    // Logout/login and hub-switch still rebuild (they change the
+    // identity string), so the auth/profile flows are unaffected.
+    final hubIdentity = ref.watch(hubProvider.select((async) {
+      final cfg = async.value?.config;
+      if (cfg == null) return null;
+      return '${cfg.baseUrl}|${cfg.teamId}';
+    }));
+    if (hubIdentity == null) return const SessionsState();
+    final client = ref.read(hubProvider.notifier).client;
     if (client == null) return const SessionsState();
     // Cached read-through: cold open offline still surfaces the last
     // known stewards. Same fallback contract as projects/hosts/etc.

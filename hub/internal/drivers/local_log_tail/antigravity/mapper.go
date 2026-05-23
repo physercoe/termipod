@@ -81,7 +81,29 @@ func MapStep(raw []byte) ([]MappedEvent, error) {
 	}
 
 	switch ln.Type {
-	case "USER_INPUT", "CONVERSATION_HISTORY":
+	case "USER_INPUT":
+		// USER_INPUT is the prompt the hub composed and shipped in via
+		// the envelope renderer — we don't surface it as an event
+		// because the hub already posted input.text with the same body.
+		// EXCEPTION: agy embeds a <USER_SETTINGS_CHANGE> block in step 0
+		// announcing the active model (e.g. "Model Selection from None
+		// to Gemini 3.5 Flash (Medium)"). agy never persists token /
+		// cost / usage anywhere — that block is the ONLY on-disk signal
+		// of which model is answering. Emit a synthetic session.init
+		// carrying the parsed model name so mobile's AppBar
+		// SessionInitChip can show "Gemini 3.5 Flash" instead of an
+		// empty model pill. The convID isn't known to the mapper (lives
+		// on the adapter), so we leave session_id blank and rely on the
+		// mobile gate refiring when the `model` field changes.
+		if model := extractAntigravityModel(ln.Content); model != "" {
+			return []MappedEvent{{
+				Kind:     "session.init",
+				Producer: "agent",
+				Payload:  base(map[string]any{"model": model}),
+			}}, nil
+		}
+		return nil, nil
+	case "CONVERSATION_HISTORY":
 		return nil, nil
 
 	case "PLANNER_RESPONSE":
@@ -211,6 +233,63 @@ func MapStep(raw []byte) ([]MappedEvent, error) {
 // the format is agy-<step>-<idx>.
 func syntheticCallID(step, idx int) string {
 	return "agy-" + strconv.Itoa(step) + "-" + strconv.Itoa(idx)
+}
+
+// extractAntigravityModel parses the model name out of agy's
+// <USER_SETTINGS_CHANGE> block, which lands on USER_INPUT step 0 and
+// reads roughly:
+//
+//	<USER_SETTINGS_CHANGE>
+//	The user changed setting `Model Selection` from None to Gemini 3.5 Flash (Medium). …
+//	</USER_SETTINGS_CHANGE>
+//
+// The "X to Y" sentence is host-verified. Returns the captured model
+// name with any trailing period / whitespace trimmed; empty when the
+// content doesn't carry the block (e.g. resumed sessions where the
+// setting hasn't been touched, or any non-step-0 USER_INPUT).
+func extractAntigravityModel(content string) string {
+	if !strings.Contains(content, "<USER_SETTINGS_CHANGE>") {
+		return ""
+	}
+	if !strings.Contains(content, "Model Selection") {
+		return ""
+	}
+	// Slice off everything before "Model Selection" + " to "; the
+	// model name is what follows, terminated by "." or "\n".
+	const marker = "Model Selection` from "
+	i := strings.Index(content, marker)
+	if i < 0 {
+		// Fallback for a slightly different agy phrasing without the
+		// backtick. Cheap defense against minor wording drift.
+		i = strings.Index(content, "Model Selection from ")
+		if i < 0 {
+			return ""
+		}
+		i += len("Model Selection from ")
+	} else {
+		i += len(marker)
+	}
+	rest := content[i:]
+	// "from <prev> to <model>." — skip past " to ".
+	j := strings.Index(rest, " to ")
+	if j < 0 {
+		return ""
+	}
+	rest = rest[j+len(" to "):]
+	// Terminate at the first newline; everything up to it is the
+	// "<model>. <trailing-sentence>" run. Splitting on "." would slice
+	// "Gemini 3.5 Flash" mid-name on the "3.5" decimal.
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		rest = rest[:nl]
+	}
+	// Drop the trailing sentence(s) — agy follows the model with
+	// ". <hint about reporting>" on a single line in the host-verified
+	// samples. The model name + parenthesized tier is the first
+	// sentence; anything after ". " is editorial.
+	if idx := strings.Index(rest, ". "); idx >= 0 {
+		rest = rest[:idx]
+	}
+	return strings.TrimSpace(strings.TrimRight(rest, "."))
 }
 
 type mapError struct {

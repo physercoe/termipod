@@ -254,6 +254,22 @@ func (a *Adapter) runLoop(ctx context.Context, steps <-chan Step) {
 				continue
 			}
 			for _, ev := range events {
+				// Mapper-emitted session.init events (e.g. the model-name
+				// extraction from <USER_SETTINGS_CHANGE> on step 0) don't
+				// know the convID — that lives on the adapter. Stamp it
+				// here so the mobile chip can match the partial payload
+				// against the adapter's earlier session.init and surface a
+				// fully-decorated header (engine + model + session id).
+				if ev.Kind == "session.init" && ev.Payload != nil {
+					if _, hasSID := ev.Payload["session_id"]; !hasSID {
+						a.mu.Lock()
+						sid := a.ConversationID
+						a.mu.Unlock()
+						if sid != "" {
+							ev.Payload["session_id"] = sid
+						}
+					}
+				}
 				if err := a.Poster.PostAgentEvent(ctx, a.AgentID, ev.Kind, ev.Producer, ev.Payload); err != nil {
 					a.Log.Debug("antigravity adapter: post failed",
 						"agent_id", a.AgentID, "kind", ev.Kind, "err", err)

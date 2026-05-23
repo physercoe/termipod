@@ -71,24 +71,47 @@ func ConversationIDForWorkdir(homeDir, workdir string) (string, bool) {
 	return id, true
 }
 
-// WaitForConversation blocks until agy records a conversationId for
-// workdir in the cache, or the context fires. pollEvery defaults to
-// 250ms. This is the launch-race resolver: host-runner spawns `agy` and
-// calls this, which returns the moment agy writes the workspace→id entry
-// (typically within the first model turn).
+// WaitForConversation blocks until agy mints a conversationId for
+// workdir, or the context fires. pollEvery defaults to 250ms.
 //
-// newestBrainFallback is the last resort for the rare case where agy
-// produced a brain dir but hasn't flushed the cache yet: when set, after
-// the context's deadline the resolver returns the newest brain/*/ dir's
-// id. It is off by default because on a shared host with concurrent
-// spawns the newest dir may belong to a sibling agent — callers that can
-// guarantee single-spawn isolation (per-spawn HOME, ADR-035 D7) may opt
-// in.
-func WaitForConversation(ctx context.Context, homeDir, workdir string, pollEvery time.Duration, newestBrainFallback bool) (string, error) {
+// Two signals race on each tick — whichever lands first wins:
+//
+//   - **new-brain-dir-since-launch (primary)**: a `brain/<convId>/` dir
+//     with mtime strictly after `since`. agy creates this dir the
+//     instant it mints a conversation in response to the first user
+//     message, regardless of which persistence mechanism it uses.
+//     Reliable for "project" workspaces (host-verified 2026-05-23 W11
+//     smoke: agy stopped writing last_conversations.json once the
+//     workdir got promoted to a project via the trust dialog).
+//   - **workspace→id cache (legacy)**: `cache/last_conversations.json`
+//     keyed by abspath. Still the path for casual non-project workdirs
+//     (the May-22 probes confirmed this signal). Kept for back-compat.
+//
+// `since` should be set to the moment of `agy` launch so a brain dir
+// from an earlier spawn (or a sibling agy on the same host) isn't
+// mistaken for "ours". Pass `time.Time{}` (the zero value) to disable
+// the brain-dir signal — only the legacy cache lookup will run.
+//
+// newestBrainFallback is now redundant given the primary signal, but
+// retained as the after-timeout fallback for callers that opted in via
+// the v1.0.641 adapter knob (it returns the absolute newest brain dir,
+// ignoring `since`).
+func WaitForConversation(ctx context.Context, homeDir, workdir string, pollEvery time.Duration, newestBrainFallback bool, since time.Time) (string, error) {
 	if pollEvery <= 0 {
 		pollEvery = 250 * time.Millisecond
 	}
-	if id, ok := ConversationIDForWorkdir(homeDir, workdir); ok {
+	tryOnce := func() (string, bool) {
+		if !since.IsZero() {
+			if id, ok := newestBrainSince(homeDir, since); ok {
+				return id, true
+			}
+		}
+		if id, ok := ConversationIDForWorkdir(homeDir, workdir); ok {
+			return id, true
+		}
+		return "", false
+	}
+	if id, ok := tryOnce(); ok {
 		return id, nil
 	}
 	t := time.NewTicker(pollEvery)
@@ -103,11 +126,42 @@ func WaitForConversation(ctx context.Context, homeDir, workdir string, pollEvery
 			}
 			return "", fmt.Errorf("waiting for agy conversation id for %s: %w", workdir, ctx.Err())
 		case <-t.C:
-			if id, ok := ConversationIDForWorkdir(homeDir, workdir); ok {
+			if id, ok := tryOnce(); ok {
 				return id, nil
 			}
 		}
 	}
+}
+
+// newestBrainSince returns the basename of the most-recently-modified
+// brain/*/ directory whose mtime is strictly after `since`, or ("",
+// false) if no such directory exists. Mirrors newestBrainID but scoped
+// by time so concurrent spawns or pre-existing dirs don't cross-talk.
+func newestBrainSince(homeDir string, since time.Time) (string, bool) {
+	brainDir := filepath.Join(StoreDir(homeDir), "brain")
+	entries, err := os.ReadDir(brainDir)
+	if err != nil {
+		return "", false
+	}
+	var bestID string
+	var bestT time.Time
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		info, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		if !info.ModTime().After(since) {
+			continue
+		}
+		if bestID == "" || info.ModTime().After(bestT) {
+			bestID = e.Name()
+			bestT = info.ModTime()
+		}
+	}
+	return bestID, bestID != ""
 }
 
 // WaitForTranscript blocks until the transcript_full.jsonl for conversationID

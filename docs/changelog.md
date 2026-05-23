@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.644
+> **Last verified vs code:** v1.0.645
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,62 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.645-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #3 — third smoke pass uncovered the **mobile
+feed shows nothing even when agy is responding**. Root cause: agy no
+longer writes `~/.gemini/antigravity-cli/cache/last_conversations.json`
+for workdirs that have been promoted to "projects" (which happens the
+first time the user accepts the trust dialog — agy creates a project
+shadow at `~/.gemini/config/projects/<uuid>.json` and a workspace-local
+symlink at `<workdir>/.antigravitycli/<uuid>.json`, then switches off
+the cache mechanism for that path). Host-verified: the on-host cache
+was last modified 2026-05-22 (yesterday's probes), while the live
+conversation `5536eee5-…` was actively writing its transcript with no
+corresponding cache entry. Our resolver was polling a file that would
+never update for project workdirs → 30-min timeout → silent feed.
+
+### Fixed
+
+- **antigravity (pathresolver):** `WaitForConversation` gains a `since
+  time.Time` parameter and a new primary signal — the newest
+  `brain/<convId>/` directory whose mtime is strictly after `since`.
+  agy creates that dir at the instant it mints a conversation in
+  response to the first user message, regardless of which persistence
+  mechanism (cache vs. project shadow) it's using on that workdir.
+  Reliable for both project and casual workdirs; pre-launch siblings
+  on the same host are filtered out by the time threshold. The legacy
+  cache lookup remains as the back-compat secondary signal — whichever
+  fires first wins on each poll tick. `since` defaults to `time.Now()`
+  captured at the top of `resolveAndRun` so it always covers the
+  current spawn (`pathresolver.go`, `adapter.go`).
+- New `newestBrainSince(homeDir, since) (string, bool)` helper —
+  pure-function variant of the prior `NewestBrainFallback` knob, now
+  the load-bearing primary path rather than an after-timeout last
+  resort.
+
+### Verification
+
+- Three new lock tests in `pathresolver_test.go`:
+  `NewBrainDirSinceWinsWithStaleCache` (the W11 smoke scenario:
+  yesterday's cache + a pre-launch sibling dir + our spawn lands
+  → only our conv id is returned); `LegacyCacheStillWorks` (casual
+  workdir without a project shadow); `IgnoresOlderDirs` (the time
+  threshold actually filters).
+- All 20 hub packages green; `go vet ./...` clean.
+
+### Notes
+
+ADR-035 still Proposed; this is W11 fix-up #3. The cache-write
+asymmetry is upstream agy behaviour, not a regression on our side —
+documenting it on the ADR (resolver gets a second signal, can't rely
+on the cache alone) is the next paperwork wedge once smoke is green
+end-to-end. Per-host sub-second concurrent spawn disambiguation (using
+transcript-first-step content to cross-check) is deferred — the time
+threshold is sufficient for single-user smoke and the ~99% case.
 
 ---
 

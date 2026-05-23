@@ -131,6 +131,13 @@ func (a *Adapter) Start(parent context.Context) error {
 func (a *Adapter) resolveAndRun(ctx context.Context) {
 	defer a.wg.Done()
 
+	// Capture the launch moment so the new-brain-dir resolver can
+	// distinguish "agy minted this in response to our spawn" from any
+	// pre-existing brain dirs or sibling spawns on the same host. Sub-
+	// second precision matters: agy creates brain/<convId>/ within
+	// milliseconds of the first user message landing.
+	launchTime := time.Now()
+
 	homeDir := a.HomeDir
 	if homeDir == "" {
 		hd, err := os.UserHomeDir()
@@ -154,7 +161,11 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 
 	convID := a.ConversationID
 	if convID == "" {
-		id, err := WaitForConversation(waitCtx, homeDir, a.Workdir, 0, a.NewestBrainFallback)
+		// New-brain-dir-since-launchTime is the primary signal; the
+		// legacy workspace→id cache is the back-compat fallback. agy
+		// stops writing to the cache once a workdir is promoted to a
+		// project via the trust dialog (host-verified, v1.0.644 smoke).
+		id, err := WaitForConversation(waitCtx, homeDir, a.Workdir, 0, a.NewestBrainFallback, launchTime)
 		if err != nil {
 			a.noteFailure(ctx, "resolve conversation id", err)
 			return

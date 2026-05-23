@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.650
+> **Last verified vs code:** v1.0.651
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,24 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.651-alpha — 2026-05-23
+
+**No code change.** Version bump only, to re-trigger the Android release
+workflow after v1.0.650-alpha hit the same transient `Bad credentials`
+flake from the GitHub API that v1.0.649-alpha did during the "Create
+Release" step — the APK and all eight server tarballs built and signed
+fine; only the upload to the GitHub release page failed. The PAT
+available in this session can't re-run individual jobs via API, and the
+Android workflow only fires on tag push, so a fresh version is the
+cleanest re-trigger.
+
+Identical artefacts to v1.0.650-alpha. Use this tag instead of v1.0.650
+if you need the APK from a GitHub release page (v1.0.650 has the iOS
+.ipa attached but is missing the APK + tarballs because of the upload
+flake).
 
 ---
 

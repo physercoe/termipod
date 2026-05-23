@@ -71,45 +71,45 @@ func ConversationIDForWorkdir(homeDir, workdir string) (string, bool) {
 	return id, true
 }
 
-// WaitForConversation blocks until agy mints a conversationId for
-// workdir, or the context fires. pollEvery defaults to 250ms.
+// WaitForConversation blocks until agy mints a conversationId for our
+// spawn, or the context fires. pollEvery defaults to 250ms.
 //
-// Two signals race on each tick — whichever lands first wins:
+// Signal: a `brain/<convId>/` directory whose mtime is strictly after
+// `since`. agy creates this dir the instant it mints a conversation in
+// response to the first user message — reliable regardless of which
+// internal persistence mechanism agy is using, and scoped by `since` so
+// pre-existing brain dirs (from earlier spawns, sibling agy procs, or a
+// lazy flush of an old session that races our launch) can never
+// mis-resolve a fresh spawn.
 //
-//   - **new-brain-dir-since-launch (primary)**: a `brain/<convId>/` dir
-//     with mtime strictly after `since`. agy creates this dir the
-//     instant it mints a conversation in response to the first user
-//     message, regardless of which persistence mechanism it uses.
-//     Reliable for "project" workspaces (host-verified 2026-05-23 W11
-//     smoke: agy stopped writing last_conversations.json once the
-//     workdir got promoted to a project via the trust dialog).
-//   - **workspace→id cache (legacy)**: `cache/last_conversations.json`
-//     keyed by abspath. Still the path for casual non-project workdirs
-//     (the May-22 probes confirmed this signal). Kept for back-compat.
+// `since` MUST be the moment of `agy` launch. Passing the zero value
+// disables the signal entirely (Wait will block until ctx fires).
 //
-// `since` should be set to the moment of `agy` launch so a brain dir
-// from an earlier spawn (or a sibling agy on the same host) isn't
-// mistaken for "ours". Pass `time.Time{}` (the zero value) to disable
-// the brain-dir signal — only the legacy cache lookup will run.
+// The legacy `last_conversations.json` cache used to be a secondary
+// fallback here, but the v1.0.645 W11 smoke caught it mis-resolving
+// every fresh spawn against a prior conversation: agy writes that cache
+// LAZILY on graceful exit (the diagnosis that said "agy doesn't write
+// it for project workdirs" was wrong — agy writes it later, when the
+// process shuts down). So a fresh spawn that fires after a prior exit
+// flushed the cache will hit a workdir→old-conv-id mapping and resume
+// the wrong session. Dropped in v1.0.646.
 //
-// newestBrainFallback is now redundant given the primary signal, but
-// retained as the after-timeout fallback for callers that opted in via
-// the v1.0.641 adapter knob (it returns the absolute newest brain dir,
-// ignoring `since`).
+// `workdir` is retained in the signature for the error message; the
+// resolver itself doesn't read it.
+//
+// newestBrainFallback (opt-in) is the after-timeout last resort: when
+// set, after the ctx deadline the resolver returns the absolute newest
+// brain dir, ignoring `since`. Safe only for callers that can guarantee
+// single-spawn isolation (per-spawn HOME). Off by default.
 func WaitForConversation(ctx context.Context, homeDir, workdir string, pollEvery time.Duration, newestBrainFallback bool, since time.Time) (string, error) {
 	if pollEvery <= 0 {
 		pollEvery = 250 * time.Millisecond
 	}
 	tryOnce := func() (string, bool) {
-		if !since.IsZero() {
-			if id, ok := newestBrainSince(homeDir, since); ok {
-				return id, true
-			}
+		if since.IsZero() {
+			return "", false
 		}
-		if id, ok := ConversationIDForWorkdir(homeDir, workdir); ok {
-			return id, true
-		}
-		return "", false
+		return newestBrainSince(homeDir, since)
 	}
 	if id, ok := tryOnce(); ok {
 		return id, nil

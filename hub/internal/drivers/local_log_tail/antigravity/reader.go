@@ -42,6 +42,20 @@ type Reader struct {
 	Path      string
 	PollEvery time.Duration
 
+	// SkipExisting drains the current file contents into the `emitted`
+	// map without sending them downstream, so only steps that appear
+	// after Start are emitted. The adapter sets this on resume paths
+	// (a re-spawn that landed in an existing transcript via the
+	// engine_session_id resume cursor) to avoid re-emitting the full
+	// historical conversation as if it were live — that was the W11
+	// v1.0.645 smoke incident's surface effect (mobile feed replayed
+	// every prior step on a fresh spawn that mis-resolved to an old
+	// brain dir via the lazy `last_conversations.json` cache).
+	//
+	// Off by default: fresh spawns want every step emitted, starting
+	// from step 0 (the user's first USER_INPUT).
+	SkipExisting bool
+
 	cancel context.CancelFunc
 	done   chan struct{}
 }
@@ -90,6 +104,13 @@ func (r *Reader) loop(ctx context.Context, out chan<- Step) {
 	var lastMod time.Time
 	var lastSize int64
 
+	// On resume, mark every currently-present step as already-emitted
+	// without sending anything downstream — incremental polling then
+	// only picks up steps that appear after Start.
+	if r.SkipExisting {
+		r.prime(emitted, &lastMod, &lastSize)
+	}
+
 	// Read once immediately so a transcript that already exists doesn't
 	// wait a full poll interval before its first emit.
 	r.scan(ctx, out, emitted, &lastMod, &lastSize)
@@ -105,6 +126,34 @@ func (r *Reader) loop(ctx context.Context, out chan<- Step) {
 				return
 			}
 		}
+	}
+}
+
+// prime drains the currently-present file into `emitted` without
+// emitting anything downstream. Used by SkipExisting to silence the
+// historical replay on resume. lastMod/lastSize are seeded so a
+// subsequent unchanged scan is a fast no-op.
+func (r *Reader) prime(emitted map[int]string, lastMod *time.Time, lastSize *int64) {
+	st, err := os.Stat(r.Path)
+	if err != nil {
+		return
+	}
+	*lastMod = st.ModTime()
+	*lastSize = st.Size()
+	data, err := os.ReadFile(r.Path)
+	if err != nil {
+		return
+	}
+	for _, raw := range bytes.Split(data, []byte("\n")) {
+		raw = bytes.TrimRight(raw, "\r")
+		if len(bytes.TrimSpace(raw)) == 0 {
+			continue
+		}
+		var head stepHead
+		if err := json.Unmarshal(raw, &head); err != nil {
+			continue
+		}
+		emitted[head.StepIndex] = head.Status
 	}
 }
 

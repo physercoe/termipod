@@ -76,6 +76,69 @@ func TestReader_RunningThenDone_EmitsTwice(t *testing.T) {
 	}
 }
 
+// Regression lock for the v1.0.646 mobile-feed-replays-old-log bug.
+// On resume, the reader must drain the pre-existing transcript into
+// `emitted` without sending anything downstream — only steps that
+// appear AFTER Start are emitted.
+func TestReader_SkipExisting_DoesNotReplayHistory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "transcript_full.jsonl")
+	// Seed three "historical" steps before Start.
+	writeFile(t, path,
+		`{"step_index":0,"type":"USER_INPUT","status":"DONE"}`+"\n"+
+			`{"step_index":1,"type":"PLANNER_RESPONSE","status":"DONE"}`+"\n"+
+			`{"step_index":2,"type":"MCP_TOOL","status":"DONE"}`+"\n")
+
+	r := &Reader{Path: path, PollEvery: 20 * time.Millisecond, SkipExisting: true}
+	ch, err := r.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Stop()
+
+	// Give the prime + initial scan a beat. Nothing should arrive —
+	// every step is already known.
+	silent := drain(t, ch, 1, 200*time.Millisecond)
+	if len(silent) != 0 {
+		t.Fatalf("SkipExisting must not replay history; got %+v", silent)
+	}
+
+	// A NEW step appearing post-Start should emit normally.
+	time.Sleep(30 * time.Millisecond)
+	writeFile(t, path,
+		`{"step_index":0,"type":"USER_INPUT","status":"DONE"}`+"\n"+
+			`{"step_index":1,"type":"PLANNER_RESPONSE","status":"DONE"}`+"\n"+
+			`{"step_index":2,"type":"MCP_TOOL","status":"DONE"}`+"\n"+
+			`{"step_index":3,"type":"PLANNER_RESPONSE","status":"DONE"}`+"\n")
+
+	got := drain(t, ch, 1, time.Second)
+	if len(got) != 1 || got[0].Index != 3 {
+		t.Fatalf("post-Start step 3 should emit; got %+v", got)
+	}
+}
+
+// Inverse — when SkipExisting is false (the default, fresh-spawn path),
+// the reader must emit every pre-existing step on first scan.
+func TestReader_DefaultEmitsExisting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "transcript_full.jsonl")
+	writeFile(t, path,
+		`{"step_index":0,"type":"USER_INPUT","status":"DONE"}`+"\n"+
+			`{"step_index":1,"type":"PLANNER_RESPONSE","status":"DONE"}`+"\n")
+
+	r := &Reader{Path: path, PollEvery: 20 * time.Millisecond /* SkipExisting: false */}
+	ch, err := r.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Stop()
+
+	got := drain(t, ch, 2, time.Second)
+	if len(got) != 2 {
+		t.Fatalf("fresh spawn should emit both existing steps; got %d (%+v)", len(got), got)
+	}
+}
+
 func TestReader_TornLineSkippedThenRecovered(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "transcript_full.jsonl")

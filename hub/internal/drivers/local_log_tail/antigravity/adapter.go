@@ -159,12 +159,21 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 	waitCtx, cancelWait := context.WithTimeout(ctx, waitTimeout)
 	defer cancelWait()
 
+	// A pre-set ConversationID means the launch glue read
+	// `--conversation <id>` off backend.cmd — i.e. this is a resume of
+	// an existing engine session. The transcript already has history
+	// we must not re-emit as if it were live (v1.0.646 W11 smoke
+	// incident: a mis-resolved fresh spawn re-emitted the entire prior
+	// conversation; even after that resolver bug is fixed, a *genuine*
+	// resume hits the same surface effect without this guard).
+	wasResume := a.ConversationID != ""
+
 	convID := a.ConversationID
 	if convID == "" {
-		// New-brain-dir-since-launchTime is the primary signal; the
-		// legacy workspace→id cache is the back-compat fallback. agy
-		// stops writing to the cache once a workdir is promoted to a
-		// project via the trust dialog (host-verified, v1.0.644 smoke).
+		// New-brain-dir-since-launchTime is the only signal — the legacy
+		// `last_conversations.json` lookup was removed in v1.0.646
+		// after it mis-resolved every fresh spawn that fired after a
+		// prior agy exit lazily flushed the cache.
 		id, err := WaitForConversation(waitCtx, homeDir, a.Workdir, 0, a.NewestBrainFallback, launchTime)
 		if err != nil {
 			a.noteFailure(ctx, "resolve conversation id", err)
@@ -190,7 +199,7 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 		return
 	}
 
-	reader := &Reader{Path: transcript}
+	reader := &Reader{Path: transcript, SkipExisting: wasResume}
 	steps, err := reader.Start(ctx)
 	if err != nil {
 		a.noteFailure(ctx, "reader start", err)

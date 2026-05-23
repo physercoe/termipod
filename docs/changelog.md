@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.645
+> **Last verified vs code:** v1.0.646
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,83 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.646-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #4 — two on-host bugs surfaced after v1.0.645
+shipped, both rooted in the same misdiagnosis: I claimed agy stops
+writing `last_conversations.json` for project workdirs. That was wrong.
+agy writes it **lazily, on graceful exit**, so the cache was stale
+during my mid-conversation probes but landed correctly later. The
+v1.0.645 resolver kept the cache lookup as a secondary signal — which
+on the next smoke proved fatal: a fresh spawn that fired *after* the
+prior agy exit flushed the cache mis-resolved to the OLD conversation
+id, posted `session.init` with it, captured engine_session_id on the
+new session row, and the reader opened the existing 293 KB transcript
+and re-emitted every step (its `emitted` map is in-memory, fresh per
+process). Mobile saw the entire prior conversation replayed onto a
+brand-new session with the cancel button stuck on "busy".
+
+Plus a third bug — caught in the same pane capture — where the ADR-032
+envelope renderer's three-line text turn was being sent line-by-line
+via `send-keys -l + Enter`, which agy's TUI counted as separate user
+submissions. The first line (`[directive from the principal]`) hit
+during agy's startup race and got swallowed; "hi" became step 0 of the
+transcript but never appeared in the pane prompt's echo.
+
+### Fixed
+
+- **antigravity (pathresolver):** dropped the `last_conversations.json`
+  fallback in `WaitForConversation`. Brain-dir-since-launch is now the
+  ONLY signal — a stale cache entry from a prior agy exit can no
+  longer mis-resolve a fresh spawn. The function still accepts
+  `workdir` (used in the error message) but no longer reads it; the
+  signature is preserved for callers. The legacy ConversationIDForWorkdir
+  helper remains as a public read-only inspector for diagnostics but
+  is not on the resolution path. Regression-locked by
+  `TestWaitForConversation_StaleCacheMustNotResolve` (the exact W11
+  scenario: stale cache + pre-launch brain dir + must time out instead
+  of mis-resolving).
+- **antigravity (Reader):** new `SkipExisting` field. On resume paths
+  (the adapter's `wasResume = a.ConversationID != ""` — set when the
+  launch glue read `--conversation <id>` off backend.cmd via the
+  engine_session_id resume cursor), the reader drains the
+  currently-present transcript into its `emitted` map without sending
+  anything downstream, then incrementally polls for genuinely new
+  steps. Fresh spawns keep the default behaviour (emit every step
+  including the first USER_INPUT). Locked by
+  `TestReader_SkipExisting_DoesNotReplayHistory` +
+  `TestReader_DefaultEmitsExisting`.
+- **antigravity (sendkeys):** multi-line text input now goes via
+  `tmux set-buffer + paste-buffer + Enter` — ONE atomic submission to
+  the TUI instead of the prior line-by-line `-l + Enter` loop that
+  fragmented the ADR-032 envelope's three-line text turn into separate
+  user messages. Single-line short bodies keep the cheap `send-keys
+  -l` fast path. Buffer name derived from PaneID so concurrent inputs
+  to different agents can't clobber each other. Locked by
+  `TestAdapter_TextInput_MultiLineUsesPasteBuffer` (exact W11 envelope
+  body) + `TestAdapter_TextInput_SingleLineUsesSendKeys`.
+
+### Verification
+
+- All 20 hub packages green, 0 fails; `go vet ./...` clean.
+- Five new lock tests added; existing
+  `TestAdapter_StartResolvesAndPosts` updated to mimic the real flow
+  (brain dir + transcript appear AFTER Start, in response to the user's
+  first message).
+- Stale entry in the on-host `last_conversations.json` cleared so the
+  next on-host spawn won't hit pre-fix state.
+
+### Notes
+
+ADR-035 still Proposed. The misdiagnosis in v1.0.645 is on me; the
+cache lookup added complexity without reliability gain, and the W11
+smoke exposed it the next day. The pre-trust-workspace from v1.0.644
+remains correct (different mechanism). Concurrent-sub-second-spawn
+disambiguation via transcript-first-step content still deferred — the
+brain-dir mtime threshold is sufficient for typical use.
 
 ---
 

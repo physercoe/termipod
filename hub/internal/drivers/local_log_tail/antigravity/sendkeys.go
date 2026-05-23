@@ -71,10 +71,29 @@ func (a *Adapter) requirePane() error {
 	return nil
 }
 
-// inputText sends a free-text body then Enter. Multi-line bodies are sent
-// line-by-line (send-keys -l then Enter) so the TUI receives each line;
-// short single-line bodies go in one -l call. Mirrors the claude-code
-// adapter's MVP approach (buffer-paste is a later tightening).
+// inputText sends a free-text body as ONE atomic submission, then
+// Enter. Multi-line bodies go via tmux's named-buffer paste path:
+//
+//	tmux set-buffer  -b <name> <body>
+//	tmux paste-buffer -b <name> -d -t <pane>
+//	tmux send-keys                 -t <pane> Enter
+//
+// `-d` deletes the buffer after the paste so concurrent inputs don't
+// stack. Doing this as one paste (not line-by-line `-l + Enter`)
+// matters: the ADR-032 envelope renderer wraps every principal/peer
+// message in a three-line block (`[<kind> from <sender>]\n<text>\n\n
+// <reply instruction>`), and sending Enter between lines registered
+// each one as a separate user submission in agy's TUI — the W11 smoke
+// caught it ([directive from the principal] / hi / blank / Reply in
+// this chat... became three messages, and the first one was lost
+// during agy's startup race so the user's actual "hi" looked invisible
+// in the pane). Single-line short bodies still use `-l` for a tighter
+// fast path.
+//
+// Buffer name is derived from the pane id so two concurrent inputs to
+// different agents don't clobber each other. Tmux buffer names must be
+// `[A-Za-z0-9_-]+`; the pane id form `%NN` is sanitised by stripping
+// the `%`.
 func (a *Adapter) inputText(ctx context.Context, p map[string]any) error {
 	body, _ := p["body"].(string)
 	if body == "" {
@@ -84,6 +103,8 @@ func (a *Adapter) inputText(ctx context.Context, p map[string]any) error {
 		return err
 	}
 	runner := a.cmdRunner()
+
+	// Single-line, short → cheap path: send-keys -l + Enter.
 	if len(body) <= 512 && !strings.ContainsAny(body, "\n\r") {
 		if _, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "-l", body); err != nil {
 			return err
@@ -91,13 +112,19 @@ func (a *Adapter) inputText(ctx context.Context, p map[string]any) error {
 		_, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter")
 		return err
 	}
-	for _, line := range strings.Split(body, "\n") {
-		if _, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "-l", line); err != nil {
-			return err
-		}
-		if _, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter"); err != nil {
-			return err
-		}
+
+	// Multi-line / long → atomic paste-buffer.
+	bufName := "agyinput_" + strings.TrimPrefix(a.PaneID, "%")
+	if _, err := runner.Run(ctx, "tmux", "set-buffer", "-b", bufName, body); err != nil {
+		return fmt.Errorf("set-buffer: %w", err)
+	}
+	if _, err := runner.Run(ctx, "tmux", "paste-buffer", "-b", bufName, "-d", "-t", a.PaneID); err != nil {
+		// Best-effort buffer cleanup on the failure path.
+		_, _ = runner.Run(ctx, "tmux", "delete-buffer", "-b", bufName)
+		return fmt.Errorf("paste-buffer: %w", err)
+	}
+	if _, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter"); err != nil {
+		return err
 	}
 	return nil
 }

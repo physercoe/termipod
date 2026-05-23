@@ -66,29 +66,46 @@ func TestWaitForConversation_NewBrainDirSinceWinsWithStaleCache(t *testing.T) {
 	}
 }
 
-// Legacy: when the cache still works (casual non-project workdir), the
-// cache entry resolves directly without needing a brain dir to appear.
-func TestWaitForConversation_LegacyCacheStillWorks(t *testing.T) {
+// Regression lock for the v1.0.646 W11 incident: a stale
+// last_conversations.json entry (flushed by a previous agy on graceful
+// exit) must NOT resolve a fresh spawn against the old conversation.
+// The resolver should sit polling — only a brain dir appearing after
+// `since` is allowed to satisfy the wait.
+func TestWaitForConversation_StaleCacheMustNotResolve(t *testing.T) {
 	home := t.TempDir()
 	cacheDir := filepath.Join(StoreDir(home), "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	workdir := "/tmp/some-casual-workdir"
-	wantID := "cached-conv-id"
-	cacheBody, _ := json.Marshal(map[string]string{workdir: wantID})
+	workdir := "/home/ubuntu/hub-work/antigravity"
+	staleID := "old-conv-from-prior-run"
+	cacheBody, _ := json.Marshal(map[string]string{workdir: staleID})
 	if err := os.WriteFile(filepath.Join(cacheDir, "last_conversations.json"), cacheBody, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	got, err := WaitForConversation(ctx, home, workdir, 10*time.Millisecond, false, time.Now())
-	if err != nil {
-		t.Fatalf("WaitForConversation: %v", err)
+	// Also seed a brain dir for the stale id with a pre-launch mtime —
+	// belt-and-braces: even if some future regression revives the cache
+	// lookup, this dir's mtime is older than `since`, so the
+	// brain-dir-since signal must also reject it.
+	brainOld := filepath.Join(StoreDir(home), "brain", staleID)
+	if err := os.MkdirAll(brainOld, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if got != wantID {
-		t.Errorf("got %q; want %q", got, wantID)
+	past := time.Now().Add(-1 * time.Hour)
+	if err := os.Chtimes(brainOld, past, past); err != nil {
+		t.Fatal(err)
+	}
+
+	since := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	got, err := WaitForConversation(ctx, home, workdir, 10*time.Millisecond, false, since)
+	if err == nil {
+		t.Fatalf("expected timeout; resolver mis-resolved stale cache to %q", got)
+	}
+	if got != "" {
+		t.Errorf("on timeout the returned id should be empty; got %q", got)
 	}
 }
 

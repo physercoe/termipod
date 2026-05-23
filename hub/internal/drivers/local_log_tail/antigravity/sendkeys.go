@@ -41,6 +41,23 @@ func (a *Adapter) HandleInput(ctx context.Context, kind string, payload map[stri
 	switch kind {
 	case "text", "slash_command":
 		return a.inputText(ctx, payload)
+	case "attention_reply":
+		// The hub fans out the principal's /decide on an attention as
+		// `input.attention_reply` to the owning agent. ACP and stdio
+		// drivers re-render it as a fresh user turn; for a TUI engine
+		// like agy, the same approach works — render the structured
+		// payload into a humanised line ("Approved.", "Picked: foo",
+		// "[reply to approval_request 01k…] …") and send-keys it as a
+		// normal text input. The W11 smoke caught this as an
+		// "unsupported input kind" warning when a select-attention
+		// approval flowed back to agy. Pre-fix the dispatch returned an
+		// error, the input router posted a `system` event with the
+		// failure, and the agent never saw the reply.
+		body := formatAttentionReplyText(payload)
+		if body == "" {
+			return fmt.Errorf("antigravity adapter: attention_reply produced no text")
+		}
+		return a.inputText(ctx, map[string]any{"body": body})
 	case "cancel":
 		return a.inputSendKey(ctx, "C-c")
 	case "escape":
@@ -156,6 +173,76 @@ func (a *Adapter) inputPickOption(ctx context.Context, idx int) error {
 	}
 	_, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter")
 	return err
+}
+
+// formatAttentionReplyText renders an `input.attention_reply` payload
+// into the humanised line we feed back into agy's chat as a normal
+// turn. Mirrors `hostrunner.formatAttentionReplyText` (driver_stdio.go)
+// — same prefix scheme + per-kind format — so the agent reads the same
+// shape regardless of which engine raised the original request_*
+// attention. Duplicated rather than shared because the hostrunner
+// package already imports this one (would be a cycle); a future wedge
+// can lift both to `internal/drivers/attentionreply` if a third caller
+// wants it.
+func formatAttentionReplyText(payload map[string]any) string {
+	kind, _ := payload["kind"].(string)
+	reqID, _ := payload["request_id"].(string)
+	decision, _ := payload["decision"].(string)
+	body, _ := payload["body"].(string)
+	option, _ := payload["option_id"].(string)
+	reason, _ := payload["reason"].(string)
+
+	prefix := ""
+	if reqID != "" {
+		short := reqID
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		prefix = "[reply to " + kind + " " + short + "] "
+	}
+
+	switch kind {
+	case "approval_request":
+		switch decision {
+		case "approve":
+			if reason != "" {
+				return prefix + "Approved. Reason: " + reason
+			}
+			return prefix + "Approved."
+		case "reject":
+			if reason != "" {
+				return prefix + "Rejected. Reason: " + reason
+			}
+			return prefix + "Rejected."
+		}
+		return prefix + decision
+	case "select":
+		if decision == "reject" {
+			if reason != "" {
+				return prefix + "No option chosen. Reason: " + reason
+			}
+			return prefix + "No option chosen."
+		}
+		if option != "" {
+			return prefix + "Selected: " + option
+		}
+		return prefix + "Selected."
+	case "help_request":
+		if decision == "reject" {
+			if reason != "" {
+				return prefix + "Dismissed without reply. Reason: " + reason
+			}
+			return prefix + "Dismissed without reply."
+		}
+		if body != "" {
+			return prefix + body
+		}
+		return prefix + "(empty reply)"
+	}
+	if body != "" {
+		return prefix + body
+	}
+	return prefix + decision
 }
 
 // allowedTmuxKeys is the closed set HandleInput accepts for named-key

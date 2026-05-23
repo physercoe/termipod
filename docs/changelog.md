@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.649
+> **Last verified vs code:** v1.0.650
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,85 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.650-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #8 — three findings from the same post-v1.0.649
+review: an `attention_reply` routing gap in the antigravity adapter, an
+overview_widget warning storm in the hub logs, and one polish win from
+the agy local-log review.
+
+### Fixed
+
+- **antigravity (sendkeys):** new `attention_reply` case in
+  `HandleInput`. The hub fans out the principal's `/decide` on a
+  request_approval / select / help_request attention as
+  `input.attention_reply` to the owning agent; pre-fix the adapter
+  rejected it with "unsupported input kind" (visible as a host-runner
+  WARN `input dispatch failed ... err="antigravity adapter: unsupported
+  input kind \"attention_reply\""`), the input router posted a failure
+  `system` event, and the agent never saw the decision. Now: an inlined
+  `formatAttentionReplyText` (mirror of the hostrunner-package version
+  in `driver_stdio.go`; duplication noted, future
+  `internal/drivers/attentionreply` refactor flagged) renders the
+  structured payload into a humanised line ("Approved.", "Picked: foo",
+  "[reply to approval_request 01k…] Approved. Reason: …") and feeds it
+  through `inputText` so it reaches agy as a normal text turn. Two lock
+  tests (`RoutesAsText` against the exact W11 payload shape,
+  `EmptyPayloadErrors`).
+
+- **hub server — overview_widget warning storm**
+  (`hub/internal/server/init.go`):
+  pre-fix the template walker logged `unknown overview_widget` on every
+  walk, and the walker re-ran on every list-projects / list-templates /
+  project-detail call. Result: same warning per stale (template,widget)
+  pair fired multiple times per minute, drowning the rest of the log.
+  New `warnOverviewWidgetOnce(template, widget)` helper de-duplicates
+  by `(template, widget)` so the first stale value still surfaces but
+  subsequent walks stay quiet. Resets on process restart (intentional —
+  a deploy that fixes the validator should re-confirm). Two lock tests
+  (`DedupesByPair`, `DistinctKeysEachWarn`). The user's `<dataRoot>/team/
+  templates/projects/ablation-sweep.yaml` and `benchmark-comparison.yaml`
+  reference `sweep_compare` (retired in v1.0.506) — the warning still
+  surfaces once on startup to remind the operator.
+
+- **antigravity mapper — surface agy's humanised intent strings**
+  (`hub/internal/drivers/local_log_tail/antigravity/mapper.go`):
+  every agy `PLANNER_RESPONSE.tool_calls[].args` carries `toolAction`
+  ("Querying matching attentions from database") and `toolSummary`
+  ("Grep search") strings that describe the model's intent in plain
+  English. Pre-fix mobile saw only the raw tool name + arg blob
+  (`grep_search({"Query":"foo","SearchPath":"/x"})`); now the mapper
+  lifts both strings to top-level payload fields (`tool_action`,
+  `tool_summary`) so a mobile tool_call card can render them as a
+  subtitle. Additive on engines that don't emit them. Two lock tests
+  (`SurfacesAgyActionStrings`, `NoActionStringsAbsent`).
+
+### Verified
+
+- All 20 hub packages green; `go vet ./...` clean.
+- 6 new lock tests across the changes.
+
+### Out-of-scope follow-ups noted from the log review
+
+- **agy emits two tool names for the same operation**: native
+  `Bash` (Title-Case, in-engine) vs MCP `run_command` (snake_case, our
+  bridge). Same shell, two cards. Worth a normalisation map in a future
+  wedge.
+- **`list_dir` vs `list_directory` name mismatch**: the tool_call
+  emits `list_dir` (from `tc.Name`), the tool_result emits
+  `list_directory` (from `strings.ToLower(ln.Type)`). Mobile pairs by
+  `tool_use_id` so rendering is fine, but the name disagreement is
+  noisy in audit reads. Map agy's short forms to canonical Type names
+  in a future wedge.
+- **`replace_file_content` / `write_to_file`**: agy's native file-write
+  tools execute under `--dangerously-skip-permissions`. The v1.0.649
+  prompt constraints now forbid writes outside workdir, but a future
+  wedge could surface these calls with a distinct mobile card
+  affordance (red border, "review writes" link) so the principal
+  spot-checks them.
 
 ---
 

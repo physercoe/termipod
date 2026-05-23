@@ -88,16 +88,33 @@ func MapStep(raw []byte) ([]MappedEvent, error) {
 		if len(ln.ToolCalls) > 0 {
 			out := make([]MappedEvent, 0, len(ln.ToolCalls))
 			for i, tc := range ln.ToolCalls {
+				payload := base(map[string]any{
+					"name":  tc.Name,
+					"input": tc.Args,
+					// No native call id at the planner level; the result
+					// arrives as the next typed line. step_index pairs them.
+					"tool_use_id": syntheticCallID(ln.StepIndex, i),
+				})
+				// agy includes humanised `toolAction` + `toolSummary`
+				// strings in tc.Args ("Resolving revision_requested
+				// attention item", "Querying matching attentions from
+				// database", "Viewing handleDecideAttention input
+				// struct"). They describe intent and are far more
+				// informative than `grep_search({"Query":"...","SearchPath":"..."})`
+				// alone. Surface them at the top level of the payload so
+				// mobile's tool_call card can render them as a subtitle
+				// without parsing through `input`. Absent on non-agy
+				// engines, so adding the field is additive.
+				if ta, ok := tc.Args["toolAction"].(string); ok && ta != "" {
+					payload["tool_action"] = ta
+				}
+				if ts, ok := tc.Args["toolSummary"].(string); ok && ts != "" {
+					payload["tool_summary"] = ts
+				}
 				out = append(out, MappedEvent{
 					Kind:     "tool_call",
 					Producer: "agent",
-					Payload: base(map[string]any{
-						"name":  tc.Name,
-						"input": tc.Args,
-						// No native call id at the planner level; the result
-						// arrives as the next typed line. step_index pairs them.
-						"tool_use_id": syntheticCallID(ln.StepIndex, i),
-					}),
+					Payload:  payload,
 				})
 			}
 			return out, nil

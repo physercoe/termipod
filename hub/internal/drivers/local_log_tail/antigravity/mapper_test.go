@@ -151,6 +151,41 @@ func TestMapStep_ErrorStatusPropagatesIsError(t *testing.T) {
 	}
 }
 
+// agy puts humanised intent strings on every tool_call's args
+// (`toolAction` + `toolSummary`). Mobile renders them as the card's
+// subtitle so the principal sees "Querying matching attentions from
+// database" rather than just `grep_search(args:...)`. v1.0.650.
+func TestMapStep_PlannerToolCall_SurfacesAgyActionStrings(t *testing.T) {
+	raw := []byte(`{"step_index":4,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"grep_search","args":{"Query":"foo","SearchPath":"/x","toolAction":"Querying matching attentions from database","toolSummary":"Grep search"}}]}`)
+	evs, err := MapStep(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Kind != "tool_call" {
+		t.Fatalf("want one tool_call; got %+v", evs)
+	}
+	if evs[0].Payload["tool_action"] != "Querying matching attentions from database" {
+		t.Errorf("tool_action not surfaced: %v", evs[0].Payload["tool_action"])
+	}
+	if evs[0].Payload["tool_summary"] != "Grep search" {
+		t.Errorf("tool_summary not surfaced: %v", evs[0].Payload["tool_summary"])
+	}
+}
+
+// A tool_call without toolAction/toolSummary on its args (a non-agy
+// engine that later adopts the same shape) must not crash and must
+// not synthesise empty fields.
+func TestMapStep_PlannerToolCall_NoActionStringsAbsent(t *testing.T) {
+	raw := []byte(`{"step_index":5,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"view_file","args":{"AbsolutePath":"/x"}}]}`)
+	evs, err := MapStep(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := evs[0].Payload["tool_action"]; ok {
+		t.Errorf("tool_action should be absent when args lacks it; got %v", evs[0].Payload)
+	}
+}
+
 func TestMapStep_DoneStatusKeepsIsErrorFalse(t *testing.T) {
 	raw := []byte(`{"step_index":7,"source":"MODEL","type":"VIEW_FILE","status":"DONE","content":"file contents..."}`)
 	evs, err := MapStep(raw)

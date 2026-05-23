@@ -166,6 +166,59 @@ func TestAdapter_TextInput_MultiLineUsesPasteBuffer(t *testing.T) {
 	}
 }
 
+// attention_reply is the hub's fan-out of `/decide` on an attention
+// item the agent raised (request_approval / select / help_request).
+// The W11 smoke caught it as "unsupported input kind 'attention_reply'"
+// in the host-runner log — the adapter rejected it and the agent
+// never saw the principal's reply. v1.0.650: handled via inputText
+// after rendering the structured payload through formatAttentionReplyText.
+func TestAdapter_AttentionReply_RoutesAsText(t *testing.T) {
+	fr := &fakeRunner{}
+	a, err := NewAdapter(Config{AgentID: "ag1", Workdir: "/x", Poster: &fakePoster{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.PaneID = "%11"
+	a.CmdRunner = fr
+
+	if err := a.HandleInput(context.Background(), "attention_reply", map[string]any{
+		"kind":       "approval_request",
+		"request_id": "01KS9TNGHT8GB0WDNF44MZXXYS",
+		"decision":   "approve",
+		"reason":     "looks good",
+	}); err != nil {
+		t.Fatalf("HandleInput attention_reply: %v", err)
+	}
+	// Expected: at least one send-keys call carrying the rendered
+	// reply text ("[reply to approval_request 01KS9TNG] Approved.
+	// Reason: looks good") then Enter.
+	if len(fr.cmds) < 2 {
+		t.Fatalf("want >=2 tmux calls; got %d (%+v)", len(fr.cmds), fr.cmds)
+	}
+	joined := strings.Join(fr.cmds, " | ")
+	if !strings.Contains(joined, "Approved") {
+		t.Errorf("rendered reply lost the decision text: %q", joined)
+	}
+	if !strings.Contains(joined, "01KS9TNG") {
+		t.Errorf("rendered reply lost the request-id prefix: %q", joined)
+	}
+}
+
+// An empty/malformed payload (no decision / no body / unknown kind)
+// must surface as an error so the input router posts a system event
+// rather than send-keys'ing a confusing empty line.
+func TestAdapter_AttentionReply_EmptyPayloadErrors(t *testing.T) {
+	a, err := NewAdapter(Config{AgentID: "ag1", Workdir: "/x", Poster: &fakePoster{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.PaneID = "%12"
+	a.CmdRunner = &fakeRunner{}
+	if err := a.HandleInput(context.Background(), "attention_reply", map[string]any{}); err == nil {
+		t.Error("expected error on empty attention_reply payload")
+	}
+}
+
 // Single-line short text keeps the cheap send-keys -l + Enter fast path.
 func TestAdapter_TextInput_SingleLineUsesSendKeys(t *testing.T) {
 	fr := &fakeRunner{}

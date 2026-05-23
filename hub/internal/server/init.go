@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	hub "github.com/termipod/hub"
 	"github.com/termipod/hub/internal/auth"
@@ -128,6 +129,33 @@ type projectTemplateDoc struct {
 // this name to the default task/milestone list hero.
 const overviewWidgetDefault = "task_milestone_list"
 
+// overviewWidgetWarnSeen suppresses repeat warnings for the same
+// (template, widget) pair. The template walker re-runs on every
+// list-projects / list-templates / project-detail call (cheap per-call,
+// but each walk re-validated overview_widget and re-logged for stale
+// values like the retired `sweep_compare`). One warning per pair is
+// enough — the operator only needs to be told once that their on-disk
+// overlay references a widget that no longer exists. Reset on process
+// restart by design (re-confirms after a deploy that might have added
+// new widgets).
+var (
+	overviewWidgetWarnMu   sync.Mutex
+	overviewWidgetWarnSeen = map[string]struct{}{}
+)
+
+func warnOverviewWidgetOnce(template, widget string) {
+	overviewWidgetWarnMu.Lock()
+	defer overviewWidgetWarnMu.Unlock()
+	key := template + "\x00" + widget
+	if _, ok := overviewWidgetWarnSeen[key]; ok {
+		return
+	}
+	overviewWidgetWarnSeen[key] = struct{}{}
+	slog.Warn("unknown overview_widget, falling back to default",
+		"template", template, "overview_widget", widget,
+		"default", overviewWidgetDefault)
+}
+
 // validOverviewWidgets is the closed set of pluggable hero kinds shipped
 // by W4 (plus the W6 workspace default). Unknown values log and fall
 // back to overviewWidgetDefault; the mobile registry enforces the same
@@ -237,9 +265,7 @@ func loadProjectTemplates(dataRoot string) ([]projectTemplateDoc, error) {
 			return fmt.Errorf("parse %s: %w", path, err)
 		}
 		if doc.OverviewWidget != "" && !validOverviewWidgets[doc.OverviewWidget] {
-			slog.Warn("unknown overview_widget, falling back to default",
-				"template", doc.Name, "overview_widget", doc.OverviewWidget,
-				"default", overviewWidgetDefault)
+			warnOverviewWidgetOnce(doc.Name, doc.OverviewWidget)
 			doc.OverviewWidget = ""
 		}
 		add(doc.Name, doc)

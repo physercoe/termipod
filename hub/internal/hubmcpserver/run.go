@@ -51,10 +51,31 @@ import (
 const (
 	serverName    = "hub-mcp-server"
 	serverVersion = "0.1.0"
-	// Protocol version mirrors what the bridge negotiates; MCP clients
-	// accept a broad range here and we don't rely on any newer feature.
+	// Default MCP protocol version we advertise when the client
+	// requested something we don't recognise. See negotiateProtocolVersion.
 	protocolVersion = "2024-11-05"
 )
+
+// supportedProtocolVersions — see hub/internal/server/mcp.go for the
+// rationale; same trick (echo the client's revision when we know it,
+// otherwise fall back) so strict MCP clients like agy 1.0.1 don't tear
+// the connection down on a "downgrade" they see in the initialize ack.
+var supportedProtocolVersions = map[string]struct{}{
+	"2024-11-05": {},
+	"2025-03-26": {},
+	"2025-06-18": {},
+	"2025-11-25": {},
+}
+
+func negotiateProtocolVersion(requested string) string {
+	if requested == "" {
+		return protocolVersion
+	}
+	if _, ok := supportedProtocolVersions[requested]; ok {
+		return requested
+	}
+	return protocolVersion
+}
 
 // jsonrpcReq is the shape we care about from the client. `Params` stays raw
 // so each method can define its own schema without a pre-decode step that
@@ -196,8 +217,14 @@ func dispatch(c *hubClient, tools []toolDef, req jsonrpcReq) (any, *jsonrpcError
 	case "initialize":
 		// MCP handshake. We return our tool list eagerly so clients that
 		// skip tools/list (some do) still see the surface area.
+		var initParams struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		if len(req.Params) > 0 {
+			_ = json.Unmarshal(req.Params, &initParams)
+		}
 		return map[string]any{
-			"protocolVersion": protocolVersion,
+			"protocolVersion": negotiateProtocolVersion(initParams.ProtocolVersion),
 			"capabilities": map[string]any{
 				"tools": map[string]any{"listChanged": false},
 			},

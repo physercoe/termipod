@@ -158,13 +158,21 @@ func MapStep(raw []byte) ([]MappedEvent, error) {
 
 	default:
 		if _, isNonTool := nonToolTypes[ln.Type]; !isNonTool && strings.TrimSpace(ln.Content) != "" {
+			// agy sets status=ERROR on tool failures (host-verified W11
+			// smoke: MCP `client is closing` and `Permission denied for
+			// read_file` both produced tool_results with agy_status=ERROR
+			// but the mapper was hard-coding is_error=false, hiding the
+			// failure from mobile's tool_result card which renders errors
+			// in red and folds them into the parent tool_call). The mapper
+			// now propagates: status=ERROR → is_error=true; everything
+			// else → is_error=false.
 			return []MappedEvent{{
 				Kind:     "tool_result",
 				Producer: "agent",
 				Payload: base(map[string]any{
 					"name":     strings.ToLower(ln.Type),
 					"content":  ln.Content,
-					"is_error": false,
+					"is_error": strings.EqualFold(ln.Status, "ERROR"),
 				}),
 			}}, nil
 		}

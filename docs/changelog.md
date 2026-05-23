@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.648
+> **Last verified vs code:** v1.0.649
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,104 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.649-alpha — 2026-05-23
+
+ADR-035 W11 fix-up wedge #7 — four findings from one smoke pass,
+all bundled. The W11 transcript and audit log were the source of
+every fix: agy's own diagnostics, not guesswork.
+
+### Fixed
+
+- **MCP — protocol version negotiation** (`hub/internal/server/mcp.go`,
+  `hub/internal/hubmcpserver/run.go`,
+  `hub/internal/hostrunner/mcp_gateway.go`):
+  the three MCP `initialize` handlers hard-coded
+  `protocolVersion: 2024-11-05` in the response, ignoring whatever the
+  client requested. agy 1.0.1 sends `protocolVersion: 2025-11-25` and
+  treats a downgrade in the ack as a fatal protocol error — the
+  exact "connection closed: calling \"tools/call\": client is closing:
+  invalid request" we saw on every termipod MCP call in the W11
+  smoke (seq 6/8 in the new agent's event stream). New
+  `negotiate(MCP)ProtocolVersion` helper in each handler: echo back
+  the requested version when it's in the supported set
+  (`2024-11-05`, `2025-03-26`, `2025-06-18`, `2025-11-25`), fall back
+  to default otherwise. Empty input → default. Three lock tests
+  (`EchoesKnown` / `UnknownFallsBack` / `EmptyFallsBack`). This is
+  the high-leverage fix: with MCP working, agy uses the proper
+  termipod tool surface (`documents_list`, `projects_list`, etc.)
+  instead of falling back to raw bash + curl + git, which is what
+  gave it the autonomy to crawl the repo and edit content.
+
+- **antigravity mapper — `is_error` propagation**
+  (`hub/internal/drivers/local_log_tail/antigravity/mapper.go`):
+  the default-case `tool_result` emitter hard-coded `is_error: false`
+  regardless of agy's `status` field. agy sets `status=ERROR` on tool
+  failures (MCP errors, permission-denied, etc.), but our mapper was
+  hiding those from mobile — the tool_result card renders errors in
+  red and folds them into the parent tool_call card; without
+  `is_error=true` the failure looked like success. Now propagates:
+  `status=ERROR → is_error=true`. Two lock tests
+  (`ErrorStatusPropagatesIsError` / `DoneStatusKeepsIsErrorFalse`).
+
+- **steward.antigravity.v1 prompt — over-reach guard**
+  (`hub/templates/prompts/steward.antigravity.v1.md`):
+  the W11 smoke had agy autonomously author a document section,
+  resolve 4 attention items (including a `revision_requested` and a
+  `project_steward_request` meant for the principal), and ratify a
+  deliverable — all from a casual "hi". Two prompt additions:
+  (a) "Default is ask, then act — not act, then report" in the style
+  guidance, telling the steward to reply briefly to ambiguous
+  directives instead of starting an investigation;
+  (b) a new "Hard constraints — what NOT to do without explicit
+  direction" section explicitly forbidding writes outside the
+  workdir, mutations on project content, auto-resolution of
+  principal-only attention kinds, and "completing the lifecycle" of
+  seeded demo projects.
+
+- **input envelope — softer reply instruction**
+  (`hub/internal/hostrunner/input_envelope.go`):
+  the per-message trailer "Reply in this chat when you have a result."
+  framed every directive as needing a substantive result, which
+  combined with the prompt encouraged investigation on greetings.
+  Reworded to "Reply in this chat. Match the response to the ask —
+  a brief acknowledgement is fine when the directive isn't a task."
+  Still satisfies the existing envelope-render tests (they check for
+  the "Reply in this chat" substring).
+
+### Q2 — what is the idle detector for? (verified)
+
+NOT related to ADR-034 directive loop closure. Two distinct
+mechanisms at different layers:
+- **Idle detector** (`hub/internal/hostrunner/idle.go`) — pane scrape
+  + regex over the bottom 5 lines, raises `attention_items{kind:"idle"}`
+  when a tmux pane hasn't changed for the threshold AND the tail
+  matches a "waiting for confirmation" pattern (y/N, `password:`,
+  bare prompt chars). Originally for legacy PaneDriver agents whose
+  CLI might halt on an interactive prompt. v1.0.648 already gated it
+  off for engines registered in `agentfamilies` (claude-code, codex,
+  gemini-cli, kimi-code, antigravity) which report busy/idle via
+  events.
+- **Loop closure** (`hub/internal/server/loop_hooks.go`, ADR-034) —
+  hub-side runtime that watches directive → terminal-event matching
+  per loop entity; raises `attention_items{kind:"idle_at_loop_close"}`
+  (and runs `loop-hooks.yaml` actions) when a directive sits without
+  a terminal event past its deadline. v1.0.647's antigravity
+  `turn.result` emission feeds this surface.
+
+### Verified
+
+- All 20 hub packages green; `go vet ./...` clean.
+- 8 new lock tests across the changes.
+
+### Out of scope (user to action)
+
+- The seed-demo lifecycle project agy touched (`research-lit-review-demo`
+  — section authored, redlines resolved, deliverable ratified) is now
+  in a non-pristine state. To restore: `hub-server seed-demo --shape
+  lifecycle -reset`.
 
 ---
 

@@ -131,6 +131,38 @@ func TestMapStep_PlannerToolCallShape(t *testing.T) {
 	}
 }
 
+// Tool failures (agy sets status=ERROR) must surface as is_error=true
+// on the tool_result event so mobile's tool_result card renders in
+// red and folds correctly into the parent tool_call. v1.0.649 — the
+// W11 smoke saw MCP failures + Permission-denied responses arrive as
+// is_error=false, hiding them from the principal.
+func TestMapStep_ErrorStatusPropagatesIsError(t *testing.T) {
+	raw := []byte(`{"step_index":6,"source":"MODEL","type":"MCP_TOOL","status":"ERROR","content":"connection closed: invalid request"}`)
+	evs, err := MapStep(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Kind != "tool_result" {
+		t.Fatalf("want one tool_result; got %+v", evs)
+	}
+	if evs[0].Payload["is_error"] != true {
+		t.Errorf("agy_status=ERROR must produce is_error=true; got %v",
+			evs[0].Payload["is_error"])
+	}
+}
+
+func TestMapStep_DoneStatusKeepsIsErrorFalse(t *testing.T) {
+	raw := []byte(`{"step_index":7,"source":"MODEL","type":"VIEW_FILE","status":"DONE","content":"file contents..."}`)
+	evs, err := MapStep(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evs[0].Payload["is_error"] != false {
+		t.Errorf("agy_status=DONE must produce is_error=false; got %v",
+			evs[0].Payload["is_error"])
+	}
+}
+
 // A type agy adds tomorrow that carries content renders as a tool_result
 // (named after the type) rather than being dropped.
 func TestMapStep_UnknownContentTypeIsToolResult(t *testing.T) {

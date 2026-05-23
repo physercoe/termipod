@@ -58,8 +58,41 @@ type jrpcError struct {
 }
 
 const (
+	// Default MCP protocol version we advertise when the client
+	// requested something we don't recognise. Kept at 2024-11-05 for
+	// back-compat with the older clients that haven't bumped yet.
 	mcpProtocolVersion = "2024-11-05"
 )
+
+// supportedMCPProtocolVersions is the set of MCP wire revisions our
+// server is compatible with — we only do tools/list + tools/call +
+// `_meta` pass-through, so the differences between these revisions are
+// no-ops for us. Echoing back the client's requested version (when it's
+// in this set) avoids the strict-client teardown we saw on the W11
+// smoke: agy 1.0.1 sends `protocolVersion: 2025-11-25` and treats a
+// downgrade to 2024-11-05 in the initialize response as a fatal
+// protocol error → "client is closing: invalid request" → MCP transport
+// dies → agy falls back to direct filesystem and starts crawling the
+// repo. Add new revisions here as they ship.
+var supportedMCPProtocolVersions = map[string]struct{}{
+	"2024-11-05": {},
+	"2025-03-26": {},
+	"2025-06-18": {},
+	"2025-11-25": {},
+}
+
+// negotiateMCPProtocolVersion returns the version we should advertise
+// in the initialize response. Permissive: echo the client's request if
+// we know it; fall back to our default otherwise. Empty input → default.
+func negotiateMCPProtocolVersion(requested string) string {
+	if requested == "" {
+		return mcpProtocolVersion
+	}
+	if _, ok := supportedMCPProtocolVersions[requested]; ok {
+		return requested
+	}
+	return mcpProtocolVersion
+}
 
 // handleMCP is the single HTTP entry point for the bridge. It routes on
 // the JSON-RPC method name.
@@ -86,10 +119,19 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
+		// Parse the client-requested protocolVersion out of params so we
+		// can echo it back when we know it — strict clients (agy 1.0.1
+		// observed) treat a downgrade as a fatal protocol error.
+		var initParams struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		if len(req.Params) > 0 {
+			_ = json.Unmarshal(req.Params, &initParams)
+		}
 		writeJRPC(w, jrpcResp{
 			JSONRPC: "2.0", ID: req.ID,
 			Result: map[string]any{
-				"protocolVersion": mcpProtocolVersion,
+				"protocolVersion": negotiateMCPProtocolVersion(initParams.ProtocolVersion),
 				"capabilities":    map[string]any{"tools": map[string]any{}},
 				"serverInfo": map[string]any{
 					"name":    "termipod-hub",

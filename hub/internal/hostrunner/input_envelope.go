@@ -125,7 +125,15 @@ func replyInstruction(e inboundEnvelope, replyVia string) string {
 	case "none":
 		return "Informational — no reply is routed. Act on it if it concerns work you own."
 	default: // chat
-		return "Reply in this chat when you have a result."
+		// Softened from the v1.0.648-and-earlier "Reply in this chat
+		// when you have a result." That wording implied every message
+		// required a substantive result and pushed agents (especially
+		// agy with --dangerously-skip-permissions) into deep
+		// investigation on casual greetings. The match-the-ask
+		// guidance now lives in the prompt; the envelope just says
+		// "reply when ready" without prescribing a "result".
+		return "Reply in this chat. Match the response to the ask — " +
+			"a brief acknowledgement is fine when the directive isn't a task."
 	}
 }
 

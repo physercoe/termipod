@@ -249,6 +249,27 @@ type gwRespError struct {
 
 const gwProtocolVersion = "2024-11-05"
 
+// gwSupportedProtocolVersions — echo the client's revision when we
+// know it so strict clients (agy 1.0.1 saw "client is closing: invalid
+// request" on the W11 smoke when we downgraded their 2025-11-25 to
+// 2024-11-05). Same set as hub/internal/server/mcp.go.
+var gwSupportedProtocolVersions = map[string]struct{}{
+	"2024-11-05": {},
+	"2025-03-26": {},
+	"2025-06-18": {},
+	"2025-11-25": {},
+}
+
+func gwNegotiateProtocolVersion(requested string) string {
+	if requested == "" {
+		return gwProtocolVersion
+	}
+	if _, ok := gwSupportedProtocolVersions[requested]; ok {
+		return requested
+	}
+	return gwProtocolVersion
+}
+
 func (g *McpGateway) handleLine(line []byte) []byte {
 	if len(line) == 0 {
 		return nil
@@ -268,10 +289,16 @@ func (g *McpGateway) handleLine(line []byte) []byte {
 		if isNotification {
 			return nil
 		}
+		var initParams struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		if len(req.Params) > 0 {
+			_ = json.Unmarshal(req.Params, &initParams)
+		}
 		return encodeResp(gwResp{
 			JSONRPC: "2.0", ID: req.ID,
 			Result: map[string]any{
-				"protocolVersion": gwProtocolVersion,
+				"protocolVersion": gwNegotiateProtocolVersion(initParams.ProtocolVersion),
 				"capabilities":    map[string]any{"tools": map[string]any{}},
 				"serverInfo": map[string]any{
 					"name":    "termipod-host-runner-gateway",

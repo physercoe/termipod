@@ -244,7 +244,8 @@ func TestLintGovernedActions_NonEmptyRegistry_NoPolicy_Warns(t *testing.T) {
 // Pairs with the script test — these two tests together pin BOTH
 // the runtime registry (Go) AND the static-grep view of it (bash).
 func TestProposeKindsRegistry_ListSorted(t *testing.T) {
-	t.Cleanup(resetProposeKindsForTest)
+	saved := snapshotProposeKindsForTest()
+	t.Cleanup(func() { restoreProposeKindsForTest(saved) })
 	resetProposeKindsForTest()
 	RegisterProposeKind(ProposeKind{Kind: "deliverable.set_state"})
 	RegisterProposeKind(ProposeKind{Kind: "task.set_status"})
@@ -273,7 +274,8 @@ func TestProposeKindsRegistry_ListSorted(t *testing.T) {
 // accidental empty-string registration eating the map's zero-value
 // slot.
 func TestProposeKindsRegistry_PanicsOnEmptyKind(t *testing.T) {
-	t.Cleanup(resetProposeKindsForTest)
+	saved := snapshotProposeKindsForTest()
+	t.Cleanup(func() { restoreProposeKindsForTest(saved) })
 	resetProposeKindsForTest()
 	defer func() {
 		if r := recover(); r == nil {

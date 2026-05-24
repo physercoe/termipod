@@ -15,7 +15,10 @@ import (
 
 func registerKind(t *testing.T, k ProposeKind) {
 	t.Helper()
-	t.Cleanup(resetProposeKindsForTest)
+	saved := snapshotProposeKindsForTest()
+	t.Cleanup(func() { restoreProposeKindsForTest(saved) })
+	// Clear so the test sees only its own kind; restored on cleanup
+	// so init()-time registrations come back for the next test.
 	resetProposeKindsForTest()
 	RegisterProposeKind(k)
 }
@@ -149,7 +152,8 @@ func TestMcpPropose_HappyPath_RowShape(t *testing.T) {
 // echoed so the agent can re-propose.
 func TestMcpPropose_UnknownKind_Rejects(t *testing.T) {
 	s, _ := newTestServer(t)
-	t.Cleanup(resetProposeKindsForTest)
+	saved := snapshotProposeKindsForTest()
+	t.Cleanup(func() { restoreProposeKindsForTest(saved) })
 	resetProposeKindsForTest()
 	RegisterProposeKind(ProposeKind{Kind: "task.set_status"})
 

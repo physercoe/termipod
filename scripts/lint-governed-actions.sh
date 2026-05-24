@@ -87,6 +87,17 @@ call_re = re.compile(
 )
 kind_re = re.compile(r'Kind\s*:\s*"(?P<kind>[^"]+)"')
 
+# strip_go_comments — remove single-line // comments and /* */ blocks
+# so doc-comment EXAMPLES (e.g. `// RegisterProposeKind(ProposeKind{
+# Kind: "foo" })` in a doc comment) don't register as real calls. The
+# regex is intentionally crude — it does NOT understand string-literal
+# context — but Go style discourages embedding `//` inside non-comment
+# string literals, so the false-positive surface is minimal.
+def strip_go_comments(src: str) -> str:
+    src = re.sub(r"//[^\n]*", "", src)
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.DOTALL)
+    return src
+
 seen = []
 for p in sorted(paths):
     # Skip *_test.go — tests register fake kinds intentionally and
@@ -97,6 +108,7 @@ for p in sorted(paths):
         src = open(p, encoding="utf-8").read()
     except OSError:
         continue
+    src = strip_go_comments(src)
     for m in call_re.finditer(src):
         km = kind_re.search(m.group("body"))
         if km:

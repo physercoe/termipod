@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.677-alpha
+> **Last verified vs code:** v1.0.678-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -269,29 +269,57 @@ shipped as `handlers_propose.go::checkProposeScope`:
   (kind-specific shapes that operate above the project scope —
   `template.install`, future `agent.archive`).
 
-**W5. Apply function — `deliverable.set_state` (~80 LOC + 60 LOC tests).**
+**W5. Apply function — `deliverable.set_state` (~220 LOC + ~310 LOC tests). Shipped v1.0.678-alpha.**
 
-- `hub/internal/server/apply_deliverable_set_state.go` (new).
-- Calls into existing deliverable state-transition code
-  (`handlers_deliverables.go` `setDeliverableState` or
-  equivalent — needs an internal-callable variant that bypasses
-  HTTP authz since the call is already authorised by `/decide`).
-- Records the existing
-  `audit_events.action="deliverable.state_changed"` row with
-  `meta.via="propose"`, `meta.by_tier=<assigned_tier>`,
-  `meta.propose_id=<attention_id>`.
-- DryRun: returns
-  `{from_state, to_state, target_deliverable_id, target_title}`.
-- Validate: checks target_ref has `deliverable_id`; checks
-  `change_spec.state` is a valid value; checks transition is
-  allowed (e.g. can't go `ratified → draft`; matches the same
-  rules `setDeliverableState` enforces).
-- Tests:
-  - Happy path: propose → approve → state transitions, audit
-    written with `via=propose`.
-  - dry_run: returns preview, no state change.
-  - Invalid transition: validate rejects at `propose` call time.
-  - Reject: state unchanged, fan-back delivered.
+- `hub/internal/server/apply_deliverable_set_state.go` <!-- verify symbol hub/internal/server/apply_deliverable_set_state.go applyDeliverableSetState --> —
+  registers `deliverable.set_state` via `init()` with Validate /
+  DryRun / Apply.
+- **Audit-action choice.** The plan's original "use a unified
+  `deliverable.state_changed` action" was reconsidered at ship time:
+  the legacy REST paths emit `deliverable.{ratified,unratified,updated}`
+  per transition direction, and activity-feed renderers already
+  consume those names. Using a fresh unified action would create a
+  parallel feed event. Instead the apply function emits the SAME
+  action the legacy path emits (`deliverable.ratified` for X →
+  ratified, `deliverable.unratified` for ratified → draft, otherwise
+  `deliverable.updated`) and stamps the propose lineage on the audit
+  meta (`via:"propose"`, `by_tier:<tier>`, `propose_id:<att_id>`).
+  Mobile renderers stay unchanged; propose-routed and direct-REST
+  changes look identical in the feed but the audit-row meta is the
+  discriminator.
+- **ProposeKind.Apply signature change** (landed this wedge). The
+  Apply hook now receives a `ProposeApplyContext { AttentionID,
+  Team, AssignedTier, DeciderHandle }` so the audit-meta plumbing
+  works without re-querying. This is a pre-W4-consumer change so
+  cost is zero; W6/W7/W8 register against the new shape from day
+  one. (DryRun + Validate signatures are unchanged.)
+- Validate: target_ref has `project_id` + `deliverable_id`;
+  change_spec.state in `{draft, in-review, ratified}`. Transition
+  validity (e.g. `ratified → in-review`) is enforced at Apply time
+  under the row read, not pre-flight, so concurrent state changes
+  fail visibly.
+- DryRun: reads the current state + kind and returns
+  `{from_state, to_state, target_deliverable_id, target_kind, no_op}`.
+- Apply: three transition branches mirror the legacy endpoints —
+  `→ ratified` writes the `ratified_at`/`ratified_by_actor` stamps
+  (using `ac.DeciderHandle`, falling back to `"propose"` when
+  blank); `ratified → draft` clears them; everything else is a
+  plain state UPDATE.
+- No-op (from == to) returns `executed.no_op = true` without
+  touching the row OR emitting an audit — symmetric with the
+  "already ratified" 409 the legacy `/ratify` returns, surfaced
+  through `executed_json` rather than failing the apply.
+- Tests (8): registered-at-init, Validate happy + 4 reject paths,
+  DryRun preview shape + read-only, Apply in-review→ratified
+  (stamps + audit meta lineage), Apply ratified→draft (clears
+  stamps), Apply draft→in-review (no stamps), Apply no-op (no
+  row change + no audit), end-to-end propose-then-manual-Apply
+  with the propose row's request_id linked back from the audit
+  meta.
+- **Lint hardening shipped alongside.** `scripts/lint-governed-actions.sh`
+  now strips Go comments before its static-grep, so doc-comment
+  example registrations (`// RegisterProposeKind(ProposeKind{...})`)
+  no longer pollute the registry count.
 
 **W6. Apply function — `phase.advance` (~70 LOC + 50 LOC tests).**
 

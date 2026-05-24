@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.677
+> **Last verified vs code:** v1.0.678
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,71 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.678-alpha — 2026-05-24
+
+ADR-030 Phase 1 W5 — the first per-kind apply function:
+`deliverable.set_state`. Workers and stewards can now propose every
+direction of the ratification triangle (draft / in-review / ratified)
+and the apply function is invocable through the registry; W8 wires
+the decide-time auto-dispatch.
+
+### Added
+
+- `hub/internal/server/apply_deliverable_set_state.go` — registers
+  `deliverable.set_state` via `init()` with Validate / DryRun /
+  Apply. Three transition branches mirror the legacy REST
+  endpoints (handleRatifyDeliverable / handleUnratifyDeliverable /
+  handlePatchDeliverable); no-op is short-circuited with
+  `executed.no_op = true`.
+- `hub/internal/server/apply_deliverable_set_state_test.go` —
+  8 cases: init-registered; Validate happy + 4 reject paths;
+  DryRun preview shape + read-only; Apply in-review→ratified
+  (stamps + audit meta lineage); Apply ratified→draft (clears
+  stamps); Apply draft→in-review (no stamps); Apply no-op (no row
+  change + no audit); end-to-end propose-then-manual-Apply with
+  request_id round-trip into the audit meta.
+
+### Changed
+
+- `hub/internal/server/propose_kinds.go` — `ProposeKind.Apply`
+  signature extended to receive `ProposeApplyContext { AttentionID,
+  Team, AssignedTier, DeciderHandle }`. Lets per-kind audit rows
+  carry the propose lineage (`via="propose"`, `by_tier`, `propose_id`)
+  without re-querying. Validate + DryRun signatures unchanged. Cost
+  zero — no consumers yet outside W5.
+- `hub/internal/server/propose_kinds.go` — added
+  `snapshotProposeKindsForTest` / `restoreProposeKindsForTest` so
+  tests can mutate the registry without dropping init()-time
+  registrations for sibling tests.
+- `hub/internal/server/handlers_propose_test.go` +
+  `hub/internal/server/lint_governed_actions_test.go` — switched
+  from `resetProposeKindsForTest` to the snapshot/restore pattern.
+- `scripts/lint-governed-actions.sh` — static-grep now strips Go
+  comments before scanning, so doc-comment example registrations
+  (e.g. `// RegisterProposeKind(ProposeKind{...})`) don't pollute
+  the registry count. Caught the moment the first real init()
+  registration landed (lint reported `registry=2` when only 1
+  call existed).
+- `pubspec.yaml` 1.0.677 → 1.0.678-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` +
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.678 per `Freshness: contract`. Plan W5 rewritten to record
+  the audit-action reconsideration (we keep the legacy three
+  per-direction actions + stamp lineage on meta, rather than
+  introducing a unified `deliverable.state_changed`), the Apply
+  signature change, and the lint hardening. New verify symbol
+  anchor on `applyDeliverableSetState`. 16 anchors total.
+
+### Notes
+
+- Audit-action choice: kept the legacy three actions
+  (`deliverable.{ratified, unratified, updated}`) and stamped
+  `via="propose"` on the meta instead of introducing a new
+  `deliverable.state_changed` action. Activity-feed renderers
+  stay unchanged; the meta is the discriminator.
 
 ---
 

@@ -296,7 +296,25 @@ func (a *Adapter) runLoop(ctx context.Context, lines <-chan Line) {
 	// run-loop call). runLoop no longer touches the WaitGroup since
 	// it's invoked synchronously from resolveAndRun, not as its own
 	// goroutine — touching wg here would double-Done and panic.
-	replay := a.TailMode == StartFromBeginning
+	//
+	// v1.0.666 stopped stamping `replay: true` on every M4 event. The
+	// pre-v1.0.666 W2d logic set replay = (TailMode == StartFromBeginning),
+	// which was true for every fresh spawn (StartFromBeginning is the
+	// default). Mobile's agent_feed.dart unconditionally drops text/thought
+	// events that arrive with replay:true (the M1 ACP `session/load`
+	// dedup path), so every assistant text + thought from M4 was being
+	// nuked on the client. Symptom: cold-open shows lifecycle +
+	// input.text + turn.result + usage but the assistant's reply
+	// never appears, busy-pill never flips, the chat looks dead.
+	//
+	// M4 doesn't need the replay tag at all because:
+	//   1. SSE delivery is seq-gated via `since=<maxSeq>` — old events
+	//      that mobile already cached are not redelivered.
+	//   2. ID dedup (`_ids.add(id)`) catches anything else, since hub
+	//      event IDs are globally unique and stable across cold-open
+	//      + live tail.
+	// Net effect: just don't tag, and the W2d replay filter on mobile
+	// stays useful for the M1 path it was designed for.
 	// v1.0.664 diagnostic: one INFO line per agent on first line so
 	// operators can see at a glance whether the tailer is producing
 	// anything when the on-device transcript stays empty. Counts so
@@ -324,17 +342,7 @@ func (a *Adapter) runLoop(ctx context.Context, lines <-chan Line) {
 			}
 			for _, ev := range events {
 				payload := ev.Payload
-				if replay {
-					// Don't mutate the mapper's map: copy so a future
-					// reuse of the same map by the mapper doesn't pick
-					// up our tagging.
-					tagged := make(map[string]any, len(payload)+1)
-					for k, v := range payload {
-						tagged[k] = v
-					}
-					tagged["replay"] = true
-					payload = tagged
-				}
+				// v1.0.666: no replay tagging — see runLoop header note.
 				if err := a.Poster.PostAgentEvent(ctx, a.AgentID, ev.Kind, ev.Producer, payload); err != nil {
 					// v1.0.664 escalated from Debug to Warn. Silent
 					// post-failure left v1.0.663 on-host smokes

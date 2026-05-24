@@ -132,8 +132,14 @@ func TestAdapter_Start_ReplaysExistingThenLive(t *testing.T) {
 	if got[0].kind != "text" {
 		t.Errorf("event 0 kind = %q, want text", got[0].kind)
 	}
-	if got[0].payload["replay"] != true {
-		t.Errorf("event 0 replay = %v, want true", got[0].payload["replay"])
+	// v1.0.666: no replay tag is added by the M4 adapter. The pre-
+	// v1.0.666 W2d rule stamped replay:true on every StartFromBeginning
+	// event, which mobile's text/thought replay filter then nuked. M4
+	// doesn't need the tag (SSE seq-gating + id-dedup already prevent
+	// double-rendering across cold-open + live), so the assertion is
+	// inverted: replay MUST be absent.
+	if _, has := got[0].payload["replay"]; has {
+		t.Errorf("event 0 carries replay tag; v1.0.666 expects absent: %v", got[0].payload)
 	}
 
 	// Live: append a new line.
@@ -144,12 +150,8 @@ func TestAdapter_Start_ReplaysExistingThenLive(t *testing.T) {
 	if got[1].kind != "tool_call" {
 		t.Errorf("live event kind = %q, want tool_call", got[1].kind)
 	}
-	// Replay flag should still apply (TailMode == StartFromBeginning
-	// keeps it on for the whole session per W2d's simple-but-correct
-	// rule; W2f's state machine refines this once a turn boundary is
-	// observed.)
-	if got[1].payload["replay"] != true {
-		t.Errorf("live event replay = %v; (current W2d simplification: stays true)", got[1].payload["replay"])
+	if _, has := got[1].payload["replay"]; has {
+		t.Errorf("live event carries replay tag; v1.0.666 expects absent: %v", got[1].payload)
 	}
 }
 

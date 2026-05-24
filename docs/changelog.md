@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.665
+> **Last verified vs code:** v1.0.666
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,66 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.666-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #10 — the load-bearing one. Closes the
+"mobile shows nothing for M4" investigation that opened at v1.0.662
+and survived four diagnostic wedges.
+
+**Fixed.**
+
+- *Agent text + thought never reached mobile.* The M4 adapter's
+  `runLoop` stamped `replay: true` on every event when
+  `TailMode == StartFromBeginning` — which is the default for fresh
+  spawns. Mobile's `agent_feed.dart:749` unconditionally drops
+  `kind=text` and `kind=thought` events that carry `replay: true`
+  (the M1 ACP `session/load` dedup path). Every assistant reply,
+  every Thinking… frame from M4 was silently nuked on the client.
+  Cancel button got stuck on because — wait, that was actually
+  unrelated; turn.result IS rendered fine, but it doesn't flip the
+  busy state when the only events landing are lifecycle +
+  input.text + turn.result + usage (no text frames to pair them
+  with). Once text frames arrive, the chat reads correctly.
+
+  Removed the per-event `replay: true` stamping in
+  `adapter.go::runLoop`. M4 doesn't need the tag at all:
+  - SSE delivery is seq-gated (`since=<maxSeq>`) — events mobile
+    already cached aren't redelivered.
+  - ID dedup in `agent_feed.dart` (`_ids.add(id)`) catches anything
+    else, since hub event IDs are globally unique and stable across
+    cold-open + live tail.
+
+  The mobile-side `replay: true` filter stays as-is — it remains
+  useful for the M1 ACP `session/load` path it was designed for.
+
+**Diagnosis trail.** Five wedges to find one bug. v1.0.661 dropped
+the noise frames that were masking the symptom. v1.0.662 added per-
+message usage. v1.0.663 dropped duplicate user_input + state_changed
++ dedupped hooks (those WERE real bugs in their own right, all
+caught after the noise dropped at v1.0.661). v1.0.664 raised
+post-failure log to Warn. v1.0.665 added HOSTRUNNER_LOG_LEVEL. Each
+wedge eliminated one hypothesis; v1.0.665's debug-level posting log
+proved every event was making it to the hub. A direct curl against
+the remote hub confirmed all 5 events lived in `agent_events`
+correctly with the right session_id. That left "mobile filter" as
+the only remaining suspect — and the replay filter, designed for a
+totally different driver, was the culprit.
+
+**Test coverage.** Updated
+`TestAdapter_Start_ReplaysExistingThenLive` to assert "replay tag
+MUST be absent" — the inverse of the prior assertion that locked
+the buggy behaviour in.
+
+Root cause class. Cross-driver feature reuse. The M1 ACP driver had
+a real need for a replay tag (session/load notifications re-emit
+historical events with new IDs); the adapter framework propagated
+the convention to M4, but M4's events come from a strictly-monotonic
+JSONL tail where the existing seq + ID guarantees make the tag
+redundant — and given mobile's drop-text-on-replay rule, harmful.
+Convention copied without checking the consumer.
 
 ---
 

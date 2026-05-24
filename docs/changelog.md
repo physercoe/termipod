@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.671
+> **Last verified vs code:** v1.0.672
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,75 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.672-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #15 — M4 claude-code resume cold-started a
+fresh session every time. User reported: "could M4 mode resume
+previous session? i just test resume and it seems it just start a new
+session."
+
+**Root cause.** End-to-end chain was broken at the producer end:
+
+1. `handleResumeSession` (`hub/internal/server/handlers_sessions.go:586-596`)
+   reads `sessions.engine_session_id` and, for `claude-code`, calls
+   `spliceClaudeResume` to thread `--resume <uuid>` into the respawn
+   `backend.cmd`.
+2. `spliceClaudeResume` injects the flag after the `claude` bin token.
+3. The new claude process picks up the flag and reattaches to the
+   prior JSONL.
+
+Step 1 needs `engine_session_id` populated. The hub populates it via
+`captureEngineSessionID` (`handlers_sessions.go:711-730`), which
+filters for `kind == session.init && producer == agent` and reads
+`payload.session_id`. M1/M2 emit this naturally from their engine's
+`init` frame. **M4 synthesises session.init from the first usage
+event** (v1.0.667) — and that synthetic payload carried
+`{engine, model, cwd, version}` with **no `session_id` field**. So
+`captureEngineSessionID` returned early at the empty-string guard,
+the column stayed NULL, the splice was a no-op, and every resume
+opened a fresh `<new-uuid>.jsonl`.
+
+**Fixed.**
+
+- `Adapter.engineSessionID` captured in `resolveAndRun` once
+  `WaitForSessionSince` picks the live JSONL — the UUID is the
+  basename of the file (sans `.jsonl`). Verified by sampling a fresh
+  JSONL: each line carries a `sessionId` field that matches the
+  basename, and that same UUID is what claude-code's own `--resume`
+  flag takes (`hub/internal/server/resume_splice.go:65-100`).
+- `maybeEmitSessionInit` now includes `session_id: <uuid>` on the
+  synthetic payload when the field is non-empty.
+- Adapter Info log now reports `engine_session_id` alongside the
+  JSONL path so operators can spot a resolution gap.
+
+**Test coverage.** Existing
+`TestAdapter_SynthesisesSessionInitFromFirstUsage` extended to:
+- use a UUID-shaped JSONL basename (matches real on-disk shape)
+- assert `payload["session_id"]` equals the basename UUID
+
+The hub-side resume-splice path is already covered by
+`resume_splice_test.go` (no change needed — it tests against an
+already-populated `engine_session_id`, which is now actually getting
+populated end-to-end for M4).
+
+**Known caveat.** Each `--resume` opens a NEW `<new-uuid>.jsonl`
+file with a new UUID (claude-code's design: the prior session is
+referenced internally, not appended to). The adapter's first usage
+event on the resumed agent will overwrite `engine_session_id` with
+the new UUID, which is the right behaviour for the next resume in
+the chain — but resume-of-resume hasn't been smoke-tested on device.
+
+Root cause class. **Producer-side payload incompleteness silently
+disables a consumer-side feature.** Same class as v1.0.666's
+`replay:true` drop and v1.0.652's persona-prompt-not-written
+[[feedback_cross_driver_replay_tag]] — a feature the codebase
+appears to support fails end-to-end because one driver omits a
+field that other drivers happen to provide. Detection: when adding
+a new driver, audit every consumer that reads any field on the
+events it emits, not just the rendering pipeline.
 
 ---
 

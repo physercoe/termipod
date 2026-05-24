@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -140,6 +142,19 @@ type Adapter struct {
 	// correctly, but the duplicate event is noise).
 	sessionInitMu   sync.Mutex
 	sessionInitSent bool
+
+	// engineSessionID is the claude-code session UUID — the basename
+	// (sans `.jsonl`) of the file we're tailing. Captured in
+	// resolveAndRun once WaitForSessionSince picks the live JSONL, and
+	// emitted on the synthetic session.init payload so the hub's
+	// captureEngineSessionID handler can stamp it onto
+	// `sessions.engine_session_id`. That column drives the resume path:
+	// handleResumeSession reads it and spliceClaudeResume threads
+	// `--resume <uuid>` into the respawn cmd so claude reattaches to
+	// the prior conversation instead of cold-starting. Without this
+	// field, every M4 claude-code resume opened a fresh session.
+	// v1.0.672 — see ADR-014.
+	engineSessionID string
 }
 
 // NewAdapter constructs a claude-code Adapter. Returns an error early
@@ -268,10 +283,22 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 		return
 	}
 
+	// Capture the engine session UUID from the JSONL filename
+	// (`<uuid>.jsonl`). claude-code itself uses this same id as the
+	// argument to its `--resume` flag (verified by sampling a fresh
+	// JSONL: each line carries a `sessionId` field that matches the
+	// basename). Stashing it here makes it available to
+	// maybeEmitSessionInit so the synthetic session.init payload
+	// carries `session_id`, which the hub's captureEngineSessionID
+	// then stamps onto `sessions.engine_session_id` for the resume
+	// path to consume. v1.0.672.
+	a.engineSessionID = strings.TrimSuffix(filepath.Base(jsonlPath), ".jsonl")
+
 	a.Log.Info("claude-code adapter started",
 		"agent_id", a.AgentID,
 		"workdir", a.Workdir,
 		"jsonl", jsonlPath,
+		"engine_session_id", a.engineSessionID,
 		"replay", a.TailMode == StartFromBeginning)
 
 	a.runLoop(ctx, lines)
@@ -304,6 +331,16 @@ func (a *Adapter) maybeEmitSessionInit(ctx context.Context, ev MappedEvent) {
 		"model":   model,
 		"cwd":     a.Workdir,
 		"version": "claude-code", // mobile's chip shows engine alone if version absent
+	}
+	// session_id is the claude-code session UUID — the basename (sans
+	// `.jsonl`) of the file we're tailing. The hub's
+	// captureEngineSessionID handler reads this field off
+	// session.init payloads and stamps it onto
+	// `sessions.engine_session_id`, which the resume path then threads
+	// back into the respawn cmd as `--resume <uuid>`. Without this
+	// field every M4 claude-code resume cold-started. v1.0.672.
+	if a.engineSessionID != "" {
+		payload["session_id"] = a.engineSessionID
 	}
 	if err := a.Poster.PostAgentEvent(ctx, a.AgentID, "session.init", "agent", payload); err != nil {
 		a.Log.Warn("claude-code adapter: session.init post failed",

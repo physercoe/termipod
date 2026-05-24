@@ -340,7 +340,15 @@ func TestAdapter_StopDrainsRunLoop(t *testing.T) {
 func TestAdapter_SynthesisesSessionInitFromFirstUsage(t *testing.T) {
 	cwd := "/home/test/proj-sinit"
 	homeDir, projectDir := makeFakeHome(t, cwd)
-	jsonl := filepath.Join(projectDir, "sess.jsonl")
+	// v1.0.672: the JSONL filename (sans `.jsonl`) is the engine
+	// session UUID — claude-code uses the same id as its `--resume`
+	// argument. We use a UUID-shaped basename here so the assertion
+	// below matches a realistic filename rather than the prior `sess`
+	// placeholder. The synthetic session.init payload must carry this
+	// id under `session_id` so captureEngineSessionID can stamp
+	// `sessions.engine_session_id` for the resume splice path.
+	const sessUUID = "b98267bf-84d8-47ce-b745-e100a760478d"
+	jsonl := filepath.Join(projectDir, sessUUID+".jsonl")
 	writeJSONL(t, jsonl,
 		`{"type":"assistant","message":{"model":"claude-opus-4-7","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":1,"cache_read_input_tokens":100}}}`,
 		`{"type":"assistant","message":{"model":"claude-opus-4-7","content":[{"type":"text","text":"more"}],"usage":{"input_tokens":2,"cache_read_input_tokens":200}}}`,
@@ -385,6 +393,13 @@ func TestAdapter_SynthesisesSessionInitFromFirstUsage(t *testing.T) {
 	}
 	if init.payload["cwd"] != cwd {
 		t.Errorf("cwd = %v, want %s", init.payload["cwd"], cwd)
+	}
+	// v1.0.672: session_id must be the JSONL filename UUID so
+	// captureEngineSessionID stamps `sessions.engine_session_id` and
+	// the resume path can splice `--resume <uuid>` into the respawn
+	// cmd. Without this every M4 claude-code resume cold-started.
+	if init.payload["session_id"] != sessUUID {
+		t.Errorf("session_id = %v, want %s", init.payload["session_id"], sessUUID)
 	}
 	// session.init must precede the FIRST usage event so mobile's
 	// build-pass picks it up alongside the chip-driving values.

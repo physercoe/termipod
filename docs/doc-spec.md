@@ -1,9 +1,10 @@
 # Doc spec — the contract every doc honors
 
 > **Type:** axiom
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-05-24)
 > **Audience:** contributors (humans + AI agents)
-> **Last verified vs code:** v1.0.316
+> **Last verified vs code:** v1.0.673
+> **Freshness:** contract
 
 **TL;DR.** This file defines what a doc *is* in this repo, what every
 doc must declare, where it lives, and how it's named. Adopting it
@@ -82,6 +83,7 @@ human-read, and YAML would be ceremony for ceremony's sake.
 > **Status:** Current (2026-04-28) — see status vocab below
 > **Audience:** contributors (or: operators | end-users | principal | reviewers)
 > **Last verified vs code:** v1.0.316
+> **Freshness:** contract (or: rolling | snapshot — see §6.1 below; optional)
 > **Supersedes:** decisions/005-old-name.md (only if applicable)
 
 **TL;DR.** One or two sentences. What this doc tells you, in plain language.
@@ -190,6 +192,85 @@ to navigate into a primitive.
 ---
 
 ## 6. Lifecycle rules
+
+### 6.1 Freshness contract (`Freshness:` field — optional)
+
+Not every doc has the same obligation to track code. Three freshness
+contracts; the field is optional, with sensible per-primitive
+defaults (below) when omitted.
+
+| Value | Semantics | Lint behaviour |
+|---|---|---|
+| `contract` | Doc is a live mirror of code. Drift IS wrongness. | `lint-docs.sh` **fails CI** when the `Last verified` gap exceeds `STALE_THRESHOLD`. |
+| `rolling` | Doc is the current statement, but drift is acceptable. | `lint-docs.sh` warns at threshold (current behaviour for all docs). |
+| `snapshot` | Doc captures a moment in time; later drift doesn't make it wrong. | `lint-docs.sh` skips the drift check. |
+
+**Default when omitted, by primitive:**
+
+| Primitive | Default |
+|---|---|
+| AXIOM, VISION | `rolling` |
+| PLAN (Proposed / In flight) | `contract` |
+| PLAN (Done / Deferred / Cancelled) | `snapshot` |
+| DECISION (Proposed) | `contract` |
+| DECISION (Accepted) | `rolling` |
+| DECISION (Superseded / Deprecated) | `snapshot` |
+| REFERENCE, TUTORIAL | `contract` |
+| HOW-TO | `rolling` |
+| DISCUSSION | `snapshot` |
+| ARCHIVE | `snapshot` |
+
+The author MAY override the default by writing the field
+explicitly. Authors elect to escalate a doc to `contract` when they
+want CI to defend it — i.e. when a reader (human or agent) would
+make wrong decisions based on a stale version.
+
+**Phased gating.** The strict FAIL behaviour for `contract` applies
+only to docs whose authors have **explicitly** written
+`Freshness: contract` in the status block. Docs whose default would
+be `contract` (per the table above) but haven't yet been
+re-verified stay at WARN — same as pre-§6.1 behaviour. This avoids
+a big-bang CI break when the field rolls out. As authors touch each
+doc and confirm it's truly a contract, they add the explicit
+declaration; the strict tier grows incrementally.
+
+Rationale + alternatives considered:
+[discussions/doc-freshness-maintenance.md](discussions/doc-freshness-maintenance.md).
+
+### 6.2 Verifiable claims (`<!-- verify ... -->` markers)
+
+Inside the body of `contract` and `rolling` docs, load-bearing
+factual claims (file paths, function names, expected file counts,
+migration slots) SHOULD be tagged with an inline HTML comment:
+
+```markdown
+The reload loop in `policy.go:65` <!-- verify symbol hub/internal/server/policy.go reload -->
+reads the file on every mtime change.
+```
+
+`scripts/lint-doc-anchors.sh` walks every doc, extracts the
+markers, and verifies each claim against the current code. Marker
+kinds (MVP):
+
+| Kind | Args | Check |
+|---|---|---|
+| `file` | `<path>` | File exists |
+| `no-file` | `<glob>` | No file matches |
+| `symbol` | `<file> <name>` | `\b<name>\b` appears in `<file>` |
+| `glob` | `<pattern> <expected_count>` | Exactly N files match |
+
+The markers are HTML comments — invisible in rendered Markdown.
+Line refs in prose (`policy.go:65`) stay as navigation hints, but
+the authoritative check is symbol presence (lines drift on every
+edit; symbols don't).
+
+Markers ARE the new bar for "this claim is fresh." When all
+markers in a doc verify, `lint-docs.sh`'s stamp drift is the only
+remaining signal — and that's the signal `Freshness:` gates. The
+two layers compose: stamp says "the human re-read this recently";
+markers say "the cited facts still exist."
+
+### 6.3 Per-primitive update rules
 
 ### AXIOM
 - Updated when architecture changes
@@ -304,7 +385,10 @@ meaning is obviously not in play.
 When you add a doc, walk this checklist:
 
 - [ ] One primitive (§2). If it's two, write two files.
-- [ ] Status block at top (§3). All five lines.
+- [ ] Status block at top (§3). All five required lines.
+- [ ] `Freshness:` field (§6.1) — explicit if you want to override
+      the per-primitive default. Add `<!-- verify ... -->` markers
+      (§6.2) inline for load-bearing factual claims.
 - [ ] Lives in the right directory (§5).
 - [ ] Filename obeys §4 — lowercase-hyphens, no qualifiers, no dates.
 - [ ] H1 matches filename.
@@ -321,7 +405,8 @@ PR with `docs:` prefix. Don't bundle doc reorgs into feature commits.
 
 ## 9. CI lints
 
-Two scripts run on every push, both fast (pure bash + grep + awk):
+Three scripts run on every push, all fast (pure bash + grep + awk +
+python3):
 
 **`scripts/lint-docs.sh`** — structural rules from §3, §5, §6:
 
@@ -334,6 +419,25 @@ Two scripts run on every push, both fast (pure bash + grep + awk):
 3. Every internal markdown link of the form `[label](relative-path)`
    resolves to an existing file relative to the source doc's
    location.
+4. **Stale-doc gate** (§6.1). Per-doc `Last verified vs code:`
+   compared to current `pubspec.yaml` version. Behaviour gated by
+   the doc's `Freshness:` field (or its per-primitive default when
+   absent):
+   - `contract` → drift > `STALE_THRESHOLD` **fails CI**
+   - `rolling` → drift > `STALE_THRESHOLD` warns (non-failing)
+   - `snapshot` → no drift check
+
+**`scripts/lint-doc-anchors.sh`** — verifiable-claim rules from §6.2:
+
+1. Every `<!-- verify KIND ARGS -->` marker is well-formed (legal
+   kind, right number of args).
+2. Each marker's claim is checkable against the current code:
+   - `file <path>` → file exists
+   - `no-file <glob>` → no file matches
+   - `symbol <file> <name>` → `\b<name>\b` appears in `<file>`
+   - `glob <pattern> <count>` → exactly `<count>` files match
+3. Any broken anchor fails CI. Tag-only lookup, not deep code
+   analysis — drift on rename / move / delete is what this catches.
 
 **`scripts/lint-glossary.sh`** — term-consistency rules from §7:
 
@@ -348,9 +452,10 @@ Two scripts run on every push, both fast (pure bash + grep + awk):
 4. New-term gate: if a PR adds a bolded term in a doc that has no
    matching glossary entry, lint fails with a pointer to §7.
 
-Layer-2 anti-drift signals (stale-doc reports, touched-area reports
-on PRs, ADR backlinks from spine/reference) are follow-ups; the two
-linters are the load-bearing piece.
+Layer-3 anti-drift (per-tag AI-native re-verification) is a
+follow-up tracked in
+[`discussions/doc-freshness-maintenance.md`](discussions/doc-freshness-maintenance.md)
+§5; the three linters above are the load-bearing piece.
 
 ---
 

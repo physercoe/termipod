@@ -15,6 +15,7 @@ description: Generalise apply-on-approve to a single MCP verb `propose(kind, tar
 > owner; line-ref drift fixed).
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.673-alpha
+> **Freshness:** contract
 
 **TL;DR.** Promote *apply-on-approve* from two bespoke branches
 (`approval_request+spawnIn` → `DoSpawn`; `template_proposal` →

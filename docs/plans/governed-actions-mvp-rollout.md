@@ -14,6 +14,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > v1.0.620-636.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.673-alpha
+> **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
 generalising apply-on-approve into a single MCP verb. Phase 1 is
@@ -90,7 +91,8 @@ parent re-address to the parent steward.
 - New migration `0045_attention_items_governed_actions.up.sql`
   (renumbered from the originally-planned 0044; the 0044 slot was
   taken by the post-v1.0.636 handle-normalization migration shipped
-  first — see migration 0044 + glossary "handle"):
+  first <!-- verify file hub/migrations/0044_strip_handle_at_prefix.up.sql --> — see migration 0044 + glossary "handle").
+  The 0045 slot is currently free <!-- verify no-file hub/migrations/0045_*.up.sql -->:
   ```sql
   ALTER TABLE attention_items
     ADD COLUMN change_kind TEXT;          -- e.g. "deliverable.set_state"
@@ -168,7 +170,7 @@ parent re-address to the parent steward.
 
 **W4. `propose` MCP verb + kind registry (~180 LOC).**
 
-- `hub/internal/server/native_tools.go` `buildNativeTools()` —
+- `hub/internal/server/native_tools.go` `buildNativeTools()` <!-- verify symbol hub/internal/server/native_tools.go buildNativeTools --> —
   add the `propose` entry. **This is the single declaration point
   for every native MCP tool per ADR-033** (shipped v1.0.631); the
   tool entry carries the JSON schema, audience hint, and dispatch
@@ -348,7 +350,7 @@ parent re-address to the parent steward.
 
 **W10. `worker_tool_call.escalate` — re-address `permission_prompt` rows raised by steward-parented workers (~90 LOC + 70 LOC tests).**
 
-- `hub/internal/server/mcp_more.go` `mcpPermissionPrompt`
+- `hub/internal/server/mcp_more.go` `mcpPermissionPrompt` <!-- verify symbol hub/internal/server/mcp_more.go mcpPermissionPrompt -->
   (~line 687, function declared at `mcp_more.go:687` as of v1.0.636):
   after creating the attention row, check
   `agents.parent_agent_id` of the requesting agent.
@@ -423,8 +425,8 @@ parent re-address to the parent steward.
 > foreground/pull.
 
 - `hub/internal/server/loop_sweep.go` already advances
-  `attention_items.escalation_state` (`loop_sweep.go:212`). On
-  every transition (`none → escalated_steward`, `escalated_steward
+  `attention_items.escalation_state` (`loop_sweep.go:212` <!-- verify symbol hub/internal/server/loop_sweep.go escalation_state -->).
+  On every transition (`none → escalated_steward`, `escalated_steward
   → escalated_principal`), the sweep additionally calls
   `s.recordAudit` with:
   - `action = "attention.escalation_advanced"`
@@ -490,7 +492,7 @@ exercise each MVP kind end-to-end.
 
 - Each of the nine bundled steward templates gains a short
   section under BOUNDARIES / Authority. The full set as of
-  v1.0.673 (verified against `hub/templates/prompts/`):
+  v1.0.673 (verified against `hub/templates/prompts/` <!-- verify glob hub/templates/prompts/steward.*.md 9 -->):
   `steward.v1.md`, `steward.general.v1.md`,
   `steward.claude-m4.v1.md`, `steward.codex.v1.md`,
   `steward.gemini.v1.md`, `steward.kimi.v1.md`,

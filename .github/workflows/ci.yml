@@ -60,6 +60,14 @@ jobs:
         # `hub/internal/hostrunner` don't false-flag.
         run: scripts/lint-glossary.sh
 
+      - name: Lint doc anchors
+        # Enforces docs/doc-spec.md §6.2 verify-claim markers — every
+        # `<!-- verify <kind> <args> -->` resolves against current
+        # code. Catches drift on rename/move/delete of cited symbols,
+        # migrations, and file globs. Rationale +
+        # adoption plan in docs/discussions/doc-freshness-maintenance.md.
+        run: scripts/lint-doc-anchors.sh
+
       - name: Validate OpenAPI spec
         # Enforces docs/reference/openapi.yaml validates against the
         # OpenAPI 3.x schema. Per docs/plans/doc-uplift.md P2.8 §5.8.

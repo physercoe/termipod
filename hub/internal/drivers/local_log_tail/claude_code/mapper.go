@@ -184,36 +184,50 @@ func usageFromMessage(model string, raw json.RawMessage) *MappedEvent {
 // model identifier in tokens, or 0 if the identifier is unrecognised
 // (mobile then suppresses the chip rather than rendering a wrong %).
 //
-// Mirrors claude-code's own resolver (`JG(model)` in the
-// 2.1.144 binary):
+// Resolution order, in priority:
 //
-//  1. `CLAUDE_CODE_MAX_CONTEXT_TOKENS` env var if set + parseable to
-//     a positive int (claude-code's own escape hatch; we honour the
-//     same variable name so host-runner + claude agree).
-//  2. 1M (1,000,000) for the models that claude-code's `gm()`
-//     reports as 1M-context-capable: claude-opus-4-7, claude-opus-4-6,
-//     claude-sonnet-4-6, claude-sonnet-4-5, claude-sonnet-4-0.
-//     These are the families Anthropic ships on Pro+/Max tiers
-//     with the 1M beta enabled by default for an OAuth account.
-//  3. 200,000 for known 200K-only families (claude-haiku-4-5,
-//     claude-opus-4-1/4-0/4-5, claude-3-*) — the n56 default in
-//     claude's binary.
+//  1. `CLAUDE_CODE_MAX_CONTEXT_TOKENS` env var (claude-code's own
+//     escape hatch — we honour the same variable name so host-runner
+//     and claude agree on the cap). This is the ALWAYS-CORRECT lever
+//     for operators on a tier that doesn't match the default
+//     heuristic below (e.g. a free-tier user running a 1M-capable
+//     model name).
+//
+//  2. Per-name OVERRIDES for known legacy models that don't follow
+//     their family's modern default. Specifically `claude-opus-4-0`,
+//     `claude-opus-4-1`, `claude-opus-4-5` are 200K despite living
+//     in the opus-4-* family that's otherwise 1M.
+//
+//  3. PREFIX heuristic (v1.0.671): when Anthropic ships
+//     `claude-opus-4-8` or `claude-sonnet-5-0` we want the chip to
+//     light up immediately without a hub patch. Pattern:
+//        - claude-opus-4-* / 5-* / sonnet-4-* / 5-*  → 1M
+//        - claude-haiku-* / 3-*                       → 200K
+//     Risk: an Anthropic exception (e.g. a future opus-4-N that
+//     ships 200K, or a haiku that goes 1M) gets the wrong default
+//     until we add an explicit override here. The env var stays the
+//     one-line fix in the meantime.
+//
 //  4. 0 for anything unrecognised — better blank than wrong.
 //
-// Pre-v1.0.670 hardcoded 200K for everything claude-*, so a
-// claude-opus-4-7 spawn on a Max plan showed `Nk/200K · <high pct>%`
-// while claude's own /context reported `Nk/1M · <low pct>%` — caught
-// on v1.0.669 dev-box smoke. Source: claude binary string sweep on
-// dev box, 2026-05-24 (`function JG(`, `function gm(`).
+// Date suffix handling: claude sometimes uses
+// `claude-opus-4-1-20250805` or `claude-opus-4-1@20250805`. We
+// strip an 8-digit YYYYMMDD trailing token before matching so the
+// overrides + heuristic both work on dated variants.
 //
-// Limitation: for non-Max users the 1M-capable models actually use
-// 200K. We can't tell from the model name alone; reading
-// `~/.claude.json::oauthAccount.organizationRateLimitTier` would
-// disambiguate but adds a per-spawn filesystem read + couples the
-// hub to claude-code's config schema. Most users on Pro+ get 1M
-// (which the env var override covers anyway); free-tier users on
-// 1M-capable models will see the chip overshoot — operationally
-// minor compared to the prior under-shoot.
+// History.
+//   - v1.0.667: hardcoded 200K for every claude-* model. Wrong by 5×
+//     for opus-4-7 on Max tier.
+//   - v1.0.670: exact-name match against claude-code's gm() set.
+//     Correct for known names but goes stale the moment Anthropic
+//     ships a new model.
+//   - v1.0.671 (this): prefix family with per-name legacy overrides.
+//     Self-extends to future opus-4-N + sonnet-{4,5}-* without a
+//     hub patch.
+//
+// Investigation source: claude binary string sweep on dev box,
+// 2026-05-24 (`function JG(`, `function gm(`) — see v1.0.670
+// changelog entry for the verbatim claude-code logic mirrored here.
 func claudeModelContextWindow(model string) int {
 	if env := strings.TrimSpace(os.Getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS")); env != "" {
 		if n, err := strconv.Atoi(env); err == nil && n > 0 {
@@ -224,34 +238,61 @@ func claudeModelContextWindow(model string) int {
 		k200 = 200_000
 		k1m  = 1_000_000
 	)
-	// 1M-capable models (claude-code's gm() set). Exact-match — a
-	// future suffix (e.g. claude-opus-4-7-20260601) lands in the
-	// fallback list below until added here explicitly.
-	for _, name := range []string{
-		"claude-opus-4-7",
-		"claude-opus-4-6",
-		"claude-sonnet-4-6",
-		"claude-sonnet-4-5",
-		"claude-sonnet-4-0",
-	} {
-		if model == name {
-			return k1m
-		}
+	base := stripModelDateSuffix(model)
+	// (2) Per-name legacy overrides — opus-4-{0,1,5} ship 200K
+	// despite being in the opus-4-* family.
+	switch base {
+	case "claude-opus-4-0", "claude-opus-4-1", "claude-opus-4-5":
+		return k200
 	}
-	// 200K-only families. Prefix match so versioned variants
-	// (claude-3-5-sonnet-20240620 etc) catch the right bucket.
-	for _, prefix := range []string{
-		"claude-opus-4-0",
-		"claude-opus-4-1",
-		"claude-opus-4-5",
-		"claude-haiku-",
-		"claude-3-",
-	} {
-		if strings.HasPrefix(model, prefix) {
-			return k200
-		}
+	// (3a) 200K families — haiku and the 3.x generation.
+	if strings.HasPrefix(base, "claude-haiku-") ||
+		strings.HasPrefix(base, "claude-3-") {
+		return k200
+	}
+	// (3b) 1M families — opus + sonnet. Anthropic's modern naming
+	// convention (`claude-<size>-<gen>-<minor>`) started with v4
+	// in mid-2025; v3 and older used the reversed form
+	// `claude-3-opus-...` which is caught by the haiku/3-* rule
+	// above. So `claude-opus-` / `claude-sonnet-` only ever match
+	// v4+ — all of which ship at 1M today, with the three legacy
+	// opus-4 names handled by the per-name override above. New
+	// generations (opus-5, opus-6, sonnet-5, …) inherit the
+	// family default without a hub patch.
+	if strings.HasPrefix(base, "claude-opus-") ||
+		strings.HasPrefix(base, "claude-sonnet-") {
+		return k1m
 	}
 	return 0
+}
+
+// stripModelDateSuffix removes an `-YYYYMMDD` or `@YYYYMMDD` trailing
+// token from a claude model identifier so the per-name overrides +
+// prefix matches both work on dated variants
+// (`claude-opus-4-1-20250805` → `claude-opus-4-1`). 8 ASCII digits is
+// the test; anything shorter, longer, or non-numeric is preserved.
+func stripModelDateSuffix(model string) string {
+	for _, sep := range []byte{'-', '@'} {
+		i := strings.LastIndexByte(model, sep)
+		if i <= 0 || i >= len(model)-1 {
+			continue
+		}
+		tail := model[i+1:]
+		if len(tail) != 8 {
+			continue
+		}
+		allDigits := true
+		for j := 0; j < len(tail); j++ {
+			if tail[j] < '0' || tail[j] > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return model[:i]
+		}
+	}
+	return model
 }
 
 func mapAssistantBlock(raw json.RawMessage) *MappedEvent {

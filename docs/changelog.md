@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.670
+> **Last verified vs code:** v1.0.671
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,61 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.671-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #14 — drift-resistance for the context-
+window lookup. v1.0.670 used exact-name matching against the 5
+models claude-code's `gm()` knew about at extraction time. The
+moment Anthropic ships `claude-opus-4-8` or `claude-sonnet-5-0`,
+that table goes stale and the chip suppresses for the new model
+until someone pushes a hub patch.
+
+**Fixed.**
+
+- `mapper.go::claudeModelContextWindow` rewritten as a prefix
+  heuristic plus per-name legacy overrides:
+  - **Env override** (`CLAUDE_CODE_MAX_CONTEXT_TOKENS`) wins first —
+    operator's always-correct lever for any tier/model combo the
+    default heuristic gets wrong.
+  - **Legacy overrides**: `claude-opus-4-0`, `claude-opus-4-1`,
+    `claude-opus-4-5` stay 200K despite the family default. These
+    are the three opus-4 minors that shipped before Anthropic flipped
+    the family to 1M at opus-4-6.
+  - **200K families**: `claude-haiku-*` + `claude-3-*` (3.x used
+    the reversed naming form `claude-3-opus-…` so this rule catches
+    every 3.x variant cleanly).
+  - **1M families**: `claude-opus-*` + `claude-sonnet-*`. The prefix
+    only ever matches v4+ models — v3 was reversed — so the family
+    rule is safe to apply broadly. Future generations
+    (`opus-5-0`, `opus-6-2`, `sonnet-5-0`, dated variants like
+    `claude-sonnet-7-0-20280515`) auto-pick up 1M without a hub
+    patch.
+  - 0 (chip suppresses) for unrecognised identifiers.
+
+- New helper `stripModelDateSuffix(model)` removes `-YYYYMMDD` or
+  `@YYYYMMDD` tails (8 ASCII digits) so dated variants
+  (`claude-opus-4-1-20250805` etc.) hit the right bucket.
+
+**Test coverage.** Sweep expanded to 17 cases covering: gm() set,
+legacy overrides, future generations (opus-5/6, sonnet-5/7), dated
+variants in both buckets, haiku, 3.x, unknown-family suppression.
+Plus a dedicated `TestStripModelDateSuffix` for the suffix helper
+(7 cases including pathological 6-digit / alphanumeric / empty
+inputs that must NOT strip).
+
+**Limitations carried forward from v1.0.670.** Non-Max users on
+1M-capable models still see the chip over-count; workaround stays
+the `CLAUDE_CODE_MAX_CONTEXT_TOKENS` env var. A full fix would read
+`~/.claude.json::oauthAccount.organizationRateLimitTier` per spawn
+— deferred.
+
+Root cause class. Stale tables. Avoid exact-name allowlists for any
+data Anthropic versions on a quarterly cadence; lean on family
+prefixes when the naming convention is structured enough to make
+the heuristic honest.
 
 ---
 

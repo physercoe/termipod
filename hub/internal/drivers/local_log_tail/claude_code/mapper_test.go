@@ -312,15 +312,21 @@ func TestMapLine_AssistantWithoutUsageEmitsOnlyContent(t *testing.T) {
 	}
 }
 
-// v1.0.667 — usage events MUST carry context_window when the model
-// name resolves to a known capacity. Without it mobile's
-// context-utilisation chip suppresses itself entirely (cw==0 → no
-// tile).
+// Usage events MUST carry context_window when the model name
+// resolves to a known capacity. Without it mobile's
+// context-utilisation chip suppresses itself entirely.
 //
-// v1.0.670 split the mapping: 1M for claude-code's gm() set
-// (claude-opus-4-7, claude-opus-4-6, claude-sonnet-4-6/5/0); 200K
-// for everything else. Mirrors `JG(model)` in the claude binary
-// (v2.1.144 string sweep).
+// v1.0.671 switched from exact-name match to a prefix heuristic +
+// per-name legacy overrides so new models in known families pick up
+// the correct cap without a hub patch. The sweep below covers:
+//   - the gm() set known at v1.0.670 (5 names)
+//   - legacy opus-4 names that must STAY at 200K despite the family
+//     default (4-0, 4-1, 4-5)
+//   - future models that don't exist yet but should map correctly
+//     when Anthropic ships them (opus-4-8, sonnet-5-0)
+//   - haiku + 3.x family at 200K
+//   - dated variants (claude-opus-4-1-20250805) so the suffix-strip
+//     lands the right bucket
 func TestMapLine_UsageCarriesContextWindowFromModel(t *testing.T) {
 	// Make sure no caller-set env var pollutes the test process —
 	// claudeModelContextWindow honours CLAUDE_CODE_MAX_CONTEXT_TOKENS
@@ -329,19 +335,42 @@ func TestMapLine_UsageCarriesContextWindowFromModel(t *testing.T) {
 	type modelCase struct {
 		model string
 		want  int
+		note  string
 	}
 	for _, tc := range []modelCase{
-		// 1M-capable (gm() set).
-		{"claude-opus-4-7", 1_000_000},
-		{"claude-opus-4-6", 1_000_000},
-		{"claude-sonnet-4-6", 1_000_000},
-		{"claude-sonnet-4-5", 1_000_000},
-		{"claude-sonnet-4-0", 1_000_000},
+		// 1M-capable (gm() set known at v1.0.670).
+		{"claude-opus-4-7", 1_000_000, "gm() set"},
+		{"claude-opus-4-6", 1_000_000, "gm() set"},
+		{"claude-sonnet-4-6", 1_000_000, "gm() set"},
+		{"claude-sonnet-4-5", 1_000_000, "gm() set"},
+		{"claude-sonnet-4-0", 1_000_000, "gm() set"},
+		// Future opus-4 in the modern range — heuristic should auto-extend.
+		{"claude-opus-4-8", 1_000_000, "future opus-4-* picks up family default"},
+		{"claude-opus-4-9", 1_000_000, "future opus-4-* picks up family default"},
+		// Future sonnet/opus generations — heuristic auto-extends
+		// for any v5+ generation since the `claude-opus-` /
+		// `claude-sonnet-` prefix only ever matches v4+ models
+		// (v3 used the reversed `claude-3-opus` form caught by the
+		// 200K rule below).
+		{"claude-sonnet-5-0", 1_000_000, "future sonnet-5 picks up family default"},
+		{"claude-opus-5-0", 1_000_000, "future opus-5 picks up family default"},
+		{"claude-opus-6-2", 1_000_000, "future opus-6 picks up family default"},
+		{"claude-sonnet-7-0-20280515", 1_000_000, "very-future sonnet, dated, still picks up"},
+		// Legacy 200K opus-4 names that the family heuristic would
+		// otherwise over-claim. Per-name override keeps them 200K.
+		{"claude-opus-4-0", 200_000, "legacy 200K override"},
+		{"claude-opus-4-1", 200_000, "legacy 200K override"},
+		{"claude-opus-4-5", 200_000, "legacy 200K override"},
+		// Dated variants — date-suffix strip must hit the legacy override.
+		{"claude-opus-4-1-20250805", 200_000, "dated legacy"},
+		{"claude-opus-4-7-20260601", 1_000_000, "dated modern opus-4-*"},
 		// 200K families.
-		{"claude-haiku-4-5-20251001", 200_000},
-		{"claude-opus-4-5", 200_000},
-		{"claude-opus-4-1", 200_000},
-		{"claude-3-5-sonnet-20240620", 200_000},
+		{"claude-haiku-4-5-20251001", 200_000, "haiku family"},
+		{"claude-haiku-5-0", 200_000, "future haiku stays 200K"},
+		{"claude-3-5-sonnet-20240620", 200_000, "3.x family"},
+		{"claude-3-opus-20240229", 200_000, "3.x family"},
+		// Unknown — chip should suppress (0).
+		{"future-vendor-xyz", 0, "unknown family"},
 	} {
 		raw := `{"type":"assistant","message":{
 			"model":"` + tc.model + `",
@@ -356,11 +385,39 @@ func TestMapLine_UsageCarriesContextWindowFromModel(t *testing.T) {
 			}
 		}
 		if usage == nil {
-			t.Fatalf("%s: usage not emitted: %+v", tc.model, got)
+			t.Fatalf("%s (%s): usage not emitted: %+v", tc.model, tc.note, got)
 		}
-		if cw, _ := usage.Payload["context_window"].(int); cw != tc.want {
-			t.Errorf("%s: context_window = %v, want %d",
-				tc.model, usage.Payload["context_window"], tc.want)
+		gotCW, _ := usage.Payload["context_window"].(int)
+		if tc.want == 0 {
+			if _, has := usage.Payload["context_window"]; has {
+				t.Errorf("%s (%s): unknown family emitted context_window %v; want absent",
+					tc.model, tc.note, gotCW)
+			}
+			continue
+		}
+		if gotCW != tc.want {
+			t.Errorf("%s (%s): context_window = %v, want %d",
+				tc.model, tc.note, gotCW, tc.want)
+		}
+	}
+}
+
+// Unit test the suffix stripper directly — covers the two separators
+// claude uses (`-` and `@`) plus pathological inputs that must be
+// preserved.
+func TestStripModelDateSuffix(t *testing.T) {
+	cases := map[string]string{
+		"claude-opus-4-1-20250805": "claude-opus-4-1",
+		"claude-opus-4-1@20250805": "claude-opus-4-1",
+		"claude-opus-4-7":          "claude-opus-4-7", // no suffix
+		"claude-opus-4-1-202508":   "claude-opus-4-1-202508", // 6 digits, not 8
+		"claude-opus-4-1-2025080a": "claude-opus-4-1-2025080a", // non-digit
+		"":                         "",
+		"-20250805":                "-20250805", // leading sep
+	}
+	for in, want := range cases {
+		if got := stripModelDateSuffix(in); got != want {
+			t.Errorf("stripModelDateSuffix(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

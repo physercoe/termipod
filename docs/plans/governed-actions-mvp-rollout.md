@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.683-alpha
+> **Last verified vs code:** v1.0.684-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -580,32 +580,62 @@ just as legibly as `decision="override"` + `override=true`.
   kind, so override on it would require widening
   `handleAttentionOverride`. Tracked separately.)
 
-**W11. `dispatchAttentionReply` allowlist + fan-back payload + ADR-032 envelope (~40 LOC + 30 LOC tests).**
+**W11. `dispatchAttentionReply` allowlist + fan-back payload + ADR-032 envelope (~140 LOC + ~310 LOC tests). Shipped v1.0.684-alpha.**
 
-- `handlers_attention.go:442` allowlist gains `propose` so
-  the requester's session receives `input.attention_reply` on
-  decide.
-- Fan-back payload shape:
+- `handlers_attention.go::dispatchAttentionReply` <!-- verify symbol hub/internal/server/handlers_attention.go dispatchAttentionReply -->
+  signature extended to take an `attentionReplyExtras { ChangeKind,
+  Executed }` so propose-specific fields ride alongside the
+  existing per-attention-kind fields. SELECT also widened to fetch
+  `actor_handle` + `cause` (the ADR-034 lineage pointer) for the
+  envelope.
+- Allowlist at `handleDecideAttention` gains `propose` — the
+  fan-back fires on approve / reject / override of any propose
+  row that carries a session_id.
+- Fan-back payload shape (flat top level):
   `{request_id, kind:"propose", change_kind, decision, reason?,
-  executed?}` — `executed` populated on approve so the agent
-  knows the system applied the change.
-- **ADR-032 envelope composition.** Per the 2026-05-20 ADR-030
-  amendment, the hub-side `dispatchAttentionReply` site populates
-  the ADR-032 envelope fields `{from, to, kind, text, cause,
-  thread}` alongside the propose-specific payload so downstream
-  lineage queries (directive trace) resolve a propose-decision edge
-  uniformly with other directed-input edges. `from` =
-  authoriser-handle, `to` = requester-handle, `kind` =
-  `"attention_reply"`, `cause` = the source attention row's `cause`
-  column passed through, `thread` = the requester's session id.
-- Tests:
-  - Approve → fan-back with `decision:"approve", executed:{…}` +
-    envelope.
-  - Reject → fan-back with `decision:"reject", reason` + envelope.
-  - Dry-run preview is NOT fanned back (preview is part of
-    the awaiting_response payload, not the fan-back).
-  - Envelope `cause` round-trip: source row's `cause` ↦ fan-back
-    envelope's `cause` (preserves lineage through the propose hop).
+  executed?, envelope:{...}}` — `executed` populated on approve
+  AND on override (carries the rollback's executed payload so the
+  agent sees the state reverted).
+- **ADR-032 envelope composition** — nested under `payload.envelope`
+  rather than flattened at the top level, because the payload's
+  top-level `kind` field already holds the attention kind
+  ("propose", "approval_request", …) and would collide with the
+  envelope's `kind`. Envelope-aware consumers read
+  `payload["envelope"]["from"|"to"|"kind"|"text"|"cause"|"thread"]`.
+- **Envelope.kind = `KindReport`**, NOT `"attention_reply"`. The
+  plan W11 narrative referenced `"attention_reply"`, but that's the
+  `agent_events.kind` value (an MCP-level event kind), not an
+  ADR-032 envelope kind. ADR-032 D-2 defines a closed four-value
+  enum {directive, question, report, notification}; a
+  propose-decision CLOSES the loop the propose opened, so `report`
+  is the structurally correct mapping. The `agent_event` row itself
+  still uses `kind="input.attention_reply"` — only the envelope's
+  inner kind value changes.
+- Envelope fields populated:
+  - `from`: `{role: principal, handle: in.By}` (defensive default
+    `@principal` when blank)
+  - `to`: `{role: peer_worker, handle: requester_handle,
+    agent_id: current_agent_id}`
+  - `kind`: `KindReport`
+  - `text`: short human-readable summary
+    `"<decision> <attention_kind>: <change_kind?> — <reason?>"`
+    so engines surfacing the envelope inline don't have to parse
+    the payload's other fields
+  - `cause`: round-tripped from the attention row's `cause` column
+    (the ADR-034 lineage pointer to the enclosing task)
+  - `thread`: `{transport: TransportAttention, id: attention_id}`
+- **Override path also fan-backs** (W9 inter-op). The override
+  handler calls `dispatchAttentionReply` after the rollback so the
+  requester learns the state reverted; they'd otherwise be stuck
+  on "approved + applied" without seeing the inverse.
+- Tests (6): approve fan-back shape (envelope + executed +
+  thread/from/to assertions); reject fan-back omits executed,
+  envelope text describes reject; dry_run produces zero fan-back
+  events; envelope cause round-trips from the row's `cause`
+  column; override produces a second fan-back with the rollback
+  payload; legacy approval_request still fans back without
+  change_kind (regression — empty extras must not break existing
+  attention kinds).
 
 **W11.5. Loop-closure signal — sweep emits audit row on `escalation_state` transition (~30 LOC + 30 LOC tests).**
 

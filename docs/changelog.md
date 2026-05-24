@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.683
+> **Last verified vs code:** v1.0.684
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,80 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.684-alpha — 2026-05-24
+
+ADR-030 Phase 1 W11 — propose joins the fan-back allowlist and the
+ADR-032 envelope rides nested under the payload. With this wedge,
+the propose loop closes end-to-end on the agent side: a worker
+calls propose, ends its turn, and the next user turn it sees
+carries `{decision, change_kind, executed, envelope:{cause, ...}}`
+so the agent knows what landed without a second hub round-trip.
+Override decisions fan back too (W9 inter-op) so requesters learn
+when the state reverted.
+
+### Added
+
+- `attentionReplyExtras { ChangeKind, Executed }` — new param on
+  `dispatchAttentionReply` for propose-specific fields. Backward-
+  compat: existing call sites pass `{}` and see no payload change.
+- `propose` added to the fan-back allowlist in `handleDecideAttention`
+  (the same list approval_request / select / help_request /
+  permission_prompt / elicit / project_steward_request are on).
+- ADR-032 envelope composition under `payload.envelope`. Nested
+  rather than flattened because the payload's top-level `kind`
+  already holds the attention kind and would collide with
+  envelope.kind.
+- `dispatchAttentionReply` SELECT widened to fetch `actor_handle`
+  + `cause` for the envelope.
+- Override path calls `dispatchAttentionReply` after the rollback,
+  so requesters see the second fan-back with the rollback
+  executed payload.
+- `attentionReplyEnvelopeText` + `stringOrDefault` helpers.
+- `hub/internal/server/handlers_attention_fanback_test.go` — 6
+  cases: approve fan-back shape (envelope + executed + thread/
+  from/to); reject omits executed; dry_run produces zero events;
+  cause round-trips from row to envelope; override fan-back
+  carries rollback payload; legacy approval_request still fans
+  back unchanged.
+
+### Changed
+
+- `pubspec.yaml` 1.0.683 → 1.0.684-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` +
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.684. Plan W11 rewritten to record the nested-envelope
+  decision, the `KindReport` choice for envelope.kind, the
+  override-also-fan-backs inter-op, and 6-test coverage.
+  New verify symbol anchor on `dispatchAttentionReply` → 24
+  anchors total now, all green.
+
+### Notes
+
+- **envelope.kind = `KindReport`, not `"attention_reply"`.** The
+  plan W11 narrative referenced `"attention_reply"`, but that's
+  the `agent_events.kind` value (the event-level kind), not an
+  ADR-032 envelope kind. ADR-032 D-2 defines a closed
+  four-value enum {directive, question, report, notification};
+  a propose-decision closes the loop the propose opened, so
+  `report` is the structurally correct mapping. The
+  `agent_event` row itself still uses
+  `kind="input.attention_reply"`.
+- **Envelope is nested.** input_envelope.go's convention is to
+  flatten envelope fields at the payload top level, but
+  attention-reply's existing top-level `kind` field holds the
+  attention kind ("propose", "approval_request", …). Flattening
+  would clobber it. Nested envelope under `payload["envelope"]`
+  preserves both.
+- **All 5 propose kinds + 2 alias kinds now close the loop
+  end-to-end.** A worker calls propose → row inserts with
+  session_id → /decide approve runs the apply → fan-back fires
+  with executed → requester's next turn carries the result.
+  Override decisions get the same treatment via W9's
+  `handleAttentionOverride` calling dispatchAttentionReply with
+  the rollback payload.
 
 ---
 

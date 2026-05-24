@@ -532,8 +532,17 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	// already knows where to deliver.
 	if resolved && (kind == "approval_request" || kind == "select" ||
 		kind == "help_request" || kind == "permission_prompt" ||
-		kind == "elicit" || kind == "project_steward_request") {
-		_ = s.dispatchAttentionReply(r.Context(), id, kind, &in)
+		kind == "elicit" || kind == "project_steward_request" ||
+		kind == "propose") {
+		// ADR-030 W11: propose joins the allowlist. The fan-back
+		// carries change_kind + executed so the requester's session
+		// shows what landed in addition to the decision; the ADR-032
+		// envelope rides under payload["envelope"].
+		extras := attentionReplyExtras{
+			ChangeKind: changeKind,
+			Executed:   out.Executed,
+		}
+		_ = s.dispatchAttentionReply(r.Context(), id, kind, &in, extras)
 	}
 	s.recordAudit(r.Context(), team, "attention.decide", "attention", id,
 		in.Decision+" attention ("+kind+")",
@@ -692,6 +701,19 @@ func (s *Server) handleAttentionOverride(w http.ResponseWriter, r *http.Request,
 			"reason":            a.In.Reason,
 			"rollback_executed": json.RawMessage(rollbackExecuted),
 		})
+
+	// ADR-030 W11: fan-back the override too. The requester saw
+	// "approved + applied" on the first decide; without this
+	// dispatch they'd never learn the apply was overridden + the
+	// state reverted. Best-effort — dispatch failures don't
+	// roll back the override itself (the resolve already
+	// committed).
+	overrideIn := *(&a.In) // copy so we can pin Decision to "override"
+	overrideIn.Decision = "override"
+	_ = s.dispatchAttentionReply(r.Context(), a.ID, a.Kind, &overrideIn, attentionReplyExtras{
+		ChangeKind: a.ChangeKind,
+		Executed:   rollbackExecuted,
+	})
 
 	out := attentionDecideOut{
 		AttentionID: a.ID,
@@ -893,6 +915,30 @@ func (s *Server) handleResolveAttention(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// attentionReplyEnvelopeText composes the short human-readable text
+// for the ADR-032 envelope. Format: "<decision> <attention_kind>:
+// <change_kind?> — <reason?>". Used by engine drivers that surface
+// the envelope inline without parsing the propose-specific payload.
+func attentionReplyEnvelopeText(attentionKind, changeKind, decision, reason string) string {
+	parts := []string{decision + " " + attentionKind}
+	if changeKind != "" {
+		parts = append(parts, ": "+changeKind)
+	}
+	if reason != "" {
+		parts = append(parts, " — "+reason)
+	}
+	return strings.Join(parts, "")
+}
+
+// stringOrDefault returns s when non-empty, else dflt. Tiny helper
+// to keep the envelope-composition table readable.
+func stringOrDefault(s, dflt string) string {
+	if s != "" {
+		return s
+	}
+	return dflt
+}
+
 // dispatchAttentionReply posts an `input.attention_reply` agent_event so
 // the originating agent receives the principal's decision as a fresh user
 // turn. This is the wake-up path for the turn-based request_approval /
@@ -911,11 +957,29 @@ func (s *Server) handleResolveAttention(w http.ResponseWriter, r *http.Request) 
 // to make the decision look failed). For attentions with no session_id
 // (system-originated rows, legacy rows pre-v1.0.336), we silently skip
 // the fan-out — there's no agent to deliver to.
-func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind string, in *attentionDecideIn) error {
-	var sessionID sql.NullString
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT session_id FROM attention_items WHERE id = ?`, attentionID,
-	).Scan(&sessionID); err != nil {
+// attentionReplyExtras carries ADR-030 W11 propose-specific fields
+// into the fan-back payload. Both fields are optional; the
+// envelope-composition path tolerates "" / nil.
+type attentionReplyExtras struct {
+	// ChangeKind is the propose row's change_kind (e.g.
+	// "task.set_status"). Empty for non-propose attention kinds.
+	ChangeKind string
+	// Executed is the apply (or rollback) result, mirrored here so
+	// the agent's session shows what landed without a second
+	// hub round-trip. Empty when the decision was reject.
+	Executed json.RawMessage
+}
+
+func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind string, in *attentionDecideIn, extras attentionReplyExtras) error {
+	var (
+		sessionID    sql.NullString
+		actorHandle  sql.NullString
+		cause        sql.NullString
+	)
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT session_id, actor_handle, cause
+		  FROM attention_items WHERE id = ?`, attentionID,
+	).Scan(&sessionID, &actorHandle, &cause); err != nil {
 		return err
 	}
 	if !sessionID.Valid || sessionID.String == "" {
@@ -935,6 +999,18 @@ func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind s
 	// readable user turn for the engine. The driver formats the surface
 	// representation (text content) per kind; carrying the raw fields here
 	// keeps the dispatch policy layered above the engine wire shape.
+	//
+	// ADR-030 W11 additions:
+	//   - change_kind / executed: propose-specific extras the agent's
+	//     surface uses to render "your propose(task.set_status) was
+	//     approved; status went todo→done".
+	//   - envelope: nested ADR-032 message envelope so directive-trace
+	//     queries resolve a propose-decision edge uniformly with other
+	//     directed-input edges. Nested (not flat) here because the
+	//     payload's top-level `kind` already holds the attention kind
+	//     ("propose", "approval_request", …); flattening would collide
+	//     with envelope.kind. Envelope-aware consumers read
+	//     payload["envelope"]["from"|"to"|"kind"|"text"|"cause"|"thread"].
 	payloadMap := map[string]any{
 		"request_id": attentionID,
 		"kind":       kind,
@@ -949,6 +1025,60 @@ func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind s
 	if in.Reason != "" {
 		payloadMap["reason"] = in.Reason
 	}
+	if extras.ChangeKind != "" {
+		payloadMap["change_kind"] = extras.ChangeKind
+	}
+	if len(extras.Executed) > 0 {
+		payloadMap["executed"] = json.RawMessage(extras.Executed)
+	}
+
+	// Build the envelope. Best-effort — a missing target handle or
+	// cause leaves those fields blank rather than dropping the whole
+	// fan-back.
+	requesterHandle := ""
+	if actorHandle.Valid {
+		requesterHandle = actorHandle.String
+	}
+	envCause := ""
+	if cause.Valid {
+		envCause = cause.String
+	}
+	envelope := map[string]any{
+		// From: the authoriser. Use the decider handle; fall back
+		// to "@principal" if missing (defensive — the override path
+		// gates on this already).
+		"from": map[string]any{
+			"role":   RolePrincipal,
+			"handle": stringOrDefault(in.By, "@principal"),
+		},
+		// To: the requester (the agent that called propose). Worker
+		// is the realistic case for the MVP propose kinds; stewards
+		// CAN propose too (W4 cross-project check permits it). We
+		// stamp peer_worker as the conservative default; the surface
+		// driver routes by agent_id regardless of role.
+		"to": map[string]any{
+			"role":     RolePeerWorker,
+			"handle":   requesterHandle,
+			"agent_id": currentAgentID.String,
+		},
+		// Kind: ADR-032 D-2's closed enum. A propose-decision
+		// CLOSES the loop the propose opened, so "report" fits. We
+		// do NOT use "attention_reply" here (that's the agent_event
+		// kind, not the envelope kind — the closed enum is
+		// directive|question|report|notification).
+		"kind": KindReport,
+		// Text: human-readable summary so engines that present the
+		// envelope inline can render without parsing the payload
+		// fields.
+		"text":  attentionReplyEnvelopeText(kind, extras.ChangeKind, in.Decision, in.Reason),
+		"cause": envCause,
+		"thread": map[string]any{
+			"transport": TransportAttention,
+			"id":        attentionID,
+		},
+	}
+	payloadMap["envelope"] = envelope
+
 	payload, err := json.Marshal(payloadMap)
 	if err != nil {
 		return err

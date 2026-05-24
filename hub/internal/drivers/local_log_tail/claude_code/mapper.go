@@ -160,12 +160,47 @@ func usageFromMessage(model string, raw json.RawMessage) *MappedEvent {
 	}
 	if model != "" {
 		payload["model"] = model
+		// v1.0.667: include context_window so mobile's telemetry
+		// strip can render the context-utilisation chip. Mobile's
+		// chip suppresses itself when contextWindow is zero (it
+		// can't compute the pct), so without this the chip stayed
+		// blank on M4 even though usage events were flowing. All
+		// current claude-* models are 200K; future models would
+		// extend the switch in claudeModelContextWindow.
+		if cw := claudeModelContextWindow(model); cw > 0 {
+			payload["context_window"] = cw
+		}
 	}
 	return &MappedEvent{
 		Kind:     "usage",
 		Producer: "agent",
 		Payload:  payload,
 	}
+}
+
+// claudeModelContextWindow returns the context window of a claude
+// model identifier in tokens, or 0 if the identifier is unrecognised
+// (mobile then suppresses the chip rather than rendering a wrong %).
+//
+// Source: Anthropic public model docs (2026-05). claude-opus-4-*,
+// claude-sonnet-4-*, and claude-haiku-4-* all ship with a 200K
+// context window. claude-3-* are kept on the legacy 200K too. When a
+// new model size ships with a different capacity, add the prefix
+// here — keeping the map small + explicit so we don't fall back to
+// a wrong default.
+func claudeModelContextWindow(model string) int {
+	const k200 = 200_000
+	for _, prefix := range []string{
+		"claude-opus-",
+		"claude-sonnet-",
+		"claude-haiku-",
+		"claude-3-",
+	} {
+		if strings.HasPrefix(model, prefix) {
+			return k200
+		}
+	}
+	return 0
 }
 
 func mapAssistantBlock(raw json.RawMessage) *MappedEvent {

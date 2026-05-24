@@ -133,6 +133,13 @@ type Adapter struct {
 	// Plan §5.B.1.
 	pickerMu   sync.Mutex
 	pickerDone chan struct{}
+
+	// sessionInitMu guards sessionInitSent. The flag is checked + set
+	// in runLoop so a second usage event on the same session doesn't
+	// re-emit the synthetic session.init (mobile would still merge it
+	// correctly, but the duplicate event is noise).
+	sessionInitMu   sync.Mutex
+	sessionInitSent bool
 }
 
 // NewAdapter constructs a claude-code Adapter. Returns an error early
@@ -270,6 +277,40 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 	a.runLoop(ctx, lines)
 }
 
+// maybeEmitSessionInit posts a synthetic session.init the first time
+// we see a usage event carrying a model field. M4 (on-disk JSONL)
+// has no equivalent of M2 stream-json's `init` frame, so mobile's
+// AppBar chip stays empty for every M4 spawn without this. Idempotent
+// per Adapter lifetime — the flag prevents duplicate emits when many
+// usage events flow in the same session.
+func (a *Adapter) maybeEmitSessionInit(ctx context.Context, ev MappedEvent) {
+	if ev.Kind != "usage" {
+		return
+	}
+	model, _ := ev.Payload["model"].(string)
+	if model == "" {
+		return
+	}
+	a.sessionInitMu.Lock()
+	if a.sessionInitSent {
+		a.sessionInitMu.Unlock()
+		return
+	}
+	a.sessionInitSent = true
+	a.sessionInitMu.Unlock()
+
+	payload := map[string]any{
+		"engine":  "claude-code",
+		"model":   model,
+		"cwd":     a.Workdir,
+		"version": "claude-code", // mobile's chip shows engine alone if version absent
+	}
+	if err := a.Poster.PostAgentEvent(ctx, a.AgentID, "session.init", "agent", payload); err != nil {
+		a.Log.Warn("claude-code adapter: session.init post failed",
+			"agent_id", a.AgentID, "err", err)
+	}
+}
+
 // noteFailure logs and surfaces a soft failure: the pane is still
 // live, but JSONL-derived events won't flow for this session.
 // Best-effort post — a hub blip shouldn't escalate this further.
@@ -342,6 +383,17 @@ func (a *Adapter) runLoop(ctx context.Context, lines <-chan Line) {
 			}
 			for _, ev := range events {
 				payload := ev.Payload
+				// v1.0.667: synthesise a session.init event from the
+				// first per-message usage frame we see. The usage
+				// payload carries `model` (set by usageFromMessage),
+				// and the adapter's Workdir gives `cwd`; together
+				// that's enough for mobile's AppBar header chip to
+				// render the engine + model + cwd row that M1/M2
+				// drivers get for free from their engine-emitted
+				// init frame. claude-code's on-disk JSONL has no
+				// equivalent of M2 stream-json's `init` frame, so
+				// the chip was empty for every M4 spawn.
+				a.maybeEmitSessionInit(ctx, ev)
 				// v1.0.666: no replay tagging — see runLoop header note.
 				if err := a.Poster.PostAgentEvent(ctx, a.AgentID, ev.Kind, ev.Producer, payload); err != nil {
 					// v1.0.664 escalated from Debug to Warn. Silent

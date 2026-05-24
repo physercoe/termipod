@@ -277,6 +277,57 @@ func TestMapLine_AssistantWithoutUsageEmitsOnlyContent(t *testing.T) {
 	}
 }
 
+// v1.0.667 — usage events MUST carry context_window when the model
+// name resolves to a known capacity. Without it mobile's
+// context-utilisation chip suppresses itself entirely (cw==0 → no
+// tile). All current claude-* models are 200K.
+func TestMapLine_UsageCarriesContextWindowFromModel(t *testing.T) {
+	for _, model := range []string{
+		"claude-opus-4-7",
+		"claude-sonnet-4-6",
+		"claude-haiku-4-5-20251001",
+		"claude-3-5-sonnet-20240620",
+	} {
+		raw := `{"type":"assistant","message":{
+			"model":"` + model + `",
+			"content":[{"type":"text","text":"x"}],
+			"usage":{"input_tokens":1,"output_tokens":1}
+		}}`
+		got := mustMap(t, raw)
+		var usage *MappedEvent
+		for i := range got {
+			if got[i].Kind == "usage" {
+				usage = &got[i]
+			}
+		}
+		if usage == nil {
+			t.Fatalf("%s: usage not emitted: %+v", model, got)
+		}
+		if cw, _ := usage.Payload["context_window"].(int); cw != 200_000 {
+			t.Errorf("%s: context_window = %v, want 200000", model, usage.Payload["context_window"])
+		}
+	}
+}
+
+// An unrecognised model name must NOT have a context_window field —
+// better blank than wrong. Mobile then suppresses the chip.
+func TestMapLine_UsageOmitsContextWindowForUnknownModel(t *testing.T) {
+	raw := `{"type":"assistant","message":{
+		"model":"gpt-99-future",
+		"content":[{"type":"text","text":"x"}],
+		"usage":{"input_tokens":1,"output_tokens":1}
+	}}`
+	got := mustMap(t, raw)
+	for _, ev := range got {
+		if ev.Kind != "usage" {
+			continue
+		}
+		if _, has := ev.Payload["context_window"]; has {
+			t.Errorf("unknown model emitted context_window: %v", ev.Payload)
+		}
+	}
+}
+
 // An assistant message with all-zero usage fields must NOT emit a
 // usage event — the chip would be no better off seeing a {0,0,0}
 // snapshot than no event at all, and the zero would replace a real

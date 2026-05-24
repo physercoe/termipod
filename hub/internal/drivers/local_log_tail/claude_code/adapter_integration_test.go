@@ -326,3 +326,72 @@ func TestAdapter_StopDrainsRunLoop(t *testing.T) {
 	// Idempotent.
 	a.Stop()
 }
+
+// v1.0.667 — the M4 adapter synthesises a session.init event on the
+// first usage frame carrying a model, since on-disk JSONL has no
+// equivalent of M2 stream-json's `init` frame. Without this mobile's
+// AppBar chip stays blank for every M4 spawn. Asserts:
+//   - session.init lands BEFORE the corresponding usage event so
+//     the chip can render in the same build pass
+//   - payload carries engine="claude-code", the model from the
+//     assistant frame, and the workdir
+//   - subsequent usage frames in the same session DO NOT re-emit
+//     session.init (would be benign but adds noise)
+func TestAdapter_SynthesisesSessionInitFromFirstUsage(t *testing.T) {
+	cwd := "/home/test/proj-sinit"
+	homeDir, projectDir := makeFakeHome(t, cwd)
+	jsonl := filepath.Join(projectDir, "sess.jsonl")
+	writeJSONL(t, jsonl,
+		`{"type":"assistant","message":{"model":"claude-opus-4-7","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":1,"cache_read_input_tokens":100}}}`,
+		`{"type":"assistant","message":{"model":"claude-opus-4-7","content":[{"type":"text","text":"more"}],"usage":{"input_tokens":2,"cache_read_input_tokens":200}}}`,
+	)
+
+	p := &capturingPoster{}
+	a, _ := NewAdapter(Config{AgentID: "ag", Workdir: cwd, Poster: p})
+	a.HomeDir = homeDir
+	a.SessionCutoff = time.Time{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := a.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop()
+
+	// Both assistant frames produce text + usage. With one
+	// synthetic session.init, that's 5 events total.
+	got := waitForN(t, p, 5, 2*time.Second)
+
+	// Find the session.init.
+	var initIdx = -1
+	initCount := 0
+	for i, ev := range got {
+		if ev.kind == "session.init" {
+			initCount++
+			if initIdx < 0 {
+				initIdx = i
+			}
+		}
+	}
+	if initCount != 1 {
+		t.Fatalf("want exactly 1 session.init, got %d in %+v", initCount, got)
+	}
+	init := got[initIdx]
+	if init.payload["engine"] != "claude-code" {
+		t.Errorf("engine = %v, want claude-code", init.payload["engine"])
+	}
+	if init.payload["model"] != "claude-opus-4-7" {
+		t.Errorf("model = %v, want claude-opus-4-7", init.payload["model"])
+	}
+	if init.payload["cwd"] != cwd {
+		t.Errorf("cwd = %v, want %s", init.payload["cwd"], cwd)
+	}
+	// session.init must precede the FIRST usage event so mobile's
+	// build-pass picks it up alongside the chip-driving values.
+	for i := 0; i < initIdx; i++ {
+		if got[i].kind == "usage" {
+			t.Errorf("usage at index %d landed BEFORE session.init at %d: %+v",
+				i, initIdx, got)
+		}
+	}
+}

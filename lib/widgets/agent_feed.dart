@@ -1117,6 +1117,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (i != null) perMessageInput = i;
         if (cr != null) perMessageCacheRead = cr;
         if (cc != null) perMessageCacheCreate = cc;
+        // v1.0.667: pick up `context_window` if present. The M4
+        // mapper attaches it (derived from model name) so mobile can
+        // render the context-utilisation chip. Without it the chip
+        // suppresses itself (cw <= 0 → no tile). The cumulative
+        // branch above already handled this; the per-message branch
+        // didn't, leaving the chip blank for claude-code spawns
+        // even though usage was flowing.
+        final cw = (p['context_window'] as num?)?.toInt() ?? 0;
+        if (cw > 0) latestContextWindow = cw;
       }
     }
     // If no by_model rows arrived (codex's turn/completed doesn't
@@ -1395,6 +1404,17 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // mean a turn is in progress. Skip and keep scanning so a
       // real text/tool_call signal can win.
       if (kind == 'system') continue;
+      // v1.0.667: 'usage' is per-message telemetry too — the
+      // claude-code M4 adapter posts a usage frame AFTER each
+      // assistant message AND after each turn's Stop hook
+      // (turn.result). Concretely the wire order for an end-of-turn
+      // is: turn.result → text → usage. Reading from the tail back,
+      // the LATEST agent event is `usage`, which fell through to
+      // the default "return true" branch — keeping the busy pill
+      // stuck on forever even after turn.result fired. Treat usage
+      // as pure telemetry (same as 'rate_limit', also skipped via
+      // _isHiddenInFeed but not enumerated here pre-v1.0.667).
+      if (kind == 'usage' || kind == 'rate_limit') continue;
       // Any other agent-produced kind — text streaming, thought,
       // tool_call mid-flight, plan, raw, etc. — means the turn is
       // still in motion.

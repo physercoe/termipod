@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.666
+> **Last verified vs code:** v1.0.667
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,55 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.667-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #11 — three residual M4 polish gaps surfaced
+after v1.0.666 (the text-rendering fix) on-host smoke.
+
+**Fixed.**
+
+- *Cancel button stuck on after end-of-turn.* Mobile's `_isAgentBusy`
+  walks events tail-first and treats any "agent-produced" kind as
+  proof a turn is still in motion. The M4 wire order at end-of-turn
+  is `turn.result → text → usage` (turn.result is posted from the
+  Stop hook handler, text+usage from the JSONL tail), so the LATEST
+  event is `usage`. Walker fell through to the default "busy = true"
+  branch. Added `usage` (and `rate_limit`, similar shape) to the
+  skip list — both are pure telemetry kinds that don't move the
+  turn-progress signal.
+
+- *Context-utilisation chip stayed blank.* The mapper's per-message
+  usage event carried `input_tokens`/`cache_read`/`cache_create` but
+  no `context_window`, so mobile couldn't compute the percentage
+  (chip suppresses itself when capacity is zero). Now the mapper
+  derives the capacity from the model name via a small lookup
+  (`claude-opus-*` / `claude-sonnet-*` / `claude-haiku-*` /
+  `claude-3-*` → 200000; everything else → omit so the chip
+  stays suppressed rather than render a wrong %). Mobile's
+  per-message usage branch picks up the new field.
+
+- *Session.init header chip blank.* M4's on-disk JSONL has no
+  equivalent of M2 stream-json's `init` frame, so mobile's AppBar
+  chip (engine + model + cwd row) stayed empty. The adapter now
+  synthesises a `session.init` event from the FIRST usage frame it
+  sees (the one that carries the model name). Idempotent per
+  Adapter lifetime — subsequent usage events don't re-emit.
+
+**Test coverage.**
+
+- `TestMapLine_UsageCarriesContextWindowFromModel` — sweeps all 4
+  known model prefixes, asserts 200K each.
+- `TestMapLine_UsageOmitsContextWindowForUnknownModel` — better blank
+  than wrong.
+- `TestAdapter_SynthesisesSessionInitFromFirstUsage` — exactly one
+  init landed; payload carries engine/model/cwd; lands BEFORE the
+  first usage event so mobile's build pass picks it up in the same
+  pass.
+
+Mobile changes covered by CI `flutter analyze`.
 
 ---
 

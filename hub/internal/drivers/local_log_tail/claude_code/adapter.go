@@ -16,6 +16,7 @@ package claudecode
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -155,6 +156,33 @@ type Adapter struct {
 	// field, every M4 claude-code resume opened a fresh session.
 	// v1.0.672 — see ADR-014.
 	engineSessionID string
+
+	// latestStatusLine is the most recent claude-code statusLine
+	// snapshot the per-spawn UDS gateway has handed us through
+	// OnStatusLine (ADR-036 W2). When non-nil, its fields override
+	// JSONL-derived values on the events the adapter emits:
+	//
+	//   - session.init.version ← statusLine.version (replaces the
+	//     hardcoded "claude-code" literal at maybeEmitSessionInit's
+	//     payload assembly).
+	//   - usage.context_window ← statusLine.context_window.context_window_size
+	//     (replaces the prefix-family heuristic in
+	//     claudeModelContextWindow when the authoritative number is
+	//     available).
+	//
+	// We DON'T overwrite the usage event's `model` field. The
+	// statusLine `model.id` sometimes carries a `[1m]` tier suffix
+	// (host-verified: present on sonnet-4-6, absent on opus-4-7, even
+	// though both are 1M-windowed). Different from the bare model name
+	// the JSONL `message.model` carries, which mobile groups usage by
+	// — splitting that string into `<bare>[<tier>]` would create
+	// orphaned per-tier rollups on the mobile side.
+	//
+	// Mutex-guarded because the gateway's OnStatusLine can fire
+	// concurrent with the runLoop's read; ADR-036 D3's 1s dedupe
+	// reduces but doesn't eliminate that.
+	latestStatusLineMu sync.RWMutex
+	latestStatusLine   map[string]any
 }
 
 // NewAdapter constructs a claude-code Adapter. Returns an error early
@@ -330,7 +358,15 @@ func (a *Adapter) maybeEmitSessionInit(ctx context.Context, ev MappedEvent) {
 		"engine":  "claude-code",
 		"model":   model,
 		"cwd":     a.Workdir,
-		"version": "claude-code", // mobile's chip shows engine alone if version absent
+		"version": "claude-code", // fallback; the statusLine override below replaces this with the real binary version when known
+	}
+	// ADR-036 D6: prefer the statusLine-sourced `version` (e.g.
+	// "2.1.150") over the hardcoded literal when we've already seen a
+	// statusLine frame. If status_line hasn't fired yet (race with
+	// first usage), the literal stays — the next session_id rotation
+	// in W3 will re-emit with the authoritative value.
+	if v := a.statusLineVersion(); v != "" {
+		payload["version"] = v
 	}
 	// session_id is the claude-code session UUID — the basename (sans
 	// `.jsonl`) of the file we're tailing. The hub's
@@ -420,6 +456,22 @@ func (a *Adapter) runLoop(ctx context.Context, lines <-chan Line) {
 			}
 			for _, ev := range events {
 				payload := ev.Payload
+				// ADR-036 D6: prefer the statusLine-sourced
+				// context_window_size over the prefix-family heuristic
+				// when a statusLine frame has arrived. usageFromMessage
+				// has already stamped its best-guess value (or omitted
+				// the field for unrecognised models); this override
+				// replaces it with the authoritative number once we
+				// have one. No-op when no statusLine has fired yet OR
+				// the event isn't a usage event.
+				if ev.Kind == "usage" {
+					if cw := a.statusLineContextWindow(); cw > 0 {
+						if payload == nil {
+							payload = map[string]any{}
+						}
+						payload["context_window"] = cw
+					}
+				}
 				// v1.0.667: synthesise a session.init event from the
 				// first per-message usage frame we see. The usage
 				// payload carries `model` (set by usageFromMessage),
@@ -486,6 +538,70 @@ func (a *Adapter) Stop() {
 }
 
 // HandleInput is now implemented in sendkeys.go (W2h).
+
+// OnStatusLine is the gateway-side seam for claude-code statusLine
+// frames (ADR-036 W2). The per-spawn UDS gateway invokes this
+// SYNCHRONOUSLY after posting the status_line AgentEvent to the hub;
+// the adapter caches the snapshot so subsequent JSONL-derived events
+// can override their JSONL-heuristic fields with statusLine-authoritative
+// values (see latestStatusLine field comment + statusLineVersion +
+// statusLineContextWindow).
+//
+// W3 will extend this to detect session_id rotation and re-point the
+// JSONL tailer at payload.transcript_path; for now it's a pure
+// cache-update.
+func (a *Adapter) OnStatusLine(_ context.Context, payload map[string]any) {
+	if payload == nil {
+		return
+	}
+	a.latestStatusLineMu.Lock()
+	a.latestStatusLine = payload
+	a.latestStatusLineMu.Unlock()
+}
+
+// statusLineVersion returns the statusLine-sourced binary version
+// string (e.g. "2.1.150"), or "" if no statusLine frame has been
+// received yet OR the field is absent / wrong type. Used by
+// maybeEmitSessionInit to replace the hardcoded "claude-code" literal.
+func (a *Adapter) statusLineVersion() string {
+	a.latestStatusLineMu.RLock()
+	defer a.latestStatusLineMu.RUnlock()
+	if a.latestStatusLine == nil {
+		return ""
+	}
+	s, _ := a.latestStatusLine["version"].(string)
+	return s
+}
+
+// statusLineContextWindow returns the statusLine-sourced authoritative
+// context-window size (in tokens), or 0 if no statusLine frame has
+// been received yet OR the nested context_window.context_window_size
+// field is absent / wrong type. Used by the runLoop to override the
+// per-message usage event's prefix-family heuristic with the
+// authoritative value.
+func (a *Adapter) statusLineContextWindow() int {
+	a.latestStatusLineMu.RLock()
+	defer a.latestStatusLineMu.RUnlock()
+	if a.latestStatusLine == nil {
+		return 0
+	}
+	cw, ok := a.latestStatusLine["context_window"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	// JSON decode lands numeric fields as float64; accept either to
+	// stay robust against any future re-marshalling on the way in.
+	switch v := cw["context_window_size"].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case json.Number:
+		i, _ := v.Int64()
+		return int(i)
+	}
+	return 0
+}
 
 // OnHook routes a hook MCP call from the host-runner gateway to the
 // per-event handler in hooks.go. Each handler updates the FSM and

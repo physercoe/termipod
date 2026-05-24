@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.696
+> **Last verified vs code:** v1.0.697
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,70 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.697-alpha — 2026-05-24
+
+**ADR-036 Phase A W2: claude-code adapter consumes statusLine for
+in-process field overrides; `claudeModelContextWindow` relegated to
+fallback-tier.** Hub-only wedge. Pairs with W1's wire emission to
+turn statusLine snapshots into authoritative values on `session.init`
+and `usage` events. No mobile changes yet — pure correctness uplift
+on the hub side.
+
+### Added
+
+- `hub/internal/drivers/local_log_tail/claude_code/adapter.go` —
+  Adapter gains a `latestStatusLine` cache (RWMutex-guarded) +
+  `OnStatusLine(ctx, payload)` method (implements the W1
+  `StatusLineSink` interface). Two accessors —
+  `statusLineVersion()` and `statusLineContextWindow()` — return the
+  cached fields with the JSON-decoding numeric-shape tolerance
+  (float64 / int / json.Number).
+- `hub/internal/hostrunner/launch_m4_locallogtail.go` —
+  `gw.StatusLineSink = adapter` (sister to `gw.HookSink = driver`).
+  Wires the per-spawn UDS gateway's statusLine seam to the
+  claude-code adapter so OnStatusLine fires synchronously after the
+  gateway posts the AgentEvent.
+
+### Changed
+
+- `maybeEmitSessionInit` (adapter.go) — `session.init.version` now
+  prefers the statusLine-sourced binary version (e.g. "2.1.150")
+  over the hardcoded "claude-code" literal. Falls back to the
+  literal during the cold-open race before the first statusLine
+  frame.
+- `runLoop` (adapter.go) — `usage.context_window` is overridden
+  in-place with the statusLine-sourced authoritative value when
+  available. The mapper still emits its
+  `claudeModelContextWindow`-derived best-guess as a floor; the
+  override is purely additive (no change to events the heuristic
+  already gets right; corrections for what it doesn't).
+- `claudeModelContextWindow` (mapper.go) — RELEGATED to fallback
+  per ADR-036 D6. Function header gains an explicit note pointing
+  to the authoritative source. Function body unchanged — the
+  three-tier resolution (env → legacy override → prefix family) is
+  the floor when statusLine isn't available (older claude, cold-open
+  race, operator removed the statusLine install).
+
+### Tests
+
+- `hub/internal/drivers/local_log_tail/claude_code/adapter_statusline_test.go`
+  (5 new cases) — nil OnStatusLine is a no-op; helpers return zero
+  before first frame; context_window decode handles all three JSON
+  numeric shapes; integration tests show session.init uses
+  statusLine version after a frame, usage event uses statusLine
+  context_window after a frame, AND usage falls back to the
+  heuristic when no statusLine has fired (locks the relegation —
+  not removal — contract).
+
+### Plan status
+
+[ADR-036 plan](plans/claude-code-statusline-as-telemetry.md) Phase A
+W2 ✓ shipped. W3 (session_id rotation handler — fixes /clear
+blindness in M4 by re-pointing the tailer at the new
+`transcript_path`) is the last Phase A wedge.
 
 ---
 

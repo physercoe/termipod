@@ -260,6 +260,14 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 		return nil, fmt.Errorf("locallogtail M4: start gateway: %w", err)
 	}
 	gw.HookSink = driver
+	// ADR-036 W2: wire the claude-code adapter as the gateway's
+	// StatusLineSink. The gateway invokes adapter.OnStatusLine
+	// synchronously after posting the status_line AgentEvent to the
+	// hub; the adapter caches the snapshot for in-process field
+	// overrides on subsequent JSONL-derived events (session.init's
+	// version + usage's context_window). W3 will extend OnStatusLine
+	// to detect session_id rotation and re-point the tailer.
+	gw.StatusLineSink = adapter
 
 	// Launch claude in tmux. Spawn command precedence: spec.Backend.Cmd
 	// wins over template default. (Matches runner.go's existing M4

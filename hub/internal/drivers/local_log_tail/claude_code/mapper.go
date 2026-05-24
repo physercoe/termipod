@@ -184,6 +184,17 @@ func usageFromMessage(model string, raw json.RawMessage) *MappedEvent {
 // model identifier in tokens, or 0 if the identifier is unrecognised
 // (mobile then suppresses the chip rather than rendering a wrong %).
 //
+// ADR-036 W2 (v1.0.697): RELEGATED to fallback-tier. The authoritative
+// source is the statusLine frame's
+// `context_window.context_window_size` field, captured by the
+// adapter's OnStatusLine and applied to usage events in runLoop. This
+// function still runs from usageFromMessage and stamps a best-guess
+// value when the adapter has NOT yet received a statusLine frame
+// (cold-open race before claude's first status refresh) OR for older
+// claude versions that don't ship statusLine at all. Keeping it as
+// the floor preserves the pre-ADR-036 chip behaviour as a safety net
+// per the "blank > wrong" discipline.
+//
 // Resolution order, in priority:
 //
 //  1. `CLAUDE_CODE_MAX_CONTEXT_TOKENS` env var (claude-code's own

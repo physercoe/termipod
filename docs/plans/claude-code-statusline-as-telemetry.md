@@ -1,9 +1,9 @@
 # claude-code statusLine as telemetry
 
 > **Type:** plan
-> **Status:** In flight (2026-05-24) — Phase A W1 shipped (v1.0.696-alpha); W2 + W3 next
+> **Status:** In flight (2026-05-24) — Phase A W1 + W2 shipped (v1.0.696-alpha, v1.0.697-alpha); W3 next
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.696 (hub) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.697 (hub) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -69,8 +69,22 @@ W3's /clear fix on its own merit.
     scenario (the two open questions §1+§2 from the ADR). Record
     findings in this plan's status block.
 
-- **W2 — mapper consumes `status_line`; retire
-  `claudeModelContextWindow` to fallback-tier.**
+- **W2 — adapter consumes `status_line`; retire
+  `claudeModelContextWindow` to fallback-tier.** ✓ Shipped
+  v1.0.697-alpha. **Plan-loose-talk reinterpretation
+  ([[feedback_plan_narrative_loose_talk]]).** Plan literal said
+  "the adapter's runLoop handles incoming gateway-side `status_line`
+  posts the same as JSONL-mapped events (posting via
+  Poster.PostAgentEvent with kind=`status_line`)". Re-posting would
+  have duplicated the row W1's gateway already POSTs to
+  agent_events; structural intent is "statusLine snapshots reach
+  the adapter for in-process consumption". Ship: adapter implements
+  `OnStatusLine` (W1's `StatusLineSink` seam), caches the latest
+  payload under RWMutex, overrides session.init.version + usage.
+  context_window inline before the existing post path. Mapper-side
+  `MapStatusLine` deferred — the gateway already emits the
+  status_line AgentEvent verbatim with no transformation; a mapper
+  function would add a hop without semantic value at this layer.
   - In
     `hub/internal/drivers/local_log_tail/claude_code/mapper.go`:
     add a `MapStatusLine(raw []byte) (*MappedEvent, error)` that

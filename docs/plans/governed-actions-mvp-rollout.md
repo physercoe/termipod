@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.682-alpha
+> **Last verified vs code:** v1.0.683-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -526,45 +526,59 @@ decisions_json regardless of the incoming Decision —
 callers may pass `decision="approve"` + `override=true`
 just as legibly as `decision="override"` + `override=true`.
 
-**W10. `worker_tool_call.escalate` — re-address `permission_prompt` rows raised by steward-parented workers (~90 LOC + 70 LOC tests).**
+**W10. `worker_tool_call.escalate` — re-address `permission_prompt` rows raised by steward-parented workers (~70 LOC + ~190 LOC tests). Shipped v1.0.683-alpha.**
 
 - `hub/internal/server/mcp_more.go` `mcpPermissionPrompt` <!-- verify symbol hub/internal/server/mcp_more.go mcpPermissionPrompt -->
-  (~line 687, function declared at `mcp_more.go:687` as of v1.0.636):
-  after creating the attention row, check
-  `agents.parent_agent_id` of the requesting agent.
-- **Strict same-project parent-steward predicate** (per
-  2026-05-20 pre-W1 decision #3). All three clauses must hold or
-  the row stays team-wide-addressed:
+  — extended to call the new `permissionPromptAddressee` helper
+  <!-- verify symbol hub/internal/server/mcp_more.go permissionPromptAddressee -->
+  before the row INSERT. When the helper returns a non-empty
+  steward_id, the INSERT writes
+  `current_assignees_json = [<steward_id>]` AND
+  `assigned_tier = 'project-steward'`. Otherwise the row stays
+  team-wide-addressed (`assignees='[]'`, `assigned_tier=NULL`).
+- **Strict same-project parent-steward predicate** shipped as
+  one SQL JOIN with five conjuncts (per 2026-05-20 pre-W1
+  decision #3):
+  ```sql
+  SELECT p.id
+  FROM agents w
+  JOIN agents p ON p.id = w.parent_agent_id
+  WHERE w.team_id = ?
+    AND w.id = ?
+    AND w.parent_agent_id IS NOT NULL
+    AND p.kind LIKE 'steward.%'
+    AND p.project_id IS NOT NULL
+    AND w.project_id IS NOT NULL
+    AND p.project_id = w.project_id
   ```
-  worker.parent_agent_id IS NOT NULL
-  AND parent_agent.kind LIKE 'steward.%'        (kind-based — v1.0.607)
-  AND parent_agent.project_id = worker.project_id
-  ```
-  The third clause (`project_id` match) avoids a v1.0.605-class
-  bug where the parent-id pointer survives but the project binding
-  has drifted. When the strict predicate holds, stamp the row with
-  `assigned_tier = "project-steward"` and `current_assignees_json
-  = [<parent_steward_id>]`. Otherwise leave the row team-wide-
-  addressed as today.
+  The two `IS NOT NULL` guards on `project_id` defend against
+  SQL's `NULL = NULL → NULL` semantics — without them, two
+  unbound rows would accidentally match. The third clause
+  (`p.project_id = w.project_id`) is the binding-drift guard
+  (v1.0.605-class bug — parent-id pointer survives but
+  project binding has drifted).
+- Best-effort: any non-`ErrNoRows` DB error logs a warn +
+  returns "" so a transient DB issue degrades to safe
+  (team-wide).
 - `dispatchAttentionReply` is unchanged — the existing fan-back
   already addresses by `session_id`; the new addressing only
   affects which inbox surfaces the row first.
-- Mobile: see W12.
-- Tests:
-  - Worker with same-project steward parent: row addressed to
-    parent.
-  - Worker with cross-project steward parent (binding drift):
-    row stays team-wide-addressed (third clause fails).
-  - Worker with non-steward parent: row stays team-wide-addressed
-    (second clause fails).
-  - Worker without parent (orphan): row stays team-wide-addressed
-    (first clause fails).
-  - Steward decides → fan-back to engine driver (codex / claude)
-    works as before.
-  - Principal override after steward-approve: emits override
-    audit; for codex parked-RPC, the driver's existing
-    `attention_reply` handler re-runs (this is the one case
-    where override is complex — needs a verification test).
+- Tests (6): same-project steward parent addresses row;
+  cross-project steward parent (binding drift) stays
+  team-wide; non-steward parent stays team-wide; orphan
+  worker (no parent) stays team-wide; both-sides-NULL
+  project_id stays team-wide (the NULL=NULL guard); direct
+  helper test against ghost worker returns "".
+- (Steward-decides → fan-back test deferred — covered by
+  existing `TestDecide_PermissionPromptFansOutAttentionReply`
+  which lives in `handlers_attention_permission_prompt_test.go`
+  and still passes under the W10 changes since `dispatchAttentionReply`
+  is untouched.)
+- (Principal-override-of-codex-parked-RPC complex case
+  deferred — W9 ships the override path against
+  propose-kind rows; permission_prompt isn't a propose
+  kind, so override on it would require widening
+  `handleAttentionOverride`. Tracked separately.)
 
 **W11. `dispatchAttentionReply` allowlist + fan-back payload + ADR-032 envelope (~40 LOC + 30 LOC tests).**
 

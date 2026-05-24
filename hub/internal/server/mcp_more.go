@@ -782,15 +782,31 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 	now := NowUTC()
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
 
+	// ADR-030 W10: re-address the row to the worker's parent steward
+	// when the strict same-project predicate holds. Otherwise leave
+	// it team-wide-addressed (assignees='[]', assigned_tier=NULL) so
+	// the existing behaviour is unchanged for orphan workers,
+	// non-steward parents, and binding-drift cases.
+	assignees := "[]"
+	assignedTier := sql.NullString{}
+	if stewardID := s.permissionPromptAddressee(ctx, team, fromID); stewardID != "" {
+		b, _ := json.Marshal([]string{stewardID})
+		assignees = string(b)
+		assignedTier = sql.NullString{String: GovTierProjectSteward, Valid: true}
+	}
+
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
-			actor_kind, actor_handle, pending_payload_json
+			actor_kind, actor_handle, pending_payload_json,
+			assigned_tier
 		) VALUES (?, NULL, 'team', NULL, 'permission_prompt',
-		          ?, 'minor', '[]', 'open', ?,
-		          'agent', NULLIF(?, ''), ?)`,
-		id, summary, now, actorHandle, string(payload),
+		          ?, 'minor', ?, 'open', ?,
+		          'agent', NULLIF(?, ''), ?,
+		          ?)`,
+		id, summary, assignees, now, actorHandle, string(payload),
+		assignedTier,
 	); err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
@@ -837,6 +853,50 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 		"behavior": "deny",
 		"message":  msg,
 	}), nil
+}
+
+// permissionPromptAddressee returns the parent steward's agent_id
+// when the ADR-030 W10 strict same-project parent-steward predicate
+// holds for the requesting worker, or "" otherwise. All three
+// clauses MUST hold:
+//
+//  1. The worker has a non-NULL `parent_agent_id`.
+//  2. The parent agent's `kind` matches the kind-based steward
+//     predicate `LIKE 'steward.%'` (v1.0.607 detection rule).
+//  3. The parent agent's `project_id` matches the worker's
+//     `project_id`. This third clause is the binding-drift guard
+//     — without it, a v1.0.605-class bug where the parent-id
+//     pointer survives but the project binding has drifted would
+//     route the row to a steward that no longer owns the worker.
+//
+// `project_id IS NOT NULL` is required on both sides so SQL's
+// `NULL = NULL → NULL` semantics don't accidentally accept two
+// unbound rows as "matching".
+//
+// Best-effort. Any DB error returns "" + a Warn log; the row stays
+// team-wide-addressed (the existing pre-W10 behaviour), so a
+// transient DB issue degrades to safe.
+func (s *Server) permissionPromptAddressee(ctx context.Context, team, workerID string) string {
+	var stewardID string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT p.id
+		  FROM agents w
+		  JOIN agents p ON p.id = w.parent_agent_id
+		 WHERE w.team_id = ?
+		   AND w.id = ?
+		   AND w.parent_agent_id IS NOT NULL
+		   AND p.kind LIKE 'steward.%'
+		   AND p.project_id IS NOT NULL
+		   AND w.project_id IS NOT NULL
+		   AND p.project_id = w.project_id`,
+		team, workerID).Scan(&stewardID)
+	if err == nil {
+		return stewardID
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		s.log.Warn("permission_prompt addressee lookup", "worker_id", workerID, "err", err)
+	}
+	return ""
 }
 
 // waitForAttentionResolution polls attention_items until status='resolved'

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.682
+> **Last verified vs code:** v1.0.683
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,76 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.683-alpha — 2026-05-24
+
+ADR-030 Phase 1 W10 — re-address `permission_prompt` rows raised by
+steward-parented workers. When a worker has a same-project steward
+parent, the row lands `assigned_tier='project-steward'` +
+`current_assignees_json=[<parent_id>]` so the parent steward sees
+it in their inbox first. Otherwise the row stays team-wide-addressed
+(existing behaviour preserved for orphan workers, non-steward
+parents, and binding-drift cases).
+
+### Added
+
+- `hub/internal/server/mcp_more.go::permissionPromptAddressee` —
+  new helper. Single SQL JOIN with the strict three-clause
+  predicate per ADR-030 pre-W1 decision #3:
+  ```
+  worker.parent_agent_id IS NOT NULL
+  AND parent.kind LIKE 'steward.%'
+  AND parent.project_id IS NOT NULL AND = worker.project_id
+  ```
+  Two `IS NOT NULL` guards defend against SQL's
+  `NULL = NULL → NULL` semantics. Best-effort: DB errors log
+  a warn + return "" so transient issues degrade to safe
+  (team-wide addressing).
+- `mcpPermissionPrompt` calls the helper before the row INSERT
+  and stamps `assigned_tier` + `current_assignees_json`
+  accordingly. The INSERT statement was widened to include
+  `assigned_tier` (the ADR-030 W1 column previously written
+  only by the propose path).
+- `hub/internal/server/mcp_permission_prompt_addressing_test.go`
+  — 6 cases: same-project steward parent addresses row;
+  cross-project steward parent (binding drift) stays
+  team-wide; non-steward parent stays team-wide; orphan
+  worker stays team-wide; NULL project_ids on both sides
+  stay team-wide (NULL=NULL guard); direct helper test
+  against ghost worker returns "".
+
+### Changed
+
+- `pubspec.yaml` 1.0.682 → 1.0.683-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` +
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.683. Plan W10 rewritten to document the helper shape, the
+  5-conjunct SQL JOIN, and the 6-test coverage breakdown. New
+  verify symbol anchor on `permissionPromptAddressee` → 23
+  anchors total now, all green.
+
+### Notes
+
+- **`dispatchAttentionReply` unchanged.** Fan-back still
+  addresses by `session_id`; the new addressing only affects
+  which inbox surfaces the row first. Existing
+  `TestDecide_PermissionPromptFansOutAttentionReply` passes
+  unchanged.
+- **Binding-drift guard is the load-bearing clause.** Without
+  the `p.project_id = w.project_id` check, a v1.0.605-class
+  bug where the parent-id pointer survives but the project
+  binding has drifted would route the row to a steward that
+  no longer owns the worker. Test 2
+  (`CrossProjectStewardParent_StaysTeamWide`) is the
+  regression for that scenario.
+- **Principal-override of permission_prompt deferred.** W9
+  ships override against propose-kind rows;
+  permission_prompt isn't a propose kind. Widening
+  `handleAttentionOverride` to handle it would require
+  per-engine-driver coordination (codex parked-RPC, etc.).
+  Tracked as a follow-up.
 
 ---
 

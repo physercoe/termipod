@@ -201,6 +201,27 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	if err != nil {
 		return nil, fmt.Errorf("locallogtail M4: new adapter: %w", err)
 	}
+	// v1.0.673: on a `--resume` spawn the JSONL file already exists
+	// with the prior session's transcript inline (claude-code APPENDS
+	// to the original `<uuid>.jsonl` on resume rather than minting a
+	// new one — verified by inspecting a real resumed JSONL on the
+	// dev box). The prior agent already posted those lines under its
+	// own agent_id; tailing from byte 0 under the resumed agent's id
+	// would re-emit every assistant text + thought as a duplicate
+	// under the new id, and mobile's session-view (which merges by
+	// session_id) renders the result as a duplicated transcript.
+	// StartFromEnd seeks to current EOF before the live tail begins,
+	// skipping the historical bytes. Claude's own auto-injected
+	// `Continue from where you left off.` user-meta + `No response
+	// requested.` reply that fire during resume init typically land
+	// in the still-loading window before the adapter attaches, so
+	// they're skipped too; the mapper-side noise filter
+	// (assistantTextNoise) catches any race-condition stragglers.
+	if cmdContainsResumeFlag(spec.Backend.Cmd) {
+		adapter.TailMode = claudecode.StartFromEnd
+		cfg.Log.Info("locallogtail M4: --resume detected, tailing from end to avoid duplicating prior agent's transcript",
+			"agent_id", cfg.Spawn.ChildID, "handle", cfg.Spawn.Handle)
+	}
 	// AttentionClient — host-runner-side client for parked-hook
 	// coordination (W2i). Uses the per-spawn MCPToken so the hub's
 	// attention API treats the call as the agent's.
@@ -304,6 +325,25 @@ func init() {
 		// otherwise notice.
 		panic("hub.MCPServerName must be a single identifier")
 	}
+}
+
+// cmdContainsResumeFlag returns true when the rendered spawn cmd
+// contains a top-level `--resume <id>` or `--resume=<id>` pair. The
+// hub's spliceClaudeResume injects exactly this shape after the
+// `claude` bin token when handleResumeSession threads the captured
+// engine_session_id back into a fresh spawn (ADR-014). The M4 launch
+// path uses the signal to switch the tail mode so the resumed
+// adapter doesn't re-emit the prior agent's transcript. Splits on
+// whitespace (claude doesn't accept quoted/escaped args in this
+// position, and spliceClaudeResume never produces them), then scans
+// for a bare `--resume` or a `--resume=…` prefix. v1.0.673.
+func cmdContainsResumeFlag(cmd string) bool {
+	for _, tok := range strings.Fields(cmd) {
+		if tok == "--resume" || strings.HasPrefix(tok, "--resume=") {
+			return true
+		}
+	}
+	return false
 }
 
 // preTrustWorkspaceClaudeCode adds workdir to claude-code's per-project

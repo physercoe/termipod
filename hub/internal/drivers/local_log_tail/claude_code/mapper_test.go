@@ -58,6 +58,27 @@ func TestMapLine_AssistantToolUse_PassesInput(t *testing.T) {
 	}
 }
 
+// v1.0.673: claude-code emits a literal `No response requested.`
+// assistant text body when it has nothing real to say — most visibly
+// on `--resume`, where claude auto-injects an `isMeta: true` user
+// message ("Continue from where you left off.") and replies with this
+// stub. The string is a top-level constant in the claude binary
+// (CVH); surfacing it on mobile makes the agent look like it replied
+// "No response requested." to the user's first post-resume turn.
+// Mapper drops the frame; any text that ISN'T exactly the constant
+// (e.g. user quoting it) still flows.
+func TestMapLine_AssistantTextNoise_NoResponseRequestedDropped(t *testing.T) {
+	got := mustMap(t, `{"type":"assistant","message":{"content":[{"type":"text","text":"No response requested."}]}}`)
+	if len(got) != 0 {
+		t.Errorf("want 0 events for synthetic noise, got %+v", got)
+	}
+	// Quoting the constant inside a larger reply must still flow.
+	got = mustMap(t, `{"type":"assistant","message":{"content":[{"type":"text","text":"You said: \"No response requested.\""}]}}`)
+	if len(got) != 1 || got[0].Kind != "text" {
+		t.Errorf("quoted-constant reply was dropped (over-match): %+v", got)
+	}
+}
+
 func TestMapLine_AssistantMultipleBlocks_FanOut(t *testing.T) {
 	got := mustMap(t, `{"type":"assistant","message":{"content":[
 		{"type":"text","text":"a"},

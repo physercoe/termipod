@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.672
+> **Last verified vs code:** v1.0.673
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,83 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.673-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #16 — first on-device test of v1.0.672's M4
+claude-code resume surfaced two cosmetic-but-significant defects.
+
+User report: "i just tested the resume, session resumed, the mobile
+seems rendered a duplicated agent's last session's text plus there is
+'No response requested' response from agent when i enter a new input
+in the resumed session."
+
+**Root cause — defect 1 (duplicated transcript).** Inspecting the
+resumed JSONL on the dev box
+(`~/.claude/projects/-home-ubuntu-hub-work-m4-test/9e3d2110-….jsonl`)
+revealed that **claude-code APPENDS to the original `<uuid>.jsonl` on
+resume rather than minting a new file**. The pre-existing lines (the
+prior session's full transcript) and the resumed agent's new lines
+share one file. The M4 adapter's default `TailMode =
+StartFromBeginning` then re-emits ALL existing bytes under the new
+agent_id at attach. Both the prior agent and the resumed agent are
+stamped with the same session_id, so mobile's session-view (which
+merges by session_id) shows every assistant text and thought twice.
+
+(Side note: this also corrects a caveat shipped in v1.0.672's changelog
+entry — the captured `engineSessionID` is NOT overwritten on the next
+resume because the JSONL filename UUID is stable across resumes.
+Resume-of-resume is safe by construction.)
+
+**Root cause — defect 2 ("No response requested." stub reply).** When
+claude-code starts under `--resume`, it auto-injects an
+`isMeta: true` user message with body "Continue from where you left
+off." and the model replies with the literal "No response requested."
+(claude's `CVH` constant, verified by string sweep of v2.1.144).
+Mobile rendered this as the agent's reply to the user's first
+post-resume input.
+
+**Fixed.**
+
+- **launch_m4_locallogtail.go**: new `cmdContainsResumeFlag(cmd)`
+  helper detects `--resume <id>` / `--resume=<id>` in the rendered
+  spawn cmd (the shape `spliceClaudeResume` produces). When true, the
+  M4 launch path sets `adapter.TailMode = claudecode.StartFromEnd` so
+  the tailer seeks past the pre-existing transcript before live tail
+  begins. Logged at INFO so operators can see the decision in
+  hostrunner.log.
+- **mapper.go**: new `assistantTextNoise` set — currently just
+  `"No response requested."`, matched EXACTLY on `mapAssistantBlock`'s
+  `case "text"`. Drop is surgical: any reply that merely quotes the
+  string (e.g. a user-facing summary that includes it) still flows.
+- **Note on the resume init race**: defect 2's auto-injected stub
+  typically lands BEFORE the resumed adapter attaches (claude's
+  `--resume` init takes a moment), so `StartFromEnd` alone usually
+  skips it. The mapper-side noise filter is belt-and-suspenders for
+  the race-condition window when claude is unusually fast.
+
+**Test coverage.**
+
+- `TestMapLine_AssistantTextNoise_NoResponseRequestedDropped` —
+  asserts both the drop AND the negative case (quoted-constant still
+  flows) so a future widening of the set doesn't accidentally swallow
+  legitimate replies.
+- `TestCmdContainsResumeFlag` — 7-case sweep including the spliced
+  shape, equals form, mid-flag position, fresh spawn, empty cmd,
+  substring-trap, and the `cd <workdir> && claude --resume …` form
+  the launch path actually produces.
+
+Root cause class. **Producer protocol assumption changed at a
+boundary** — the v1.0.672 resume fix assumed each resume opens a new
+JSONL (so all events at byte 0 of any JSONL the adapter sees are
+fresh content). Reality is claude-code reuses the file. Same family
+as the v1.0.666 `replay:true` cross-driver assumption: a producer
+contract that holds for one driver path (fresh spawn) doesn't hold
+for an adjacent one (resume). Detection: when adding any
+mode-conditional adapter behaviour, enumerate the modes and verify
+each against a real on-disk artefact.
 
 ---
 

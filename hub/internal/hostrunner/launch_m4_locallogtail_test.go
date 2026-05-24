@@ -499,3 +499,34 @@ func TestPreTrustWorkspaceClaudeCode_AlreadyTrusted_NoMutation(t *testing.T) {
 		t.Errorf("file was rewritten despite already-trusted state (mtime changed)")
 	}
 }
+
+// v1.0.673: cmdContainsResumeFlag must catch the shape spliceClaudeResume
+// produces (`--resume <uuid>` immediately after the `claude` bin token)
+// AND the `--resume=<uuid>` form an operator might hand-bake, while NOT
+// matching unrelated substrings (e.g. a workdir name that happens to
+// contain "--resume" in shell-escaped form). Drives the M4 launch
+// path's TailMode = StartFromEnd decision; a false negative makes the
+// resumed adapter re-emit the prior agent's transcript as duplicates,
+// a false positive makes a fresh spawn skip its own first turn.
+func TestCmdContainsResumeFlag(t *testing.T) {
+	cases := []struct {
+		name string
+		cmd  string
+		want bool
+	}{
+		{"spliced shape", "claude --resume b98267bf-84d8-47ce-b745-e100a760478d --model claude-opus-4-7 --allow-dangerously-skip-permissions", true},
+		{"equals form", "claude --resume=b98267bf-84d8-47ce-b745-e100a760478d", true},
+		{"resume buried mid-flags", "claude --model x --resume abc --dangerously-skip-permissions", true},
+		{"fresh spawn (no resume)", "claude --model claude-opus-4-7 --allow-dangerously-skip-permissions --dangerously-skip-permissions", false},
+		{"empty cmd", "", false},
+		{"substring match must NOT trigger", "claude --foo=--resume-not-a-flag", false},
+		{"workdir-prefixed cd-into form", "cd /home/x/work && claude --resume abc --model y", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cmdContainsResumeFlag(tc.cmd); got != tc.want {
+				t.Errorf("cmdContainsResumeFlag(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+		})
+	}
+}

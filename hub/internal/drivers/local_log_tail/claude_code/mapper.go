@@ -310,6 +310,21 @@ func mapAssistantBlock(raw json.RawMessage) *MappedEvent {
 	}
 	switch b.Type {
 	case "text":
+		// v1.0.673: drop claude-code's internal "No response requested."
+		// synthetic. Claude emits this as an assistant text body when it
+		// has nothing to say — most visibly on `--resume`, where claude
+		// auto-injects an `isMeta: true` user message
+		// ("Continue from where you left off.") and then replies with this
+		// stub. The string is the `CVH` constant in the claude binary
+		// (verified by string sweep on v2.1.144); listed in claude's own
+		// classifier prompt as an "EXPLICIT MARKER" for `done`. Surfacing
+		// it on mobile makes it look like the agent itself responded
+		// "No response requested." to the user's first post-resume turn.
+		// Dropping the frame removes the noise without losing real
+		// content — claude only emits this when there genuinely is none.
+		if assistantTextNoise[b.Text] {
+			return nil
+		}
 		return &MappedEvent{
 			Kind:     "text",
 			Producer: "agent",
@@ -572,6 +587,19 @@ var attachmentDropTypes = map[string]bool{
 	"deferred_tools_delta": true,
 	"agent_listing_delta":  true,
 	"skill_listing":        true,
+}
+
+// assistantTextNoise is the set of assistant text bodies claude-code
+// emits as synthetic placeholders for "the model has nothing real to
+// say." Surfacing them on mobile makes the transcript look like the
+// agent is replying with stub text. Strings sourced from the claude
+// binary string sweep (v2.1.144) — each is a top-level constant in the
+// minified bundle, used as the assistant content body for cases like
+// auto-resume continuation or empty tool responses. Match is exact —
+// drop only the unadorned constant, not any reply that happens to
+// quote one. v1.0.673.
+var assistantTextNoise = map[string]bool{
+	"No response requested.": true,
 }
 
 func mapAttachment(att json.RawMessage, raw json.RawMessage) ([]MappedEvent, error) {

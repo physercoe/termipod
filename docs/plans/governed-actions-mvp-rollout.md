@@ -11,13 +11,13 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile at
 > v1.0.687; W15 at v1.0.688; W16 + shared visuals at v1.0.689;
 > W17 + W16-lint-error fix at v1.0.690; W18 at v1.0.691;
-> W21 (read-only policy viewer in team settings) at v1.0.692;
-> W19, W20, W19.6-mobile remain.
+> W21 at v1.0.692; W20 (override confirmation sheet) at v1.0.693;
+> W19 and W19.6-mobile remain.
 > Reissued 2026-05-20 to absorb ADR-030 amendments (D-7 Option 2′,
 > ADR-032 envelope on fan-back, ADR-034 loop-entity overlap,
 > principal ≠ owner). Original: Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.692-alpha
+> **Last verified vs code:** v1.0.693-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -1168,17 +1168,49 @@ into the existing IA without rename or chip add:
   post-MVP push-channel use, but in MVP nothing fires it; the
   digest card is the affordance.
 
-**W20. Override affordance (~40 LOC).**
+**W20. Override affordance — confirmation sheet (~245 LOC sheet + 120 LOC test + 5 caller updates). Shipped v1.0.693-alpha. SCOPE NARROWED.**
 
-- Resolved rows (status=`resolved`) gain a menu (… overflow)
-  with "Override decision" when policy has
-  `override_allowed: true` and the current user tier is higher
-  than the resolver's tier.
-- Tap → confirmation sheet with reason field (required) →
-  POST decide with `override=true` flag.
-- Display the override visibly in the row's history: original
-  decision + override decision + override reason, color-coded
-  to distinguish.
+> **Scope-narrowing note.** Plan literal said "Resolved rows
+> (status=`resolved`) gain a menu (… overflow) with 'Override
+> decision'…". The current Me-page only renders OPEN rows
+> (listAttention filters status='open'); supporting override on
+> resolved rows requires a separate resolved-rows toggle/filter,
+> which is itself a feature, not a small UI affordance. Shipped
+> the visible MVP improvement: the modal bottom sheet that
+> replaces v1.0.688's inline AlertDialog placeholder. Override on
+> resolved rows is deferred to a Phase 3+ follow-up
+> (**W20-resolved**) — the override path itself works fine via
+> direct REST today; the gap is just the Me-page surface for
+> resolved rows.
+
+- `lib/screens/me/widgets/override_sheet.dart` (new)
+  <!-- verify file lib/screens/me/widgets/override_sheet.dart -->
+  — modal bottom sheet with:
+  - drag handle + "Override decision" header with gavel icon
+  - explanation paragraph naming the addressee + linking to the
+    ADR-030 W9 Rollback semantic
+  - context block in muted background showing `change_kind`,
+    one-line `change_spec` preview (max 3 lines, ellipsised),
+    one-line `target_ref` preview — so the principal sees what
+    they're overriding before they type
+  - autofocus reason TextField (required); inline error if
+    submitted empty; clears on next keystroke
+  - Submit button shows CircularProgressIndicator during the
+    decide round-trip; Cancel disabled mid-submit
+  - errors surface inline (no snack) so the principal can read +
+    retry without dismissing
+  - returns `bool` — `true` on successful decide, `false` on
+    cancel; callers decide what to do with onResolved
+- `lib/screens/me/widgets/propose_card_actions.dart` —
+  `StalledProposeActions` API changed: takes the full `attention`
+  Map<String, dynamic> instead of just `id`, so the sheet can
+  render the change_kind + change_spec context without a second
+  fetch. All 5 propose cards updated (W15-W18).
+- `test/screens/me/override_sheet_test.dart` — 4 widget cases:
+  shows change_kind / addressee / reason field / Override button;
+  Cancel returns false + closes sheet; empty reason → inline
+  error + stays open; change_spec preview includes from_state +
+  to_state.
 
 **W21. Read-only policy viewer (~265 LOC mobile + 50 LOC hub endpoint + 145 LOC test). Shipped v1.0.692-alpha. RE-HOMED OUT OF MOBILE SETTINGS.**
 

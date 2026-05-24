@@ -123,7 +123,7 @@ class ProposeCardAgentSpawn extends ConsumerWidget {
           PrimaryProposeActions(id: id, onResolved: onResolved)
         else
           StalledProposeActions(
-            id: id,
+            attention: attention,
             onResolved: onResolved,
             viewSourceLabel: 'View spawn detail',
             onViewSource: () => _viewSpawn(context, childHandle),

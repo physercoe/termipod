@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.692
+> **Last verified vs code:** v1.0.693
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,65 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.693-alpha — 2026-05-24
+
+**ADR-030 Phase 3 W20: override confirmation sheet.** Modal bottom
+sheet that replaces v1.0.688's inline AlertDialog placeholder.
+Surfaces the change_kind + change_spec preview so the principal can
+see what they're overriding before they type the required reason.
+
+**Scope narrowed** per the plan rewrite — the original W20 said
+"Resolved rows gain an … overflow menu with Override decision", but
+the current Me-page only renders OPEN rows (listAttention filters
+status='open'). Supporting override on resolved rows requires a
+separate resolved-rows toggle/filter — a feature, not a small UI
+affordance. Shipped the visible MVP improvement (the sheet itself);
+override on resolved rows deferred to **W20-resolved**. The override
+path itself works fine via direct REST today; the gap is only the
+Me-page surface for resolved rows.
+
+### Added
+
+- `lib/screens/me/widgets/override_sheet.dart` — modal bottom sheet
+  with drag handle, gavel-icon header, explanation paragraph naming
+  the addressee + ADR-030 W9 Rollback semantic, context block
+  (change_kind + change_spec + target_ref, compact 1-line previews),
+  autofocus required-reason TextField, inline error on empty submit
+  (no snack — sheet stays open), Submit button with inline
+  CircularProgressIndicator during the decide round-trip. Returns
+  `bool` (true on success, false on cancel).
+- `test/screens/me/override_sheet_test.dart` — 4 widget cases:
+  shows change_kind/addressee/reason field/Override button; Cancel
+  returns false + closes sheet; empty reason → inline error + stays
+  open; change_spec preview includes from_state + to_state.
+
+### Changed
+
+- `lib/screens/me/widgets/propose_card_actions.dart` —
+  `StalledProposeActions` API changed: takes the full `attention`
+  Map<String, dynamic> instead of just `id` so the sheet can render
+  the change_kind + change_spec context without a second fetch.
+  All 5 propose cards (W15-W18) updated to pass `attention:` instead
+  of `id:`. Existing widget tests pass unchanged because they assert
+  on rendered text, not the API shape.
+
+### Deferred (W20-resolved)
+
+- Override affordance on RESOLVED rows in Me-page — currently the
+  Me-page only fetches `status='open'` rows; supporting an Override
+  affordance on resolved rows requires a resolved-rows toggle/filter
+  + the listAttention(status='resolved') call path. The override
+  REST endpoint itself works today (see hub-side W9 path); the gap
+  is only the surface.
+
+### Forensics
+
+Mobile binary shifts (1 new sheet + 5 caller updates + 1 new test
++ propose_card_actions API change). Hub binary unchanged.
+pubspec 1.0.692 → 1.0.693.
 
 ---
 

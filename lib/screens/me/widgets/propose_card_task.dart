@@ -109,7 +109,7 @@ class ProposeCardTask extends ConsumerWidget {
           PrimaryProposeActions(id: id, onResolved: onResolved)
         else
           StalledProposeActions(
-            id: id,
+            attention: attention,
             onResolved: onResolved,
             viewSourceLabel: 'View task',
             onViewSource: taskId.isEmpty

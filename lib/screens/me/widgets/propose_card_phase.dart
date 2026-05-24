@@ -77,7 +77,7 @@ class ProposeCardPhase extends ConsumerWidget {
           PrimaryProposeActions(id: id, onResolved: onResolved)
         else
           StalledProposeActions(
-            id: id,
+            attention: attention,
             onResolved: onResolved,
             viewSourceLabel: 'View project',
             onViewSource: projectId.isEmpty

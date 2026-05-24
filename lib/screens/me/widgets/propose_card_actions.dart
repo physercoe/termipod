@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import 'override_sheet.dart';
 
 /// ADR-030 W15-W18 — shared action-row widgets for the per-kind
 /// propose cards. Two flavours mirror the two card variants returned
@@ -13,13 +14,9 @@ import '../../../theme/design_colors.dart';
 ///   hub.decide flow. No override semantics.
 /// - [StalledProposeActions] — the viewer is NOT the addressee but
 ///   the row escalated to their tier. Render Override / View source.
-///   Override opens a confirmation sheet that takes a reason and
-///   POSTs decide with `override=true`. The reason field is required
-///   (matches ADR-030 W9's override audit-meta expectation).
-///
-/// W20 will replace the inline Override dialog here with a proper
-/// confirmation sheet (matching the D-8 sheet design). For now the
-/// inline dialog gives the principal a working override path.
+///   Override opens the W20 confirmation sheet ([showOverrideSheet])
+///   that takes a required reason, shows the change_kind +
+///   change_spec context, then POSTs decide with `override=true`.
 
 class PrimaryProposeActions extends ConsumerWidget {
   final String id;
@@ -66,14 +63,18 @@ class PrimaryProposeActions extends ConsumerWidget {
 }
 
 class StalledProposeActions extends ConsumerWidget {
-  final String id;
+  /// Full attention row (not just the id) so the W20 override sheet
+  /// can render the change_kind + change_spec context block without
+  /// a separate fetch. Kept-as-Map (no typed model — the mobile
+  /// reads hub entities as JSON maps per repo convention).
+  final Map<String, dynamic> attention;
   final VoidCallback? onResolved;
   final String viewSourceLabel;
   final VoidCallback? onViewSource;
 
   const StalledProposeActions({
     super.key,
-    required this.id,
+    required this.attention,
     this.onResolved,
     this.viewSourceLabel = 'View source',
     this.onViewSource,
@@ -88,7 +89,7 @@ class StalledProposeActions extends ConsumerWidget {
         FilledButton.icon(
           icon: const Icon(Icons.gavel, size: 16),
           label: const Text('Override'),
-          onPressed: () => _override(context, ref),
+          onPressed: () => _override(context),
         ),
         OutlinedButton.icon(
           icon: const Icon(Icons.open_in_new, size: 16),
@@ -99,66 +100,18 @@ class StalledProposeActions extends ConsumerWidget {
     );
   }
 
-  Future<void> _override(BuildContext context, WidgetRef ref) async {
-    final reason = await _promptForReason(context);
-    if (reason == null || reason.isEmpty) return;
-    try {
-      // ADR-030 W9: override=true paired with decision='override' (or
-      // 'approve', the hub accepts either when override=true). We use
-      // 'override' explicitly so the decisions_json reads honestly in
-      // the audit trail.
-      await ref.read(hubProvider.notifier).decide(
-            id,
-            'override',
-            by: '@principal',
-            reason: reason,
-            override: true,
-          );
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Override recorded')),
-        );
-      }
-      onResolved?.call();
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Override failed: $e')),
-        );
-      }
+  Future<void> _override(BuildContext context) async {
+    // ADR-030 W20 — modal bottom sheet replaces the inline AlertDialog
+    // that v1.0.688's W15 shipped. The sheet handles the decide call
+    // internally + surfaces errors via inline copy; returns true on
+    // success, false on cancellation.
+    final ok = await showOverrideSheet(context, attention: attention);
+    if (!ok) return;
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Override recorded')),
+      );
     }
-  }
-
-  Future<String?> _promptForReason(BuildContext context) async {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Override decision'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            labelText: 'Reason (required)',
-            hintText: 'Why are you overriding the addressee\'s decision?',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final r = controller.text.trim();
-              if (r.isEmpty) return;
-              Navigator.pop(ctx, r);
-            },
-            child: const Text('Override'),
-          ),
-        ],
-      ),
-    );
+    onResolved?.call();
   }
 }

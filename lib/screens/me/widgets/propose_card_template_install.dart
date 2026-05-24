@@ -105,7 +105,7 @@ class ProposeCardTemplateInstall extends ConsumerWidget {
           PrimaryProposeActions(id: id, onResolved: onResolved)
         else
           StalledProposeActions(
-            id: id,
+            attention: attention,
             onResolved: onResolved,
             viewSourceLabel: 'View template body',
             onViewSource: () => _viewBody(context, pathLabel),

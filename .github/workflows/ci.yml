@@ -68,6 +68,17 @@ jobs:
         # adoption plan in docs/discussions/doc-freshness-maintenance.md.
         run: scripts/lint-doc-anchors.sh
 
+      - name: Lint governed actions
+        # ADR-030 W3 — keeps three sources of truth in lockstep:
+        # the propose-kind registry (statically grepped from
+        # hub/internal/server/*.go for RegisterProposeKind calls),
+        # the policy.yaml `kinds:` block (any committed fixture
+        # is auto-discovered), and the kind-shape + escalate-on-
+        # timeout safety constraints. FAIL on registry⇄policy
+        # mismatch or bad kind name; WARN on no-policy-found
+        # when the registry is non-empty.
+        run: scripts/lint-governed-actions.sh
+
       - name: Validate OpenAPI spec
         # Enforces docs/reference/openapi.yaml validates against the
         # OpenAPI 3.x schema. Per docs/plans/doc-uplift.md P2.8 §5.8.

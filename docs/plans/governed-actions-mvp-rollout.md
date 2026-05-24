@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.675-alpha
+> **Last verified vs code:** v1.0.676-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -154,18 +154,29 @@ parent re-address to the parent steward.
   legacy `tiers:` rows still resolve through the existing
   `Decide()` path.
 
-**W3. `lint-governed-actions.sh` (~50 LOC shell + 30 LOC tests).**
+**W3. `lint-governed-actions.sh` + propose-kind registry skeleton (~50 LOC shell + ~95 LOC Go + ~220 LOC tests).**
 
-- `scripts/lint-governed-actions.sh` — walks the policy file
-  and the dispatcher's registered kinds (from a new
-  `propose_kinds.go` registry — see W4). Fails if a kind in
-  the dispatcher has no policy entry, or vice versa.
-- Wired into `scripts/lint-all.sh` if it exists, or runnable
-  standalone.
-- Catches drift between code and config (D-9 follow-up: same
-  shape as `lint-glossary.sh`).
-- Per the 2026-05-20 D-7 Option 2′ amendment, the linter also
-  verifies that any kind with `escalate_on_timeout: true` has a
+- `hub/internal/server/propose_kinds.go` <!-- verify symbol hub/internal/server/propose_kinds.go ListProposeKinds -->
+  — registry skeleton (shipped at W3 because the linter reads it):
+  `ProposeKind` type, `proposeKinds` global map under sync.RWMutex,
+  `RegisterProposeKind` / `LookupProposeKind` / `ListProposeKinds`
+  / `resetProposeKindsForTest`. Empty registry at W3 ship; W5/W6/W7
+  fill it via `func init()`. The linter's static-grep contract is
+  documented on `RegisterProposeKind` — only literal `Kind: "..."`
+  registrations are discoverable.
+- `scripts/lint-governed-actions.sh` <!-- verify file scripts/lint-governed-actions.sh -->
+  — three checks: (1) kind-shape (snake_case-with-dots), (2)
+  bidirectional registry⇄policy consistency (FAIL on either-side
+  mismatch when a policy file is found; WARN-on-empty-policy when
+  registry is non-empty), (3) escalate-on-timeout sanity. Discovers
+  policy files via repo glob; `--policy <path>` pins explicit.
+  Tested via Go (`lint_governed_actions_test.go`, 8 script cases
+  + 2 registry cases) that shell out to the script with crafted
+  fixtures — keeps the bash contract authoritative without
+  re-implementing it in Go.
+- CI wired in `.github/workflows/ci.yml` after `lint-doc-anchors`.
+- Per the 2026-05-20 D-7 Option 2′ amendment, the linter verifies
+  that any kind with `escalate_on_timeout: true` has a
   `default_tier` strictly below `principal` (so the signal has
   somewhere to walk) and emits a warning if it does not. The flag's
   semantics in Option 2′ are "fire signal", not "move addressee",

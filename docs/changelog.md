@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.675
+> **Last verified vs code:** v1.0.676
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,55 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.676-alpha — 2026-05-24
+
+ADR-030 Phase 1 W3 — add the propose-kind registry skeleton and the
+governed-actions linter that keeps it in lockstep with the policy
+file. Still no runtime consumer (W4 ships the `propose` MCP verb);
+the registry is callable but empty.
+
+### Added
+
+- `hub/internal/server/propose_kinds.go` — `ProposeKind` type
+  (Kind + Validate + DryRun + Apply), `proposeKinds` global map
+  under `sync.RWMutex`, `RegisterProposeKind` (panics on empty
+  Kind), `LookupProposeKind`, `ListProposeKinds` (sorted),
+  `resetProposeKindsForTest`. The `RegisterProposeKind` doc-comment
+  fixes the static-grep contract the linter relies on: only literal
+  `Kind: "<name>"` registrations are discoverable.
+- `scripts/lint-governed-actions.sh` — three checks: (1) kind-shape
+  enforces snake_case-with-dots; (2) bidirectional consistency
+  between registered kinds (static-grepped from
+  `hub/internal/server/*.go` for `RegisterProposeKind(ProposeKind{`
+  blocks) and the policy.yaml `kinds:` block (auto-discovered by
+  repo glob, overridable via `--policy <path>`); (3)
+  escalate-on-timeout sanity per the ADR-030 D-7 Option 2′
+  amendment. FAIL on shape or registry⇄policy mismatch; WARN on
+  no-policy-found when registry non-empty (silenceable via
+  `--no-warn-empty`); WARN on the escalate-on-timeout-with-principal
+  case (signal has nowhere to walk).
+- `hub/internal/server/lint_governed_actions_test.go` — 8 script
+  cases (empty / registered-no-policy / policy-no-handler /
+  bidirectional-match / bad-kind-shape / escalate-on-timeout WARN /
+  empty-registry-with-non-empty-policy / no-policy WARN) plus 2
+  registry cases (List sorted + LookupProposeKind, panic on
+  empty-Kind). Tests shell out to the bash script so the bash
+  contract stays authoritative.
+
+### Changed
+
+- `.github/workflows/ci.yml` — new "Lint governed actions" step
+  after "Lint doc anchors".
+- `pubspec.yaml` 1.0.675 → 1.0.676-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` and
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.676 per `Freshness: contract`. Plan W3 rewritten to record
+  what shipped (registry split-out, test counts, CI wiring); gains
+  `verify symbol` anchor on `ListProposeKinds` and `verify file`
+  anchor on the lint script.
 
 ---
 

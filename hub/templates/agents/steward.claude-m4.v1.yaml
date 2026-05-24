@@ -66,9 +66,19 @@ backend:
     # mcpPermissionPrompt MCP handler, so plan-mode approval flows
     # to mobile via the same path M1/M2 stewards already use, with
     # zero new hub-side code. ADR-027 D-amend-3.
-    skip: "--dangerously-skip-permissions"
+    skip: "--allow-dangerously-skip-permissions --dangerously-skip-permissions"
     prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
-  cmd: "claude --model {{model}} --dangerously-skip-permissions --permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
+  # `--allow-dangerously-skip-permissions` (the meta-flag) is the
+  # operator-explicit opt-in claude-code 2.1.x looks for to skip the
+  # `BypassPermissionsModeDialog` on first attach. Without it, claude
+  # shows an interactive "are you sure?" confirm window every time
+  # `--dangerously-skip-permissions` is passed (verifiable in the
+  # claude binary via the `allowDangerouslySkipPermissionsPassed`
+  # string sweep; source: `claude --help` v2.1.144 + binary string
+  # sweep on dev box, 2026-05-24). Mobile has no affordance to dismiss
+  # the dialog, so the flag MUST appear here for the M4 spawn to be
+  # automatable. v1.0.661 fix.
+  cmd: "claude --model {{model}} --allow-dangerously-skip-permissions --dangerously-skip-permissions --permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
 
 default_role: team.concierge
 display_label: "Steward (claude · M4 test)"

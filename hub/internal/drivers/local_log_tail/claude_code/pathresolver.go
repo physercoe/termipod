@@ -43,6 +43,21 @@ func ProjectDirFor(homeDir, cwd string) string {
 // JSONL during compaction; we filter to `.jsonl` extension to
 // avoid latching on those.
 func ResolveLatest(projectDir string) (path string, mtime time.Time, err error) {
+	return ResolveLatestSince(projectDir, time.Time{})
+}
+
+// ResolveLatestSince is ResolveLatest but only considers JSONL files
+// whose mtime is strictly after `minMtime`. Used by the adapter on
+// fresh-spawn attach to ignore stale transcripts from a previous
+// interactive `claude` session in the same workdir — without the
+// cutoff, our reader latches on whichever JSONL claude touched most
+// recently, and a manual operator session that contained `/exit` or
+// other slash-command transcripts gets replayed into the new agent's
+// feed. agy hit the same class of bug and fixed it at v1.0.645
+// ("brain-dir-since-launch" resolver).
+//
+// A zero minMtime disables the cutoff (equivalent to ResolveLatest).
+func ResolveLatestSince(projectDir string, minMtime time.Time) (path string, mtime time.Time, err error) {
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -63,6 +78,9 @@ func ResolveLatest(projectDir string) (path string, mtime time.Time, err error) 
 		if infoErr != nil {
 			continue
 		}
+		if !minMtime.IsZero() && !info.ModTime().After(minMtime) {
+			continue
+		}
 		if bestPath == "" || info.ModTime().After(bestT) {
 			bestPath = filepath.Join(projectDir, e.Name())
 			bestT = info.ModTime()
@@ -81,13 +99,24 @@ func ResolveLatest(projectDir string) (path string, mtime time.Time, err error) 
 // tailing as soon as the session file materializes — the file
 // doesn't exist until claude has produced its first event, typically
 // well under a second.
+//
+// Equivalent to WaitForSessionSince(ctx, projectDir, pollEvery,
+// time.Time{}).
 func WaitForSession(ctx context.Context, projectDir string, pollEvery time.Duration) (string, error) {
+	return WaitForSessionSince(ctx, projectDir, pollEvery, time.Time{})
+}
+
+// WaitForSessionSince is WaitForSession but only returns when a JSONL
+// whose mtime is strictly after `minMtime` is present. The adapter
+// passes its construction time so a stale JSONL from a prior `claude`
+// session in the same workdir is never latched onto.
+func WaitForSessionSince(ctx context.Context, projectDir string, pollEvery time.Duration, minMtime time.Time) (string, error) {
 	if pollEvery <= 0 {
 		pollEvery = 250 * time.Millisecond
 	}
 	// Check once immediately so a spawn that beat us to the punch
 	// returns without waiting one full poll interval.
-	if path, _, err := ResolveLatest(projectDir); err == nil {
+	if path, _, err := ResolveLatestSince(projectDir, minMtime); err == nil {
 		return path, nil
 	}
 	t := time.NewTicker(pollEvery)
@@ -98,7 +127,7 @@ func WaitForSession(ctx context.Context, projectDir string, pollEvery time.Durat
 			return "", fmt.Errorf("waiting for claude-code session in %s: %w",
 				projectDir, ctx.Err())
 		case <-t.C:
-			if path, _, err := ResolveLatest(projectDir); err == nil {
+			if path, _, err := ResolveLatestSince(projectDir, minMtime); err == nil {
 				return path, nil
 			}
 		}

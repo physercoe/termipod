@@ -70,6 +70,59 @@ func TestResolveLatest_NoSessionWhenDirEmpty(t *testing.T) {
 	}
 }
 
+// v1.0.661 — stale-JSONL cutoff. ResolveLatestSince(minMtime) must
+// ignore JSONLs whose mtime is at or before minMtime. Without this,
+// a prior interactive `claude` session in the same workdir gets
+// latched onto and its transcript replays into the fresh agent's
+// feed (the `/exit` slash-command bleed-through symptom).
+func TestResolveLatestSince_IgnoresStaleJSONL(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "stale.jsonl"), "old\n")
+	// Cutoff is "now"; the file we just wrote sits at-or-before it.
+	cutoff := time.Now()
+	time.Sleep(20 * time.Millisecond)
+	mustWrite(t, filepath.Join(dir, "fresh.jsonl"), "new\n")
+
+	path, _, err := ResolveLatestSince(dir, cutoff)
+	if err != nil {
+		t.Fatalf("ResolveLatestSince: %v", err)
+	}
+	if filepath.Base(path) != "fresh.jsonl" {
+		t.Errorf("picked %s, want fresh.jsonl (stale ignored)", filepath.Base(path))
+	}
+
+	// Same dir, no fresh file: cutoff must reject the stale one and
+	// surface ErrNoSession so WaitForSessionSince keeps polling.
+	dir2 := t.TempDir()
+	mustWrite(t, filepath.Join(dir2, "stale.jsonl"), "old\n")
+	cutoff2 := time.Now()
+	_, _, err = ResolveLatestSince(dir2, cutoff2)
+	if !errors.Is(err, ErrNoSession) {
+		t.Errorf("err = %v with only stale jsonl, want ErrNoSession", err)
+	}
+}
+
+// Zero minMtime must behave identically to the old ResolveLatest —
+// tests + non-adapter callers shouldn't change behaviour.
+func TestResolveLatestSince_ZeroCutoffMatchesResolveLatest(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "old.jsonl"), "old\n")
+	time.Sleep(10 * time.Millisecond)
+	mustWrite(t, filepath.Join(dir, "new.jsonl"), "new\n")
+
+	a, _, err := ResolveLatest(dir)
+	if err != nil {
+		t.Fatalf("ResolveLatest: %v", err)
+	}
+	b, _, err := ResolveLatestSince(dir, time.Time{})
+	if err != nil {
+		t.Fatalf("ResolveLatestSince(zero): %v", err)
+	}
+	if a != b {
+		t.Errorf("zero-cutoff result %s != ResolveLatest result %s", b, a)
+	}
+}
+
 func TestResolveLatest_NoSessionWhenOnlyNonJsonl(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "settings.json"), "{}\n")

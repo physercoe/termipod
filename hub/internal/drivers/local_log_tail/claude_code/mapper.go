@@ -29,10 +29,11 @@ type MappedEvent struct {
 //	assistant        → 3.2 content-block fan-out (text/thought/tool_call)
 //	user             → 3.3 shape branch (user_input | tool_result[])
 //	system           → emit only if subtype=compact_boundary
-//	attachment       → emit kind=attachment
+//	attachment       → conditional fan-out (see mapAttachment)
 //	permission-mode  → drop (per-session metadata)
 //	custom-title     → drop (session-header metadata; W2d applies once)
 //	agent-name       → drop (session-header metadata; W2d applies once)
+//	ai-title         → drop (session-header metadata; claude-generated)
 //	last-prompt      → drop (internal bookkeeping)
 //	file-history-snapshot → drop (internal bookkeeping)
 //	queue-operation  → drop (internal bookkeeping)
@@ -64,7 +65,7 @@ func MapLine(raw []byte) ([]MappedEvent, error) {
 		return mapSystem(top.Subtype, raw)
 	case "attachment":
 		return mapAttachment(top.Attachment, raw)
-	case "permission-mode", "custom-title", "agent-name",
+	case "permission-mode", "custom-title", "agent-name", "ai-title",
 		"last-prompt", "file-history-snapshot", "queue-operation":
 		return nil, nil
 	default:
@@ -313,11 +314,50 @@ func mapSystem(subtype string, raw json.RawMessage) ([]MappedEvent, error) {
 	}
 }
 
-func mapAttachment(_ json.RawMessage, raw json.RawMessage) ([]MappedEvent, error) {
-	// W2c MVP: surface the attachment as a kind=attachment event with
-	// the raw payload echoed through. Mobile's existing attachment
-	// card handles the shape. A future wedge can lift specific
-	// fields (path, mime, size) once the on-device cards demand them.
+// attachmentDropTypes is the set of inner attachment.type values that
+// are pure claude-internal bookkeeping — surfacing them as cards on
+// mobile turns the transcript into a debug dump. The set was derived
+// empirically from a real m4-test session JSONL (v1.0.660 smoke):
+//
+//   - hook_success / hook_error  — telemetry that our own hook-fire
+//     shim ran (and returned what). The event the hook handler
+//     produced is already on the wire via OnHook → adapter.post.
+//   - deferred_tools_delta       — claude's deferred-tools registry
+//     sync (catalog of MCP tools loaded lazily). No user signal.
+//   - agent_listing_delta        — claude's subagent registry sync.
+//     No user signal.
+//   - skill_listing              — claude's skill catalog sync. No
+//     user signal.
+//
+// Anything else (real file attachments, image references, future
+// shapes we haven't seen) still fans out as kind=attachment so we
+// don't silently swallow legitimate content.
+var attachmentDropTypes = map[string]bool{
+	"hook_success":         true,
+	"hook_error":           true,
+	"deferred_tools_delta": true,
+	"agent_listing_delta":  true,
+	"skill_listing":        true,
+}
+
+func mapAttachment(att json.RawMessage, raw json.RawMessage) ([]MappedEvent, error) {
+	// Peek the inner attachment.type so we can drop telemetry/registry
+	// frames without paying for the full top-level unmarshal twice.
+	if len(att) > 0 {
+		var inner struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(att, &inner); err == nil {
+			if attachmentDropTypes[inner.Type] {
+				return nil, nil
+			}
+		}
+	}
+	// Surface anything we don't recognize as a kind=attachment event
+	// with the raw payload echoed through. Mobile's existing
+	// attachment card handles the shape; a future wedge can lift
+	// specific fields (path, mime, size) once the on-device cards
+	// demand them.
 	var anyPayload map[string]any
 	if err := json.Unmarshal(raw, &anyPayload); err != nil {
 		return nil, mapErr("attachment parse", err)

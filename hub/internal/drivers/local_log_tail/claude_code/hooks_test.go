@@ -72,7 +72,15 @@ func findBySubtype(evs []hooksEv, subtype string) (hooksEv, bool) {
 	return hooksEv{}, false
 }
 
-func TestOnHook_StopTransitionsToIdleAndEmitsTurnComplete(t *testing.T) {
+// v1.0.661 dropped the `system{subtype:turn_complete,…}` emission
+// that this test previously asserted on. The Stop hook now produces
+// EXACTLY the FSM transition + a single turn.result event (the latter
+// is the canonical end-of-turn signal mobile listens on; the system
+// frame was duplicate noise that mobile rendered as a raw JSON blob).
+// Coverage for the turn.result emission lives in
+// TestOnHook_StopEmitsTurnResultForBusyWalker — this test now asserts
+// the new minimum behaviour: idle FSM, no system{turn_complete} leak.
+func TestOnHook_StopTransitionsToIdle_NoSystemTurnComplete(t *testing.T) {
 	p := &hooksTestPoster{}
 	a := hooksTestAdapter(t, p)
 	a.fsm.Transition(StateStreaming, "seed") // start non-idle so transition is observable
@@ -90,12 +98,8 @@ func TestOnHook_StopTransitionsToIdleAndEmitsTurnComplete(t *testing.T) {
 	if got := a.fsm.State(); got != StateIdle {
 		t.Errorf("state = %v, want StateIdle", got)
 	}
-	ev, ok := findBySubtype(p.snapshot(), "turn_complete")
-	if !ok {
-		t.Fatalf("turn_complete not emitted: %+v", p.snapshot())
-	}
-	if ev.payload["final_message"] != "Done." {
-		t.Errorf("final_message = %v", ev.payload["final_message"])
+	if _, ok := findBySubtype(p.snapshot(), "turn_complete"); ok {
+		t.Errorf("system{subtype:turn_complete} was re-introduced; v1.0.661 dropped it: %+v", p.snapshot())
 	}
 }
 
@@ -135,7 +139,12 @@ func TestOnHook_StopEmitsTurnResultForBusyWalker(t *testing.T) {
 	}
 }
 
-func TestOnHook_NotificationIdlePrompt(t *testing.T) {
+// v1.0.661 dropped the `system{subtype:awaiting_input}` emission this
+// test previously asserted on. The FSM transition to idle is the only
+// thing the idle_prompt hook now does — Stop already produced the
+// turn.result that drove mobile's busy walker, so a second
+// "awaiting input" frame was noise mobile rendered as a JSON dump.
+func TestOnHook_NotificationIdlePrompt_TransitionOnly(t *testing.T) {
 	p := &hooksTestPoster{}
 	a := hooksTestAdapter(t, p)
 	a.fsm.Transition(StateStreaming, "seed")
@@ -150,8 +159,8 @@ func TestOnHook_NotificationIdlePrompt(t *testing.T) {
 	if a.fsm.State() != StateIdle {
 		t.Errorf("state = %v, want StateIdle", a.fsm.State())
 	}
-	if _, ok := findBySubtype(p.snapshot(), "awaiting_input"); !ok {
-		t.Errorf("awaiting_input not emitted: %+v", p.snapshot())
+	if _, ok := findBySubtype(p.snapshot(), "awaiting_input"); ok {
+		t.Errorf("system{subtype:awaiting_input} was re-introduced; v1.0.661 dropped it: %+v", p.snapshot())
 	}
 }
 
@@ -499,19 +508,28 @@ func TestOnHook_SubagentStop_RealSubagent(t *testing.T) {
 	}
 }
 
-func TestOnHook_SessionStartEmits(t *testing.T) {
+// v1.0.661 dropped the `system{subtype:session_start,source,model}`
+// emission this test previously asserted on. The hub already fires
+// lifecycle:started for every spawn (mobile renders that as the
+// session header), so a second system frame duplicated the signal
+// with a different shape and mobile rendered it as a JSON blob. The
+// hook still returns {} so claude proceeds — only the event-side
+// emission is gone.
+func TestOnHook_SessionStartDoesNotEmit(t *testing.T) {
 	p := &hooksTestPoster{}
 	a := hooksTestAdapter(t, p)
-	_, _ = a.OnHook(context.Background(), "SessionStart", map[string]any{
+	resp, err := a.OnHook(context.Background(), "SessionStart", map[string]any{
 		"source": "startup",
 		"model":  "claude-sonnet-4-5",
 	})
-	ev, ok := findBySubtype(p.snapshot(), "session_start")
-	if !ok {
-		t.Fatalf("session_start not emitted")
+	if err != nil {
+		t.Fatalf("OnHook: %v", err)
 	}
-	if ev.payload["source"] != "startup" || ev.payload["model"] != "claude-sonnet-4-5" {
-		t.Errorf("payload = %v", ev.payload)
+	if resp == nil {
+		t.Errorf("response = nil; want empty map")
+	}
+	if _, ok := findBySubtype(p.snapshot(), "session_start"); ok {
+		t.Errorf("system{subtype:session_start} was re-introduced; v1.0.661 dropped it: %+v", p.snapshot())
 	}
 }
 

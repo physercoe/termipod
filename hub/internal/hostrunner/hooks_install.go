@@ -75,6 +75,23 @@ var claudeHookEvents = []struct {
 // blocks we inserted, leaving operator-authored entries alone.
 const termipodManagedKey = "_termipod_managed"
 
+// preEnabledMcpServers is the set of MCP server names host-runner
+// pre-grants in `<workdir>/.claude/settings.local.json` so claude-code
+// doesn't open with its "Do you want to enable the <server> MCP
+// server?" confirm dialog for every server in `<workdir>/.mcp.json`.
+//
+// Empirical confirmation: after a one-time interactive accept, claude
+// writes `enabledMcpjsonServers: ["termipod","termipod-host"]` into
+// this file itself, so pre-writing the same field is observationally
+// equivalent to the user having already clicked through.
+//
+// Both names must stay in lockstep with writeMCPConfigClaudeCodeM4 —
+// if a third server is ever added there, it also needs an entry here
+// or its first-spawn UX regresses to a dialog. Kept as a constant slice
+// rather than re-deriving from the writer to make that lockstep
+// explicit at code-review time.
+var preEnabledMcpServers = []string{"termipod", "termipod-host"}
+
 // installClaudeHooks merges the 9 ADR-027 hook entries into
 // `<workdir>/.claude/settings.local.json`. The workdir must already
 // exist (we mkdir-p the `.claude` subdir). If the settings file is
@@ -124,6 +141,17 @@ func installClaudeHooks(workdir, hookFireExe, udsSocket string) error {
 		hooks[e.event] = appendTermipodMatcher(hooks[e.event], cmd, e.timeout)
 	}
 
+	// Pre-grant termipod + termipod-host so the per-server MCP confirm
+	// dialog doesn't fire on first attach. Merge with any prior value
+	// the operator set: keep their entries, add ours if missing,
+	// dedupe. Drop any disabled entries we manage (so a user who
+	// previously denied us via the dialog doesn't get permanently
+	// locked out the next time the workdir is re-spawned).
+	settings["enabledMcpjsonServers"] = mergeEnabledMcpServers(settings["enabledMcpjsonServers"])
+	if disabled, ok := settings["disabledMcpjsonServers"]; ok {
+		settings["disabledMcpjsonServers"] = removeManagedFromDisabled(disabled)
+	}
+
 	body, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err
@@ -165,6 +193,62 @@ func appendTermipodMatcher(prior any, command string, timeout int) []any {
 			"timeout": timeout,
 		}},
 	})
+	return out
+}
+
+// mergeEnabledMcpServers folds preEnabledMcpServers into the prior
+// `enabledMcpjsonServers` value, preserving anything the operator
+// added. Returns a []any (JSON-marshalable as an array) so the
+// `settings` map round-trips cleanly through encoding/json without
+// type-juggling at the call site.
+func mergeEnabledMcpServers(prior any) []any {
+	seen := map[string]bool{}
+	out := []any{}
+	if arr, ok := prior.([]any); ok {
+		for _, v := range arr {
+			s, ok := v.(string)
+			if !ok || seen[s] {
+				continue
+			}
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	for _, s := range preEnabledMcpServers {
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+// removeManagedFromDisabled strips our managed server names from a
+// `disabledMcpjsonServers` value while preserving operator-disabled
+// entries. Returns a []any for the same round-trip reason as
+// mergeEnabledMcpServers.
+func removeManagedFromDisabled(prior any) []any {
+	managed := map[string]bool{}
+	for _, s := range preEnabledMcpServers {
+		managed[s] = true
+	}
+	out := []any{}
+	arr, ok := prior.([]any)
+	if !ok {
+		return out
+	}
+	for _, v := range arr {
+		s, ok := v.(string)
+		if !ok {
+			out = append(out, v)
+			continue
+		}
+		if managed[s] {
+			continue
+		}
+		out = append(out, s)
+	}
 	return out
 }
 

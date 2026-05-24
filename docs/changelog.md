@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-23)
+> **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.660
+> **Last verified vs code:** v1.0.661
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,84 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.661-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #5 — claude-code M4 cleanup pass, caught on
+on-host smoke of v1.0.660. Fixes four distinct symptoms surfaced by
+the first end-to-end on-device test of the M4 LocalLogTail spawn
+since the async-Start refactor:
+
+**Fixed.**
+
+- *Stale-JSONL bleed-through.* Adapter's session resolver used
+  `ResolveLatest` (newest `.jsonl` by mtime, no lower bound). When a
+  workdir had a prior interactive `claude` session, its transcript —
+  including `/exit` slash-command + the `<local-command-caveat>`
+  wrapper claude injects for command lines — replayed into the new
+  agent's feed on attach. New `WaitForSessionSince(minMtime)` +
+  `ResolveLatestSince(minMtime)`; `NewAdapter` records a "now"
+  cutoff and passes it through, mirroring agy's brain-dir-since-
+  launch resolver shipped at v1.0.645.
+- *Three raw-JSON `system{subtype:…}` frames on mobile.* `hookSessionStart`
+  posted `system{session_start,source,model}`, `hookStop` posted
+  `system{turn_complete,final_message,permission_mode}`, and the
+  `idle_prompt` branch of `hookNotification` posted
+  `system{awaiting_input}`. Mobile has no renderer for these subtypes
+  so each turn left a JSON blob in the transcript. All three are
+  redundant: lifecycle:started already covers session start, `turn.result`
+  (which `hookStop` still posts) is the canonical end-of-turn signal
+  mobile's busy walker listens on, and the FSM transition alone is
+  enough for idle_prompt. The three `a.post(…)` calls in `hooks.go`
+  are gone; existing tests rewritten to assert "no longer emitted".
+- *Attachment fan-out leaking telemetry + registry deltas.* `mapAttachment`
+  forwarded every `attachment` JSONL line as a `kind=attachment` event
+  — including `hook_success`/`hook_error` records of our own hooks
+  firing (one per Stop/SessionStart/etc, every turn) and claude's
+  internal `deferred_tools_delta`/`agent_listing_delta`/`skill_listing`
+  registry sync frames. New `attachmentDropTypes` set filters those
+  five inner types before fan-out; legitimate file attachments still
+  flow through. `ai-title` added to the top-level drop list (was
+  falling through to the `unknown_type` drift handler).
+- *Two confirm dialogs on cold start.* Pre-trust covered the workdir
+  trust dialog (v1.0.657) but not the per-server MCP enable consent
+  or the bypass-permissions confirm. `hooks_install.go` now also
+  writes `enabledMcpjsonServers:["termipod","termipod-host"]` into
+  `settings.local.json` (merging with any operator-set list, lifting
+  any prior denial); `steward.claude-m4.v1.yaml` adds
+  `--allow-dangerously-skip-permissions` (the operator-opt-in
+  meta-flag) ahead of `--dangerously-skip-permissions` so claude's
+  `BypassPermissionsModeDialog` short-circuits. Source confirmation:
+  `claude --help` v2.1.144 + `allowDangerouslySkipPermissionsPassed`
+  string sweep against the binary on the dev box, 2026-05-24.
+
+**Added.**
+
+- `pathresolver.ResolveLatestSince(minMtime)` +
+  `WaitForSessionSince(ctx, dir, pollEvery, minMtime)` — public
+  alongside the existing zero-cutoff variants so non-adapter callers
+  keep working unchanged.
+- `Adapter.SessionCutoff` field; `NewAdapter` seeds it to
+  `time.Now().Add(-100ms)` (filesystem-mtime slack).
+- `hooks_install.preEnabledMcpServers` + `mergeEnabledMcpServers` +
+  `removeManagedFromDisabled` helpers with idempotency + preserve-
+  operator + lift-prior-deny tests.
+
+**Test coverage.** Five new tests in `claude_code` (attachment drop
+sweep, real-attachment passthrough, stale-JSONL cutoff, zero-cutoff
+parity, ai-title drop); four new tests in `hostrunner` (MCP fresh
+grant, no-duplicates on repeat, preserves-operator, lifts-prior-deny);
+three hook tests rewritten in-place to assert the v1.0.661 drops.
+
+Root cause class. Three of the four bugs are the same shape — a
+pipeline emitting *more* than the surface above it can render, with
+mobile silently JSON-dumping the residue. Hooks emitting signals that
+duplicate cleaner JSONL/turn.result channels; mapper forwarding every
+attachment regardless of whether mobile has a card for it; pre-trust
+covering one dialog out of three. Filter at the producer, not at the
+renderer, and only emit what the next layer agreed to consume.
 
 ---
 

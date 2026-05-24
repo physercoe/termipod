@@ -13,8 +13,8 @@ import (
 //
 // Plan §5.B routing table — every row is implemented here:
 //
-//	Stop                        → FSM → idle ; emit system{turn_complete, final_message}
-//	Notification{idle_prompt}   → FSM → idle ; emit system{awaiting_input}
+//	Stop                        → FSM → idle ; emit turn.result (busy-walker close)
+//	Notification{idle_prompt}   → FSM → idle ; no event (turn.result already drove busy)
 //	Notification{permission_*}  → drop (approval channel owns)
 //	PreToolUse(other)           → FSM → streaming ; (drop event — JSONL has tool_use)
 //	PreToolUse(AskUserQuestion) → FSM → awaiting_decision ; emit approval_request{user_question}; W2i parks
@@ -23,8 +23,16 @@ import (
 //	SubagentStop (agent_type≠"") → emit system{subagent_complete}
 //	SubagentStop (agent_type=="") → drop (parent-turn duplicate)
 //	UserPromptSubmit            → drop (JSONL has it)
-//	SessionStart                → emit system{session_start, source, model}
+//	SessionStart                → drop (lifecycle:started already fired upstream)
 //	SessionEnd                  → emit system{session_end, reason}
+//
+// v1.0.661 dropped 3 redundant "system{subtype:…}" emissions
+// (session_start, turn_complete, awaiting_input) — mobile rendered them
+// as raw JSON dumps because nothing else in the pipeline knew those
+// subtypes, and the underlying signals (lifecycle:started, turn.result
+// for end-of-turn, the same turn.result for "agent idle") are already
+// the canonical channels mobile listens on. Posting a second event
+// shaped like a debug payload only added noise.
 //
 // W2e implements all rows; the parked branches (PreCompact + AskUser-
 // Question) currently return the safe default response ({} / {})
@@ -67,20 +75,19 @@ func (a *Adapter) hookStop(ctx context.Context, p map[string]any) (map[string]an
 	}
 	final, _ := p["last_assistant_message"].(string)
 	mode, _ := p["permission_mode"].(string)
-	_ = a.post(ctx, "system", "system", map[string]any{
-		"subtype":         "turn_complete",
-		"final_message":   final,
-		"permission_mode": mode,
-	})
-	// Emit turn.result so mobile's _isAgentBusy() drops the cancel-on-send
-	// overlay at end-of-turn. The mobile busy-walker explicitly SKIPS
-	// `system` frames (they're a grab-bag of telemetry — status pings,
-	// startup info — that don't, alone, mean a turn is in progress OR
-	// over) and only flips to idle on `turn.result` / `completion` /
-	// `session.init` / certain `lifecycle` phases. Stop is the engine-
-	// level end-of-turn signal, so it must produce a turn.result for
-	// the UI contract to close. ACP and stream-json drivers already do
-	// this; M4 was the holdout. Same fix shape as v1.0.647 for agy.
+	// turn.result is the canonical end-of-turn signal mobile's
+	// _isAgentBusy() listens on (mobile skips `system` frames — they're
+	// a grab-bag of telemetry — and only flips to idle on turn.result /
+	// completion / session.init / certain lifecycle phases). Stop is
+	// claude's engine-level end-of-turn, so it must produce a
+	// turn.result for the UI contract to close. ACP and stream-json
+	// drivers already do this; M4 was the holdout (fixed at v1.0.647
+	// for agy with the same shape).
+	//
+	// v1.0.661 dropped a sibling `system{subtype:turn_complete,…}`
+	// emission: the data is the same as what turn.result already
+	// carries, mobile had no renderer for the subtype, and the result
+	// was a raw JSON blob in the transcript every turn.
 	_ = a.post(ctx, "turn.result", "agent", map[string]any{
 		"reason":          "end_of_turn",
 		"status":          "success",
@@ -97,9 +104,11 @@ func (a *Adapter) hookNotification(ctx context.Context, p map[string]any) (map[s
 		if a.fsm != nil {
 			a.fsm.Transition(StateIdle, "Notification idle_prompt")
 		}
-		_ = a.post(ctx, "system", "system", map[string]any{
-			"subtype": "awaiting_input",
-		})
+		// v1.0.661 dropped a `system{subtype:awaiting_input}` emission
+		// here: the FSM transition (which already drives the busy-pill
+		// indirectly via turn.result on the matching Stop hook) is the
+		// only thing that needs to fire. Posting a system frame with an
+		// empty payload only put a JSON dump in the transcript.
 	case "permission_prompt":
 		// Approval channel (--permission-prompt-tool) owns this UX;
 		// the hook is informational only and would duplicate the
@@ -297,14 +306,12 @@ func (a *Adapter) hookUserPromptSubmit(_ context.Context, _ map[string]any) (map
 	return map[string]any{}, nil
 }
 
-func (a *Adapter) hookSessionStart(ctx context.Context, p map[string]any) (map[string]any, error) {
-	src, _ := p["source"].(string)
-	model, _ := p["model"].(string)
-	_ = a.post(ctx, "system", "system", map[string]any{
-		"subtype": "session_start",
-		"source":  src,
-		"model":   model,
-	})
+func (a *Adapter) hookSessionStart(_ context.Context, _ map[string]any) (map[string]any, error) {
+	// v1.0.661 dropped a `system{subtype:session_start,source,model}`
+	// emission. The hub already fires `lifecycle:started` for every
+	// spawn (which mobile renders as the session header chip), so a
+	// second system frame with a different shape duplicates the signal
+	// while adding a raw JSON blob to the transcript.
 	return map[string]any{}, nil
 }
 

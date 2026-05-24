@@ -108,6 +108,14 @@ type Adapter struct {
 	// returning {} immediately. The W7 launch glue wires a real
 	// HubAttentionClient when constructing the adapter.
 	Attention *HubAttentionClient
+	// SessionCutoff is the lower bound on JSONL mtime when resolving
+	// which session file to tail. Files with mtime ≤ SessionCutoff
+	// are ignored — they belong to a previous `claude` session in the
+	// same workdir, not this spawn. Default is the adapter's
+	// construction time (set in NewAdapter). Tests pass an explicit
+	// value (often time.Time{} for "no cutoff" or a fresh
+	// time.Now() to verify the filter behaviour).
+	SessionCutoff time.Time
 
 	mu      sync.Mutex
 	started bool
@@ -144,7 +152,15 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 		cfg.Log = slog.Default()
 	}
 	cfg.Knobs = cfg.Knobs.withDefaults()
-	return &Adapter{Config: cfg}, nil
+	// SessionCutoff defaults to "now" so stale JSONLs from a prior
+	// interactive claude session in the same workdir are ignored.
+	// Mtime resolution on most filesystems is at-best 1ms; we subtract
+	// a small slack so a JSONL claude races us to create still
+	// qualifies (rare but observed under heavy load).
+	return &Adapter{
+		Config:        cfg,
+		SessionCutoff: time.Now().Add(-100 * time.Millisecond),
+	}, nil
 }
 
 // Start composes path resolver → session-wait → tailer → mapper →
@@ -231,7 +247,7 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 		waitTimeout = 30 * time.Minute
 	}
 	waitCtx, cancelWait := context.WithTimeout(ctx, waitTimeout)
-	jsonlPath, err := WaitForSession(waitCtx, projectDir, 0)
+	jsonlPath, err := WaitForSessionSince(waitCtx, projectDir, 0, a.SessionCutoff)
 	cancelWait()
 	if err != nil {
 		a.noteFailure(ctx, "wait for session jsonl in "+projectDir, err)

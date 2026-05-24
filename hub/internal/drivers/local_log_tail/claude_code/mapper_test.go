@@ -145,7 +145,7 @@ func TestMapLine_SystemOtherSubtypesDropped(t *testing.T) {
 
 func TestMapLine_KnownDroppedTypes(t *testing.T) {
 	for _, ty := range []string{
-		"permission-mode", "custom-title", "agent-name",
+		"permission-mode", "custom-title", "agent-name", "ai-title",
 		"last-prompt", "file-history-snapshot", "queue-operation",
 	} {
 		raw := `{"type":"` + ty + `"}`
@@ -153,6 +153,37 @@ func TestMapLine_KnownDroppedTypes(t *testing.T) {
 		if len(got) != 0 {
 			t.Errorf("type=%s emitted %+v; want drop", ty, got)
 		}
+	}
+}
+
+// v1.0.661 filter: pure telemetry / claude-internal registry sync
+// attachments must NOT fan out as kind=attachment events. Mobile was
+// rendering hook-fire telemetry + tool/agent/skill registry deltas as
+// noisy attachment cards on every cold start. Empirical types seen
+// in a real session JSONL: hook_success, hook_error,
+// deferred_tools_delta, agent_listing_delta, skill_listing.
+func TestMapLine_AttachmentDropsTelemetryAndRegistry(t *testing.T) {
+	for _, ty := range []string{
+		"hook_success", "hook_error",
+		"deferred_tools_delta", "agent_listing_delta", "skill_listing",
+	} {
+		raw := `{"type":"attachment","attachment":{"type":"` + ty + `","payload":"x"}}`
+		got := mustMap(t, raw)
+		if len(got) != 0 {
+			t.Errorf("attachment.type=%s emitted %+v; want drop", ty, got)
+		}
+	}
+}
+
+// Counterpart guard: real attachments (any other inner type) still
+// surface so we don't silently swallow legitimate content claude
+// produces (file refs, image attachments, anything we haven't yet
+// seen). Drift must always make it to the operator.
+func TestMapLine_AttachmentRealContentStillFlows(t *testing.T) {
+	raw := `{"type":"attachment","attachment":{"type":"file_ref","path":"/x/y"}}`
+	got := mustMap(t, raw)
+	if len(got) != 1 || got[0].Kind != "attachment" {
+		t.Fatalf("want 1 kind=attachment, got %+v", got)
 	}
 }
 

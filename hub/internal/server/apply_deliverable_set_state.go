@@ -219,7 +219,7 @@ func applyDeliverableSetState(
 		"deliverable_id": t.DeliverableID,
 		"from_state":     fromState,
 		"to_state":       c.State,
-		"via":            "propose",
+		"via":            ac.ViaOrDefault(),
 		"by_tier":        ac.AssignedTier,
 		"propose_id":     ac.AttentionID,
 	}

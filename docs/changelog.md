@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.680
+> **Last verified vs code:** v1.0.681
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,80 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.681-alpha — 2026-05-24
+
+ADR-030 Phase 1 W8 — alias apply functions + decide-handler dispatcher
+refactor. The pre-ADR-030 `approval_request + spawnIn` and
+`template_proposal` paths now route through the same propose-kind
+registry the new W4 verb uses; the audit-meta `via` tag distinguishes
+the two dispatch shapes. With this wedge, every load-bearing
+state change converges on `LookupProposeKind(...).Apply(...)`.
+
+### Added
+
+- `hub/internal/server/apply_agent_spawn.go` — wraps `DoSpawn`.
+  change_spec IS the spawnIn JSON shape (same shape the legacy
+  pending_payload carried) so the two dispatch paths share the
+  same unmarshal. target_ref is cosmetic for this kind.
+- `hub/internal/server/apply_template_install.go` — wraps
+  `installProposedTemplate`. DryRun stat's the blob so the
+  preview can show body size + presence; missing-blob is a soft
+  signal (not an error).
+- `ProposeApplyContext.Via` field + `ViaOrDefault()` — default
+  "" → "propose"; the legacy-alias dispatch sets "alias_legacy"
+  so audit-meta consumers can distinguish dispatch shapes without
+  parsing the kind name.
+- `hub/internal/server/handlers_propose_dispatch_test.go` — 5
+  end-to-end cases: propose+task.set_status, propose+agent.spawn,
+  legacy approval_request+spawnIn (via=alias_legacy + propose_id),
+  legacy template_proposal (via=alias_legacy), reject-skips-apply
+  regression.
+- `apply_agent_spawn_test.go` (6) + `apply_template_install_test.go`
+  (7) — unit-level Validate/DryRun/Apply coverage including
+  Apply-via-alias-legacy via-tag assertions.
+
+### Changed
+
+- `hub/internal/server/handlers_attention.go::handleDecideAttention`
+  — the SELECT now reads 4 ADR-030 W1 columns alongside the legacy
+  set. The two prior `if` blocks (one for approval_request +
+  spawnIn, one for template_proposal) collapse into a single
+  dispatcher arm with three input shapes that all converge on the
+  registry. Best-effort UPDATE populates `executed_json` from the
+  apply return value so post-mortem queries on the attention row
+  show what landed.
+- `hub/internal/server/apply_deliverable_set_state.go` +
+  `apply_phase_advance.go` + `apply_task_set_status.go` — use
+  `ac.ViaOrDefault()` instead of the hard-coded "propose" literal.
+- `pubspec.yaml` 1.0.680 → 1.0.681-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` +
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.681. Plan W8 rewritten to document the dispatcher refactor +
+  via-tag discriminator + 16-test coverage breakdown. Two new
+  verify symbol anchors (`applyAgentSpawn`, `applyTemplateInstall`)
+  → 20 anchors total, all green.
+
+### Notes
+
+- **No backward-compat regression.** Existing legacy-path tests
+  pass unchanged through the refactor; the audit-meta `via`
+  discriminator is purely additive. Old MCP callers see the same
+  `approval_request` / `template_proposal` wire shape; consumers
+  that already read `meta.via` continue to see "propose" on
+  ADR-030 calls and now also "alias_legacy" on pre-ADR-030
+  calls.
+- **Registry now reports 5 kinds**: deliverable.set_state,
+  phase.advance, task.set_status, agent.spawn, template.install.
+  The lint's bidirectional R⇄P check would now meaningfully gate
+  drift the moment an operator commits a policy.yaml fixture.
+- **`executed_json` column populated for the first time.** The
+  W1 schema added the column; W4 set it to NULL on insert; W8
+  is the first writer. Consumers reading attention rows post-
+  decide now see the apply result inline without re-querying
+  audit_events.
 
 ---
 

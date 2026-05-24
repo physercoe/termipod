@@ -227,7 +227,7 @@ func applyPhaseAdvance(
 		"from":       curPhase,
 		"to":         c.ToPhase,
 		"reason":     c.Reason,
-		"via":        "propose",
+		"via":        ac.ViaOrDefault(),
 		"by_tier":    ac.AssignedTier,
 		"propose_id": ac.AttentionID,
 	}

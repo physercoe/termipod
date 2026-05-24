@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.680-alpha
+> **Last verified vs code:** v1.0.681-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -397,27 +397,60 @@ shipped as `handlers_propose.go::checkProposeScope`:
   round-trip into the audit meta and tier resolution through W4.
 - (W9 + override-rollback test deferred to W9 itself, per plan.)
 
-**W8. Deprecated propose-aliases for `agent.spawn` and `template.install` (~80 LOC + 60 LOC tests).**
+**W8. Deprecated propose-aliases for `agent.spawn` and `template.install` + decide-handler dispatcher refactor (~480 LOC + ~700 LOC tests). Shipped v1.0.681-alpha.**
 
-- Register `propose(kind="agent.spawn", ...)` →
-  `apply_agent_spawn.go`: wraps existing `DoSpawn`.
-- Register `propose(kind="template.install", ...)` →
-  `apply_template_install.go`: wraps existing
-  `installProposedTemplate`.
-- The decide handler at `handlers_attention.go:378-414` keeps
-  the existing `approval_request + spawnIn` and
-  `template_proposal` branches but is refactored to call the
-  apply functions through the dispatcher; the kind-specific
-  payload extraction stays in place so old MCP calls still
-  resolve.
-- Tests:
-  - Old-shape spawn call via `approval_request + spawnIn` →
-    dispatcher routes to `agent.spawn` apply function, audit
-    records `via="alias_legacy"`.
-  - New-shape via `propose(kind="agent.spawn")` → dispatcher
-    routes to same apply function, audit records
-    `via="propose"`.
-  - Likewise for template install.
+- `hub/internal/server/apply_agent_spawn.go` <!-- verify symbol hub/internal/server/apply_agent_spawn.go applyAgentSpawn --> —
+  wraps `DoSpawn`. change_spec IS the spawnIn JSON shape (same
+  shape the legacy `pending_payload_json` carried), so the two
+  dispatch paths share the same unmarshal. target_ref is cosmetic
+  (spawn details live in change_spec). Validate / DryRun / Apply
+  all registered.
+- `hub/internal/server/apply_template_install.go` <!-- verify symbol hub/internal/server/apply_template_install.go applyTemplateInstall --> —
+  wraps `installProposedTemplate`. change_spec is the
+  {category, name, blob_sha256, rationale?, proposed_by?} payload
+  the installer already understands. DryRun stat's the blob so
+  the preview can show the body size + presence; missing-blob is a
+  soft signal, not an error.
+- `ProposeApplyContext.Via` field (added this wedge). Default ""
+  → "propose" via `ViaOrDefault()`; the W8 legacy-alias dispatch
+  sets "alias_legacy" so audit-meta consumers can distinguish
+  the two dispatch shapes without parsing the kind name. W5/W6/W7
+  apply functions now read `ac.ViaOrDefault()` instead of the
+  hard-coded "propose" literal.
+- **Decide-handler refactor** at `handlers_attention.go::handleDecideAttention`.
+  SELECT widened for the 4 ADR-030 W1 columns (change_kind,
+  assigned_tier, change_spec_json, target_ref_json). The two
+  prior `if` blocks (lines 378-414 in v1.0.677) collapse into a
+  single dispatcher arm with three input shapes:
+  1. `kind="propose"` + change_kind → ADR-030 path, Via="propose"
+  2. `kind="approval_request"` + spawnIn pending_payload →
+     alias_legacy path, dispatches to `agent.spawn` registry
+     entry with Via="alias_legacy"
+  3. `kind="template_proposal"` + install pending_payload →
+     alias_legacy path, dispatches to `template.install` with
+     Via="alias_legacy"
+  All three converge on `LookupProposeKind(...).Apply(...)`. The
+  ADR-030 W1 `executed_json` column is now populated from the
+  return value (best-effort UPDATE; log on failure).
+- Tests (16 across 3 files):
+  - `apply_agent_spawn_test.go` (6) — registered, Validate (4
+    cases), DryRun, Apply happy path (audit lineage), Apply
+    alias_legacy (via tag), Apply missing-team.
+  - `apply_template_install_test.go` (7) — registered, Validate
+    (5 cases), DryRun present-blob, DryRun missing-blob, Apply
+    happy path (file written + audit lineage + rationale/
+    proposed_by carry-through), Apply alias_legacy (via tag).
+  - `handlers_propose_dispatch_test.go` (5) — propose+task.set_status
+    end-to-end (status flip + audit + executed_json mirror);
+    propose+agent.spawn end-to-end; legacy approval_request+spawnIn
+    via=alias_legacy + propose_id link; legacy template_proposal
+    via=alias_legacy; reject-skips-apply regression (no audit
+    fires, status unchanged, audit count only +1 for the
+    attention.decide row).
+- **No backward-compat regression** in the existing legacy paths —
+  the full hub test suite (107s) is green, including every
+  pre-W8 test that exercises `approval_request + spawnIn` and
+  `template_proposal`.
 
 **W9. Principal override of lower-tier decisions (~120 LOC + 80 LOC tests).**
 

@@ -49,7 +49,7 @@ type ProposeKind struct {
 }
 
 // ProposeApplyContext carries the attention-row lineage into the apply
-// function so per-kind audit rows can record `via="propose"`,
+// function so per-kind audit rows can record `via=<...>`,
 // `by_tier=<assigned_tier>`, and `propose_id=<attention_id>` without
 // re-querying. Populated by W8 at /decide(approve) dispatch time;
 // in-test callers populate it directly.
@@ -67,6 +67,24 @@ type ProposeApplyContext struct {
 	// path); apply functions tolerate that and skip the by-actor
 	// stamp on the audit row.
 	DeciderHandle string
+	// Via labels the dispatch path. Default "" → "propose" (the
+	// canonical W4 propose verb). The W8 decide-handler refactor
+	// uses "alias_legacy" when routing the pre-ADR-030
+	// `approval_request + spawnIn` / `template_proposal` paths
+	// through the same apply functions so consumers can
+	// distinguish the two in `audit_events.meta_json.via`.
+	Via string
+}
+
+// ViaOrDefault returns Via if non-empty, otherwise the canonical
+// "propose" tag. Apply functions call this once before emitting the
+// audit row so the legacy-alias path can override without forcing
+// every test-side caller to set the field explicitly.
+func (a ProposeApplyContext) ViaOrDefault() string {
+	if a.Via != "" {
+		return a.Via
+	}
+	return "propose"
 }
 
 var (

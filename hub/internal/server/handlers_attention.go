@@ -289,12 +289,23 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var kind, tier, payload, decisions, status, scopeID string
+	var (
+		kind, tier, payload, decisions, status, scopeID string
+		// ADR-030 columns (W1). NULL on pre-0045 rows + on rows whose
+		// kind isn't 'propose'. The dispatcher arm at the bottom of
+		// this handler reads them to route through the propose-kind
+		// registry; the legacy alias arms map their pending_payload
+		// onto the same registry shape.
+		changeKind, assignedTier, changeSpecJSON, targetRefJSON string
+	)
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT kind, COALESCE(tier, ''), COALESCE(pending_payload_json, ''),
-		       decisions_json, status, COALESCE(scope_id, '')
+		       decisions_json, status, COALESCE(scope_id, ''),
+		       COALESCE(change_kind, ''), COALESCE(assigned_tier, ''),
+		       COALESCE(change_spec_json, ''), COALESCE(target_ref_json, '')
 		FROM attention_items WHERE id = ?`, id).
-		Scan(&kind, &tier, &payload, &decisions, &status, &scopeID)
+		Scan(&kind, &tier, &payload, &decisions, &status, &scopeID,
+			&changeKind, &assignedTier, &changeSpecJSON, &targetRefJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "attention not found")
 		return
@@ -375,42 +386,81 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := attentionDecideOut{AttentionID: id, Decision: in.Decision, Resolved: resolved}
-	if resolved && in.Decision == "approve" && kind == "approval_request" && payload != "" {
-		// Dispatch the gated action. Today we only understand spawn payloads.
-		var sp spawnIn
-		if err := json.Unmarshal([]byte(payload), &sp); err == nil && sp.ChildHandle != "" {
-			result, _, err := s.DoSpawn(r.Context(), team, sp)
-			if err == nil {
-				b, _ := json.Marshal(map[string]any{
-					"kind":      "spawn",
-					"spawn_id":  result.SpawnID,
-					"agent_id":  result.AgentID,
-					"spawned_at": result.SpawnedAt,
-				})
-				out.Executed = b
-			} else {
-				b, _ := json.Marshal(map[string]any{
-					"kind":  "spawn",
-					"error": err.Error(),
-				})
-				out.Executed = b
+	// ADR-030 W8 dispatcher — three input shapes converge on the
+	// propose-kind registry. The registered Apply function emits
+	// the per-kind audit row (with `meta.via` set per dispatch
+	// shape so consumers can tell propose-routed changes from
+	// legacy-alias changes). On error the legacy `{kind, error}`
+	// shape is preserved in `out.Executed` so existing callers
+	// don't trip on a missing field.
+	if resolved && in.Decision == "approve" {
+		var (
+			dispatchKind string
+			dispatchSpec json.RawMessage
+			dispatchTRef json.RawMessage
+			dispatchVia  string
+		)
+		switch {
+		case kind == "propose" && changeKind != "":
+			// New ADR-030 path. change_spec / target_ref came in
+			// through W4's mcpPropose; assigned_tier is the row's
+			// tier (not the legacy `tier` column).
+			dispatchKind = changeKind
+			dispatchSpec = json.RawMessage(changeSpecJSON)
+			dispatchTRef = json.RawMessage(targetRefJSON)
+			dispatchVia = "propose"
+		case kind == "approval_request" && payload != "":
+			// Legacy spawn path. The pending_payload IS the spawnIn
+			// JSON; map onto the agent.spawn registry entry.
+			var probe spawnIn
+			if err := json.Unmarshal([]byte(payload), &probe); err == nil && probe.ChildHandle != "" {
+				dispatchKind = "agent.spawn"
+				dispatchSpec = json.RawMessage(payload)
+				dispatchTRef = json.RawMessage(`{}`)
+				dispatchVia = "alias_legacy"
+			}
+		case kind == "template_proposal" && payload != "":
+			dispatchKind = "template.install"
+			dispatchSpec = json.RawMessage(payload)
+			dispatchTRef = json.RawMessage(`{}`)
+			dispatchVia = "alias_legacy"
+		}
+
+		if dispatchKind != "" {
+			if pk, ok := LookupProposeKind(dispatchKind); ok && pk.Apply != nil {
+				ac := ProposeApplyContext{
+					AttentionID:   id,
+					Team:          team,
+					AssignedTier:  assignedTier,
+					DeciderHandle: in.By,
+					Via:           dispatchVia,
+				}
+				executed, applyErr := pk.Apply(r.Context(), s, ac, dispatchTRef, dispatchSpec)
+				if applyErr == nil {
+					out.Executed = executed
+				} else {
+					// Preserve the legacy `{kind, error}` shape so
+					// existing callers don't break on a missing
+					// `error` field when the apply errs.
+					b, _ := json.Marshal(map[string]any{
+						"kind":  dispatchKind,
+						"via":   dispatchVia,
+						"error": applyErr.Error(),
+					})
+					out.Executed = b
+				}
 			}
 		}
-	}
-	if resolved && in.Decision == "approve" && kind == "template_proposal" && payload != "" {
-		// Install the proposed template body to team/templates/<cat>/<name>.
-		// Reviewer's approval is the authorization; we copy the blob, not the
-		// request content, so the on-disk file is byte-identical to what was
-		// reviewed even if the blob store is the source of truth.
-		installed, installErr := s.installProposedTemplate(payload)
-		if installErr == nil {
-			out.Executed = installed
-		} else {
-			b, _ := json.Marshal(map[string]any{
-				"kind":  "template_install",
-				"error": installErr.Error(),
-			})
-			out.Executed = b
+
+		// Mirror Executed into the ADR-030 column so post-mortem
+		// queries on the attention row see what landed. Best-effort —
+		// failure here doesn't roll back the decision.
+		if len(out.Executed) > 0 {
+			if _, err := s.db.ExecContext(r.Context(),
+				`UPDATE attention_items SET executed_json = ? WHERE id = ?`,
+				string(out.Executed), id); err != nil {
+				s.log.Warn("update executed_json", "attention_id", id, "err", err)
+			}
 		}
 	}
 	// Turn-based fan-out: when an attention raised by an agent is

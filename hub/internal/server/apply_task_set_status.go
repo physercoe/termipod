@@ -190,11 +190,12 @@ func applyTaskSetStatus(
 	// Audit row mirrors handlePatchTask's task.status emission; meta
 	// adds the propose lineage. The summary string uses the same
 	// "from → to" shape so the timeline chip renders identically.
+	via := ac.ViaOrDefault()
 	meta := map[string]any{
 		"from":           fromStatus,
 		"to":             c.Status,
-		"source":         "propose",
-		"via":            "propose",
+		"source":         via,
+		"via":            via,
 		"by_tier":        ac.AssignedTier,
 		"propose_id":     ac.AttentionID,
 		"result_summary": c.ResultSummary,

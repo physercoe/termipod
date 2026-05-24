@@ -7,26 +7,22 @@ import 'propose_addressee.dart';
 import 'propose_card_actions.dart';
 import 'propose_card_visuals.dart';
 
-/// ADR-030 W15 — per-kind propose card for `deliverable.set_state`.
+/// ADR-030 W16 — per-kind propose card for `phase.advance`.
 ///
-/// Two visual variants:
-/// - **primary** (viewer IS addressee): Approve / Reject buttons, no
-///   top pill. Uses [PrimaryProposeActions] for the action row.
-/// - **stalled** (viewer is NOT addressee but escalation surfaced it
-///   to them): top pill "⏱ Stuck — addressed to @<addressee>", buttons
-///   flip to [StalledProposeActions] (Override / View deliverable).
+/// Body: a from_phase → to_phase transition with the project id and
+/// the propose reason. Matches the W15 visual rhythm via the shared
+/// [TransitionFrame] / [StalledPill] primitives so a glance at the
+/// Me-tab can tell propose-rows apart without reading the header.
 ///
-/// Body block is identical in both variants:
-/// `<from_state> → <to_state>` transition with the deliverable id +
-/// the propose reason. Visual primitives (chips, frame, stalled pill)
-/// come from [propose_card_visuals.dart] so the four propose cards
-/// (W15-W18) share rendering invariants.
-class ProposeCardDeliverable extends ConsumerWidget {
+/// The `from_phase` may be absent on the wire — phase.advance accepts
+/// an optimistic-concurrency check OR a forced advance; when absent
+/// the [TransitionFrame] renders `→ to_phase` without a from-side.
+class ProposeCardPhase extends ConsumerWidget {
   final Map<String, dynamic> attention;
   final String myTier;
   final VoidCallback? onResolved;
 
-  const ProposeCardDeliverable({
+  const ProposeCardPhase({
     super.key,
     required this.attention,
     this.myTier = 'principal',
@@ -42,9 +38,9 @@ class ProposeCardDeliverable extends ConsumerWidget {
 
     final changeSpec = decodeJsonObject(attention['change_spec']);
     final targetRef = decodeJsonObject(attention['target_ref']);
-    final fromState = (changeSpec['from_state'] ?? '?').toString();
-    final toState = (changeSpec['to_state'] ?? '?').toString();
-    final deliverableId = (targetRef['deliverable_id'] ?? '').toString();
+    final fromPhase = (changeSpec['from_phase'] ?? '').toString();
+    final toPhase = (changeSpec['to_phase'] ?? '?').toString();
+    final projectId = (targetRef['project_id'] ?? '').toString();
     final reason = (attention['summary'] ?? '').toString();
     final addressee = (attention['assigned_tier'] ?? '').toString();
     final id = (attention['id'] ?? '').toString();
@@ -58,9 +54,9 @@ class ProposeCardDeliverable extends ConsumerWidget {
         if (stalled && !isAddressee) StalledPill(addressee: addressee),
         if (stalled && !isAddressee) const SizedBox(height: 6),
         TransitionFrame(
-          fromLabel: fromState,
-          toLabel: toState,
-          family: TransitionChipFamily.state,
+          fromLabel: fromPhase,
+          toLabel: toPhase,
+          family: TransitionChipFamily.phase,
         ),
         if (reason.isNotEmpty) ...[
           const SizedBox(height: 6),
@@ -69,10 +65,10 @@ class ProposeCardDeliverable extends ConsumerWidget {
             style: GoogleFonts.jetBrainsMono(fontSize: 11, color: mutedColor),
           ),
         ],
-        if (deliverableId.isNotEmpty) ...[
+        if (projectId.isNotEmpty) ...[
           const SizedBox(height: 4),
           Text(
-            'deliverable: $deliverableId',
+            'project: $projectId',
             style: GoogleFonts.jetBrainsMono(fontSize: 10, color: mutedColor),
           ),
         ],
@@ -83,22 +79,18 @@ class ProposeCardDeliverable extends ConsumerWidget {
           StalledProposeActions(
             id: id,
             onResolved: onResolved,
-            viewSourceLabel: 'View deliverable',
-            onViewSource: deliverableId.isEmpty
+            viewSourceLabel: 'View project',
+            onViewSource: projectId.isEmpty
                 ? null
-                : () => _viewDeliverable(context, deliverableId),
+                : () => _viewProject(context, projectId),
           ),
       ],
     );
   }
 
-  static void _viewDeliverable(BuildContext context, String deliverableId) {
-    // Phase 3 wire — the existing deliverable viewer takes a project
-    // context, which we don't have on a bare attention row. Until the
-    // W19.6-mobile digest card lands with the cross-screen nav helper,
-    // surface the id in a snack so the principal can copy/paste it.
+  static void _viewProject(BuildContext context, String projectId) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Source deliverable: $deliverableId')),
+      SnackBar(content: Text('Source project: $projectId')),
     );
   }
 }

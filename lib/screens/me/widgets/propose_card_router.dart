@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../inline_actions.dart';
 import 'propose_card_deliverable.dart';
+import 'propose_card_phase.dart';
 
 /// ADR-030 Phase 3 — router widget that picks the per-kind propose
 /// card (W15-W18) based on the attention row's `change_kind` field.
@@ -42,7 +43,13 @@ class ProposeCardRouter extends StatelessWidget {
             myTier: myTier,
             onResolved: onResolved,
           );
-        // W16/W17/W18 register here when they ship.
+        case 'phase.advance':
+          return ProposeCardPhase(
+            attention: attention,
+            myTier: myTier,
+            onResolved: onResolved,
+          );
+        // W17/W18 register here when they ship.
         default:
           break;
       }

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.688
+> **Last verified vs code:** v1.0.689
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,55 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.689-alpha — 2026-05-24
+
+**ADR-030 Phase 3 W16: per-kind propose card for `phase.advance`** +
+shared visuals refactor + fix for v1.0.688's lint warning.
+
+### Added
+
+- `lib/screens/me/widgets/propose_card_phase.dart` — primary +
+  stalled variants. Body: `from_phase → to_phase` transition with
+  project id + summary. Handles the optional `from_phase` (renders
+  `→ to_phase` without a from-side chip when the optimistic-
+  concurrency check is omitted — this is the per-kind quirk
+  unique to phase.advance among the W15-W17 state-shaped cards).
+- `lib/screens/me/widgets/propose_card_visuals.dart` — shared
+  visual + parsing primitives extracted once W16 made the
+  duplication concrete. Exports `decodeJsonObject` (defensive
+  JSON-or-Map decoder), `StalledPill`, `TransitionChip` +
+  `TransitionFrame` + `TransitionChipFamily` enum
+  (state=green / phase=indigo / status=slate). Different colour
+  families per kind so propose-rows are at-a-glance distinguishable.
+- `test/screens/me/propose_card_phase_test.dart` — 7 widget cases
+  including the from-phase-omitted forced-advance scenario.
+
+### Changed
+
+- `lib/screens/me/widgets/propose_card_deliverable.dart` refactored
+  to consume the shared visuals (-130 LOC of local primitives).
+  Behaviour unchanged; test suite passes unchanged.
+- `lib/screens/me/widgets/propose_card_router.dart` — phase.advance
+  registered alongside deliverable.set_state.
+
+### Fixed
+
+- v1.0.688's `propose_card_deliverable.dart` carried an unused
+  `hub_provider.dart` import (left over from the original draft
+  before actions were extracted into `propose_card_actions.dart`).
+  Flutter analyze flagged it as `unused_import` (warning level),
+  failing CI on the v1.0.688 push. The visuals refactor removed
+  it along with the local primitives; CI green again at v1.0.689.
+
+### Forensics
+
+Mobile binary shifts (1 new card + 1 new visuals file + 1 new test
++ deliverable card refactor + router registration). Hub binary
+unchanged. pubspec 1.0.688 → 1.0.689. Verified on CI per repo
+convention.
 
 ---
 

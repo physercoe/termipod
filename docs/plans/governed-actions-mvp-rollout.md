@@ -9,13 +9,13 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > **Status:** Phase 1 + Phase 2 COMPLETE; Phase 3 in flight
 > (2026-05-24, v1.0.674-687). Phase 1: 11 hub wedges at v1.0.674-685.
 > Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile at
-> v1.0.687; W15 (deliverable.set_state card) at v1.0.688; W16-W21
-> remain.
+> v1.0.687; W15 at v1.0.688; W16 (phase.advance card) + shared
+> visuals + W15-lint-warning fix at v1.0.689; W17-W21 remain.
 > Reissued 2026-05-20 to absorb ADR-030 amendments (D-7 Option 2′,
 > ADR-032 envelope on fan-back, ADR-034 loop-entity overlap,
 > principal ≠ owner). Original: Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.688-alpha
+> **Last verified vs code:** v1.0.689-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -954,13 +954,39 @@ into the existing IA without rename or chip add:
   on the row, this card adds a `_DryRunDiff` block above the
   actions; not on the W15 critical path.
 
-**W16. Per-kind propose card — `phase.advance` (~50 LOC).**
+**W16. Per-kind propose card — `phase.advance` + shared visuals refactor (~120 LOC card + 250 LOC visuals + 100 LOC test). Shipped v1.0.689-alpha.**
 
-- `lib/screens/me/widgets/propose_card_phase.dart` (new).
-- Renders: project title + phase ribbon highlighting the
-  transition, reason text, "View project" link.
-- **Stalled variant** as per W15 (top pill, `Override` /
-  `View source` buttons when viewer ≠ addressee).
+- `lib/screens/me/widgets/propose_card_phase.dart` (new)
+  <!-- verify file lib/screens/me/widgets/propose_card_phase.dart -->
+  — body: `from_phase → to_phase` transition with the project id and
+  summary. The `from_phase` may be absent on the wire (phase.advance
+  optimistic-concurrency check is opt-in); the [TransitionFrame]
+  renders `→ to_phase` without a from-side chip when so.
+- `lib/screens/me/widgets/propose_card_visuals.dart` (new) —
+  shared visual + parsing helpers extracted once W16 made the
+  duplication concrete. Exports `decodeJsonObject` (defensive
+  JSON-or-Map decoder), `StalledPill` (top pill for stalled
+  variant), `TransitionChip` + `TransitionFrame` (the from→to
+  pattern), `TransitionChipFamily` enum (green = state, indigo =
+  phase, slate = status) — different colour families per kind so
+  the user can tell propose-rows apart at a glance even with the
+  same body shape. W15 (deliverable) + W16 (phase) + the
+  forthcoming W17 (task) all consume these.
+- `lib/screens/me/widgets/propose_card_deliverable.dart` refactored
+  to consume the shared visuals (-130 LOC of local primitives).
+  Behaviour unchanged; test suite passes unchanged.
+- `lib/screens/me/widgets/propose_card_router.dart` — phase.advance
+  registered alongside deliverable.set_state.
+- **W15-lint-warning fix.** v1.0.688's
+  `propose_card_deliverable.dart` carried an unused
+  `hub_provider.dart` import (left over from the original draft
+  before actions were extracted); the visuals refactor removed it
+  along with the local widgets. CI green this commit.
+- `test/screens/me/propose_card_phase_test.dart` (new) — 7 widget
+  test cases: primary variant shows Approve/Reject + phase chips
+  + project id; stalled variant shows Override/View project + Stuck
+  pill; from_phase omitted renders `→ to_phase` only (the forced-
+  advance case).
 
 **W17. Per-kind propose card — `task.set_status` (~60 LOC).**
 

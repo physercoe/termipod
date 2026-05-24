@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.668
+> **Last verified vs code:** v1.0.669
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,22 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.669-alpha — 2026-05-24
+
+CI rescue. v1.0.668 mobile change introduced two
+`unnecessary_non_null_assertion` warnings in `agent_feed.dart`
+(`latestContextWindow! > 0` and `t.contextWindow = latestContextWindow!`
+after the `!= null` guard — Dart's flow analysis promotes the
+local to non-null, making the `!` redundant). `flutter analyze`
+treats warnings as fatal, so CI rejected the build. Hoisted the
+field into a local with `final cw = latestContextWindow;` and
+referenced `cw` for both reads — no functional change. Also fixed
+a stale `${prefix}(empty reply)` info-level brace warning while
+touching the file. No version-bumpable behaviour change beyond
+v1.0.668; everything in that wedge stands.
 
 ---
 

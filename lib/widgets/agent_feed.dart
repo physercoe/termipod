@@ -212,7 +212,7 @@ String renderAttentionReplyText(Map<String, dynamic> p) {
             : '${prefix}Dismissed without reply. Reason: $reason';
       }
       if (body.isNotEmpty) return prefix + body;
-      return '${prefix}(empty reply)';
+      return '$prefix(empty reply)';
   }
   if (body.isNotEmpty) return prefix + body;
   return prefix + decision;
@@ -1178,8 +1178,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       t.output = perMessageOutput ?? 0;
       t.cacheRead = perMessageCacheRead ?? 0;
       t.cacheCreate = perMessageCacheCreate ?? 0;
-      if (latestContextWindow != null && latestContextWindow! > 0) {
-        t.contextWindow = latestContextWindow!;
+      final cw = latestContextWindow;
+      if (cw != null && cw > 0) {
+        t.contextWindow = cw;
       }
       modelTotals[perMessageModel ?? 'claude-code'] = t;
     }

@@ -17,6 +17,7 @@ import '../projects/projects_screen.dart' show confirmAndRecreateSteward;
 import '../team/spawn_steward_sheet.dart';
 import '../team/templates_screen.dart';
 import 'search_screen.dart';
+import 'widgets/steward_propose_inbox.dart';
 
 /// Merged Sessions/Stewards page (multi-steward wedge 2). Each live
 /// steward gets its own section with its current session inline + a
@@ -2505,6 +2506,19 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     final scopeChip = _buildScopeChip(context, ref, sessionRow);
 
     final hostName = _hostName();
+    // ADR-030 W19 — project id for the steward-side propose inbox pill.
+    // Computed inline alongside _agentKind / _hostName so the AppBar's
+    // actions list can gate the pill in one place.
+    String agentProjectId = '';
+    if (hub != null) {
+      for (final a in hub.agents) {
+        if ((a['id'] ?? '').toString() == widget.agentId) {
+          agentProjectId = (a['project_id'] ?? '').toString();
+          break;
+        }
+      }
+    }
+    final agentKindForPill = _agentKind() ?? '';
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -2536,6 +2550,15 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
           ],
         ),
         actions: [
+          // ADR-030 W19 — steward-side propose inbox pill. Self-gates
+          // (hidden unless agentKind starts with 'steward.' AND there
+          // are open propose rows addressed to project-steward for
+          // this agent's project), so it's safe to drop in at the
+          // top of every session AppBar.
+          StewardProposeInboxPill(
+            agentKind: agentKindForPill,
+            projectId: agentProjectId,
+          ),
           if (scopeChip != null) scopeChip,
           if (_sessionInit != null)
             SessionInitChip(

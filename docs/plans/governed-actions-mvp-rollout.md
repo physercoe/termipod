@@ -6,18 +6,16 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 # Governed actions MVP rollout — phased
 
 > **Type:** plan
-> **Status:** Phase 1 + Phase 2 COMPLETE; Phase 3 in flight
-> (2026-05-24, v1.0.674-687). Phase 1: 11 hub wedges at v1.0.674-685.
-> Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile at
-> v1.0.687; W15 at v1.0.688; W16 + shared visuals at v1.0.689;
-> W17 + W16-lint-error fix at v1.0.690; W18 at v1.0.691;
-> W21 at v1.0.692; W20 at v1.0.693; W19.6-mobile (top-of-Me
-> stalled-decisions digest) at v1.0.694; W19 remains.
-> Reissued 2026-05-20 to absorb ADR-030 amendments (D-7 Option 2′,
-> ADR-032 envelope on fan-back, ADR-034 loop-entity overlap,
-> principal ≠ owner). Original: Proposed (2026-05-17).
+> **Status:** ALL PHASES COMPLETE (2026-05-24, v1.0.674-695).
+> Phase 1: 11 hub wedges at v1.0.674-685. Phase 2: W12-W14 at
+> v1.0.686. Phase 3: W19.6 hub + W19.5 mobile at v1.0.687; W15 at
+> v1.0.688; W16 at v1.0.689; W17 at v1.0.690; W18 at v1.0.691;
+> W21 at v1.0.692; W20 at v1.0.693; W19.6-mobile at v1.0.694;
+> W19 (steward-side inbox) at v1.0.695. Open follow-ups: W20-resolved
+> (override on resolved rows), deferred propose kinds (criterion /
+> agent.terminate / etc — plan §5).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.694-alpha
+> **Last verified vs code:** v1.0.695-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -1053,15 +1051,40 @@ into the existing IA without rename or chip add:
   (missing handle → "(no handle)"; missing category/name →
   "(unknown)"; missing rationale → block omitted).
 
-**W19. Steward-side propose inbox (~60 LOC).**
+**W19. Steward-side propose inbox (~245 LOC widget+screen + 145 LOC test). Shipped v1.0.695-alpha.**
 
-- Project-steward sessions get a "Pending decisions" pill
-  surface (analogous to attention badge) showing rows where
-  `assigned_tier == "project-steward"` and the steward is the
-  addressee.
-- Tap → list view → per-kind card from W15-W18.
-- Decide → existing decide endpoint; fan-back delivers to the
-  proposing worker's session as before.
+- `lib/screens/sessions/widgets/steward_propose_inbox.dart` (new)
+  <!-- verify file lib/screens/sessions/widgets/steward_propose_inbox.dart -->
+  — exports two widgets + a public predicate:
+  - `StewardProposeInboxPill` — AppBar icon button (inbox icon +
+    amber count badge) with self-gating visibility: hidden unless
+    `agentKind.startsWith('steward.')` AND `projectId.isNotEmpty`
+    AND at least one matching row. Drops cleanly into every
+    session AppBar's actions; non-steward sessions see nothing.
+  - `StewardProposeInboxScreen` — list view pushed when the pill
+    is tapped. Each matching row renders via `ProposeCardRouter`
+    with `myTier: 'project-steward'` so the per-kind cards
+    (W15-W18) show their PRIMARY variant (Approve/Reject) for
+    the addressee. Empty-state explains the surface ("workers
+    will route load-bearing state changes here via propose").
+  - `stewardProposeInboxRows(attention, projectId)` — the
+    4-clause predicate exposed publicly so tests can verify it
+    without instantiating widgets. The clauses: `kind=propose`
+    AND `assigned_tier=project-steward` AND `status=open` AND
+    `project_id == <steward's project>`.
+- `lib/screens/sessions/sessions_screen.dart` — `SessionChatScreen`
+  build path adds an `agentProjectId` local (looked up from the
+  agent row) and threads it + `_agentKind()` into the new pill at
+  the start of the AppBar `actions:` list. Self-gating means
+  worker / general-steward / team-only sessions stay unchanged.
+- `test/screens/sessions/steward_propose_inbox_test.dart` (new) —
+  8 cases:
+  - 5 predicate tests: empty list; 4-clause filter exact match;
+    multi-match order preservation; empty projectId → zero
+    matches; legacy row without project_id → never matches.
+  - 3 widget gating tests: hidden when agentKind is not a
+    steward; hidden when projectId is empty; hidden when no
+    matching rows.
 
 **W19.5. `propose` kind → Requests filter mapping + Me-page query widen (~55 LOC + ~85 LOC tests). Shipped v1.0.687-alpha.**
 

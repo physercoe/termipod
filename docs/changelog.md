@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.694
+> **Last verified vs code:** v1.0.695
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,78 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.695-alpha — 2026-05-24
+
+**ADR-030 Phase 3 W19: steward-side propose inbox.** Final wedge of
+Phase 3. AppBar icon-button on every session screen self-gates to
+visibility-when-relevant; tap opens a list view of propose rows
+addressed to the project-steward tier, scoped to the steward's
+project, rendered via the same per-kind cards (W15-W18) the
+principal's Me-page uses — primary variant (Approve/Reject) because
+the steward IS the addressee.
+
+**Status: ADR-030 ALL PHASES COMPLETE** (Phase 1 + Phase 2 + Phase 3,
+v1.0.674-695, 22 wedges across 24 commits).
+
+### Added
+
+- `lib/screens/sessions/widgets/steward_propose_inbox.dart` — two
+  widgets + one public predicate:
+  - `StewardProposeInboxPill` — AppBar icon button (inbox icon +
+    amber count badge) with self-gating: hidden unless
+    `agentKind.startsWith('steward.')` AND `projectId.isNotEmpty`
+    AND ≥1 matching propose row. Safe to drop in every
+    session AppBar.
+  - `StewardProposeInboxScreen` — list view pushed by the pill.
+    Each row renders via `ProposeCardRouter(myTier:
+    'project-steward')` so the per-kind cards show their PRIMARY
+    variant for the addressee. Empty-state explains the surface.
+  - `stewardProposeInboxRows(attention, projectId)` — 4-clause
+    predicate (`kind=propose` AND `assigned_tier=project-steward`
+    AND `status=open` AND `project_id` matches). Exposed publicly
+    so tests can verify it without widgets.
+- `test/screens/sessions/steward_propose_inbox_test.dart` — 8 cases:
+  5 predicate tests (empty list / canonical 4-clause filter /
+  multi-match order preservation / empty projectId zero matches /
+  legacy row without project_id never matches) + 3 widget gating
+  tests (hidden when agentKind not a steward / hidden when
+  projectId empty / hidden when no matching rows).
+
+### Changed
+
+- `lib/screens/sessions/sessions_screen.dart` —
+  `SessionChatScreen` build path computes `agentProjectId` from
+  the agent row and threads it + `_agentKind()` into the new pill
+  at the start of the AppBar `actions:` list. Self-gating means
+  worker / general-steward / team-only sessions stay unchanged.
+
+### Forensics
+
+Mobile binary shifts (1 new widget file + 1 new test + sessions
+screen wiring). Hub binary unchanged. pubspec 1.0.694 → 1.0.695.
+
+### ADR-030 final status
+
+22 wedges shipped across 24 commits (v1.0.674-695):
+- Phase 1 (11 hub wedges): migration 0045, policy.Kinds, propose
+  registry, mcpPropose, 5 apply functions (deliverable / phase /
+  task / agent / template), permission_prompt re-addressing,
+  override path, fan-back envelope, loop-sweep escalation audit
+- Phase 2 (3 wedges): re-propose rule in 9 stewards, 10 lifecycle
+  scenarios S33-S42, seed-demo annotation
+- Phase 3 (8 wedges): hub fields exposure (W19.6 hub), mobile
+  filter + predicate (W19.5), 5 per-kind cards (W15-W18 covers
+  5 kinds), policy viewer (W21), override sheet (W20), stalled
+  digest (W19.6-mobile), steward inbox (W19)
+
+Open follow-ups: W20-resolved (override on resolved rows in
+Me-page), deferred propose kinds (criterion.set_state,
+agent.terminate, agent.archive, permission_policy.change, etc.
+per plan §5), tier-identity check on override (currently soft
+string match against `@principal`).
 
 ---
 

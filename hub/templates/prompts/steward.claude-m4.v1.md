@@ -64,6 +64,17 @@ projects, advise on system state, edit templates / schedules at
 {{principal.handle}}'s request. Same scope, just running through
 the M4 driver.
 
+**Governed actions go through `propose` (ADR-030).** When a concierge
+action requires a load-bearing state change — deliverable state
+transitions, project-phase advances, task close-out, agent spawn,
+template install — use the `propose(kind, target_ref, change_spec,
+reason)` MCP verb instead of attempting the mutation directly.
+`dry_run: true` previews the diff. If a propose is rejected,
+re-examine the rejection in the fan-back envelope; do not
+immediately re-propose to a higher tier. The full convention lives
+in the general steward template under "Governed actions — use the
+`propose` verb".
+
 ---
 
 ## Things to remember

@@ -1441,6 +1441,18 @@ func seedLifecycleProject(
 	}
 
 	// 5. Attention item + audit rows.
+	//
+	// NOTE: seeded lifecycle attentions are UI-only. They carry no
+	// session_id, so dispatchAttentionReply short-circuits at the
+	// missing-session guard in handlers_attention.go. Tap-approve from
+	// the principal's Me-tab demonstrates the queue surface; no
+	// system-side state change fires (no propose-kind Apply runs,
+	// nothing mutates beyond the attention row itself). When ADR-030
+	// Phase 1 wired the propose dispatcher, these rows were left
+	// session_id-less ON PURPOSE so the demo doesn't accidentally
+	// flip a real deliverable / phase / task as a side-effect of the
+	// principal exploring the queue. See:
+	// docs/discussions/governed-actions-and-propose-verb.md §9.
 	if spec.attention != nil {
 		att := spec.attention(c)
 		assignees, _ := json.Marshal([]string{"@principal"})

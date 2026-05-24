@@ -2079,6 +2079,462 @@ intervention when a worker leaves a row open.
 
 ---
 
+# ADR-030 governed actions + `propose` verb (Scenarios 33-42)
+
+The next ten scenarios exercise the `propose` MCP verb shipped in
+ADR-030 Phase 1 (v1.0.674-685). They share two pre-conditions:
+
+1. **Hub build ≥ v1.0.685-alpha** — migration 0045 ran (5 new
+   `attention_items` columns: `change_kind`, `assigned_tier`,
+   `change_spec_json`, `target_ref_json`, `executed_json`); the
+   propose-kind registry has all five MVP kinds registered
+   (`deliverable.set_state`, `phase.advance`, `task.set_status`,
+   `agent.spawn`, `template.install`).
+2. **A worker AND a project steward** in the same project. The
+   propose path is meaningful only when there's a real authority
+   ladder; bare-worker setups skip the project-steward escalation.
+   Easiest seed = Scenario 7.5 (project steward + spawned worker).
+
+The diagnostic ladder is shared: when a scenario fails, inspect
+`audit_events` for the expected `propose.raised` /
+`<kind>.<applied>` / `attention.decide` / `attention.override` /
+`attention.escalation_advanced` row in order. The audit lineage
+IS the test signal — every successful path leaves a discoverable
+trail; every failure leaves a gap you can name.
+
+## Scenario 33 — `deliverable.set_state` propose → approve → audit
+
+**Goal:** confirm a worker proposes a deliverable transition,
+the project steward approves, the state flips, and the audit row
+carries the `via=propose` discriminator.
+
+**Pre-conditions:** project with a `draft` deliverable; worker
+spawned under a project steward.
+
+**Steps:**
+
+1. From the worker chat, call:
+   ```
+   propose(
+     kind="deliverable.set_state",
+     target_ref={"deliverable_id": "<did>"},
+     change_spec={"from_state": "draft", "to_state": "ratified"},
+     reason="initial draft reviewed"
+   )
+   ```
+2. Worker sees the call return `{attention_id, status: "pending"}`.
+3. Open the project steward's Me-tab. Wait ~5s. The propose
+   attention card appears in the Requests filter.
+4. Tap **Approve**.
+
+**Expected:**
+
+- `audit_events` row `propose.raised` with `meta.kind=
+  "deliverable.set_state"` and `meta.from_state="draft"`.
+- After approve: `audit_events` row `deliverable.ratified` with
+  `meta.via="propose"` (NOT `meta.via="alias_legacy"` and NOT
+  absent — the via discriminator is the load-bearing tell that
+  the dispatcher routed correctly).
+- `attention_items.status = "resolved"`, `executed_json`
+  populated with the apply result.
+- Deliverable row's `state` column is now `ratified`.
+
+**Failure modes:**
+
+- **`via` field missing from audit meta** → the apply path
+  bypassed `ProposeApplyContext.ViaOrDefault()`. Check
+  `apply_deliverable_set_state.go` for the audit-emission block.
+- **Apply runs but `executed_json` empty** → handlers_attention.go
+  decide-handler mirror-back step is missing. Check the W8 dispatcher
+  refactor block.
+- **Attention card appears but Approve is greyed out** → mobile
+  isn't reading `assigned_tier`. Tier should be `project-steward`;
+  the steward viewing the card must match.
+
+## Scenario 34 — `deliverable.set_state` propose → reject → fan-back
+
+**Goal:** confirm a rejected propose fans back to the proposer
+with the reason, and the steward re-examines (does NOT auto
+re-propose to a higher tier).
+
+**Pre-conditions:** same as S33.
+
+**Steps:**
+
+1. Worker calls `propose(kind="deliverable.set_state", ...)` as
+   in S33.
+2. Project steward opens the card and taps **Reject**, entering
+   reason `"need more review cycles"`.
+3. Wait ~3s. Worker's session receives a fan-back `input.attention_reply`
+   event.
+
+**Expected:**
+
+- Worker chat shows the reject + reason via the ADR-032 envelope:
+  `kind="report"`, `text="reject propose: deliverable.set_state"`,
+  `cause=<deliverable_id>`.
+- `payload.executed` is `null` (reject path runs no Apply).
+- `audit_events` has `attention.decide` row with
+  `meta.decision="reject"` and the reason carried in `meta.reason`.
+- The worker should respond by re-examining the reason — NOT by
+  immediately re-proposing with `addressee_tier="general-steward"`.
+  This is a steward-prompt convention from W12 (template Authority
+  block); verify by inspecting the worker's reply.
+
+**Failure modes:**
+
+- **Worker never receives fan-back** → check
+  `agent_events.payload_json` for a row with
+  `kind="input.attention_reply"` matching the attention ID. If
+  absent, `dispatchAttentionReply` short-circuited. Look for a
+  missing `session_id` on the attention row.
+- **Envelope arrives but `payload.envelope` is unset (flat
+  fields only)** → mobile is on a pre-v1.0.684 build that
+  predates the W11 nested envelope. Bump.
+
+## Scenario 35 — `phase.advance` propose → approve → activity feed
+
+**Goal:** confirm phase advancement through `propose` flows
+through optimistic-concurrency check and updates the activity
+feed.
+
+**Pre-conditions:** project with a multi-phase plan; current
+phase is `discovery`.
+
+**Steps:**
+
+1. From the worker chat:
+   ```
+   propose(
+     kind="phase.advance",
+     target_ref={"project_id": "<pid>"},
+     change_spec={"from_phase": "discovery", "to_phase": "design"},
+     reason="discovery criteria all met"
+   )
+   ```
+2. Project steward approves.
+
+**Expected:**
+
+- `audit_events` row `project.phase_advanced` with
+  `meta.from="discovery"`, `meta.to="design"`,
+  `meta.via="propose"`.
+- Activity feed (Projects → tile → Activity tab) shows the
+  phase-change card with the steward as decider, worker as
+  proposer.
+- `project_phase` row updated.
+
+**Variation: stale `from_phase`.** Worker proposes
+`from_phase="discovery"` BUT a separate path has already
+advanced to `design`. Apply should reject with optimistic-
+concurrency error; the attention row resolves with `executed_json`
+carrying the error, not a successful diff. This is the W6 check.
+
+**Failure modes:**
+
+- **Apply succeeds when `from_phase` doesn't match current** →
+  optimistic check missing. See `apply_phase_advance.go`'s
+  `loadProjectPhaseRowAnyTeam` block.
+- **Activity feed missing the row** → mobile filter not
+  including `project.phase_advanced` in its activity rendering;
+  not an ADR-030 bug.
+
+## Scenario 36 — `task.set_status.done` propose → steward approves
+
+**Goal:** confirm worker can propose closing its own task and
+the parent steward approves.
+
+**Pre-conditions:** worker spawned with an inline `task:{title,
+body_md}` (Scenario 30 happy path covers the spawn).
+
+**Steps:**
+
+1. Worker completes its work. Instead of calling
+   `tasks_complete` directly, it calls:
+   ```
+   propose(
+     kind="task.set_status",
+     target_ref={"task_id": "<tid>"},
+     change_spec={"from_status": "in_progress", "to_status": "done",
+                  "summary": "<one-line summary>"},
+     reason="work complete"
+   )
+   ```
+2. Project steward approves.
+
+**Expected:**
+
+- `audit_events` row `task.status` with `meta.from="in_progress"`,
+  `meta.to="done"`, `meta.via="propose"`, `meta.source="propose"`
+  (distinct from `meta.source="spawn"` of auto-derived rows in
+  S32).
+- Tasks tab shows task as `done`.
+- W7's narrowed set rejects: try `to_status="in_progress"` or
+  `"blocked"` — Validate returns error (`task.set_status` only
+  permits `{done, cancelled}` since the others are auto-derived).
+
+**Failure modes:**
+
+- **Propose accepts `to_status="in_progress"`** → W7's narrowed
+  set isn't enforced. See `proposePermittedTaskStatuses` map in
+  `apply_task_set_status.go`.
+
+## Scenario 37 — Worker-tool permission_prompt → parent steward → approve
+
+**Goal:** confirm gated worker tool calls (e.g. filesystem
+Write outside auto-allowed scope) raise a `permission_prompt`
+attention re-addressed to the parent steward, not the
+principal.
+
+**Pre-conditions:** worker spawned under a project steward;
+worker is configured to require prompt-tier approval for
+filesystem writes (the default for non-bypass workers).
+
+**Steps:**
+
+1. Worker attempts a file-write call that crosses the auto-allow
+   threshold.
+2. Hub's `mcpPermissionPrompt` fires (W10 path).
+
+**Expected:**
+
+- `attention_items` row with `kind="permission_prompt"` AND
+  `assigned_tier="project-steward"` (W10 wrote both).
+- The PROJECT STEWARD sees the card on Me-tab — NOT the
+  principal (this is the W10 re-addressing — addressee is the
+  parent steward whose 5-conjunct JOIN matched).
+- Project steward taps Approve.
+- File write proceeds; `audit_events` row `attention.decide`
+  with `meta.decision="approve"`.
+
+**Variation: no live parent steward.** If the parent steward is
+terminated before the prompt fires, the 5-conjunct JOIN returns
+no row → addressee falls back to `@principal`. The principal
+sees the card.
+
+**Failure modes:**
+
+- **Card surfaces to principal even with live parent steward** →
+  W10's JOIN predicate isn't matching. Check the 5 conjuncts in
+  `permissionPromptAddressee`: parent_id + steward kind + project
+  match + 2 NULL guards. The SQL NULL=NULL→NULL semantic is
+  defensive; missing either NULL guard surfaces the bug.
+
+## Scenario 38 — Principal override of steward decision
+
+**Goal:** confirm the principal can override a resolved
+attention row, rollback runs, and an override audit row is
+written.
+
+**Pre-conditions:** S33 completed (deliverable ratified via
+propose by steward approve).
+
+**Steps:**
+
+1. From the principal's Me-tab, find the resolved S33 row.
+   The "Override" affordance is available (Phase 3 ships the
+   button; for now: call `POST /v1/teams/{t}/attention/{id}/decide`
+   with `{decision:"override", override:true, by:"@principal",
+   reason:"reverting — wrong deliverable"}`).
+2. Hub runs the W9 override path.
+
+**Expected:**
+
+- `audit_events` row `attention.override` with
+  `meta.rollback_executed.from_state="ratified"`,
+  `meta.rollback_executed.to_state="draft"`.
+- `audit_events` row `deliverable.unratified` (or `.updated`
+  depending on direction) with `meta.via="override"`.
+- Deliverable's `state` column is back to `draft`.
+- Original steward's session receives a second fan-back with
+  the rollback executed payload (W11 override fan-back).
+
+**Variation: override `agent.spawn`.** Repeat against a S
+where the original propose was `agent.spawn`. The rollback
+emits an `agent.spawn.rollback_todo` audit row instead of
+terminating the agent — terminate-via-propose is post-MVP per
+the plan §5.
+
+**Failure modes:**
+
+- **Override accepted but rollback didn't run** → the
+  `attentionOverrideArgs` decision validation rejected; check
+  `decision="override"` requires `override=true` paired
+  (W9 validation extension).
+- **Second fan-back missing** → handlers_attention.go override
+  path doesn't call `dispatchAttentionReply`. Should be the
+  W11 extension.
+
+## Scenario 39 — Alias compat (`approval_request` + `spawnIn`)
+
+**Goal:** confirm legacy callers using the old `approval_request`
++ `spawnIn` shape still resolve through the W8 dispatcher
+refactor.
+
+**Pre-conditions:** any worker that can call the legacy
+attention endpoint (most pre-v1.0.674 agents).
+
+**Steps:**
+
+1. Worker raises a legacy `approval_request` carrying a
+   `spawnIn` payload (the pre-ADR-030 shape).
+2. Steward approves through the legacy `/decide` path.
+
+**Expected:**
+
+- `audit_events` row `agent.spawn` with `meta.via="alias_legacy"`
+  (NOT `via="propose"`). This is the W8 alias discriminator —
+  the dispatcher routed the legacy shape through
+  `applyAgentSpawn` but stamped the lineage so forensics can
+  tell legacy vs new-shape callers apart.
+- Agent spawn proceeds normally.
+- No mobile UI difference vs S33 — the wire JSON for the legacy
+  path is unchanged; only internal routing differs.
+
+**Failure modes:**
+
+- **`via` stamp missing or set to "propose"** → the W8 dispatcher
+  didn't set `Via: "alias_legacy"` on the `ProposeApplyContext`.
+  Check `handleDecideAttention`'s three-input-shape dispatcher
+  arm.
+
+## Scenario 40 — `dry_run: true` preview surfaces inline
+
+**Goal:** confirm `dry_run: true` returns a preview to the
+caller WITHOUT creating an attention row, so the worker can
+self-correct before raising.
+
+**Pre-conditions:** any project with a deliverable in `draft`.
+
+**Steps:**
+
+1. Worker calls:
+   ```
+   propose(
+     kind="deliverable.set_state",
+     target_ref={"deliverable_id": "<did>"},
+     change_spec={"from_state": "draft", "to_state": "ratified"},
+     dry_run=true
+   )
+   ```
+2. Inspect the response.
+
+**Expected:**
+
+- Response carries the preview: `{from: "draft", to: "ratified",
+  target_label: "<deliverable_title>", no_op: false}`.
+- NO `attention_items` row inserted for the call.
+- NO `audit_events.propose.raised` row.
+- Worker reads the preview and either (a) re-calls with
+  `dry_run=false` to actually raise the attention, or (b)
+  aborts because the preview revealed a mis-shaped change_spec.
+
+**Variation: no-op preview.** Call dry_run against an already-
+ratified deliverable with `from_state="ratified",
+to_state="ratified"`. Preview returns `no_op: true`. The agent
+should NOT raise the attention (would be pure noise).
+
+**Failure modes:**
+
+- **`attention_items` row appeared despite `dry_run=true`** →
+  the W4 mcpPropose branch order is wrong; dry_run must be
+  checked BEFORE INSERT.
+
+## Scenario 41 — Stalled propose → escalation_advanced → principal override
+
+**Goal:** confirm the D-7 Option 2′ signal walk (the
+"decision stays, signal walks" pattern) — a stalled
+project-steward decision surfaces to the principal AFTER the
+inactivity deadline.
+
+**Pre-conditions:** hub `inactivity_deadline_seconds` set
+short for the test (e.g. 30s). Project steward exists but is
+"asleep" (no chat activity, not closing the row).
+
+**Steps:**
+
+1. Worker raises a `task.set_status` propose (S36 shape).
+2. Project steward sits on it past `inactivity_deadline`.
+3. Wait one sweep tick (~10s default).
+
+**Expected:**
+
+- `audit_events` row `attention.escalation_advanced` with
+  `meta.attention_id`, `meta.change_kind="task.set_status"`,
+  `meta.from_state="none"`, `meta.to_state="escalated_steward"`,
+  `meta.original_assigned_tier="project-steward"`,
+  `meta.project_id=<pid>`,
+  `meta.change_spec_preview="<200-byte preview>…"`.
+- Push fires to the principal's Me-page (Phase 3 ships the
+  digest card; today verify via the principal's
+  `attention_items?escalation_state=escalated_steward` filter).
+- Principal sees the row with a stalled pill (Phase 3 UI),
+  taps Override.
+- D-8 override audit row written; task status updates.
+- Original steward can no longer decide — row already resolved.
+- Verify the push fires once per transition, not per sweep
+  tick (sweep is idempotent on the `escalation_state` column).
+
+**Failure modes:**
+
+- **No `escalation_advanced` row** → `questionAttentionKinds`
+  doesn't include `"propose"`. This is the W11.5 LOAD-BEARING
+  extension. Check `loop_entity.go`.
+- **Row emitted but principal Me-page filter doesn't return it** →
+  the W19.6 hub-side query widen isn't deployed yet (it's a
+  Phase 3 wedge). Workaround: query directly with
+  `escalation_state` filter.
+
+## Scenario 42 — Late-but-valid decision (steward beats principal)
+
+**Goal:** confirm that if the project steward decides between
+the sweep tick that fired the escalation push and the principal
+opening Me, the row resolves cleanly via the normal path
+(no override audit), `assigned_tier` stays unchanged, and
+the principal's Me-page list refreshes to drop the stalled
+card.
+
+**Pre-conditions:** same as S41.
+
+**Steps:**
+
+1. Reproduce S41 through step 3 — `escalation_advanced` audit
+   row is written and push fires to principal.
+2. BEFORE the principal opens Me-tab: the project steward
+   wakes up and taps Approve on the original card (normal
+   `/decide approve` path).
+3. Principal opens Me-tab.
+
+**Expected:**
+
+- `audit_events` row `attention.decide` with the project
+  steward as decider, `meta.decision="approve"` (NOT an override
+  row).
+- The apply path runs normally — `task.status` audit row with
+  `meta.via="propose"` (NOT `meta.via="override"`).
+- `attention_items` row: `status="resolved"`,
+  `assigned_tier="project-steward"` (UNCHANGED — the
+  escalation surfaced the signal but didn't move authority).
+- Principal's Me-page list refresh: the stalled card disappears
+  (Phase 3 mobile filter excludes resolved rows from the
+  digest).
+- NO `attention.override` row exists.
+
+**Why this scenario:** without it, the system risks shipping a
+hard handoff that locks the steward out once the signal walks.
+The D-7 Option 2′ decision is "signal walks, decision stays" —
+this is the test that proves the decision stayed.
+
+**Failure modes:**
+
+- **Steward's `/decide` returns 409 conflict after sweep tick** →
+  the sweep is moving authority, not just surfacing the signal.
+  The escalation should be additive — the original assignee
+  retains decide rights until they explicitly hand off or the
+  principal overrides.
+
+---
+
 ## When you're done
 
 - Tick the checkboxes in

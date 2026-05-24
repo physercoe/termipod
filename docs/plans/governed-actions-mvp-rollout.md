@@ -6,17 +6,18 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 # Governed actions MVP rollout — phased
 
 > **Type:** plan
-> **Status:** Phase 1 COMPLETE (2026-05-24, v1.0.674-685) — all 11
-> hub-side wedges (W1-W11.5) shipped end-to-end with full test
-> coverage; Phase 2 (steward prompts + lifecycle scenarios) and
-> Phase 3 (mobile per-kind cards + override affordance) not yet
-> started. Reissued 2026-05-20 to absorb the ADR-030 amendments
-> (D-7 Option 2′ — decision stays, signal walks; ADR-032 envelope
-> on fan-back; ADR-034 loop-entity overlap; principal ≠ owner)
-> and fix file/line drift from v1.0.620-636. Original status:
-> Proposed (2026-05-17).
+> **Status:** Phase 1 + Phase 2 COMPLETE (2026-05-24, v1.0.674-686).
+> Phase 1: all 11 hub-side wedges (W1-W11.5) shipped end-to-end
+> with full test coverage at v1.0.674-685. Phase 2: W12 (re-propose
+> rule in 9 steward templates), W13 (10 lifecycle scenarios S33-S42),
+> W14 (seed-demo annotation) shipped together at v1.0.686. Phase 3
+> (mobile per-kind cards + override affordance) not yet started.
+> Reissued 2026-05-20 to absorb the ADR-030 amendments (D-7 Option
+> 2′ — decision stays, signal walks; ADR-032 envelope on fan-back;
+> ADR-034 loop-entity overlap; principal ≠ owner) and fix file/line
+> drift from v1.0.620-636. Original status: Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.685-alpha
+> **Last verified vs code:** v1.0.686-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -731,16 +732,40 @@ exercise each MVP kind end-to-end.
 
 ### 3.2 Wedges
 
-**W12. Re-propose rule in 9 bundled steward templates (~30 LOC prose × 9 files).**
+**W12. Re-propose rule in 9 bundled steward templates (~30 LOC prose × 9 files). Shipped v1.0.686-alpha.**
 
-- Each of the nine bundled steward templates gains a short
-  section under BOUNDARIES / Authority. The full set as of
-  v1.0.673 (verified against `hub/templates/prompts/` <!-- verify glob hub/templates/prompts/steward.*.md 9 -->):
+- Each of the nine bundled steward templates gained a
+  `### Governed actions — use the `propose` verb (ADR-030)`
+  subsection under Authority. The full set as of v1.0.686
+  (verified against `hub/templates/prompts/` <!-- verify glob hub/templates/prompts/steward.*.md 9 -->):
   `steward.v1.md`, `steward.general.v1.md`,
   `steward.claude-m4.v1.md`, `steward.codex.v1.md`,
   `steward.gemini.v1.md`, `steward.kimi.v1.md`,
   `steward.research.v1.md`, `steward.infra.v1.md`,
   `steward.antigravity.v1.md` (added at v1.0.641 by ADR-035).
+
+  Each gets the same canonical three-paragraph block (the
+  governed-actions gate, `dry_run`, the re-propose discipline)
+  with two domain tailorings noted:
+  - **`steward.infra.v1.md`** adds: "For infra-heavy actions
+    (deploy/rollback, config change), this means routing the
+    state change through `propose` even when you have shell
+    access to do it directly."
+  - **`steward.antigravity.v1.md`** adds: "This applies
+    REGARDLESS of agy's local file tools — even if you can edit
+    a deliverable file directly, route state transitions through
+    `propose` so the system records the audit lineage and the
+    principal can override."
+  - **`steward.research.v1.md`** adds a parenthetical pointing
+    at "your phase 3 review-cycle outcomes" and "your
+    `plan.advance` calls" so the research steward sees its
+    domain verbs in the propose set.
+  - **`steward.claude-m4.v1.md`** is a test-only template with
+    no Authority section; it received a one-paragraph pointer
+    under Concierge mode that defers to the general steward
+    template for the full convention.
+
+  Canonical block <!-- verify file hub/templates/prompts/steward.v1.md -->:
 
   > **Governed actions are gated.** For load-bearing state
   > changes — deliverable state transitions, project-phase
@@ -748,23 +773,33 @@ exercise each MVP kind end-to-end.
   > use the `propose(kind, target_ref, change_spec, reason)`
   > verb. The system applies the change on approve; do not
   > attempt the mutation directly via REST or by editing files
-  > yourself.
-  >
-  > **If a propose is rejected, do not immediately re-propose
-  > to a higher tier.** Re-examine the reason in the
-  > fan-back. Only re-propose if you have new information
-  > that addresses the rejection.
+  > yourself. The five MVP kinds are `deliverable.set_state`,
+  > `phase.advance`, `task.set_status`, `agent.spawn`, and
+  > `template.install`.
   >
   > **`dry_run: true`** lets you preview the diff before the
   > authoriser sees it. Use it when you're uncertain whether
-  > the change_spec is well-formed.
+  > the change_spec is well-formed — the preview returns
+  > `{from, to, target_label, no_op}` so you can self-correct
+  > before raising the attention row.
+  >
+  > **If a propose is rejected, do not immediately re-propose
+  > to a higher tier.** Re-examine the reason in the fan-back
+  > envelope. Re-propose ONLY if you have new information that
+  > addresses the rejection — fresh evidence, a smaller scope,
+  > or a different `target_ref`. Repeated propose-then-reject
+  > loops are themselves a signal to escalate to the principal
+  > via `request_help` instead.
 
-**W13. Test scenarios in test-steward-lifecycle.md (~200 LOC prose).**
+**W13. Test scenarios in test-steward-lifecycle.md (~410 LOC prose). Shipped v1.0.686-alpha.**
 
 - Ten new scenarios appended to
-  `docs/how-to/test-steward-lifecycle.md`, numbered from 33
-  (current highest is S32, ADR-034 stuck-task recovery —
-  verified against v1.0.636):
+  `docs/how-to/test-steward-lifecycle.md` <!-- verify file docs/how-to/test-steward-lifecycle.md -->,
+  numbered from 33 (current highest is S32, ADR-034 stuck-task
+  recovery — verified against v1.0.636). All ten sit under a
+  shared H1 banner with the two shared pre-conditions (hub build
+  ≥ v1.0.685-alpha; live worker + project steward triad) and the
+  shared diagnostic ladder (audit_events oracle):
   - **S33**: `deliverable.set_state.ratified` propose →
     approve → audit row visible.
   - **S34**: `deliverable.set_state.ratified` propose →
@@ -799,29 +834,43 @@ exercise each MVP kind end-to-end.
     override audit fires; the principal's Me-page list refreshes
     to drop the stalled card.
 
-**W14. Seed-demo annotation (~10 LOC prose comment).**
+**W14. Seed-demo annotation (~13 LOC prose comment). Shipped v1.0.686-alpha.**
 
-- Add a comment block in
-  `hub/internal/server/seed_demo_lifecycle.go` near the
-  `INSERT INTO attention_items` call (~line 1454):
-  ```go
-  // NOTE: seeded lifecycle attentions are UI-only.
-  // They carry no session_id, so dispatchAttentionReply
-  // short-circuits at handlers_attention.go:661. Tap-approve
-  // demonstrates the Me-tab queue surface; no system-side
-  // state change fires. See:
+- Added a comment block in
+  `hub/internal/server/seed_demo_lifecycle.go`
+  <!-- verify file hub/internal/server/seed_demo_lifecycle.go -->
+  immediately before the `INSERT INTO attention_items` call:
+
+  ```
+  // NOTE: seeded lifecycle attentions are UI-only. They carry no
+  // session_id, so dispatchAttentionReply short-circuits at the
+  // missing-session guard in handlers_attention.go. Tap-approve from
+  // the principal's Me-tab demonstrates the queue surface; no
+  // system-side state change fires (no propose-kind Apply runs,
+  // nothing mutates beyond the attention row itself). When ADR-030
+  // Phase 1 wired the propose dispatcher, these rows were left
+  // session_id-less ON PURPOSE so the demo doesn't accidentally
+  // flip a real deliverable / phase / task as a side-effect of the
+  // principal exploring the queue. See:
   // docs/discussions/governed-actions-and-propose-verb.md §9.
   ```
 - Per the principal's instruction: **do not modify the seed
-  itself**.
+  itself**. The W11 missing-session guard reference is to
+  `handlers_attention.go::dispatchAttentionReply` lines 985-987
+  (the `if !sessionID.Valid || sessionID.String == "" { return nil }`
+  block); the comment intentionally omits the line number since
+  the guard's existence is the contract, not its address
+  <!-- verify symbol hub/internal/server/handlers_attention.go dispatchAttentionReply -->.
 
 ### 3.3 Acceptance
 
-- All five steward templates carry the re-propose rule and
-  the `propose` verb description.
-- `docs/how-to/test-steward-lifecycle.md` lists scenarios 33-40
-  with reproducible steps.
-- Seed-demo comment is in place; no behavioural change.
+- All nine bundled steward templates carry the canonical
+  `Governed actions — use the `propose` verb` block under
+  Authority / Concierge mode <!-- verify glob hub/templates/prompts/steward.*.md 9 -->.
+- `docs/how-to/test-steward-lifecycle.md` lists Scenarios 33-42
+  with reproducible steps + diagnostic ladders + failure modes.
+- Seed-demo comment is in place; no behavioural change to the
+  seed itself.
 
 ---
 

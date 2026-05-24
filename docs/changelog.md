@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.685
+> **Last verified vs code:** v1.0.686
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,97 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.686-alpha — 2026-05-24
+
+**ADR-030 Phase 2 COMPLETE.** W12 (re-propose rule in 9 bundled
+steward templates), W13 (10 lifecycle scenarios S33-S42),
+W14 (seed-demo annotation) shipped together. Hub binary changes
+because steward prompts are embedded into the binary via
+`//go:embed all:templates`; no Go-code-behavioural change. Phase 3
+(mobile per-kind cards + override affordance) is the remaining
+ADR-030 work — still not started but now unblocked end-to-end on
+the hub side AND in the prompt corpus stewards spawn against.
+
+### Added
+
+- 9 steward templates gain `### Governed actions — use the `propose`
+  verb (ADR-030)` subsection under their Authority (or Concierge mode
+  for `steward.claude-m4.v1.md`) block. Canonical three-paragraph
+  block: (1) governed-actions gate naming the 5 MVP kinds + the
+  "do not mutate directly" prohibition; (2) `dry_run: true` self-
+  correction usage; (3) re-propose discipline ("do not re-propose
+  to higher tier; re-examine the rejection reason in the fan-back
+  envelope"). Three domain tailorings: `steward.infra.v1.md` (route
+  deploy/rollback through propose even with shell access);
+  `steward.antigravity.v1.md` (route through propose regardless of
+  agy's local file tools); `steward.research.v1.md` (call out
+  phase 3 review-cycle outcomes + `plan.advance` as in-scope verbs).
+- 10 lifecycle scenarios in `docs/how-to/test-steward-lifecycle.md`
+  under a new H1 banner `# ADR-030 governed actions + `propose`
+  verb (Scenarios 33-42)`:
+  - **S33** `deliverable.set_state` propose → approve → audit row
+    with `via=propose` discriminator.
+  - **S34** propose → reject → fan-back to worker via ADR-032
+    envelope; worker re-examines (does not auto re-propose).
+  - **S35** `phase.advance` propose → approve → activity feed
+    + variation for stale `from_phase` (optimistic concurrency).
+  - **S36** `task.set_status.done` propose → approve + W7's
+    narrowed-set rejection test (`to_status="in_progress"` errors).
+  - **S37** worker tool permission_prompt → W10 re-addressing
+    to parent steward → approve; variation when parent steward
+    is dead (falls back to principal).
+  - **S38** principal override of S33's resolved row → W9 Rollback
+    runs → `attention.override` audit + second fan-back; variation
+    for `agent.spawn` override (emits `agent.spawn.rollback_todo`
+    instead of terminating, per plan §5).
+  - **S39** alias compat: legacy `approval_request + spawnIn`
+    routes through W8 dispatcher with `via=alias_legacy` lineage
+    stamp (forensics can tell legacy vs new-shape callers apart).
+  - **S40** `dry_run: true` returns preview synchronously
+    without inserting an attention row; no `propose.raised` audit;
+    variation for no-op preview (`from==to` returns
+    `no_op: true`).
+  - **S41** D-7 Option 2′ signal walk: stalled propose past
+    `inactivity_deadline` → sweep emits W11.5
+    `attention.escalation_advanced` audit → push to principal →
+    override; verifies push fires once per transition (not per
+    sweep tick) by the sweep being idempotent on `escalation_state`.
+  - **S42** late-but-valid decision: original steward decides
+    between sweep tick and principal opening Me. Verifies normal
+    path runs (`via=propose`, NOT `via=override`); `assigned_tier`
+    stays unchanged (the D-7 "decision stays, signal walks"
+    contract); no override audit fires.
+- 13-line NOTE block in `hub/internal/server/seed_demo_lifecycle.go`
+  immediately before the `INSERT INTO attention_items` call,
+  explaining why seeded lifecycle attentions are session_id-less
+  ON PURPOSE (so the demo doesn't accidentally flip a real
+  deliverable / phase / task as the principal explores the queue).
+  Per the principal's instruction, the seed itself is unchanged.
+
+### Changed
+
+- `docs/plans/governed-actions-mvp-rollout.md` — status block bumped
+  to "Phase 1 + Phase 2 COMPLETE". W12/W13/W14 rewritten with
+  shipped reality + per-template tailoring notes + verify anchors
+  for the canonical block, the S33-S42 banner, the seed file, and
+  the W11 missing-session guard.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` —
+  stamp bumped to v1.0.686-alpha.
+- `docs/doc-spec.md` — stamp bumped to v1.0.686 (transitively,
+  because contract-stamped docs that reference it must stay in
+  sync with their referent under the doc-freshness mechanism).
+
+### Forensics
+
+Single Phase-2 commit (no per-wedge bisect needed because the
+work is prose-only with no test-bisect signal). Phase 1 conventions
+honoured: pubspec bumped to 1.0.686-alpha+10686 (the hub binary
+bytes shift due to embedded templates), full hub test suite green
+unchanged, no new test files (W13 is a how-to doc, not an
+executable suite).
 
 ---
 

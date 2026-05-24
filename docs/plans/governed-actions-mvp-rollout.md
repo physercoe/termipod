@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.674-alpha
+> **Last verified vs code:** v1.0.675-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -137,11 +137,13 @@ parent re-address to the parent steward.
   }
   type QuorumPolicy struct{ M int }
   ```
-- Add `Policy.KindFor(kind) (KindPolicy, bool)` accessor; missing
-  kind → permissive default (`default_tier="principal"`, M=1,
-  `override_allowed=true`, escalate-flags `false`) + a WARN log.
+- Add `Policy.KindFor(kind) (KindPolicy, bool)` accessor <!-- verify symbol hub/internal/server/policy.go KindFor -->;
+  missing kind → permissive default (`default_tier="principal"`,
+  M=1, `override_allowed=true`, escalate-flags `false`) + a WARN log.
 - Reload on mtime change reuses the existing `policyStore` reload
-  loop in `policy.go:60+`. No new `policyStore`.
+  loop in `policy.go`. No new `policyStore`. Shipped v1.0.675 via
+  `newPolicyStoreWithLogger` so the WARN lands on the daemon's
+  structured log.
 - The existing `tiers / approvers / quorum / escalation` keys
   remain valid in the same file — the alias-compat spawn/template-
   install dispatch consults them during the one-cycle deprecation

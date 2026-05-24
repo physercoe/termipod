@@ -112,7 +112,7 @@ func New(cfg Config) (*Server, error) {
 	if err := initRoles(cfg.DataRoot); err != nil {
 		return nil, fmt.Errorf("init roles manifest: %w", err)
 	}
-	s.policy = newPolicyStore(cfg.DataRoot)
+	s.policy = newPolicyStoreWithLogger(cfg.DataRoot, cfg.Logger)
 	s.agentFamilies = agentfamilies.New(agentFamiliesOverlayDir(cfg.DataRoot))
 	// Register as the package default so spawn_mode.go's call to
 	// agentfamilies.ByName picks up the overlay too. Tests that need

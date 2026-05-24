@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.674
+> **Last verified vs code:** v1.0.675
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,48 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.675-alpha — 2026-05-24
+
+ADR-030 Phase 1 W2 — extend `Policy` with the `kinds:` block.
+Registry-side data only: the propose handler (W4) is the runtime
+consumer; nothing else calls `KindFor` yet, so there is no behaviour
+change in v1.0.675 for any existing path. The `tiers / approvers /
+quorum / escalation` keys remain valid in the same file unchanged.
+
+### Added
+
+- `hub/internal/server/policy.go` — `Policy.Kinds map[string]KindPolicy`
+  field; `KindPolicy` + `QuorumPolicy` types; `KindFor(kind) (KindPolicy, bool)`
+  accessor with a permissive default (route to principal, M=1, override
+  allowed, escalation off) and a WARN log when the kind isn't
+  configured.
+- `GovTierWorker / GovTierProjectSteward / GovTierGeneralSteward /
+  GovTierPrincipal` constants — the ADR-030 governance ladder, mirrored
+  in migration 0045's CHECK constraint on `attention_items.assigned_tier`.
+- `parsePolicy([]byte) (*Policy, error)` — typed-error parse path
+  surfaced as a free function so future `hub init --check` (post-MVP)
+  can refuse to start on a structurally bad file. The runtime
+  `policyStore.reload` still keeps last-known-good on malformed YAML.
+- `newPolicyStoreWithLogger(dataRoot, *slog.Logger)` — wired in
+  `server.go` so the `KindFor` WARN lands on the daemon's structured
+  log (the parameterless `newPolicyStore` still exists as a
+  default-logger shim for any future direct caller).
+- `hub/internal/server/policy_kinds_test.go` — 7 tests pinning the
+  contract: missing block / unknown kind / configured kind / parse
+  error / last-known-good degradation / legacy paths untouched /
+  end-to-end through `Server.policy`.
+
+### Changed
+
+- `pubspec.yaml` 1.0.674 → 1.0.675-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` and
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.675 per their `Freshness: contract` declaration. Plan W2
+  gains a `verify symbol` anchor on `KindFor` so any future rename
+  fails CI before the doc drifts.
 
 ---
 

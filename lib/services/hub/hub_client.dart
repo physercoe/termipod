@@ -489,11 +489,31 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listPrincipals() =>
       _listJson('/v1/teams/${cfg.teamId}/principals');
 
-  Future<List<Map<String, dynamic>>> listAttention({String? status}) =>
+  /// Lists attention items for the team.
+  ///
+  /// `includeEscalated` (ADR-030 W19.6, v1.0.687-alpha) is forwarded
+  /// as the `include_escalated` query param. In MVP the hub treats it
+  /// as a no-op forward-compat hook (the baseline already returns all
+  /// rows regardless of tier; widening has nothing to widen against
+  /// until a `?tier=<t>` filter is wired). Phase 3 mobile passes
+  /// `true` unconditionally so the contract is locked in before any
+  /// tier-narrowing lands.
+  Future<List<Map<String, dynamic>>> listAttention({
+    String? status,
+    bool includeEscalated = false,
+  }) =>
       _listJson(
         '/v1/teams/${cfg.teamId}/attention',
-        query: status == null ? null : {'status': status},
+        query: _attentionQuery(status, includeEscalated),
       );
+
+  static Map<String, String>? _attentionQuery(String? status, bool includeEscalated) {
+    if (status == null && !includeEscalated) return null;
+    final q = <String, String>{};
+    if (status != null) q['status'] = status;
+    if (includeEscalated) q['include_escalated'] = 'true';
+    return q;
+  }
 
   // ---- sessions (W2-S1) ----
   //
@@ -632,16 +652,18 @@ class HubClient {
   }
 
   /// Read-through variant of [listAttention]; see [listRunsCached] for the
-  /// offline-fallback contract.
+  /// offline-fallback contract. `includeEscalated` (ADR-030 W19.6)
+  /// forwards through to the wire call.
   Future<CachedResponse<List<Map<String, dynamic>>>> listAttentionCached({
     String? status,
+    bool includeEscalated = false,
   }) {
-    final q = status == null ? null : {'status': status};
+    final q = _attentionQuery(status, includeEscalated);
     return readThrough<List<Map<String, dynamic>>>(
       cache: snapshotCache,
       hubKey: _cacheHubKey,
       endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/attention', q),
-      fetch: () => listAttention(status: status),
+      fetch: () => listAttention(status: status, includeEscalated: includeEscalated),
       decode: _decodeListMaps,
     );
   }

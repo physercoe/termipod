@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.686
+> **Last verified vs code:** v1.0.687
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,88 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.687-alpha — 2026-05-24
+
+**ADR-030 Phase 3 W19.6 hub + W19.5 mobile.** Wire-contract foundation
+for the per-kind propose cards (W15-W18). Hub `attentionOut` gains the
+5 ADR-030 columns from migration 0045 (`change_kind`, `assigned_tier`,
+`change_spec`, `target_ref`, `executed`) plus `escalation_state` from
+migration 0042 so the mobile per-kind cards (forthcoming W15-W18) and
+the steward-side inbox (W19) can render variants in a single fetch.
+Mobile gains the `propose` → `_Filter.approvals` mapping + the
+`isAddresseeOfPropose` / `isStalledPropose` / `stalledPillLabel`
+predicates that the per-kind cards will consume to pick between
+primary (Approve/Reject) and stalled (Override/View source) variants.
+
+### Added
+
+- `hub/internal/server/handlers_attention.go::attentionOut` — 6 new
+  fields with omitempty (`ChangeKind`, `AssignedTier`, `ChangeSpec`,
+  `TargetRef`, `Executed`, `EscalationState`). Both
+  `handleListAttention` and `handleGetAttention` SELECT-widened to
+  fetch them; pre-ADR-030 rows elide via COALESCE + omitempty so
+  no API consumer sees a behavior change. The hub side accepts an
+  `include_escalated` query parameter (parsed but unused in MVP — a
+  forward-compat hook for when `?tier=<t>` narrowing arrives;
+  mobile W19.5 passes it unconditionally so the contract locks in
+  before any tier-narrow widening).
+- `hub/internal/server/handlers_attention_adr030_fields_test.go` —
+  6 test cases covering: propose-shaped row exposes all 5 ADR-030
+  fields on list endpoint; same on get endpoint; legacy row omits
+  via omitempty; escalated row exposes `escalation_state` AND
+  preserves `assigned_tier` (the D-7 Option 2′ "decision stays"
+  contract); `include_escalated` query param parses with any value
+  including bogus; `executed` field populates after the W8
+  dispatcher mirrors apply result onto the row.
+- `lib/services/hub/hub_client.dart::listAttention` +
+  `listAttentionCached` — new `includeEscalated: bool` named
+  parameter forwarding to the wire's `include_escalated` query
+  param. Shared `_attentionQuery(status, includeEscalated)` helper
+  so the cached + uncached call sites stay consistent.
+- `lib/providers/hub_provider.dart` — both Me-page list call sites
+  (`_resolveCached` primary fetch + `_reloadAttention` post-decide
+  refresh) pass `includeEscalated: true` unconditionally.
+- `lib/screens/me/me_screen.dart::_filterForAttention` — added
+  `case 'propose': return _Filter.approvals;` so generic propose
+  rows land in the Requests bucket (where Phase 3 per-kind cards
+  W15-W18 will render). The IA fit lands without a chip add or
+  bucket rename — `propose` is a Request-by-kind; stalled is a
+  *state*, decorated by the per-card variant.
+- `lib/screens/me/widgets/propose_addressee.dart` (new) — three
+  top-level utility functions: `isAddresseeOfPropose(attention,
+  myTier)` (primary vs stalled selector); `isStalledPropose(
+  attention)` (`true` when `escalation_state != 'none'`);
+  `stalledPillLabel(attention)` (returns `'Stuck'` for the pill
+  noun). Top-level functions (not class statics) so the
+  forthcoming W15-W18 cards + W19 steward inbox import one
+  predicate.
+- `test/screens/me/propose_addressee_test.dart` — 11 unit cases
+  covering both predicates' happy paths and the empty-tier /
+  cross-tier / empty-viewer-tier / missing-state edge cases.
+
+### Changed
+
+- ADR-030 plan stamp bumped to v1.0.687-alpha. Plan §4.3 W19.5 + W19.6
+  entries rewritten with shipped reality + verify anchors. **Plan
+  literal reinterpreted on W19.6 hub side** — the plan's
+  `WHERE assigned_tier = caller_tier` baseline doesn't exist on the
+  current handler (the endpoint returns all rows), so shipping the
+  literal widening would have changed visibility for every existing
+  API caller. Shipped the forward-compat hook
+  (parse-but-unused `include_escalated`) instead; see
+  [[feedback_plan_narrative_loose_talk]] (mem) for the pattern.
+- W19.6 mobile half (top-of-Me stalled-decisions digest card)
+  split out to a follow-up wedge **W19.6-mobile** so this commit
+  stays focused on the wire-contract foundation.
+
+### Forensics
+
+Hub test suite green (123.475s server pkg, full suite). Mobile
+test suite verified on CI (cannot run flutter locally per repo
+convention). pubspec 1.0.686-alpha → 1.0.687-alpha.
 
 ---
 

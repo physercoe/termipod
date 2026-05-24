@@ -6,18 +6,15 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 # Governed actions MVP rollout — phased
 
 > **Type:** plan
-> **Status:** Phase 1 + Phase 2 COMPLETE (2026-05-24, v1.0.674-686).
-> Phase 1: all 11 hub-side wedges (W1-W11.5) shipped end-to-end
-> with full test coverage at v1.0.674-685. Phase 2: W12 (re-propose
-> rule in 9 steward templates), W13 (10 lifecycle scenarios S33-S42),
-> W14 (seed-demo annotation) shipped together at v1.0.686. Phase 3
-> (mobile per-kind cards + override affordance) not yet started.
-> Reissued 2026-05-20 to absorb the ADR-030 amendments (D-7 Option
-> 2′ — decision stays, signal walks; ADR-032 envelope on fan-back;
-> ADR-034 loop-entity overlap; principal ≠ owner) and fix file/line
-> drift from v1.0.620-636. Original status: Proposed (2026-05-17).
+> **Status:** Phase 1 + Phase 2 COMPLETE; Phase 3 in flight
+> (2026-05-24, v1.0.674-687). Phase 1: 11 hub wedges at v1.0.674-685.
+> Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile
+> (wire-contract foundation) at v1.0.687; W15-W21 remain.
+> Reissued 2026-05-20 to absorb ADR-030 amendments (D-7 Option 2′,
+> ADR-032 envelope on fan-back, ADR-034 loop-entity overlap,
+> principal ≠ owner). Original: Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.686-alpha
+> **Last verified vs code:** v1.0.687-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -972,43 +969,85 @@ into the existing IA without rename or chip add:
 - Decide → existing decide endpoint; fan-back delivers to the
   proposing worker's session as before.
 
-**W19.5. `propose` kind → Requests filter mapping + Me-page query widen (~40 LOC + 30 LOC tests).**
+**W19.5. `propose` kind → Requests filter mapping + Me-page query widen (~55 LOC + ~85 LOC tests). Shipped v1.0.687-alpha.**
 
 > Lands the Option 2′ IA fit on the mobile side. Pairs with the
-> hub-side widening described under W19.6 below — both halves are
-> needed before stalled rows surface to the principal's Me-page.
+> hub-side widening described under W19.6 below — both halves
+> shipped together at v1.0.687.
 
-- `lib/screens/me/me_screen.dart:349` — add `case 'propose': return
-  _Filter.approvals;` to `_filterForAttention`. Single-line
-  addition; verifies via the existing
-  `_filterForAttention_unit_test.dart` pattern (extend the table
-  test).
-- `lib/services/hub/hub_client.dart` `listAttention(...)` — pass
-  through the new `include_escalated: true` query parameter when
-  fetching for the Me-page so the hub widens the result set per
-  W19.6.
-- `lib/providers/attention_provider.dart` (or equivalent) — add an
-  `_isAddressee(AttentionItem item, String myTier)` predicate:
-  `item.assignedTier == myTier`. Used by W15-W18 card builders to
-  pick between primary and stalled variants.
+- `lib/screens/me/me_screen.dart` — added `case 'propose': return
+  _Filter.approvals;` to `_filterForAttention`
+  <!-- verify symbol lib/screens/me/me_screen.dart _filterForAttention -->.
+  Comment block names the W15-W18 per-kind card consumers + the
+  stalled-variant decoration.
+- `lib/services/hub/hub_client.dart` `listAttention(...)` +
+  `listAttentionCached(...)` — gained `includeEscalated: bool` named
+  parameter that forwards to the `include_escalated` query param.
+  `_attentionQuery(status, includeEscalated)` helper composes the
+  query map, kept consistent across the cached + uncached variants.
+- `lib/providers/hub_provider.dart` — both call sites
+  (`_resolveCached` for the Me-page primary fetch + `_reloadAttention`
+  for the post-decide refresh) pass `includeEscalated: true`
+  unconditionally so the contract is locked in.
+- `lib/screens/me/widgets/propose_addressee.dart` (new) —
+  `isAddresseeOfPropose(attention, myTier)` (primary vs stalled
+  variant selector); `isStalledPropose(attention)` (true when
+  `escalation_state != 'none'`); `stalledPillLabel(attention)`
+  (returns `'Stuck'` for the top pill). Top-level functions in a
+  shared utility file so [[W15-W18]] cards + the [[W19 steward
+  inbox]] consume one predicate without duplication.
+- `test/screens/me/propose_addressee_test.dart` (new) — 11
+  test cases covering both predicates' happy paths + the legacy
+  empty-tier / cross-tier / empty-viewer-tier edge cases.
 
-**W19.6. Hub-side Me-page query widen + top-of-Me digest card (~80 LOC + 50 LOC tests).**
+**W19.6. Hub-side Me-page query widen (hub half ~85 LOC + 210 LOC tests) + top-of-Me digest card (mobile half — pending W19.6-mobile, deferred). Hub half shipped v1.0.687-alpha.**
 
 - **Hub side.** `hub/internal/server/handlers_attention.go`
-  `handleListAttention` (or the equivalent Me-page query) gains an
-  optional `include_escalated` query parameter. When true, the
-  WHERE clause widens from
-  `WHERE assigned_tier = caller_tier`
-  to
-  `WHERE (assigned_tier = caller_tier
-         OR escalation_state = 'escalated_' || caller_tier)
-     AND status = 'open'`.
-  Default `include_escalated=false` preserves existing API
-  callers; the mobile Me-page sends `true`. Tests: caller-tier
-  rows return as today; tier-below rows with
-  `escalation_state='escalated_<caller>'` appear iff
-  `include_escalated=true`; orphan rows (no tier match either
-  way) stay invisible.
+  <!-- verify symbol hub/internal/server/handlers_attention.go handleListAttention -->.
+  `handleListAttention` + `handleGetAttention` gained 6 new fields
+  on `attentionOut`: `ChangeKind`, `AssignedTier` (string), plus
+  `ChangeSpec`, `TargetRef`, `Executed` (json.RawMessage with
+  omitempty) — the 5 ADR-030 W1 columns from migration 0045 — and
+  `EscalationState` (string, from migration 0042's
+  `attention_items.escalation_state`). All 6 fields ride the
+  same SELECT widening; the JSON tags match the snake_case lib/
+  consumers expect.
+
+  `include_escalated` query param: parsed but unused in MVP — the
+  baseline already returns every open row regardless of tier, so
+  widening has nothing to widen against until `?tier=<t>` lands.
+  Captured as a forward-compat hook so Phase 3 mobile (W19.5)
+  can pass it unconditionally and the contract is locked in
+  before any tier-narrowing arrives. PLAN-LITERAL REINTERPRETATION:
+  the plan's `WHERE assigned_tier = caller_tier` baseline doesn't
+  exist on the current handler (the existing endpoint returns all
+  rows); shipping the literal widening would have changed visibility
+  for every existing API caller. Shipped the forward-compat hook
+  instead — see [[feedback_plan_narrative_loose_talk]] for the
+  pattern. **Test coverage** in
+  `handlers_attention_adr030_fields_test.go` (6 cases): propose-shaped
+  row exposes all 5 ADR-030 fields on list + get; legacy row omits
+  them via omitempty; escalated row exposes `escalation_state` AND
+  preserves `assigned_tier` (the D-7 Option 2′ "decision stays"
+  contract); `include_escalated` query param parses with any value
+  including bogus.
+- **Mobile side — top-of-Me digest card** (deferred to a follow-up
+  Phase 3 wedge — tracked as **W19.6-mobile**).
+  `lib/screens/me/widgets/stalled_decisions_digest.dart` (new).
+  Renders at the top of Me-page (sibling-above the
+  `_FilterBar`, parallel to the existing bottom-of-page "Since
+  you were last here" digest at `me_screen.dart` §"Wedge 5"). Hidden
+  when the stalled-row count is 0. Shape:
+  ```
+  ┌──────────────────────────────────────────────┐
+  │ ⏱  Stalled decisions                    [3]  │
+  │  3 stalled at stewards · 1 stalled >24h with │
+  │  you. Tap to review.                         │
+  └──────────────────────────────────────────────┘
+  ```
+  Tap → applies an in-list filter narrowing to
+  `escalation_state != 'none'` rows (preserves the active
+  chip-filter, AND-combined). ~40 LOC.
 - **Mobile side — top-of-Me digest card.**
   `lib/screens/me/widgets/stalled_decisions_digest.dart` (new).
   Renders at the top of Me-page (sibling-above the

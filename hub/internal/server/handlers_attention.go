@@ -76,6 +76,20 @@ type attentionOut struct {
 	// agent_id, tool_use_id, and tier (resolved server-side from
 	// tiers.go so the agent can't reclassify its own actions).
 	PendingPayload json.RawMessage `json:"pending_payload,omitempty"`
+	// ADR-030 columns (migration 0045). Exposed to mobile so the
+	// Phase 3 per-kind propose cards (W15-W18) can render without a
+	// second fetch. Empty/null on pre-0045 rows and on rows whose
+	// kind isn't 'propose'. EscalationState comes from migration 0042
+	// (loop-entity columns) and is load-bearing for the D-7 Option 2′
+	// stalled-decision UI: a row whose AssignedTier doesn't match the
+	// viewer's tier but whose EscalationState has surfaced to that
+	// tier renders the "stalled" card variant.
+	ChangeKind      string          `json:"change_kind,omitempty"`
+	AssignedTier    string          `json:"assigned_tier,omitempty"`
+	ChangeSpec      json.RawMessage `json:"change_spec,omitempty"`
+	TargetRef       json.RawMessage `json:"target_ref,omitempty"`
+	Executed        json.RawMessage `json:"executed,omitempty"`
+	EscalationState string          `json:"escalation_state,omitempty"`
 }
 
 func (s *Server) handleCreateAttention(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +153,19 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 		status = "open"
 	}
 	scope := r.URL.Query().Get("scope")
+	// ADR-030 W19.6: `include_escalated` is a forward-compat hook
+	// for the mobile Me-page widening when the result set ever
+	// gets a tier-narrow predicate. In MVP the baseline returns
+	// every open row regardless of tier, so the param's effect is
+	// purely informational (it changes nothing about the query
+	// shape). The Phase 3 mobile client passes it unconditionally
+	// so the contract is locked in before any tier-narrowing lands;
+	// once `?tier=<t>` is wired, `include_escalated=true` will
+	// widen WHERE assigned_tier=? OR escalation_state='escalated_'||?
+	// per the plan's W19.6 literal. Currently parsed-but-unused
+	// — accepting it ensures clients can ship today without
+	// breaking when the narrowing arrives.
+	_ = r.URL.Query().Get("include_escalated") // reserved for tier-narrow widening
 	q := `
 		SELECT id, COALESCE(project_id, ''), scope_kind, COALESCE(scope_id, ''), kind,
 		       COALESCE(ref_event_id, ''), COALESCE(ref_task_id, ''),
@@ -147,7 +174,10 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(session_id, ''),
 		       current_assignees_json, decisions_json, escalation_history_json,
 		       status, created_at, resolved_at, COALESCE(resolved_by, ''),
-		       COALESCE(pending_payload_json, '')
+		       COALESCE(pending_payload_json, ''),
+		       COALESCE(change_kind, ''), COALESCE(assigned_tier, ''),
+		       COALESCE(change_spec_json, ''), COALESCE(target_ref_json, ''),
+		       COALESCE(executed_json, ''), COALESCE(escalation_state, 'none')
 		FROM attention_items WHERE status = ?`
 	args := []any{status}
 	if scope != "" {
@@ -165,12 +195,15 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var a attentionOut
 		var assignees, decisions, esc, pending string
+		var changeSpec, targetRef, executed string
 		var resolvedAt sql.NullString
 		if err := rows.Scan(&a.ID, &a.ProjectID, &a.ScopeKind, &a.ScopeID, &a.Kind,
 			&a.RefEventID, &a.RefTaskID, &a.Summary, &a.Severity,
 			&a.ActorKind, &a.ActorHandle, &a.SessionID,
 			&assignees, &decisions, &esc, &a.Status, &a.CreatedAt,
-			&resolvedAt, &a.ResolvedBy, &pending); err != nil {
+			&resolvedAt, &a.ResolvedBy, &pending,
+			&a.ChangeKind, &a.AssignedTier,
+			&changeSpec, &targetRef, &executed, &a.EscalationState); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -179,6 +212,15 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 		a.Escalation = json.RawMessage(esc)
 		if pending != "" {
 			a.PendingPayload = json.RawMessage(pending)
+		}
+		if changeSpec != "" {
+			a.ChangeSpec = json.RawMessage(changeSpec)
+		}
+		if targetRef != "" {
+			a.TargetRef = json.RawMessage(targetRef)
+		}
+		if executed != "" {
+			a.Executed = json.RawMessage(executed)
 		}
 		if resolvedAt.Valid {
 			a.ResolvedAt = &resolvedAt.String
@@ -201,6 +243,7 @@ func (s *Server) handleGetAttention(w http.ResponseWriter, r *http.Request) {
 	}
 	var a attentionOut
 	var assignees, decisions, esc, pending string
+	var changeSpec, targetRef, executed string
 	var resolvedAt sql.NullString
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT id, COALESCE(project_id, ''), scope_kind, COALESCE(scope_id, ''), kind,
@@ -210,13 +253,18 @@ func (s *Server) handleGetAttention(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(session_id, ''),
 		       current_assignees_json, decisions_json, escalation_history_json,
 		       status, created_at, resolved_at, COALESCE(resolved_by, ''),
-		       COALESCE(pending_payload_json, '')
+		       COALESCE(pending_payload_json, ''),
+		       COALESCE(change_kind, ''), COALESCE(assigned_tier, ''),
+		       COALESCE(change_spec_json, ''), COALESCE(target_ref_json, ''),
+		       COALESCE(executed_json, ''), COALESCE(escalation_state, 'none')
 		FROM attention_items WHERE id = ?`, id).Scan(
 		&a.ID, &a.ProjectID, &a.ScopeKind, &a.ScopeID, &a.Kind,
 		&a.RefEventID, &a.RefTaskID, &a.Summary, &a.Severity,
 		&a.ActorKind, &a.ActorHandle, &a.SessionID,
 		&assignees, &decisions, &esc, &a.Status, &a.CreatedAt,
-		&resolvedAt, &a.ResolvedBy, &pending)
+		&resolvedAt, &a.ResolvedBy, &pending,
+		&a.ChangeKind, &a.AssignedTier,
+		&changeSpec, &targetRef, &executed, &a.EscalationState)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "attention not found")
 		return
@@ -230,6 +278,15 @@ func (s *Server) handleGetAttention(w http.ResponseWriter, r *http.Request) {
 	a.Escalation = json.RawMessage(esc)
 	if pending != "" {
 		a.PendingPayload = json.RawMessage(pending)
+	}
+	if changeSpec != "" {
+		a.ChangeSpec = json.RawMessage(changeSpec)
+	}
+	if targetRef != "" {
+		a.TargetRef = json.RawMessage(targetRef)
+	}
+	if executed != "" {
+		a.Executed = json.RawMessage(executed)
 	}
 	if resolvedAt.Valid {
 		a.ResolvedAt = &resolvedAt.String

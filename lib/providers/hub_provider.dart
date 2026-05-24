@@ -607,7 +607,12 @@ class HubNotifier extends AsyncNotifier<HubState> {
     _templateBodyCache.clear();
     final results = await Future.wait([
       _resolveCached(prev.attention,
-          () => client.listAttentionCached(status: 'open')),
+          // ADR-030 W19.5: include_escalated=true unconditionally so
+          // stalled propose rows (escalation_state != 'none' but
+          // assigned_tier doesn't match the viewer) surface to the
+          // Me-page once the hub side widens. Today (v1.0.687) the
+          // hub treats this as a no-op forward-compat hook.
+          () => client.listAttentionCached(status: 'open', includeEscalated: true)),
       _resolveCached(prev.hosts, client.listHostsCached),
       _resolveCached(prev.agents, () => client.listAgentsCached()),
       _resolveCached(prev.projects, () => client.listProjectsCached()),
@@ -771,7 +776,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
   Future<void> _reloadAttention() async {
     final client = _client;
     if (client == null) return;
-    final items = await client.listAttention(status: 'open');
+    final items = await client.listAttention(status: 'open', includeEscalated: true);
     final prev = state.value ?? const HubState();
     state = AsyncData(prev.copyWith(attention: items));
   }

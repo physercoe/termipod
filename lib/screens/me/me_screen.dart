@@ -360,6 +360,14 @@ class _MeItem {
       // the Me-page card itself; without this it only renders after
       // tapping Details, which is one tap too many for a primary action.
       case 'project_steward_request':
+      // ADR-030 W19.5: the generic `propose` verb (deliverable.set_state,
+      // phase.advance, task.set_status, agent.spawn, template.install)
+      // is a request-the-system-is-asking. Stalled propose rows
+      // (escalation_state != 'none' but assigned_tier ≠ viewer tier)
+      // ALSO surface here — stalled is a *state*, not a kind; the per-
+      // kind W15-W18 cards decorate it with a top pill + Override
+      // affordance via the isAddressee() predicate below.
+      case 'propose':
         return _Filter.approvals;
       case 'idle':
       case 'agent_error':
@@ -368,6 +376,7 @@ class _MeItem {
         return _Filter.messages;
     }
   }
+
 
   static DateTime _parseTs(String? raw) {
     if (raw == null || raw.isEmpty) return DateTime.now();

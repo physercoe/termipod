@@ -34,6 +34,7 @@ func init() {
 		Validate: validatePhaseAdvance,
 		DryRun:   dryRunPhaseAdvance,
 		Apply:    applyPhaseAdvance,
+		Rollback: rollbackPhaseAdvance,
 	})
 }
 
@@ -239,4 +240,36 @@ func applyPhaseAdvance(
 	executed["audit_action"] = action
 	executed["updated_at"] = now
 	return json.Marshal(executed)
+}
+
+// rollbackPhaseAdvance reverses a prior Apply by re-calling Apply
+// with the recorded from_phase as the new to_phase. Drops the
+// optimistic-concurrency from_phase check (the rollback IS
+// asserting that the row stuck — re-checking via Apply would refuse
+// when the project moved on in the interim, but that's not
+// override's job to enforce). We pass from_phase as the rollback's
+// `from_phase` so the optimistic check at the next Apply level
+// only blocks if some OTHER actor has moved the project since the
+// original Apply.
+func rollbackPhaseAdvance(
+	ctx context.Context, s *Server, ac ProposeApplyContext, originalSpec, originalExecuted json.RawMessage,
+) (json.RawMessage, error) {
+	var orig struct {
+		ProjectID string `json:"project_id"`
+		FromPhase string `json:"from_phase"`
+		ToPhase   string `json:"to_phase"`
+	}
+	if err := json.Unmarshal(originalExecuted, &orig); err != nil {
+		return nil, fmt.Errorf("rollback: parse original_executed: %w", err)
+	}
+	if orig.FromPhase == "" {
+		return nil, errors.New("rollback: original_executed missing from_phase")
+	}
+	target, _ := json.Marshal(map[string]any{"project_id": orig.ProjectID})
+	revertSpec, _ := json.Marshal(map[string]any{
+		"from_phase": orig.ToPhase,
+		"to_phase":   orig.FromPhase,
+		"reason":     "principal override",
+	})
+	return applyPhaseAdvance(ctx, s, ac, target, revertSpec)
 }

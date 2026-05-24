@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.681
+> **Last verified vs code:** v1.0.682
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,86 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.682-alpha — 2026-05-24
+
+ADR-030 Phase 1 W9 — principal override. The most complex wedge in
+Phase 1: per-kind Rollback on the registry + a new override branch
+on the decide handler. Principal can now overturn a steward-approved
+governed action, with per-kind reverse semantics ranging from "swap
+from/to and re-apply" (state kinds) to "delete the installed file"
+(template.install) to a manual-cleanup TODO audit (agent.spawn,
+since terminate is post-MVP).
+
+### Added
+
+- `ProposeKind.Rollback` field on the registry shape. Optional;
+  kinds without one refuse override (422).
+- Per-kind rollbacks for all 5 W5-W8 kinds:
+  - `deliverable.set_state` → re-calls Apply with from_state as
+    the new state. All transition-direction logic (stamp
+    clearing on ratified→draft, etc.) runs unchanged.
+  - `phase.advance` → swaps from_phase ↔ to_phase, re-calls
+    Apply. Optimistic-concurrency check still fires.
+  - `task.set_status` → bypasses the propose-permitted check
+    (rollback target may be in_progress / blocked / todo);
+    writes UPDATE directly + clears completed_at for
+    non-terminal restorations.
+  - `template.install` → deletes the installed file + emits
+    `template.uninstall` audit. Does NOT restore a prior
+    version (apply path doesn't capture one).
+  - `agent.spawn` → emits `agent.spawn.rollback_todo` audit
+    pointing the principal at the agent_id with manual-cleanup
+    hint. Per plan: terminate-via-propose is post-MVP.
+- `hub/internal/server/handlers_attention.go::handleAttentionOverride`
+  — new branch reached when `status != "open"` AND
+  `in.Override == true`. 6 guard checks before dispatching to
+  Rollback through the registry; emits `attention.override`
+  audit row with the rollback's executed payload inline in
+  meta so consumers don't need to join.
+- `attentionDecideIn.Override` field on the wire.
+- `decision` validation extended: now accepts `"override"`
+  alongside `"approve"` / `"reject"`, only when paired with
+  `override: true`.
+- `hub/internal/server/handlers_attention_override_test.go` —
+  8 cases: task.set_status revert with audit chain;
+  template.install file deletion; override_allowed=false → 400;
+  no override flag preserves 409; non-principal caller → 403;
+  double-override → 409; kind without Rollback → 422;
+  still-open row + override-decision is rejected by the
+  validation gate (open-row override doesn't fire).
+
+### Changed
+
+- `pubspec.yaml` 1.0.681 → 1.0.682-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` +
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.682. Plan W9 rewritten to record the 6 guard order, the
+  decision-validation gate extension, and per-kind rollback
+  semantics shipped. Two new verify symbol anchors
+  (`Rollback`, `handleAttentionOverride`) → 22 anchors total,
+  all green.
+
+### Notes
+
+- **Principal-tier check is MVP-soft.** Today `in.By ==
+  "@principal"` is the gate. A token-identity-based tier check
+  is a follow-up wedge; the mobile app already sends
+  by="@principal" for the principal session, so this is
+  honest for the current threat model.
+- **Original-apply prerequisite.** Override requires
+  `executed_json` to be non-empty — if the prior decision was
+  reject (no apply ran), there's nothing to roll back.
+- **Audit emphasis trade-off.** The override audit's meta
+  inlines the rollback's executed payload (the W1 schema
+  designed `executed_json` for this). Consumer queries can
+  read the override row standalone without joining to the
+  attention row.
+- **Registry still at 5 kinds.** No new kind registrations
+  in W9 — the Rollback field is per-kind metadata on the
+  existing entries.
 
 ---
 

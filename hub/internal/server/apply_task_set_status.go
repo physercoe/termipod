@@ -32,6 +32,7 @@ func init() {
 		Validate: validateTaskSetStatus,
 		DryRun:   dryRunTaskSetStatus,
 		Apply:    applyTaskSetStatus,
+		Rollback: rollbackTaskSetStatus,
 	})
 }
 
@@ -214,4 +215,71 @@ func applyTaskSetStatus(
 	executed["audit_action"] = "task.status"
 	executed["completed_at"] = now
 	return json.Marshal(executed)
+}
+
+// rollbackTaskSetStatus reverses a prior done/cancelled apply by
+// restoring the prior status. We BYPASS the propose-permitted-status
+// check via parseTaskSetStatus because the rollback is restoring an
+// externally-derived state (in_progress / blocked / todo) — not
+// proposing a new one. Writes the UPDATE directly + clears
+// completed_at when restoring to a non-terminal status.
+func rollbackTaskSetStatus(
+	ctx context.Context, s *Server, ac ProposeApplyContext, originalSpec, originalExecuted json.RawMessage,
+) (json.RawMessage, error) {
+	var orig struct {
+		ProjectID  string `json:"project_id"`
+		TaskID     string `json:"task_id"`
+		FromStatus string `json:"from_status"`
+		ToStatus   string `json:"to_status"`
+	}
+	if err := json.Unmarshal(originalExecuted, &orig); err != nil {
+		return nil, fmt.Errorf("rollback: parse original_executed: %w", err)
+	}
+	if orig.FromStatus == "" {
+		return nil, errors.New("rollback: original_executed missing from_status")
+	}
+	team := ac.Team
+	if team == "" {
+		return nil, errors.New("task.set_status rollback: apply context missing team")
+	}
+	now := NowUTC()
+	// Restore status. Clear completed_at when the prior status was
+	// non-terminal (anything other than done/cancelled), so the task
+	// looks "in-flight" again. Mirrors the legacy PATCH path's
+	// completed_at logic.
+	q := `UPDATE tasks SET status = ?, updated_at = ?`
+	args := []any{orig.FromStatus, now}
+	if orig.FromStatus != "done" && orig.FromStatus != "cancelled" {
+		q += `, completed_at = NULL`
+	}
+	q += ` WHERE id = ? AND project_id = ?`
+	args = append(args, orig.TaskID, orig.ProjectID)
+	if _, err := s.db.ExecContext(ctx, q, args...); err != nil {
+		return nil, fmt.Errorf("rollback update: %w", err)
+	}
+
+	via := ac.ViaOrDefault()
+	meta := map[string]any{
+		"from":       orig.ToStatus,
+		"to":         orig.FromStatus,
+		"source":     via,
+		"via":        via,
+		"by_tier":    ac.AssignedTier,
+		"propose_id": ac.AttentionID,
+		"rollback":   true,
+	}
+	if ac.DeciderHandle != "" {
+		meta["by_actor"] = ac.DeciderHandle
+	}
+	s.recordAudit(ctx, team, "task.status", "task", orig.TaskID,
+		orig.ToStatus+" → "+orig.FromStatus+" (rollback)", meta)
+
+	return json.Marshal(map[string]any{
+		"task_id":      orig.TaskID,
+		"project_id":   orig.ProjectID,
+		"from_status":  orig.ToStatus,
+		"to_status":    orig.FromStatus,
+		"rollback":     true,
+		"audit_action": "task.status",
+	})
 }

@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.681-alpha
+> **Last verified vs code:** v1.0.682-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -452,39 +452,79 @@ shipped as `handlers_propose.go::checkProposeScope`:
   pre-W8 test that exercises `approval_request + spawnIn` and
   `template_proposal`.
 
-**W9. Principal override of lower-tier decisions (~120 LOC + 80 LOC tests).**
+**W9. Principal override of lower-tier decisions (~470 LOC + ~430 LOC tests). Shipped v1.0.682-alpha.**
 
-- `handlers_attention.go` decide handler detects override:
-  - Row already resolved.
-  - Override caller is principal tier.
-  - Policy has `override_allowed: true` for the change_kind.
-- Append new entry to `decisions_json`; mark
-  `decisions_json` schema as supporting "override" entry kind.
-- Emit `audit_events.action="attention.override"` row per
-  ADR-030 D-8 shape.
-- Per-kind rollback semantics:
-  - `agent.spawn`: emit follow-up `agent.terminate` governed
-    action; do NOT auto-execute the terminate (it's a separate
-    governed action) — instead, write an attention row with
-    `kind="propose", change_kind="agent.terminate"` and address
-    it to the project steward; principal can self-approve in a
-    follow-up tap. (MVP: terminate is post-MVP propose kind,
-    so for now: emit a manual TODO audit row pointing the
-    principal at the terminate REST.)
-  - `template.install`: call rollback function that deletes
-    the installed file and (if a prior version existed in the
-    blob store) restores it.
-  - `deliverable.set_state` / `phase.advance` /
-    `task.set_status`: revert via the apply function with
-    the prior `state` / `phase` / `status` as
-    `change_spec`; audit row records the revert.
-- Tests:
-  - Override after steward-approve task.set_status → status
-    reverts, audit records both rows.
-  - Override after principal-approve template.install →
-    file removed.
-  - Override on a kind with `override_allowed: false` →
-    400 with descriptive error.
+- `ProposeKind.Rollback` field <!-- verify symbol hub/internal/server/propose_kinds.go Rollback -->
+  added to the registry shape. Optional — kinds without one
+  explicitly refuse override (422 with hint).
+- `handlers_attention.go::handleAttentionOverride` <!-- verify symbol hub/internal/server/handlers_attention.go handleAttentionOverride -->
+  is the new branch the decide handler routes to when
+  `status != "open"` AND `in.Override == true`. Guard order:
+  1. **Principal-tier check** — MVP: `in.By == "@principal"`.
+     Returns 403 if not (token-identity tier check is a
+     follow-up wedge).
+  2. **Status check** — only `status == "resolved"` rows
+     overrideable. Other terminal statuses (e.g. "expired")
+     return 409.
+  3. **Propose-ladder check** — `change_kind == ""` means a
+     legacy non-propose row; 422 (override is undefined for
+     them).
+  4. **Policy check** — `policy.KindFor(change_kind).OverrideAllowed`
+     must be true; 400 with `Hint{SeeTool: policy_read}` if not.
+  5. **Rollback presence** — `LookupProposeKind(change_kind).Rollback`
+     must be non-nil; 422 with "no Rollback registered" otherwise.
+  6. **Original-apply prerequisite** — row must have
+     non-empty `executed_json`; 422 if not (e.g. the prior
+     decision was reject, so nothing landed to roll back).
+  7. **Double-override block** — if the last decision in
+     `decisions_json` is already "override", returns 409.
+- Wire shape: `POST /decide` body adds `override: true`.
+  `decision` may be `"approve" | "reject" | "override"`; the
+  validation gate accepts `"override"` only when paired with
+  `override: true`.
+- Audit shape: emits `attention.override` with meta
+  `{change_kind, by, by_tier, original_decision, reason,
+  rollback_executed}` — the rollback's executed_json rides
+  inline so consumer queries don't need to join audit_events
+  to the row.
+- Per-kind Rollback semantics shipped:
+  - `deliverable.set_state` → re-calls Apply with the
+    recorded `from_state` as the new `change_spec.state`.
+    All transition-direction logic (clears stamps on
+    ratified→draft, etc.) runs unchanged.
+  - `phase.advance` → re-calls Apply with `from_phase` and
+    `to_phase` swapped. Optimistic-concurrency check still
+    fires — if another actor moved the phase since the
+    original Apply, rollback refuses.
+  - `task.set_status` → BYPASSES Apply's
+    propose-permitted-status check because the rollback
+    target may be `in_progress` / `blocked` / `todo` (not
+    propose-permitted). Writes the UPDATE directly + emits
+    `task.status` audit with `rollback: true`. Clears
+    `completed_at` when restoring a non-terminal status.
+  - `agent.spawn` → emits `agent.spawn.rollback_todo`
+    audit pointing the principal at the spawned agent_id
+    with hint "manually terminate via DELETE …".
+    Per-plan: terminate-via-propose is post-MVP.
+  - `template.install` → deletes the installed file +
+    emits `template.uninstall` audit with `rollback: true`.
+    Does NOT restore a prior version (plan §5 follow-up;
+    apply path doesn't capture the prior body).
+- Tests (8): override task.set_status reverts (status revert
+  + audit chain); override template.install deletes file;
+  override_allowed=false → 400 with hint; no override flag
+  preserves 409; non-principal caller → 403; double-override
+  → 409; kind without Rollback → 422; still-open row stays
+  unaffected (open-row + decision=override fails the
+  validation gate before reaching override).
+
+**Decision-validation gate extension** (landed this wedge).
+The `decision` field gained `"override"` as a third legal
+value, accepted only when `override: true`. The override
+handler always appends `"decision": "override"` to
+decisions_json regardless of the incoming Decision —
+callers may pass `decision="approve"` + `override=true`
+just as legibly as `decision="override"` + `override=true`.
 
 **W10. `worker_tool_call.escalate` — re-address `permission_prompt` rows raised by steward-parented workers (~90 LOC + 70 LOC tests).**
 

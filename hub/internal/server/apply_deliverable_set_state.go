@@ -32,6 +32,7 @@ func init() {
 		Validate: validateDeliverableSetState,
 		DryRun:   dryRunDeliverableSetState,
 		Apply:    applyDeliverableSetState,
+		Rollback: rollbackDeliverableSetState,
 	})
 }
 
@@ -232,4 +233,41 @@ func applyDeliverableSetState(
 	executed["audit_action"] = action
 	executed["updated_at"] = now
 	return json.Marshal(executed)
+}
+
+// rollbackDeliverableSetState reverses a prior Apply by re-calling
+// Apply with the previously-recorded from_state as the new
+// change_spec.state. The audit row records `via="rollback"` (set
+// by the override handler via ac.Via) so the activity feed reads
+// "ratified → in-review via rollback" rather than a second
+// indistinguishable transition.
+//
+// originalExecuted is the JSON the prior Apply returned —
+// it carries `from_state` (the pre-Apply state, which IS our
+// rollback target) and `to_state` (the current state). We
+// rebuild the target_ref + an inverted change_spec from these
+// fields and call back into Apply so all the existing
+// transition-direction logic (clears stamps on
+// ratified→draft, etc.) runs unchanged.
+func rollbackDeliverableSetState(
+	ctx context.Context, s *Server, ac ProposeApplyContext, originalSpec, originalExecuted json.RawMessage,
+) (json.RawMessage, error) {
+	var orig struct {
+		ProjectID     string `json:"project_id"`
+		DeliverableID string `json:"deliverable_id"`
+		FromState     string `json:"from_state"`
+		ToState       string `json:"to_state"`
+	}
+	if err := json.Unmarshal(originalExecuted, &orig); err != nil {
+		return nil, fmt.Errorf("rollback: parse original_executed: %w", err)
+	}
+	if orig.FromState == "" {
+		return nil, errors.New("rollback: original_executed missing from_state (apply was a no-op?)")
+	}
+	target, _ := json.Marshal(map[string]any{
+		"project_id":     orig.ProjectID,
+		"deliverable_id": orig.DeliverableID,
+	})
+	revertSpec, _ := json.Marshal(map[string]any{"state": orig.FromState})
+	return applyDeliverableSetState(ctx, s, ac, target, revertSpec)
 }

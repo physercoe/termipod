@@ -30,6 +30,7 @@ func init() {
 		Validate: validateTemplateInstall,
 		DryRun:   dryRunTemplateInstall,
 		Apply:    applyTemplateInstall,
+		Rollback: rollbackTemplateInstall,
 	})
 }
 
@@ -150,4 +151,72 @@ func applyTemplateInstall(
 	// `installed` is already a JSON-encoded {kind, category, name,
 	// path, bytes}. Return it verbatim as the executed payload.
 	return installed, nil
+}
+
+// rollbackTemplateInstall deletes the installed file. The MVP
+// scope does NOT restore a prior version even if one existed in
+// the blob store (the apply path doesn't capture it, and a backup
+// store would change the apply contract). The original blob stays
+// in the blob store so a future re-propose with the same sha256
+// works.
+//
+// `originalExecuted` carries the absolute path the installer
+// wrote — that's our target. The category/name come from the
+// originalSpec so the audit row carries the right target_id.
+func rollbackTemplateInstall(
+	ctx context.Context, s *Server, ac ProposeApplyContext, originalSpec, originalExecuted json.RawMessage,
+) (json.RawMessage, error) {
+	var origExec struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(originalExecuted, &origExec); err != nil {
+		return nil, fmt.Errorf("rollback: parse original_executed: %w", err)
+	}
+	if origExec.Path == "" {
+		return nil, errors.New("rollback: original_executed missing path")
+	}
+	var origSpec templateInstallSpec
+	if err := json.Unmarshal(originalSpec, &origSpec); err != nil {
+		return nil, fmt.Errorf("rollback: parse original_spec: %w", err)
+	}
+	team := ac.Team
+	if team == "" {
+		return nil, errors.New("template.install rollback: apply context missing team")
+	}
+	removed := true
+	if err := os.Remove(origExec.Path); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("rollback remove %s: %w", origExec.Path, err)
+		}
+		// File already gone — treat as successful rollback; the
+		// audit row notes it.
+		removed = false
+	}
+
+	via := ac.ViaOrDefault()
+	meta := map[string]any{
+		"category":   origSpec.Category,
+		"name":       origSpec.Name,
+		"path":       origExec.Path,
+		"removed":    removed,
+		"via":        via,
+		"by_tier":    ac.AssignedTier,
+		"propose_id": ac.AttentionID,
+		"rollback":   true,
+	}
+	if ac.DeciderHandle != "" {
+		meta["by_actor"] = ac.DeciderHandle
+	}
+	s.recordAudit(ctx, team, "template.uninstall", "template",
+		origSpec.Category+"/"+origSpec.Name,
+		fmt.Sprintf("uninstall %s/%s (rollback)", origSpec.Category, origSpec.Name),
+		meta)
+	return json.Marshal(map[string]any{
+		"kind":     "template_uninstall",
+		"category": origSpec.Category,
+		"name":     origSpec.Name,
+		"path":     origExec.Path,
+		"removed":  removed,
+		"rollback": true,
+	})
 }

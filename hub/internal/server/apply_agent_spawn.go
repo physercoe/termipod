@@ -33,6 +33,7 @@ func init() {
 		Validate: validateAgentSpawn,
 		DryRun:   dryRunAgentSpawn,
 		Apply:    applyAgentSpawn,
+		Rollback: rollbackAgentSpawn,
 	})
 }
 
@@ -124,4 +125,59 @@ func applyAgentSpawn(
 		"handle":     sp.ChildHandle,
 	}
 	return json.Marshal(executed)
+}
+
+// rollbackAgentSpawn emits a TODO audit pointing the principal at
+// the spawned agent_id. The MVP does NOT auto-terminate because
+// `agent.terminate` is a post-MVP propose kind — terminating
+// without a governance-tracked attention row would bypass the
+// authorisation ladder ADR-030 just established.
+//
+// The audit row's `action="agent.spawn.rollback_todo"` is distinct
+// from `agent.spawn` so the activity feed can render it with a
+// "needs manual cleanup" badge. The override handler still treats
+// the rollback as successful — the audit row IS the rollback
+// artefact in this MVP path.
+func rollbackAgentSpawn(
+	ctx context.Context, s *Server, ac ProposeApplyContext, originalSpec, originalExecuted json.RawMessage,
+) (json.RawMessage, error) {
+	var origExec struct {
+		AgentID string `json:"agent_id"`
+		Handle  string `json:"handle"`
+	}
+	if err := json.Unmarshal(originalExecuted, &origExec); err != nil {
+		return nil, fmt.Errorf("rollback: parse original_executed: %w", err)
+	}
+	if origExec.AgentID == "" {
+		return nil, errors.New("rollback: original_executed missing agent_id")
+	}
+	team := ac.Team
+	if team == "" {
+		return nil, errors.New("agent.spawn rollback: apply context missing team")
+	}
+	via := ac.ViaOrDefault()
+	meta := map[string]any{
+		"agent_id":     origExec.AgentID,
+		"handle":       origExec.Handle,
+		"via":          via,
+		"by_tier":      ac.AssignedTier,
+		"propose_id":   ac.AttentionID,
+		"rollback":     true,
+		"hint":         "agent.terminate is post-MVP; manually terminate via DELETE /v1/teams/{team}/agents/{id}",
+	}
+	if ac.DeciderHandle != "" {
+		meta["by_actor"] = ac.DeciderHandle
+	}
+	s.recordAudit(ctx, team, "agent.spawn.rollback_todo", "agent",
+		origExec.AgentID,
+		"override of agent.spawn — manual terminate required for "+origExec.Handle,
+		meta)
+	return json.Marshal(map[string]any{
+		"kind":              "spawn_rollback_todo",
+		"agent_id":          origExec.AgentID,
+		"handle":            origExec.Handle,
+		"manual_terminate":  true,
+		"hint":              meta["hint"],
+		"rollback":          true,
+	})
 }

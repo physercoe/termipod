@@ -252,6 +252,14 @@ type attentionDecideIn struct {
 	// on a help_request — a reject signals "dismissed, agent should give up".
 	// Ignored for kinds whose answer space is constrained.
 	Body string `json:"body,omitempty"`
+	// Override flips the "already resolved" 409 into the ADR-030 W9
+	// principal-override path. Requires `By == "@principal"` (MVP
+	// principal gate — a token-identity check is a future wedge) and
+	// `policy.KindFor(change_kind).OverrideAllowed == true`. The
+	// override path appends an override decision entry, dispatches
+	// through `ProposeKind.Rollback`, emits an `attention.override`
+	// audit row, and updates `executed_json`.
+	Override bool `json:"override,omitempty"`
 }
 
 type attentionDecideOut struct {
@@ -284,8 +292,23 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if in.Decision != "approve" && in.Decision != "reject" {
-		writeErr(w, http.StatusBadRequest, "decision must be approve|reject")
+	// approve | reject are the standard decisions; `override` is
+	// accepted only when paired with override=true (ADR-030 W9).
+	// The override handler appends its own "override" entry to
+	// decisions_json regardless of the incoming Decision field, so
+	// callers MAY pass either decision="approve" or decision="override"
+	// — both reach the override path when override=true.
+	switch in.Decision {
+	case "approve", "reject":
+		// fall through
+	case "override":
+		if !in.Override {
+			writeErr(w, http.StatusBadRequest,
+				"decision='override' requires override=true (ADR-030 W9)")
+			return
+		}
+	default:
+		writeErr(w, http.StatusBadRequest, "decision must be approve|reject|override")
 		return
 	}
 
@@ -315,6 +338,24 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != "open" {
+		// ADR-030 W9 principal-override path. The default 409 stays
+		// for non-override calls; an explicit `override: true` from
+		// the principal against a kind whose policy allows override
+		// re-enters the dispatcher with a Rollback call instead.
+		if in.Override {
+			s.handleAttentionOverride(w, r, attentionOverrideArgs{
+				ID:             id,
+				Team:           team,
+				Kind:           kind,
+				Status:         status,
+				ChangeKind:     changeKind,
+				AssignedTier:   assignedTier,
+				ChangeSpecJSON: changeSpecJSON,
+				Decisions:      decisions,
+				In:             in,
+			})
+			return
+		}
 		writeErr(w, http.StatusConflict, "attention already resolved")
 		return
 	}
@@ -504,6 +545,175 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 			"reason":   in.Reason,
 		})
 	writeJSON(w, http.StatusOK, out)
+}
+
+// attentionOverrideArgs bundles the row-state the override handler
+// needs from handleDecideAttention's SELECT so the call site stays a
+// single line.
+type attentionOverrideArgs struct {
+	ID             string
+	Team           string
+	Kind           string // attention_items.kind ("propose", "approval_request", …)
+	Status         string // already-resolved status (not "open")
+	ChangeKind     string // propose change_kind, "" for non-propose rows
+	AssignedTier   string
+	ChangeSpecJSON string
+	Decisions      string
+	In             attentionDecideIn
+}
+
+// handleAttentionOverride is the ADR-030 W9 principal-override path.
+// Reached only when handleDecideAttention sees `status != "open"` AND
+// `in.Override == true`. Guard rails:
+//
+//  1. Caller must be principal-tier. MVP: `in.By == "@principal"`
+//     (token-identity check is a follow-up wedge).
+//  2. The row must come from the propose ladder. `change_kind == ""`
+//     means a legacy non-propose row (request_help, select, …);
+//     override is not defined for those.
+//  3. The kind's policy must opt in via `override_allowed: true`.
+//  4. The kind must register a `Rollback` function. Kinds without
+//     one explicitly refuse override (422 with hint).
+//
+// On success: appends an "override" decision entry to the row,
+// calls Rollback through the registry, emits an `attention.override`
+// audit row with the rollback executed_json in meta, mirrors the
+// rollback's executed payload into `attention_items.executed_json`.
+// The row stays in `status = 'resolved'` (the override doesn't
+// re-open it — the override IS the next state).
+func (s *Server) handleAttentionOverride(w http.ResponseWriter, r *http.Request, a attentionOverrideArgs) {
+	if a.In.By != "@principal" {
+		writeErr(w, http.StatusForbidden,
+			"override requires principal-tier caller (MVP gate: by='@principal')")
+		return
+	}
+	if a.Status != "resolved" {
+		// Other terminal statuses (e.g. "expired") shouldn't reach
+		// override — there's nothing to roll back from.
+		writeErr(w, http.StatusConflict,
+			"override only applies to status='resolved' rows; got status='"+a.Status+"'")
+		return
+	}
+	if a.ChangeKind == "" {
+		writeErr(w, http.StatusUnprocessableEntity,
+			"override is defined only for ADR-030 propose rows; this row has no change_kind")
+		return
+	}
+	pol, _ := s.policy.KindFor(a.ChangeKind)
+	if !pol.OverrideAllowed {
+		writeErrHint(w, http.StatusBadRequest,
+			"kind '"+a.ChangeKind+"' has override_allowed=false in policy.yaml",
+			Hint{SeeTool: "policy_read"})
+		return
+	}
+	pk, ok := LookupProposeKind(a.ChangeKind)
+	if !ok || pk.Rollback == nil {
+		writeErr(w, http.StatusUnprocessableEntity,
+			"kind '"+a.ChangeKind+"' has no Rollback registered (override unsupported)")
+		return
+	}
+
+	// Read the row's original executed_json — that's the input the
+	// per-kind Rollback needs to compute the inverse transition.
+	var executedJSON string
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT COALESCE(executed_json, '') FROM attention_items WHERE id = ?`,
+		a.ID).Scan(&executedJSON); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if executedJSON == "" {
+		writeErr(w, http.StatusUnprocessableEntity,
+			"row has no executed_json — was the prior decision approved? rollback needs the original Apply result")
+		return
+	}
+
+	// Guard against double-override: if the most recent decision is
+	// already an "override", refuse. The principal can re-approve
+	// the original via a regular call instead.
+	var list []map[string]any
+	_ = json.Unmarshal([]byte(a.Decisions), &list)
+	if n := len(list); n > 0 {
+		if d, _ := list[n-1]["decision"].(string); d == "override" {
+			writeErr(w, http.StatusConflict,
+				"row already overridden; further overrides not supported in MVP")
+			return
+		}
+	}
+
+	now := NowUTC()
+	ac := ProposeApplyContext{
+		AttentionID:   a.ID,
+		Team:          a.Team,
+		AssignedTier:  a.AssignedTier,
+		DeciderHandle: a.In.By,
+		Via:           "override",
+	}
+	rollbackExecuted, rbErr := pk.Rollback(r.Context(), s, ac,
+		json.RawMessage(a.ChangeSpecJSON), json.RawMessage(executedJSON))
+	if rbErr != nil {
+		writeErr(w, http.StatusInternalServerError,
+			"rollback ("+a.ChangeKind+"): "+rbErr.Error())
+		return
+	}
+
+	// Append override decision to decisions_json. Schema additive:
+	// `decision="override"` is a new entry kind alongside approve /
+	// reject; consumers that switch on decision should add a
+	// case.
+	overrideEntry := map[string]any{
+		"at":       now,
+		"by":       a.In.By,
+		"decision": "override",
+		"reason":   a.In.Reason,
+	}
+	list = append(list, overrideEntry)
+	newDecisions, _ := json.Marshal(list)
+	if _, err := s.db.ExecContext(r.Context(), `
+		UPDATE attention_items
+		   SET decisions_json = ?,
+		       executed_json  = ?
+		 WHERE id = ?`, string(newDecisions), string(rollbackExecuted), a.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// attention.override audit row — per ADR-030 D-8. Meta carries
+	// the change_kind, tier, principal handle, and the rollback's
+	// own executed payload so downstream queries don't need to join
+	// the row to see what landed.
+	s.recordAudit(r.Context(), a.Team, "attention.override", "attention", a.ID,
+		"override "+a.ChangeKind+" via principal",
+		map[string]any{
+			"change_kind":       a.ChangeKind,
+			"by":                a.In.By,
+			"by_tier":           a.AssignedTier,
+			"original_decision": priorTerminalDecision(list),
+			"reason":            a.In.Reason,
+			"rollback_executed": json.RawMessage(rollbackExecuted),
+		})
+
+	out := attentionDecideOut{
+		AttentionID: a.ID,
+		Decision:    "override",
+		Resolved:    true,
+		Executed:    rollbackExecuted,
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// priorTerminalDecision walks back through decisions_json (skipping
+// the override entry we just appended) and returns the last
+// approve/reject decision string, or "" if none. Used to stamp the
+// `original_decision` field of the override audit row.
+func priorTerminalDecision(list []map[string]any) string {
+	for i := len(list) - 1; i >= 0; i-- {
+		d, _ := list[i]["decision"].(string)
+		if d == "approve" || d == "reject" {
+			return d
+		}
+	}
+	return ""
 }
 
 // installProposedTemplate reads the proposed blob and writes it to the

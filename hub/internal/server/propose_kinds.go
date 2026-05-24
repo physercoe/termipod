@@ -46,6 +46,24 @@ type ProposeKind struct {
 	// returned `executed` payload is round-tripped to the requester
 	// so the agent knows the change landed.
 	Apply func(ctx context.Context, s *Server, ac ProposeApplyContext, targetRef, changeSpec json.RawMessage) (executed json.RawMessage, err error)
+
+	// Rollback is invoked by the W9 principal-override path
+	// (`POST /decide` with `override=true` against a resolved
+	// row). The caller passes the row's original `change_spec`
+	// + `executed` so the rollback can compute the inverse
+	// transition without re-querying. For state-shaped kinds
+	// (deliverable.set_state, phase.advance, task.set_status)
+	// the rollback typically re-calls Apply with the prior
+	// state as the new change_spec. For action-shaped kinds
+	// (agent.spawn, template.install) the rollback is custom:
+	// e.g. template.install deletes the installed file;
+	// agent.spawn emits a TODO audit pointing at the spawned
+	// agent (terminate is a post-MVP propose kind).
+	//
+	// Nil = override is not supported for this kind regardless
+	// of the per-kind policy's `override_allowed` flag — the
+	// override handler returns 422 with a hint when this fires.
+	Rollback func(ctx context.Context, s *Server, ac ProposeApplyContext, originalChangeSpec, originalExecuted json.RawMessage) (executed json.RawMessage, err error)
 }
 
 // ProposeApplyContext carries the attention-row lineage into the apply

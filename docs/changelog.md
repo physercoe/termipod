@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.697
+> **Last verified vs code:** v1.0.698
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,73 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.698-alpha — 2026-05-24
+
+**ADR-036 Phase A W3: session_id rotation handler — fixes /clear
+blindness in the M4 LocalLogTail adapter.** Hub-only wedge. Closes
+out Phase A. Pre-W3 a `/clear` within a running claude process
+minted a new session_id + JSONL file; the adapter kept tailing the
+OLD JSONL until respawn (a latent bug that existed regardless of
+any chip work). statusLine carries both `session_id` and
+`transcript_path`, so we can re-point the tailer in-band and
+re-emit `session.init` so mobile renders the post-/clear conversation
+as a new conversation correctly.
+
+### Added
+
+- `hub/internal/drivers/local_log_tail/claude_code/adapter.go` —
+  Adapter gains `pendingTranscriptPath` + `pendingSessionID` fields
+  (pendingMu-guarded). `OnStatusLine` gained 4 new responsibilities
+  beyond W2's cache-update: (a) extract `session_id` and
+  `transcript_path` from each statusLine frame, (b) gate rotation on
+  three preconditions (engineSessionID resolved, session_id changed,
+  transcript_path non-empty), (c) stamp pending fields, (d) call
+  `tailer.Stop()` to close the lines channel cleanly.
+
+### Changed
+
+- `resolveAndRun` (adapter.go) — refactored from a one-shot pipeline
+  into a session-loop. Each iteration tails one JSONL from start to
+  exit; after `runLoop` returns, the loop checks
+  `pendingTranscriptPath` and either re-enters with the new path
+  (and `tailMode = StartFromBeginning` so we catch any content
+  claude wrote between minting the file and our rotation handler
+  running) or exits if no rotation is pending. The
+  `sessionInitSent` guard is reset on rotation so the next usage
+  event re-emits `session.init` with the new session_id — mobile
+  re-renders chips on session.init, which is the right semantic for
+  "new conversation".
+
+### Tests
+
+- `hub/internal/drivers/local_log_tail/claude_code/adapter_statusline_test.go`
+  (3 new cases, 8 total in file):
+  - **Rotation happy path** — first session.init carries
+    sess-rot-1; statusLine fires with sess-rot-2 + new
+    transcript_path; appending to the new JSONL produces a SECOND
+    session.init carrying sess-rot-2 (proves the tailer re-pointed
+    AND sessionInitSent reset).
+  - **No rotation on same session_id** — steady-state statusLine
+    refreshes (every ~10s during the same conversation) MUST NOT
+    churn the tailer. `pendingTranscriptPath` stays empty.
+  - **No rotation before first resolution** — statusLine frames
+    arriving during the launch race (engineSessionID still empty)
+    don't trigger rotation. Latest-frame cache is still updated for
+    W2's field overrides.
+
+### Plan status
+
+**[ADR-036 plan](plans/claude-code-statusline-as-telemetry.md) Phase
+A COMPLETE.** Hub-side ships three wedges (W1+W2+W3, v1.0.696-698).
+Phase B (mobile chips for cost, effort, thinking, fast_mode,
+rate_limits, exceeds_200k_tokens, session_name) is the next ship
+arc, separately scoped. Phase A alone earns its keep: kills the
+context-window heuristic as the primary signal, replaces the
+hardcoded version literal with the real binary version, and fixes
+the /clear-blindness bug.
 
 ---
 

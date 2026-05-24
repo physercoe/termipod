@@ -183,6 +183,19 @@ type Adapter struct {
 	// reduces but doesn't eliminate that.
 	latestStatusLineMu sync.RWMutex
 	latestStatusLine   map[string]any
+
+	// pendingRotation, when non-empty, signals that OnStatusLine has
+	// detected a session_id rotation (ADR-036 W3 — /clear within a
+	// running claude process mints a new session_id + a new JSONL
+	// file; today's adapter keeps tailing the OLD one until respawn).
+	// OnStatusLine stamps the new transcript_path here AND calls
+	// tailer.Stop(), which closes the lines channel; resolveAndRun's
+	// outer loop then re-points the tailer at this path and starts a
+	// fresh runLoop. Field is consumed at the top of the next loop
+	// iteration and cleared. pendingMu guards both fields.
+	pendingMu             sync.Mutex
+	pendingTranscriptPath string
+	pendingSessionID      string
 }
 
 // NewAdapter constructs a claude-code Adapter. Returns an error early
@@ -263,9 +276,12 @@ func (a *Adapter) Start(parent context.Context) error {
 	return nil
 }
 
-// resolveAndRun is the async pipeline kicked off by Start. Runs
-// until either the parent context cancels or the tailer completes
-// the steady-state loop and `lines` closes.
+// resolveAndRun is the async pipeline kicked off by Start. Runs as
+// a session-loop: resolve the JSONL → tail → mapper → poster, then
+// if runLoop returned because of a pending rotation (W3), pick up
+// the new transcript path and re-enter. Outer loop exits when the
+// parent context cancels or the tailer terminates without a pending
+// rotation.
 func (a *Adapter) resolveAndRun(ctx context.Context) {
 	defer a.wg.Done()
 
@@ -296,6 +312,10 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 		// already typing the moment the pane appeared.
 		waitTimeout = 30 * time.Minute
 	}
+
+	// First session: wait for the JSONL to appear, then tail it. The
+	// tail mode for the first session honours TailMode (resume spawns
+	// pass StartFromEnd to skip pre-existing transcript bytes).
 	waitCtx, cancelWait := context.WithTimeout(ctx, waitTimeout)
 	jsonlPath, err := WaitForSessionSince(waitCtx, projectDir, 0, a.SessionCutoff)
 	cancelWait()
@@ -303,33 +323,77 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 		a.noteFailure(ctx, "wait for session jsonl in "+projectDir, err)
 		return
 	}
+	tailMode := a.TailMode
 
-	a.tailer = &Tailer{Path: jsonlPath, Mode: a.TailMode}
-	lines, err := a.tailer.Start(ctx)
-	if err != nil {
-		a.noteFailure(ctx, "tailer start", err)
-		return
+	// Session-loop. Each iteration tails one JSONL file from start to
+	// stop (or until OnStatusLine signals a rotation by Stop'ing the
+	// tailer + writing pendingTranscriptPath). Post-W3 the loop
+	// re-enters for every /clear; pre-W3 it runs exactly once and
+	// exits when the tailer closes its lines channel naturally.
+	for {
+		a.tailer = &Tailer{Path: jsonlPath, Mode: tailMode}
+		lines, err := a.tailer.Start(ctx)
+		if err != nil {
+			a.noteFailure(ctx, "tailer start", err)
+			return
+		}
+
+		// Capture the engine session UUID from the JSONL filename
+		// (`<uuid>.jsonl`). claude-code itself uses this same id as the
+		// argument to its `--resume` flag (verified by sampling a fresh
+		// JSONL: each line carries a `sessionId` field that matches the
+		// basename). Stashing it here makes it available to
+		// maybeEmitSessionInit so the synthetic session.init payload
+		// carries `session_id`, which the hub's captureEngineSessionID
+		// then stamps onto `sessions.engine_session_id` for the resume
+		// path to consume. v1.0.672.
+		a.engineSessionID = strings.TrimSuffix(filepath.Base(jsonlPath), ".jsonl")
+
+		a.Log.Info("claude-code adapter started",
+			"agent_id", a.AgentID,
+			"workdir", a.Workdir,
+			"jsonl", jsonlPath,
+			"engine_session_id", a.engineSessionID,
+			"replay", tailMode == StartFromBeginning)
+
+		a.runLoop(ctx, lines)
+
+		// runLoop has returned. Either:
+		//   1. ctx was cancelled (Stop or parent cancel) → exit cleanly.
+		//   2. lines channel closed naturally → exit unless rotation
+		//      is pending.
+		if ctx.Err() != nil {
+			return
+		}
+
+		// Check for a pending W3 rotation. If OnStatusLine fired
+		// with a new session_id + transcript_path, it stamped them
+		// here and Stop'd the tailer; pick them up and re-loop.
+		a.pendingMu.Lock()
+		nextPath := a.pendingTranscriptPath
+		a.pendingTranscriptPath = ""
+		a.pendingSessionID = ""
+		a.pendingMu.Unlock()
+		if nextPath == "" {
+			return // natural EOF without rotation — done.
+		}
+
+		jsonlPath = nextPath
+		// New conversation post-/clear: tail from beginning so we
+		// catch any content claude wrote between minting the file
+		// and our rotation handler running.
+		tailMode = StartFromBeginning
+		// Reset the session.init guard so the next usage event
+		// re-emits a fresh session.init carrying the new session_id.
+		// Mobile re-renders chips on session.init; rotation is a
+		// real lifecycle event the principal needs to see.
+		a.sessionInitMu.Lock()
+		a.sessionInitSent = false
+		a.sessionInitMu.Unlock()
+		a.Log.Info("claude-code adapter: rotating to new session (post-/clear)",
+			"agent_id", a.AgentID,
+			"new_jsonl", jsonlPath)
 	}
-
-	// Capture the engine session UUID from the JSONL filename
-	// (`<uuid>.jsonl`). claude-code itself uses this same id as the
-	// argument to its `--resume` flag (verified by sampling a fresh
-	// JSONL: each line carries a `sessionId` field that matches the
-	// basename). Stashing it here makes it available to
-	// maybeEmitSessionInit so the synthetic session.init payload
-	// carries `session_id`, which the hub's captureEngineSessionID
-	// then stamps onto `sessions.engine_session_id` for the resume
-	// path to consume. v1.0.672.
-	a.engineSessionID = strings.TrimSuffix(filepath.Base(jsonlPath), ".jsonl")
-
-	a.Log.Info("claude-code adapter started",
-		"agent_id", a.AgentID,
-		"workdir", a.Workdir,
-		"jsonl", jsonlPath,
-		"engine_session_id", a.engineSessionID,
-		"replay", a.TailMode == StartFromBeginning)
-
-	a.runLoop(ctx, lines)
 }
 
 // maybeEmitSessionInit posts a synthetic session.init the first time
@@ -540,16 +604,26 @@ func (a *Adapter) Stop() {
 // HandleInput is now implemented in sendkeys.go (W2h).
 
 // OnStatusLine is the gateway-side seam for claude-code statusLine
-// frames (ADR-036 W2). The per-spawn UDS gateway invokes this
-// SYNCHRONOUSLY after posting the status_line AgentEvent to the hub;
-// the adapter caches the snapshot so subsequent JSONL-derived events
-// can override their JSONL-heuristic fields with statusLine-authoritative
-// values (see latestStatusLine field comment + statusLineVersion +
-// statusLineContextWindow).
+// frames (ADR-036 W2 + W3). The per-spawn UDS gateway invokes this
+// SYNCHRONOUSLY after posting the status_line AgentEvent to the hub.
+// Two responsibilities:
 //
-// W3 will extend this to detect session_id rotation and re-point the
-// JSONL tailer at payload.transcript_path; for now it's a pure
-// cache-update.
+//   1. Cache the snapshot (W2) so subsequent JSONL-derived events
+//      can override their JSONL-heuristic fields with the
+//      authoritative values.
+//
+//   2. Detect session_id rotation (W3) — when /clear within a
+//      running claude process mints a new session_id + JSONL file,
+//      stamp the new path under pendingTranscriptPath and Stop the
+//      current tailer. resolveAndRun's outer loop picks up the new
+//      path and starts a fresh runLoop.
+//
+// Rotation is gated on three preconditions: (a) we already know an
+// engineSessionID (adapter has fully resolved its first session;
+// pre-resolution races are ignored), (b) the statusLine carries a
+// non-empty session_id that differs from the current one, and (c)
+// the statusLine carries a non-empty transcript_path so we have
+// somewhere to point the new tailer.
 func (a *Adapter) OnStatusLine(_ context.Context, payload map[string]any) {
 	if payload == nil {
 		return
@@ -557,6 +631,45 @@ func (a *Adapter) OnStatusLine(_ context.Context, payload map[string]any) {
 	a.latestStatusLineMu.Lock()
 	a.latestStatusLine = payload
 	a.latestStatusLineMu.Unlock()
+
+	// W3: rotation detection. Read fresh from `payload` since
+	// the cached snapshot we just stored is the same object.
+	newSID, _ := payload["session_id"].(string)
+	newPath, _ := payload["transcript_path"].(string)
+	if newSID == "" || newPath == "" {
+		return
+	}
+	curSID := a.engineSessionID
+	if curSID == "" || newSID == curSID {
+		return
+	}
+
+	// Concurrency note: by the time we get here, the gateway is in
+	// the middle of its tools/call handler. Tailer.Stop() blocks
+	// until the tailer loop exits AND its lines channel closes; the
+	// runLoop reading from lines will see !ok and return. The
+	// session-loop in resolveAndRun then reads pendingTranscriptPath
+	// (under pendingMu) and re-enters with the new file. This is
+	// synchronous from the gateway's perspective (~100ms typical),
+	// which is fine because the shim's exit-0 contract masks any
+	// latency at the claude TUI layer.
+	a.pendingMu.Lock()
+	a.pendingTranscriptPath = newPath
+	a.pendingSessionID = newSID
+	a.pendingMu.Unlock()
+
+	a.Log.Info("claude-code adapter: statusLine reports session_id rotation",
+		"agent_id", a.AgentID,
+		"prev_session_id", curSID,
+		"new_session_id", newSID,
+		"new_transcript_path", newPath)
+
+	a.mu.Lock()
+	tailer := a.tailer
+	a.mu.Unlock()
+	if tailer != nil {
+		tailer.Stop()
+	}
 }
 
 // statusLineVersion returns the statusLine-sourced binary version

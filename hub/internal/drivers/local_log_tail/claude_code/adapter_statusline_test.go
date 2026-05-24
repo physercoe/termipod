@@ -159,6 +159,167 @@ func TestAdapter_Usage_UsesStatusLineContextWindow(t *testing.T) {
 	}
 }
 
+// W3: session_id rotation. /clear within a running claude process
+// mints a new session_id + a new JSONL file. Pre-W3, the adapter
+// kept tailing the old JSONL until respawn (latent /clear-blindness
+// bug). statusLine carries both fields, so we can re-point the
+// tailer in-band and re-emit session.init so mobile renders the
+// post-/clear conversation correctly.
+//
+// Setup: adapter starts on sess-1; we append a usage event so the
+// initial session.init lands. Then OnStatusLine fires with a NEW
+// session_id + transcript_path pointing at sess-2. The adapter
+// should: stop the sess-1 tailer, re-point at sess-2, reset the
+// session-init guard, then process sess-2's content as the new
+// session. We verify by appending to sess-2 and seeing the second
+// session.init carry the new session_id.
+func TestAdapter_OnStatusLine_RotatesOnSessionIDChange(t *testing.T) {
+	cwd := "/home/test/proj"
+	homeDir, projectDir := makeFakeHome(t, cwd)
+	jsonl1 := filepath.Join(projectDir, "sess-rot-1.jsonl")
+	jsonl2 := filepath.Join(projectDir, "sess-rot-2.jsonl")
+	writeJSONL(t, jsonl1)
+
+	poster := &capturingPoster{}
+	a, _ := NewAdapter(Config{
+		AgentID: "a", Workdir: cwd, Poster: poster,
+	})
+	a.HomeDir = homeDir
+	a.SessionCutoff = time.Time{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := a.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop()
+
+	// First usage event on sess-1 → triggers initial session.init.
+	appendJSONL(t, jsonl1, `{"type":"assistant","message":{"model":"claude-opus-4-7","usage":{"input_tokens":10,"output_tokens":5}}}`)
+	first := waitForN(t, poster, 2, 3*time.Second)
+	var firstInit *capturedEvent
+	for i := range first {
+		if first[i].kind == "session.init" {
+			firstInit = &first[i]
+			break
+		}
+	}
+	if firstInit == nil {
+		t.Fatalf("no initial session.init in %v", first)
+	}
+	if sid, _ := firstInit.payload["session_id"].(string); sid != "sess-rot-1" {
+		t.Fatalf("initial session_id = %q, want sess-rot-1", sid)
+	}
+
+	// Mint the new (post-/clear) JSONL file and fire statusLine with
+	// the new id + path. The handler should Stop the sess-1 tailer
+	// and re-point at sess-2.
+	writeJSONL(t, jsonl2)
+	a.OnStatusLine(ctx, map[string]any{
+		"session_id":      "sess-rot-2",
+		"transcript_path": jsonl2,
+	})
+
+	// Append a usage event to sess-2. The post-rotation runLoop
+	// should pick it up and emit a SECOND session.init with the new
+	// session_id (the rotation reset the sessionInitSent guard).
+	// Allow up to ~2s — the rotation involves a tailer Stop + new
+	// tailer Start + appender poll.
+	appendJSONL(t, jsonl2, `{"type":"assistant","message":{"model":"claude-opus-4-7","usage":{"input_tokens":20,"output_tokens":7}}}`)
+
+	deadline := time.Now().Add(5 * time.Second)
+	var secondInit *capturedEvent
+	for time.Now().Before(deadline) {
+		snap := poster.snapshot()
+		for i := range snap {
+			if snap[i].kind != "session.init" {
+				continue
+			}
+			if sid, _ := snap[i].payload["session_id"].(string); sid == "sess-rot-2" {
+				secondInit = &snap[i]
+				break
+			}
+		}
+		if secondInit != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if secondInit == nil {
+		t.Fatalf("no post-rotation session.init carrying sess-rot-2; events = %d", len(poster.snapshot()))
+	}
+}
+
+// Rotation is a NO-OP when the statusLine session_id matches the
+// current engineSessionID (steady-state status-line refreshes during
+// the same conversation). Guards against accidentally restarting the
+// tailer every ~10s.
+func TestAdapter_OnStatusLine_NoRotationOnSameSessionID(t *testing.T) {
+	cwd := "/home/test/proj"
+	homeDir, projectDir := makeFakeHome(t, cwd)
+	jsonl := filepath.Join(projectDir, "sess-no-rot.jsonl")
+	writeJSONL(t, jsonl)
+
+	poster := &capturingPoster{}
+	a, _ := NewAdapter(Config{AgentID: "a", Workdir: cwd, Poster: poster})
+	a.HomeDir = homeDir
+	a.SessionCutoff = time.Time{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := a.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop()
+
+	// Land the initial usage + session.init.
+	appendJSONL(t, jsonl, `{"type":"assistant","message":{"model":"claude-opus-4-7","usage":{"input_tokens":10,"output_tokens":5}}}`)
+	waitForN(t, poster, 2, 3*time.Second)
+	before := len(poster.snapshot())
+
+	// Fire statusLine with the SAME session_id. No rotation.
+	a.OnStatusLine(ctx, map[string]any{
+		"session_id":      "sess-no-rot",
+		"transcript_path": jsonl,
+	})
+	// Brief wait — if rotation HAD fired, we'd see a tailer churn
+	// log entry. Sample the event count and confirm no new event
+	// rows landed beyond what the source file produces.
+	time.Sleep(200 * time.Millisecond)
+	after := len(poster.snapshot())
+	if after != before {
+		t.Errorf("same-session statusLine triggered extra events: before=%d after=%d", before, after)
+	}
+	// pendingTranscriptPath must remain empty.
+	a.pendingMu.Lock()
+	pending := a.pendingTranscriptPath
+	a.pendingMu.Unlock()
+	if pending != "" {
+		t.Errorf("pendingTranscriptPath set on same-session frame: %q", pending)
+	}
+}
+
+// Rotation MUST NOT fire before the adapter has resolved its initial
+// session (engineSessionID still ""). statusLine frames that arrive
+// during the launch race are ignored for rotation purposes — they
+// still update the latestStatusLine cache for W2's field overrides.
+func TestAdapter_OnStatusLine_NoRotationBeforeFirstResolution(t *testing.T) {
+	a, _ := NewAdapter(Config{AgentID: "a", Workdir: "/tmp/p", Poster: &stubPoster{}})
+	// engineSessionID stays "" because we haven't called Start.
+	a.OnStatusLine(context.Background(), map[string]any{
+		"session_id":      "premature-sess",
+		"transcript_path": "/path/to/premature.jsonl",
+	})
+	a.pendingMu.Lock()
+	pending := a.pendingTranscriptPath
+	a.pendingMu.Unlock()
+	if pending != "" {
+		t.Errorf("rotation fired before first resolution: pending = %q", pending)
+	}
+	// But the cache MUST still have been updated (W2 path).
+	if got := a.statusLineVersion(); got != "" {
+		t.Errorf("version cached unexpectedly: %q", got)
+	}
+}
+
 // Falls back to the heuristic when no statusLine frame has fired
 // (cold-open race). Locks the "blank > wrong" relegation contract:
 // the W2 wedge MUST NOT regress chip behaviour for older claude

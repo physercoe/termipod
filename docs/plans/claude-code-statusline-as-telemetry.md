@@ -1,9 +1,9 @@
 # claude-code statusLine as telemetry
 
 > **Type:** plan
-> **Status:** In flight (2026-05-24) — Phase A W1 + W2 shipped (v1.0.696-alpha, v1.0.697-alpha); W3 next
+> **Status:** In flight (2026-05-24) — **Phase A COMPLETE** (W1+W2+W3 shipped v1.0.696-698); Phase B (mobile chips) pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.697 (hub) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.698 (hub) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -123,7 +123,8 @@ W3's /clear fix on its own merit.
     a fixture that interleaves statusLine + usage events and asserts
     the session.init carries the statusLine-sourced version.
 
-- **W3 — session_id rotation handler (fix /clear blindness).**
+- **W3 — session_id rotation handler (fix /clear blindness).** ✓
+  Shipped v1.0.698-alpha. Phase A complete.
   - In `claude_code/adapter.go`: maintain `currentSessionID` (init
     from `engineSessionID` at start). When a `status_line` event
     decodes with `session_id != currentSessionID`:

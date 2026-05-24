@@ -26,7 +26,9 @@ import '../sessions/sessions_screen.dart';
 import 'approval_detail_screen.dart';
 import 'decision_history_screen.dart';
 import 'inline_actions.dart';
+import 'widgets/propose_addressee.dart';
 import 'widgets/propose_card_router.dart';
+import 'widgets/stalled_decisions_digest.dart';
 
 /// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.
 ///
@@ -64,7 +66,20 @@ class MeScreen extends ConsumerWidget {
     final hubState = hub.value ?? const HubState();
     final items = _buildItems(hubState.attention);
     final filter = ref.watch(_filterProvider);
-    final filtered = items.where(filter.matches).toList();
+    // ADR-030 W19.6-mobile: when the stalled-only toggle is ON (set
+    // by tapping the top digest card), AND the chip-filter with the
+    // stalled predicate so only stalled propose rows remain. OFF
+    // preserves the existing chip-filter behavior unchanged.
+    final stalledOnly = ref.watch(stalledFilterProvider);
+    final filtered = items
+        .where(filter.matches)
+        .where((it) =>
+            !stalledOnly ||
+            (it.attention != null && isStalledPropose(it.attention!)))
+        .toList();
+    final stalledCount = stalledDecisionsCount(hubState.attention);
+    final stalledWithPrincipal =
+        stalledOverDayDecisionsCount(hubState.attention);
     final audit = ref.watch(recentAuditProvider);
     final sessionsState = ref.watch(sessionsProvider).value;
     final activeSessions = _activeSessions(sessionsState);
@@ -166,6 +181,16 @@ class MeScreen extends ConsumerWidget {
                   hosts: hubState.hosts,
                 ),
               ),
+            // ADR-030 W19.6-mobile — stalled-decisions digest card.
+            // Sits above the section label so the count is the first
+            // thing the principal sees when opening Me. Renders the
+            // SizedBox.shrink() when count=0 (no visual gap).
+            SliverToBoxAdapter(
+              child: StalledDecisionsDigest(
+                stalledCount: stalledCount,
+                stalledOverDayCount: stalledWithPrincipal,
+              ),
+            ),
             SliverToBoxAdapter(
               child: _SectionLabel(
                 text: l10n.meAttentionSection,

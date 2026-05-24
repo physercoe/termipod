@@ -11,13 +11,13 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile at
 > v1.0.687; W15 at v1.0.688; W16 + shared visuals at v1.0.689;
 > W17 + W16-lint-error fix at v1.0.690; W18 at v1.0.691;
-> W21 at v1.0.692; W20 (override confirmation sheet) at v1.0.693;
-> W19 and W19.6-mobile remain.
+> W21 at v1.0.692; W20 at v1.0.693; W19.6-mobile (top-of-Me
+> stalled-decisions digest) at v1.0.694; W19 remains.
 > Reissued 2026-05-20 to absorb ADR-030 amendments (D-7 Option 2′,
 > ADR-032 envelope on fan-back, ADR-034 loop-entity overlap,
 > principal ≠ owner). Original: Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.693-alpha
+> **Last verified vs code:** v1.0.694-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -1167,6 +1167,37 @@ into the existing IA without rename or chip add:
   intent `termipod://me?stalled=1` is still registered for
   post-MVP push-channel use, but in MVP nothing fires it; the
   digest card is the affordance.
+
+**W19.6-mobile. Top-of-Me stalled-decisions digest card (~160 LOC widget + helpers + 130 LOC test). Shipped v1.0.694-alpha.**
+
+- `lib/screens/me/widgets/stalled_decisions_digest.dart` (new)
+  <!-- verify file lib/screens/me/widgets/stalled_decisions_digest.dart -->
+  — amber-bordered card with `Icons.schedule`, "Stalled decisions"
+  header, count badge, subtitle that splits "N stalled at
+  stewards" vs "N stalled with you" (rows where
+  `escalation_state == 'escalated_principal'`). Hidden when total
+  stalled count = 0 (renders `SizedBox.shrink()`).
+- Tap toggles `stalledFilterProvider` (a NotifierProvider<bool>).
+  When ON, the Me-page item list filters further to rows whose
+  `escalation_state != 'none'` AND-combined with the active
+  chip-filter. Header copy flips "Stalled decisions" →
+  "Showing stalled decisions" and the border/background go
+  full-saturation amber so the active state is obvious.
+- Helpers exported alongside the widget for reuse in tests +
+  steward inbox (W19): `hasStalledDecisions(items)`,
+  `stalledDecisionsCount(items)`, `stalledOverDayDecisionsCount(items)`
+  — the last counts only `escalated_principal` rows so the digest
+  distinguishes "with stewards still" from "with you now".
+- `lib/screens/me/me_screen.dart` — digest sliver inserted ABOVE
+  `_SectionLabel` per plan §4.3 W19.6 layout. Filter narrowing
+  applied in the `_buildItems → items.where(...).where(stalled)`
+  pipeline.
+- `test/screens/me/stalled_decisions_digest_test.dart` (new) — 9
+  cases: 5 pure-function counter tests (empty / no-stalled / one
+  stalled / mixed-state counts / escalated_principal-only count);
+  4 widget tests (renders nothing when count=0; renders badge +
+  header when count>0; subtitle splits at-stewards vs with-you;
+  tap toggles stalledFilterProvider + flips active header copy).
 
 **W20. Override affordance — confirmation sheet (~245 LOC sheet + 120 LOC test + 5 caller updates). Shipped v1.0.693-alpha. SCOPE NARROWED.**
 

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.693
+> **Last verified vs code:** v1.0.694
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,52 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.694-alpha — 2026-05-24
+
+**ADR-030 Phase 3 W19.6-mobile: top-of-Me stalled-decisions digest
+card.** The D-7 Option 2′ signal walk's mobile surface — surfaces
+the count of propose rows that escalated to the principal's tier
+but haven't been decided. Hidden when there are zero stalled rows
+(no visual clutter); rendered above the existing chip-filter bar
+with a tap-to-filter affordance.
+
+### Added
+
+- `lib/screens/me/widgets/stalled_decisions_digest.dart` —
+  amber-bordered card with `Icons.schedule`, header, count badge,
+  and a subtitle that splits "N stalled at stewards" vs "N stalled
+  with you" (rows where `escalation_state == 'escalated_principal'`).
+  Hidden when total stalled count = 0. Tap toggles
+  `stalledFilterProvider` (NotifierProvider<bool>); when ON, the
+  Me-page item list filters further to `escalation_state != 'none'`
+  rows AND-combined with the active chip-filter. Header copy flips
+  to "Showing stalled decisions" + active-state border highlight
+  when ON.
+- Helpers in the same file: `hasStalledDecisions(items)`,
+  `stalledDecisionsCount(items)`,
+  `stalledOverDayDecisionsCount(items)` — the last counts only
+  `escalated_principal` rows so the digest distinguishes "with
+  stewards still" from "with you now". Tests + the upcoming W19
+  steward inbox will reuse these.
+- `test/screens/me/stalled_decisions_digest_test.dart` — 9 cases:
+  5 pure-function counter tests + 4 widget tests (render-when-
+  count=0 / render-when-count>0 / split-subtitle / tap-toggles-
+  filter-and-flips-header).
+
+### Changed
+
+- `lib/screens/me/me_screen.dart` — digest sliver inserted above
+  `_SectionLabel`. Filter narrowing applied in the items pipeline:
+  `items.where(filter.matches).where(stalledFilter)`. New imports
+  for the digest helpers + `isStalledPropose` predicate.
+
+### Forensics
+
+Mobile binary shifts (1 new widget + 1 new test + 3 me_screen
+edits). Hub binary unchanged. pubspec 1.0.693 → 1.0.694.
 
 ---
 

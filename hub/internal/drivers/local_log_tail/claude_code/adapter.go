@@ -297,6 +297,12 @@ func (a *Adapter) runLoop(ctx context.Context, lines <-chan Line) {
 	// it's invoked synchronously from resolveAndRun, not as its own
 	// goroutine — touching wg here would double-Done and panic.
 	replay := a.TailMode == StartFromBeginning
+	// v1.0.664 diagnostic: one INFO line per agent on first line so
+	// operators can see at a glance whether the tailer is producing
+	// anything when the on-device transcript stays empty. Counts so
+	// runaway tailers don't flood the logs — only the first line
+	// gets the INFO; subsequent stay at Debug.
+	var sawFirst bool
 	for {
 		select {
 		case <-ctx.Done():
@@ -304,6 +310,11 @@ func (a *Adapter) runLoop(ctx context.Context, lines <-chan Line) {
 		case line, ok := <-lines:
 			if !ok {
 				return
+			}
+			if !sawFirst {
+				a.Log.Info("claude-code adapter: first JSONL line received",
+					"agent_id", a.AgentID, "bytes", len(line.Bytes))
+				sawFirst = true
 			}
 			events, err := MapLine(line.Bytes)
 			if err != nil {
@@ -325,8 +336,22 @@ func (a *Adapter) runLoop(ctx context.Context, lines <-chan Line) {
 					payload = tagged
 				}
 				if err := a.Poster.PostAgentEvent(ctx, a.AgentID, ev.Kind, ev.Producer, payload); err != nil {
-					a.Log.Debug("claude-code adapter: post failed",
+					// v1.0.664 escalated from Debug to Warn. Silent
+					// post-failure left v1.0.663 on-host smokes
+					// guessing why mobile saw neither agent text nor
+					// turn.result (the cancel-button-stuck symptom):
+					// stderr showed nothing at the default log level
+					// even though every event was being dropped. A
+					// failing post is operationally a real problem —
+					// it means the agent is alive, the JSONL is being
+					// read, but the hub never hears about the new
+					// frames. Warn surfaces that on the host-runner
+					// terminal without requiring a debug rebuild.
+					a.Log.Warn("claude-code adapter: post failed",
 						"agent_id", a.AgentID, "kind", ev.Kind, "err", err)
+				} else {
+					a.Log.Debug("claude-code adapter: posted",
+						"agent_id", a.AgentID, "kind", ev.Kind)
 				}
 				// JSONL-driven FSM transitions: a tool_call means
 				// claude is actively producing output — promote to

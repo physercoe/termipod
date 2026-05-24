@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.663
+> **Last verified vs code:** v1.0.664
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,45 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.664-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #8 — diagnostic-only. On-host smoke of
+v1.0.663 reproduced the "mobile shows nothing" symptom: agent text
+not on mobile, cancel button stuck on (= no turn.result received),
+session.init / token chip / context chip all blank. JSONL has the
+assistant text + Stop hook attachment correctly; running the actual
+mapper against the file locally confirms it emits `kind=text` +
+`kind=usage` per the v1.0.661/662 design. Conclusion: the events
+ARE being generated, but somewhere between mapper output and the
+hub's `agent_events` row, they vanish without surfacing an error on
+the host-runner terminal.
+
+Cause is not yet known — the smoking gun for picking between "POST
+failing silently", "POST succeeding but rejected by hub", or "POST
+succeeding but mobile filters by session_id which is NULL" requires
+a stderr trace from the next run. Diagnostic logging was buried at
+Debug (the default level), so the on-host smoke had no signal at
+all. This wedge raises it to Warn for the failure case and adds a
+one-shot INFO breadcrumb for the success case so the next on-host
+smoke can tell us which leg is broken.
+
+**Changed.**
+
+- `adapter.go` `runLoop`: post-failure log raised from Debug to Warn,
+  with a clear "post failed" message and the agent_id / kind / err.
+- `adapter.go` `runLoop`: one-time INFO log when the first JSONL line
+  arrives — confirms the tailer is producing data when the mobile
+  transcript stays empty.
+- `hooks.go` `post`: hook-emit failure log raised from Debug to
+  Warn. Same reasoning as runLoop — hookStop's turn.result is the
+  signal mobile's busy walker watches, and a silent drop means the
+  cancel button never flips off.
+
+No behaviour change. If v1.0.664 fixes nothing, the stderr signal
+will tell us where to dig next.
 
 ---
 

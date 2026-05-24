@@ -325,14 +325,19 @@ func (a *Adapter) hookSessionEnd(ctx context.Context, p map[string]any) (map[str
 }
 
 // post is a tiny convenience wrapper that lets the handlers ignore
-// Poster errors uniformly (W2d's runLoop log + drop pattern). Errors
-// here are also debug-logged; a missing event is annoying but not
-// fatal — the next event arrives fine.
+// Poster errors uniformly (W2d's runLoop log + drop pattern). Failures
+// here are now Warn-level (v1.0.664) for the same reason runLoop's
+// post-failure log was bumped: hookStop's turn.result is the signal
+// mobile's busy walker watches to drop the cancel-on-send overlay,
+// and a silent drop means the cancel button sticks forever with no
+// stderr clue. Warn surfaces that on the host-runner terminal.
 func (a *Adapter) post(ctx context.Context, kind, producer string, payload map[string]any) error {
 	if err := a.Poster.PostAgentEvent(ctx, a.AgentID, kind, producer, payload); err != nil {
-		a.Log.Debug("claude-code adapter: post failed",
+		a.Log.Warn("claude-code adapter: hook-emit post failed",
 			"agent_id", a.AgentID, "kind", kind, "err", err)
 		return err
 	}
+	a.Log.Debug("claude-code adapter: hook-emit posted",
+		"agent_id", a.AgentID, "kind", kind)
 	return nil
 }

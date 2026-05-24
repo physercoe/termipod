@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.664
+> **Last verified vs code:** v1.0.665
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,35 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.665-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #9 — diagnostic-only. After v1.0.664
+on-host smoke confirmed the tailer is running (the new "first JSONL
+line received" INFO line landed) and NO "post failed" Warn appeared
+(= posts are succeeding), the bug narrows to hub-side or mobile-side.
+
+**Added.**
+
+- `HOSTRUNNER_LOG_LEVEL` env var on the `host-runner run` command.
+  Accepts `debug` / `info` / `warn` / `error` (case-insensitive,
+  default Info, unknown → Info so a typo never silences the host).
+  At `debug` the adapter logs one line per successful POST
+  (`claude-code adapter: posted agent_id=… kind=…`) so an on-host
+  smoke can confirm whether every assistant text + usage + turn.result
+  reached the wire — closing the diagnostic loop opened at v1.0.664.
+
+How to use:
+
+```bash
+HOSTRUNNER_LOG_LEVEL=debug /tmp/host-runner run --hub … 2>&1 | tee /tmp/hr.log
+# then in another shell:
+grep "claude-code adapter:" /tmp/hr.log
+```
+
+No behaviour change.
 
 ---
 

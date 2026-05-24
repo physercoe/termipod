@@ -45,6 +45,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/termipod/hub/internal/buildinfo"
@@ -232,7 +233,15 @@ func runDaemon(args []string) {
 	tbDir := fs.String("tb-dir", "", "TensorBoard root logdir; each run's tfevents files live under <tb-dir>/<run-path>. Empty disables the TensorBoard metric-digest poller")
 	_ = fs.Parse(args)
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	// v1.0.665 — log level toggle. Default is Info (slog's default for
+	// nil opts); set HOSTRUNNER_LOG_LEVEL=debug to see every Debug
+	// breadcrumb, including the adapter's per-event "posted" line that
+	// confirms claude-code JSONL frames reached the hub. Use "warn" or
+	// "error" to quiet a noisy host. Unknown values fall through to
+	// Info so a typo doesn't silence the runner entirely.
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: resolveLogLevel(os.Getenv("HOSTRUNNER_LOG_LEVEL")),
+	}))
 
 	// Prefer a bearer persisted by a prior host.token_rotate verb
 	// (ADR-028 W20) over the --token flag — otherwise a restart would
@@ -326,6 +335,23 @@ func defaultStateDir() string {
 func die(msg string) {
 	fmt.Fprintln(os.Stderr, msg)
 	os.Exit(1)
+}
+
+// resolveLogLevel maps a HOSTRUNNER_LOG_LEVEL env value to a slog.Level.
+// Recognises debug / info / warn / error (case-insensitive). Anything
+// else, including empty, returns slog.LevelInfo so a typo never makes
+// the host go silent.
+func resolveLogLevel(s string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // auditAuthEnv logs whether each backend-CLI auth env var is visible

@@ -47,12 +47,18 @@ func (s State) String() string {
 }
 
 // FSM is the mutex-protected state machine. Concurrency model is
-// "synchronous": every Transition call either changes state and
-// posts a system{subtype:state_changed} event, or no-ops. No
-// goroutine, no channels — keeps the contract small and the hook
-// handlers + JSONL run loop trivially serializable. If the FSM ever
-// becomes a hot path the implementation can swap to a channel-fed
-// goroutine without changing the public surface.
+// "synchronous": every Transition call either changes state or
+// no-ops. No goroutine, no channels — keeps the contract small and
+// the hook handlers + JSONL run loop trivially serializable. If the
+// FSM ever becomes a hot path the implementation can swap to a
+// channel-fed goroutine without changing the public surface.
+//
+// v1.0.663 stopped posting `system{subtype:state_changed,…}` to
+// PostAgentEvent. State drives internal logic (idle/streaming gates
+// the busy walker indirectly via the turn.result/Stop hook emission),
+// but the per-transition system frame was noise mobile rendered as a
+// raw JSON dump on every hook fire — same problem the three
+// `system{subtype:…}` hook emissions hit at v1.0.661.
 type FSM struct {
 	poster  locallogtail.EventPoster
 	agentID string
@@ -84,11 +90,14 @@ func (f *FSM) State() State {
 	return f.state
 }
 
-// Transition moves to `to` and posts a state_changed event if (and
-// only if) the position actually changes. `reason` is included in
-// the payload so debug logs and mobile breadcrumbs can trace why
-// the transition happened (e.g. "Stop hook", "tool_use", "PreCompact
-// parked").
+// Transition moves to `to` if `to` differs from the current state.
+// Pre-v1.0.663 the function also posted a `system{subtype:state_changed,
+// from, to, reason}` event on every change — but mobile had no
+// renderer for that subtype, so each transition (every PreToolUse,
+// every Stop, etc.) put a raw JSON blob in the transcript. The
+// reason+from+to are still logged at debug level for operator
+// forensics; the FSM remains the canonical state source for any
+// future internal consumer.
 func (f *FSM) Transition(to State, reason string) {
 	f.mu.Lock()
 	from := f.state
@@ -98,17 +107,7 @@ func (f *FSM) Transition(to State, reason string) {
 	}
 	f.state = to
 	f.mu.Unlock()
-
-	payload := map[string]any{
-		"subtype": "state_changed",
-		"from":    from.String(),
-		"to":      to.String(),
-	}
-	if reason != "" {
-		payload["reason"] = reason
-	}
-	if err := f.poster.PostAgentEvent(f.postCtx, f.agentID, "system", "system", payload); err != nil {
-		f.log.Debug("claude-code FSM: post state_changed failed",
-			"agent_id", f.agentID, "from", from, "to", to, "err", err)
-	}
+	f.log.Debug("claude-code FSM transition",
+		"agent_id", f.agentID, "from", from.String(),
+		"to", to.String(), "reason", reason)
 }

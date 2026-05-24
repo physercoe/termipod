@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.662
+> **Last verified vs code:** v1.0.663
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,71 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.663-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #7 — three on-device noise sources caught
+on the v1.0.662 dev-box smoke. Same root-cause class as v1.0.661 +
+v1.0.662: the M4 pipeline emits frames mobile doesn't have a clean
+renderer for, so each one lands as a raw JSON dump or a duplicate.
+
+**Fixed.**
+
+- *Every hook event fired TWICE.* claude-code rewrites
+  `<workdir>/.claude/settings.local.json` when the operator accepts
+  the per-server MCP enable dialog (it adds `enabledMcpjsonServers`)
+  AND silently strips top-level keys it doesn't recognise — including
+  our `_termipod_managed: true` marker. The next spawn's
+  `appendTermipodMatcher` saw the marker-less entry, decided it was
+  operator-authored, preserved it, and appended a SECOND entry
+  pointing at the new (live) UDS socket. Every hook then fired
+  twice, the first hitting a dead socket. Fix: backup identifier
+  matches by `<hookFireExe> hook-fire ` command-string prefix even
+  without the marker. `isManagedByCommandShape` lives in
+  hooks_install.go.
+
+- *FSM emitted `system{subtype:state_changed,from,to,reason}` on
+  every transition.* Same shape as the three hook-emitted system
+  frames we dropped at v1.0.661 — mobile had no renderer, every
+  PreToolUse/Stop/Notification dumped a raw JSON blob in the
+  transcript. The FSM still tracks state internally (drives
+  hookStop's `turn.result` emission indirectly); only the
+  per-transition poster call is gone. `state.go` `Transition` now
+  logs at debug level for operator forensics instead.
+
+- *user_input duplicated as the directive envelope.* The hub stores
+  what the user typed as an `input.text` event the moment mobile
+  POSTs to `/v1/agents/<id>/input` (handlers_sessions.go) — that
+  record is the canonical, mobile-rendered source. The M4 mapper's
+  `mapUserString` was also emitting `kind=user_input` from the
+  JSONL replay, carrying the FULL hub-injected envelope (`[directive
+  from the principal]\n<body>\n\nReply in this chat…`). Mobile
+  rendered both as user-side messages — typed "hi" and a verbose
+  envelope showed as a "duplicate" row. Fix: drop the user_input
+  emission. `mapUserArray` (tool_result branch) is unaffected.
+
+**Test coverage.** Updated four mapper/integration tests to assert
+the v1.0.663 drops (`TestMapLine_UserStringIsDropped` +
+`TestMapLine_MultiLineSessionOrdering` sequence,
+`TestAdapter_Start_ReplaysExistingThenLive` and siblings use
+assistant text for sentinels). Rewrote three FSM tests to assert
+"transition updates state, posts nothing"
+(`TestFSM_TransitionUpdatesStateWithoutPosting`,
+`TestFSM_SequenceOfTransitionsLeavesStateAtTerminal`). Added two
+hooks_install tests (`TestInstallClaudeHooks_DedupsWhenManagedMarkerStripped`
++ `TestInstallClaudeHooks_PreservesUnrelatedManagedlessEntries`)
+locking the backup-identifier behaviour against operator hooks.
+
+Root cause class. Every M4 cleanup wedge since v1.0.661 has been the
+same pattern — "the producer emits more than the renderer can
+consume; mobile's fallback is a JSON dump or a stray card."
+Following candidate emissions to audit next: SubagentStop
+`system{subagent_complete}`, SessionEnd `system{session_end}`, and
+the `kind=attachment` fan-out for unknown attachment types (already
+filtered for the 5 known telemetry shapes at v1.0.661 — but new
+shapes will appear).
 
 ---
 

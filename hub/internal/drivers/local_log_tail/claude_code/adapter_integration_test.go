@@ -97,6 +97,9 @@ func TestAdapter_Start_ReplaysExistingThenLive(t *testing.T) {
 	cwd := "/home/test/proj"
 	homeDir, projectDir := makeFakeHome(t, cwd)
 	jsonl := filepath.Join(projectDir, "sess-abc.jsonl")
+	// First user line is a string — v1.0.663 drops it (the hub's
+	// `input.text` event is the canonical user-text record).
+	// Assistant text is the first surviving event of the replay.
 	writeJSONL(t, jsonl,
 		`{"type":"user","message":{"content":"hi"}}`,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"hello back"}]}}`,
@@ -112,6 +115,9 @@ func TestAdapter_Start_ReplaysExistingThenLive(t *testing.T) {
 		t.Fatalf("NewAdapter: %v", err)
 	}
 	a.HomeDir = homeDir
+	// Tests need to see the seeded JSONL (mtime is older than the
+	// `time.Now()` cutoff NewAdapter installs). Zero = no cutoff.
+	a.SessionCutoff = time.Time{}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -120,32 +126,30 @@ func TestAdapter_Start_ReplaysExistingThenLive(t *testing.T) {
 	}
 	defer a.Stop()
 
-	// Replay: expect the 2 seeded events with replay:true.
-	got := waitForN(t, p, 2, 1*time.Second)
-	if got[0].kind != "user_input" {
-		t.Errorf("event 0 kind = %q, want user_input", got[0].kind)
+	// Replay: first surviving event is the assistant text. (The
+	// user-string line is dropped per v1.0.663.)
+	got := waitForN(t, p, 1, 1*time.Second)
+	if got[0].kind != "text" {
+		t.Errorf("event 0 kind = %q, want text", got[0].kind)
 	}
 	if got[0].payload["replay"] != true {
 		t.Errorf("event 0 replay = %v, want true", got[0].payload["replay"])
-	}
-	if got[1].kind != "text" {
-		t.Errorf("event 1 kind = %q, want text", got[1].kind)
 	}
 
 	// Live: append a new line.
 	appendJSONL(t, jsonl,
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}`,
 	)
-	got = waitForN(t, p, 3, 2*time.Second)
-	if got[2].kind != "tool_call" {
-		t.Errorf("live event kind = %q, want tool_call", got[2].kind)
+	got = waitForN(t, p, 2, 2*time.Second)
+	if got[1].kind != "tool_call" {
+		t.Errorf("live event kind = %q, want tool_call", got[1].kind)
 	}
 	// Replay flag should still apply (TailMode == StartFromBeginning
 	// keeps it on for the whole session per W2d's simple-but-correct
 	// rule; W2f's state machine refines this once a turn boundary is
 	// observed.)
-	if got[2].payload["replay"] != true {
-		t.Errorf("live event replay = %v; (current W2d simplification: stays true)", got[2].payload["replay"])
+	if got[1].payload["replay"] != true {
+		t.Errorf("live event replay = %v; (current W2d simplification: stays true)", got[1].payload["replay"])
 	}
 }
 
@@ -161,6 +165,7 @@ func TestAdapter_Start_StartFromEndSkipsExisting(t *testing.T) {
 	a, _ := NewAdapter(Config{AgentID: "ag", Workdir: cwd, Poster: p})
 	a.HomeDir = homeDir
 	a.TailMode = StartFromEnd
+	a.SessionCutoff = time.Time{} // see v1.0.661 cutoff
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -175,13 +180,14 @@ func TestAdapter_Start_StartFromEndSkipsExisting(t *testing.T) {
 		t.Errorf("StartFromEnd posted %d events for prior content; want 0: %+v", len(got), got)
 	}
 
-	// Append a fresh line: should arrive without a replay tag.
+	// Append a fresh line that DOES survive the v1.0.663 user-string
+	// drop: an assistant text. Must arrive without a replay tag.
 	appendJSONL(t, jsonl,
-		`{"type":"user","message":{"content":"new"}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"new"}]}}`,
 	)
 	got := waitForN(t, p, 1, 2*time.Second)
-	if got[0].kind != "user_input" {
-		t.Errorf("kind = %q, want user_input", got[0].kind)
+	if got[0].kind != "text" {
+		t.Errorf("kind = %q, want text", got[0].kind)
 	}
 	if got[0].payload["replay"] != nil {
 		t.Errorf("StartFromEnd event has replay = %v; want unset", got[0].payload["replay"])
@@ -201,12 +207,14 @@ func TestAdapter_Start_AsyncWaitsForSessionFile(t *testing.T) {
 	a.SessionWaitTimeout = 2 * time.Second
 
 	// Drop the session file after a short delay; the resolver
-	// goroutine should pick it up and emit the event.
+	// goroutine should pick it up and emit the event. Assistant text
+	// is the smallest line that produces a surfaced event after the
+	// v1.0.663 user-string drop.
 	jsonl := filepath.Join(projectDir, "sess.jsonl")
 	go func() {
 		time.Sleep(150 * time.Millisecond)
 		writeJSONL(t, jsonl,
-			`{"type":"user","message":{"content":"delayed"}}`,
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"delayed"}]}}`,
 		)
 	}()
 
@@ -275,13 +283,16 @@ func TestAdapter_StopDrainsRunLoop(t *testing.T) {
 	cwd := "/home/test/proj5"
 	homeDir, projectDir := makeFakeHome(t, cwd)
 	jsonl := filepath.Join(projectDir, "sess.jsonl")
+	// Use assistant text — user-string is dropped post-v1.0.663
+	// (the hub's input.text is the canonical user-text source).
 	writeJSONL(t, jsonl,
-		`{"type":"user","message":{"content":"one"}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"one"}]}}`,
 	)
 
 	p := &capturingPoster{}
 	a, _ := NewAdapter(Config{AgentID: "ag", Workdir: cwd, Poster: p})
 	a.HomeDir = homeDir
+	a.SessionCutoff = time.Time{} // see seeded JSONL
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -303,7 +314,8 @@ func TestAdapter_StopDrainsRunLoop(t *testing.T) {
 
 	// After Stop, further appends should NOT produce events.
 	before := len(p.snapshot())
-	appendJSONL(t, jsonl, `{"type":"user","message":{"content":"after stop"}}`)
+	appendJSONL(t, jsonl,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"after stop"}]}}`)
 	time.Sleep(150 * time.Millisecond)
 	if got := len(p.snapshot()); got != before {
 		t.Errorf("events grew after Stop: %d → %d", before, got)

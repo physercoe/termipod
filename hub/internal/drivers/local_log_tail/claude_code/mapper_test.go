@@ -72,16 +72,31 @@ func TestMapLine_AssistantMultipleBlocks_FanOut(t *testing.T) {
 	}
 }
 
-func TestMapLine_UserStringIsUserInput(t *testing.T) {
+// v1.0.663 dropped the user_input emission this test used to assert
+// on. The hub already stores the user's typed text as an `input.text`
+// event at POST time (handlers_sessions.go); the JSONL echo carried
+// the full hub-injected envelope ("[directive from the principal]\n
+// <body>\n\nReply in this chat…") which mobile then rendered as a
+// SECOND user-side message, looking like a duplicate. New invariant:
+// a user.message with a STRING content emits zero events. Tool-result
+// arrays (mapUserArray) still flow — see TestMapLine_UserArrayIsToolResults.
+func TestMapLine_UserStringIsDropped(t *testing.T) {
 	got := mustMap(t, `{"type":"user","message":{"content":"hello there"}}`)
-	if len(got) != 1 || got[0].Kind != "user_input" {
-		t.Fatalf("got %+v", got)
+	if len(got) != 0 {
+		t.Errorf("user-string emitted events; v1.0.663 expects drop: %+v", got)
 	}
-	if got[0].Producer != "user" {
-		t.Errorf("producer = %q, want user", got[0].Producer)
+}
+
+// Malformed user.content (non-string, non-array) must still surface
+// a parse-shape drift event, not crash. The mapper still parses the
+// content to catch that case.
+func TestMapLine_UserNumberContentSurfacesDrift(t *testing.T) {
+	got := mustMap(t, `{"type":"user","message":{"content":42}}`)
+	if len(got) != 1 || got[0].Kind != "system" {
+		t.Fatalf("want 1 system{drift} event, got %+v", got)
 	}
-	if got[0].Payload["text"] != "hello there" {
-		t.Errorf("text = %v", got[0].Payload["text"])
+	if got[0].Payload["subtype"] != "user_content_drift" {
+		t.Errorf("subtype = %v, want user_content_drift", got[0].Payload["subtype"])
 	}
 }
 
@@ -341,6 +356,11 @@ func TestMapLine_UserContentDriftSurfaced(t *testing.T) {
 // make sure the per-block / per-line ordering survives the multi-line
 // drive path. Mirrors the structure of a real claude-code session
 // (user prompt, assistant tool_use, user tool_result, assistant text).
+//
+// v1.0.663: user.message-with-string is now dropped (see
+// TestMapLine_UserStringIsDropped), so the expected sequence omits
+// that first `user_input` and the assistant frames carry their
+// matching `usage` events.
 func TestMapLine_MultiLineSessionOrdering(t *testing.T) {
 	lines := []string{
 		`{"type":"user","message":{"content":"list files"}}`,
@@ -348,7 +368,7 @@ func TestMapLine_MultiLineSessionOrdering(t *testing.T) {
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"file1\nfile2"}]}}`,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"Done."}]}}`,
 	}
-	wantKinds := []string{"user_input", "tool_call", "tool_result", "text"}
+	wantKinds := []string{"tool_call", "tool_result", "text"}
 	var got []string
 	for _, l := range lines {
 		evs := mustMap(t, l)

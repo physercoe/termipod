@@ -263,15 +263,25 @@ func mapUser(msg json.RawMessage) ([]MappedEvent, error) {
 }
 
 func mapUserString(raw json.RawMessage) ([]MappedEvent, error) {
+	// v1.0.663 dropped the `kind=user_input` emission this branch
+	// previously produced. Every user-typed message is already on
+	// the wire as an `input.text` event the hub inserts the moment
+	// mobile POSTs to `/v1/agents/<id>/input` (handlers_sessions.go
+	// `input.text` insertion) — that record is the canonical, mobile-
+	// owned source. The JSONL echo carries the FULL hub-injected
+	// envelope ("[directive from the principal]\n<body>\n\nReply in
+	// this chat…") which mobile then rendered as a SECOND user-side
+	// message, looking like a duplicate of what the operator typed.
+	// Dropping the emission removes the dup. Tool-result blocks
+	// (handled by the sibling mapUserArray) are unrelated and still
+	// flow. We still parse the content here to surface a parse-error
+	// for malformed JSONL, but emit nothing.
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return nil, mapErr("user.content string parse", err)
 	}
-	return []MappedEvent{{
-		Kind:     "user_input",
-		Producer: "user",
-		Payload:  map[string]any{"text": s},
-	}}, nil
+	_ = s
+	return nil, nil
 }
 
 func mapUserArray(raw json.RawMessage) ([]MappedEvent, error) {

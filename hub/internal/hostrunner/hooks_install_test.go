@@ -404,6 +404,110 @@ func TestInstallClaudeHooks_PreGrantsMcpServers_LiftsPriorDeny(t *testing.T) {
 	}
 }
 
+// v1.0.663 — the `_termipod_managed: true` marker gets stripped by
+// claude-code when it rewrites settings.local.json (e.g. when the
+// operator clicks through the MCP enable dialog and claude adds
+// `enabledMcpjsonServers`). Without a backup identifier, the next
+// host-runner spawn appends a SECOND matcher block pointing at the
+// new UDS socket and leaves the prior (now dead) one in place —
+// every hook event fires twice, half landing on a closed socket.
+// The backup identifier matches by `<hookFireExe> hook-fire ` prefix
+// in the inner command string; this test simulates the
+// marker-stripped state and asserts the install collapses back to
+// one matcher block per event.
+func TestInstallClaudeHooks_DedupsWhenManagedMarkerStripped(t *testing.T) {
+	workdir := t.TempDir()
+	claudeDir := filepath.Join(workdir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-existing file shape claude-code would write after the
+	// operator accepts the MCP dialog: our matcher entries with the
+	// marker stripped, pointing at a STALE socket path.
+	prior := []byte(`{
+		"hooks": {
+			"Stop": [{
+				"matcher": "",
+				"hooks": [{"type":"command","command":"host-runner hook-fire --socket '/tmp/termipod-agent-STALE.sock' --event Stop","timeout":5}]
+			}],
+			"SessionStart": [{
+				"matcher": "",
+				"hooks": [{"type":"command","command":"host-runner hook-fire --socket '/tmp/termipod-agent-STALE.sock' --event SessionStart","timeout":5}]
+			}]
+		}
+	}`)
+	if err := os.WriteFile(
+		filepath.Join(claudeDir, "settings.local.json"),
+		prior, 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	p := readSettings(t, filepath.Join(workdir, ".claude", "settings.local.json"))
+	for _, ev := range []string{"Stop", "SessionStart", "PreToolUse"} {
+		cmds := extractCommands(t, p.Hooks, ev)
+		if len(cmds) != 1 {
+			t.Errorf("%s: got %d commands, want 1 (dedup failed): %+v", ev, len(cmds), cmds)
+		}
+		for _, c := range cmds {
+			if !strings.Contains(c, testUDSPath) {
+				t.Errorf("%s: command does NOT carry fresh UDS path %s: %q", ev, testUDSPath, c)
+			}
+			if strings.Contains(c, "STALE") {
+				t.Errorf("%s: stale-socket command survived: %q", ev, c)
+			}
+		}
+	}
+}
+
+// Counterpart: an operator-authored block with a totally unrelated
+// command MUST survive a re-install. The identifier is specifically
+// the `<hookFireExe> hook-fire ` prefix; anything else is not ours.
+func TestInstallClaudeHooks_PreservesUnrelatedManagedlessEntries(t *testing.T) {
+	workdir := t.TempDir()
+	claudeDir := filepath.Join(workdir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prior := []byte(`{
+		"hooks": {
+			"Stop": [{
+				"matcher": "Bash",
+				"hooks": [{"type":"command","command":"echo operator-hook","timeout":5}]
+			}]
+		}
+	}`)
+	if err := os.WriteFile(
+		filepath.Join(claudeDir, "settings.local.json"),
+		prior, 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	p := readSettings(t, filepath.Join(workdir, ".claude", "settings.local.json"))
+	cmds := extractCommands(t, p.Hooks, "Stop")
+	gotOperator := false
+	gotOurs := false
+	for _, c := range cmds {
+		if c == "echo operator-hook" {
+			gotOperator = true
+		}
+		if strings.Contains(c, "host-runner hook-fire") {
+			gotOurs = true
+		}
+	}
+	if !gotOperator {
+		t.Errorf("operator-hook dropped: %+v", cmds)
+	}
+	if !gotOurs {
+		t.Errorf("ours not installed: %+v", cmds)
+	}
+}
+
 // The merge helpers must round-trip JSON values cleanly — encoding a
 // []any of strings emits a JSON array of strings (not numeric indices
 // or a stringified map). Locks the surface against accidental

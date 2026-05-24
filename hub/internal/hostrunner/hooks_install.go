@@ -138,7 +138,7 @@ func installClaudeHooks(workdir, hookFireExe, udsSocket string) error {
 	for _, e := range claudeHookEvents {
 		cmd := fmt.Sprintf("%s hook-fire --socket %s --event %s",
 			hookFireExe, shellQuote(udsSocket), e.event)
-		hooks[e.event] = appendTermipodMatcher(hooks[e.event], cmd, e.timeout)
+		hooks[e.event] = appendTermipodMatcher(hooks[e.event], cmd, hookFireExe, e.timeout)
 	}
 
 	// Pre-grant termipod + termipod-host so the per-server MCP confirm
@@ -169,7 +169,22 @@ func installClaudeHooks(workdir, hookFireExe, udsSocket string) error {
 // "" matches all tools, equivalent to the deprecated "*" form. We
 // emitted "*" pre-v1.0.659; both still work but "" matches the
 // canonical example from claude's hook docs / error messages.
-func appendTermipodMatcher(prior any, command string, timeout int) []any {
+//
+// Idempotency notes:
+//   - First-line identifier is the `_termipod_managed: true` marker
+//     on the matcher object — preserved across our own writes.
+//   - Backup identifier (v1.0.663): the inner hooks[].command begins
+//     with `<hookFireExe> hook-fire `. Claude-code rewrites this file
+//     when the operator clicks through MCP / permission-mode dialogs
+//     (writes `enabledMcpjsonServers`, etc.) and drops unknown keys
+//     like our marker. Without the backup match, the next spawn
+//     appends a SECOND entry pointing at the new UDS socket while
+//     leaving the prior (now-dead-socket) one in place — every hook
+//     event fires twice, and the first invocation always fails
+//     because its socket no longer exists. Detected on the dev box
+//     v1.0.662 smoke: every Stop/PreToolUse/etc landed as TWO
+//     attachment rows in the JSONL.
+func appendTermipodMatcher(prior any, command, hookFireExe string, timeout int) []any {
 	out := []any{}
 	if arr, ok := prior.([]any); ok {
 		for _, b := range arr {
@@ -179,6 +194,9 @@ func appendTermipodMatcher(prior any, command string, timeout int) []any {
 				continue
 			}
 			if managed, _ := m[termipodManagedKey].(bool); managed {
+				continue
+			}
+			if isManagedByCommandShape(m, hookFireExe) {
 				continue
 			}
 			out = append(out, b)
@@ -194,6 +212,44 @@ func appendTermipodMatcher(prior any, command string, timeout int) []any {
 		}},
 	})
 	return out
+}
+
+// isManagedByCommandShape returns true when a matcher block's inner
+// hooks[].command starts with `<hookFireExe> hook-fire ` — the exact
+// shape host-runner installs. Used as a backup identifier when the
+// `_termipod_managed: true` marker has been stripped (claude rewrites
+// settings.local.json without preserving keys it doesn't know about,
+// e.g. when the operator clicks through the MCP enable dialog).
+func isManagedByCommandShape(m map[string]any, hookFireExe string) bool {
+	hooks, _ := m["hooks"].([]any)
+	if len(hooks) == 0 {
+		return false
+	}
+	// Any one hook entry matching is enough — the matcher block is
+	// ours by composition (operator-authored blocks would have their
+	// own command).
+	for _, h := range hooks {
+		hm, ok := h.(map[string]any)
+		if !ok {
+			continue
+		}
+		typ, _ := hm["type"].(string)
+		if typ != "command" {
+			continue
+		}
+		cmd, _ := hm["command"].(string)
+		// Match by `<exe> hook-fire ` prefix — covers any UDS path
+		// or event suffix. Use a space after `hook-fire` so a future
+		// `hook-fire-debug` doesn't accidentally match.
+		if cmd == "" {
+			continue
+		}
+		prefix := hookFireExe + " hook-fire "
+		if len(cmd) >= len(prefix) && cmd[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeEnabledMcpServers folds preEnabledMcpServers into the prior

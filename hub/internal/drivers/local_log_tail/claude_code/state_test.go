@@ -49,7 +49,13 @@ func TestFSM_StateString(t *testing.T) {
 	}
 }
 
-func TestFSM_TransitionPostsStateChanged(t *testing.T) {
+// v1.0.663 dropped FSM's `system{subtype:state_changed,…}` post —
+// mobile had no renderer for it, so every PreToolUse/Stop/etc dumped
+// a raw JSON blob into the transcript. The state machine still drives
+// internal logic (turn.result emission on Stop hook, etc.); only the
+// per-transition poster call is gone. Tests below assert the new
+// invariant: transitions still change `.State()` but post nothing.
+func TestFSM_TransitionUpdatesStateWithoutPosting(t *testing.T) {
 	p := &fsmTestPoster{}
 	f := NewFSM("a", p, nil, context.Background())
 	f.Transition(StateStreaming, "tool_use")
@@ -57,22 +63,8 @@ func TestFSM_TransitionPostsStateChanged(t *testing.T) {
 	if got := f.State(); got != StateStreaming {
 		t.Errorf("state = %v, want StateStreaming", got)
 	}
-	evs := p.snapshot()
-	if len(evs) != 1 {
-		t.Fatalf("events = %d, want 1", len(evs))
-	}
-	if evs[0]["_kind"] != "system" {
-		t.Errorf("kind = %v, want system", evs[0]["_kind"])
-	}
-	pl, _ := evs[0]["payload"].(map[string]any)
-	if pl["subtype"] != "state_changed" {
-		t.Errorf("subtype = %v, want state_changed", pl["subtype"])
-	}
-	if pl["from"] != "idle" || pl["to"] != "streaming" {
-		t.Errorf("from/to = %v/%v, want idle/streaming", pl["from"], pl["to"])
-	}
-	if pl["reason"] != "tool_use" {
-		t.Errorf("reason = %v, want tool_use", pl["reason"])
+	if got := p.snapshot(); len(got) != 0 {
+		t.Errorf("transition posted %d events; v1.0.663 expects 0: %+v", len(got), got)
 	}
 }
 
@@ -85,7 +77,7 @@ func TestFSM_NoOpTransitionDoesNotPost(t *testing.T) {
 	}
 }
 
-func TestFSM_SequenceOfTransitions(t *testing.T) {
+func TestFSM_SequenceOfTransitionsLeavesStateAtTerminal(t *testing.T) {
 	p := &fsmTestPoster{}
 	f := NewFSM("a", p, nil, context.Background())
 
@@ -94,34 +86,10 @@ func TestFSM_SequenceOfTransitions(t *testing.T) {
 	f.Transition(StateIdle, "Stop hook")              // awaiting_decision → idle
 	f.Transition(StateIdle, "redundant")              // no-op
 
-	got := p.snapshot()
-	if len(got) != 3 {
-		t.Fatalf("posts = %d, want 3 (idempotent last call drops): %+v", len(got), got)
+	if got := f.State(); got != StateIdle {
+		t.Errorf("final state = %v, want StateIdle", got)
 	}
-	transitions := []string{}
-	for _, e := range got {
-		pl, _ := e["payload"].(map[string]any)
-		transitions = append(transitions, pl["from"].(string)+"->"+pl["to"].(string))
-	}
-	want := []string{
-		"idle->streaming",
-		"streaming->awaiting_decision",
-		"awaiting_decision->idle",
-	}
-	for i := range want {
-		if transitions[i] != want[i] {
-			t.Errorf("transition %d = %q, want %q", i, transitions[i], want[i])
-		}
-	}
-}
-
-func TestFSM_TransitionOmitsEmptyReason(t *testing.T) {
-	p := &fsmTestPoster{}
-	f := NewFSM("a", p, nil, context.Background())
-	f.Transition(StateStreaming, "")
-	got := p.snapshot()
-	pl, _ := got[0]["payload"].(map[string]any)
-	if _, has := pl["reason"]; has {
-		t.Errorf("empty reason was still emitted: %v", pl)
+	if got := p.snapshot(); len(got) != 0 {
+		t.Errorf("v1.0.663 expects 0 posts across the sequence, got %d: %+v", len(got), got)
 	}
 }

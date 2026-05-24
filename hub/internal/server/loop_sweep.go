@@ -220,12 +220,83 @@ func (s *Server) escalateStall(ctx context.Context, e LoopEntity) {
 		loopTargetKind(e), e.ID,
 		"loop-entity stalled — escalated to "+next,
 		map[string]any{"source": e.Source, "level": next, "project_id": e.ProjectID})
+
+	// ADR-030 W11.5 + D-7 Option 2′ — when the escalating entity is
+	// an attention_items row carrying a propose `change_kind`, emit
+	// a SECOND audit row scoped to the propose semantics so the
+	// Activity feed can render "stalled propose: <kind>" with
+	// enough context to navigate. Dedup is implicit: this branch
+	// only runs when the UPDATE flipped the state (one transition,
+	// one audit), and the column itself is the dedup key — two
+	// ticks against the same state never both fire.
+	if e.Source == LoopSourceQuestion {
+		s.emitProposeEscalationAudit(ctx, e, next)
+	}
+
 	// A worker stall (none → steward) wakes the steward who owns it; a
 	// steward stall (steward → principal) surfaces to the principal via
 	// the audit row above and the directive trace (B4).
 	if next == EscalationSteward {
 		s.wakeStewardForStall(ctx, e)
 	}
+}
+
+// emitProposeEscalationAudit writes the ADR-030 W11.5
+// `attention.escalation_advanced` audit row when a propose-kind
+// attention escalates. Meta carries the propose lineage
+// (`change_kind`, `original_assigned_tier`) + a truncated preview of
+// the `change_spec_json` so the activity feed renderer doesn't need
+// to fetch the row to summarise it.
+//
+// Silent on non-propose attention rows: we re-read the row's
+// change_kind here; if it's "" the row is a legacy attention kind
+// (approval_request, select, …) and the loop.stall_escalated audit
+// above is enough.
+func (s *Server) emitProposeEscalationAudit(ctx context.Context, e LoopEntity, toState string) {
+	var (
+		changeKind, assignedTier, changeSpecJSON string
+	)
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(change_kind, ''),
+		       COALESCE(assigned_tier, ''),
+		       COALESCE(change_spec_json, '')
+		  FROM attention_items WHERE id = ?`, e.ID,
+	).Scan(&changeKind, &assignedTier, &changeSpecJSON); err != nil {
+		s.log.Warn("loop sweep: read propose row for escalation audit",
+			"attention_id", e.ID, "err", err)
+		return
+	}
+	if changeKind == "" {
+		return // legacy attention kind; loop.stall_escalated covers it.
+	}
+	fromState := e.EscalationState
+	if fromState == "" {
+		fromState = EscalationNone
+	}
+	team := s.teamForLoopEntity(ctx, e)
+	s.recordAudit(ctx, team, "attention.escalation_advanced",
+		"attention", e.ID,
+		"propose stalled — "+changeKind+" advanced "+fromState+" → "+toState,
+		map[string]any{
+			"attention_id":           e.ID,
+			"change_kind":            changeKind,
+			"from_state":             fromState,
+			"to_state":               toState,
+			"original_assigned_tier": assignedTier,
+			"project_id":             e.ProjectID,
+			"change_spec_preview":    truncateChangeSpecPreview(changeSpecJSON, 200),
+		})
+}
+
+// truncateChangeSpecPreview returns the first n bytes of the change
+// spec JSON, with an ellipsis suffix when truncated. The audit-feed
+// renderer reads this directly; computing it once at emit time
+// avoids per-render JSON re-parsing.
+func truncateChangeSpecPreview(spec string, n int) string {
+	if len(spec) <= n {
+		return spec
+	}
+	return spec[:n] + "…"
 }
 
 // terminateLoopTimedOut closes an entity that breached its absolute cap

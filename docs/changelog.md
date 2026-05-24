@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.684
+> **Last verified vs code:** v1.0.685
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,106 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.685-alpha — 2026-05-24
+
+**ADR-030 Phase 1 COMPLETE.** All 11 hub-side wedges (W1-W11.5)
+shipped end-to-end with full test coverage across v1.0.674-685.
+Phase 2 (steward prompts + lifecycle scenarios) and Phase 3 (mobile
+per-kind cards + override affordance) are not yet started but
+unblocked.
+
+W11.5 is the final wedge — the loop-closure signal that lets the
+sweep escalate stalled propose rows the same way it already
+escalates tasks. Adds a propose-specific
+`attention.escalation_advanced` audit row alongside the existing
+generic `loop.stall_escalated`, so the Activity feed renderer can
+show "stalled propose: <change_kind>" with enough context to
+navigate without a follow-up fetch.
+
+### Added
+
+- `hub/internal/server/loop_sweep.go::emitProposeEscalationAudit`
+  — new helper called from `escalateStall` when the escalating
+  entity is an `attention_items` row with a non-empty
+  `change_kind`. Meta carries the W11.5-spec shape:
+  `{attention_id, change_kind, from_state, to_state,
+  original_assigned_tier, project_id, change_spec_preview}`.
+  `change_spec_preview` = first 200 bytes of change_spec_json
+  with `…` suffix when truncated (single-pass at emit time,
+  no per-render JSON re-parsing).
+- `truncateChangeSpecPreview` helper + 4-case table test.
+- `hub/internal/server/loop_sweep_propose_audit_test.go` — 5
+  cases: one tick emits exactly one audit (alongside the legacy
+  loop.stall_escalated); audit meta carries spec-shape; two
+  ticks at the same state emit ONE transition (dedup
+  regression); legacy non-propose attention rows do NOT emit
+  the propose audit; truncate helper.
+
+### Changed
+
+- `hub/internal/server/loop_entity.go::questionAttentionKinds`
+  — added `"propose"` to the loop-bearing attention-kind set.
+  Without this entry the sweep would never pick up propose
+  rows as loop-entities and W11.5's audit could never fire.
+  Comment block documents the rationale (propose is loop-bearing
+  by construction).
+- `pubspec.yaml` 1.0.684 → 1.0.685-alpha.
+- `docs/plans/governed-actions-mvp-rollout.md` — status flipped
+  from "Proposed" to "Phase 1 COMPLETE". W11.5 entry rewritten
+  with the helper shape + questionAttentionKinds extension +
+  5-test coverage. Two new verify symbol anchors
+  (`emitProposeEscalationAudit`, `truncateChangeSpecPreview`).
+- `docs/decisions/030-governed-actions-and-propose-verb.md` +
+  `docs/doc-spec.md` — stamps bumped to v1.0.685 per their
+  `Freshness: contract` declaration. 26 anchors total now,
+  all green.
+
+### Phase 1 retrospective
+
+11 wedges, 12 alpha versions (v1.0.674-685, one wedge per
+release except W11.5 which lands the same day). Final code
+totals approximate (excluding tests):
+
+| Wedge | Subject | LOC |
+|---|---|---|
+| W1 | migration 0045 + columns | ~80 |
+| W2 | Policy.Kinds + KindFor | ~150 |
+| W3 | propose-kind registry + lint script | ~370 |
+| W4 | propose MCP verb + scope check | ~390 |
+| W5 | apply deliverable.set_state + rollback | ~270 |
+| W6 | apply phase.advance + rollback | ~275 |
+| W7 | apply task.set_status + rollback | ~280 |
+| W8 | alias apply (agent.spawn + template.install) + decide-handler dispatcher refactor | ~360 |
+| W9 | principal override + 6-guard handler | ~280 |
+| W10 | permission_prompt re-addressing | ~70 |
+| W11 | dispatchAttentionReply allowlist + ADR-032 envelope | ~140 |
+| W11.5 | loop-closure escalation audit | ~110 |
+| **Total** | | **~2,775** |
+
+Test count: ~85 new cases across 12 new test files. Full hub
+test suite runtime ~123s, unchanged green throughout.
+
+Architectural surfaces shipped:
+- ADR-030 propose verb + per-kind apply/rollback registry
+- ADR-032 envelope composition on attention fan-back
+- ADR-033 native_tools.go unified registry consumed by W4
+- ADR-034 loop-closure signal extended to propose rows
+
+### Notes
+
+- **propose entered the loop-entity set.** The
+  `questionAttentionKinds` extension is the load-bearing change
+  beyond W11.5's stated wording — propose rows now participate
+  in the loop-closure runtime (stall detection, escalation,
+  timeout). Justified in the comment + plan W11.5 rewrite.
+- **Phase 2/3 unblocked.** Phase 2 ships steward-template prompts
+  teaching `propose` adoption + adds test-steward-lifecycle
+  scenarios. Phase 3 ships mobile per-kind propose cards
+  (deliverable / phase / task / worker_tool) + override
+  affordance + Me-page stalled-decisions digest.
 
 ---
 

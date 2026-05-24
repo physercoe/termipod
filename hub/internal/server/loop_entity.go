@@ -39,10 +39,19 @@ const (
 
 // questionAttentionKinds is the set of attention_items.kind values that
 // are loop-bearing *questions* — an agent asking, awaiting an answer.
-// Other attention kinds (spawn approvals, template installs) are
-// governance items, not loop-entities.
+//
+// ADR-030 W11.5 adds `propose` to the set: the new generic
+// governed-action verb (W4) is loop-bearing by construction (agent
+// calls propose, ends its turn, awaits the decision via the
+// fan-back). Without this entry the loop-sweep would never
+// escalate a stalled propose, and W11.5's
+// `attention.escalation_advanced` audit could never fire.
+//
+// The pre-ADR-030 legacy paths (approval_request, template_proposal)
+// keep their existing classification.
 var questionAttentionKinds = []string{
 	"help_request", "select", "approval_request", "elicit", "permission_prompt",
+	"propose",
 }
 
 // LoopEntity is the runtime projection of an open directive/task/question

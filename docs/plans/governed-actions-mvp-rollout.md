@@ -6,14 +6,17 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 # Governed actions MVP rollout — phased
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-17) — three phases, no work started;
-> ADR-030 captures the locked decisions. Reissued 2026-05-20 to
-> absorb the ADR-030 amendments (D-7 Option 2′ — decision stays,
-> signal walks; ADR-032 envelope on fan-back; ADR-034 loop-entity
-> overlap; principal ≠ owner) and fix file/line drift from
-> v1.0.620-636.
+> **Status:** Phase 1 COMPLETE (2026-05-24, v1.0.674-685) — all 11
+> hub-side wedges (W1-W11.5) shipped end-to-end with full test
+> coverage; Phase 2 (steward prompts + lifecycle scenarios) and
+> Phase 3 (mobile per-kind cards + override affordance) not yet
+> started. Reissued 2026-05-20 to absorb the ADR-030 amendments
+> (D-7 Option 2′ — decision stays, signal walks; ADR-032 envelope
+> on fan-back; ADR-034 loop-entity overlap; principal ≠ owner)
+> and fix file/line drift from v1.0.620-636. Original status:
+> Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.684-alpha
+> **Last verified vs code:** v1.0.685-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -637,7 +640,7 @@ just as legibly as `decision="override"` + `override=true`.
   change_kind (regression — empty extras must not break existing
   attention kinds).
 
-**W11.5. Loop-closure signal — sweep emits audit row on `escalation_state` transition (~30 LOC + 30 LOC tests).**
+**W11.5. Loop-closure signal — sweep emits audit row on `escalation_state` transition (~110 LOC + ~220 LOC tests). Shipped v1.0.685-alpha — Phase 1 COMPLETE.**
 
 > Lands the 2026-05-20 D-7 Option 2′ amendment on the hub.
 > **Per pre-W1 decision #5: audit-row-only — no separate push
@@ -646,20 +649,33 @@ just as legibly as `decision="override"` + `override=true`.
 > Me-page query widening (W19.6) surfaces the source row on next
 > foreground/pull.
 
-- `hub/internal/server/loop_sweep.go` already advances
-  `attention_items.escalation_state` (`loop_sweep.go:212` <!-- verify symbol hub/internal/server/loop_sweep.go escalation_state -->).
-  On every transition (`none → escalated_steward`, `escalated_steward
-  → escalated_principal`), the sweep additionally calls
-  `s.recordAudit` with:
+- `hub/internal/server/loop_sweep.go::escalateStall` <!-- verify symbol hub/internal/server/loop_sweep.go escalation_state -->
+  already advances `attention_items.escalation_state` and emits the
+  generic `loop.stall_escalated` audit. W11.5 adds a SECOND audit
+  row scoped to propose semantics via a new
+  `emitProposeEscalationAudit` <!-- verify symbol hub/internal/server/loop_sweep.go emitProposeEscalationAudit -->
+  helper:
   - `action = "attention.escalation_advanced"`
   - `meta = {attention_id, change_kind, from_state, to_state,
-     original_assigned_tier, project_id, change_spec_preview}`.
-  The preview is the same truncated 200-char summary the mobile
-  cards render, computed once at audit-emit time so the Activity
-  feed has enough context to navigate without a follow-up fetch.
+     original_assigned_tier, project_id, change_spec_preview}`
+  - `change_spec_preview` = first 200 bytes of
+    `attention_items.change_spec_json` with `…` suffix when
+    truncated (single-pass computation at emit time, no
+    per-render JSON re-parsing).
+- `truncateChangeSpecPreview` <!-- verify symbol hub/internal/server/loop_sweep.go truncateChangeSpecPreview -->
+  helper unit-tested in isolation.
+- **`questionAttentionKinds` extension** (landed this wedge).
+  The sweep filters open attention rows by this set; without
+  `propose` in it, propose rows would never be picked up as
+  loop-entities and W11.5's audit could never fire. Comment
+  block documents the rationale (propose is loop-bearing by
+  construction — agent calls propose, ends turn, awaits
+  fan-back).
 - Dedup: the `escalation_state` column itself is the dedup key.
-  The sweep emits an audit row only when `state != prev_state` on
-  the UPDATE, so no re-emission across ticks for the same value.
+  `escalateStall` only fires when `inactivity_deadline` is past;
+  the UPDATE pushes the deadline forward a budget so the next
+  tick doesn't re-fire until the next window. Test 3
+  (`NoDuplicateOnReTick`) is the regression.
 - **No push infrastructure built in MVP.** No FCM/APNS adapter,
   no device-token table, no notifications service. The principal
   learns about escalation on next foreground/pull. Real-time push
@@ -667,13 +683,18 @@ just as legibly as `decision="override"` + `override=true`.
 - The 24h re-push backoff from earlier drafts is **dropped from
   MVP** — without a real-time push channel, repeated re-pushes
   are not a concern.
-- Tests:
-  - One sweep tick that flips a row to `escalated_steward` emits
-    exactly one audit row.
-  - Two sweep ticks across the same row (same state) emit one
-    transition, not two — verified by an audit-row count.
-  - `meta.change_spec_preview` matches the mobile card's preview
-    text for the same row (string equality, not just shape).
+- Tests (5 in `loop_sweep_propose_audit_test.go`):
+  - One sweep tick on a stale propose row emits exactly one
+    `attention.escalation_advanced` (alongside the legacy
+    `loop.stall_escalated`).
+  - Audit meta carries the W11.5-spec shape (attention_id,
+    change_kind, from/to_state, original_assigned_tier,
+    project_id, change_spec_preview).
+  - Two ticks across the same row at the same state emit ONE
+    transition, not two (dedup regression).
+  - Non-propose attention row (legacy `approval_request`) does
+    NOT emit the propose audit — only `loop.stall_escalated`.
+  - `truncateChangeSpecPreview` 4-case table test.
 
 ### 2.3 Acceptance
 

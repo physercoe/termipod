@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.673-alpha
+> **Last verified vs code:** v1.0.674-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -92,7 +92,8 @@ parent re-address to the parent steward.
   (renumbered from the originally-planned 0044; the 0044 slot was
   taken by the post-v1.0.636 handle-normalization migration shipped
   first <!-- verify file hub/migrations/0044_strip_handle_at_prefix.up.sql --> — see migration 0044 + glossary "handle").
-  The 0045 slot is currently free <!-- verify no-file hub/migrations/0045_*.up.sql -->:
+  The 0045 slot is now occupied by this wedge's
+  migration <!-- verify file hub/migrations/0045_attention_items_governed_actions.up.sql --> (shipped v1.0.674):
   ```sql
   ALTER TABLE attention_items
     ADD COLUMN change_kind TEXT;          -- e.g. "deliverable.set_state"

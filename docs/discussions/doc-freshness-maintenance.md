@@ -146,7 +146,7 @@ The reload loop in `policy.go:65` <!-- verify symbol hub/internal/server/policy.
 reads the file on every mtime change.
 
 Migration 0044 (handle normalization) <!-- verify file hub/migrations/0044_strip_handle_at_prefix.up.sql -->
-is occupied; 0045 is the next free slot <!-- verify no-file hub/migrations/0045_*.up.sql -->.
+is occupied; migration 0099 is unused <!-- verify no-file hub/migrations/0099_*.up.sql -->.
 
 There are 9 bundled steward templates <!-- verify glob hub/templates/prompts/steward.*.md 9 -->.
 ```

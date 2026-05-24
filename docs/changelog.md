@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.673
+> **Last verified vs code:** v1.0.674
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,51 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.674-alpha — 2026-05-24
+
+ADR-030 Phase 1 W1 — schema migration that opens the door for the
+generic `propose` MCP verb. Pure-additive: five nullable columns and
+two partial indexes on `attention_items`. No behaviour change yet;
+W4 (the `propose` handler) and W5/W6/W7 (the three apply functions)
+populate the new columns in subsequent wedges.
+
+### Added
+
+- `hub/migrations/0045_attention_items_governed_actions.up.sql` —
+  adds `change_kind`, `assigned_tier` (CHECK-constrained to the four
+  governance tiers), `change_spec_json`, `target_ref_json`, and
+  `executed_json` to `attention_items`. Two partial indexes on
+  `change_kind` and `(assigned_tier, status)` mirror the
+  `idx_artifacts_run` / `idx_artifacts_sha` precedent (no entries
+  added until a propose is exercised).
+- `hub/internal/server/attention_governed_actions_migration_test.go` —
+  PRAGMA-based regression on column presence + index shape. Mirrors
+  the `agents_archive_respawn_test.go` pattern; catches column drift
+  on any future table rebuild.
+
+### Changed
+
+- `docs/decisions/030-governed-actions-and-propose-verb.md` and
+  `docs/plans/governed-actions-mvp-rollout.md` — stamp bumped to
+  v1.0.674 per their `Freshness: contract` declaration.
+- `docs/plans/governed-actions-mvp-rollout.md` W1 — verify anchor
+  for the 0045 slot flipped from `no-file` to `file` now that the
+  migration exists.
+- `docs/discussions/doc-freshness-maintenance.md` — illustrative
+  `no-file` example re-pointed at the now-unused 0099 slot (the
+  0045 slot it previously cited was filled by this wedge).
+
+### Disjoint from migration 0042 (ADR-034 loop-entity columns)
+
+No literal collision. Two conceptual overlaps the propose handler
+must respect when it lands in W4: (1) `cause` (lineage) vs
+`target_ref_json` (mutation target) — for `task.set_status` the two
+often hold the same `task_id`; both must be populated. (2)
+`assigned_tier` is immutable across ticks (ADR-030 D-3);
+`escalation_state` (ADR-034 D-4) is the walker.
 
 ---
 

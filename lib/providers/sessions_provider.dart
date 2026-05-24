@@ -174,6 +174,32 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     return failed;
   }
 
+  /// Multi-select stop — terminates each selected agent. Takes agent
+  /// ids (NOT session ids) because the underlying op is "stop the
+  /// process serving this session", which is per-agent. The sessions
+  /// screen dedups agent ids before passing in so a steward with many
+  /// archived sessions selected doesn't fire the terminate call
+  /// multiple times for the same agent.
+  ///
+  /// Sequential like the other bulk ops so the audit log stays
+  /// readable. Returns the list of agent ids that the hub refused or
+  /// errored on (e.g. already terminated) — caller folds them into a
+  /// single SnackBar.
+  Future<List<String>> bulkStop(List<String> agentIds) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return agentIds;
+    final failed = <String>[];
+    for (final id in agentIds) {
+      try {
+        await client.terminateAgent(id);
+      } catch (_) {
+        failed.add(id);
+      }
+    }
+    await _refreshSessionsAndHub();
+    return failed;
+  }
+
   /// Refresh both the sessions list and the hub-wide cache (which
   /// holds the agents list). Used by mutations that change which
   /// agents are live (resume, fork-with-attach, archive of the last

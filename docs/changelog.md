@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.661
+> **Last verified vs code:** v1.0.662
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,90 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.662-alpha — 2026-05-24
+
+Three on-device UX issues caught after the v1.0.661 deploy. Touches
+hub (M4 mapper) + mobile (sessions, admin) — all three independent,
+shipped together because each is small and they all stem from "the
+data plumbed through the layers is wrong-shaped for what the surface
+shows."
+
+**Fixed.**
+
+- *Context-window chip showed >1M tokens on uncompacted sessions.*
+  The chip's `used` number was sourced from
+  `turn.result.by_model.<model>.input + cache_read + cache_create`
+  — claude-code's modelUsage block reports SUMS across every API
+  call inside a turn, so a turn with many tool-use iterations
+  (Read/Bash/Write each doing their own API call) reported many
+  multiples of the actual current context. The right input is one
+  API call's prompt size = what claude's own `/context` slash
+  command shows. The driver_stdio M2 path already emitted per-message
+  `usage` events but mobile only consumed cumulative-marked ones
+  (codex shape); M4 LocalLogTail's mapper didn't emit usage at all.
+  Now mapper.go's `mapAssistant` emits a `kind=usage` event for
+  every claude `message.usage` block; mobile's telemetry strip
+  prefers per-message-snapshot over the per-turn fallback. Chip now
+  matches `/context` exactly.
+
+- *Sessions multi-select had only Archive + Delete + global
+  Select-all.* Long-press → multi-select mode now also exposes:
+  - **Stop** action (bottom bar) — terminates the agent serving each
+    selected ACTIVE session via `terminateAgent`. Dedups by
+    `agent_id` so a steward with current + archived sessions
+    selected only fires the call once. Skips
+    closed/archived/deleted rows with a SnackBar explanation.
+  - **Per-category filter chips** (strip under the AppBar) — one
+    chip per non-empty category (General / Project / Domain /
+    Detached) with row count. Tapping narrows visible AND
+    Select-all/Invert/bulk-action scope to the picked
+    categories. Empty filter = no narrowing.
+  - **Invert selection** action (AppBar) — appears once at least
+    one row is selected; useful for "select-all then drop a few"
+    workflows.
+
+- *Admin command rows looked unbalanced* (label not centered,
+  trailing `slide ▸` mono text too small to register as
+  interactive). `ConfirmActionTile` redesign: label
+  `fontSize: 13 → 14, weight 600 → 700, centered with
+  textAlign + Stack-based layout` so it stays centered even when
+  the trailing affordance changes; leading icon enlarged 18 → 20
+  and left-aligned; trailing "slide ▸" replaced by a pill chip
+  with a chevron icon (visible at a glance as "drag me"); height
+  `48 → 52, border-radius 8 → 10`; border highlights when armed;
+  background fill darkens slightly when armed so the operator gets
+  two redundant signals (chip dim + fill darken) that the commit
+  gesture is engaged.
+
+**Added.**
+
+- `usageFromMessage(model, usage)` helper in
+  `mapper.go` — folds a claude `message.usage` block into a
+  `kind=usage` MappedEvent. Drops all-zero usage blocks and missing
+  usage blocks (chip stays at its prior snapshot rather than going
+  to zero).
+- `sessionsProvider.bulkStop(agentIds)` — sequential
+  `terminateAgent` sweep with per-id failure collection, mirroring
+  `bulkArchive` / `bulkDelete`.
+- `_CategoryFilterStrip` + `_invertSelection` + `_bulkStop` on the
+  Sessions screen.
+- `_SlideChip` widget extracted from `ConfirmActionTile` for the
+  redesigned trailing affordance.
+
+**Test coverage.** Three new mapper tests (usage emitted with
+correct shape, usage absent when block missing, usage absent when
+all-zero); existing mapper tests unchanged. Mobile-side changes
+covered by CI's `flutter analyze` (no flutter SDK locally).
+
+Root cause class. Issue 1 is the same "the producer emits more than
+the renderer expects" shape from v1.0.661 — driver_stdio emits
+per-message usage that mobile silently ignored unless flagged
+cumulative; the chip then fell through to a per-turn sum that
+double-counts on multi-iteration turns. Caught only by on-device
+inspection; the test surface for context-chip accuracy was missing.
 
 ---
 

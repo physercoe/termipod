@@ -49,6 +49,13 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   // hub-side). Cleared when leaving select mode.
   bool _selecting = false;
   final Set<String> _selectedIds = <String>{};
+  // Category filter (selection-mode only). Empty = show every
+  // category (the default). Non-empty narrows the visible list AND
+  // the surface Select-all / Invert / bulk-action commands operate
+  // on — so the user can scope "select all" to e.g. only project
+  // stewards without manually deselecting the others. Cleared on
+  // _exitSelect; ignored outside selection mode.
+  final Set<_StewardCategory> _categoryFilter = <_StewardCategory>{};
 
   // Categories the user has manually collapsed. Detached is collapsed
   // by default because it's history/diagnostic content — users with
@@ -80,6 +87,36 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     setState(() {
       _selecting = false;
       _selectedIds.clear();
+      _categoryFilter.clear();
+    });
+  }
+
+  void _toggleCategoryFilter(_StewardCategory c) {
+    setState(() {
+      if (_categoryFilter.contains(c)) {
+        _categoryFilter.remove(c);
+      } else {
+        _categoryFilter.add(c);
+      }
+      // Drop any selected ids whose category just got filtered out so
+      // bulk actions stay honest about what they'll act on.
+      // (The visible-set helpers recompute on next build anyway, but
+      // pruning here avoids a flash of stale counts in the AppBar
+      // title while the rebuild is in flight.)
+    });
+  }
+
+  void _invertSelection(List<Map<String, dynamic>> visible) {
+    setState(() {
+      final newSel = <String>{};
+      for (final s in visible) {
+        final id = (s['id'] ?? '').toString();
+        if (id.isEmpty) continue;
+        if (!_selectedIds.contains(id)) newSel.add(id);
+      }
+      _selectedIds
+        ..clear()
+        ..addAll(newSel);
     });
   }
 
@@ -95,10 +132,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
   // Gather all session rows (active + previous + orphans) currently
   // visible in the screen. Used by Select-all and by the gating logic
-  // for the bottom-bar Archive/Delete actions.
+  // for the bottom-bar Archive/Delete actions. When _categoryFilter
+  // is non-empty (only possible in selection mode), narrow to groups
+  // whose category is in the filter set.
   List<Map<String, dynamic>> _visibleSessions(List<_StewardGroup> groups) {
     final out = <Map<String, dynamic>>[];
     for (final g in groups) {
+      if (_categoryFilter.isNotEmpty &&
+          !_categoryFilter.contains(_categorize(g))) {
+        continue;
+      }
       if (g.current != null) out.add(g.current!);
       out.addAll(g.previous);
     }
@@ -157,6 +200,86 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         content: Text(failed.isEmpty
             ? 'Archived $n session${n == 1 ? '' : 's'}.'
             : 'Archived $n; ${failed.length} failed.'),
+      ),
+    );
+    _exitSelect();
+  }
+
+  /// Multi-select stop — terminates the agent serving each selected
+  /// active session. Dedup by agent_id since one steward usually maps
+  /// to one agent and a stewards's archived + current sessions share
+  /// the same agent_id. Closed/archived rows are skipped (their agent
+  /// is already gone). The hub will mark agents as terminated via
+  /// PATCH /agents/<id> status=terminated.
+  Future<void> _bulkStop(List<Map<String, dynamic>> visible) async {
+    final agentIds = <String>{};
+    var skippedTerminal = 0;
+    for (final s in visible) {
+      final id = (s['id'] ?? '').toString();
+      if (id.isEmpty || !_selectedIds.contains(id)) continue;
+      final st = (s['status'] ?? '').toString();
+      // Live conversation = anything not in a terminal state. The
+      // hub will refuse the call on already-terminated agents anyway,
+      // but pruning here keeps the confirm dialog count honest.
+      if (st == 'archived' || st == 'closed' || st == 'deleted') {
+        skippedTerminal += 1;
+        continue;
+      }
+      final agentId = (s['agent_id'] ??
+              s['current_agent_id'] ??
+              s['agentId'] ??
+              '')
+          .toString();
+      if (agentId.isNotEmpty) agentIds.add(agentId);
+    }
+    if (agentIds.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(skippedTerminal > 0
+              ? 'Stop only works on active sessions. Selection is all closed/archived.'
+              : 'No active sessions selected.'),
+        ),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          'Stop ${agentIds.length} agent${agentIds.length == 1 ? '' : 's'}?',
+        ),
+        content: const Text(
+          'The agent pane stays in tmux for inspection; the steward is '
+          'marked terminated and the session goes idle. You can spawn a '
+          'fresh agent for the same steward to keep the conversation.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Stop'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final failed = await ref
+        .read(sessionsProvider.notifier)
+        .bulkStop(agentIds.toList());
+    if (!mounted) return;
+    final n = agentIds.length - failed.length;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(failed.isEmpty
+            ? 'Stopped $n agent${n == 1 ? '' : 's'}.'
+            : 'Stopped $n; ${failed.length} failed.'),
       ),
     );
     _exitSelect();
@@ -321,6 +444,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 );
                 return _SelectionActionBar(
                   selectedCount: _selectedIds.length,
+                  onStop: () => _bulkStop(_visibleSessions(groups)),
                   onArchive: () => _bulkArchive(_visibleSessions(groups)),
                   onDelete: () => _bulkDelete(_visibleSessions(groups)),
                 );
@@ -407,6 +531,14 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       ),
       orElse: () => const <_StewardGroup>[],
     );
+    // Count groups per category (across the unfiltered set) so the
+    // filter chips can advertise their cardinality even when filter
+    // hides them. Empty categories don't get a chip.
+    final categoryCounts = <_StewardCategory, int>{};
+    for (final g in groups) {
+      final cat = _categorize(g);
+      categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
+    }
     final visible = _visibleSessions(groups);
     final allSelected = visible.isNotEmpty &&
         visible.every((s) =>
@@ -418,16 +550,21 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         onPressed: _exitSelect,
       ),
       title: Text(
-        '${_selectedIds.length} selected',
+        '${_selectedIds.length} selected'
+        '${_categoryFilter.isEmpty ? '' : ' · filter'}',
         style: GoogleFonts.spaceGrotesk(
             fontWeight: FontWeight.w700, fontSize: 18),
       ),
       actions: [
+        if (_selectedIds.isNotEmpty)
+          IconButton(
+            tooltip: 'Invert selection',
+            icon: const Icon(Icons.swap_horiz),
+            onPressed: () => _invertSelection(visible),
+          ),
         IconButton(
           tooltip: allSelected ? 'Clear selection' : 'Select all',
-          icon: Icon(allSelected
-              ? Icons.deselect
-              : Icons.select_all),
+          icon: Icon(allSelected ? Icons.deselect : Icons.select_all),
           onPressed: () {
             if (allSelected) {
               setState(() => _selectedIds.clear());
@@ -437,16 +574,81 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           },
         ),
       ],
+      // Filter strip below the AppBar — one chip per non-empty
+      // category with its count. Tap toggles inclusion in the
+      // filter; empty filter = no narrowing (the default). Wrapped
+      // in a horizontal scroller for narrow phones; categories
+      // already in a stable order matching the list grouping.
+      bottom: categoryCounts.length <= 1
+          ? null
+          : PreferredSize(
+              preferredSize: const Size.fromHeight(44),
+              child: _CategoryFilterStrip(
+                counts: categoryCounts,
+                selected: _categoryFilter,
+                onToggle: _toggleCategoryFilter,
+              ),
+            ),
+    );
+  }
+}
+
+/// Horizontal strip of toggle-chips, one per non-empty
+/// _StewardCategory. Lives below the selection AppBar so the user
+/// can scope Select-all / Stop / Archive / Delete to a subset
+/// (e.g. "all project stewards") without manually deselecting.
+class _CategoryFilterStrip extends StatelessWidget {
+  const _CategoryFilterStrip({
+    required this.counts,
+    required this.selected,
+    required this.onToggle,
+  });
+  final Map<_StewardCategory, int> counts;
+  final Set<_StewardCategory> selected;
+  final void Function(_StewardCategory c) onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    const order = [
+      _StewardCategory.general,
+      _StewardCategory.project,
+      _StewardCategory.domain,
+      _StewardCategory.detached,
+    ];
+    final chips = <Widget>[];
+    for (final c in order) {
+      final n = counts[c];
+      if (n == null || n == 0) continue;
+      final isActive = selected.contains(c);
+      chips.add(Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: FilterChip(
+          label: Text('${_categoryLabel(c)} · $n'),
+          selected: isActive,
+          onSelected: (_) => onToggle(c),
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ));
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: chips),
+      ),
     );
   }
 }
 
 class _SelectionActionBar extends StatelessWidget {
   final int selectedCount;
+  final VoidCallback onStop;
   final VoidCallback onArchive;
   final VoidCallback onDelete;
   const _SelectionActionBar({
     required this.selectedCount,
+    required this.onStop,
     required this.onArchive,
     required this.onDelete,
   });
@@ -454,6 +656,12 @@ class _SelectionActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final disabled = selectedCount == 0;
+    // Three actions, ordered by destructiveness: Stop (interrupts the
+    // process but leaves history), Archive (hides from default list,
+    // preserves transcripts), Delete (final — only allowed on
+    // already-archived). Outlined buttons for the first two; filled
+    // error-tinted for Delete so the eye finds the destructive
+    // option last and reads it as "different".
     return SafeArea(
       top: false,
       child: Material(
@@ -464,12 +672,20 @@ class _SelectionActionBar extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
+                  onPressed: disabled ? null : onStop,
+                  icon: const Icon(Icons.stop_circle_outlined),
+                  label: const Text('Stop'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
                   onPressed: disabled ? null : onArchive,
                   icon: const Icon(Icons.archive_outlined),
                   label: const Text('Archive'),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: FilledButton.icon(
                   onPressed: disabled ? null : onDelete,

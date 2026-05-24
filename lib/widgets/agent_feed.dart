@@ -1045,6 +1045,20 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // hot-swaps models, so we always track the most recent values.
     int? latestContextWindow;
     int? latestContextUsed;
+    // Per-message usage snapshot (claude-code path, v1.0.662). The
+    // driver emits a `kind=usage` event per assistant message with
+    // input + cache_read + cache_create token counts for THAT message
+    // alone (not cumulative). The most recent event wins — its sum
+    // equals the API call's prompt size, which equals what claude's
+    // own `/context` slash command reports as "current context".
+    // Replaces a pre-v1.0.662 fallback that summed per-turn
+    // `by_model.input + cache_read + cache_create` across every API
+    // call within a turn — for a turn with many tool-use iterations
+    // that double-counted by N×, producing absurd >1M numbers on
+    // long sessions.
+    int? perMessageInput;
+    int? perMessageCacheRead;
+    int? perMessageCacheCreate;
     for (final e in _events) {
       final kind = (e['kind'] ?? '').toString();
       final p = e['payload'];
@@ -1069,8 +1083,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // Cumulative session totals (codex shape). The latest
         // notification supersedes; we don't sum. Claude's per-
         // message usage events lack the `cumulative` marker and
-        // are ignored here — the authoritative claude source is
-        // turn.result.by_model handled above.
+        // are handled in the next branch.
         final t = _ModelTokens.empty();
         t.input = (p['input_tokens'] as num?)?.toInt() ?? 0;
         t.output = (p['output_tokens'] as num?)?.toInt() ?? 0;
@@ -1090,6 +1103,20 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         final used = (p['total_tokens'] as num?)?.toInt() ?? 0;
         if (cw > 0) latestContextWindow = cw;
         if (used > 0) latestContextUsed = used;
+      } else if (kind == 'usage') {
+        // Per-message usage (claude-code path, v1.0.662). NOT
+        // cumulative — each event reports the API call's prompt
+        // size on its own; later events overwrite earlier ones.
+        // Sum on display = input + cache_read + cache_create =
+        // the claude `/context` number.
+        final i = (p['input_tokens'] as num?)?.toInt();
+        final cr = (p['cache_read'] as num?)?.toInt() ??
+            (p['cache_read_input_tokens'] as num?)?.toInt();
+        final cc = (p['cache_create'] as num?)?.toInt() ??
+            (p['cache_creation_input_tokens'] as num?)?.toInt();
+        if (i != null) perMessageInput = i;
+        if (cr != null) perMessageCacheRead = cr;
+        if (cc != null) perMessageCacheCreate = cc;
       }
     }
     // If no by_model rows arrived (codex's turn/completed doesn't
@@ -1105,9 +1132,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // does not emit cumulative `usage` events), pick the dominant
     // model from modelTotals — the one with the most output, since
     // sub-agents like Haiku produce trivial output relative to the
-    // main agent. Use that model's contextWindow as capacity and its
-    // latest input + cache_read + cache_create as "used" (matches
-    // what claude's TUI statusline shows for the most recent message).
+    // main agent. Use that model's contextWindow as capacity.
     if (latestContextWindow == null && modelTotals.isNotEmpty) {
       String? mainModel;
       var bestOutput = -1;
@@ -1120,11 +1145,43 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       if (mainModel != null) {
         final t = modelTotals[mainModel]!;
         latestContextWindow = t.contextWindow;
-        // Latest-turn "used" = the model's input + cache hits for the
-        // last turn it ran. cacheCreate is included because writes
-        // also occupy context for the rest of the session.
-        final used = t.latestInput + t.latestCacheRead + t.latestCacheCreate;
+      }
+    }
+    // For "used" prefer the per-message usage event (v1.0.662) over
+    // the per-turn by_model snapshot. The per-message event reports
+    // ONE API call's prompt — the right answer. The by_model
+    // snapshot's `latestInput + latestCacheRead + latestCacheCreate`
+    // double-counted within a multi-tool-use turn (every Bash/Read
+    // iteration produced its own API call, all summed). Fall back
+    // to the by_model snapshot only when the per-message stream is
+    // absent (older drivers, future engines).
+    if (latestContextUsed == null) {
+      if (perMessageInput != null ||
+          perMessageCacheRead != null ||
+          perMessageCacheCreate != null) {
+        final used = (perMessageInput ?? 0) +
+            (perMessageCacheRead ?? 0) +
+            (perMessageCacheCreate ?? 0);
         if (used > 0) latestContextUsed = used;
+      } else if (modelTotals.isNotEmpty) {
+        // Best-effort fallback for engines that don't emit per-message
+        // usage. Pick the dominant model; reuse its latestInput +
+        // latestCacheRead + latestCacheCreate. Accurate when the turn
+        // had one API call; over-counted when the turn had many.
+        String? mainModel;
+        var bestOutput = -1;
+        modelTotals.forEach((name, t) {
+          if (t.output > bestOutput) {
+            mainModel = name;
+            bestOutput = t.output;
+          }
+        });
+        if (mainModel != null) {
+          final t = modelTotals[mainModel]!;
+          final used =
+              t.latestInput + t.latestCacheRead + t.latestCacheCreate;
+          if (used > 0) latestContextUsed = used;
+        }
       }
     }
     final hasTelemetry = turnCount > 0 ||

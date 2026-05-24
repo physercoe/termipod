@@ -90,18 +90,82 @@ func mapAssistant(msg json.RawMessage) ([]MappedEvent, error) {
 	var m struct {
 		Content []json.RawMessage `json:"content"`
 		ID      string            `json:"id,omitempty"`
+		Model   string            `json:"model,omitempty"`
+		Usage   json.RawMessage   `json:"usage,omitempty"`
 	}
 	if err := json.Unmarshal(msg, &m); err != nil {
 		return nil, mapErr("assistant.message parse", err)
 	}
-	out := make([]MappedEvent, 0, len(m.Content))
+	out := make([]MappedEvent, 0, len(m.Content)+1)
 	for _, block := range m.Content {
 		ev := mapAssistantBlock(block)
 		if ev != nil {
 			out = append(out, *ev)
 		}
 	}
+	// Per-message usage event (v1.0.662). The on-disk JSONL carries
+	// claude's standard usage shape on every assistant message:
+	//
+	//	"usage": {
+	//	  "input_tokens": 6,                 (fresh tokens this call)
+	//	  "cache_read_input_tokens": 15806,  (cache hits, billed at ~10%)
+	//	  "cache_creation_input_tokens": 13462, (writes to the cache)
+	//	  "output_tokens": 38,
+	//	  ...
+	//	}
+	//
+	// We emit each one as a `kind=usage` event so the mobile telemetry
+	// strip can show a CURRENT-context number (the most recent message's
+	// input + cache_read + cache_create) — matching what claude's own
+	// `/context` slash command shows in the TUI. Pre-v1.0.662 the chip
+	// was sourced from `turn.result.by_model` (driver_stdio M2 path),
+	// which sums across every API call inside a turn — so a turn with
+	// many tool-use iterations reported many-multiples of the real
+	// context. M4 had no usage signal at all, so the chip was either
+	// blank or stale.
+	if ev := usageFromMessage(m.Model, m.Usage); ev != nil {
+		out = append(out, *ev)
+	}
 	return out, nil
+}
+
+// usageFromMessage decodes the claude `message.usage` block and emits
+// a per-message `usage` event. Returns nil when the block is missing
+// or contains no token counts — mobile already handles that case
+// (latest-usage logic is fully nullable).
+func usageFromMessage(model string, raw json.RawMessage) *MappedEvent {
+	if len(raw) == 0 {
+		return nil
+	}
+	var u struct {
+		Input        int `json:"input_tokens"`
+		Output       int `json:"output_tokens"`
+		CacheRead    int `json:"cache_read_input_tokens"`
+		CacheCreate  int `json:"cache_creation_input_tokens"`
+	}
+	if err := json.Unmarshal(raw, &u); err != nil {
+		return nil
+	}
+	if u.Input == 0 && u.Output == 0 && u.CacheRead == 0 && u.CacheCreate == 0 {
+		return nil
+	}
+	payload := map[string]any{
+		"input_tokens":  u.Input,
+		"output_tokens": u.Output,
+		"cache_read":    u.CacheRead,
+		"cache_create":  u.CacheCreate,
+		"engine":        "claude-code",
+		// Per-message (not session-cumulative) — the most recent
+		// event wins on the mobile side. NOT tagged cumulative.
+	}
+	if model != "" {
+		payload["model"] = model
+	}
+	return &MappedEvent{
+		Kind:     "usage",
+		Producer: "agent",
+		Payload:  payload,
+	}
 }
 
 func mapAssistantBlock(raw json.RawMessage) *MappedEvent {

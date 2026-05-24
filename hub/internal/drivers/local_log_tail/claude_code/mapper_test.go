@@ -187,6 +187,95 @@ func TestMapLine_AttachmentRealContentStillFlows(t *testing.T) {
 	}
 }
 
+// v1.0.662 — every assistant message MUST also emit a kind=usage
+// event with the input + cache_read + cache_create token counts the
+// mobile telemetry strip uses to render the context-window chip.
+// Without this, M4 spawns showed an empty/stale chip or fell back to
+// driver_stdio's per-turn by_model values, which double-counted across
+// tool-use iterations.
+func TestMapLine_AssistantMessageEmitsUsage(t *testing.T) {
+	raw := `{"type":"assistant","message":{
+		"model":"claude-opus-4-7",
+		"content":[{"type":"text","text":"hi"}],
+		"usage":{
+			"input_tokens":6,
+			"output_tokens":38,
+			"cache_read_input_tokens":15806,
+			"cache_creation_input_tokens":13462
+		}
+	}}`
+	got := mustMap(t, raw)
+	if len(got) < 2 {
+		t.Fatalf("want at least 2 events (text + usage), got %+v", got)
+	}
+	// usage must be present, after text.
+	var usage *MappedEvent
+	for i := range got {
+		if got[i].Kind == "usage" {
+			usage = &got[i]
+		}
+	}
+	if usage == nil {
+		t.Fatalf("usage event not emitted: %+v", got)
+	}
+	if usage.Producer != "agent" {
+		t.Errorf("usage producer = %q, want agent", usage.Producer)
+	}
+	if got, want := usage.Payload["input_tokens"], 6; got != want {
+		t.Errorf("input_tokens = %v, want %v", got, want)
+	}
+	if got, want := usage.Payload["cache_read"], 15806; got != want {
+		t.Errorf("cache_read = %v, want %v", got, want)
+	}
+	if got, want := usage.Payload["cache_create"], 13462; got != want {
+		t.Errorf("cache_create = %v, want %v", got, want)
+	}
+	if got, want := usage.Payload["output_tokens"], 38; got != want {
+		t.Errorf("output_tokens = %v, want %v", got, want)
+	}
+	if got, want := usage.Payload["model"], "claude-opus-4-7"; got != want {
+		t.Errorf("model = %v, want %v", got, want)
+	}
+	if got, want := usage.Payload["engine"], "claude-code"; got != want {
+		t.Errorf("engine = %v, want %v", got, want)
+	}
+	// MUST NOT be flagged cumulative — mobile uses the "latest
+	// snapshot wins" path for non-cumulative events. A wrong flag
+	// would route through the codex-cumulative branch and overwrite
+	// rather than supersede.
+	if _, isCum := usage.Payload["cumulative"]; isCum {
+		t.Errorf("usage payload has cumulative key; v1.0.662 expects absent")
+	}
+}
+
+// Defensive: an assistant message with NO usage block (empty
+// content-only frames claude sometimes writes during partial
+// streaming) must not crash and must not synthesize a fake usage
+// event. The chip stays at its prior snapshot.
+func TestMapLine_AssistantWithoutUsageEmitsOnlyContent(t *testing.T) {
+	raw := `{"type":"assistant","message":{"content":[{"type":"text","text":"x"}]}}`
+	got := mustMap(t, raw)
+	for _, ev := range got {
+		if ev.Kind == "usage" {
+			t.Errorf("usage event emitted without usage block: %+v", ev)
+		}
+	}
+}
+
+// An assistant message with all-zero usage fields must NOT emit a
+// usage event — the chip would be no better off seeing a {0,0,0}
+// snapshot than no event at all, and the zero would replace a real
+// prior value.
+func TestMapLine_AssistantAllZeroUsageDropped(t *testing.T) {
+	raw := `{"type":"assistant","message":{"content":[],"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`
+	got := mustMap(t, raw)
+	for _, ev := range got {
+		if ev.Kind == "usage" {
+			t.Errorf("usage event emitted for all-zero block: %+v", ev)
+		}
+	}
+}
+
 func TestMapLine_UnknownTypeSurfacesAsDrift(t *testing.T) {
 	got := mustMap(t, `{"type":"futuristic-event-2030"}`)
 	if len(got) != 1 || got[0].Kind != "system" {

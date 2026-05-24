@@ -105,6 +105,21 @@ class _ConfirmActionTileState extends State<ConfirmActionTile> {
         ? accent
         : (isDark ? DesignColors.textMuted : DesignColors.textMutedLight);
 
+    // Visual structure (v1.0.662 redesign):
+    //
+    //   ┌──────────────────────────────────────────────────────┐
+    //   │ [icon]        Centered label              [⇨ chip] │   resting
+    //   │ ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░ slide-bar fills as you drag    │   armed
+    //   └──────────────────────────────────────────────────────┘
+    //
+    // Resting state: leading icon, centered label, trailing chip
+    // (small filled pill with a chevron — replaces the pre-v1.0.662
+    // "slide ▸" mono text that was easy to miss).
+    //
+    // Armed state (long-press held): the trailing chip morphs into a
+    // mini progress bar overlay AND the background fill grows
+    // left→right. Two redundant signals so the operator can read
+    // commit-progress at a glance.
     return Opacity(
       opacity: _interactive ? 1 : 0.45,
       child: GestureDetector(
@@ -113,59 +128,128 @@ class _ConfirmActionTileState extends State<ConfirmActionTile> {
         onLongPressMoveUpdate: _onLongPressMove,
         onLongPressEnd: _onLongPressEnd,
         child: Container(
-          height: 48,
+          height: 52,
           decoration: BoxDecoration(
             color: track,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: border),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: _armed ? accent.withValues(alpha: 0.5) : border,
+            ),
           ),
           clipBehavior: Clip.antiAlias,
           child: Stack(
             children: [
-              // Progress fill — grows left-to-right as the operator slides.
+              // Background progress fill — grows left-to-right as
+              // the operator slides. Slightly stronger when armed
+              // so the operator sees they're committing.
               FractionallySizedBox(
                 widthFactor: _progress.clamp(0.0, 1.0),
                 heightFactor: 1,
-                child: Container(color: accent.withValues(alpha: 0.22)),
+                child: Container(
+                  color: accent
+                      .withValues(alpha: _armed ? 0.30 : 0.22),
+                ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    widget.busy
-                        ? SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation(fg),
-                            ),
-                          )
-                        : Icon(widget.icon, size: 18, color: fg),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        widget.label,
-                        style: GoogleFonts.spaceGrotesk(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: fg,
+              // Centered label + leading icon + trailing chip,
+              // arranged so the label sits visually centered in the
+              // tile (Row with mainAxisAlignment.center on a
+              // Stack-wrapped layout = stable centering even when
+              // chip text changes width during the slide).
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Centered label.
+                      Padding(
+                        // Reserve horizontal margin so the label
+                        // doesn't visually collide with the leading
+                        // icon / trailing chip at small widths.
+                        padding: const EdgeInsets.symmetric(horizontal: 56),
+                        child: Text(
+                          widget.label,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: fg,
+                            letterSpacing: 0.1,
+                          ),
                         ),
                       ),
-                    ),
-                    Text(
-                      _armed ? 'release at end' : 'slide ▸',
-                      style: GoogleFonts.jetBrainsMono(
-                        fontSize: 9,
-                        color: fg.withValues(alpha: 0.7),
+                      // Leading icon (left-aligned).
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: widget.busy
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor:
+                                      AlwaysStoppedAnimation(fg),
+                                ),
+                              )
+                            : Icon(widget.icon, size: 20, color: fg),
                       ),
-                    ),
-                  ],
+                      // Trailing slide affordance — small pill,
+                      // chevron forward icon. When armed, the chip
+                      // dims slightly so the eye tracks the
+                      // growing background fill instead.
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: _SlideChip(
+                          color: fg,
+                          armed: _armed,
+                          progress: _progress,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Trailing affordance on a [ConfirmActionTile]. Resting: a small
+/// pill with a chevron, telling the operator the row is interactive
+/// in a way a plain row isn't. Armed: dims so the eye tracks the
+/// background fill (the real progress signal).
+class _SlideChip extends StatelessWidget {
+  const _SlideChip({
+    required this.color,
+    required this.armed,
+    required this.progress,
+  });
+  final Color color;
+  final bool armed;
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 36,
+      height: 24,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: armed ? 0.10 : 0.16),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withValues(alpha: armed ? 0.18 : 0.32),
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.chevron_right,
+        size: 18,
+        color: color.withValues(alpha: armed ? 0.5 : 0.85),
       ),
     );
   }

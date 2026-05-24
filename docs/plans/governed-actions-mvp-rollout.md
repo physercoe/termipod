@@ -10,13 +10,14 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > (2026-05-24, v1.0.674-687). Phase 1: 11 hub wedges at v1.0.674-685.
 > Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile at
 > v1.0.687; W15 at v1.0.688; W16 + shared visuals at v1.0.689;
-> W17 + W16-lint-error fix at v1.0.690; W18 (agent.spawn +
-> template.install) at v1.0.691; W19-W21 remain.
+> W17 + W16-lint-error fix at v1.0.690; W18 at v1.0.691;
+> W21 (read-only policy viewer in team settings) at v1.0.692;
+> W19, W20, W19.6-mobile remain.
 > Reissued 2026-05-20 to absorb ADR-030 amendments (D-7 Option 2′,
 > ADR-032 envelope on fan-back, ADR-034 loop-entity overlap,
 > principal ≠ owner). Original: Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.691-alpha
+> **Last verified vs code:** v1.0.692-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -1179,15 +1180,48 @@ into the existing IA without rename or chip add:
   decision + override decision + override reason, color-coded
   to distinguish.
 
-**W21. Read-only policy viewer (~30 LOC).**
+**W21. Read-only policy viewer (~265 LOC mobile + 50 LOC hub endpoint + 145 LOC test). Shipped v1.0.692-alpha. RE-HOMED OUT OF MOBILE SETTINGS.**
 
-- Settings > Advanced > Governed action policy: renders the
-  `kinds:` block from `<dataRoot>/team/policy.yaml` (per pre-W1
-  decision #1 — same file as the legacy `tiers/approvers/quorum`)
-  as a table (kind / default tier / commits / override allowed).
-  No editor in MVP — file is team-scoped and authored by-hand for
-  now. The legacy `tiers:` block is not rendered here; the
-  attention-policy surface elsewhere already covers it.
+> **Re-homing note** (principal-directed, 2026-05-24): the plan
+> originally said "Settings > Advanced > Governed action policy".
+> The mobile Settings page is for MOBILE preferences (theme, voice,
+> etc); hub/team-scoped settings belong on the team-settings
+> surface reachable via the team switcher. Shipped under
+> **Team switcher → Team settings → Governance → Governed action
+> policy** instead. The clarification stands as the design
+> principle for future Phase-3 surfaces (any policy that lives in
+> `<dataRoot>/team/`, NOT in `~/.shared_preferences`, belongs on
+> the team-settings surface).
+
+- **Hub side.** `hub/internal/server/handlers_policy.go::handleGetPolicyKinds`
+  <!-- verify symbol hub/internal/server/handlers_policy.go handleGetPolicyKinds -->
+  — new `GET /v1/teams/{t}/policy/kinds` endpoint returns the
+  parsed `kinds:` block as JSON so the Flutter binary doesn't
+  need a YAML parser. Empty file → `{"kinds": {}}` (empty-state
+  in mobile). Legacy file with no `kinds:` block → same shape.
+  Malformed YAML → 500. Read-only; the canonical edit path
+  stays `PUT /policy`. `KindPolicy` + `QuorumPolicy` structs
+  gained `json:` tags alongside the existing `yaml:` tags so
+  serialization round-trips per ADR-030 spec.
+- `hub/internal/server/handlers_policy_kinds_test.go` — 4 tests:
+  missing-file → empty map, full-policy → every-field round-trip,
+  legacy-policy-without-kinds → empty map, malformed-yaml → 500.
+- **Mobile side.** `lib/services/hub/hub_client.dart::getPolicyKinds`
+  — calls the new endpoint and returns
+  `Map<String, dynamic>`.
+- `lib/screens/team/governed_actions_policy_screen.dart` (new)
+  <!-- verify file lib/screens/team/governed_actions_policy_screen.dart -->
+  — table-style read-only view with 4 columns (kind, default tier,
+  commits, override). Sorted by kind name for stable rendering.
+  Empty-state explains where to edit the underlying file (Policies
+  tab sibling). Footnote spells out the permissive fallback (no
+  kinds: block → principal / quorum=1 / override allowed).
+  Reload button in the AppBar.
+- `lib/screens/team/team_screen.dart` — new ListTile under the
+  Governance tab (the existing `_SettingsView`): "Governed
+  action policy · Read-only view of policy.yaml `kinds:`".
+  Icon: `Icons.gavel_outlined`. Sibling to Budgets / Auth /
+  Councils / Steward tiles.
 
 ### 4.4 Acceptance
 

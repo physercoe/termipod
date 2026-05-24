@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.691
+> **Last verified vs code:** v1.0.692
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,63 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.692-alpha — 2026-05-24
+
+**ADR-030 Phase 3 W21: read-only governed-action policy viewer** on
+the team-settings surface. **Re-homed out of mobile Settings**
+per the principal's clarification — mobile Settings is for mobile
+preferences (theme, voice, etc); team/hub-scoped settings belong on
+the team surface reachable via the team switcher. The viewer renders
+the `kinds:` block of `<dataRoot>/team/policy.yaml` as a four-column
+table (kind / default tier / commits / override allowed).
+
+### Added
+
+- `hub/internal/server/handlers_policy.go::handleGetPolicyKinds` —
+  new `GET /v1/teams/{t}/policy/kinds` endpoint returns the parsed
+  `kinds:` block from team/policy.yaml as JSON so the Flutter binary
+  doesn't need a YAML parser. Empty file or legacy file without the
+  `kinds:` block → `{"kinds": {}}`; mobile renders the empty-state
+  explaining where to edit. Malformed YAML on disk → 500 surfaces
+  the parse error to the operator. Read-only; canonical edit path
+  stays `PUT /policy`.
+- `hub/internal/server/handlers_policy_kinds_test.go` — 4 test cases
+  covering missing-file, full-policy parses every field, legacy
+  policy without kinds block, malformed yaml returns 500.
+- `KindPolicy` + `QuorumPolicy` structs in `policy.go` gained
+  `json:` tags alongside the existing `yaml:` tags so JSON
+  serialization round-trips per ADR-030 spec.
+- `lib/services/hub/hub_client.dart::getPolicyKinds` — calls the new
+  endpoint, returns `Map<String, dynamic>` keyed by kind name.
+- `lib/screens/team/governed_actions_policy_screen.dart` (new) —
+  read-only viewer reached via Team switcher → Team settings →
+  Governance tab → "Governed action policy" tile. Four-column
+  table (kind / default tier / commits / override allowed), sorted
+  by kind name. Empty-state pointing the operator at the Policies
+  sibling tab for editing. Reload button in the AppBar.
+- `lib/screens/team/team_screen.dart` — new ListTile under the
+  Governance tab (the existing `_SettingsView`): "Governed action
+  policy". Icon `Icons.gavel_outlined`. Sibling to Budgets / Auth
+  / Councils / Steward.
+
+### Changed
+
+- Plan §4.3 W21 entry rewritten with the re-homing note + shipped
+  reality + verify anchors. The re-homing note codifies the
+  general principle for Phase 3 surfaces: policies in
+  `<dataRoot>/team/` belong on team settings; policies in
+  `~/.shared_preferences` belong on mobile Settings. The user's
+  clarification is captured for future contributors.
+
+### Forensics
+
+Hub binary shifts (new endpoint + KindPolicy/QuorumPolicy JSON tags).
+Mobile binary shifts (1 new screen + 1 new hub_client method + 1
+new team_screen tile). pubspec 1.0.691 → 1.0.692. Hub test suite
+green (126.811s server pkg, full suite); 4 new tests pass.
 
 ---
 

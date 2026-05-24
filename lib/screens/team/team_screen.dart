@@ -6,6 +6,7 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import 'budget_screen.dart';
 import 'councils_screen.dart';
+import 'governed_actions_policy_screen.dart';
 import 'steward_config_screen.dart';
 import 'team_channel_screen.dart';
 import 'tokens_screen.dart';
@@ -713,6 +714,21 @@ class _SettingsView extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const StewardConfigScreen(),
+          )),
+        ),
+        // ADR-030 W21 — read-only viewer of the `kinds:` block in
+        // team/policy.yaml. The full file editor lives under the
+        // Policies tab (sibling above); this tile is the at-a-glance
+        // "how is the system routing propose-decisions" view.
+        ListTile(
+          leading: const Icon(Icons.gavel_outlined),
+          title: const Text('Governed action policy'),
+          subtitle: const Text(
+              'Read-only view of policy.yaml `kinds:` (default tier, '
+              'commits, override) · ADR-030'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const GovernedActionsPolicyScreen(),
           )),
         ),
       ],

@@ -64,36 +64,36 @@ type KindPolicy struct {
 	// 'worker' | 'project-steward' | 'general-steward' | 'principal'.
 	// Empty → permissive default of "principal" (the safest fall-through:
 	// route to the human director if the policy is silent).
-	DefaultTier string `yaml:"default_tier"`
+	DefaultTier string `yaml:"default_tier" json:"default_tier"`
 	// Quorum is per-tier M-of-N. Each entry's M is the number of
 	// approvals required to resolve the row at that tier. Empty or
 	// missing → 1.
-	Quorum map[string]QuorumPolicy `yaml:"quorum"`
+	Quorum map[string]QuorumPolicy `yaml:"quorum" json:"quorum,omitempty"`
 	// Commits flips true for kinds whose apply function mutates the
 	// canonical project record (deliverable state, project phase). The
 	// distinction matters for audit emphasis and for the MVP rule that
 	// non-commit kinds skip the lint-governed-actions same-tier check.
-	Commits bool `yaml:"commits"`
+	Commits bool `yaml:"commits" json:"commits"`
 	// OverrideAllowed governs whether a principal can override a
 	// lower-tier resolution on this kind (ADR-030 D-8 + W9). Default
 	// false; only kinds whose apply functions have a defined rollback
 	// path should opt in.
-	OverrideAllowed bool `yaml:"override_allowed"`
+	OverrideAllowed bool `yaml:"override_allowed" json:"override_allowed"`
 	// EscalateOnReject (post-MVP) — fire ADR-034 escalation signal
 	// when this kind's row is rejected. MVP: always false.
-	EscalateOnReject bool `yaml:"escalate_on_reject"`
+	EscalateOnReject bool `yaml:"escalate_on_reject" json:"escalate_on_reject"`
 	// EscalateOnTimeout (post-MVP) — fire ADR-034 escalation signal
 	// when this kind's row sits past `inactivity_deadline`. MVP:
 	// always false. Linter (W3) requires DefaultTier strictly below
 	// `principal` when true, so the signal has somewhere to walk.
-	EscalateOnTimeout bool `yaml:"escalate_on_timeout"`
+	EscalateOnTimeout bool `yaml:"escalate_on_timeout" json:"escalate_on_timeout"`
 }
 
 // QuorumPolicy is the per-tier quorum entry inside KindPolicy.Quorum.
 // Wrapped in its own type so future M-of-N extensions (e.g. N>=M)
 // don't require a YAML-shape migration.
 type QuorumPolicy struct {
-	M int `yaml:"m"`
+	M int `yaml:"m" json:"m"`
 }
 
 // EscalationPolicy describes how to widen an attention item that hasn't been

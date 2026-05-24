@@ -556,6 +556,11 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		r.Get("/audit", s.handleListAudit)
 		r.Get("/policy", s.handleGetPolicy)
 		r.Put("/policy", s.handlePutPolicy)
+		// ADR-030 W21 — parsed `kinds:` block as JSON for the mobile
+		// read-only policy viewer (avoids shipping a YAML parser in
+		// the Flutter binary). Read-only; the canonical edit path
+		// stays `PUT /policy` against the full YAML file.
+		r.Get("/policy/kinds", s.handleGetPolicyKinds)
 		r.Route("/tokens", func(r chi.Router) {
 			r.Get("/", s.handleListTokens)
 			r.Post("/", s.handleIssueToken)

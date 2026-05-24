@@ -3,7 +3,7 @@
 > **Type:** axiom
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors (humans + AI agents)
-> **Last verified vs code:** v1.0.686
+> **Last verified vs code:** v1.0.692
 > **Freshness:** contract
 
 **TL;DR.** This file defines what a doc *is* in this repo, what every

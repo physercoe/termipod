@@ -1152,6 +1152,24 @@ class HubClient {
     return body;
   }
 
+  /// ADR-030 W21 — read-only view of the policy file's `kinds:` block,
+  /// parsed server-side so the Flutter binary doesn't need a YAML
+  /// parser. Returns `{kindName: {default_tier, commits,
+  /// override_allowed, escalate_on_*, quorum: {tier: {m}}}, ...}`.
+  /// Empty map when the file is absent OR when the `kinds:` block is
+  /// omitted from a legacy policy.yaml. Throws HubApiError(500) when
+  /// the file is on disk but malformed (operator hand-edited it
+  /// outside the PUT flow).
+  Future<Map<String, dynamic>> getPolicyKinds() async {
+    final out = await _get('/v1/teams/${cfg.teamId}/policy/kinds');
+    final m = (out as Map).cast<String, dynamic>();
+    final kinds = m['kinds'];
+    if (kinds is Map) {
+      return kinds.cast<String, dynamic>();
+    }
+    return const {};
+  }
+
   /// Writes team policy.yaml atomically and triggers an in-memory reload.
   /// Parse errors are surfaced as HubApiError(400) so the caller can show
   /// the YAML diagnostic to the user without overwriting the good file.

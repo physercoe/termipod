@@ -16,6 +16,50 @@ import (
 // absurdly generous and stops a pathological client from filling the disk.
 const maxPolicyBytes = 1 << 20
 
+// handleGetPolicyKinds returns the parsed `kinds:` block from
+// <dataRoot>/team/policy.yaml as JSON. Read-only — the file
+// itself is authored by hand and PUT through handlePutPolicy.
+// ADR-030 W21 mobile policy viewer consumes this so it doesn't
+// need a YAML parser in Dart.
+//
+// Response shape:
+//
+//	{
+//	  "kinds": {
+//	    "deliverable.set_state": {
+//	      "default_tier": "project-steward",
+//	      "commits": true,
+//	      "override_allowed": true,
+//	      "quorum": { "project-steward": {"m": 1} }
+//	    },
+//	    ...
+//	  }
+//	}
+//
+// Empty file (or missing file) → 200 with `{"kinds": {}}` so the
+// mobile viewer renders an empty-state rather than an error.
+func (s *Server) handleGetPolicyKinds(w http.ResponseWriter, r *http.Request) {
+	_ = chi.URLParam(r, "team") // tenant-level; single file
+	path := filepath.Join(s.cfg.DataRoot, "team", "policy.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var parsed Policy
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &parsed); err != nil {
+			writeErr(w, http.StatusInternalServerError,
+				"yaml parse: "+err.Error())
+			return
+		}
+	}
+	if parsed.Kinds == nil {
+		parsed.Kinds = map[string]KindPolicy{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"kinds": parsed.Kinds})
+}
+
 // handleGetPolicy returns the raw bytes of <dataRoot>/team/policy.yaml.
 // Returns an empty 200 body when the file is absent so the mobile editor
 // can show a blank canvas rather than an error. Content-Type is

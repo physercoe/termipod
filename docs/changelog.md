@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.687
+> **Last verified vs code:** v1.0.688
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,70 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.688-alpha — 2026-05-24
+
+**ADR-030 Phase 3 W15: per-kind propose card for `deliverable.set_state`.**
+First of the four per-kind cards (W15-W18); also ships the shared
+action-row helpers (`PrimaryProposeActions` / `StalledProposeActions`)
++ the `ProposeCardRouter` dispatch widget that the remaining three
+cards will register against. me_screen.dart's new approvals branch
+picks the per-kind card via the router; unrecognised change_kinds
+fall back to the legacy Approve/Reject pair so partially-rolled-out
+new kinds stay usable.
+
+### Added
+
+- `lib/screens/me/widgets/propose_card_deliverable.dart` — primary +
+  stalled variants. Body block: from_state → to_state transition
+  chips (to_state in green/emphasis), summary text, deliverable id
+  monospace. Primary actions: Approve / Reject. Stalled actions:
+  Override (opens an inline reason-prompt dialog → decide with
+  `override=true`) + View deliverable.
+- `lib/screens/me/widgets/propose_card_actions.dart` —
+  `PrimaryProposeActions` (Approve/Reject buttons that POST decide
+  via hubProvider) + `StalledProposeActions` (Override that prompts
+  for a required reason, then POSTs decide with `decision='override',
+  override=true` — W20 will replace this inline dialog with the
+  D-8 confirmation sheet).
+- `lib/screens/me/widgets/propose_card_router.dart` — single dispatch
+  widget that picks the per-kind card by `change_kind`. Currently
+  only `deliverable.set_state` is registered; W16-W18 register here
+  as they ship. Unrecognised change_kinds (or kind != 'propose')
+  fall back to `InlineApprovalActions`.
+- `lib/screens/me/me_screen.dart` — new `else if (item.kind ==
+  'propose' && item.attention != null)` branch routes through the
+  router BEFORE the legacy `InlineApprovalActions` fallback. Tier
+  hardcoded to `'principal'` for MVP.
+- `lib/services/hub/hub_client.dart::decideAttention` — gained
+  `override: bool` named param. Forwarded to the POST body as
+  `{override: true}` only when set; existing Approve/Reject call
+  sites unaffected.
+- `lib/providers/hub_provider.dart::decide` — same `override: bool`
+  pass-through.
+- `test/screens/me/propose_card_deliverable_test.dart` — 10 widget
+  test cases covering both variants + edge cases (addressed-and-
+  stalled → primary; legacy row → primary fallback; change_spec
+  parses from raw JSON string).
+
+### Changed
+
+- ADR-030 plan stamp bumped to v1.0.688-alpha. W15 entry rewritten
+  with shipped reality + verify anchors. Notes that `dry_run`
+  preview rendering is deferred — the W4 mcpPropose dry_run path
+  returns the preview synchronously to the proposing agent without
+  creating an attention row, so there's no row for the card to
+  decorate today.
+
+### Forensics
+
+Hub binary unchanged (this is mobile-only work + a hub_client
+field addition that compiles into the mobile binary). Mobile
+binary shifts (4 new widgets files + me_screen.dart + provider
++ client + test). pubspec 1.0.687 → 1.0.688. Verified on CI
+(Flutter not installed locally per repo convention).
 
 ---
 

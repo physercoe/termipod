@@ -752,6 +752,11 @@ class HubNotifier extends AsyncNotifier<HubState> {
     String? by,
     String? optionId,
     String? body,
+    /// ADR-030 W9 principal-override flag — passed through to
+    /// hub_client.decideAttention. Forwarded only when true so existing
+    /// call sites (Approve / Reject buttons throughout the app) don't
+    /// accidentally trigger the override path.
+    bool override = false,
   }) async {
     final client = _client;
     if (client == null) return;
@@ -762,6 +767,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
       by: by,
       optionId: optionId,
       body: body,
+      override: override,
     );
     await _reloadAttention();
   }

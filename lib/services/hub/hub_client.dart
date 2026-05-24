@@ -1970,12 +1970,21 @@ class HubClient {
     /// Free-text reply for kind='help_request' attentions (request_help
     /// MCP tool). Required when decision='approve' on a help_request.
     String? body,
+    /// ADR-030 W9 principal-override flag. When `true`, the hub re-enters
+    /// the dispatcher with a Rollback call against the original Apply.
+    /// The hub's validation accepts `decision='override'` only when
+    /// paired with `override=true`; it also accepts `decision='approve'`
+    /// + `override=true` as a synonym, but mobile passes
+    /// `decision='override'` explicitly so the decisions_json audit
+    /// trail reads honestly.
+    bool override = false,
   }) async {
     final req = <String, dynamic>{'decision': decision};
     if (by != null && by.isNotEmpty) req['by'] = by;
     if (reason != null && reason.isNotEmpty) req['reason'] = reason;
     if (optionId != null && optionId.isNotEmpty) req['option_id'] = optionId;
     if (body != null && body.isNotEmpty) req['body'] = body;
+    if (override) req['override'] = true;
     final out = await _post('/v1/teams/${cfg.teamId}/attention/$id/decide', req);
     return (out as Map).cast<String, dynamic>();
   }

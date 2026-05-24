@@ -26,6 +26,7 @@ import '../sessions/sessions_screen.dart';
 import 'approval_detail_screen.dart';
 import 'decision_history_screen.dart';
 import 'inline_actions.dart';
+import 'widgets/propose_card_router.dart';
 
 /// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.
 ///
@@ -602,6 +603,18 @@ class _MeCard extends ConsumerWidget {
                   id: item.id,
                   kind: item.kind,
                   pendingPayload: _pendingPayload(item.attention),
+                )
+              else if (item.kind == 'propose' && item.attention != null)
+                // ADR-030 W15-W18 per-kind propose cards routed via
+                // ProposeCardRouter: each registered change_kind gets
+                // its own card (deliverable.set_state / phase.advance
+                // / task.set_status / agent.spawn / template.install);
+                // unrecognised change_kinds fall back to the legacy
+                // Approve/Reject pair. MVP tier is 'principal'; the
+                // W19 steward-side inbox will pass its own tier.
+                ProposeCardRouter(
+                  attention: item.attention!,
+                  myTier: 'principal',
                 )
               else
                 InlineApprovalActions(

@@ -8,13 +8,14 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > **Type:** plan
 > **Status:** Phase 1 + Phase 2 COMPLETE; Phase 3 in flight
 > (2026-05-24, v1.0.674-687). Phase 1: 11 hub wedges at v1.0.674-685.
-> Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile
-> (wire-contract foundation) at v1.0.687; W15-W21 remain.
+> Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile at
+> v1.0.687; W15 (deliverable.set_state card) at v1.0.688; W16-W21
+> remain.
 > Reissued 2026-05-20 to absorb ADR-030 amendments (D-7 Option 2′,
 > ADR-032 envelope on fan-back, ADR-034 loop-entity overlap,
 > principal ≠ owner). Original: Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.687-alpha
+> **Last verified vs code:** v1.0.688-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -907,27 +908,51 @@ into the existing IA without rename or chip add:
 
 ### 4.3 Wedges
 
-**W15. Per-kind propose card — `deliverable.set_state` (~60 LOC).**
+**W15. Per-kind propose card — `deliverable.set_state` (~270 LOC card + actions + router + 175 LOC tests). Shipped v1.0.688-alpha.**
 
-- `lib/screens/me/widgets/propose_card_deliverable.dart` (new).
-- Renders: title, requester avatar + handle, reason text,
-  target deliverable title + current state → proposed state
-  arrow, "View deliverable" link → existing deliverable
-  viewer with annotations open.
-- Approve/Reject buttons → existing decide endpoint with
-  `change_kind` in body.
-- `dry_run` payload (when present) renders inline diff above
-  the buttons.
-- **Stalled variant (Option 2′).** When the viewer's tier ≠
-  `assignedTier` and `escalationState` puts the row on their
-  surface: a top pill (`⏱ Stuck Nh — addressed to @<addressee>`,
-  duration from `escalated_at` or computed from the latest
-  `attention.escalation_advanced` audit row); buttons flip to
-  `Override` (opens the D-8 confirmation sheet from W20) and
-  `View source` (navigate to the source deliverable). Body
-  rendering is unchanged. A single predicate function decides
-  which variant to render: `isAddressee = item.assignedTier ==
-  myTier`.
+- `lib/screens/me/widgets/propose_card_deliverable.dart` (new)
+  <!-- verify file lib/screens/me/widgets/propose_card_deliverable.dart -->
+  — body: state-transition chips (from_state → to_state, with the
+  `to_state` chip in green/emphasis), summary text, deliverable
+  id in monospace, and either primary or stalled actions.
+- `lib/screens/me/widgets/propose_card_actions.dart` (new)
+  <!-- verify file lib/screens/me/widgets/propose_card_actions.dart -->
+  — shared between W15-W18: `PrimaryProposeActions` (Approve /
+  Reject) and `StalledProposeActions` (Override / View source).
+  The Override flow opens an inline AlertDialog asking for a
+  required reason then POSTs decide with `decision='override'`
+  + `override=true` (W20 will replace this with the D-8
+  confirmation sheet).
+- `lib/screens/me/widgets/propose_card_router.dart` (new) — single
+  dispatch widget that picks the per-kind card by `change_kind`
+  (W16-W18 register here as they ship); unrecognised change_kinds
+  fall back to `InlineApprovalActions`. Keeps me_screen.dart's new
+  branch to one line.
+- `lib/screens/me/me_screen.dart` — new `else if (item.kind ==
+  'propose')` branch routes through `ProposeCardRouter` BEFORE the
+  legacy `InlineApprovalActions` fallback. Tier hardcoded to
+  `'principal'` in MVP; the W19 steward-side inbox will pass its
+  own tier.
+- `lib/services/hub/hub_client.dart::decideAttention` +
+  `lib/providers/hub_provider.dart::decide` gained `override: bool`
+  named param. Forwarded to wire as `{override: true}` only when
+  set — existing call sites (Approve/Reject throughout the app)
+  unaffected.
+- `test/screens/me/propose_card_deliverable_test.dart` (new) — 10
+  widget test cases: primary variant shows Approve/Reject + state
+  chips + summary + deliverable id + no Stuck pill; stalled
+  variant shows Override + View deliverable + Stuck pill with
+  addressee name + body unchanged; addressed-AND-stalled →
+  primary (the addressee predicate wins); legacy row (no
+  assigned_tier) → primary fallback; change_spec parses from
+  raw JSON string too.
+- **`dry_run` preview** intentionally not rendered yet — the
+  ProposeKind.DryRun path returns the preview synchronously to
+  the proposing agent (no attention row created), so there's
+  no propose attention with a `dry_run` payload for the card
+  to render. If a future ProposeKind variant stores the preview
+  on the row, this card adds a `_DryRunDiff` block above the
+  actions; not on the W15 critical path.
 
 **W16. Per-kind propose card — `phase.advance` (~50 LOC).**
 

@@ -54,6 +54,7 @@ import (
 	"github.com/termipod/hub/internal/mcpbridge"
 	"github.com/termipod/hub/internal/mcpudsbridge"
 	"github.com/termipod/hub/internal/selfupdate"
+	"github.com/termipod/hub/internal/statusfire"
 )
 
 func main() {
@@ -87,6 +88,13 @@ func main() {
 		os.Exit(mcpudsbridge.Run(os.Args[2:]))
 	case "hook-fire":
 		os.Exit(hookfire.Run(os.Args[2:]))
+	case "status-fire":
+		// ADR-036 W1 — stdin (claude-code statusLine JSON) → UDS
+		// gateway `status_line` tool → stdout (one line for claude
+		// to render). Best-effort: transport failures degrade to a
+		// quiet default line, not a non-zero exit, because the cadence
+		// (~10s) makes loud failures intolerable in the TUI.
+		os.Exit(statusfire.Run(os.Args[2:]))
 	case "self-update":
 		runSelfUpdate(os.Args[2:])
 	case "doctor":
@@ -135,6 +143,13 @@ Commands:
                  wraps it as a JSON-RPC tools/call for the corresponding
                  hook_<event> handler on the gateway, writes the
                  response object to stdout. Flags: --socket --event.
+  status-fire    One-shot stdin → UDS bridge for claude-code's
+                 settings.local.json statusLine entry (ADR-036 W1).
+                 Reads the structured statusLine JSON from stdin, posts
+                 it to the gateway's status_line tool, prints one line
+                 to stdout for claude to render. Best-effort: transport
+                 failures degrade quietly so the ~10s cadence doesn't
+                 leak errors into the TUI. Flags: --socket [--wrap].
   self-update    Fetch a release from GitHub, verify SHA256, replace this
                  binary, and exit 75 so the supervisor respawns it
                  (ADR-028). Flags: --version / --channel / --upstream-repo

@@ -174,6 +174,17 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 		return nil, fmt.Errorf("locallogtail M4: install hooks: %w", err)
 	}
 
+	// ADR-036 W1: settings.local.json statusLine. Sister to
+	// installClaudeHooks above; same merge primitive (atomic-rename;
+	// wrap-and-passthrough preserves operator-set statusLine).
+	// Failure is non-fatal — the chip strip degrades to the pre-ADR-036
+	// JSONL-derived baseline if statusLine wiring fails, rather than
+	// blocking the spawn. Logged so operators see the regression.
+	if err := installClaudeStatusLine(workdir, hostRunnerExe, udsPath); err != nil {
+		cfg.Log.Warn("locallogtail M4: install statusLine failed; telemetry chips will use JSONL fallback",
+			"handle", cfg.Spawn.Handle, "workdir", workdir, "err", err)
+	}
+
 	// Pre-trust the workdir in ~/.claude.json so claude-code doesn't
 	// open with its "Do you trust the files in this folder?" prompt —
 	// the mobile client has no affordance to drive that picker, so a

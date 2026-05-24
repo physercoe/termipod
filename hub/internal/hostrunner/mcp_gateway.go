@@ -28,6 +28,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +39,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // socketPath returns the UDS path for a given agent. We keep this in
@@ -67,6 +69,23 @@ type McpGateway struct {
 	// won't reference them for those spawns either).
 	HookSink HookSink
 
+	// StatusLineSink, when non-nil, is invoked by the status_line tool
+	// handler (ADR-036 W1) IN ADDITION to the default-path PostAgentEvent
+	// emission. The runner wires this for M4 LocalLogTail claude-code
+	// spawns so the adapter can react to session_id rotation in-process
+	// (ADR-036 W3) without polling the hub. Sink == nil falls back to
+	// "post the event and move on" — keeps the gateway useful for
+	// engines that don't need in-process rotation handling.
+	StatusLineSink StatusLineSink
+
+	// statusLineDedupe holds the 1s identical-payload dedupe state for
+	// status_line emissions (ADR-036 D3). Per-spawn — one gateway, one
+	// dedupe window. Mutex-guarded so concurrent UDS calls (rare given
+	// the verified one-PID-per-fire shape, but possible) don't race.
+	statusLineMu       sync.Mutex
+	statusLineLastSHA  [32]byte
+	statusLineLastEmit time.Time
+
 	mu     sync.Mutex
 	closed bool
 	conns  map[net.Conn]struct{}
@@ -81,6 +100,19 @@ type McpGateway struct {
 // the JSON-RPC body the gateway relays to claude-code.
 type HookSink interface {
 	OnHook(ctx context.Context, name string, payload map[string]any) (map[string]any, error)
+}
+
+// StatusLineSink is the gateway-side seam to the M4 LocalLogTail
+// claude-code adapter (ADR-036 W3). The gateway calls OnStatusLine
+// for every non-deduped status_line frame. The sink is for in-process
+// side effects (today: session_id rotation handler re-points the
+// JSONL tailer); the gateway ALWAYS posts the AgentEvent itself, so
+// the sink does NOT need to call PostAgentEvent — different from
+// HookSink, which owns the post. This split keeps the rotation
+// handler in W3 a pure observer without coupling it to the hub
+// client.
+type StatusLineSink interface {
+	OnStatusLine(ctx context.Context, payload map[string]any)
 }
 
 // StartGateway starts a per-agent MCP gateway on a UDS. The returned cleanup
@@ -458,6 +490,16 @@ func gatewayToolDefs() []map[string]any {
 		},
 	}
 	defs = append(defs, claudeHookToolDefs()...)
+	defs = append(defs, map[string]any{
+		"name": "status_line",
+		"description": "claude-code statusLine periodic snapshot (ADR-036 W1); " +
+			"posted by the status-fire shim once per status-row refresh.",
+		"inputSchema": map[string]any{
+			"type":                 "object",
+			"properties":           map[string]any{},
+			"additionalProperties": true,
+		},
+	})
 	return defs
 }
 
@@ -484,6 +526,9 @@ func (g *McpGateway) dispatchTool(params json.RawMessage) (any, *gwRespError) {
 		return g.forwardDocumentCreate(call.Arguments)
 	case "hub.review_create":
 		return g.forwardReviewCreate(call.Arguments)
+
+	case "status_line":
+		return g.dispatchStatusLine(call.Arguments)
 
 	default:
 		if _, isHook := claudeHookToolNames[call.Name]; isHook {
@@ -554,6 +599,88 @@ func (g *McpGateway) dispatchHookTool(name string, raw json.RawMessage) (any, *g
 		resp = map[string]any{}
 	}
 	return mcpGWResultJSON(resp), nil
+}
+
+// dispatchStatusLine handles the periodic statusLine MCP call posted
+// by the status-fire shim (ADR-036 W1). It:
+//
+//  1. Decodes the payload (best-effort — malformed payloads emit an
+//     empty AgentEvent rather than dropping the fire, so chips that
+//     only depend on payload presence stay live).
+//  2. Applies the 1s identical-payload dedupe (ADR-036 D3) — the
+//     turn-end double (host-verified, ~0.3s apart, identical bytes)
+//     is the load-bearing case this catches; idle bursts are also
+//     suppressed.
+//  3. POSTs an `AgentEvent{kind:"status_line", producer:"agent",
+//     payload:<verbatim>}` to the hub via hubClient.PostAgentEvent.
+//  4. If StatusLineSink is non-nil, notifies it (in-process side
+//     effects like W3's session_id rotation handler). The sink runs
+//     synchronously so the rotation handler can re-point its tailer
+//     before the next status_line arrives.
+//
+// The dispatched response is intentionally tiny — the shim discards
+// it anyway. Errors mid-pipeline (dedupe race, hub post failure) are
+// logged via the gateway's normal error return; the shim's
+// best-effort exit code 0 hides them from claude.
+func (g *McpGateway) dispatchStatusLine(raw json.RawMessage) (any, *gwRespError) {
+	// Decode for the sink + the dedupe SHA. We keep the original raw
+	// bytes for the hub post so we don't re-marshal (which could
+	// reorder keys and break field-level diffing on the consumer side
+	// in future).
+	var payload map[string]any
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			// Treat malformed as empty — the shim already coerces, but
+			// belt-and-braces: a malformed frame shouldn't kill the
+			// channel. Still post an empty event so the mapper sees the
+			// fire (useful for liveness diagnostics).
+			payload = map[string]any{}
+			raw = json.RawMessage("{}")
+		}
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+
+	// Dedupe — SHA over the raw bytes (post-marshal would be unstable
+	// across go's map iteration). The hash domain is "received raw
+	// payload"; same key, same SHA, regardless of decoder behaviour.
+	sum := sha256.Sum256(raw)
+	now := time.Now()
+	g.statusLineMu.Lock()
+	dedupe := sum == g.statusLineLastSHA && now.Sub(g.statusLineLastEmit) < time.Second
+	if !dedupe {
+		g.statusLineLastSHA = sum
+		g.statusLineLastEmit = now
+	}
+	g.statusLineMu.Unlock()
+	if dedupe {
+		return mcpGWResultJSON(map[string]any{"deduped": true}), nil
+	}
+
+	// Hub post. Best-effort — a transient hub blip shouldn't make the
+	// shim retry; statusLine fires every ~10s anyway, so a missed
+	// frame just means the chip lags by one tick. We surface the error
+	// via the gateway's normal error path so the gateway's logger
+	// (when wired) sees it, but the shim's exit-0 contract hides it
+	// from claude.
+	if g.hubClient != nil {
+		if err := g.hubClient.PostAgentEvent(
+			context.Background(), g.AgentID, "status_line", "agent", payload,
+		); err != nil {
+			// Don't gwRespError-return — that'd make the shim log a
+			// stderr line every 10s during a hub outage. Quiet drop.
+			_ = err
+		}
+	}
+
+	// In-process side effects (W3 rotation handler). Run synchronously
+	// so the next status_line frame sees the post-rotation state.
+	if g.StatusLineSink != nil {
+		g.StatusLineSink.OnStatusLine(context.Background(), payload)
+	}
+
+	return mcpGWResultJSON(map[string]any{"ok": true}), nil
 }
 
 // --- hub.* forwards ---

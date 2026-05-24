@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -190,4 +191,173 @@ func randID(t *testing.T) string {
 	t.Helper()
 	// time.Now().UnixNano() is monotonic enough for test-level uniqueness.
 	return time.Now().Format("150405.000000000")
+}
+
+// --- ADR-036 W1: status_line ---
+
+// Counting hub. Records every PostAgentEvent the gateway forwards
+// (used to assert dedupe drops the second of two identical fires
+// within 1s, and ALSO that two DIFFERENT fires both make it through).
+type countingHub struct {
+	server *httptest.Server
+	posts  atomic.Int32
+	bodies []string
+	mu     sync.Mutex
+}
+
+func newCountingHub(t *testing.T) *countingHub {
+	t.Helper()
+	ch := &countingHub{}
+	ch.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		ch.posts.Add(1)
+		ch.mu.Lock()
+		ch.bodies = append(ch.bodies, string(body))
+		ch.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"ev-1"}`))
+	}))
+	t.Cleanup(ch.server.Close)
+	return ch
+}
+
+// Both: the status_line tool catalog entry is present in tools/list,
+// AND consecutive identical fires within 1s are deduped by the
+// gateway (only the first forwards to the hub).
+func TestGateway_StatusLine_DedupeIdentical(t *testing.T) {
+	hub := newCountingHub(t)
+	hubClient := NewClient(hub.server.URL, "host-runner-secret", "teamA")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	g, cleanup, err := StartGateway(ctx, "agent-"+randID(t), hubClient)
+	if err != nil {
+		t.Fatalf("StartGateway: %v", err)
+	}
+	defer cleanup()
+
+	// 1. catalog presence.
+	conn, r := dialGateway(t, g)
+	writeJRPCLine(t, conn, "tools/list", 1, map[string]any{})
+	resp := readJRPCLine(t, r)
+	result, _ := resp["result"].(map[string]any)
+	tools, _ := result["tools"].([]any)
+	var sawStatus bool
+	for _, tr := range tools {
+		m, _ := tr.(map[string]any)
+		if name, _ := m["name"].(string); name == "status_line" {
+			sawStatus = true
+		}
+	}
+	if !sawStatus {
+		t.Fatal("status_line tool missing from tools/list catalog")
+	}
+
+	// 2. fire twice with identical payload within 1s.
+	payload := map[string]any{
+		"session_id":     "abc",
+		"model":          map[string]any{"id": "claude-opus-4-7"},
+		"context_window": map[string]any{"context_window_size": 1_000_000},
+	}
+	conn2, r2 := dialGateway(t, g)
+	writeJRPCLine(t, conn2, "tools/call", 2, map[string]any{
+		"name": "status_line", "arguments": payload,
+	})
+	_ = readJRPCLine(t, r2)
+	_ = conn2.Close()
+
+	conn3, r3 := dialGateway(t, g)
+	writeJRPCLine(t, conn3, "tools/call", 3, map[string]any{
+		"name": "status_line", "arguments": payload,
+	})
+	resp2 := readJRPCLine(t, r3)
+	_ = conn3.Close()
+
+	// Brief wait — the hub POST is best-effort and happens after the
+	// MCP reply; give it a slice to land.
+	time.Sleep(50 * time.Millisecond)
+
+	if got := hub.posts.Load(); got != 1 {
+		t.Errorf("posts forwarded = %d, want 1 (second identical fire should dedupe)", got)
+	}
+	// The deduped response should advertise itself for diagnostic
+	// purposes (lets the shim's stderr log distinguish dedupe from
+	// transport failure if we ever flip to non-best-effort).
+	result2, _ := resp2["result"].(map[string]any)
+	contentArr2, _ := result2["content"].([]any)
+	first2, _ := contentArr2[0].(map[string]any)
+	if text, _ := first2["text"].(string); !strings.Contains(text, "deduped") {
+		t.Errorf("deduped response missing flag: %q", text)
+	}
+
+	// 3. fire a DIFFERENT payload — must pass.
+	conn4, r4 := dialGateway(t, g)
+	writeJRPCLine(t, conn4, "tools/call", 4, map[string]any{
+		"name": "status_line",
+		"arguments": map[string]any{
+			"session_id": "new-session-after-clear",
+			"model":      map[string]any{"id": "claude-sonnet-4-6"},
+		},
+	})
+	_ = readJRPCLine(t, r4)
+	_ = conn4.Close()
+	time.Sleep(50 * time.Millisecond)
+
+	if got := hub.posts.Load(); got != 2 {
+		t.Errorf("after differing fire, posts = %d, want 2", got)
+	}
+}
+
+// The optional StatusLineSink is invoked with the decoded payload
+// (W3 will register the LocalLogTail adapter as the sink for
+// session_id rotation handling).
+func TestGateway_StatusLine_SinkReceivesPayload(t *testing.T) {
+	hub := newCountingHub(t)
+	hubClient := NewClient(hub.server.URL, "host-runner-secret", "teamA")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	g, cleanup, err := StartGateway(ctx, "agent-"+randID(t), hubClient)
+	if err != nil {
+		t.Fatalf("StartGateway: %v", err)
+	}
+	defer cleanup()
+
+	var got map[string]any
+	var mu sync.Mutex
+	g.StatusLineSink = statusLineSinkFunc(func(_ context.Context, p map[string]any) {
+		mu.Lock()
+		got = p
+		mu.Unlock()
+	})
+
+	conn, r := dialGateway(t, g)
+	writeJRPCLine(t, conn, "tools/call", 1, map[string]any{
+		"name": "status_line",
+		"arguments": map[string]any{
+			"session_id":      "ses-1",
+			"transcript_path": "/path/to/ses-1.jsonl",
+		},
+	})
+	_ = readJRPCLine(t, r)
+	time.Sleep(20 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if got == nil {
+		t.Fatal("sink not invoked")
+	}
+	if sid, _ := got["session_id"].(string); sid != "ses-1" {
+		t.Errorf("sink got wrong session_id: %v", got)
+	}
+}
+
+// statusLineSinkFunc adapts a closure to the StatusLineSink interface
+// for test wiring without a real adapter.
+type statusLineSinkFunc func(context.Context, map[string]any)
+
+func (f statusLineSinkFunc) OnStatusLine(ctx context.Context, p map[string]any) {
+	f(ctx, p)
 }

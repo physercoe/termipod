@@ -1,9 +1,9 @@
 # claude-code statusLine as telemetry
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-24)
+> **Status:** In flight (2026-05-24) — Phase A W1 shipped (v1.0.696-alpha); W2 + W3 next
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.695 (hub) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.696 (hub) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -26,7 +26,11 @@ W3's /clear fix on its own merit.
 
 - **W1 — `host-runner status-fire` shim + settings.local.json install
   + gateway handler + emit `status_line` event (with 1s identical-
-  payload dedupe).**
+  payload dedupe).** ✓ Shipped v1.0.696-alpha. Pre-W3 hook
+  `StatusLineSink` interface defined; nil-sink fallback ships the
+  default "post-and-move-on" behaviour. Probe-time scenarios
+  (long mid-turn cadence, user-global-settings-already-set) deferred
+  to on-host smoke alongside W3.
   - New subcommand registered at
     `hub/cmd/host-runner/main.go:88` (mirror `hook-fire`'s case
     branch). New package `hub/internal/statusfire/run.go` (sister to

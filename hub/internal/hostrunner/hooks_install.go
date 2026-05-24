@@ -312,6 +312,101 @@ func removeManagedFromDisabled(prior any) []any {
 // claude-code parses each `command` with POSIX sh, so any whitespace
 // or special chars in the path would otherwise break the argv split.)
 
+// installClaudeStatusLine merges a `statusLine` block into
+// `<workdir>/.claude/settings.local.json` pointing at the host-runner
+// `status-fire` shim against the per-spawn UDS gateway (ADR-036 W1).
+//
+// Idempotent + wrap-and-passthrough:
+//
+//  - If no prior statusLine block exists, we write ours with the
+//    `_termipod_managed: true` marker.
+//
+//  - If a prior statusLine block exists AND it's already marked
+//    `_termipod_managed: true`, we just update the `command` line
+//    (the UDS path may have changed across spawns).
+//
+//  - If a prior statusLine block exists and is NOT marked managed,
+//    it's an OPERATOR config we must respect. We wrap-and-passthrough:
+//    record the operator's `command` under `_termipod_wrapped_command`
+//    on our marker block, and the shim's `--wrap <cmd>` flag invokes
+//    it after posting telemetry to the gateway (the operator's stdout
+//    becomes the rendered status text). Operator config stays visible;
+//    telemetry is additive (ADR-036 D1).
+//
+// hostRunnerExe + udsSocket parameterise the spawned shim command,
+// same shape as installClaudeHooks above. Atomic write via
+// atomicWriteFile so the file is never observed half-written.
+func installClaudeStatusLine(workdir, hostRunnerExe, udsSocket string) error {
+	claudeDir := filepath.Join(workdir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir .claude: %w", err)
+	}
+	target := filepath.Join(claudeDir, "settings.local.json")
+
+	settings := map[string]any{}
+	if raw, err := os.ReadFile(target); err == nil {
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &settings); err != nil {
+				return fmt.Errorf("parse existing %s: %w", target, err)
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", target, err)
+	}
+
+	// Determine the operator-wrapped command, if any. We only wrap a
+	// prior block we didn't author; an already-managed block just
+	// gets re-stamped with the current UDS path.
+	var wrappedCmd string
+	if prior, ok := settings["statusLine"].(map[string]any); ok {
+		managed, _ := prior[termipodManagedKey].(bool)
+		if !managed {
+			// Operator config — record their `command` so the shim can
+			// passthrough. We don't try to parse out their type/etc;
+			// `type: "command"` is the only supported value today and
+			// that's what we re-emit.
+			if priorCmd, _ := prior["command"].(string); priorCmd != "" {
+				wrappedCmd = priorCmd
+			}
+		} else {
+			// Already managed — preserve any prior wrapped command we
+			// recorded on a previous spawn (operator might have set it
+			// before we ever touched the file, and a re-install
+			// shouldn't drop the wrapper).
+			if priorWrap, _ := prior["_termipod_wrapped_command"].(string); priorWrap != "" {
+				wrappedCmd = priorWrap
+			}
+		}
+	}
+
+	cmd := fmt.Sprintf("%s status-fire --socket %s",
+		hostRunnerExe, shellQuote(udsSocket))
+	if wrappedCmd != "" {
+		// shellQuote handles single-quote escaping for paths; the wrap
+		// value is an arbitrary shell command, so it gets the same
+		// treatment (claude-code parses `command` with POSIX sh).
+		cmd = fmt.Sprintf("%s --wrap %s", cmd, shellQuote(wrappedCmd))
+	}
+
+	block := map[string]any{
+		"type":             "command",
+		"command":          cmd,
+		termipodManagedKey: true,
+	}
+	if wrappedCmd != "" {
+		// Preserve the wrapped command so a re-install (which may pass
+		// us no operator context) doesn't lose it.
+		block["_termipod_wrapped_command"] = wrappedCmd
+	}
+	settings["statusLine"] = block
+
+	body, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(target, body, 0o644)
+}
+
 // atomicWriteFile writes body to <target>.<pid>.tmp then renames over
 // target. The rename is atomic on POSIX filesystems even across
 // crashes, so a half-written settings.local.json is never observable.

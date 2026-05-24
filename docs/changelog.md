@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.695
+> **Last verified vs code:** v1.0.696
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,74 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.696-alpha — 2026-05-24
+
+**ADR-036 Phase A W1: host-runner `status-fire` shim + UDS gateway
+status_line tool + per-spawn dedupe + settings.local.json install.**
+First wedge of the claude-code statusLine telemetry rollout. The hub
+side of the wire now has everything it needs to receive periodic
+statusLine snapshots from M4 LocalLogTail claude-code spawns; mapper
++ adapter consumers land in W2/W3 next.
+
+### Added
+
+- `hub/internal/statusfire/run.go` (+201 lines) — new package backing
+  the `host-runner status-fire` subcommand. Reads claude-code's
+  statusLine JSON from stdin, posts it as a JSON-RPC `tools/call
+  status_line` to the per-spawn UDS gateway, prints a single line to
+  stdout for claude to render. Best-effort by design — transport
+  failures degrade quietly (exit 0 + stderr note) because the ~10s
+  cadence makes loud failures intolerable in the TUI. Carries a
+  `--wrap` flag for operator-set statusLine passthrough.
+- `hub/cmd/host-runner/main.go` — `status-fire` subcommand dispatch
+  (mirrors the `hook-fire` pattern; same multicall shape).
+- `hub/internal/hostrunner/mcp_gateway.go` — new `status_line` tool
+  in the catalog + `dispatchStatusLine` handler. 1s identical-payload
+  dedupe (SHA-keyed, per-spawn) catches the host-verified turn-end
+  doubles (~0.3s apart, identical bytes). On non-deduped fires,
+  forwards as `AgentEvent{kind:"status_line", producer:"agent"}` via
+  the existing hub client.
+- `hub/internal/hostrunner/mcp_gateway.go` — `StatusLineSink`
+  interface (forward-compat hook for W3's session_id rotation
+  handler). Sink is invoked SYNCHRONOUSLY after the hub post; nil
+  sink falls back to default "post and move on" behaviour.
+- `hub/internal/hostrunner/hooks_install.go` — new
+  `installClaudeStatusLine(workdir, hostRunnerExe, udsSocket)`.
+  Atomic-rename merge into `.claude/settings.local.json` alongside
+  the hooks block. Wrap-and-passthrough preserves operator-set
+  statusLine — operator's `command` is recorded under
+  `_termipod_wrapped_command` and re-emitted via the shim's `--wrap`
+  flag, so operator config stays visible while telemetry is additive.
+- `hub/internal/hostrunner/launch_m4_locallogtail.go` — call
+  `installClaudeStatusLine` right after `installClaudeHooks`. Failure
+  is non-fatal: the chip strip degrades to the pre-ADR-036
+  JSONL-derived baseline rather than blocking the spawn.
+
+### Tests
+
+- `hub/internal/statusfire/run_test.go` (2 cases) — round-trip via
+  fake UDS gateway; dial-error surface when socket gone.
+- `hub/internal/hostrunner/hooks_install_test.go` (4 new cases) —
+  cold install (no prior block, no --wrap), wraps operator-set
+  statusLine (records `_termipod_wrapped_command`, emits `--wrap`),
+  re-install preserves wrap across UDS-socket rotation, coexists
+  with `installClaudeHooks` (neither clobbers the other; reinstall
+  cycle stable).
+- `hub/internal/hostrunner/mcp_gateway_test.go` (2 new cases) —
+  catalog + dedupe (1st identical fire forwards; 2nd within 1s
+  drops with `deduped:true` flag; differing payload always forwards);
+  StatusLineSink invoked with the decoded payload.
+
+### Plan status
+
+[ADR-036 plan](plans/claude-code-statusline-as-telemetry.md) Phase A
+W1 ✓ shipped. W2 (mapper consumes `status_line`; relegate the
+context-window heuristic) and W3 (session_id rotation handler) next
+on the hub-only side; W4-W6 (mobile chips) follow once Phase A is
+complete.
 
 ---
 

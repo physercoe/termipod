@@ -508,6 +508,163 @@ func TestInstallClaudeHooks_PreservesUnrelatedManagedlessEntries(t *testing.T) {
 	}
 }
 
+// --- ADR-036 W1: installClaudeStatusLine ---
+
+// readStatusLine extracts the statusLine block from a settings file,
+// or nil if absent. Centralises the cast so individual tests stay
+// focused on the assertion.
+func readStatusLine(t *testing.T, path string) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("parse: %v (body=%s)", err, raw)
+	}
+	sl, _ := settings["statusLine"].(map[string]any)
+	return sl
+}
+
+// Cold install — no prior settings.local.json. The shipped block is
+// type:"command" pointing at `host-runner status-fire --socket <uds>`
+// and stamped with the _termipod_managed marker. No --wrap when
+// there's no operator config.
+func TestInstallClaudeStatusLine_NewFile(t *testing.T) {
+	workdir := t.TempDir()
+	if err := installClaudeStatusLine(workdir, testHookFireExe, testUDSPath); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	sl := readStatusLine(t, filepath.Join(workdir, ".claude", "settings.local.json"))
+	if sl == nil {
+		t.Fatal("statusLine block missing")
+	}
+	if typ, _ := sl["type"].(string); typ != "command" {
+		t.Errorf("type = %q, want command", typ)
+	}
+	cmd, _ := sl["command"].(string)
+	if !strings.Contains(cmd, "host-runner status-fire") {
+		t.Errorf("command missing shim invocation: %q", cmd)
+	}
+	if !strings.Contains(cmd, testUDSPath) {
+		t.Errorf("command missing UDS path: %q", cmd)
+	}
+	if strings.Contains(cmd, "--wrap") {
+		t.Errorf("cold install must NOT carry --wrap: %q", cmd)
+	}
+	if managed, _ := sl[termipodManagedKey].(bool); !managed {
+		t.Errorf("missing %s marker: %v", termipodManagedKey, sl)
+	}
+}
+
+// Wrap-and-passthrough: operator pre-set a statusLine command. Our
+// install records it under _termipod_wrapped_command and the shim
+// invocation carries `--wrap '<operator-command>'`. Operator config
+// stays visible; their script still runs after we post telemetry.
+func TestInstallClaudeStatusLine_WrapsOperatorCommand(t *testing.T) {
+	workdir := t.TempDir()
+	claudeDir := filepath.Join(workdir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	operator := "/usr/local/bin/my-status.sh"
+	existing := []byte(`{"statusLine": {"type": "command", "command": "` + operator + `"}}`)
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.local.json"), existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installClaudeStatusLine(workdir, testHookFireExe, testUDSPath); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	sl := readStatusLine(t, filepath.Join(claudeDir, "settings.local.json"))
+	if sl == nil {
+		t.Fatal("statusLine block dropped")
+	}
+	wrapped, _ := sl["_termipod_wrapped_command"].(string)
+	if wrapped != operator {
+		t.Errorf("operator command not recorded: %q (want %q)", wrapped, operator)
+	}
+	cmd, _ := sl["command"].(string)
+	if !strings.Contains(cmd, "--wrap") {
+		t.Errorf("command missing --wrap: %q", cmd)
+	}
+	if !strings.Contains(cmd, operator) {
+		t.Errorf("command missing operator path: %q", cmd)
+	}
+	if managed, _ := sl[termipodManagedKey].(bool); !managed {
+		t.Errorf("missing %s marker after wrap: %v", termipodManagedKey, sl)
+	}
+}
+
+// Idempotent re-install over our OWN prior block: the UDS path
+// updates (every spawn has a fresh socket) but a previously-recorded
+// wrapped command survives. Lets a host-runner re-spawn refresh the
+// socket without dropping the operator wrap.
+func TestInstallClaudeStatusLine_ReinstallPreservesWrap(t *testing.T) {
+	workdir := t.TempDir()
+	claudeDir := filepath.Join(workdir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a prior install that wrapped an operator command.
+	operator := "/usr/local/bin/my-status.sh"
+	existing := []byte(`{"statusLine": {
+		"type": "command",
+		"command": "host-runner status-fire --socket /tmp/old.sock --wrap '` + operator + `'",
+		"` + termipodManagedKey + `": true,
+		"_termipod_wrapped_command": "` + operator + `"
+	}}`)
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.local.json"), existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	newUDS := "/tmp/termipod-agent-xyz.sock"
+	if err := installClaudeStatusLine(workdir, testHookFireExe, newUDS); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	sl := readStatusLine(t, filepath.Join(claudeDir, "settings.local.json"))
+	wrapped, _ := sl["_termipod_wrapped_command"].(string)
+	if wrapped != operator {
+		t.Errorf("wrap dropped on re-install: %q (want %q)", wrapped, operator)
+	}
+	cmd, _ := sl["command"].(string)
+	if !strings.Contains(cmd, newUDS) {
+		t.Errorf("new UDS path not stamped: %q", cmd)
+	}
+	if strings.Contains(cmd, "/tmp/old.sock") {
+		t.Errorf("stale UDS path retained: %q", cmd)
+	}
+}
+
+// installClaudeStatusLine MUST coexist with installClaudeHooks on the
+// same file — neither clobbers the other's keys, and the existing
+// `hooks` block survives a status-line install.
+func TestInstallClaudeStatusLine_CoexistsWithHooks(t *testing.T) {
+	workdir := t.TempDir()
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
+		t.Fatalf("hooks install: %v", err)
+	}
+	if err := installClaudeStatusLine(workdir, testHookFireExe, testUDSPath); err != nil {
+		t.Fatalf("status install: %v", err)
+	}
+	p := readSettings(t, filepath.Join(workdir, ".claude", "settings.local.json"))
+	if len(p.Hooks) != 9 {
+		t.Errorf("hooks dropped by statusLine install: %d events", len(p.Hooks))
+	}
+	if p.StatusLine == nil {
+		t.Error("statusLine not installed alongside hooks")
+	}
+	// Re-installing hooks must NOT clobber the statusLine block either.
+	if err := installClaudeHooks(workdir, testHookFireExe, testUDSPath); err != nil {
+		t.Fatalf("re-install hooks: %v", err)
+	}
+	sl := readStatusLine(t, filepath.Join(workdir, ".claude", "settings.local.json"))
+	if sl == nil {
+		t.Error("statusLine dropped by hooks re-install")
+	}
+}
+
 // The merge helpers must round-trip JSON values cleanly — encoding a
 // []any of strings emits a JSON array of strings (not numeric indices
 // or a stringified map). Locks the surface against accidental

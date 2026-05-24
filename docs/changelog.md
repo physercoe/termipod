@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.678
+> **Last verified vs code:** v1.0.679
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,62 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.679-alpha — 2026-05-24
+
+ADR-030 Phase 1 W6 — second per-kind apply function: `phase.advance`.
+Workers and stewards can now propose a project-phase transition with
+optimistic-concurrency safety (caller stakes `from_phase`; Apply
+rejects on mismatch).
+
+### Added
+
+- `hub/internal/server/apply_phase_advance.go` — registers
+  `phase.advance` via `init()`. Mirrors the W5 shape (Validate /
+  DryRun / Apply); rejects on stale `from_phase` so racing
+  approvals don't silently apply against the wrong starting state.
+  No-op (from == to) short-circuits without row touch or audit
+  emission, same as W5.
+- `loadProjectPhaseRowAnyTeam` helper — cross-team variant of
+  `loadProjectPhaseRow` used by DryRun (which doesn't have a team
+  to scope on). Apply itself ALWAYS uses the scoped loader since
+  `ac.Team` is the authoritative scope; cross-team lookups would
+  fail closed there.
+- `hub/internal/server/apply_phase_advance_test.go` — 9 cases:
+  registered-at-init; Validate (5 sub-cases); DryRun preview;
+  DryRun flags from_phase drift; Apply happy-path (history append
+  + audit lineage); stale-from_phase rejection + unchanged-state
+  invariant; no-op short-circuit; empty from_phase skips the
+  optimistic check; wrong-team not-found.
+
+### Changed
+
+- `pubspec.yaml` 1.0.678 → 1.0.679-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` +
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.679. Plan W6 rewritten to record the two ship-time design
+  calls (audit action stays `project.phase_advanced` not
+  `phase_set`; criteria gating not enforced at Apply since the
+  approver IS the gate). New verify symbol anchor on
+  `applyPhaseAdvance`.
+- `docs/doc-spec.md` — stamp bumped v1.0.673 → v1.0.679. The
+  freshness mechanism flagged it as `stale-contract` on this PR;
+  no content drift, just acknowledging the contract.
+- 17 anchors total now, all green.
+
+### Notes
+
+- Audit-action choice: `project.phase_advanced`, not `phase_set`.
+  The legacy `phase_set` action is for NULL → first-phase
+  hydration; propose never reaches that path (initial hydration
+  happens at project-create).
+- Acceptance-criteria gating is intentionally NOT enforced at
+  Apply time. The legacy REST endpoint 409s on pending criteria;
+  here, the principal IS the gate — if they approve, they're
+  explicitly overriding criteria. The propose `reason` field
+  should make that clear.
 
 ---
 

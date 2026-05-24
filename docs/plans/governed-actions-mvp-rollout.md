@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.678-alpha
+> **Last verified vs code:** v1.0.679-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -321,21 +321,49 @@ shipped as `handlers_propose.go::checkProposeScope`:
   example registrations (`// RegisterProposeKind(ProposeKind{...})`)
   no longer pollute the registry count.
 
-**W6. Apply function — `phase.advance` (~70 LOC + 50 LOC tests).**
+**W6. Apply function — `phase.advance` (~220 LOC + ~250 LOC tests). Shipped v1.0.679-alpha.**
 
-- `hub/internal/server/apply_phase_advance.go` (new).
-- Calls into existing phase-set code (`handlers_projects.go`
-  `setProjectPhase` or equivalent — same internal-callable
-  variant pattern).
-- Validates that `from_phase` matches current; advances to
-  `to_phase`; records `audit_events.action="project.phase_set"`
-  with `meta.via="propose"`.
-- DryRun: returns `{from_phase, to_phase, project_id, project_title}`.
-- Tests:
-  - Happy path.
-  - Stale `from_phase` (project already advanced) → reject at
-    apply with descriptive error.
-  - dry_run + reject paths.
+- `hub/internal/server/apply_phase_advance.go` <!-- verify symbol hub/internal/server/apply_phase_advance.go applyPhaseAdvance --> —
+  registers `phase.advance` via `init()` with Validate / DryRun /
+  Apply.
+- **Two design calls at ship time.**
+  1. **Audit action: `project.phase_advanced`, not `phase_set`.**
+     The legacy endpoint emits `phase_set` for NULL → first-phase
+     hydration and `phase_advanced` for gate-cleared advances; only
+     the second is reachable via propose (initial hydration goes
+     through project-create, not propose). Stay strict on
+     `project.phase_advanced` so the activity feed reads
+     consistently.
+  2. **Acceptance-criteria gating not enforced at Apply.** The
+     legacy endpoint 409s when required criteria are pending; here
+     the approver IS the gate — if the principal approves a phase
+     advance, they're explicitly overriding criteria. The propose
+     `reason` field should make that clear; the audit row carries
+     the same `via="propose"` stamp the W5 deliverable apply uses.
+- Validate: target_ref has `project_id`; change_spec has `to_phase`;
+  `from_phase` is optional.
+- DryRun: reads current phase + template phases and returns
+  `{project_id, from_phase, to_phase, no_op, to_phase_not_in_template,
+  from_phase_expected?, from_phase_drifted?}`. Two flags help the
+  proposer notice "you're about to walk off the template" /
+  "the project has advanced since you staked your propose".
+- Apply: re-reads under the row lock; rejects on stale `from_phase`
+  mismatch with `phase.advance: stale from_phase — proposed %q but
+  project is now at %q` (proposer can re-propose against the new
+  current); appends a `phaseTransition` to `phase_history`
+  (by_actor = decider handle, falling back to `"propose"`);
+  short-circuits no-op without row touch or audit emission.
+- **DryRun reads cross-team.** A new helper
+  `loadProjectPhaseRowAnyTeam` falls back when the apply context
+  doesn't yet know the team — Apply itself ALWAYS uses the scoped
+  `loadProjectPhaseRow` since `ac.Team` is the authoritative scope.
+- Tests (9): registered-at-init; Validate (5 sub-cases — happy /
+  happy-with-from / missing project_id / missing to_phase / empty
+  spec); DryRun preview shape; DryRun flags from_phase drift; Apply
+  happy path (history append + audit lineage); stale from_phase
+  rejection + unchanged-state invariant; no-op short-circuit (no
+  row mutation, no audit); empty from_phase skips optimistic check;
+  wrong-team not-found.
 
 **W7. Apply function — `task.set_status` (~60 LOC + 40 LOC tests).**
 

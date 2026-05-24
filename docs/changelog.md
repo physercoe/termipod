@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.669
+> **Last verified vs code:** v1.0.670
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,65 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.670-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #13 — context-window chip showed `<used>/200K`
+on a `claude-opus-4-7` spawn that actually has a 1M-token window
+(Max-tier OAuth account). v1.0.667 hardcoded 200K for every
+`claude-*` model; that under-counted by 5× for the Pro+/Max-tier
+1M-capable families and the chip's `%` then implied way less
+headroom than really existed.
+
+**Investigation source** (recorded so future updates know how to
+re-derive the mapping when Anthropic ships new models): claude-code
+binary string sweep on the dev box, 2026-05-24:
+
+- `function JG(model)` — claude's own context-window resolver.
+  Honours `CLAUDE_CODE_MAX_CONTEXT_TOKENS` env var first, then a
+  cascade of model + auth + beta-header checks, falling through to
+  `n56 = 200000`.
+- `function gm(model)` — returns true for 1M-capable models:
+  `claude-opus-4-7, claude-opus-4-6, claude-sonnet-4-6,
+  claude-sonnet-4-5, claude-sonnet-4-0`. False for haiku +
+  claude-3-* + older opus.
+- `function G7H(model)` — adds claude-opus-4-7 specifically when
+  auth provider is firstParty+wA() / anthropicAws / mantle.
+- `~/.claude.json::oauthAccount.organizationRateLimitTier` =
+  `default_claude_max_5x` on the dev box confirmed the user
+  qualifies for 1M.
+
+**Fixed.**
+
+- `mapper.go::claudeModelContextWindow(model)` now returns:
+  - the env override if `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is set
+    (same variable name claude-code honours; host-runner and
+    claude agree on the cap)
+  - 1,000,000 for the gm() set (exact-name match — a future
+    suffix lands in the 200K fallback until added explicitly)
+  - 200,000 for `claude-opus-4-0/4-1/4-5`, `claude-haiku-*`,
+    `claude-3-*`
+  - 0 for unknown identifiers (mobile suppresses the chip)
+
+**Test coverage.**
+
+- `TestMapLine_UsageCarriesContextWindowFromModel` swept to cover
+  9 models across the two buckets.
+- `TestMapLine_UsageRespectsEnvOverride` locks the env-var path.
+- `TestMapLine_UsageInvalidEnvFallsThroughToModelDefault` —
+  guards against a typo silencing the chip.
+
+**Known limitation.** For non-Max users running 1M-capable models,
+the chip will now over-count (show 1M cap when the account is
+actually capped at 200K). The fix would be to read
+`~/.claude.json::oauthAccount.organizationRateLimitTier` per spawn
+and gate the 1M decision on it; deferred — couples the hub to
+claude-code's config schema, and the operator workaround (export
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS=200000`) is one line. Over-count
+is operationally better than the pre-v1.0.670 under-count, which
+also failed silently when the operator hit the real cap claude saw.
 
 ---
 

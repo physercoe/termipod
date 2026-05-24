@@ -315,16 +315,36 @@ func TestMapLine_AssistantWithoutUsageEmitsOnlyContent(t *testing.T) {
 // v1.0.667 — usage events MUST carry context_window when the model
 // name resolves to a known capacity. Without it mobile's
 // context-utilisation chip suppresses itself entirely (cw==0 → no
-// tile). All current claude-* models are 200K.
+// tile).
+//
+// v1.0.670 split the mapping: 1M for claude-code's gm() set
+// (claude-opus-4-7, claude-opus-4-6, claude-sonnet-4-6/5/0); 200K
+// for everything else. Mirrors `JG(model)` in the claude binary
+// (v2.1.144 string sweep).
 func TestMapLine_UsageCarriesContextWindowFromModel(t *testing.T) {
-	for _, model := range []string{
-		"claude-opus-4-7",
-		"claude-sonnet-4-6",
-		"claude-haiku-4-5-20251001",
-		"claude-3-5-sonnet-20240620",
+	// Make sure no caller-set env var pollutes the test process —
+	// claudeModelContextWindow honours CLAUDE_CODE_MAX_CONTEXT_TOKENS
+	// as the highest-precedence override (matches claude-code).
+	t.Setenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "")
+	type modelCase struct {
+		model string
+		want  int
+	}
+	for _, tc := range []modelCase{
+		// 1M-capable (gm() set).
+		{"claude-opus-4-7", 1_000_000},
+		{"claude-opus-4-6", 1_000_000},
+		{"claude-sonnet-4-6", 1_000_000},
+		{"claude-sonnet-4-5", 1_000_000},
+		{"claude-sonnet-4-0", 1_000_000},
+		// 200K families.
+		{"claude-haiku-4-5-20251001", 200_000},
+		{"claude-opus-4-5", 200_000},
+		{"claude-opus-4-1", 200_000},
+		{"claude-3-5-sonnet-20240620", 200_000},
 	} {
 		raw := `{"type":"assistant","message":{
-			"model":"` + model + `",
+			"model":"` + tc.model + `",
 			"content":[{"type":"text","text":"x"}],
 			"usage":{"input_tokens":1,"output_tokens":1}
 		}}`
@@ -336,11 +356,59 @@ func TestMapLine_UsageCarriesContextWindowFromModel(t *testing.T) {
 			}
 		}
 		if usage == nil {
-			t.Fatalf("%s: usage not emitted: %+v", model, got)
+			t.Fatalf("%s: usage not emitted: %+v", tc.model, got)
 		}
-		if cw, _ := usage.Payload["context_window"].(int); cw != 200_000 {
-			t.Errorf("%s: context_window = %v, want 200000", model, usage.Payload["context_window"])
+		if cw, _ := usage.Payload["context_window"].(int); cw != tc.want {
+			t.Errorf("%s: context_window = %v, want %d",
+				tc.model, usage.Payload["context_window"], tc.want)
 		}
+	}
+}
+
+// v1.0.670 — CLAUDE_CODE_MAX_CONTEXT_TOKENS env override wins over
+// the per-model lookup. Honours claude-code's own escape hatch so
+// host-runner and claude agree on the cap.
+func TestMapLine_UsageRespectsEnvOverride(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "750000")
+	raw := `{"type":"assistant","message":{
+		"model":"claude-opus-4-7",
+		"content":[{"type":"text","text":"x"}],
+		"usage":{"input_tokens":1,"output_tokens":1}
+	}}`
+	got := mustMap(t, raw)
+	for _, ev := range got {
+		if ev.Kind != "usage" {
+			continue
+		}
+		if cw, _ := ev.Payload["context_window"].(int); cw != 750_000 {
+			t.Errorf("env override ignored; cw = %v, want 750000", ev.Payload["context_window"])
+		}
+	}
+}
+
+// Invalid env values (non-numeric, zero, negative) MUST fall through
+// to the per-model default — protects against a typo silencing the
+// chip entirely.
+func TestMapLine_UsageInvalidEnvFallsThroughToModelDefault(t *testing.T) {
+	for _, bad := range []string{"abc", "0", "-1", "  "} {
+		t.Run("env="+bad, func(t *testing.T) {
+			t.Setenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS", bad)
+			raw := `{"type":"assistant","message":{
+				"model":"claude-opus-4-7",
+				"content":[{"type":"text","text":"x"}],
+				"usage":{"input_tokens":1,"output_tokens":1}
+			}}`
+			got := mustMap(t, raw)
+			for _, ev := range got {
+				if ev.Kind != "usage" {
+					continue
+				}
+				if cw, _ := ev.Payload["context_window"].(int); cw != 1_000_000 {
+					t.Errorf("bad env %q: cw = %v, want 1000000 (model default)",
+						bad, ev.Payload["context_window"])
+				}
+			}
+		})
 	}
 }
 

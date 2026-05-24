@@ -2,6 +2,8 @@ package claudecode
 
 import (
 	"encoding/json"
+	"os"
+	"strconv"
 	"strings"
 )
 
@@ -182,17 +184,66 @@ func usageFromMessage(model string, raw json.RawMessage) *MappedEvent {
 // model identifier in tokens, or 0 if the identifier is unrecognised
 // (mobile then suppresses the chip rather than rendering a wrong %).
 //
-// Source: Anthropic public model docs (2026-05). claude-opus-4-*,
-// claude-sonnet-4-*, and claude-haiku-4-* all ship with a 200K
-// context window. claude-3-* are kept on the legacy 200K too. When a
-// new model size ships with a different capacity, add the prefix
-// here — keeping the map small + explicit so we don't fall back to
-// a wrong default.
+// Mirrors claude-code's own resolver (`JG(model)` in the
+// 2.1.144 binary):
+//
+//  1. `CLAUDE_CODE_MAX_CONTEXT_TOKENS` env var if set + parseable to
+//     a positive int (claude-code's own escape hatch; we honour the
+//     same variable name so host-runner + claude agree).
+//  2. 1M (1,000,000) for the models that claude-code's `gm()`
+//     reports as 1M-context-capable: claude-opus-4-7, claude-opus-4-6,
+//     claude-sonnet-4-6, claude-sonnet-4-5, claude-sonnet-4-0.
+//     These are the families Anthropic ships on Pro+/Max tiers
+//     with the 1M beta enabled by default for an OAuth account.
+//  3. 200,000 for known 200K-only families (claude-haiku-4-5,
+//     claude-opus-4-1/4-0/4-5, claude-3-*) — the n56 default in
+//     claude's binary.
+//  4. 0 for anything unrecognised — better blank than wrong.
+//
+// Pre-v1.0.670 hardcoded 200K for everything claude-*, so a
+// claude-opus-4-7 spawn on a Max plan showed `Nk/200K · <high pct>%`
+// while claude's own /context reported `Nk/1M · <low pct>%` — caught
+// on v1.0.669 dev-box smoke. Source: claude binary string sweep on
+// dev box, 2026-05-24 (`function JG(`, `function gm(`).
+//
+// Limitation: for non-Max users the 1M-capable models actually use
+// 200K. We can't tell from the model name alone; reading
+// `~/.claude.json::oauthAccount.organizationRateLimitTier` would
+// disambiguate but adds a per-spawn filesystem read + couples the
+// hub to claude-code's config schema. Most users on Pro+ get 1M
+// (which the env var override covers anyway); free-tier users on
+// 1M-capable models will see the chip overshoot — operationally
+// minor compared to the prior under-shoot.
 func claudeModelContextWindow(model string) int {
-	const k200 = 200_000
+	if env := strings.TrimSpace(os.Getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS")); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n > 0 {
+			return n
+		}
+	}
+	const (
+		k200 = 200_000
+		k1m  = 1_000_000
+	)
+	// 1M-capable models (claude-code's gm() set). Exact-match — a
+	// future suffix (e.g. claude-opus-4-7-20260601) lands in the
+	// fallback list below until added here explicitly.
+	for _, name := range []string{
+		"claude-opus-4-7",
+		"claude-opus-4-6",
+		"claude-sonnet-4-6",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4-0",
+	} {
+		if model == name {
+			return k1m
+		}
+	}
+	// 200K-only families. Prefix match so versioned variants
+	// (claude-3-5-sonnet-20240620 etc) catch the right bucket.
 	for _, prefix := range []string{
-		"claude-opus-",
-		"claude-sonnet-",
+		"claude-opus-4-0",
+		"claude-opus-4-1",
+		"claude-opus-4-5",
 		"claude-haiku-",
 		"claude-3-",
 	} {

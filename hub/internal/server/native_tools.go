@@ -258,6 +258,42 @@ func buildNativeTools() []nativeTool {
 			Handler: agentArgs((*Server).mcpDelegate),
 		},
 		{
+			Name:  "propose",
+			Short: "Propose a load-bearing change (deliverable state, task status, phase, …) for tiered approval.",
+			Description: "Generic governed-action verb (ADR-030). Raises a `propose` attention " +
+				"item carrying `change_kind`, `target_ref`, and `change_spec`; on approve the " +
+				"system applies the change via the registered apply function. Returns immediately " +
+				"with `{request_id, status: \"awaiting_response\"}`. END YOUR TURN AFTER CALLING. " +
+				"The authoriser's decision arrives as your next user turn. " +
+				"`dry_run: true` returns a preview without inserting a row. " +
+				"`addressee_tier` (optional) pins one of `worker|project-steward|general-steward|principal`; " +
+				"omit to use the per-kind default from team policy. Workers may only target their own " +
+				"`project_id`; stewards may cross projects.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind": map[string]any{
+						"type":        "string",
+						"description": "registered governed-action kind (e.g. 'deliverable.set_state', 'task.set_status')",
+					},
+					"target_ref": map[string]any{
+						"type":        "object",
+						"description": "per-kind target identifier; shape varies (e.g. {project_id, task_id})",
+					},
+					"change_spec": map[string]any{
+						"type":        "object",
+						"description": "per-kind mutation payload applied on approve",
+					},
+					"reason":         map[string]any{"type": "string"},
+					"addressee_tier": map[string]any{"type": "string"},
+					"dry_run":        map[string]any{"type": "boolean"},
+				},
+				"required": []string{"kind", "target_ref", "change_spec"},
+			},
+			Tier: TierSignificant, WorkerEligible: true,
+			Handler: teamAgentArgs((*Server).mcpPropose),
+		},
+		{
 			Name:  "request_approval",
 			Short: "Raise an approval attention item for the principal.",
 			Description: "Ask a human (or higher-tier agent) to approve an action. " +
@@ -602,6 +638,7 @@ var nativeToolMeta = map[string]struct {
 	"get_parent_thread":       {true, []string{"a2a_invoke", "agents_get"}},
 	"update_own_task_status":  {false, []string{"tasks_update", "tasks_complete"}},
 	"templates_propose":       {false, []string{"templates_agent_scaffold", "templates_agent_create"}},
+	"propose":                 {false, []string{"request_approval", "tasks_update", "templates_propose"}},
 	"pause_self":              {false, []string{"shutdown_self", "agents_terminate"}},
 	"shutdown_self":           {false, []string{"pause_self"}},
 	"permission_prompt":       {false, []string{"request_approval"}},

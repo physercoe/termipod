@@ -68,6 +68,7 @@ var toolTiers = map[string]string{
 	"update_own_task_status": TierRoutine,
 	"templates_propose":      TierSignificant, // proposes a team-wide change
 	"templates.propose":      TierSignificant, // legacy alias accepted by dispatch
+	"propose":                TierSignificant, // ADR-030 generic governed-action verb (W4)
 	"pause_self":             TierRoutine,
 	"shutdown_self":          TierSignificant, // irreversible self-terminate
 	"get_audit":              TierTrivial,

@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.676-alpha
+> **Last verified vs code:** v1.0.677-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -182,24 +182,29 @@ parent re-address to the parent steward.
   semantics in Option 2′ are "fire signal", not "move addressee",
   so a `principal`-default kind with the flag set is suspect.
 
-**W4. `propose` MCP verb + kind registry (~180 LOC).**
+**W4. `propose` MCP verb (~180 LOC + ~380 LOC tests). Shipped v1.0.677-alpha.**
 
+- `hub/internal/server/handlers_propose.go` <!-- verify symbol hub/internal/server/handlers_propose.go mcpPropose -->
+  — single handler; full propose pipeline (validate → scope check →
+  tier resolution → assignees → dry_run branch → row insert + audit).
+  Uses the W3 registry (`LookupProposeKind` / `ListProposeKinds`) +
+  W2 policy (`KindFor`) + W1 schema columns.
 - `hub/internal/server/native_tools.go` `buildNativeTools()` <!-- verify symbol hub/internal/server/native_tools.go buildNativeTools --> —
-  add the `propose` entry. **This is the single declaration point
-  for every native MCP tool per ADR-033** (shipped v1.0.631); the
-  tool entry carries the JSON schema, audience hint, and dispatch
-  arm. The ADR-030 plan was originally written against
-  `hub/internal/hubmcpserver/tools.go`; that file no longer carries
-  native-tool registration — `buildNativeTools()` is now the one
-  table (see `native_tools.go:101` doc comment).
-- `hub/internal/server/tiers.go` — add the tier entry. Suggested
-  tier: **`TierSignificant`** (mirrors the existing
-  `templates_propose` entry at `tiers.go:69` — propose-shaped tools
-  are tier-`Significant` because they raise an attention row).
-- `hub/internal/hubmcpserver/scaffolds_templates.go` — touch the
-  steward scaffold to enumerate `propose` in the steward's tool
-  list (mirrors how `templates.propose` is enumerated at
-  `scaffolds_templates.go:256`).
+  `propose` entry shipped with full JSON schema (kind / target_ref /
+  change_spec required; reason / addressee_tier / dry_run optional).
+  Audience: steward + worker via `WorkerEligible: true`. **This is
+  the single declaration point for every native MCP tool per
+  ADR-033** (shipped v1.0.631).
+- `hub/internal/server/tiers.go` — `propose` registered as
+  `TierSignificant` (mirrors `templates_propose`; propose raises an
+  attention row).
+- `nativeToolMeta` overlay — `propose` carries the ADR-031 D-1
+  SeeAlso list: `[request_approval, tasks_update, templates_propose]`.
+- (Deferred to a post-MVP polish wedge: per-engine prompt-scaffold
+  enumeration — `scaffolds_templates.go` doesn't carry a propose
+  reference. The agents that need propose will reach it via the
+  `tools/list` MCP catalog plus the `tools_get propose` lookup; the
+  scaffold-time tool listing is decorative.)
 - Audience: steward + worker (steward by default; worker only when
   `roles.yaml` allows the kind).
 - **Cross-project target check** (per 2026-05-20 pre-W1 decision #4).
@@ -222,35 +227,47 @@ parent re-address to the parent steward.
     steward proposing across projects (200); general steward
     proposing across projects (200); template.install with no
     `project_id` in target_ref (skip check, 200).
-- `hub/internal/server/handlers_propose.go` (new). Single
-  handler:
-  - Validate `kind` against the registered kinds.
-  - Resolve `addressee_tier`: caller hint > policy default.
-  - Compute `current_assignees_json` from tier resolution
-    (steward tiers → the relevant steward agent ID; principal
-    tier → `["@principal"]`).
-  - Insert `attention_items` row with `kind="propose"`,
-    `change_kind=<kind>`, `change_spec_json`, `target_ref_json`,
-    `assigned_tier`, `session_id` (from `lookupAgentSession`
-    so reply routing works), `pending_payload_json` for legacy
-    code paths that still scan it.
-  - If `dry_run=true`: call the apply function in *dry-run mode*
-    to produce a preview diff; embed it in the
-    `awaiting_response` payload.
-  - Return `{request_id, status:"awaiting_response", dry_run?}`.
-- `hub/internal/server/propose_kinds.go` (new). Registry:
-  ```go
-  type ProposeKind struct {
-      Kind     string
-      Apply    func(ctx context.Context, s *Server, targetRef, changeSpec json.RawMessage) (executed json.RawMessage, err error)
-      DryRun   func(ctx context.Context, s *Server, targetRef, changeSpec json.RawMessage) (preview json.RawMessage, err error)
-      Validate func(targetRef, changeSpec json.RawMessage) error
-  }
-  var proposeKinds = map[string]ProposeKind{}
-  func RegisterProposeKind(p ProposeKind) { proposeKinds[p.Kind] = p }
-  ```
-- Three new apply functions (W5, W6, W7 below) register into
-  this map via `func init()`. Aliases (W8) register too.
+- The handler order shipped at W4:
+  1. JSON-decode + presence check on `kind`.
+  2. `LookupProposeKind` against the registry; unknown → -32602
+     with the registered set echoed in the message.
+  3. Per-kind `Validate` hook (if registered).
+  4. `checkProposeScope` per pre-W1 decision #4 (see below).
+  5. Tier resolution: caller hint > `KindFor(...).DefaultTier` >
+     `GovTierPrincipal` permissive fallback. Unknown tiers
+     rejected with the valid set echoed.
+  6. `resolveAssigneesForTier` → current_assignees_json. For
+     `project-steward` tier with a live `findRunningProjectSteward`
+     hit, the live agent's handle lands; otherwise a symbolic
+     `@steward.project` / `@steward.general` / `@principal`
+     placeholder so the mobile card always has a legible
+     addressee.
+  7. `dry_run=true` → call registered `DryRun`, return
+     `{status:"dry_run", preview, would_address}` without insert.
+  8. INSERT into `attention_items` with the W1 columns
+     (change_kind, assigned_tier, change_spec_json,
+     target_ref_json) plus the legacy mirror in
+     `pending_payload_json`. `project_id` extracted from
+     `target_ref.project_id` so the project queue surfaces the row.
+  9. Audit row `propose.raised`.
+  10. Return `{request_id, kind:"propose", change_kind,
+      assigned_tier, status:"awaiting_response"}`.
+- W5/W6/W7 register their `Apply` functions into the registry via
+  `func init()`. W8 wires the /decide path to dispatch through the
+  registry to the per-kind Apply function on approve.
+
+**Cross-project target check** (per 2026-05-20 pre-W1 decision #4)
+shipped as `handlers_propose.go::checkProposeScope`:
+
+- Worker caller: `target_ref.project_id` MUST equal
+  `caller.project_id`; mismatch → -32602 with message
+  `"propose: out_of_scope — <kind> targets project P2 but caller is
+  bound to project P1"`.
+- Steward callers (kind matches `steward.v1` or `strings.HasPrefix
+  "steward."`) may cross projects.
+- The check skips when `target_ref` carries no `project_id`
+  (kind-specific shapes that operate above the project scope —
+  `template.install`, future `agent.archive`).
 
 **W5. Apply function — `deliverable.set_state` (~80 LOC + 60 LOC tests).**
 

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.676
+> **Last verified vs code:** v1.0.677
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,67 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.677-alpha — 2026-05-24
+
+ADR-030 Phase 1 W4 — the generic `propose` MCP verb. Workers and
+stewards can now raise a governed-action attention row carrying
+`change_kind`, `target_ref`, `change_spec`, `assigned_tier`, and a
+preview-capable `dry_run` branch. The decide path still resolves
+rows through the existing approve/reject handler; W5-W7 register
+the per-kind apply functions, W8 wires the decide-time dispatch.
+
+### Added
+
+- `hub/internal/server/handlers_propose.go` — `mcpPropose` plus
+  `checkProposeScope`, `resolveAssigneesForTier`,
+  `extractTargetProjectID`, `isStewardKind`, `isValidGovTier`,
+  `validGovTiers`. Pipeline: kind-registry lookup → per-kind
+  Validate hook → cross-project scope check (pre-W1 decision #4) →
+  addressee_tier resolution (caller hint > policy default >
+  permissive principal) → current_assignees_json via
+  `findRunningProjectSteward` for project-steward tier (symbolic
+  role-handle fall-through when no live agent matches) → dry_run
+  branch returns preview without insert → row INSERT carrying every
+  ADR-030 column + legacy `pending_payload_json` mirror → audit
+  row `propose.raised`.
+- `propose` entry in `buildNativeTools()` — full JSON schema (kind /
+  target_ref / change_spec required; reason / addressee_tier /
+  dry_run optional). `WorkerEligible: true`, `Tier: TierSignificant`.
+- `propose` entry in `tiers.go::toolTiers` as `TierSignificant`,
+  matching `templates_propose`.
+- `propose` entry in `nativeToolMeta` overlay — ADR-031 D-1 SeeAlso
+  list `[request_approval, tasks_update, templates_propose]`.
+- `hub/internal/server/handlers_propose_test.go` — 11 cases:
+  happy-path row shape; unknown kind echoes registered set;
+  dry_run returns preview without insert; worker cross-project
+  out_of_scope; steward cross-project allowed; no-project-id in
+  target_ref skips scope check; addressee_tier hint overrides
+  policy default; policy default chosen when no caller hint;
+  invalid tier rejected; Validate hook rejects malformed spec;
+  live project steward's handle appears in assignees when tier is
+  project-steward.
+
+### Changed
+
+- `pubspec.yaml` 1.0.676 → 1.0.677-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` +
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.677 per `Freshness: contract`. Plan W4 rewritten to record
+  shipped behaviour (handler step-order, scope-check semantics,
+  assignee fall-through) + new `verify symbol` anchor on
+  `mcpPropose`. 15 anchors total now, all green.
+
+### Notes
+
+- No `propose` kinds are registered yet — `propose` calls fail with
+  `unknown kind` until W5/W6/W7 land. The `propose` tool surface is
+  exposed in `tools/list` so operators can preview the schema.
+- `nativeToolMeta` overlay invariant
+  (`TestNativeToolMeta_EveryToolCovered`) caught the missing meta
+  row on first full-suite run; added before the commit.
 
 ---
 

@@ -9,13 +9,14 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > **Status:** Phase 1 + Phase 2 COMPLETE; Phase 3 in flight
 > (2026-05-24, v1.0.674-687). Phase 1: 11 hub wedges at v1.0.674-685.
 > Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile at
-> v1.0.687; W15 at v1.0.688; W16 (phase.advance card) + shared
-> visuals + W15-lint-warning fix at v1.0.689; W17-W21 remain.
+> v1.0.687; W15 at v1.0.688; W16 + shared visuals at v1.0.689;
+> W17 (task.set_status) + W16-lint-error fix at v1.0.690;
+> W18-W21 remain.
 > Reissued 2026-05-20 to absorb ADR-030 amendments (D-7 Option 2′,
 > ADR-032 envelope on fan-back, ADR-034 loop-entity overlap,
 > principal ≠ owner). Original: Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.689-alpha
+> **Last verified vs code:** v1.0.690-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -988,13 +989,32 @@ into the existing IA without rename or chip add:
   pill; from_phase omitted renders `→ to_phase` only (the forced-
   advance case).
 
-**W17. Per-kind propose card — `task.set_status` (~60 LOC).**
+**W17. Per-kind propose card — `task.set_status` (~125 LOC + 135 LOC test). Shipped v1.0.690-alpha.**
 
-- `lib/screens/me/widgets/propose_card_task.dart` (new).
-- Renders: task title + body preview, current status → proposed
-  status, result_summary text, "View task" link → task detail
-  screen.
-- **Stalled variant** as per W15.
+- `lib/screens/me/widgets/propose_card_task.dart` (new)
+  <!-- verify file lib/screens/me/widgets/propose_card_task.dart -->
+  — body: `→ status` (no from-side chip; task.set_status's
+  change_spec has no `from_status` field — Apply compares the row's
+  current status at runtime), result_summary as a wrapped
+  quote-block when present (recommended for `done`, allowed-but-
+  pointless for `cancelled`), task + project ids.
+- Registered in `propose_card_router.dart` under
+  `case 'task.set_status'`.
+- `test/screens/me/propose_card_task_test.dart` (new) — 7 widget
+  cases: primary variant shows Approve/Reject + status chip
+  (no from-side) + result_summary block + task/project ids; absent
+  result_summary stays hidden; stalled variant shows Override /
+  View task + Stuck pill.
+- **W16-lint-error fix.** v1.0.689's
+  `propose_card_visuals.dart` placed the `library;` directive
+  AFTER the imports (it was nested inside the file's docstring
+  so I'd expected it to count as a leading comment); flutter
+  analyze flagged it as `library_directive_not_first` (error
+  level — fatal), failing CI on the v1.0.689 push. Fixed by
+  moving `library;` to position 19 (right after the docstring,
+  before the first import). Sibling note: `propose_addressee.dart`
+  had the same `library;` placement but no imports follow, so it
+  was already lint-clean.
 
 **W18. Per-kind card — `worker_tool_call.escalate` (~40 LOC).**
 

@@ -1,10 +1,3 @@
-import 'dart:convert';
-
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-
-import '../../../theme/design_colors.dart';
-
 /// ADR-030 Phase 3 — shared visual + parsing helpers for the per-kind
 /// propose cards (W15-W18). Extracted once W16 (the second card) made
 /// the duplication concrete; W17/W18 inherit these for free.
@@ -19,11 +12,18 @@ import '../../../theme/design_colors.dart';
 ///   is computed at the caller (the row's `escalated_at` isn't yet
 ///   exposed on the wire — when W19.6-mobile lands the digest card,
 ///   the duration string flows in via a named param).
-/// - [TransitionChip] — the from→to chip pair pattern shared between
+/// - [TransitionChip] — the from-to chip pair pattern shared between
 ///   deliverable.set_state (state names), phase.advance (phase names),
 ///   and task.set_status (status names). One chip widget; the caller
 ///   passes label + emphasis colour family.
 library;
+
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../../../theme/design_colors.dart';
 
 Map<String, dynamic> decodeJsonObject(dynamic raw) {
   if (raw == null) return const {};

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.689
+> **Last verified vs code:** v1.0.690
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,47 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.690-alpha — 2026-05-24
+
+**ADR-030 Phase 3 W17: per-kind propose card for `task.set_status`** +
+fix for v1.0.689's `library_directive_not_first` lint error.
+
+### Added
+
+- `lib/screens/me/widgets/propose_card_task.dart` — body: `→ status`
+  (no from-side chip; task.set_status's change_spec has no
+  `from_status` field — the hub Apply compares the row's current
+  status at runtime), result_summary as a wrapped quote-block when
+  present (recommended for `done`, allowed-but-pointless for
+  `cancelled`), task + project ids stacked. Status chip uses the
+  blueGrey/slate family per the W16 visuals colour-family map.
+- `test/screens/me/propose_card_task_test.dart` — 7 widget cases:
+  primary variant + chip + summary block + ids + absent-summary
+  hidden + stalled variant + addressee pill.
+
+### Changed
+
+- `lib/screens/me/widgets/propose_card_router.dart` — task.set_status
+  registered alongside deliverable.set_state + phase.advance.
+
+### Fixed
+
+- v1.0.689's `propose_card_visuals.dart` placed the `library;`
+  directive AFTER the imports (it was tucked inside the file's
+  docstring, but Dart's parser counts the import block first).
+  Flutter analyze flagged it as `library_directive_not_first`
+  (error level — fatal under the project's `flutter analyze
+  --no-fatal-infos` config), failing CI on the v1.0.689 push.
+  Fixed by moving `library;` to position 19 (immediately after
+  the docstring, before the first import).
+
+### Forensics
+
+Mobile binary shifts (1 new card + 1 new test + router registration
++ visuals lint fix). Hub binary unchanged. pubspec 1.0.689 → 1.0.690.
 
 ---
 

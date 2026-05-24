@@ -14,7 +14,7 @@ description: Generalise apply-on-approve to a single MCP verb `propose(kind, tar
 > Option 2′; reconciliations with ADR-032 + ADR-034; principal vs
 > owner; line-ref drift fixed).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.636-alpha
+> **Last verified vs code:** v1.0.673-alpha
 
 **TL;DR.** Promote *apply-on-approve* from two bespoke branches
 (`approval_request+spawnIn` → `DoSpawn`; `template_proposal` →
@@ -779,11 +779,18 @@ without being relitigated here. For the record:
   to `hub/internal/server/native_tools.go`'s `buildNativeTools()` —
   ADR-033 (shipped v1.0.631) reorganised the tool catalog.
 - W10's `mcpPermissionPrompt` is at `mcp_more.go:687`, not `~1045`.
-- W12's bundled steward templates are **8 files**, not 5
-  (`steward.v1.md`, `steward.general.v1.md`,
+- W12's bundled steward templates are **9 files** as of v1.0.673
+  (was 5 in the original ADR draft; 8 before antigravity shipped at
+  v1.0.641 per ADR-035):
+  `steward.v1.md`, `steward.general.v1.md`,
   `steward.claude-m4.v1.md`, `steward.codex.v1.md`,
   `steward.gemini.v1.md`, `steward.kimi.v1.md`,
-  `steward.research.v1.md`, `steward.infra.v1.md`).
+  `steward.research.v1.md`, `steward.infra.v1.md`,
+  `steward.antigravity.v1.md`. The W10 strict same-project parent-
+  steward predicate is engine-neutral and applies uniformly to all 9
+  — antigravity's permission-prompt detector (deferred to ADR-035
+  W11) will route through `mcpPermissionPrompt` the same way the
+  other 4 engines do, so no per-engine carve-out is needed.
 - W13's scenarios renumber to S33-S40 — confirmed (highest
   existing is S32, ADR-034 stuck-task recovery).
 

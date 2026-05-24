@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.636-alpha
+> **Last verified vs code:** v1.0.673-alpha
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
 generalising apply-on-approve into a single MCP verb. Phase 1 is
@@ -34,7 +34,7 @@ motivation + prior-art audit in
 | Phase | Ship | Approx LOC | Depends on |
 |---|---|---|---|
 | 1 | Hub: schema migration (0045), `propose` MCP verb (with cross-project authz check), kind dispatcher, 3 apply functions, permission_prompt strict-parent re-addressing, override audit, alias compat, `kinds:` extension to existing `policy.yaml`, **loop-sweep escalation signal (audit-row only)**, tests | ~1080 | — |
-| 2 | Prompts: re-propose rule in **8** bundled steward templates; deprecate `request_approval+spawnIn` and `template_proposal` patterns in prompt prose; new test-steward-lifecycle scenarios | ~250 prose | Phase 1 |
+| 2 | Prompts: re-propose rule in **9** bundled steward templates (was 8 before antigravity at v1.0.641); deprecate `request_approval+spawnIn` and `template_proposal` patterns in prompt prose; new test-steward-lifecycle scenarios | ~270 prose | Phase 1 |
 | 3 | Mobile: per-kind propose card (4 cards, **each with stalled variant**), override affordance, decided-row visual, **`_filterForAttention('propose')` mapping**, **top-of-Me stalled-decisions digest card**, read-only viewer for the `kinds:` block of `policy.yaml` | ~400 | Phase 1 |
 
 Phase 1 closes the structural gap and unblocks every load-bearing
@@ -486,15 +486,16 @@ exercise each MVP kind end-to-end.
 
 ### 3.2 Wedges
 
-**W12. Re-propose rule in 8 bundled steward templates (~30 LOC prose × 8 files).**
+**W12. Re-propose rule in 9 bundled steward templates (~30 LOC prose × 9 files).**
 
-- Each of the eight bundled steward templates gains a short
+- Each of the nine bundled steward templates gains a short
   section under BOUNDARIES / Authority. The full set as of
-  v1.0.636 (verified against `hub/templates/prompts/`):
+  v1.0.673 (verified against `hub/templates/prompts/`):
   `steward.v1.md`, `steward.general.v1.md`,
   `steward.claude-m4.v1.md`, `steward.codex.v1.md`,
   `steward.gemini.v1.md`, `steward.kimi.v1.md`,
-  `steward.research.v1.md`, `steward.infra.v1.md`.
+  `steward.research.v1.md`, `steward.infra.v1.md`,
+  `steward.antigravity.v1.md` (added at v1.0.641 by ADR-035).
 
   > **Governed actions are gated.** For load-bearing state
   > changes — deliverable state transitions, project-phase

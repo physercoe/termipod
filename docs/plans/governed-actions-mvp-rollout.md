@@ -13,7 +13,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > overlap; principal ≠ owner) and fix file/line drift from
 > v1.0.620-636.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.679-alpha
+> **Last verified vs code:** v1.0.680-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -365,19 +365,37 @@ shipped as `handlers_propose.go::checkProposeScope`:
   row mutation, no audit); empty from_phase skips optimistic check;
   wrong-team not-found.
 
-**W7. Apply function — `task.set_status` (~60 LOC + 40 LOC tests).**
+**W7. Apply function — `task.set_status` (~210 LOC + ~330 LOC tests). Shipped v1.0.680-alpha.**
 
-- `hub/internal/server/apply_task_set_status.go` (new).
-- Extends ADR-029's existing `setTaskStatus` with a
-  `via="propose"` audit annotation; transitions only to
-  `done` or `cancelled` (auto-derive handles `in_progress` /
-  `blocked` per ADR-029 D-3).
-- DryRun: returns `{task_id, task_title, from_status, to_status}`.
-- Tests:
-  - Happy path → done with `result_summary`.
-  - cancelled path.
-  - Override-by-principal rolls back to prior status (W9
-    covers).
+- `hub/internal/server/apply_task_set_status.go` <!-- verify symbol hub/internal/server/apply_task_set_status.go applyTaskSetStatus --> —
+  registers `task.set_status` via `init()`.
+- **Narrowed status set.** Per ADR-029 D-3, propose only permits
+  `done` and `cancelled`. `in_progress` and `blocked` are
+  auto-derived by `deriveTaskStatusFromAgent` (spawn-lifecycle
+  watchers); proposing them would race the auto-derive and confuse
+  the audit timeline. The `todo` initial state is set at
+  task-create time and never re-entered. The Validate rejection
+  message names the forbidden status + the allowed set + the
+  ADR-029 D-3 reason so the agent re-proposes correctly.
+- Apply mirrors `handlePatchTask`'s status-flip branch: UPDATE
+  status + completed_at (terminal stamp, mandatory for both
+  done/cancelled) + result_summary (when provided; NULLIF semantics
+  preserve prior value when caller omits). Emits `task.status`
+  audit with from→to summary, then fires `notifyTaskAssigner` so
+  the steward who delegated the work sees the system message
+  inline (ADR-029 W2.9 up-edge). Both audit emission and assigner
+  notification mirror the legacy REST path exactly; the
+  discriminator is `meta.via="propose"`.
+- No-op (from == to) short-circuits without row touch or audit —
+  same pattern as W5/W6.
+- Tests (8): registered-at-init; Validate (9 sub-cases — 2 happy
+  + 3 missing-field + 4 reject-status); DryRun preview shape +
+  read-only; Apply done-with-result-summary (audit lineage,
+  completed_at stamp, result_summary persisted); Apply cancelled
+  (audit + stamp); Apply no-op (no row mutation, no audit); Apply
+  not-found; end-to-end propose-then-manual-Apply with request_id
+  round-trip into the audit meta and tier resolution through W4.
+- (W9 + override-rollback test deferred to W9 itself, per plan.)
 
 **W8. Deprecated propose-aliases for `agent.spawn` and `template.install` (~80 LOC + 60 LOC tests).**
 

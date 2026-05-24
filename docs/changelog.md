@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.679
+> **Last verified vs code:** v1.0.680
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,55 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.680-alpha — 2026-05-24
+
+ADR-030 Phase 1 W7 — third per-kind apply function: `task.set_status`.
+Workers and stewards can now propose closing a task (done or
+cancelled). The MVP triangle of governed-action kinds —
+deliverable.set_state, phase.advance, task.set_status — is complete
+on the apply side; W8 wires the alias dispatchers (agent.spawn,
+template.install) and the decide-time auto-dispatch.
+
+### Added
+
+- `hub/internal/server/apply_task_set_status.go` — registers
+  `task.set_status` via `init()`. Mirrors W5/W6 shape (Validate /
+  DryRun / Apply).
+- `hub/internal/server/apply_task_set_status_test.go` — 8 cases
+  (Validate has 9 sub-cases).
+
+### Changed
+
+- `pubspec.yaml` 1.0.679 → 1.0.680-alpha.
+- `docs/decisions/030-governed-actions-and-propose-verb.md` +
+  `docs/plans/governed-actions-mvp-rollout.md` — stamps bumped to
+  v1.0.680. Plan W7 rewritten to record the narrowed status set
+  (done|cancelled only) + Apply behaviour + assigner-notification
+  carry-over from the legacy path. New verify symbol anchor on
+  `applyTaskSetStatus`. 18 anchors total now, all green.
+
+### Notes
+
+- **Narrowed status set.** Per ADR-029 D-3, propose only permits
+  `done` and `cancelled`. `in_progress` and `blocked` are
+  auto-derived by `deriveTaskStatusFromAgent` (spawn-lifecycle
+  watchers); proposing them would race the auto-derive and
+  confuse the audit timeline. The `todo` initial state is set at
+  task-create time and never re-entered through propose. Validate
+  rejection message names the forbidden status + the allowed set
+  + the ADR-029 D-3 reason so the agent re-proposes correctly.
+- **notifyTaskAssigner carries over.** The legacy PATCH path fires
+  `notifyTaskAssigner` on terminal-status flip so the steward who
+  delegated hears about it inline. Apply does the same — same
+  best-effort semantics (silently degrades on missing assigner,
+  sleeping session, DB error).
+- **Registry now holds all 3 MVP kinds.** Lint reports
+  `registry=3` after this commit. With a policy.yaml fixture, the
+  bidirectional R⇄P check would now light up against missing
+  declarations.
 
 ---
 

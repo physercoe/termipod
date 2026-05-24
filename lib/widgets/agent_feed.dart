@@ -1059,6 +1059,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     int? perMessageInput;
     int? perMessageCacheRead;
     int? perMessageCacheCreate;
+    // v1.0.668: also capture output + model so we can synthesise a
+    // _ModelTokens entry for the token-flow pill. M4 doesn't emit
+    // turn.result.by_model (the driver-of-record source for
+    // modelTotals), so the pill stayed blank even though every
+    // assistant message carried full usage. SET semantics here
+    // (overwrite, not sum) — same anti-double-count rule as the
+    // context-chip path.
+    int? perMessageOutput;
+    String? perMessageModel;
     for (final e in _events) {
       final kind = (e['kind'] ?? '').toString();
       final p = e['payload'];
@@ -1117,6 +1126,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (i != null) perMessageInput = i;
         if (cr != null) perMessageCacheRead = cr;
         if (cc != null) perMessageCacheCreate = cc;
+        // v1.0.668: also capture output + model so we can synthesise
+        // a modelTotals entry below for the token-flow pill.
+        final o = (p['output_tokens'] as num?)?.toInt();
+        if (o != null) perMessageOutput = o;
+        final m = (p['model'] as String?);
+        if (m != null && m.isNotEmpty) perMessageModel = m;
         // v1.0.667: pick up `context_window` if present. The M4
         // mapper attaches it (derived from model name) so mobile can
         // render the context-utilisation chip. Without it the chip
@@ -1134,6 +1149,39 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // with the engine name rather than leaving it blank.
     if (modelTotals.isEmpty && cumulativeUsage != null) {
       modelTotals[cumulativeBucketKey] = cumulativeUsage;
+    }
+    // v1.0.668: synthesise a modelTotals entry from per-message usage
+    // when no other source populated one. claude-code M4 doesn't emit
+    // turn.result.by_model, so without this the token-flow pill
+    // (which gates on modelTotals.isNotEmpty) stayed suppressed even
+    // though every assistant message carried full usage. SET
+    // semantics — `latestInput / latestCacheRead / latestCacheCreate`
+    // get the per-message snapshot directly, and we DO NOT increment
+    // `input / output / cacheRead / cacheCreate` (the cumulative
+    // fields), because per-message events would otherwise sum across
+    // a turn's many tool-use iterations and double-count by N× (the
+    // pre-v1.0.662 1M-tokens bug).
+    if (modelTotals.isEmpty &&
+        (perMessageInput != null || perMessageOutput != null)) {
+      final t = _ModelTokens.empty();
+      // Snapshot fields drive the chip; cumulative fields stay 0 so
+      // the SUM-on-display logic in _TelemetryStrip reads only the
+      // per-message values via billableInput / output.
+      t.latestInput = perMessageInput ?? 0;
+      t.latestCacheRead = perMessageCacheRead ?? 0;
+      t.latestCacheCreate = perMessageCacheCreate ?? 0;
+      // Token-flow pill reads `billableInput` (input + cacheCreate)
+      // and `output`. Populate them as snapshot too — they're meant
+      // to reflect what the user paid for on the LATEST message, not
+      // a session-wide aggregate that diverges from per-call usage.
+      t.input = perMessageInput ?? 0;
+      t.output = perMessageOutput ?? 0;
+      t.cacheRead = perMessageCacheRead ?? 0;
+      t.cacheCreate = perMessageCacheCreate ?? 0;
+      if (latestContextWindow != null && latestContextWindow! > 0) {
+        t.contextWindow = latestContextWindow!;
+      }
+      modelTotals[perMessageModel ?? 'claude-code'] = t;
     }
     // Claude path for context window: the codex `usage` event already
     // populated latestContextWindow / latestContextUsed when present.

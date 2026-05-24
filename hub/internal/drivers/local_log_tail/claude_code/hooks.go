@@ -69,31 +69,27 @@ func (a *Adapter) dispatchHook(ctx context.Context, name string, payload map[str
 
 // --- 7 observational handlers ---
 
-func (a *Adapter) hookStop(ctx context.Context, p map[string]any) (map[string]any, error) {
+func (a *Adapter) hookStop(_ context.Context, _ map[string]any) (map[string]any, error) {
 	if a.fsm != nil {
 		a.fsm.Transition(StateIdle, "Stop hook")
 	}
-	final, _ := p["last_assistant_message"].(string)
-	mode, _ := p["permission_mode"].(string)
-	// turn.result is the canonical end-of-turn signal mobile's
-	// _isAgentBusy() listens on (mobile skips `system` frames — they're
-	// a grab-bag of telemetry — and only flips to idle on turn.result /
-	// completion / session.init / certain lifecycle phases). Stop is
-	// claude's engine-level end-of-turn, so it must produce a
-	// turn.result for the UI contract to close. ACP and stream-json
-	// drivers already do this; M4 was the holdout (fixed at v1.0.647
-	// for agy with the same shape).
+	// v1.0.668 dropped the turn.result emission this handler used to
+	// own. Stop hook fires SYNCHRONOUSLY the moment claude finishes a
+	// turn — which is BEFORE the JSONL tailer has had a chance to read
+	// + post the assistant text frame that precedes the Stop
+	// attachment in the file. The pre-v1.0.668 wire order was thus
+	// `turn.result → text → usage` (turn.result got a lower seq than
+	// text), and mobile's tail-first busy walker hit text → returned
+	// busy → cancel button stuck.
 	//
-	// v1.0.661 dropped a sibling `system{subtype:turn_complete,…}`
-	// emission: the data is the same as what turn.result already
-	// carries, mobile had no renderer for the subtype, and the result
-	// was a raw JSON blob in the transcript every turn.
-	_ = a.post(ctx, "turn.result", "agent", map[string]any{
-		"reason":          "end_of_turn",
-		"status":          "success",
-		"final_message":   final,
-		"permission_mode": mode,
-	})
+	// turn.result is now emitted by the mapper from the JSONL's own
+	// `system{subtype:turn_duration}` frame (the LAST frame claude
+	// writes for a turn). That guarantees turn.result has a higher seq
+	// than any preceding text/tool_call/usage, so the walker hits it
+	// first and flips to idle. See mapper.go::mapSystem("turn_duration").
+	//
+	// FSM still transitions to idle here so other adapter consumers
+	// (none today, future probe contracts) see the correct state.
 	return map[string]any{}, nil
 }
 

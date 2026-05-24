@@ -158,6 +158,41 @@ func TestMapLine_SystemOtherSubtypesDropped(t *testing.T) {
 	}
 }
 
+// v1.0.668: turn.result must be emitted from the JSONL's own
+// `system{subtype:turn_duration}` frame (the LAST frame claude
+// writes for a turn), not from the Stop hook handler. The hook
+// handler used to post turn.result synchronously the moment claude
+// invoked it — which raced the tailer that hadn't yet posted the
+// preceding assistant text frame, leaving turn.result with a lower
+// seq than text. Mobile's tail-first busy walker then hit text →
+// returned busy → cancel button stuck. Mapping from turn_duration
+// guarantees turn.result has the highest seq of the turn.
+func TestMapLine_TurnDurationSystemEmitsTurnResult(t *testing.T) {
+	raw := `{"type":"system","subtype":"turn_duration","durationMs":3054,"messageCount":8}`
+	got := mustMap(t, raw)
+	if len(got) != 1 {
+		t.Fatalf("want 1 event, got %d: %+v", len(got), got)
+	}
+	if got[0].Kind != "turn.result" {
+		t.Errorf("kind = %q, want turn.result", got[0].Kind)
+	}
+	if got[0].Producer != "agent" {
+		t.Errorf("producer = %q, want agent", got[0].Producer)
+	}
+	if got[0].Payload["reason"] != "end_of_turn" {
+		t.Errorf("reason = %v, want end_of_turn", got[0].Payload["reason"])
+	}
+	if got[0].Payload["status"] != "success" {
+		t.Errorf("status = %v, want success", got[0].Payload["status"])
+	}
+	if got[0].Payload["duration_ms"] != 3054 {
+		t.Errorf("duration_ms = %v, want 3054", got[0].Payload["duration_ms"])
+	}
+	if got[0].Payload["message_count"] != 8 {
+		t.Errorf("message_count = %v, want 8", got[0].Payload["message_count"])
+	}
+}
+
 func TestMapLine_KnownDroppedTypes(t *testing.T) {
 	for _, ty := range []string{
 		"permission-mode", "custom-title", "agent-name", "ai-title",

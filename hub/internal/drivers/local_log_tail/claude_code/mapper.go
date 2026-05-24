@@ -416,6 +416,39 @@ func mapSystem(subtype string, raw json.RawMessage) ([]MappedEvent, error) {
 			Producer: "system",
 			Payload:  map[string]any{"subtype": "compact_boundary"},
 		}}, nil
+	case "turn_duration":
+		// v1.0.668: claude's own end-of-turn marker. It's the LAST
+		// frame claude writes for a turn (after assistant text +
+		// stop_hook_summary), so emitting turn.result here guarantees
+		// it lands on the hub with a higher seq than the preceding
+		// text + usage. Mobile's busy-walker scans tail-first and
+		// stops at the first turn.result/completion it finds, so
+		// having turn.result be the LATEST event in the session is
+		// what flips the cancel button off.
+		//
+		// Pre-v1.0.668 the only source of turn.result was the Stop
+		// hook handler (hookStop posted immediately on hook fire),
+		// which raced the tailer: hookStop's POST landed BEFORE the
+		// tailer caught up to the assistant text frame, so the wire
+		// order was turn.result → text → usage and the walker
+		// returned busy. Caught on v1.0.667 dev-box smoke when the
+		// cancel button stayed on after a multi-tool-use MCP turn.
+		var s struct {
+			Subtype     string `json:"subtype"`
+			DurationMs  int    `json:"durationMs"`
+			MessageCount int   `json:"messageCount"`
+		}
+		_ = json.Unmarshal(raw, &s)
+		return []MappedEvent{{
+			Kind:     "turn.result",
+			Producer: "agent",
+			Payload: map[string]any{
+				"reason":        "end_of_turn",
+				"status":        "success",
+				"duration_ms":   s.DurationMs,
+				"message_count": s.MessageCount,
+			},
+		}}, nil
 	default:
 		// Other system subtypes (debug telemetry, env diff, etc.)
 		// are noise on mobile; drop.

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.667
+> **Last verified vs code:** v1.0.668
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,63 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.668-alpha — 2026-05-24
+
+ADR-027 W11 fix-up wedge #12. Two M4 polish gaps surfaced after the
+v1.0.667 APK install — context-utilisation chip now renders fine,
+cancel-button-race + token-flow pill remain.
+
+**Fixed.**
+
+- *Cancel button stuck after MCP-tool turns.* `hookStop` posted
+  `turn.result` SYNCHRONOUSLY the moment claude invoked the Stop
+  hook — before the JSONL tailer had a chance to read + post the
+  preceding assistant `text` frame. Wire seq order ended up
+  `turn.result(N) → text(N+1) → usage(N+2)`, and mobile's
+  `_isAgentBusy` walks tail-first: usage skip (v1.0.667), then
+  text → return busy. turn.result at seq N was never reached.
+
+  Fix: emit `turn.result` from the JSONL's OWN
+  `system{subtype:turn_duration}` frame — the LAST frame claude
+  writes for a turn, after assistant text + stop_hook_summary.
+  That guarantees turn.result has the HIGHEST seq of the turn,
+  so the walker hits it first and flips to idle. Dropped the
+  turn.result emission from `hookStop`; FSM transition kept.
+
+- *Token-flow pill stayed blank.* `_TelemetryStrip` gates the
+  pill on `modelTotals.isNotEmpty`, and the populating source is
+  `turn.result.by_model` (codex/claude stream-json shape). M4's
+  `turn.result` carries no `by_model`, so the pill stayed
+  suppressed even though every assistant message had full usage.
+
+  Fix: after the events loop, synthesise a `_ModelTokens` entry
+  from per-message usage when `modelTotals` is empty. SET semantics
+  on every field (NOT add) so the pre-v1.0.662 sum-across-tool-use-
+  iterations bug doesn't reappear. Bucket key = the per-message
+  `model` (e.g. `claude-opus-4-7`) or `claude-code` if unknown.
+
+**Test coverage.**
+
+- `TestMapLine_TurnDurationSystemEmitsTurnResult` — locks the new
+  mapper emission shape (kind/producer/reason/status/duration_ms/
+  message_count).
+- `TestOnHook_StopOnlyTransitionsFSM` — replaces
+  `TestOnHook_StopEmitsTurnResultForBusyWalker`; asserts hookStop
+  no longer posts ANY event, only flips FSM state.
+
+Mobile changes covered by CI flutter analyze.
+
+**Note on the change of emission timing.** Pre-v1.0.668, turn.result
+landed within milliseconds of claude finishing a turn (hook is
+synchronous on engine side). Post-v1.0.668, it lands within one
+tailer poll-tick (≤250ms default) after claude writes the
+`system{turn_duration}` frame. Net: ~250ms added latency on the
+cancel-button flip, in exchange for correct ordering against
+text/usage. Acceptable — the alternative was the cancel button
+never flipping at all.
 
 ---
 

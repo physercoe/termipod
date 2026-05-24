@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.690
+> **Last verified vs code:** v1.0.691
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,57 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.691-alpha — 2026-05-24
+
+**ADR-030 Phase 3 W18: per-kind propose cards for `agent.spawn` +
+`template.install`.** All 5 MVP propose kinds now have per-kind cards
+in the Me-page router; unknown change_kinds fall through to the legacy
+`InlineApprovalActions` (which already handles approval_request and
+template_proposal via the pre-ADR-030 flows).
+
+**Plan-literal reinterpretation.** Plan W18 named the wedge
+"worker_tool_call.escalate" — that's not a Phase 1 propose kind.
+The worker-tool-escalation flow is realised as `permission_prompt`
+after W10's parent-steward re-addressing; its card is the existing
+`InlineApprovalActions` fallback. Shipped the structural intent —
+per-kind cards for the two ALIAS kinds (agent.spawn +
+template.install — the legacy approval_request / template_proposal
+flows that W8 re-routed through propose). See
+[[feedback_plan_narrative_loose_talk]] for the pattern.
+
+### Added
+
+- `lib/screens/me/widgets/propose_card_agent_spawn.dart` — compact
+  body: child_handle (bold mono) + engine kind chip (deep purple),
+  reason, host (when pinned), project (when bound). Punts full
+  spawn_spec_yaml to the Details affordance. Stalled variant uses
+  "View spawn detail" label.
+- `lib/screens/me/widgets/propose_card_template_install.dart` —
+  compact body: `<category>/<name>` path (bold mono with file
+  icon), rationale, proposed_by handle, blob sha256 12-char
+  prefix. Punts full body to the Details affordance (the legacy
+  v1.0.602 template-proposal preview block already renders the
+  full YAML there). Stalled variant uses "View template body"
+  label.
+- `test/screens/me/propose_card_alias_test.dart` — 7 widget cases
+  across both cards: primary variants with full body rendering;
+  stalled variants with Override + tailored View label; edge
+  cases (missing handle → "(no handle)"; missing category/name
+  → "(unknown)"; missing rationale → block omitted).
+
+### Changed
+
+- `lib/screens/me/widgets/propose_card_router.dart` — agent.spawn +
+  template.install registered. Closing comment updated to note all
+  5 MVP propose kinds are covered.
+
+### Forensics
+
+Mobile binary shifts (2 new cards + 1 new test + router
+registration). Hub binary unchanged. pubspec 1.0.690 → 1.0.691.
 
 ---
 

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../inline_actions.dart';
+import 'propose_card_agent_spawn.dart';
 import 'propose_card_deliverable.dart';
 import 'propose_card_phase.dart';
 import 'propose_card_task.dart';
+import 'propose_card_template_install.dart';
 
 /// ADR-030 Phase 3 — router widget that picks the per-kind propose
 /// card (W15-W18) based on the attention row's `change_kind` field.
@@ -56,8 +58,20 @@ class ProposeCardRouter extends StatelessWidget {
             myTier: myTier,
             onResolved: onResolved,
           );
-        // W18 (agent.spawn + template.install) registers here when it
-        // ships.
+        case 'agent.spawn':
+          return ProposeCardAgentSpawn(
+            attention: attention,
+            myTier: myTier,
+            onResolved: onResolved,
+          );
+        case 'template.install':
+          return ProposeCardTemplateInstall(
+            attention: attention,
+            myTier: myTier,
+            onResolved: onResolved,
+          );
+        // All 5 MVP propose kinds covered; unknown change_kinds fall
+        // through to the legacy InlineApprovalActions below.
         default:
           break;
       }

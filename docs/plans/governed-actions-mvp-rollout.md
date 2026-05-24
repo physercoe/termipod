@@ -10,13 +10,13 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > (2026-05-24, v1.0.674-687). Phase 1: 11 hub wedges at v1.0.674-685.
 > Phase 2: W12-W14 at v1.0.686. Phase 3: W19.6 hub + W19.5 mobile at
 > v1.0.687; W15 at v1.0.688; W16 + shared visuals at v1.0.689;
-> W17 (task.set_status) + W16-lint-error fix at v1.0.690;
-> W18-W21 remain.
+> W17 + W16-lint-error fix at v1.0.690; W18 (agent.spawn +
+> template.install) at v1.0.691; W19-W21 remain.
 > Reissued 2026-05-20 to absorb ADR-030 amendments (D-7 Option 2′,
 > ADR-032 envelope on fan-back, ADR-034 loop-entity overlap,
 > principal ≠ owner). Original: Proposed (2026-05-17).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.690-alpha
+> **Last verified vs code:** v1.0.691-alpha
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by
@@ -1016,19 +1016,41 @@ into the existing IA without rename or chip add:
   had the same `library;` placement but no imports follow, so it
   was already lint-clean.
 
-**W18. Per-kind card — `worker_tool_call.escalate` (~40 LOC).**
+**W18. Per-kind cards — `agent.spawn` + `template.install` (~280 LOC + 165 LOC test). Shipped v1.0.691-alpha. PLAN-LITERAL REINTERPRETATION.**
 
-- `lib/screens/me/widgets/propose_card_worker_tool.dart` (new).
-- Renders: worker handle + project, tool name + input preview
-  (truncated 200 chars), parent steward avatar, "View
-  worker session" link.
-- Note: this card is also shown to the project steward in its
-  own session inbox (not just Me-tab); separate placement is
-  W19.
-- **Stalled variant** as per W15 — particularly relevant for
-  this kind, since it is the path where a worker's blocked tool
-  call sits while the project steward is unresponsive; the
-  principal sees the stalled card and overrides if appropriate.
+> Plan literal named this wedge `worker_tool_call.escalate` — that's
+> not a Phase 1 propose kind (Phase 1 shipped 5 kinds:
+> deliverable.set_state, phase.advance, task.set_status,
+> agent.spawn, template.install per plan §3.2 W8). Shipped the
+> structural intent: per-kind cards for the two ALIAS kinds
+> (agent.spawn + template.install — the legacy approval_request /
+> template_proposal flows that W8 re-routed through propose). The
+> worker-tool-escalation flow is realised as `permission_prompt`
+> after W10's re-addressing; its card is the existing
+> `InlineApprovalActions` fallback in the router. See
+> [[feedback_plan_narrative_loose_talk]] for the pattern.
+
+- `lib/screens/me/widgets/propose_card_agent_spawn.dart` (new)
+  <!-- verify file lib/screens/me/widgets/propose_card_agent_spawn.dart -->.
+  Compact body: child_handle (bold mono) + engine kind chip (deep
+  purple), reason, host (when pinned), project (when bound).
+  Punts full spawn_spec_yaml to the Details affordance.
+- `lib/screens/me/widgets/propose_card_template_install.dart` (new)
+  <!-- verify file lib/screens/me/widgets/propose_card_template_install.dart -->.
+  Compact body: `<category>/<name>` path (bold mono with file icon),
+  rationale, proposed_by handle, blob sha256 12-char prefix.
+  Punts full template body to the Details affordance (the legacy
+  v1.0.602 template-proposal preview block already renders the
+  full YAML there).
+- `propose_card_router.dart` — both kinds registered. All 5 MVP
+  propose kinds now covered; unknown change_kinds fall through to
+  the legacy `InlineApprovalActions`.
+- `test/screens/me/propose_card_alias_test.dart` (new) — 7 widget
+  cases across both cards: primary variants with full body
+  rendering; stalled variants with Override + tailored View label
+  ("View spawn detail" / "View template body"); edge cases
+  (missing handle → "(no handle)"; missing category/name →
+  "(unknown)"; missing rationale → block omitted).
 
 **W19. Steward-side propose inbox (~60 LOC).**
 

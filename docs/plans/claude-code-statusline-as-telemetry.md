@@ -160,12 +160,10 @@ W3's /clear fix on its own merit.
     agent (reducer pattern — last-write-wins per field).
   - **Cost chip labelled "agent cost"**, not "session cost" (ADR-036
     D8). Format: `$0.12 · 1m 58s` (cost + duration). Tooltip:
-    "Cumulative across this agent's claude process; resets on
-    process restart." **Verify ADR-036 Open Q3 first** — does
-    `claude --resume <id>` inherit prior cost? If yes, the chip is
-    *agent-spawn*-cumulative (within one spawn lifetime); if no,
-    it's *process*-cumulative. The label is the same; the tooltip
-    wording adjusts.
+    "Cumulative USD for the current agent process. Resets on
+    respawn (resume/restart); preserved across `/clear` and
+    `/model`." (Q3 resolved 2026-05-25 — see ADR-036 D8: cost is
+    per-process; `claude --resume <id>` starts at 0.)
   - **Effort chip**: small badge ("xhigh", "high", "low"). Renders
     only when present.
   - **Thinking chip**: brain icon, present-only when
@@ -182,11 +180,13 @@ W3's /clear fix on its own merit.
 - **W5 — `rate_limits` surface.**
   - Render a row in the session details sheet AND a compact
     overview-strip entry on the agent feed:
-    `5h: 24% (resets 14:30 UTC) · 7d: 33% (resets May 26)`.
-  - Format `resets_at` as local time for the next reset within 24h,
-    short-date otherwise. Confirm UTC vs local (ADR-036 Open Q4) by
-    cross-checking against Anthropic's actual reset boundary on the
-    host.
+    `5h: 24% (in 4h 38m) · 7d: 33% (resets Mon 03:00)`.
+  - Format `resets_at` (Unix epoch, TZ-agnostic; Q4 resolved
+    2026-05-25 — see ADR-036 D7) in **device-local TZ**:
+    relative form ("in 4h 38m") for horizons under ~3h, absolute
+    short form ("resets Mon 03:00") otherwise. Use
+    `DateTime.fromMillisecondsSinceEpoch(resetsAt * 1000,
+    isUtc: false)` — no UTC assumption baked in.
   - **Alarm tier**: when `used_percentage >= 80`, the row gets an
     amber tint; at `>= 95`, red. The steward overlay also surfaces
     a row when either window crosses 80% so a worker steward can
@@ -234,10 +234,13 @@ non-blocking for the wedge that touches it.
 2. **Workdir-local vs user-global statusLine precedence?** → verify
    in W1 by adding a "global file already sets statusLine" scenario
    to the install test.
-3. **Cost behaviour on `claude --resume <id>`?** → verify in W4
-   before locking the cost chip label / tooltip wording.
-4. **`rate_limits.resets_at` timezone?** → verify in W5 against the
-   actual Anthropic reset boundary on the host.
+
+Resolved (2026-05-25, post-Phase-A smoke; see ADR-036 §Resolved):
+
+- ~~Cost behaviour on `claude --resume <id>`?~~ → resets to 0;
+  cost is process-cumulative (folded into D8 + W4).
+- ~~`rate_limits.resets_at` timezone?~~ → TZ-agnostic epoch; chip
+  renders in device-local TZ (folded into D7 + W5).
 
 ## Non-goals (post-MVP if ever)
 

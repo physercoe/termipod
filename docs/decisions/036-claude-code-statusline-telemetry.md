@@ -275,14 +275,39 @@ other chip fields. (Open: a future cross-engine rate-limit
 abstraction might justify a normalised event kind. Out of scope for
 this ADR.)
 
+**`resets_at` is timezone-agnostic Unix-epoch seconds.** No TZ anchor
+need (or can) be encoded in the protocol: the wire field is an
+int64, and the wall-clock-rendering TZ is a chip-side concern.
+Mobile MUST render in the device's local TZ (with relative form
+"in 4h 38m" for short horizons, absolute "resets Mon 03:00" for
+horizons past a few hours). Probe samples show the 5h window
+is *rolling* (quantized to 10-min boundaries, not aligned to any
+TZ midnight: observed 16:30 UTC and 06:40 UTC); the 7d window
+*did* land on a clean UTC hour boundary (03:00 UTC) in the single
+captured sample but one sample can't distinguish "Anthropic anchors
+7d to clean hours" from "user's first request happened to fall on
+a clean hour". Either way the chip renders the same way.
+
 ### D8. Cost is "agent cost", not "session cost"
 
 `cost.total_cost_usd` is **process-cumulative** (probe verified): it
-grows across /clears within the same claude process and only resets
-when the process restarts. One agent spawn = one claude process =
-one cost meter. Mobile MUST label the chip "agent cost" or "spawn
-cost" — never "session cost". Per-session cost (diffing across
-session_id rotations) is post-MVP if we want it.
+grows across /clears and /model swaps within the same claude
+process and only resets when the process restarts. One agent
+spawn = one claude process = one cost meter. Mobile MUST label the
+chip "agent cost" or "spawn cost" — never "session cost".
+Per-session cost (diffing across session_id rotations) is post-MVP
+if we want it.
+
+**Resume resets the meter.** Probe rows 17-18 (2026-05-25, ~11.7h
+after the original session ended) confirm: a fresh `claude` process
+that resumes the prior session — same `session_id`, same
+`transcript_path`, same `session_name`, same context tokens
+(25146 input preserved → claude IS replaying the prior JSONL) —
+reports `cost.total_cost_usd: 0` and `total_api_duration_ms: 0`.
+The cost meter is per-process, not per-conversation. Tooltip
+wording locks in as: "Cumulative USD for the current agent
+process. Resets on respawn (resume/restart); preserved across
+`/clear` and `/model`."
 
 ### D9. status_line is NOT load-bearing for any existing chip
 
@@ -360,15 +385,25 @@ discipline applied to the new fields.
    verify that workdir-local wins (or merges) when user-global also
    defines it. **Verify in W1 by adding a global-file-already-set
    scenario.**
-3. **Cost on `/resume`-into-existing-conversation.** We saw `/clear`
-   keeps the cost meter; we DIDN'T verify that `claude --resume <id>`
-   on a fresh process inherits the prior conversation's cost or
-   starts at 0. (The probe's third session was a process restart
-   that reset cost to 0, but we didn't confirm it was a `--resume`
-   vs a cold `claude`.) **Verify in W4 before locking the
-   "agent cost" chip label.**
-4. **`rate_limits` epoch zone.** `resets_at` is unix seconds; assume
-   UTC. **Verify in W5 before formatting the chip "resets at HH:MM".**
+
+## Resolved (2026-05-25, post-Phase-A smoke)
+
+- **Q3 — Cost on `claude --resume`?** Resolved: **resets to 0.**
+  Probe rows 17-18 captured a fresh-process resume of the original
+  `session_id` (`7b4b803b-…`) ~11.7h after the original session.
+  Same session_id, transcript_path, session_name, context tokens
+  (preserved → claude replays the prior JSONL), but
+  `cost.total_cost_usd = 0` and `total_api_duration_ms = 0`. Cost
+  is per-process. Folded into D8.
+- **Q4 — `rate_limits.resets_at` timezone?** Resolved:
+  **TZ-agnostic Unix epoch; render in device-local TZ.** Decoding
+  the captured epochs: 5h-window samples landed at 16:30 UTC and
+  06:40 UTC (10-min-quantized rolling window, not anchored to any
+  TZ midnight); the single 7d sample landed at 03:00 UTC (clean
+  hour, but one sample doesn't distinguish "Anthropic anchors 7d
+  to clean hours" from "user's first request happened to fall on a
+  clean hour"). Either way the chip renders in device-local TZ.
+  Folded into D7.
 
 ## References
 

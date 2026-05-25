@@ -3430,19 +3430,29 @@ class AgentEventCard extends StatefulWidget {
     // resolves via `text` (legacy `body` kept as a fallback). When the
     // envelope carries a sender / kind, surface them: an A2A message
     // would otherwise render with no visible sender.
+    //
+    // v1.0.707 polish — `payload.raw == true` marks an
+    // engine-control slash command sent without the envelope wrap
+    // (e.g. /clear, /compact). For those we suppress the "from /
+    // kind" header rows entirely — they'd be misleading (no
+    // envelope was attached) and a slash command is self-
+    // describing.
     final body = (p['text'] ?? p['body'] ?? '').toString();
-    final from = p['from'];
-    final kind = (p['kind'] ?? '').toString();
+    final raw = p['raw'] == true;
     final rows = <Widget>[];
-    if (from is Map) {
-      final role = (from['role'] ?? '').toString();
-      final handle = (from['handle'] ?? '').toString();
-      final label = handle.isNotEmpty
-          ? '@$handle (${_envelopeRoleLabel(role)})'
-          : _envelopeRoleLabel(role);
-      if (label.isNotEmpty) rows.add(_kv(ctx, 'from', label));
+    if (!raw) {
+      final from = p['from'];
+      final kind = (p['kind'] ?? '').toString();
+      if (from is Map) {
+        final role = (from['role'] ?? '').toString();
+        final handle = (from['handle'] ?? '').toString();
+        final label = handle.isNotEmpty
+            ? '@$handle (${_envelopeRoleLabel(role)})'
+            : _envelopeRoleLabel(role);
+        if (label.isNotEmpty) rows.add(_kv(ctx, 'from', label));
+      }
+      if (kind.isNotEmpty) rows.add(_kv(ctx, 'kind', kind));
     }
-    if (kind.isNotEmpty) rows.add(_kv(ctx, 'kind', kind));
     if (rows.isEmpty) {
       return _mono(ctx, body.isEmpty ? '(empty)' : body);
     }

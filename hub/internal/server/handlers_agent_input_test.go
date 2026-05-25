@@ -789,3 +789,159 @@ func TestPostAgentInput_MonotonicSeq(t *testing.T) {
 		lastSeq = seq
 	}
 }
+
+// TestPostAgentInput_RawSlashCommand_BypassesEnvelope — v1.0.707
+// polish. The "raw" wire flag on input.text events tells the hub to
+// skip the principal-directive envelope wrap so engine-control slash
+// commands (/clear, /compact, /model …) reach the engine verbatim
+// instead of being framed as a prose directive the engine ignores.
+//
+// Verifies:
+//  - raw=true stores payload.text = body with NO envelope keys
+//    (from / to / kind / thread are all absent).
+//  - payload.raw=true is preserved as a marker so the mobile feed
+//    can suppress the misleading "from: principal" header row on
+//    these turns.
+//  - raw=false (default) preserves the existing envelope-composing
+//    behaviour — guards against a regression where the flag becomes
+//    sticky or its default flips.
+//  - A2A producers ignore raw — peer messages always carry their
+//    envelope per ADR-032 D-1.
+func TestPostAgentInput_RawSlashCommand_BypassesEnvelope(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	t.Run("raw_true_strips_envelope", func(t *testing.T) {
+		body := map[string]any{
+			"kind": "text",
+			"body": "/clear",
+			"raw":  true,
+		}
+		status, raw := postInput(t, h, defaultTeamID, agentID, body)
+		if status != http.StatusCreated {
+			t.Fatalf("status = %d body=%s", status, raw)
+		}
+		var out map[string]any
+		_ = json.Unmarshal(raw, &out)
+		var payloadJSON string
+		if err := s.db.QueryRow(
+			`SELECT payload_json FROM agent_events WHERE id = ?`,
+			out["id"],
+		).Scan(&payloadJSON); err != nil {
+			t.Fatalf("select payload: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload["text"] != "/clear" {
+			t.Errorf("payload.text = %v, want /clear", payload["text"])
+		}
+		if payload["raw"] != true {
+			t.Errorf("payload.raw = %v, want true (marker for mobile)",
+				payload["raw"])
+		}
+		// Envelope keys MUST be absent — that's the whole point.
+		for _, k := range []string{"from", "to", "kind", "thread"} {
+			if _, ok := payload[k]; ok {
+				t.Errorf("payload.%s present on a raw input — envelope leaked", k)
+			}
+		}
+	})
+
+	t.Run("raw_false_preserves_envelope", func(t *testing.T) {
+		body := map[string]any{
+			"kind": "text",
+			"body": "hello",
+			"raw":  false,
+		}
+		status, raw := postInput(t, h, defaultTeamID, agentID, body)
+		if status != http.StatusCreated {
+			t.Fatalf("status = %d body=%s", status, raw)
+		}
+		var out map[string]any
+		_ = json.Unmarshal(raw, &out)
+		var payloadJSON string
+		_ = s.db.QueryRow(
+			`SELECT payload_json FROM agent_events WHERE id = ?`,
+			out["id"],
+		).Scan(&payloadJSON)
+		var payload map[string]any
+		_ = json.Unmarshal([]byte(payloadJSON), &payload)
+		// Envelope keys MUST be present for the default principal-
+		// directive path — that's the v1.0.706-and-earlier contract.
+		if _, ok := payload["from"]; !ok {
+			t.Errorf("payload.from absent on a non-raw input — envelope dropped")
+		}
+		if payload["kind"] != "directive" {
+			t.Errorf("payload.kind = %v, want directive", payload["kind"])
+		}
+		if payload["text"] != "hello" {
+			t.Errorf("payload.text = %v, want hello", payload["text"])
+		}
+		if payload["raw"] == true {
+			t.Errorf("payload.raw=true leaked into a non-raw input")
+		}
+	})
+
+	t.Run("raw_unset_default_path", func(t *testing.T) {
+		// Omitting `raw` entirely must be equivalent to raw:false —
+		// guard against a server-side default flip.
+		body := map[string]any{
+			"kind": "text",
+			"body": "hello again",
+		}
+		status, raw := postInput(t, h, defaultTeamID, agentID, body)
+		if status != http.StatusCreated {
+			t.Fatalf("status = %d body=%s", status, raw)
+		}
+		var out map[string]any
+		_ = json.Unmarshal(raw, &out)
+		var payloadJSON string
+		_ = s.db.QueryRow(
+			`SELECT payload_json FROM agent_events WHERE id = ?`,
+			out["id"],
+		).Scan(&payloadJSON)
+		var payload map[string]any
+		_ = json.Unmarshal([]byte(payloadJSON), &payload)
+		if _, ok := payload["from"]; !ok {
+			t.Errorf("envelope dropped when raw omitted — default flipped")
+		}
+	})
+
+	t.Run("a2a_producer_ignores_raw", func(t *testing.T) {
+		// Even with raw:true, an A2A-producer input must keep its
+		// envelope — peer-originated messages always carry from/to
+		// per ADR-032 D-1, and the raw escape hatch is a principal-
+		// only signal.
+		body := map[string]any{
+			"kind":        "text",
+			"body":        "/clear",
+			"raw":         true,
+			"producer":    "a2a",
+			"from_role":   "peer_steward",
+			"from_handle": "research-steward",
+			"a2a_kind":    "directive",
+		}
+		status, raw := postInput(t, h, defaultTeamID, agentID, body)
+		if status != http.StatusCreated {
+			t.Fatalf("status = %d body=%s", status, raw)
+		}
+		var out map[string]any
+		_ = json.Unmarshal(raw, &out)
+		var payloadJSON string
+		_ = s.db.QueryRow(
+			`SELECT payload_json FROM agent_events WHERE id = ?`,
+			out["id"],
+		).Scan(&payloadJSON)
+		var payload map[string]any
+		_ = json.Unmarshal([]byte(payloadJSON), &payload)
+		if _, ok := payload["from"]; !ok {
+			t.Errorf("envelope dropped on A2A producer — raw bypassed contract")
+		}
+		if payload["raw"] == true {
+			t.Errorf("payload.raw=true leaked into A2A input")
+		}
+	})
+}

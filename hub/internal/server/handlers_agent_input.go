@@ -243,6 +243,25 @@ type agentInputIn struct {
 	FromHandle string `json:"from_handle,omitempty"`
 	Cause      string `json:"cause,omitempty"`
 	A2AKind    string `json:"a2a_kind,omitempty"`
+	// v1.0.707 polish — bypass the principal-directive envelope wrap
+	// when the body is an engine-control slash command (/clear,
+	// /compact, /model …). Without this, mobile sends "/clear" and the
+	// engine sees:
+	//   [directive from the principal]
+	//   /clear
+	//
+	//   Reply in this chat. Match the response to the ask…
+	// which (a) reads as prose, NOT a slash command (claude-code parses
+	// slash commands only when they're the very first token), so the
+	// engine ignores the control intent and replies in prose; and (b)
+	// is misleading on the transcript surface — a control op is not a
+	// "directive to the agent".
+	//
+	// Only effective for kind=="text". A2A-producer inputs are never
+	// raw (peer-to-peer messages always carry their envelope; raw is a
+	// principal-only signal). Mobile sets this from a content-shape
+	// heuristic — see lib/widgets/agent_compose.dart::isSlashCommandBody.
+	Raw bool `json:"raw,omitempty"`
 }
 
 func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
@@ -499,24 +518,42 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	// ADR-032: an input.text event carries the message envelope as its
 	// flat payload top level — {from,to,kind,text,cause,thread} — composed
 	// hub-side. Attachment sidecars (images, …) ride alongside it.
+	//
+	// v1.0.707 polish — `raw: true` bypasses the envelope for engine-
+	// control slash commands. Stamping `text` directly (no `from`/`to`
+	// / `kind`) makes renderInboundEnvelope's no-envelope fallback
+	// return the body verbatim, so the engine sees "/clear" rather
+	// than "[directive from the principal]\n/clear\n\nReply in this
+	// chat…" — which claude-code wouldn't recognise as a slash command
+	// at all. A2A producers can never be raw (peer messages always
+	// carry their envelope per ADR-032 D-1).
 	if in.Kind == "text" {
-		env := s.composeTextInputEnvelope(r.Context(), &in, producer, agent, sessionID)
-		// ADR-032 D-7: admit the envelope before the row is written. An
-		// agent-declared (A2A) envelope that fails is recoverable —
-		// 422 + hint; a hub-composed one that fails is a programming
-		// error — 500, logged loudly.
-		if ae := s.admitEnvelope(r.Context(), env, producer == "a2a"); ae != nil {
-			if ae.AgentRecoverable {
-				writeErrHint(w, http.StatusUnprocessableEntity, ae.Error(), ae.Hint)
+		if in.Raw && producer != "a2a" {
+			payloadMap["text"] = in.Body
+			// The `raw` marker is preserved on the row so mobile feed
+			// can render the bubble without the "from: principal /
+			// kind: directive" rows that would otherwise be misleading
+			// (no envelope was attached).
+			payloadMap["raw"] = true
+		} else {
+			env := s.composeTextInputEnvelope(r.Context(), &in, producer, agent, sessionID)
+			// ADR-032 D-7: admit the envelope before the row is written. An
+			// agent-declared (A2A) envelope that fails is recoverable —
+			// 422 + hint; a hub-composed one that fails is a programming
+			// error — 500, logged loudly.
+			if ae := s.admitEnvelope(r.Context(), env, producer == "a2a"); ae != nil {
+				if ae.AgentRecoverable {
+					writeErrHint(w, http.StatusUnprocessableEntity, ae.Error(), ae.Hint)
+					return
+				}
+				s.log.Error("envelope admission failed (hub-composed)",
+					"stage", ae.Stage, "reason", ae.Reason, "agent", agent)
+				writeErr(w, http.StatusInternalServerError, "envelope admission failed")
 				return
 			}
-			s.log.Error("envelope admission failed (hub-composed)",
-				"stage", ae.Stage, "reason", ae.Reason, "agent", agent)
-			writeErr(w, http.StatusInternalServerError, "envelope admission failed")
-			return
-		}
-		for k, v := range env.PayloadMap() {
-			payloadMap[k] = v
+			for k, v := range env.PayloadMap() {
+				payloadMap[k] = v
+			}
 		}
 	}
 

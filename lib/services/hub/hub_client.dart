@@ -1827,6 +1827,15 @@ class HubClient {
     List<Map<String, String>>? pdfs,
     List<Map<String, String>>? audios,
     List<Map<String, String>>? videos,
+    // v1.0.707 polish — when true and kind=='text', the hub bypasses
+    // the principal-directive envelope wrap so the engine receives
+    // the body verbatim. Used by mobile for engine-control slash
+    // commands (/clear, /compact, /model …) — wrapping those in
+    // "[directive from the principal]\n…\n\nReply in this chat…"
+    // turns them into prose the engine ignores. The shape gate is
+    // mobile-side (see ComposeBar's isSlashCommandBody); hub honours
+    // the flag regardless. Ignored for non-text kinds.
+    bool? raw,
   }) async {
     final req = <String, dynamic>{'kind': kind};
     if (body != null) req['body'] = body;
@@ -1842,6 +1851,7 @@ class HubClient {
     if (pdfs != null && pdfs.isNotEmpty) req['pdfs'] = pdfs;
     if (audios != null && audios.isNotEmpty) req['audios'] = audios;
     if (videos != null && videos.isNotEmpty) req['videos'] = videos;
+    if (raw == true) req['raw'] = true;
     final out =
         await _post('/v1/teams/${cfg.teamId}/agents/$agentId/input', req);
     return (out as Map).cast<String, dynamic>();

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.706
+> **Last verified vs code:** v1.0.707
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,96 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.707-alpha — 2026-05-25
+
+**Slash-command inputs bypass the principal-directive envelope.**
+
+The ADR-032 message envelope (`[directive from the principal]\n
+<body>\n\nReply in this chat…`) is right for prose turns — it
+names the sender, the kind, and the reply mechanism — but on
+engine-control slash commands (`/clear`, `/compact`, `/model …`,
+`/effort xhigh`) it's actively wrong:
+
+  - claude-code parses slash commands ONLY when they're the very
+    first token of the turn. The `[directive from the principal]`
+    header preempts that recognition, so the engine reads the
+    whole turn as prose and ignores the control intent.
+  - On the transcript, "directive from the principal" reads as a
+    work instruction to the agent. A control op is not a
+    directive — it's an op on the engine itself.
+
+### Added
+
+- **`raw: true` flag on `POST /v1/.../agents/<id>/input`** (hub).
+  Effective only for `kind: text`, ignored for `producer: a2a`
+  (peer messages always carry their envelope per ADR-032 D-1).
+  When set, the hub stamps `payload.text = body` with no
+  `from / to / kind / thread` keys, so the host-runner's
+  `renderInboundEnvelope` no-envelope fallback returns the body
+  verbatim to the driver. `payload.raw: true` is preserved on the
+  row so mobile feed can render the bubble without the misleading
+  "from: principal · kind: directive" header rows.
+- **`raw` parameter on `HubClient.postAgentInput`** (mobile).
+  Plumbed through both compose entry points: the main `_send` and
+  the snippet picker's `_sendSnippetImmediately`. Default null
+  preserves the existing envelope behaviour.
+- **`isSlashCommandBody(String)`** — new top-level shape gate in
+  `lib/widgets/agent_compose.dart`. Accepts `/<name>[<space>args]`
+  where `<name>` starts with a letter and contains
+  `[A-Za-z0-9_-]`. Rejects path-like values (`/etc/hosts`),
+  markdown bullets (`/ - item`), bare slashes, and prose with a
+  slash embedded mid-sentence. Strips leading/trailing whitespace
+  defensively. False positives are worse than false negatives
+  (misfire makes a real directive look like a slash command); the
+  shape gate is narrow on purpose.
+
+### Changed
+
+- **Mobile compose wires `isSlashCommandBody` → `raw: true`.** Both
+  the main `_send` path (typed `/clear` in the compose box) and
+  `_sendSnippetImmediately` (snippet picker's send button) flip
+  the flag when the body matches the slash-command shape AND no
+  attachments ride alongside (a slash command with an image makes
+  no sense).
+- **Mobile feed suppresses envelope rendering for raw inputs.**
+  `_inputTextBody` checks `payload.raw == true` and hides the
+  `from` / `kind` rows — they'd be misleading (no envelope is on
+  the wire) and a slash command is self-describing.
+
+### Tests
+
+- `hub/internal/server/handlers_agent_input_test.go` —
+  `TestPostAgentInput_RawSlashCommand_BypassesEnvelope` covers 4
+  sub-cases:
+  - `raw: true` strips every envelope key (`from`/`to`/`kind`/
+    `thread` all absent) and stores `payload.text = body` +
+    `payload.raw = true`.
+  - `raw: false` preserves the existing envelope-composing path
+    (regression-pin against a default flip).
+  - `raw` omitted is equivalent to `raw: false`.
+  - `producer: a2a` ignores the flag — peer envelopes are
+    sacrosanct per ADR-032 D-1.
+- `test/widgets/agent_compose_slash_command_test.dart` — 9 cases
+  on `isSlashCommandBody`: canonical commands, args, multi-line,
+  whitespace tolerance, prose rejection, path-like rejection,
+  bullet rejection, bare-slash rejection, kebab/snake-case
+  command names.
+
+### Source
+
+- `hub/internal/server/handlers_agent_input.go` — `Raw bool`
+  field on `agentInputIn`; raw-branch in the `kind == "text"`
+  block stamps `payload.text` + `payload.raw` without invoking
+  `composeTextInputEnvelope`.
+- `lib/services/hub/hub_client.dart` — `raw` param on
+  `postAgentInput`.
+- `lib/widgets/agent_compose.dart` — `isSlashCommandBody` helper,
+  flag wired into both send paths.
+- `lib/widgets/agent_feed.dart` — `_inputTextBody` skips the
+  envelope rows when `payload.raw == true`.
 
 ---
 

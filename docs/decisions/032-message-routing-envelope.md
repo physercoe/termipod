@@ -6,7 +6,7 @@ description: The L3 message contract. Every message between agents, and between 
 # 032. Message routing — the orchestration message envelope
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-18; **revised 2026-05-19**) — D-1..D-8
+> **Status:** Proposed (2026-05-18; **revised 2026-05-19**; **D-9 raw-bypass amendment 2026-05-25**) — D-1..D-9
 > widen the original `message-routing-envelope` scope to the full L3
 > message contract, per the [orchestration-contract discussion](../discussions/orchestration-contract.md).
 > The ADR is still Proposed (never Accepted), so revision in place is
@@ -17,7 +17,7 @@ description: The L3 message contract. Every message between agents, and between 
 > suite green). Flips to `Accepted` after on-device verification
 > confirms engines read the rendered envelope reliably.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.631-alpha
+> **Last verified vs code:** v1.0.707-alpha
 
 **TL;DR.** Every message crossing an agent boundary — principal→agent,
 agent→agent (A2A), agent→principal, system→agent — is a structured
@@ -195,6 +195,47 @@ cutoff (this deletes the original D-4). Termipod is in solo use with
 no persisted `agent_events` message data to migrate; the envelope is
 the only accepted body shape from the rollout commit. A plain-string
 body is malformed input → rejected (D-7). Cut over on a drained hub.
+
+### D-9. Engine-control raw bypass
+
+Amendment added 2026-05-25 (v1.0.707-alpha). Engine-control slash
+commands (`/clear`, `/compact`, `/model …`, `/effort xhigh`, …) are
+exempt from the envelope wrap — the producing client sets a `raw:
+true` flag on its `input.text` post, and the hub stamps
+`payload.text` directly without composing a `MessageEnvelope`. The
+host-runner's `renderInboundEnvelope` no-envelope fallback returns
+the body verbatim to the driver, so the engine sees the slash
+command as the first token of the turn (the only position where
+claude-code parses it as a control op).
+
+**Scope of the exemption.** The flag is effective only for
+`producer == "user"` and `kind == "text"`. Peer-originated messages
+(`producer == "a2a"`) remain enveloped — peer-to-peer messages
+always carry provenance per D-1 and an A2A "slash command" makes no
+sense in the inter-agent contract. The flag is rejected with a
+silent no-op on every other shape (set_mode / answer / cancel /
+attach), keeping the contract surface narrow.
+
+**Provenance on raw rows.** The persisted `agent_events` row carries
+`payload.raw: true` as a marker so consumers (mobile feed, future
+audit tooling) can distinguish "raw control op" from "envelope was
+malformed and stripped". The marker is forward-compat for further
+raw-domain shapes (engine-native non-slash control surfaces a future
+engine may ship); today only the slash-command shape gate on the
+mobile side flips it.
+
+**Why this is not a regression of D-1.** D-1 says the envelope is
+the only accepted shape "for inter-agent and principal-directive
+turns". Engine-control ops are neither — they're an op on the engine
+itself, observed *through* the chat surface for ergonomic reasons but
+not addressed *at* the agent's reasoning. The D-9 exemption draws
+the line at "is this content meant to advance the agent's reasoning
+loop?". A directive advances it (envelope required); a `/clear`
+nukes the loop's state (envelope wrong — the engine treats the
+prefixed turn as prose and never recognises the command). The
+admission pipeline (D-7) only fires on envelope-bearing rows, so raw
+rows skip admission entirely; this is fine because there is no
+provenance to validate and no cause to walk.
 
 **What this does not break.** "No shim" concerns *persisted runtime
 data*, not first-party code. `seed-demo` writes only static state

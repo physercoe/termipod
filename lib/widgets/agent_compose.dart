@@ -27,6 +27,33 @@ import 'text_attach/composer_text_attach.dart';
 // shared helper so call sites can stay readable.
 const int _maxImagesPerTurn = kMaxImagesPerTurn;
 
+/// v1.0.707 polish — returns true when [body] is an engine-control slash
+/// command (`/clear`, `/compact focus`, `/model claude-sonnet-4`, …). The
+/// shape gate is deliberately narrow:
+///
+///   - first non-whitespace char must be `/`
+///   - the command token after `/` must start with a letter and contain
+///     only [A-Za-z0-9_-] — this excludes path-like values (`/etc/foo`)
+///     and markdown list markers (`/ - item`) that happen to start with
+///     a slash but aren't slash commands
+///   - whitespace + optional args may follow on the same line; a
+///     multi-line body is still allowed (`/compact <multiline focus>`)
+///
+/// Callers use this to flip `raw: true` on `postAgentInput`, which makes
+/// the hub bypass the principal-directive envelope wrap so the engine
+/// receives the verbatim slash command rather than prose framed as a
+/// directive (which the engine reads as text, not a command).
+///
+/// Top-level + public for testability — see
+/// `test/widgets/agent_compose_slash_command_test.dart`.
+bool isSlashCommandBody(String body) {
+  final t = body.trim();
+  if (t.isEmpty || !t.startsWith('/')) return false;
+  final firstLineEnd = t.indexOf('\n');
+  final firstLine = firstLineEnd == -1 ? t : t.substring(0, firstLineEnd);
+  return RegExp(r'^/[A-Za-z][\w-]*(?:\s.*)?$').hasMatch(firstLine);
+}
+
 /// Sits under AgentFeed and routes text/cancel inputs to the hub's
 /// /agents/{id}/input endpoint. The hub persists them as producer='user'
 /// agent_events; host-runner's InputRouter then delivers them to the
@@ -221,6 +248,17 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       _error = null;
     });
     try {
+      // v1.0.707 polish — slash-command bodies bypass the
+      // principal-directive envelope so /clear, /compact, /model …
+      // reach the engine verbatim instead of being framed as prose.
+      // Attachments coexisting with text-only bodies still get the
+      // envelope: a slash command with an image makes no sense and
+      // the heuristic excludes the case implicitly (a body that
+      // matches isSlashCommandBody is a single-token-leading line
+      // by construction).
+      final isSlashCmd =
+          body.isNotEmpty && !hasImages && !hasMultimodal &&
+          isSlashCommandBody(body);
       await client.postAgentInput(
         widget.agentId,
         kind: 'text',
@@ -229,6 +267,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
         pdfs: pdf == null ? null : [pdf],
         audios: audio == null ? null : [audio],
         videos: video == null ? null : [video],
+        raw: isSlashCmd ? true : null,
       );
       if (body.isNotEmpty) {
         unawaited(ref.read(inputHistoryProvider.notifier).add(body));
@@ -464,7 +503,14 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       _error = null;
     });
     try {
-      await client.postAgentInput(widget.agentId, kind: 'text', body: content);
+      // v1.0.707 polish — snippets in the claude-code preset profile
+      // are predominantly slash commands (`/clear`, `/compact`, …);
+      // bypass the principal-directive envelope when the content
+      // matches the slash-command shape. User-defined prose snippets
+      // (no leading `/`) still get the envelope.
+      final raw = isSlashCommandBody(content) ? true : null;
+      await client.postAgentInput(widget.agentId,
+          kind: 'text', body: content, raw: raw);
       unawaited(ref.read(inputHistoryProvider.notifier).add(content));
     } on HubApiError catch (e) {
       if (!mounted) return;

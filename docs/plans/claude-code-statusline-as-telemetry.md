@@ -155,27 +155,71 @@ W3's /clear fix on its own merit.
 
 ### Phase B — mobile chips (~650 LOC + ~25 tests)
 
-- **W4 — agent cost / effort / thinking / fast_mode chips.**
-  - Mobile chips read from the latest `status_line` event for the
-    agent (reducer pattern — last-write-wins per field).
-  - **Cost chip labelled "agent cost"**, not "session cost" (ADR-036
-    D8). Format: `$0.12 · 1m 58s` (cost + duration). Tooltip:
-    "Cumulative USD for the current agent process. Resets on
-    respawn (resume/restart); preserved across `/clear` and
-    `/model`." (Q3 resolved 2026-05-25 — see ADR-036 D8: cost is
-    per-process; `claude --resume <id>` starts at 0.)
+- **W4 — TWO cost chips + effort / thinking / fast_mode chips.**
+  Cost ships as a PAIR per ADR-036 D8 — process scope (from
+  statusLine, resets on respawn) + session scope (hub-computed,
+  preserved across resumes). Split into three sub-wedges so the
+  pricing-table infrastructure (D10) is testable in isolation
+  before the mobile chip lands.
+
+  - **W4-a — Process cost chip (mobile).**
+    Reducer over `status_line` events, latest-wins. Reads
+    `cost.total_cost_usd` from the latest payload. Format:
+    `$0.12 (process)` or `$0.12 · 1m 58s` (cost + duration).
+    Tooltip: "Cumulative USD this claude process imputed against
+    the public API rate sheet. Resets on respawn; preserved across
+    `/clear` and `/model`. Subscription users aren't billed this;
+    it's an estimate."
+    Self-gates when no status_line payload has carried `cost` yet.
+    Wedge size: ~120 LOC + ~6 widget tests.
+
+  - **W4-b — Hub pricing table + session-cost computation.**
+    Per ADR-036 D10 — hot-loadable YAML with embedded fallback.
+    Files:
+    - `hub/internal/pricing/types.go` — `Table` struct +
+      `Rate{InputPerMillion, OutputPerMillion, CacheReadPerMillion,
+      CacheWritePerMillion}` per model + `SnapshotDate`.
+    - `hub/internal/pricing/loader.go` — three-tier resolution
+      (env-override path → default-disk path → embedded). Caches
+      parsed table, invalidates on mtime change. Emits one warning
+      audit row per parse-error / unknown-model-first-sighting.
+    - `hub/internal/pricing/claude_default.yaml` — embedded
+      default; snapshot_date current to ship date.
+    - `hub/internal/pricing/compute.go` — `SessionCost(sessionID)
+      (USD float64, breakdownByModel map[string]float64, err)`.
+      Aggregates `agent_events.kind='usage'` for the session_id,
+      sums tokens per model, applies rates.
+    - New derived field `session_cost_usd_imputed` on agent/session
+      response payloads (hub/internal/server side).
+    - Tests: table-parse happy + parse-error fall-through;
+      mtime-reload picks up edits without restart; unknown-model
+      degrades gracefully; coverage for the 4 token classes
+      (input / output / cache-read / cache-write).
+    Wedge size: ~280 LOC + ~12 unit tests + 1 integration test.
+    No mobile changes — gate verified by hub tests alone.
+
+  - **W4-c — Session cost chip (mobile).**
+    Reads new `session_cost_usd_imputed` field from the agent/session
+    response. Tooltip shows per-model breakdown mirroring
+    /usage's "Usage by model" block, plus the active pricing
+    table's `snapshot_date` so users can spot stale config.
+    Self-gates when the field is null (unknown model fall-through
+    per D10 tier 3). Side-by-side with W4-a's chip in the strip;
+    paired-tooltip text explains the two scopes when both are
+    visible. Wedge size: ~140 LOC + ~6 widget tests.
+
   - **Effort chip**: small badge ("xhigh", "high", "low"). Renders
     only when present.
   - **Thinking chip**: brain icon, present-only when
     `thinking.enabled = true`. Subtle — many users will leave it on.
   - **Fast-mode badge**: present-only when `fast_mode = true`.
     "FAST" badge in opus-orange (Opus Fast indicator).
-  - All four chips self-gate: render nothing when the field is
-    absent from the latest status_line payload, per the
-    self-gating-widget pattern (`[[feedback_self_gating_widget_pattern]]`).
-  - **Tests.** Widget tests in `test/widgets/agent_feed_test.dart`
-    (or sibling) — empty payload → no chips; full payload → 4
-    chips in order; cost transitions update the chip.
+  - All non-cost chips self-gate per
+    [[feedback_self_gating_widget_pattern]].
+  - **Tests.** Per-sub-wedge as above; integration test in
+    `test/widgets/agent_feed_test.dart` (or sibling) — empty
+    payload → no chips; full payload → 4 chips in order; cost
+    transitions update both chips independently.
 
 - **W5 — `rate_limits` surface.**
   - Render a row in the session details sheet AND a compact
@@ -214,15 +258,18 @@ W3's /clear fix on its own merit.
 
 | Phase | Wedges | LOC (est.) | Gate |
 |---|---|---|---|
-| A — hub channel | W1–W3 | ~780 + ~25 tests | shim happy path; dedupe test; rotation test; CI green |
-| B — mobile chips | W4–W6 | ~650 + ~25 tests | widget tests; CI green; on-device smoke per W1's open-question scenarios |
-| **Total** | **6** | **~1,430 + ~50 tests** | — |
+| A — hub channel | W1–W3 | ~780 + ~25 tests | shim happy path; dedupe test; rotation test; CI green (✓ done v1.0.696-698) |
+| A.5 — mobile filter regression fix | W3.5 | ~150 + ~10 tests | bubble-hide + busy-skip kind-list contract tests (✓ done v1.0.699) |
+| B.4 — cost chips (split per ADR-036 D8 + D10) | W4-a/b/c | ~540 + ~24 tests | hub pricing table hot-reload; session-aggregation correctness; chip pair side-by-side renders |
+| B.5+6 — remaining mobile chips | W4-effort/W5/W6 | ~510 + ~20 tests | widget tests; CI green |
+| **Total** | **9** | **~1,980 + ~79 tests** | — |
 
 Phase A is shippable alone — the hub channel + heuristic relegation
-+ /clear fix earn their keep without any mobile work. Phase B is
-sequenceable after Phase A in any wedge order; W5 (`rate_limits`)
-has the highest user-visible value and is the recommended first
-mobile wedge.
++ /clear fix earn their keep without any mobile work. Phase B's
+recommended order: **W4-b first** (pricing table is the foundation
+that W4-c depends on, and it's hub-only so it can ship + green-CI
+before any mobile work). Then W4-a + W4-c as a pair (chip pair is
+designed to be read together). Then W5 (`rate_limits`) and W6.
 
 ## Open questions inherited from ADR-036
 
@@ -237,15 +284,27 @@ non-blocking for the wedge that touches it.
 
 Resolved (2026-05-25, post-Phase-A smoke; see ADR-036 §Resolved):
 
-- ~~Cost behaviour on `claude --resume <id>`?~~ → resets to 0;
-  cost is process-cumulative (folded into D8 + W4).
+- ~~Cost behaviour on `claude --resume <id>`?~~ → **two-scope answer.**
+  statusLine's `cost.total_cost_usd` is per-process (resets on
+  respawn; confirmed across 7 process boundaries + 3 within-process
+  /clear captures). claude's /usage TUI command shows session-
+  cumulative USD (preserves on most-recent resume; inconsistent on
+  older-session resume). Both are imputed against the public API
+  rate sheet. Resolution: W4 ships BOTH chips side-by-side
+  (process from statusLine + session from hub-side aggregation
+  against a hot-loadable pricing table — ADR-036 D8 + D10). Plan
+  W4 split into W4-a/b/c above.
 - ~~`rate_limits.resets_at` timezone?~~ → TZ-agnostic epoch; chip
   renders in device-local TZ (folded into D7 + W5).
 
 ## Non-goals (post-MVP if ever)
 
-- **Per-session cost** by diffing across `session_id` rotations.
-  ADR-036 D8 explicitly defers this; the chip is process-cumulative.
+- **Per-session_id slicing of cost across /clear rotations.**
+  W4-b's session aggregation keys on the agent's CURRENT session_id
+  only — it does NOT diff cost across /clear-rotated session_ids
+  within the same conversation. A "show me what THIS /clear
+  segment cost vs the prior one" view is a separate ask; defer
+  until someone wants it.
 - **`lines_added / lines_removed` chip.** Probe showed both stay 0
   even on tool-using turns (suggests only Edit/Write counts).
   Narrow signal; revisit if the field's semantics widen.

@@ -288,26 +288,43 @@ captured sample but one sample can't distinguish "Anthropic anchors
 7d to clean hours" from "user's first request happened to fall on
 a clean hour". Either way the chip renders the same way.
 
-### D8. Cost is "agent cost", not "session cost"
+### D8. Two cost scopes ship side-by-side: process (from statusLine) AND session (hub-computed)
 
-`cost.total_cost_usd` is **process-cumulative** (probe verified): it
-grows across /clears and /model swaps within the same claude
-process and only resets when the process restarts. One agent
-spawn = one claude process = one cost meter. Mobile MUST label the
-chip "agent cost" or "spawn cost" — never "session cost".
-Per-session cost (diffing across session_id rotations) is post-MVP
-if we want it.
+statusLine's `cost.total_cost_usd` is **process-cumulative** (probe
+verified across 7 process boundaries on 2026-05-25): it grows
+across `/clears` and `/model` swaps within the same claude process
+and resets to 0 on every respawn (resume / restart / fresh). Claude
+maintains no persistent USD ledger across processes — the value is
+recomputed live in-process from token counts × current rates and
+discarded at process exit.
 
-**Resume resets the meter.** Probe rows 17-18 (2026-05-25, ~11.7h
-after the original session ended) confirm: a fresh `claude` process
-that resumes the prior session — same `session_id`, same
-`transcript_path`, same `session_name`, same context tokens
-(25146 input preserved → claude IS replaying the prior JSONL) —
-reports `cost.total_cost_usd: 0` and `total_api_duration_ms: 0`.
-The cost meter is per-process, not per-conversation. Tooltip
-wording locks in as: "Cumulative USD for the current agent
-process. Resets on respawn (resume/restart); preserved across
-`/clear` and `/model`."
+claude's own `/usage` command, by contrast, displays a
+**session-cumulative** USD (preserved on most-recent resume,
+inconsistent on older-session resume — see §Resolved Q3 below). It
+also imputed: subscription users see USD in `/usage` even though
+their account isn't billed per-token, because /usage applies the
+public API rate table to local JSONL token counts.
+
+**Both numbers are useful and they aren't redundant.** Mobile
+ships **both chips side-by-side**:
+
+| Chip | Source | Scope | Resets when |
+|---|---|---|---|
+| **Process: $X** | latest `status_line.cost.total_cost_usd` per agent | This claude process only | Process respawn |
+| **Session: $Y** | Hub-side aggregation: sum of `agent_events.kind='usage'` token counts for this session_id × an in-hub pricing table | This whole conversation regardless of resumes | Never (our session is more consistent than /usage's — every resume preserves) |
+
+Reading both at once tells the director what mode they're in:
+- $X = $Y → fresh cold session, no resumes
+- $X < $Y → this process is resuming something with prior cost
+- $X = 0 with $Y > 0 → just resumed, no turn yet
+- $X > $Y → bug (shouldn't happen; investigate)
+
+Both chips MUST carry the "imputed" disclaimer in their tooltip
+(subscription users aren't actually paying these dollars; the
+numbers are estimates against the public API rate sheet).
+
+Per-session cost is computed hub-side — see D10 for the pricing
+table policy.
 
 ### D9. status_line is NOT load-bearing for any existing chip
 
@@ -319,6 +336,68 @@ literal `"claude-code"`. Only NEW chips (cost, effort, thinking,
 fast_mode, rate_limits, exceeds_200k_tokens, session_name) hide
 when no statusLine frame has been seen. This is the "blank > wrong"
 discipline applied to the new fields.
+
+### D10. Pricing table is hot-loadable config with an embedded fallback
+
+Computing session-cumulative cost (D8 chip 2) requires a model →
+rate mapping the hub applies to aggregated `agent_events.usage`
+token counts. The table MUST NOT be hardcoded Go constants — when
+Anthropic ships new rates, operators must be able to update without
+rebuilding or restarting.
+
+**Layout (three-tier resolution, first hit wins):**
+
+1. **On-disk operator override.** Default path:
+   `<hub-data-dir>/pricing/claude.yaml` (override via env
+   `TERMIPOD_PRICING_CLAUDE`). Hot-reloaded on access via mtime
+   check (cheaper than fsnotify; cadence is fine because cost
+   chips render at most every few seconds and an mtime stat is
+   sub-millisecond). On parse error, fall through to tier 2 and
+   emit a hub-level warning audit row (operator misconfigured the
+   file — don't silently use defaults; warn AND keep serving).
+2. **Embedded default.** `hub/internal/pricing/claude_default.yaml`
+   compiled in via `//go:embed`. Ships with rates current as of
+   the release date; the file header carries the snapshot date so
+   operators can spot drift.
+3. **Per-model fallback.** Unknown model in BOTH tiers → degrade
+   the chip pair: hide the session-cost chip ("blank > wrong" per
+   D9 discipline); the process-cost chip still works because
+   statusLine ships USD verbatim. Hub emits one warning audit row
+   per unknown-model-first-sighting per spawn.
+
+**Schema (YAML; one block per model):**
+
+```yaml
+# Anthropic Claude API pricing — USD per 1M tokens
+# Source: https://www.anthropic.com/pricing (snapshot as of date below)
+version: 1
+snapshot_date: 2026-05-25
+models:
+  claude-opus-4-7:
+    input_per_million: 15.00
+    output_per_million: 75.00
+    cache_read_per_million: 1.50
+    cache_write_per_million: 18.75
+  claude-sonnet-4-6:
+    input_per_million: 3.00
+    output_per_million: 15.00
+    cache_read_per_million: 0.30
+    cache_write_per_million: 3.75
+  # …
+```
+
+The session-cost chip's tooltip MUST display the active table's
+`snapshot_date` ("rates as of 2026-05-25") so the user can spot
+when their config is stale.
+
+**What this is and isn't.** This is a `behaviour-is-data` slot
+([blueprint A6](../spine/blueprint.md)) for pricing specifically —
+it does NOT make the cost computation operator-defined. The CODE
+that walks `agent_events.usage` and multiplies tokens × rates is
+still in `hub/internal/pricing/compute.go`. Only the RATES are
+swappable. An operator overriding to malformed-but-parseable rates
+(e.g. negative numbers) gets garbage on the chip but no security
+risk — same trust model as any host-local config.
 
 ## Consequences
 
@@ -388,13 +467,35 @@ discipline applied to the new fields.
 
 ## Resolved (2026-05-25, post-Phase-A smoke)
 
-- **Q3 — Cost on `claude --resume`?** Resolved: **resets to 0.**
-  Probe rows 17-18 captured a fresh-process resume of the original
-  `session_id` (`7b4b803b-…`) ~11.7h after the original session.
-  Same session_id, transcript_path, session_name, context tokens
-  (preserved → claude replays the prior JSONL), but
-  `cost.total_cost_usd = 0` and `total_api_duration_ms = 0`. Cost
-  is per-process. Folded into D8.
+- **Q3 — Cost on `claude --resume`?** Resolved: **two scopes, both
+  correct, both useful.** Three independent within-process `/clear`
+  captures (rows 11→12, 40→41, 63→64) confirm statusLine's
+  `cost.total_cost_usd` is **process-cumulative** and is NOT touched
+  by `/clear` or `/model` — it only resets when the claude PROCESS
+  restarts (resume / cold / crash). All seven captured process
+  boundaries showed cost reset to 0.
+
+  But claude's own `/usage` TUI command shows a **session-cumulative**
+  USD that DOES preserve across most-recent-session resume: probe row
+  53 captured $0.064365 in a fresh process; `/usage` screenshot taken
+  later in that session showed $0.0640 (same value, rounded display).
+  Both numbers are imputed against the public API rate sheet
+  (subscription users aren't actually billed per-token, but /usage
+  displays the imputed USD anyway). The /usage source is the JSONL
+  transcript itself (no USD field anywhere in JSONLs — 391 lines
+  swept, zero USD keys — so /usage walks tokens × current rates on
+  every render).
+
+  One subtle case left open: resuming an OLDER (not most-recent)
+  session shows /usage cost = 0, contradicting the preserved-on-
+  most-recent-resume behaviour. We don't have visibility into
+  claude's /usage source to know why. Our hub-side session
+  aggregation (D10) walks `agent_events.usage` directly and is
+  deterministic across ANY resume — arguably more consistent than
+  /usage's behaviour.
+
+  Phase B W4 ships BOTH chips side-by-side (D8 chip pair) so the
+  director can cross-check. Pricing table is hot-loadable per D10.
 - **Q4 — `rate_limits.resets_at` timezone?** Resolved:
   **TZ-agnostic Unix epoch; render in device-local TZ.** Decoding
   the captured epochs: 5h-window samples landed at 16:30 UTC and

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.699
+> **Last verified vs code:** v1.0.700
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,100 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.700-alpha — 2026-05-25
+
+**ADR-036 Phase B W4-b: hub-side pricing infrastructure for the
+session-cost chip.** First hub-only wedge of Phase B. Lays the
+foundation that W4-c (mobile session chip) depends on — no mobile
+work in this release; chips still render at v1.0.699 fidelity.
+
+### Added
+
+- **New package `hub/internal/pricing/`** (~380 LOC) implementing the
+  three-tier resolution pattern from ADR-036 D10:
+  - **Tier 1 — operator override.** Default path
+    `$HUB_DATA/pricing/claude.yaml` (env `TERMIPOD_PRICING_CLAUDE`
+    overrides). mtime-stat per render — no fsnotify goroutine; the
+    chip cadence (few seconds) makes per-call stat negligible.
+    Parse-error or validation-failure falls through to tier 2 and
+    emits a `pricing.config_error` warn-log row (operator-visible
+    via `hub-server` logs; full audit-row integration deferred until
+    hub-global audit channel exists).
+  - **Tier 2 — embedded default** via `//go:embed claude_default.yaml`.
+    Snapshot-dated YAML header (`snapshot_date: 2026-05-25`) so a
+    chip-tooltip can surface "rates as of …" to users. Ships with
+    `claude-opus-4-7` ($15/$75/$1.50/$18.75 per 1M) and
+    `claude-sonnet-4-6` ($3/$15/$0.30/$3.75 per 1M); `claude-haiku-4-5`
+    held back as a commented sample until verified, so haiku
+    sessions degrade blank per ADR-036 D9 rather than risk wrong.
+  - **Tier 3 — per-model fallback.** Unknown model in both tiers →
+    contribution dropped from total, model id surfaced via
+    `Result.Missing` so the chip self-gates and the server can warn
+    on first-sighting.
+
+- **`pricing.SessionCost(ctx, db, loader, sessionID)`** — aggregates
+  `agent_events.kind='usage'` rows for the session, sums tokens per
+  model (input / output / cache_read / cache_write), and applies the
+  resolved table. Tolerant of (a) usage events missing the `model`
+  field (pre-W2 historical rows — dropped silently), (b) unknown
+  models in the table (Missing list), and (c) sessions with no usage
+  events at all (returns zero-valued Result, no error).
+
+- **New endpoint `GET /v1/teams/{team}/sessions/{session}/cost`** —
+  rich response shape (`session_cost_usd_imputed.handlers_session_cost.go`):
+  `{total_usd, breakdown_by_model, tokens_by_model, missing_models,
+  snapshot_date, origin, imputed: true}`. `imputed: true` is always
+  set so mobile can render the subscription-disclaimer tooltip even
+  when the chip degrades to zero. 404 on unknown session id (not
+  500). Will be consumed by W4-c's session-cost chip.
+
+- **`session_cost_usd_imputed` field on `GET /sessions/{id}`** —
+  scalar total inlined on the parent GET so the chip lights up
+  without a second round-trip on first paint. nil (omitted)
+  when the session has zero priced usage; populated otherwise.
+  NOT exposed on `LIST /sessions` (would impose O(N) sessions
+  × O(M) events per list call; deferred to a future wedge if the
+  agents list ever surfaces the chip in-row).
+
+### Tests
+
+- `hub/internal/pricing/loader_test.go` (9 tests): embedded-default
+  CI guard; env-override path wins; default-disk path wins; embedded
+  fallback when override missing; parse-error + validation-error
+  warn+fall-through; mtime reload; unchanged-mtime cache return;
+  `ErrUnknownModel` for unknown ids.
+- `hub/internal/pricing/compute_test.go` (8 tests including a 7-case
+  table-driven `TestCostFromTokens`): per-class arithmetic; empty
+  session; single-message attribution; multi-message per-model
+  aggregation; unknown-model degradation; cross-session isolation;
+  kind-filter (only `usage` counts); nil-guard; missing-model
+  payload tolerance.
+- `hub/internal/server/handlers_session_cost_test.go` (4 tests):
+  empty-session 200 with embedded snapshot_date; with-usage-events
+  integration vs the real embedded rates; 404 on unknown session
+  id; inline scalar field present iff session has priced usage.
+
+### Architecture
+
+- **Sister to ADR-027 hooks-install.** Where hooks-install owns a
+  per-workdir config field (settings.local.json's `hooks`), pricing
+  owns a hub-global config field that's *operator-tunable without
+  restart*. Different file-ownership shapes; same merge-don't-clobber
+  + hot-reload discipline. See
+  [feedback_hot_loadable_config_with_embedded_default](memory)
+  for the generalizable pattern.
+- **No claude-specific code in `internal/pricing/`** — the package
+  takes model ids verbatim and the YAML schema is engine-neutral.
+  When a future engine ships a USD-pricing-relevant model id, drop
+  a sibling YAML (e.g. `gemini_default.yaml`) and add an engine
+  selector to the loader. Out-of-scope for W4-b.
+
+### Plan status
+
+- ADR-036 plan W4-b ships green. Mobile work (W4-a + W4-c paired,
+  designed to be read together) is next — gated on principal user
+  acceptance of the hub side rather than another wedge ship.
 
 ## v1.0.699-alpha — 2026-05-25
 

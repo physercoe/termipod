@@ -1,0 +1,53 @@
+# Anthropic Claude API pricing — USD per 1 million tokens
+#
+# Snapshot from the public Anthropic pricing page. Used by the hub's
+# session-cost chip (ADR-036 D8 chip 2) when no operator override has
+# been placed at $HUB_DATA/pricing/claude.yaml (override path can be
+# changed via the TERMIPOD_PRICING_CLAUDE env var).
+#
+# To update: copy this file to $HUB_DATA/pricing/claude.yaml, edit, and
+# the hub picks it up on the next chip render — no restart needed.
+# Bump `snapshot_date` so the tooltip surfaces the freshness to users.
+#
+# Subscription users (Pro, Max) are NOT billed per-token; the numbers
+# computed from this table are imputed estimates that mirror what
+# pay-as-you-go API customers would pay. The chip tooltip carries this
+# disclaimer explicitly.
+#
+# Rates not represented here cause the session-cost chip to degrade
+# blank for that model, with a warning audit row per spawn. Add the
+# model to the override file rather than waiting for an embedded bump.
+
+version: 1
+snapshot_date: 2026-05-25
+source_url: https://www.anthropic.com/pricing
+
+models:
+  # Opus family — flagship. 1M context tier ships at the standard
+  # rates listed here; the [1m] suffix model.id (sonnet-4-6[1m]) does
+  # NOT change the per-token cost.
+  claude-opus-4-7:
+    input_per_million: 15.00
+    output_per_million: 75.00
+    cache_read_per_million: 1.50
+    cache_write_per_million: 18.75
+
+  # Sonnet family — workhorse.
+  claude-sonnet-4-6:
+    input_per_million: 3.00
+    output_per_million: 15.00
+    cache_read_per_million: 0.30
+    cache_write_per_million: 3.75
+
+  # Haiku family — fast/cheap. The 4-5 entry is held back until we
+  # verify the public-rate breakdown for the cache tiers. Until then
+  # the chip degrades blank for haiku sessions per ADR-036 D9 ("blank
+  # > wrong"); operators can drop a tier-2 override to enable it.
+  # Sample shape (uncomment + verify against the pricing page before
+  # enabling):
+  #
+  # claude-haiku-4-5:
+  #   input_per_million: 0.80
+  #   output_per_million: 4.00
+  #   cache_read_per_million: 0.08
+  #   cache_write_per_million: 1.00

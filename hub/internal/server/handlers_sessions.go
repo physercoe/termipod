@@ -44,6 +44,16 @@ type sessionOut struct {
 	ClosedAt       *string `json:"closed_at,omitempty"`
 	WorktreePath   string  `json:"worktree_path,omitempty"`
 	SpawnSpecYAML  string  `json:"spawn_spec_yaml,omitempty"`
+	// SessionCostUSDImputed is the derived hub-side total cost in USD
+	// across the session's usage events, applied against the active
+	// pricing table (ADR-036 D8 chip 2). Populated only on single-
+	// session GET; omitted from list-sessions to keep that payload
+	// small (and to keep list latency O(N) sessions, not O(N) sessions
+	// × O(M) usage events each). nil = session has zero usage events
+	// OR every model id seen was absent from the pricing table — the
+	// chip self-gates on null per ADR-036 D9 "blank > wrong". Mobile
+	// hits GET /sessions/{id}/cost for the per-model breakdown.
+	SessionCostUSDImputed *float64 `json:"session_cost_usd_imputed,omitempty"`
 }
 
 func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
@@ -200,6 +210,19 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if closedAt.Valid {
 		ses.ClosedAt = &closedAt.String
+	}
+	// Derived cost field (ADR-036 D8 chip 2). Errors are swallowed —
+	// a missing cost must NEVER prevent the session GET from returning
+	// (the chip self-gates on a null field per D9).
+	if s.pricing != nil {
+		if res, err := pricingSessionCost(r.Context(), s, id); err == nil {
+			if res.TotalUSD > 0 || len(res.Breakdown) > 0 {
+				v := res.TotalUSD
+				ses.SessionCostUSDImputed = &v
+			}
+		} else {
+			s.log.Warn("pricing.session_cost", "session", id, "err", err)
+		}
 	}
 	writeJSON(w, http.StatusOK, ses)
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/termipod/hub/internal/agentfamilies"
 	"github.com/termipod/hub/internal/auth"
 	"github.com/termipod/hub/internal/buildinfo"
+	"github.com/termipod/hub/internal/pricing"
 )
 
 const APIVersion = "v1"
@@ -53,6 +54,11 @@ type Server struct {
 	escalator     *Escalator
 	tunnel        *TunnelManager
 	agentFamilies *agentfamilies.Registry
+	// pricing serves the session-cost chip (ADR-036 D8 chip 2). One
+	// loader per server; thread-safe; mtime-hot-reloaded so an
+	// operator-edited override file lights up without restart. See
+	// hub/internal/pricing/loader.go for the three-tier resolution.
+	pricing *pricing.Loader
 }
 
 func New(cfg Config) (*Server, error) {
@@ -121,6 +127,18 @@ func New(cfg Config) (*Server, error) {
 	s.sched = NewScheduler(s, cfg.Logger)
 	s.escalator = NewEscalator(s, cfg.Logger, 0)
 	s.tunnel = newTunnelManager()
+	// Pricing loader (ADR-036 D10). Warner closure adapts the
+	// loader's action/summary/meta call into the server's recordAudit
+	// row — operator-visible parse errors land in audit_events under
+	// `pricing.config_error`. The chip itself still renders on the
+	// embedded fallback even when the override file is broken.
+	s.pricing = pricing.NewLoader(func(action, summary string, meta map[string]any) {
+		// No team scope for hub-global config errors — recordAudit
+		// silently drops rows with empty team_id, which is the wrong
+		// shape for this case. Log instead until a per-team audit
+		// channel exists.
+		s.log.Warn("pricing config", "action", action, "msg", summary, "meta", meta)
+	})
 	s.router = s.buildRouter()
 	return s, nil
 }
@@ -341,6 +359,12 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/fork", s.handleForkSession)
 				r.Post("/resume", s.handleResumeSession)
 				r.Delete("/", s.handleDeleteSession)
+				// /cost is the per-session imputed USD breakdown
+				// (ADR-036 D8 chip 2). Read by the session-cost chip
+				// for tooltip-level detail; the scalar total is also
+				// inlined on the parent GET as session_cost_usd_imputed
+				// to avoid an extra round-trip on first paint.
+				r.Get("/cost", s.handleGetSessionCost)
 			})
 		})
 		r.Route("/templates", func(r chi.Router) {

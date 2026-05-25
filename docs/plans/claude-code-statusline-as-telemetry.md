@@ -1,9 +1,9 @@
 # claude-code statusLine as telemetry
 
 > **Type:** plan
-> **Status:** In flight (2026-05-24) — **Phase A COMPLETE** (W1+W2+W3 shipped v1.0.696-698); Phase B (mobile chips) pending
+> **Status:** In flight (2026-05-25) — **Phase A COMPLETE** (W1+W2+W3 shipped v1.0.696-698); **Phase A.5 COMPLETE** (W3.5 shipped v1.0.699); **Phase B W4-b SHIPPED** (v1.0.700, hub-side pricing infrastructure); W4-a + W4-c (mobile chips) pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.698 (hub) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.700 (hub) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -173,30 +173,49 @@ W3's /clear fix on its own merit.
     Self-gates when no status_line payload has carried `cost` yet.
     Wedge size: ~120 LOC + ~6 widget tests.
 
-  - **W4-b — Hub pricing table + session-cost computation.**
-    Per ADR-036 D10 — hot-loadable YAML with embedded fallback.
-    Files:
+  - **W4-b — Hub pricing table + session-cost computation.** ✓
+    Shipped v1.0.700-alpha (commit pending push). Per ADR-036 D10
+    — hot-loadable YAML with embedded fallback. Shipped surface:
     - `hub/internal/pricing/types.go` — `Table` struct +
       `Rate{InputPerMillion, OutputPerMillion, CacheReadPerMillion,
-      CacheWritePerMillion}` per model + `SnapshotDate`.
+      CacheWritePerMillion}` per model + `SnapshotDate` + `Origin`
+      label + `TokenCounts` + `CostFromTokens` + `RateFor`.
     - `hub/internal/pricing/loader.go` — three-tier resolution
       (env-override path → default-disk path → embedded). Caches
-      parsed table, invalidates on mtime change. Emits one warning
-      audit row per parse-error / unknown-model-first-sighting.
-    - `hub/internal/pricing/claude_default.yaml` — embedded
-      default; snapshot_date current to ship date.
-    - `hub/internal/pricing/compute.go` — `SessionCost(sessionID)
-      (USD float64, breakdownByModel map[string]float64, err)`.
-      Aggregates `agent_events.kind='usage'` for the session_id,
-      sums tokens per model, applies rates.
-    - New derived field `session_cost_usd_imputed` on agent/session
-      response payloads (hub/internal/server side).
-    - Tests: table-parse happy + parse-error fall-through;
-      mtime-reload picks up edits without restart; unknown-model
-      degrades gracefully; coverage for the 4 token classes
-      (input / output / cache-read / cache-write).
-    Wedge size: ~280 LOC + ~12 unit tests + 1 integration test.
-    No mobile changes — gate verified by hub tests alone.
+      parsed table, invalidates on mtime change. **Warner hook**
+      injected by the server (audit-shaped callback) so the
+      pricing package stays free of a *server import — operator
+      diagnostics surface via warn-log today; full audit-row
+      integration pending a hub-global audit channel (no team
+      scope fits this row).
+    - `hub/internal/pricing/claude_default.yaml` — embedded via
+      `//go:embed`; snapshot_date=2026-05-25; opus-4-7 + sonnet-4-6
+      live; haiku-4-5 held as a commented sample until verified
+      (chip degrades blank for haiku per D9, by design).
+    - `hub/internal/pricing/compute.go` — `SessionCost(ctx, db,
+      loader, sessionID) (Result, error)`. Result carries TotalUSD,
+      per-model Breakdown, per-model Tokens, Missing list,
+      SnapshotDate, Origin. Tolerant of missing-model payload
+      (dropped silently — historical rows), unknown-model
+      (Missing), nil-guards.
+    - **Two payload sites** wire the field, both in
+      `hub/internal/server/`: (1) inline scalar
+      `session_cost_usd_imputed` on `GET /sessions/{id}` for fast
+      first-paint; (2) new endpoint `GET /sessions/{id}/cost`
+      returning the rich `sessionCostOut` shape (TotalUSD,
+      Breakdown, Tokens, Missing, SnapshotDate, Origin, Imputed)
+      for the chip tooltip. List-sessions NOT touched (O(N×M) cost
+      would balloon).
+    - Tests landed: 9 loader + 8 compute + 4 server-integration
+      = 21 tests (overshot the ~12 unit + 1 integration estimate
+      because the compute table-driven case + nil-guards earned
+      their keep). All green.
+    Wedge size shipped: ~700 LOC (vs estimate ~280) + 21 tests.
+    Overshoot driven by (a) the dedicated cost endpoint instead of
+    inlining the rich shape (cleaner separation), (b) the inline
+    scalar on the parent GET (was a stretch; cheap enough at this
+    layer to keep), and (c) the Warner-hook indirection (kept the
+    pricing package import-clean for future engines).
 
   - **W4-c — Session cost chip (mobile).**
     Reads new `session_cost_usd_imputed` field from the agent/session
@@ -260,7 +279,7 @@ W3's /clear fix on its own merit.
 |---|---|---|---|
 | A — hub channel | W1–W3 | ~780 + ~25 tests | shim happy path; dedupe test; rotation test; CI green (✓ done v1.0.696-698) |
 | A.5 — mobile filter regression fix | W3.5 | ~150 + ~10 tests | bubble-hide + busy-skip kind-list contract tests (✓ done v1.0.699) |
-| B.4 — cost chips (split per ADR-036 D8 + D10) | W4-a/b/c | ~540 + ~24 tests | hub pricing table hot-reload; session-aggregation correctness; chip pair side-by-side renders |
+| B.4 — cost chips (split per ADR-036 D8 + D10) | W4-a/b/c | ~540 + ~24 tests | hub pricing table hot-reload; session-aggregation correctness; chip pair side-by-side renders (W4-b ✓ done v1.0.700 — hub side; W4-a + W4-c mobile pending) |
 | B.5+6 — remaining mobile chips | W4-effort/W5/W6 | ~510 + ~20 tests | widget tests; CI green |
 | **Total** | **9** | **~1,980 + ~79 tests** | — |
 

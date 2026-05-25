@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-24)
+> **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.698
+> **Last verified vs code:** v1.0.699
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,64 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.699-alpha — 2026-05-25
+
+**ADR-036 Phase A.5: mobile feed-bubble + busy-state regression fix
+for `status_line` events.** Phase A's hub-side wedges (v1.0.696-698)
+put the new `status_line` AgentEvent on the wire but the mobile
+consumer's per-kind dispatch lists weren't swept — the new kind
+fell through both gates, with two visible cold-open regressions:
+
+1. **Raw JSON snapshot rendered as a feed bubble.** ADR-036 D4
+   explicitly forbids this — `status_line` is a periodic-snapshot
+   reducer-source for chips, not a transcript bubble. `~10s` cadence
+   would also have flooded the transcript with ~360 frames/hour on
+   long-running agents.
+2. **Busy-state pinned to true on cold-open.** The first
+   `status_line` fires within seconds of spawn (before any user
+   turn), and `_isAgentBusy` fell through to its default
+   "agent-side event = turn-active" branch. With no
+   `turn.result` / `session.init` / `completion` to clear it, the
+   spawn stuck at busy(cancel) until the first real assistant
+   message. Same regression class as v1.0.667 (when `usage` was
+   pinning the busy pill after every turn.result).
+
+### Added
+
+- `lib/widgets/agent_feed.dart` — two `@visibleForTesting`
+  top-level sets, `kAgentFeedAlwaysHiddenKinds` (which kinds are
+  reducer-source / chip-source rather than transcript-source) and
+  `kAgentBusyInferenceSkipKinds` (which kinds the busy-state
+  inference walks past instead of treating as turn-active). Both
+  now include `status_line`. The previous inline `if (kind == 'x'
+  || kind == 'y')` chains have been refactored to `.contains()`
+  checks against these sets so the kind-list contracts are
+  testable as data instead of buried in widget internals.
+- `test/widgets/agent_feed_status_line_test.dart` — pins the two
+  set contracts (status_line membership; pre-ADR-036 kinds still
+  hidden; non-membership of transcript-first kinds like text /
+  thought / tool_call; cross-set symmetry).
+
+### Fixed
+
+- Cold-open status_line no longer renders as a JSON bubble in the
+  agent feed.
+- Cold-open status_line no longer pins the busy pill / cancel
+  button to true before the first user turn.
+
+### Notes
+
+- Phase A is now functionally complete: hub-side (v1.0.696-698) +
+  mobile consumer fix (v1.0.699). Phase B (chip additions for
+  cost / effort / thinking / fast_mode / rate_limits /
+  exceeds_200k_tokens / session_name) remains the next ship arc.
+- The status_line events still accumulate in the mobile event
+  list (we don't drop them at fetch time). Wedge note for Phase B:
+  if storage churn matters on long-running agents, gate the fetch
+  at the hub side or coalesce by latest-per-session.
 
 ---
 

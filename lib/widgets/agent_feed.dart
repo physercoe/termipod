@@ -54,6 +54,51 @@ bool agentEventIsReplay(Map<String, dynamic> evt) {
 ///                       the lifecycle position so multiple updates
 ///                       per call don't collapse into one).
 ///   approval_request  → kind + request_id.
+/// Event kinds that are ALWAYS hidden from the feed-bubble layer.
+///
+/// These are reducer-over-events signals — chips, telemetry strips,
+/// AppBar headers consume them — rendering them as transcript bubbles
+/// would double-count the same data with no extra signal.
+///
+/// - `session.init` — lives in the AppBar chip (model/version/cwd).
+/// - `usage` — feeds the token/cost strip; per-message frame.
+/// - `rate_limit` — drives the rate-limit row in the telemetry strip.
+/// - `status_line` — claude-code statusLine snapshot (ADR-036 D4):
+///   periodic snapshot, chip-source only, not a lifecycle event.
+///   ~10s cadence; rendering as bubbles would also spam the
+///   transcript with cold-open frames (~360 frames/hour).
+///
+/// Public so widget tests can assert membership without spinning the
+/// full `_AgentFeedState` widget tree.
+@visibleForTesting
+const kAgentFeedAlwaysHiddenKinds = <String>{
+  'session.init',
+  'usage',
+  'rate_limit',
+  'status_line',
+};
+
+/// Event kinds that `_isAgentBusy` skips over when walking events
+/// backwards to infer turn-active state.
+///
+/// These are pure-telemetry channels — their arrival does NOT mean a
+/// turn is in motion. Pre-v1.0.667 `usage` was missing here, which
+/// pinned the busy pill on forever (wire order at end-of-turn is
+/// `turn.result → text → usage`, so the latest agent event would be
+/// `usage` falling through to the default "busy" branch). v1.0.699
+/// adds `status_line` for the same reason — cold-open statusLine
+/// fires before any turn runs and would otherwise stick the spawn
+/// in busy(cancel) state until the first real assistant frame.
+///
+/// Anything NOT in this set (and not in the explicit terminal-kind
+/// branches above) signals turn-active.
+@visibleForTesting
+const kAgentBusyInferenceSkipKinds = <String>{
+  'usage',
+  'rate_limit',
+  'status_line',
+};
+
 @visibleForTesting
 String? agentEventReplayKey(Map<String, dynamic> evt) {
   final kind = (evt['kind'] ?? '').toString();
@@ -1460,10 +1505,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // is: turn.result → text → usage. Reading from the tail back,
       // the LATEST agent event is `usage`, which fell through to
       // the default "return true" branch — keeping the busy pill
-      // stuck on forever even after turn.result fired. Treat usage
-      // as pure telemetry (same as 'rate_limit', also skipped via
-      // _isHiddenInFeed but not enumerated here pre-v1.0.667).
-      if (kind == 'usage' || kind == 'rate_limit') continue;
+      // stuck on forever even after turn.result fired.
+      //
+      // v1.0.699: same regression class for `status_line` —
+      // claude-code statusLine fires ~10s cadence including at
+      // cold-open BEFORE any turn runs. Without skipping, the spawn
+      // sticks in busy(cancel) state until the first real assistant
+      // frame. See [kAgentBusyInferenceSkipKinds] for the
+      // testable kind-list.
+      if (kAgentBusyInferenceSkipKinds.contains(kind)) continue;
       // Any other agent-produced kind — text streaming, thought,
       // tool_call mid-flight, plan, raw, etc. — means the turn is
       // still in motion.
@@ -1645,9 +1695,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     Map<String, String> toolNames,
   ) {
     final kind = (e['kind'] ?? '').toString();
-    // Always-hidden kinds: session.init lives in the AppBar chip, and
-    // usage/rate_limit drive the telemetry strip — rendering them as
-    // cards too would duplicate the signal with no extra data.
+    // Always-hidden kinds drive chips / telemetry strips / AppBar
+    // headers instead of transcript bubbles — rendering them as
+    // cards would duplicate the signal with no extra data. See
+    // [kAgentFeedAlwaysHiddenKinds] for the testable kind-list
+    // (adding `status_line` here in v1.0.699 fixed the cold-open
+    // JSON bubble that ADR-036 D4 explicitly forbids).
     //
     // tool_call_update and turn.result are demoted to verbose-only
     // (handled below). They still drive folding (parent tool_call
@@ -1656,9 +1709,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // e.g. confirming an approval flow's tool result content reached
     // them, or seeing the cancelled stopReason that ended a turn —
     // the verbose toggle now reveals them.
-    if (kind == 'session.init' ||
-        kind == 'usage' ||
-        kind == 'rate_limit') {
+    if (kAgentFeedAlwaysHiddenKinds.contains(kind)) {
       return true;
     }
     if (kind == 'tool_call') {

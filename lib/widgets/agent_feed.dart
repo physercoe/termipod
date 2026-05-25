@@ -588,7 +588,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
 
   Future<void> _fetchSessionCost(String sid) async {
     try {
+      // hubProvider.client is nullable (HubNotifier exposes null
+      // before init / after sign-out). Skip the poll silently — the
+      // chip self-gates on the null cache; the next timer tick will
+      // re-attempt once the client is up.
       final client = ref.read(hubProvider.notifier).client;
+      if (client == null) return;
       final out = await client.getSessionCost(sid);
       if (!mounted) return;
       // sessionId might have flipped while the request was in flight

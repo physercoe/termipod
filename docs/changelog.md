@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.709
+> **Last verified vs code:** v1.0.710
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,73 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.710-alpha — 2026-05-25
+
+**Two on-device hotfixes from v1.0.708 smoke: envelope `from:` label
+follows the YAML, and codex-steward M2 spawns without a project_id
+can now launch.**
+
+### Fixed
+
+- **Mobile transcript `from:` label stayed stale after editing
+  `roles.principal` in the envelope YAML.** v1.0.708 wired hot-reload
+  for the engine-facing prose (`payload.rendered_text`) but the
+  mobile feed renders the `[from: <label>]` row via a parallel
+  hardcoded Dart map at `lib/widgets/agent_feed.dart:553-566`
+  (`_envelopeRoleLabel`). Two sources of truth: edits reached the
+  engine, not the UI. Fix: hub stamps an extra
+  `payload.from_label` field via a new
+  `Templates.RenderSender(role, handle)` public surface
+  (`hub/internal/envelope/types.go`) and a sibling
+  `Server.renderEnvelopeSenderLabel(env)` helper
+  (`hub/internal/server/input_envelope.go`). The same operator
+  template resolution that drives `rendered_text` now drives the
+  mobile-facing label in lockstep. Mobile prefers `from_label` from
+  the payload via a new `envelopeSenderLabel(role, handle,
+  fromLabel)` helper and falls back to the static map for legacy
+  events (pre-v1.0.710 rows on disk + A2A relay paths that don't
+  pass through this hub handler). Tests:
+  `hub/internal/envelope/types_test.go::TestRenderSender` covers
+  the cascade; the two existing
+  `TestPostAgentInput_RenderedText*` tests now also assert
+  `from_label`; `test/widgets/envelope_sender_label_test.dart`
+  covers the mobile precedence + fallbacks.
+- **Codex (and any) steward spawned outside a project errored with
+  `context_files set but backend.default_workdir is empty`.** The M2
+  workdir derivation at `hub/internal/hostrunner/launch_m2.go:198`
+  required `cfg.Spawn.ProjectID != ""` to land at
+  `~/hub-work/<pid8>/<handle>`; without a project, the workdir
+  stayed empty and the `writeContextFiles` guard rejected the
+  spawn. The codex-steward template
+  (`hub/templates/agents/steward.codex.v1.yaml`) intentionally
+  omits `default_workdir` with the comment "auto-derives from
+  spawn" — that contract only held for project-bound spawns. Fix:
+  extracted a shared `DeriveWorkdir(defaultWorkdir, projectID,
+  handle, childID, needsWorkdir)` in `spec.go` with a new
+  third-rung fallback `~/hub-work/_team/<handle>` when neither a
+  default nor a project_id is set AND the spawn would otherwise
+  need a workdir (`context_files` non-empty or `mcp_token`
+  set). Applied in both launch_m1.go and launch_m2.go for
+  symmetry. The legacy "no workdir, run from host-runner's cwd"
+  path is preserved for back-compat with demo templates that have
+  no context/mcp materialisation. Tests:
+  `hub/internal/hostrunner/spec_test.go::TestDeriveWorkdir` locks
+  the four-rung precedence;
+  `TestLaunchM2_DerivesTeamWorkdirWhenNoProjectID` reproduces the
+  codex-steward smoke shape end-to-end.
+
+### Why these landed together
+
+Both came from v1.0.708 on-device smoke and are mobile-visible
+operator-template regressions (one in the rendering pipeline, one
+in the spawn pipeline). Issue 1 is the natural follow-up to the
+ADR-032 D-10 hot-reload wedge (mobile was overlooked); issue 2 is
+a class-of-bug fix in the workdir derivation that shared roots
+with ADR-025 W6's project-id derivation rule. Shipping in one
+wedge keeps the on-device repro narrative coherent.
 
 ---
 

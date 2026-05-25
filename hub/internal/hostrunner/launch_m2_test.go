@@ -400,19 +400,84 @@ func TestLaunchM2_WritesContextFilesIntoWorkdir(t *testing.T) {
 	}
 }
 
-func TestLaunchM2_ContextFilesWithoutWorkdirFails(t *testing.T) {
-	// Writing context_files without a workdir would land the file in
-	// host-runner's own cwd, which leaks the agent's persona into the
-	// wrong tree. Reject the spawn instead.
+// Regression: pre-v1.0.710 a steward template that omitted
+// `default_workdir` AND was spawned without a project_id (general /
+// team-scoped stewards — the codex-steward smoke case reported on
+// v1.0.709) errored out at the writeContextFiles guard, leaving the
+// agent unlaunched. The fix derives a per-handle `_team` workdir;
+// this test locks in the new behaviour by spawning that exact shape
+// and asserting CLAUDE.md lands under `~/hub-work/_team/<handle>`.
+func TestLaunchM2_DerivesTeamWorkdirWhenNoProjectID(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:codex-steward.0"}
+	poster := &fakePoster{}
+
+	// Kind set to claude-code (not codex) so the M2 driver dispatch
+	// routes through StdioDriver — exercising the workdir-derivation
+	// code path without spinning up the JSON-RPC handshake an
+	// AppServerDriver would otherwise hang waiting on. The bug class
+	// (project-less spawn + non-empty context_files → was a fatal
+	// error pre-v1.0.710) is kind-agnostic; the codex steward shape
+	// is reproduced via Handle + the no-project_id shape.
+	sp := Spawn{
+		ChildID: "agent-codex-1",
+		Handle:  "codex-steward",
+		Kind:    "claude-code",
+		// No project_id. context_files non-empty (persona).
+		SpawnSpec: "backend:\n" +
+			"  cmd: fake-agent\n" +
+			"context_files:\n" +
+			"  AGENTS.md: |\n" +
+			"    hello from codex steward\n",
+		Mode: "M2",
+	}
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: launcher,
+		Client:   poster,
+		Spawner:  spawner,
+		LogDir:   logDir,
+	})
+	if err != nil {
+		t.Fatalf("launchM2 with no project_id should now succeed: %v", err)
+	}
+	defer res.Driver.Stop()
+
+	wantDir := filepath.Join(homeDir, "hub-work", "_team", "codex-steward")
+	wantPrefix := "cd '" + wantDir + "' && "
+	if !strings.HasPrefix(spawner.cmd, wantPrefix) {
+		t.Fatalf("spawner.cmd = %q; want prefix %q", spawner.cmd, wantPrefix)
+	}
+	if _, err := os.Stat(wantDir); err != nil {
+		t.Errorf("derived _team workdir %q not created: %v", wantDir, err)
+	}
+	wantPath := filepath.Join(wantDir, "AGENTS.md")
+	body, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if !strings.Contains(string(body), "hello from codex steward") {
+		t.Errorf("AGENTS.md = %q; want contains 'hello from codex steward'", string(body))
+	}
+}
+
+// The truly-unrecoverable case still errors: no project_id AND no
+// handle AND no child_id, but context_files set. The launcher
+// surfaces this as a config error rather than silently collapsing
+// every such spawn into a shared `~/hub-work/_team` directory.
+func TestLaunchM2_ContextFilesWithoutAnyIdentifierFails(t *testing.T) {
 	logDir := t.TempDir()
 	spawner := newFakeProcSpawner()
 	launcher := &recordingLauncher{pane: ""}
 	poster := &fakePoster{}
 
 	sp := Spawn{
-		ChildID: "agent-no-wd",
-		Handle:  "s",
-		Kind:    "claude-code",
+		// No ChildID, no Handle, no ProjectID — config bug.
+		Kind: "claude-code",
 		SpawnSpec: "backend:\n" +
 			"  cmd: fake-agent\n" +
 			"context_files:\n" +
@@ -427,7 +492,7 @@ func TestLaunchM2_ContextFilesWithoutWorkdirFails(t *testing.T) {
 		LogDir:   logDir,
 	})
 	if err == nil {
-		t.Fatal("want error when context_files set without default_workdir; got nil")
+		t.Fatal("want error when context_files set without any identifier; got nil")
 	}
 	if !strings.Contains(err.Error(), "default_workdir") {
 		t.Fatalf("err = %v; want mention of default_workdir", err)

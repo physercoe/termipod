@@ -230,3 +230,25 @@ func (s *Server) renderEnvelopeForDriver(env MessageEnvelope) string {
 		Text:       env.Text,
 	})
 }
+
+// renderEnvelopeSenderLabel returns the operator-template-resolved
+// human-readable sender description (e.g. "the principal",
+// "@worker-a (a peer worker)") for an envelope. Stamped onto
+// payload["from_label"] so the mobile feed's
+// `[from: <label>]` row reflects YAML edits without round-tripping
+// the rendering logic through a parallel hardcoded Dart map. The
+// mobile side falls back to its own static mapping when this field
+// is absent (legacy events, hot-reload-unaware tests, A2A relay
+// paths that don't pass through this hub handler).
+//
+// Empty string when the loader is nil or the envelope's role is
+// empty — same fall-through invariants as renderEnvelopeForDriver.
+func (s *Server) renderEnvelopeSenderLabel(env MessageEnvelope) string {
+	if s.envelope == nil {
+		return ""
+	}
+	if env.From.Role == "" {
+		return ""
+	}
+	return s.envelope.Resolve().RenderSender(env.From.Role, env.From.Handle)
+}

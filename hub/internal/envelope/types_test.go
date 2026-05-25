@@ -91,6 +91,72 @@ func TestValidate_RejectsMalformedTemplateString(t *testing.T) {
 	}
 }
 
+// RenderSender is the public sender-label resolver consumed by the
+// mobile-facing `from_label` stamp (server/input_envelope.go). The
+// cases below mirror the cascade RenderSender delegates to so the
+// public surface is exercised independently of the full-frame Render
+// path — a refactor that broke RenderSender alone would otherwise
+// only surface via the mobile UI smoke.
+func TestRenderSender(t *testing.T) {
+	tpl := minimalTemplates(t)
+	cases := []struct {
+		name   string
+		role   string
+		handle string
+		want   string
+	}{
+		{
+			name: "principal-bare-no-handle",
+			role: "principal",
+			want: "the principal",
+		},
+		{
+			name:   "peer_steward-includes-handle",
+			role:   "peer_steward",
+			handle: "research-steward",
+			want:   "@research-steward (a peer steward)",
+		},
+		{
+			name:   "peer_worker-includes-handle",
+			role:   "peer_worker",
+			handle: "coder-1",
+			want:   "@coder-1 (a peer worker)",
+		},
+		{
+			name: "system-bare-no-handle",
+			role: "system",
+			want: "the system",
+		},
+		{
+			// Unknown role falls through to the "default" template
+			// (bare handle), then to "@" + raw handle. Matches the
+			// existing TestRender_UnknownRole* cases shape.
+			name:   "unknown-role-handle-via-default",
+			role:   "observer",
+			handle: "spy-1",
+			want:   "@spy-1",
+		},
+		{
+			// Leading @ on the handle is stripped before being passed
+			// to the role template — every operator-facing variable
+			// is consistently shaped.
+			name:   "handle-leading-at-is-stripped",
+			role:   "peer_worker",
+			handle: "@dup-prefix",
+			want:   "@dup-prefix (a peer worker)",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tpl.RenderSender(tc.role, tc.handle)
+			if got != tc.want {
+				t.Fatalf("RenderSender(%q, %q) = %q; want %q",
+					tc.role, tc.handle, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRender_PrincipalDirective(t *testing.T) {
 	tpl := minimalTemplates(t)
 	got := tpl.Render(Message{

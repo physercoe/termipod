@@ -550,7 +550,18 @@ Map<String, dynamic>? modeModelStateFromEvents(List<Map<String, dynamic>> events
 
 /// Maps an ADR-032 envelope endpoint role to a human label for the
 /// transcript header.
-String _envelopeRoleLabel(String role) {
+///
+/// Fallback only — when the hub stamps `payload.from_label` via
+/// `renderEnvelopeSenderLabel` (server-side, ADR-032 D-10), the mobile
+/// feed prefers that operator-template-resolved string so a YAML edit
+/// to `roles.principal` reaches both the engine and the mobile UI in
+/// lockstep. Pre-v1.0.710 events on disk, A2A relay paths that don't
+/// pass through the hub handler, and tests that don't seed the
+/// envelope loader all fall through to this static map. Kept in sync
+/// with the default `hub/templates/envelope/active.yaml` so the
+/// degraded path still looks correct.
+@visibleForTesting
+String envelopeRoleLabel(String role) {
   switch (role) {
     case 'principal':
       return 'the principal';
@@ -563,6 +574,22 @@ String _envelopeRoleLabel(String role) {
     default:
       return role;
   }
+}
+
+/// Resolves the rendered sender label for an envelope's `from:` row.
+/// Precedence: `payload.from_label` (operator-template-resolved at
+/// hub send-time) → `@handle (<static role label>)` → bare static
+/// label. Public for `agent_compose_envelope_label_test.dart`.
+@visibleForTesting
+String envelopeSenderLabel({
+  required String role,
+  required String handle,
+  String? fromLabel,
+}) {
+  final stamped = (fromLabel ?? '').trim();
+  if (stamped.isNotEmpty) return stamped;
+  if (handle.isNotEmpty) return '@$handle (${envelopeRoleLabel(role)})';
+  return envelopeRoleLabel(role);
 }
 
 /// Dart port of `formatAttentionReplyText` (Go: driver_stdio.go).
@@ -3443,13 +3470,21 @@ class AgentEventCard extends StatefulWidget {
     if (!raw) {
       final from = p['from'];
       final kind = (p['kind'] ?? '').toString();
+      final fromLabel = (p['from_label'] ?? '').toString();
       if (from is Map) {
         final role = (from['role'] ?? '').toString();
         final handle = (from['handle'] ?? '').toString();
-        final label = handle.isNotEmpty
-            ? '@$handle (${_envelopeRoleLabel(role)})'
-            : _envelopeRoleLabel(role);
+        final label = envelopeSenderLabel(
+          role: role,
+          handle: handle,
+          fromLabel: fromLabel,
+        );
         if (label.isNotEmpty) rows.add(_kv(ctx, 'from', label));
+      } else if (fromLabel.isNotEmpty) {
+        // Legacy / sparse payload that carries `from_label` without a
+        // structured `from` map. Still render the row — the hub-side
+        // stamp is the source of truth either way.
+        rows.add(_kv(ctx, 'from', fromLabel));
       }
       if (kind.isNotEmpty) rows.add(_kv(ctx, 'kind', kind));
     }

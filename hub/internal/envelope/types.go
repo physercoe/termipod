@@ -239,6 +239,29 @@ type replyVars struct {
 	FromHandle string
 }
 
+// RenderSender resolves an envelope role → human-readable sender
+// description using the operator's role template. Public surface
+// because mobile-facing payload stamping (see
+// `handlers_agent_input.go`'s `from_label` field) needs the same
+// resolution the engine-facing prose uses, so that a YAML edit to
+// `roles.principal` reaches BOTH the engine and the mobile
+// transcript header. Without this, the mobile feed renders the
+// from-line from a parallel hardcoded Dart map and stays stale on
+// every YAML edit — the bug surfaced on the v1.0.708 smoke.
+//
+// Same cascade as the internal renderSender it delegates to:
+//
+//   1. roles[role]              (explicit per-role template)
+//   2. roles["default"]         (operator's catch-all)
+//   3. "@<handle>" or empty_handle if handle is empty
+//
+// The handle is normalised to its bare form (no leading @) before
+// being passed into the template — every operator-facing variable
+// is consistently shaped.
+func (t *Templates) RenderSender(role, handle string) string {
+	return t.renderSender(role, handle)
+}
+
 // renderSender resolves a role → sender description. Cascade:
 //   1. roles[role]              (explicit per-role template)
 //   2. roles["default"]         (operator's catch-all)

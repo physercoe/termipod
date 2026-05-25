@@ -564,6 +564,16 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 			if rendered := s.renderEnvelopeForDriver(env); rendered != "" {
 				payloadMap["rendered_text"] = rendered
 			}
+			// Also stamp the operator-resolved sender label so the
+			// mobile transcript's `from: <label>` row honours the same
+			// YAML edits that drive the engine-facing prose. Without
+			// this, mobile's hardcoded role→label map at
+			// `lib/widgets/agent_feed.dart:_envelopeRoleLabel` stays
+			// stale on every roles.principal edit — the v1.0.708 hot-
+			// reload only reached the engine, not the UI.
+			if label := s.renderEnvelopeSenderLabel(env); label != "" {
+				payloadMap["from_label"] = label
+			}
 		}
 	}
 

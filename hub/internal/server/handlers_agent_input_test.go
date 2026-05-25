@@ -847,6 +847,14 @@ func TestPostAgentInput_RenderedTextStamped(t *testing.T) {
 				t.Errorf("rendered_text missing %q: %q", want, rendered)
 			}
 		}
+		// v1.0.710: the same operator-template resolution that drives
+		// rendered_text also stamps `from_label` so the mobile feed
+		// can honour roles.principal edits without round-tripping
+		// through a parallel hardcoded Dart map.
+		fromLabel, _ := payload["from_label"].(string)
+		if fromLabel != "the principal" {
+			t.Errorf("from_label = %q; want %q", fromLabel, "the principal")
+		}
 	})
 
 	t.Run("raw_slash_command_omits_rendered_text", func(t *testing.T) {
@@ -875,6 +883,12 @@ func TestPostAgentInput_RenderedTextStamped(t *testing.T) {
 		if _, ok := payload["rendered_text"]; ok {
 			t.Errorf("rendered_text leaked into a raw input: %v",
 				payload["rendered_text"])
+		}
+		// from_label is also envelope-derived → absent on a raw turn
+		// for the same reason.
+		if _, ok := payload["from_label"]; ok {
+			t.Errorf("from_label leaked into a raw input: %v",
+				payload["from_label"])
 		}
 	})
 }
@@ -946,6 +960,16 @@ fallbacks:
 	}
 	if !strings.Contains(rendered, "smoke") {
 		t.Errorf("body lost: %q", rendered)
+	}
+	// v1.0.710 follow-up to D-10: from_label must honour the same
+	// override so the mobile transcript reflects YAML edits. Without
+	// this, the on-device session card stays "from: the principal"
+	// even after the operator renames it (the bug reported on
+	// v1.0.708 smoke).
+	fromLabel, _ := payload["from_label"].(string)
+	if fromLabel != "THE-OPERATOR" {
+		t.Errorf("from_label = %q; want %q (operator override)",
+			fromLabel, "THE-OPERATOR")
 	}
 }
 

@@ -188,25 +188,28 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	// because the launcher passes the command through `bash -c "..."` and
 	// we want the failure mode to be a clean Go error if HOME is unset.
 	//
-	// Workdir resolution (ADR-025 W6):
+	// Workdir resolution lives in `DeriveWorkdir` (spec.go) so M1, M2,
+	// and the per-engine M4 launchers stay in lockstep. Precedence:
 	//   1. spec.Backend.DefaultWorkdir   — explicit template field wins.
-	//   2. cfg.Spawn.ProjectID set        — derive ~/hub-work/<pid8>/<handle>
+	//   2. cfg.Spawn.ProjectID set       — derive ~/hub-work/<pid8>/<handle>
 	//      so workers in the same project share a folder root and sibling
 	//      handles don't collide across projects.
-	//   3. neither                        — empty, command runs from
+	//   3. needsWorkdir (context_files or mcp_token will be materialised)
+	//                                    — derive ~/hub-work/_team/<handle>
+	//      so a team/general steward spawned outside any project gets a
+	//      stable per-handle workdir without forcing every such template
+	//      to ship an explicit default_workdir (the codex M2 smoke fix
+	//      reported on v1.0.709).
+	//   4. neither                       — empty, command runs from
 	//      host-runner's cwd (legacy single-host demo path).
-	wd := spec.Backend.DefaultWorkdir
-	if wd == "" && cfg.Spawn.ProjectID != "" {
-		pid := cfg.Spawn.ProjectID
-		if len(pid) > 8 {
-			pid = pid[:8]
-		}
-		handle := cfg.Spawn.Handle
-		if handle == "" {
-			handle = cfg.Spawn.ChildID
-		}
-		wd = filepath.Join("~", "hub-work", pid, handle)
-	}
+	needsWorkdir := len(spec.ContextFiles) > 0 || cfg.Spawn.MCPToken != ""
+	wd := DeriveWorkdir(
+		spec.Backend.DefaultWorkdir,
+		cfg.Spawn.ProjectID,
+		cfg.Spawn.Handle,
+		cfg.Spawn.ChildID,
+		needsWorkdir,
+	)
 	expandedWorkdir := ""
 	if wd != "" {
 		expanded, err := expandHome(wd)

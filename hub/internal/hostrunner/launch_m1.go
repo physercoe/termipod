@@ -89,11 +89,32 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		command = "GEMINI_CLI_TRUST_WORKSPACE=true " + command
 	}
 
+	// Workdir resolution lives in `DeriveWorkdir` (spec.go) — shared
+	// with M2 + M4. Precedence rules + the project-less `_team`
+	// fallback for stewards spawned outside any project are documented
+	// there (the codex M2 smoke fix reported on v1.0.709 applied here
+	// for symmetry; M1 has the identical context_files/mcp_token
+	// invariants).
+	needsWorkdir := len(spec.ContextFiles) > 0 || cfg.Spawn.MCPToken != ""
+	rawWD := DeriveWorkdir(
+		spec.Backend.DefaultWorkdir,
+		cfg.Spawn.ProjectID,
+		cfg.Spawn.Handle,
+		cfg.Spawn.ChildID,
+		needsWorkdir,
+	)
 	expandedWorkdir := ""
-	if wd := spec.Backend.DefaultWorkdir; wd != "" {
-		expanded, err := expandHome(wd)
+	if rawWD != "" {
+		expanded, err := expandHome(rawWD)
 		if err != nil {
-			return M1LaunchResult{}, fmt.Errorf("expand default_workdir %q: %w", wd, err)
+			return M1LaunchResult{}, fmt.Errorf("expand default_workdir %q: %w", rawWD, err)
+		}
+		// Ensure the directory exists so writeContextFiles /
+		// writeMCPConfig below can't ENOENT on a derived (not-yet-
+		// created) path. Mirrors M2; 0o755 matches the downstream
+		// calls so a re-launch is idempotent.
+		if err := os.MkdirAll(expanded, 0o755); err != nil {
+			return M1LaunchResult{}, fmt.Errorf("mkdir workdir %q: %w", expanded, err)
 		}
 		expandedWorkdir = expanded
 		command = fmt.Sprintf("cd %s && %s", shellEscape(expanded), command)

@@ -1,6 +1,10 @@
 package hostrunner
 
-import "gopkg.in/yaml.v3"
+import (
+	"path/filepath"
+
+	"gopkg.in/yaml.v3"
+)
 
 // SpawnSpec is the subset of spawn_spec_yaml host-runner needs to wire up a
 // pane. The canonical schema lives in the plan doc; we only decode the keys
@@ -80,4 +84,71 @@ func ParseSpec(yamlText string) (SpawnSpec, error) {
 		return s, err
 	}
 	return s, nil
+}
+
+// DeriveWorkdir resolves the agent workdir from
+// (defaultWorkdir, projectID, handle, childID). The returned path is
+// tilde-prefixed when derived; callers expand `~` themselves via
+// expandHome. Empty result means the legacy "no workdir, run from
+// host-runner's cwd" path applies — preserved for back-compat with
+// demo templates that ship without context_files / mcp_token.
+//
+// Precedence:
+//
+//  1. defaultWorkdir non-empty
+//     The template's explicit `backend.default_workdir` wins.
+//
+//  2. projectID non-empty
+//     Project-bound derivation: `~/hub-work/<pid[:8]>/<handle>` —
+//     workers in the same project share a folder root, sibling
+//     handles don't collide across projects (ADR-025 W6). The
+//     8-char pid prefix matches how the hub prints project ids
+//     elsewhere.
+//
+//  3. needsWorkdir is true (caller will materialise context_files
+//     or mcp_token)
+//     Project-less derivation: `~/hub-work/_team/<handle>` — gives
+//     team-scoped stewards (codex/general/etc spawned outside any
+//     project) a stable, per-handle workdir without forcing every
+//     such template to ship an explicit `default_workdir`. The
+//     underscore-prefixed `_team` namespace avoids collision with
+//     real 8-char project ids (which are hex, never start with `_`).
+//     Pre-fix, this case fell through to the empty-workdir branch
+//     below and then errored out at the writeContextFiles /
+//     writeMCPConfig guard — the codex M2 smoke-failure reported
+//     on v1.0.709.
+//
+//  4. neither defaultWorkdir nor projectID, needsWorkdir false
+//     Empty — legacy single-host demo path. Agent runs from
+//     host-runner's cwd; no `cd` is prefixed to the cmd.
+//
+// `handle` falls back to `childID` when empty so the derived path
+// always has a stable last segment.
+func DeriveWorkdir(defaultWorkdir, projectID, handle, childID string, needsWorkdir bool) string {
+	if defaultWorkdir != "" {
+		return defaultWorkdir
+	}
+	h := handle
+	if h == "" {
+		h = childID
+	}
+	if projectID != "" {
+		pid := projectID
+		if len(pid) > 8 {
+			pid = pid[:8]
+		}
+		return filepath.Join("~", "hub-work", pid, h)
+	}
+	if needsWorkdir {
+		// Tolerate a missing handle/childID by leaving the workdir
+		// empty rather than collapsing every project-less spawn into
+		// the same `~/hub-work/_team` directory. The caller's
+		// writeContextFiles/writeMCPConfig guard will then surface
+		// the misconfiguration cleanly.
+		if h == "" {
+			return ""
+		}
+		return filepath.Join("~", "hub-work", "_team", h)
+	}
+	return ""
 }

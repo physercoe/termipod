@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.703
+> **Last verified vs code:** v1.0.704
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,47 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.704-alpha — 2026-05-25
+
+**ADR-036 Phase B polish — compact rate-limit subline.** First of two
+v1.0.703 on-device-smoke fixes. The 5h / 7d rate-limit chips no longer
+emit the verbose `resets Mon 19:00` form on the sub-line; the
+countdown is now compact (`43m`, `3h43m`, `3d19h`) at every horizon
+and the absolute wall-clock moved into the long-press tooltip.
+
+### Changed
+
+- **`formatRateLimitResetsAt` compact contract.** Rewrote the W5
+  formatter to always emit a single-unit-pair countdown (no `in` /
+  `resets` prefix). Ladder: `<1m` / `Xm` / `Xh` / `XhYm` / `Xd` /
+  `XdYh`. Width-bounded at 6 chars (`13d23h`) so both rate-limit
+  tiles keep aligned baselines in the strip's `Row`. Past timestamps
+  still render `now`; defensive null/0/>14d inputs still return
+  empty.
+- **Rate-limit chip tooltip carries the absolute reset wall-clock.**
+  New companion `formatRateLimitResetsAtAbsolute` emits the
+  `Mon 03:00` form; the tile composer splices `Resets in: <compact>
+  (<absolute>)` into the existing tooltip. Flutter's `Tooltip`
+  widget activates on long-press on mobile — same gesture the user
+  expected.
+
+### Tests
+
+- `test/widgets/agent_feed_rate_limits_test.dart` extended to 24
+  tests (up from 19). New cases pin the compact ladder at every
+  unit boundary (`5m` / `1h` / `23h59m` / `1d` / `3d19h` / `14d`),
+  a regression-pin that no output starts with `in ` / `resets `,
+  and a 3-test group for the new absolute companion (format
+  shape + device-local TZ rendering + defensive-inputs gate).
+
+### Source
+
+- `lib/widgets/agent_feed.dart` rewrites `formatRateLimitResetsAt`,
+  adds `formatRateLimitResetsAtAbsolute`, and weaves the absolute
+  string into the rate-limit tile's tooltip.
 
 ---
 

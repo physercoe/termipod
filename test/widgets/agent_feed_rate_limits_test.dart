@@ -3,13 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:termipod/widgets/agent_feed.dart';
 
 // Tests for ADR-036 W5 — rate_limits surface from status_line frames.
-// Three top-level helpers under test:
+// Four top-level helpers under test:
 //
-//   rateLimitsFromEvents      — latest-wins reducer over status_line
-//   formatRateLimitResetsAt   — epoch-seconds → "in 4h 38m" / "Mon 03:00"
-//                               (3h threshold; device-local TZ)
-//   rateLimitAlarmTier        — used_percentage → (color, severity)
-//                               80% → amber, 95% → red, else green
+//   rateLimitsFromEvents              — latest-wins reducer over status_line
+//   formatRateLimitResetsAt           — epoch-seconds → "43m" / "3h43m" /
+//                                       "3d19h" compact countdown
+//                                       (v1.0.704 polish; device-local TZ)
+//   formatRateLimitResetsAtAbsolute   — epoch-seconds → "Mon 03:00" for
+//                                       the long-press tooltip
+//   rateLimitAlarmTier                — used_percentage → (color, severity)
+//                                       80% → amber, 95% → red, else green
 //
 // These are the pure-data pieces that build up the new chip pair in
 // _TelemetryStrip. The widget-tree composition is exercised by manual
@@ -116,11 +119,11 @@ void main() {
     });
   });
 
-  group('formatRateLimitResetsAt (ADR-036 D7 + W5)', () {
+  group('formatRateLimitResetsAt (ADR-036 D7 + W5 + v1.0.704 polish)', () {
     test('returns empty string for null / zero / negative epoch', () {
       // Caller drops the sub-line cleanly when the formatter returns
       // empty — these defensive cases must NOT render a stray "now"
-      // or "in 0m" that would suggest a real reset is imminent.
+      // or "0m" that would suggest a real reset is imminent.
       expect(formatRateLimitResetsAt(null), '');
       expect(formatRateLimitResetsAt(0), '');
       expect(formatRateLimitResetsAt(-1), '');
@@ -136,61 +139,112 @@ void main() {
       expect(formatRateLimitResetsAt(epoch, now: now), 'now');
     });
 
-    test('horizons under 3h render as relative "in Xh Ym"', () {
-      // The plan spec: relative form for horizons under ~3h. Test
-      // three points across the relative band.
+    test('sub-minute horizons render as "<1m"', () {
+      // Edge case in the minutes branch — within the same minute,
+      // diff.inMinutes is 0 but the window hasn't actually reset.
+      // "<1m" tells the user something is about to happen without
+      // lying about the precise count. No "in" prefix (v1.0.704).
       final now = DateTime.utc(2026, 5, 25, 12, 0, 0);
-      // 5 minutes out
+      final f = now.add(const Duration(seconds: 30));
+      expect(
+          formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
+          '<1m');
+    });
+
+    test('horizons under 1h render as compact "Xm" (no prefix)', () {
+      // Plain minutes — single chip-cell unit, no whitespace, no "in".
+      final now = DateTime.utc(2026, 5, 25, 12, 0, 0);
       var f = now.add(const Duration(minutes: 5));
       expect(
           formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
-          'in 5m');
-      // 1h exactly
-      f = now.add(const Duration(hours: 1));
+          '5m');
+      f = now.add(const Duration(minutes: 43));
       expect(
           formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
-          'in 1h');
+          '43m');
+      f = now.add(const Duration(minutes: 59));
+      expect(
+          formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
+          '59m');
+    });
+
+    test('horizons under 1d render as compact "XhYm" / "Xh" (no prefix)', () {
+      // Mixed hours+minutes. Exact-hour values drop the minutes part
+      // — "1h" not "1h0m" — to honour the visual budget on narrow
+      // strips. The v1.0.704 polish removed the prior "in"/"resets"
+      // prefix; the chip label is the noun, the sub-line is the
+      // pure countdown.
+      final now = DateTime.utc(2026, 5, 25, 12, 0, 0);
+      // 1h exactly
+      var f = now.add(const Duration(hours: 1));
+      expect(
+          formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
+          '1h');
       // 1h 23m
       f = now.add(const Duration(hours: 1, minutes: 23));
       expect(
           formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
-          'in 1h 23m');
-      // 2h 59m — just under the threshold
-      f = now.add(const Duration(hours: 2, minutes: 59));
+          '1h23m');
+      // 3h 43m — the user's worked example
+      f = now.add(const Duration(hours: 3, minutes: 43));
       expect(
           formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
-          'in 2h 59m');
+          '3h43m');
+      // 23h 59m — just under the day boundary
+      f = now.add(const Duration(hours: 23, minutes: 59));
+      expect(
+          formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
+          '23h59m');
     });
 
-    test('horizons >= 3h render as absolute "resets Day HH:MM"', () {
-      // Plan: absolute short form for horizons past ~3h. The exact
-      // 3h boundary lands in the absolute branch (the relative form
-      // is for "under" 3h, not "at most" 3h).
+    test('horizons >= 1d render as compact "XdYh" / "Xd" (no prefix)', () {
+      // Days+hours — the 7d-rolling chip is the main consumer. Same
+      // shortening discipline as the hours branch: exact-day drops the
+      // hours suffix. Minutes are dropped entirely past the 1d
+      // boundary — the next-finer unit is signal enough at that scale.
       final now = DateTime.utc(2026, 5, 25, 12, 0, 0);
-      var f = now.add(const Duration(hours: 3));
-      var got = formatRateLimitResetsAt(
-          f.millisecondsSinceEpoch ~/ 1000, now: now);
-      expect(got, startsWith('resets '));
-      // Must contain a 3-letter weekday + zero-padded HH:MM.
-      expect(got, matches(RegExp(r'^resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{2}:\d{2}$')));
+      // 1d exactly
+      var f = now.add(const Duration(days: 1));
+      expect(
+          formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
+          '1d');
+      // 3d 19h — the user's worked example
+      f = now.add(const Duration(days: 3, hours: 19));
+      expect(
+          formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
+          '3d19h');
+      // 6d 23h — close to a full week
+      f = now.add(const Duration(days: 6, hours: 23));
+      expect(
+          formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
+          '6d23h');
+      // 14d exactly — the sanity-bound boundary (14d itself still
+      // valid; >14d rejected).
+      f = now.add(const Duration(days: 14));
+      expect(
+          formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
+          '14d');
     });
 
-    test('renders in device-local TZ per ADR-036 D7', () {
-      // 03:00 UTC + a +08:00 offset would render as 11:00 local. We
-      // construct an explicit UTC fixed point and a local `now`
-      // such that the test is independent of the runner's TZ.
-      //
-      // Use a 5h-future-from-now timestamp (lands in absolute
-      // branch) and assert: (a) format matches "resets Day HH:MM",
-      // (b) the rendered HH:MM equals (now.toLocal().hour + 5) % 24
-      // — i.e. the formatter ADDED the diff in local TZ rather
-      // than naively printing UTC components.
-      final now = DateTime.now();
-      final target = now.add(const Duration(hours: 5));
-      final got = formatRateLimitResetsAt(
-          target.millisecondsSinceEpoch ~/ 1000, now: now);
-      final expectedHH = target.hour.toString().padLeft(2, '0');
-      expect(got, contains(expectedHH));
+    test('never emits "in " or "resets " prefix (v1.0.704 contract)', () {
+      // Regression-pin: the compact contract is "no prefix on the
+      // sub-line". A returning prefix would break the width budget +
+      // the chip-label/sub-line semantic split.
+      final now = DateTime.utc(2026, 5, 25, 12, 0, 0);
+      for (final d in <Duration>[
+        const Duration(minutes: 1),
+        const Duration(hours: 2, minutes: 30),
+        const Duration(days: 3, hours: 19),
+        const Duration(days: 13, hours: 23),
+      ]) {
+        final f = now.add(d);
+        final got = formatRateLimitResetsAt(
+            f.millisecondsSinceEpoch ~/ 1000, now: now);
+        expect(got, isNot(startsWith('in ')),
+            reason: 'compact form must not carry an "in" prefix');
+        expect(got, isNot(startsWith('resets ')),
+            reason: 'compact form must not carry a "resets" prefix');
+      }
     });
 
     test('sanity-bound rejects epochs further than 14 days out', () {
@@ -205,17 +259,51 @@ void main() {
               now: now),
           '');
     });
+  });
 
-    test('sub-minute horizons render as "in <1m" not "in 0m"', () {
-      // Edge case in the relative branch — within the same minute,
-      // diff.inMinutes is 0 but the window hasn't actually reset.
-      // "in <1m" tells the user something is about to happen
-      // without lying about the precise count.
+  group('formatRateLimitResetsAtAbsolute (v1.0.704 polish)', () {
+    test('returns "Day HH:MM" for valid future timestamps', () {
+      // The companion absolute formatter is what the tooltip splices
+      // into the long-press detail. Same defensive inputs as the
+      // compact formatter so the tooltip composer doesn't gate twice.
       final now = DateTime.utc(2026, 5, 25, 12, 0, 0);
-      final f = now.add(const Duration(seconds: 30));
+      final f = now.add(const Duration(hours: 5));
+      final got = formatRateLimitResetsAtAbsolute(
+          f.millisecondsSinceEpoch ~/ 1000, now: now);
+      expect(got, matches(RegExp(r'^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{2}:\d{2}$')));
+    });
+
+    test('renders in device-local TZ (mirrors compact-form contract)', () {
+      // 5h-future-from-now timestamp; the absolute HH equals
+      // (now.local.hour + 5) % 24 because the formatter ADDS the
+      // diff in local TZ rather than naively printing UTC components.
+      final now = DateTime.now();
+      final target = now.add(const Duration(hours: 5));
+      final got = formatRateLimitResetsAtAbsolute(
+          target.millisecondsSinceEpoch ~/ 1000, now: now);
+      final expectedHH = target.hour.toString().padLeft(2, '0');
+      expect(got, contains(expectedHH));
+    });
+
+    test('returns empty for null / zero / past / >14d defensives', () {
+      // Same gate as the compact formatter — the tooltip composer
+      // can splice with `${absolute.isEmpty ? '' : ' (\$absolute)'}`
+      // and not have to repeat any of the checks.
+      final now = DateTime.utc(2026, 5, 25, 12, 0, 0);
+      expect(formatRateLimitResetsAtAbsolute(null), '');
+      expect(formatRateLimitResetsAtAbsolute(0), '');
+      final past = now.subtract(const Duration(minutes: 30));
       expect(
-          formatRateLimitResetsAt(f.millisecondsSinceEpoch ~/ 1000, now: now),
-          'in <1m');
+          formatRateLimitResetsAtAbsolute(
+              past.millisecondsSinceEpoch ~/ 1000,
+              now: now),
+          '');
+      final faaaarFuture = now.add(const Duration(days: 365 * 100));
+      expect(
+          formatRateLimitResetsAtAbsolute(
+              faaaarFuture.millisecondsSinceEpoch ~/ 1000,
+              now: now),
+          '');
     });
   });
 

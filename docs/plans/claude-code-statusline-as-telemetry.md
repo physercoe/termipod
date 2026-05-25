@@ -1,9 +1,9 @@
 # claude-code statusLine as telemetry
 
 > **Type:** plan
-> **Status:** **COMPLETE** (2026-05-25). Phase A v1.0.696-698 (W1+W2+W3); Phase A.5 v1.0.699 (W3.5); Phase B v1.0.700-703 (W4-b + W4-a + W4-c + W5 + W6).
+> **Status:** **COMPLETE** (2026-05-25). Phase A v1.0.696-698 (W1+W2+W3); Phase A.5 v1.0.699 (W3.5); Phase B v1.0.700-703 (W4-b + W4-a + W4-c + W5 + W6); on-device polish v1.0.704 (compact rate-limit subline) + v1.0.705 (session_name_hint persisted, surfaces on session list).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.703 (hub + mobile) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.704 (hub + mobile) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -246,16 +246,25 @@ W3's /clear fix on its own merit.
     payload → no chips; full payload → 4 chips in order; cost
     transitions update both chips independently.
 
-- **W5 — `rate_limits` surface.** ✓ Shipped v1.0.702-alpha. Three
-  top-level helpers (`rateLimitsFromEvents` reducer +
-  `formatRateLimitResetsAt` formatter + `rateLimitAlarmTier` color/
-  severity function) plus two adjacent tiles in `_TelemetryStrip`
-  (one per window, each independently tiered). Session-details-
-  sheet row deferred — the agent-feed pair is the load-bearing
-  surface; session-details-sheet can mirror it later if a user asks.
-  Steward-overlay headroom row also deferred (separate file; not a
-  blocker for the main chip-pair story). 19 widget tests (reducer
-  6 + formatter 7 + alarm 6). Wedge size shipped: ~145 LOC + 19
+- **W5 — `rate_limits` surface.** ✓ Shipped v1.0.702-alpha; subline
+  format polished v1.0.704-alpha. Three top-level helpers
+  (`rateLimitsFromEvents` reducer + `formatRateLimitResetsAt`
+  formatter + `rateLimitAlarmTier` color/severity function) plus two
+  adjacent tiles in `_TelemetryStrip` (one per window, each
+  independently tiered). v1.0.704 reinterpretation: the original
+  spec mixed relative + absolute forms based on a 3h threshold
+  (`in 4h 38m` / `resets Mon 03:00`) which crowded the chip sub-line
+  on the longer 7d window; on-device smoke showed the user wanted
+  uniform compact countdown shape (`43m` / `3h43m` / `3d19h`) at
+  every horizon with the absolute timestamp on long-press. Added
+  companion `formatRateLimitResetsAtAbsolute` and spliced it into
+  the tile tooltip. Session-details-sheet row deferred — the
+  agent-feed pair is the load-bearing surface; session-details-
+  sheet can mirror it later if a user asks. Steward-overlay
+  headroom row also deferred (separate file; not a blocker for the
+  main chip-pair story). 24 widget tests (reducer 3 + compact
+  formatter 7 + absolute formatter 3 + alarm 6 + prefix-regression
+  pin 1; up from 19 pre-polish). Wedge size shipped: ~145 LOC + 19
   tests (vs ~250 LOC + ~10 tests estimated — undershot LOC because
   the existing _TelemetryStrip + _TelemetryTile infrastructure
   carried the visual weight; overshot tests because the formatter's

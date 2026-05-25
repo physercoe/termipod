@@ -135,13 +135,22 @@ Map<String, dynamic>? rateLimitsFromEvents(List<Map<String, dynamic>> events) {
 }
 
 /// Format a `resets_at` Unix-epoch-seconds value for the rate-limit
-/// chip's sub-line (ADR-036 W5).
+/// chip's sub-line (ADR-036 W5 + v1.0.704 polish).
 ///
-/// Returns relative form ("in 4h 38m") for horizons under
-/// [_kRateLimitAbsoluteThreshold] (default 3 hours), absolute short
-/// form ("Mon 03:00") otherwise. Both render in device-local TZ per
-/// ADR-036 D7 — the wire field is TZ-agnostic epoch and the
-/// wall-clock-rendering TZ is a chip-side concern.
+/// Always emits a compact countdown: `43m`, `3h43m`, `3d19h`. No
+/// `in`/`resets` prefix — the chip's label already establishes the
+/// context (`5h  72%`) so the sub-line just answers "how long until
+/// reset". Width-bounded by construction (max 6 chars: `13d23h`),
+/// which keeps both tiles' baselines aligned in the strip's `Row`.
+///
+/// The absolute wall-clock form (`Mon 03:00`) moved to the tile
+/// tooltip — Flutter's `Tooltip` widget activates on long-press on
+/// mobile, matching the user's "detail on long-press" expectation.
+/// See [formatRateLimitResetsAtAbsolute].
+///
+/// Both forms render in device-local TZ per ADR-036 D7 — the wire
+/// field is TZ-agnostic epoch and the wall-clock-rendering TZ is a
+/// chip-side concern.
 ///
 /// Edge cases:
 ///   - past timestamps → "now" (the window already reset; the next
@@ -151,6 +160,8 @@ Map<String, dynamic>? rateLimitsFromEvents(List<Map<String, dynamic>> events) {
 ///   - epoch farther than 14 days out → empty string (sanity bound;
 ///     rate-limit windows reset within days, not weeks; protects
 ///     against a unit-mistake landing a microsecond value here).
+///   - sub-minute horizons → "<1m" so we never show a misleading
+///     "0m" in the same minute as a reset.
 ///
 /// [now] is the reference time (defaults to `DateTime.now()`). Tests
 /// override to pin formatter output without sleeping.
@@ -170,16 +181,44 @@ String formatRateLimitResetsAt(int? epochSeconds, {DateTime? now}) {
   final diff = ts.difference(refLocal);
   if (diff.isNegative || diff == Duration.zero) return 'now';
   if (diff.inDays > 14) return ''; // sanity bound; misinterpreted unit
-  if (diff < _kRateLimitAbsoluteThreshold) {
-    if (diff.inMinutes < 1) return 'in <1m';
-    if (diff.inHours < 1) return 'in ${diff.inMinutes}m';
+  // Compact ladder — minutes / hours+minutes / days+hours. The unit
+  // boundaries are exact: 60m → 1h, 24h → 1d. We deliberately do not
+  // mix three units (e.g. "3d19h45m") — the next-finer unit is signal
+  // enough at every scale and the extra char eats horizontal budget.
+  if (diff.inMinutes < 1) return '<1m';
+  if (diff.inHours < 1) return '${diff.inMinutes}m';
+  if (diff.inDays < 1) {
+    final h = diff.inHours;
     final m = diff.inMinutes % 60;
-    return m == 0 ? 'in ${diff.inHours}h' : 'in ${diff.inHours}h ${m}m';
+    return m == 0 ? '${h}h' : '${h}h${m}m';
   }
-  return 'resets ${_fmtAbsoluteShort(ts)}';
+  final d = diff.inDays;
+  final h = diff.inHours % 24;
+  return h == 0 ? '${d}d' : '${d}d${h}h';
 }
 
-const Duration _kRateLimitAbsoluteThreshold = Duration(hours: 3);
+/// Absolute-form companion to [formatRateLimitResetsAt] — renders the
+/// reset wall-clock in device-local TZ as `Mon 03:00`. Used in the
+/// rate-limit chip tooltip so long-press surfaces the precise reset
+/// time even though the sub-line stays compact (v1.0.704 polish).
+///
+/// Returns empty string for the same defensive inputs as the compact
+/// formatter (null / non-positive / past / >14d out) so the tooltip
+/// composer can splice it cleanly without a separate gate.
+@visibleForTesting
+String formatRateLimitResetsAtAbsolute(int? epochSeconds, {DateTime? now}) {
+  if (epochSeconds == null || epochSeconds <= 0) return '';
+  final ref = now ?? DateTime.now();
+  final ts = DateTime.fromMillisecondsSinceEpoch(
+    epochSeconds * 1000,
+    isUtc: true,
+  ).toLocal();
+  final refLocal = ref.toLocal();
+  final diff = ts.difference(refLocal);
+  if (diff.isNegative || diff == Duration.zero) return '';
+  if (diff.inDays > 14) return '';
+  return _fmtAbsoluteShort(ts);
+}
 
 String _fmtAbsoluteShort(DateTime localTs) {
   // "Mon 03:00" — three-letter weekday, zero-padded HH:MM. Done
@@ -5504,6 +5543,13 @@ class _TelemetryStrip extends StatelessWidget {
             ? '?'
             : '${pct.toStringAsFixed(0)}%';
         final resetsLabel = formatRateLimitResetsAt(resetsAt);
+        // v1.0.704 polish — the sub-line is the compact countdown
+        // (e.g. "3h43m"); the tooltip carries the absolute wall-clock
+        // ("Mon 03:00") so a long-press on mobile reveals it without
+        // eating sub-line width on every render. Empty absolute string
+        // (same defensive-inputs as the compact formatter) collapses
+        // the line cleanly.
+        final resetsAbs = formatRateLimitResetsAtAbsolute(resetsAt);
         tiles.add(_TelemetryTile(
           icon: Icons.timelapse,
           label: '$shortLabel  $pctLabel',
@@ -5515,7 +5561,8 @@ class _TelemetryStrip extends StatelessWidget {
               '${pct == null ? '' : '\nUsed: $pctLabel'
                   '${tier.severity == 'green' ? '' : ' (${tier.severity} — '
                       '${tier.severity == 'amber' ? '≥80%, slow down' : '≥95%, throttling imminent'})'}'}'
-              '${resetsLabel.isEmpty ? '' : '\nResets: $resetsLabel'}'
+              '${resetsLabel.isEmpty ? '' : '\nResets in: $resetsLabel'}'
+              '${resetsAbs.isEmpty ? '' : ' ($resetsAbs)'}'
               '\n\nSource: claude statusLine `rate_limits.$wireKey`; '
               'rolling, not aligned to a clock midnight. Rendered in '
               'device-local time per ADR-036 D7.',

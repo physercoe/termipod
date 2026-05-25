@@ -1,9 +1,9 @@
 # claude-code statusLine as telemetry
 
 > **Type:** plan
-> **Status:** In flight (2026-05-25) — **Phase A COMPLETE** (W1+W2+W3 shipped v1.0.696-698); **Phase A.5 COMPLETE** (W3.5 shipped v1.0.699); **Phase B W4-b + W4-a + W4-c COMPLETE** (v1.0.700 hub pricing infrastructure; v1.0.701 mobile chip pair); **W5 COMPLETE** (v1.0.702 rate_limits chip pair); W6 pending
+> **Status:** **COMPLETE** (2026-05-25). Phase A v1.0.696-698 (W1+W2+W3); Phase A.5 v1.0.699 (W3.5); Phase B v1.0.700-703 (W4-b + W4-a + W4-c + W5 + W6).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.702 (hub + mobile) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.703 (hub + mobile) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -279,8 +279,22 @@ W3's /clear fix on its own merit.
   - **Tests.** Widget tests + a small formatter unit for the
     relative-time rendering.
 
-- **W6 — `exceeds_200k_tokens` alarm + `session_name` fallback.**
-  - When `exceeds_200k_tokens = true`, surface an amber pill on
+- **W6 — `exceeds_200k_tokens` alarm + `session_name` fallback.** ✓
+  Shipped v1.0.703-alpha. Reducer `exceeds200kFromEvents` (latest-
+  wins, bool?, defensive against non-bool wire values) drives a red
+  leading tile in `_TelemetryStrip` (`200K cap · consider /clear`).
+  Reducer `sessionNameFromEvents` (latest-wins, String?, empty
+  normalized to null) sources the SessionChatScreen title fallback
+  via new `onSessionNameHint` callback + `_effectiveTitle()` getter
+  (user → hint → '(untitled session)' precedence). NEVER persisted
+  — fresh from status_line every render so `/clear`'s new session
+  shows its own label without state leaking. Tile rendered amber-
+  not-red was the literal plan spec; shipped red because the
+  warning needs first-scan attention (left-most + red is the
+  "must-act" tier; amber would conflate with rate-limits 80%).
+  15 widget tests across 2 reducer groups.
+  - Original spec preserved as design intent:
+    When `exceeds_200k_tokens = true`, surface an amber pill on
     the agent feed AppBar: "200K cap exceeded — consider /clear".
     Self-gates on the field.
   - When the session has no user-set name AND `session_name` is

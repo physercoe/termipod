@@ -2203,6 +2203,31 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   // Null when no agent has advertised either capability — the AppBar
   // icon hides in that case.
   ModeModelPickerData? _modeModel;
+  // ADR-036 W6 — claude's auto-derived session name (from latest
+  // status_line frame's `session_name` field). Used as the AppBar
+  // title fallback when the user hasn't named the session
+  // themselves. NEVER persisted: read fresh from status_line every
+  // render so /clear's new session can show its new label without
+  // state leaking from the prior conversation. Null = no name
+  // surfaced yet (cold open) or claude cleared it.
+  String? _sessionNameHint;
+
+  // Effective AppBar title: user-set title wins; otherwise claude's
+  // auto-derived hint; otherwise the (untitled session) placeholder
+  // the parent passes in for unnamed sessions. The hint is purely a
+  // display courtesy — it never writes back to the hub `sessions.title`.
+  String _effectiveTitle() {
+    // The parent passes the literal '(untitled session)' when the
+    // user hasn't named the session; treat that AND empty-string as
+    // "fall back to the hint if we have one."
+    final userTitle = _title;
+    final isUserTitleEmpty =
+        userTitle.isEmpty || userTitle == '(untitled session)';
+    if (!isUserTitleEmpty) return userTitle;
+    final hint = _sessionNameHint;
+    if (hint != null && hint.isNotEmpty) return hint;
+    return userTitle.isEmpty ? '(untitled session)' : userTitle;
+  }
 
   // Best-effort lookup of the agent's `kind` (engine: claude-code,
   // codex, …) from the cached hub state. Returns null when the agent
@@ -2526,7 +2551,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              _title,
+              _effectiveTitle(),
               style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -2674,6 +2699,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
         initialSeq: widget.initialSeq,
         onSessionInit: (p) => setState(() => _sessionInit = p),
         onModeModelChanged: (d) => setState(() => _modeModel = d),
+        onSessionNameHint: (n) => setState(() => _sessionNameHint = n),
       ),
     );
   }

@@ -206,6 +206,63 @@ String _fmtAbsoluteShort(DateTime localTs) {
   return (color: DesignColors.success, severity: 'green');
 }
 
+/// Hard-cap alarm reducer (ADR-036 W6).
+///
+/// Walks events newest-last and returns the latest
+/// `status_line.payload.exceeds_200k_tokens` boolean, or null when no
+/// status_line frame has carried the field yet.
+///
+/// The bool surfaces claude's own warning that the next API call's
+/// prompt will exceed the 200K-token hard cap on plans that have it
+/// (independent of the model's nominal context window — a plan can
+/// cap below the model's window). When true the chip pair turns red
+/// and prompts `/clear`. Returns null when absent so the caller can
+/// self-gate (chip suppresses entirely vs rendering a literal
+/// "false" reassurance the wire didn't actually send).
+@visibleForTesting
+bool? exceeds200kFromEvents(List<Map<String, dynamic>> events) {
+  for (var i = events.length - 1; i >= 0; i--) {
+    final e = events[i];
+    if ((e['kind'] ?? '').toString() != 'status_line') continue;
+    final p = e['payload'];
+    if (p is! Map) continue;
+    final v = p['exceeds_200k_tokens'];
+    if (v is bool) return v;
+  }
+  return null;
+}
+
+/// Session-name fallback reducer (ADR-036 W6).
+///
+/// Returns the latest non-empty `status_line.payload.session_name`,
+/// or null when nothing useful has been carried yet. claude derives
+/// this label autonomously after the first few turns of a session
+/// (e.g. "List directory files"). Hub-side `sessions.title` (user-
+/// set) always wins over this fallback — the caller layers the
+/// precedence; this reducer just sources the candidate.
+///
+/// Intentionally NOT persisted to the hub. Reading fresh from
+/// status_line every render means `/clear`'s new session can show
+/// its own claude-derived name without state leaking from the prior
+/// conversation (the rotation handler from W3 already nukes
+/// `engine_session_id` on rotation, but the name is a separate
+/// channel).
+///
+/// Empty strings from the wire are normalized to null so the caller
+/// has one falsy check instead of two.
+@visibleForTesting
+String? sessionNameFromEvents(List<Map<String, dynamic>> events) {
+  for (var i = events.length - 1; i >= 0; i--) {
+    final e = events[i];
+    if ((e['kind'] ?? '').toString() != 'status_line') continue;
+    final p = e['payload'];
+    if (p is! Map) continue;
+    final raw = p['session_name'];
+    if (raw is String && raw.isNotEmpty) return raw;
+  }
+  return null;
+}
+
 /// Session-cost tooltip composer (ADR-036 D8 chip 2 — W4-c).
 ///
 /// Renders the multi-line tooltip text for the session-cost chip from
@@ -536,6 +593,16 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// (_pageSize=200 newest); older events fall through to the
   /// default tail-scroll. Null = default tail behavior.
   final int? initialSeq;
+  /// ADR-036 W6 — fires whenever the latest status_line frame's
+  /// `session_name` field changes value. Used by SessionChatScreen
+  /// to show claude's auto-derived label (e.g. "List directory
+  /// files") as a sticky-header fallback when the user hasn't set
+  /// a title. NEVER persisted: the parent only renders the hint;
+  /// the hub `sessions.title` column stays under user control.
+  /// Null = no name carried yet (cold open) or claude cleared it
+  /// (rotation across `/clear`). User-set titles always win at the
+  /// parent — this callback only sources the candidate.
+  final void Function(String? name)? onSessionNameHint;
   const AgentFeed({
     super.key,
     required this.agentId,
@@ -544,6 +611,7 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.onSessionInit,
     this.onModeModelChanged,
     this.initialSeq,
+    this.onSessionNameHint,
   });
 
   @override
@@ -1607,13 +1675,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // frame. Null until first status_line lands; either window may
     // still be absent on a given frame (tile self-gates per window).
     final rateLimitsFromStatus = rateLimitsFromEvents(_events);
+    // ADR-036 W6 — exceeds_200k_tokens alarm. True iff the latest
+    // status_line carries the cap-breach signal; null/false suppress
+    // the tile entirely.
+    final exceeds200k = exceeds200kFromEvents(_events);
     final hasTelemetry = turnCount > 0 ||
         modelTotals.isNotEmpty ||
         latestRateLimit != null ||
         latestContextWindow != null ||
         processCostUsd != null ||
         sessionCostUsdImputed != null ||
-        rateLimitsFromStatus != null;
+        rateLimitsFromStatus != null ||
+        (exceeds200k == true);
     // Build the visible event list: drop folded-in kinds.
     //   tool_call_update — folded into parent tool_call card.
     //   tool_result      — paired with parent tool_call by tool_use_id;
@@ -1644,6 +1717,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // The callback fires from the post-build microtask below to avoid
     // a setState-during-build on the parent.
     _maybeFireModeModelChanged();
+    // ADR-036 W6 — also forward the latest session_name hint so the
+    // parent's AppBar title can fall back to claude's auto-derived
+    // label when the user hasn't set one. Reads the same events
+    // already scanned for the chip pair; cheap incremental work.
+    _maybeFireSessionNameHint(sessionNameFromEvents(_events));
     return Column(
       children: [
         // session.init is rendered in the parent AppBar via the
@@ -1663,6 +1741,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             sessionCostUsdImputed: sessionCostUsdImputed,
             sessionCostDetail: _sessionCost,
             rateLimitsFromStatus: rateLimitsFromStatus,
+            exceeds200kAlarm: exceeds200k == true,
           ),
         if (_staleSince != null) _OfflineBanner(staleSince: _staleSince!),
         if (_loadingOlder)
@@ -1941,6 +2020,29 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       cb(next);
+    });
+  }
+
+  // ADR-036 W6 — fire the session-name-hint callback when the
+  // session_name field surfaced by status_line changes (or first
+  // arrives). Same deferred-post-frame pattern as
+  // _maybeFireModeModelChanged so the parent's setState doesn't
+  // collide with this widget's build. We track the LAST hint we
+  // forwarded (not the current reducer value) so a flap from
+  // "name" → null → "name" still fires both transitions (null is a
+  // valid hint, meaning "claude cleared the auto-derived label
+  // across a /clear").
+  String? _lastSessionNameHint;
+  bool _lastSessionNameHintSet = false;
+  void _maybeFireSessionNameHint(String? hint) {
+    final cb = widget.onSessionNameHint;
+    if (cb == null) return;
+    if (_lastSessionNameHintSet && _lastSessionNameHint == hint) return;
+    _lastSessionNameHint = hint;
+    _lastSessionNameHintSet = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      cb(hint);
     });
   }
 
@@ -5125,6 +5227,11 @@ class _TelemetryStrip extends StatelessWidget {
   // absent; the renderer self-gates per window. Null when no
   // status_line has carried a rate_limits block yet.
   final Map<String, dynamic>? rateLimitsFromStatus;
+  // ADR-036 W6 — 200K hard-cap alarm. True iff claude has flagged
+  // that the next API call's prompt will exceed the plan's hard
+  // cap. Renders a red leading tile prompting `/clear`. False (or
+  // null upstream) suppresses the tile entirely.
+  final bool exceeds200kAlarm;
   const _TelemetryStrip({
     required this.totalCostUsd,
     required this.turnCount,
@@ -5136,6 +5243,7 @@ class _TelemetryStrip extends StatelessWidget {
     this.sessionCostUsdImputed,
     this.sessionCostDetail,
     this.rateLimitsFromStatus,
+    this.exceeds200kAlarm = false,
   });
 
   @override
@@ -5154,6 +5262,28 @@ class _TelemetryStrip extends StatelessWidget {
         ? DesignColors.textPrimary
         : DesignColors.textPrimaryLight;
     final tiles = <Widget>[];
+    // ADR-036 W6 — 200K hard-cap alarm. Leading position (left-most)
+    // so it lands first in a scan, and red so it earns the attention
+    // it deserves. claude's status_line sets `exceeds_200k_tokens`
+    // when the next API call's prompt will breach the plan's hard
+    // cap; the user's recourse is /clear (rotate to a fresh session
+    // within the same process). Tile self-gates on false.
+    if (exceeds200kAlarm) {
+      tiles.add(_TelemetryTile(
+        icon: Icons.warning_amber_rounded,
+        label: '200K cap',
+        sub: 'consider /clear',
+        color: DesignColors.error,
+        fg: fg,
+        muted: mutedColor,
+        tooltip: 'The next API call\'s prompt will exceed the plan\'s '
+            '200K-token hard cap (claude-code flag '
+            '`exceeds_200k_tokens`). Use /clear to rotate to a fresh '
+            'session within this same process — the cost meter '
+            'preserves but the conversation context resets, '
+            'unblocking the next turn.',
+      ));
+    }
     // Cost tile shape depends on whether the engine reports cost:
     //
     //   - claude-code   → `$0.0123 · N turns` (cost+turns)

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.702
+> **Last verified vs code:** v1.0.703
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,73 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.703-alpha — 2026-05-25
+
+**ADR-036 Phase B W6 — `exceeds_200k_tokens` alarm + `session_name`
+fallback. PHASE B COMPLETE.** The final two status_line-sourced
+surfaces ship together; ADR-036's mobile-side delivery now mirrors
+the hub-side fields one-for-one.
+
+### Added
+
+- **W6 hard-cap alarm tile.** Red `200K cap · consider /clear`
+  tile rendered as the LEADING tile on the telemetry strip when
+  the latest status_line frame carries `exceeds_200k_tokens: true`.
+  Self-gates on false/null/missing. Reducer
+  `exceeds200kFromEvents` is latest-wins (so `/clear` clears the
+  alarm on the very next status_line frame; the tile doesn't
+  stick).
+- **W6 session-name fallback.** New `onSessionNameHint` callback
+  on `AgentFeed`; reducer `sessionNameFromEvents` extracts the
+  latest non-empty `session_name` from status_line.
+  SessionChatScreen's new `_sessionNameHint` state field feeds a
+  computed `_effectiveTitle()` getter: user-set title wins;
+  otherwise claude's auto-derived hint; otherwise the
+  `(untitled session)` placeholder. NEVER persisted to the hub —
+  the hint is purely a display courtesy that re-reads fresh from
+  status_line every render so `/clear`'s new session can show
+  its own new label without state leaking from the prior
+  conversation.
+
+### Tests
+
+- `test/widgets/agent_feed_w6_test.dart` — 15 tests across 2
+  groups:
+  - **`exceeds200kFromEvents` (7):** null-on-no-statusLine,
+    null-on-no-field, explicit true, explicit false (distinct from
+    null), latest-wins-on-flap (true → false on `/clear`),
+    non-bool-treated-as-absent, empty list.
+  - **`sessionNameFromEvents` (8):** null-on-no-statusLine, null-
+    on-no-field, verbatim string return, empty-string-normalized-
+    to-null, latest-wins on rename, walk-past-interleaved, non-
+    String-treated-as-absent, empty list.
+
+### Architecture notes
+
+- The alarm tile shows red and goes LEADING-LEFT (vs the rate-
+  limits chips that sit further right) — same hierarchy reasoning
+  as "first-scan attention": the user reads left-to-right, and the
+  hard-cap is the only state where they MUST act before the next
+  turn. Other tiles are observational.
+- The name-hint precedence (user > claude > placeholder) handles
+  the natural workflow: a user can rename mid-session and the hub
+  title locks in, claude's slowly-evolving label stays as a
+  display fallback for unnamed sessions, and `(untitled session)`
+  surfaces only when neither source has anything.
+- Hint deferred-fire pattern mirrors `_maybeFireModeModelChanged`:
+  detection in build(), post-frame callback schedule, parent
+  setState is safe. Tracks `_lastSessionNameHintSet` so a flap
+  through null (e.g. `name → null on /clear → newname` after
+  claude re-derives) still surfaces both transitions.
+
+### Plan status
+
+- **ADR-036 PHASE B COMPLETE.** All 7 mobile surfaces shipped:
+  W4-b (hub pricing infrastructure) · W4-a (process cost chip) ·
+  W4-c (session cost chip) · W5 (rate_limits chip pair) · W6
+  (200K alarm + session_name fallback). Plan total: 9 wedges
+  across 8 commits (v1.0.696–v1.0.703); ~5,840 LOC; ~117 tests.
 
 ## v1.0.702-alpha — 2026-05-25
 

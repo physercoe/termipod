@@ -6,7 +6,7 @@ description: Field-verified investigation into wiring codex as a LocalLogTailDri
 # Codex M4 (LocalLogTail) research
 
 > **Type:** discussion
-> **Status:** Open (2026-05-25) — exploratory research; an ADR follows once the open questions in §10 close. Sibling research that landed as ADR-035 (`antigravity-engine-m4-locallogtail.md`) is the closest precedent and the structural template for the eventual codex ADR.
+> **Status:** Paused (2026-05-25) — see §0 below. The JSONL schema and adapter sizing remain valid for the eventual M4 work (crash-recovery / file-on-disk resilience), but Phase 2 of ADR-027 for codex is **no longer urgent** because the upstream `openai/codex` repo is Apache-2.0 and exposes a v2 hook protocol surface — the original "M2-is-a-black-box" justification was wrong. §7 (approvals) needs re-reading with that context. Sibling research that landed as ADR-035 (`antigravity-engine-m4-locallogtail.md`) remains the structural template if/when we resume.
 > **Audience:** contributors · principal
 > **Last verified vs code:** v1.0.712-alpha (host: codex-cli 0.133.0 on Ubuntu 22.04 / x86_64)
 
@@ -33,6 +33,78 @@ hub-side trust. The clear shape is ~1.1–1.3 kLOC of new code
 plus ~600 LOC of tests, mirroring the structure of
 `hub/internal/drivers/local_log_tail/claude_code/`. Phase 2 of
 ADR-027 is unblocked.
+
+---
+
+## 0. Paused — codex is open source; M4 urgency drops materially
+
+Same-day amendment (2026-05-25 PM). After this research landed,
+we checked the upstream provenance: codex is
+[`openai/codex`](https://github.com/openai/codex) on GitHub,
+**Apache-2.0**, 85k stars, last push within the hour. The
+binary's npm `package.json` advertises the repo directly:
+`"repository": "git+https://github.com/openai/codex.git",
+"directory": "codex-cli"`.
+
+That moves two load-bearing premises:
+
+1. **The "M2 protocol is rmcp-private" framing in §1 was wrong.**
+   The protocol crate
+   (`codex-rs/app-server-protocol/src/protocol/v2/`) is plain
+   Rust source; every shape we speak in `AppServerDriver` is
+   declared there. We don't need M4 just to read codex's mind.
+
+2. **§7 (approvals) Path-B-impossible claim is wrong.** Codex
+   ships an explicit hook surface in
+   `codex-rs/app-server-protocol/src/protocol/v2/hook.rs` —
+   `HookEventName::{PreToolUse, PermissionRequest, PostToolUse,
+   PreCompact, PostCompact, SessionStart, UserPromptSubmit,
+   SubagentStart, SubagentStop, Stop}`. Nearly 1:1 with
+   claude-code's hook contract. The v1.0.712
+   `AutoAcceptMCPToolCalls` global bypass was the right interim
+   fix for the symptom; the structural fix is to wire those
+   hooks through the existing AppServerDriver attention bridge,
+   not to build M4.
+
+**What stays valid in this document:**
+
+- §2 (JSONL on-disk layout) — host-verified, doesn't go stale.
+- §3 (frame schema) — same.
+- §4 (frame → agent_event map) — useful reference if/when we
+  pursue M4 for crash-recovery resilience, independent of the
+  approvals question.
+- §5 (send-keys vocabulary) — same.
+- §6 (telemetry already complete) — same.
+- §8 (resume = append) — host-verified.
+- §9 (code sizing) — still a fair estimate.
+
+**What's now wrong / needs re-reading:**
+
+- §1 (Why now) — the M2-is-a-black-box premise.
+- §7 (Approvals — the structural decision) — Path B is
+  reachable via the v2 hook surface; reasoning about codex
+  needing upstream changes was incorrect.
+- §11 (Recommended next step) — ADR-036 + 8-wedge plan is
+  paused.
+
+**Next session is M2-deepening**, not M4-implementation:
+
+1. Read `codex-rs/app-server-protocol/src/protocol/v2/{hook,
+   permissions,turn,thread,mcp}.rs` end-to-end.
+2. Wire `PreToolUse` / `PermissionRequest` through the existing
+   `AppServerDriver` attention bridge — same plumbing as the
+   `mcpServer/elicitation/request` path the v1.0.711-712 wedges
+   shipped. Replace the v1.0.712 global bypass with per-hook
+   routing: bypass for trusted MCP servers (termipod), bridge
+   for shell/file (`PreToolUse` on `exec_command` /
+   `apply_patch`).
+3. Audit our M2 driver against the v2 protocol crate for
+   notifications + methods we're not yet exposing.
+
+The rest of this document is the original research — preserved
+unchanged because the schema work doesn't go stale and is the
+foundation for the M4 wedge if we ever need it. Read on for
+context if you're the one resuming this.
 
 ---
 

@@ -35,7 +35,11 @@
 # 7. Telemetry: token usage + rate limits.
 # Real codex shape: cumulative totals nested under tokenUsage.total, plus
 # the per-turn `last` snapshot and modelContextWindow. The aggregator
-# treats `total` as authoritative for the session.
+# lifts both: `total.*` drives session-level cost + token accounting,
+# `last.*` drives context-window-fill (cumulative would grow boundlessly
+# because each turn re-sends the full conversation as input). See
+# v1.0.712 changelog entry for the on-device regression that surfaced
+# this distinction.
 {"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thr_abc","turnId":"turn_001","tokenUsage":{"total":{"totalTokens":79354,"inputTokens":79173,"cachedInputTokens":54784,"outputTokens":181,"reasoningOutputTokens":44},"last":{"totalTokens":19986,"inputTokens":19924,"cachedInputTokens":19328,"outputTokens":62,"reasoningOutputTokens":0},"modelContextWindow":258400}}}
 {"jsonrpc":"2.0","method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":42,"windowDurationMins":60,"resetsAt":"2026-04-29T11:00:00Z"},"secondary":{"usedPercent":12,"windowDurationMins":10080,"resetsAt":"2026-05-06T10:00:00Z"},"rateLimitReachedType":null}}}
 

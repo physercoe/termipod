@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.711
+> **Last verified vs code:** v1.0.712
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,79 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.712-alpha — 2026-05-25
+
+**Two codex M2 follow-ups from the v1.0.711 on-device smoke: bypass-
+mode MCP tool calls no longer raise an attention card, and the
+mobile context-window-fill indicator uses the per-turn token count
+instead of the cumulative-session one.**
+
+### Fixed
+
+- **Bypass-mode (`approval_policy=never`) MCP tool calls still
+  raised an attention card.** With v1.0.711's bridge fix wired,
+  every codex MCP tool call (e.g. `projects_list`, `documents_get`)
+  surfaces a permission_prompt card via the
+  `mcpServer/elicitation/request` codex sends as a wrapper gate.
+  But the per-spawn `config.toml` already writes
+  `approval_policy = "never"` (the production default per
+  `codexApprovalPolicy` in `hub/internal/hostrunner/launch_m2.go`),
+  which is the explicit operator opt-in to "the hub is the trust
+  boundary, don't double-gate". Codex still sends the elicitation
+  regardless of that setting — distinct mechanism from its shell /
+  file-change approval gates.
+  Fix: `AppServerDriver` gains `AutoAcceptMCPToolCalls bool`, set
+  by `launchM2` when `codexApprovalPolicy() == "never"`. In
+  `handleServerRequest`, an `mcpServer/elicitation/request` tagged
+  with `_meta.codex_approval_kind="mcp_tool_call"` is auto-accepted
+  with the same `{action: accept, content: {}, _meta:
+  {persist: session}}` shape `resolvePendingApproval` would write on
+  a principal-approve — no card, one compact
+  `appserver_mcp_tool_call_auto_accepted` system event per call for
+  the audit trail. Real form-fill elicitations (non-empty
+  `requestedSchema.properties`) and approval-shaped methods
+  (commandExecution / fileChange / permissions) are NOT affected —
+  those still raise cards in bypass mode, on the principle that
+  shell + file boundaries are too load-bearing for a global opt-out.
+  Tests:
+  `TestAppServerDriver_AutoAcceptMCPToolCallsBypassesAttention`
+  pins the auto-accept response shape + the
+  `appserver_mcp_tool_call_auto_accepted` audit;
+  `TestAppServerDriver_BypassDoesNotSkipFormFillElicitation` locks
+  the scoping invariant against a refactor that broadens the
+  auto-accept too far.
+- **Mobile context-window-fill indicator showed cumulative tokens
+  instead of per-turn.** `hub/internal/agentfamilies/agent_families.yaml`
+  mapped `$.params.tokenUsage.total.totalTokens` (cumulative across
+  the whole session) onto the `total_tokens` field; mobile's
+  `_buildTelemetryStrip` reducer in `lib/widgets/agent_feed.dart`
+  read that into `latestContextUsed`. Long codex sessions then
+  displayed inflated context-fill ratios (e.g. ~65% on a session
+  whose actual fill was ~7%) because each turn re-sends the full
+  conversation as input and `total.*` grows boundlessly. The
+  codex frame already carries the right number under
+  `tokenUsage.last.totalTokens` — the per-turn snapshot.
+  Fix: extended the profile rule to also emit `last_input_tokens`,
+  `last_output_tokens`, `last_cached_input_tokens`,
+  `last_total_tokens`, `last_reasoning_tokens` alongside the
+  cumulative `total_tokens` (cumulative kept for cost / per-engine
+  token aggregation, which is correctly cumulative). The mobile
+  reducer now prefers `last_total_tokens` for context fill and
+  falls back to `total_tokens` for pre-v1.0.712 events on disk.
+  `TestProfile_Codex_DistilledFrames`'s
+  `thread/tokenUsage/updated` case extended to assert both the
+  cumulative + per-turn keys land in the payload.
+
+### Notes
+
+The codex frame profile was carrying both shapes; only the lift
+rules ignored `.last`. The corpus fixture
+(`testdata/profiles/codex/corpus.jsonl`) already exercised the
+combined frame — its comment got a one-line update to record the
+new "both lifted" contract.
 
 ---
 

@@ -208,11 +208,14 @@ func TestProfile_Codex_PayloadFields(t *testing.T) {
 		t.Errorf("tool_result.content = %v; want ok\\n", got[0].Payload["content"])
 	}
 
-	// thread/tokenUsage/updated lifts the cumulative session counts off
-	// params.tokenUsage.total.* (not the obsolete params.usage.* shape
-	// the first draft of the profile assumed). The mobile telemetry
-	// strip keys off `total_tokens` to recognize the codex shape, so
-	// that field's lift must survive any future profile edit.
+	// thread/tokenUsage/updated lifts BOTH the cumulative session
+	// counts (params.tokenUsage.total.*) AND the per-turn snapshot
+	// (params.tokenUsage.last.*). Cumulative drives cost accounting;
+	// `last_*` drives the context-window-fill strip — using
+	// cumulative there would grow boundlessly since each turn re-sends
+	// the entire conversation. The v1.0.712 codex M2 smoke regression
+	// surfaced this when a long session's "context fill" indicator
+	// climbed to 65% on a session whose actual fill was ~7%.
 	tokenUsage := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "thread/tokenUsage/updated",
@@ -226,6 +229,13 @@ func TestProfile_Codex_PayloadFields(t *testing.T) {
 					"outputTokens":         float64(181),
 					"reasoningOutputTokens": float64(44),
 				},
+				"last": map[string]any{
+					"totalTokens":          float64(19986),
+					"inputTokens":          float64(19924),
+					"cachedInputTokens":    float64(19328),
+					"outputTokens":         float64(62),
+					"reasoningOutputTokens": float64(0),
+				},
 				"modelContextWindow": float64(258400),
 			},
 		},
@@ -237,11 +247,19 @@ func TestProfile_Codex_PayloadFields(t *testing.T) {
 	checks := map[string]any{
 		"cumulative":          "true",  // string literal, not bool — evaluator grammar
 		"engine":              "codex",
+		// Cumulative — kept for cost / per-engine token aggregation.
 		"input_tokens":        float64(79173),
 		"output_tokens":       float64(181),
 		"cached_input_tokens": float64(54784),
 		"total_tokens":        float64(79354),
 		"reasoning_tokens":    float64(44),
+		// Per-turn snapshot — the v1.0.712 addition. Mobile's
+		// context-fill reducer reads `last_total_tokens` when present.
+		"last_input_tokens":        float64(19924),
+		"last_output_tokens":       float64(62),
+		"last_cached_input_tokens": float64(19328),
+		"last_total_tokens":        float64(19986),
+		"last_reasoning_tokens":    float64(0),
 		"context_window":      float64(258400),
 		"thread_id":           "thr_xyz",
 	}

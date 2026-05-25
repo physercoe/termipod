@@ -83,6 +83,24 @@ type AppServerDriver struct {
 	// way the StdioDriver does.
 	FrameProfile *agentfamilies.FrameProfile
 
+	// AutoAcceptMCPToolCalls suppresses the attention-card round-trip
+	// on codex's `mcpServer/elicitation/request` frames tagged with
+	// `_meta.codex_approval_kind == "mcp_tool_call"`. Set during
+	// launch when the per-spawn config.toml's `approval_policy` is
+	// "never" (the production default — see codexApprovalPolicy in
+	// launch_m2.go). codex's `approval_policy=never` is supposed to
+	// skip codex's own wrapper gates but in practice still emits the
+	// elicitation; this flag drains the redundant pre-tool-call card
+	// on the host side. Real form-fill elicitations (non-empty
+	// `requestedSchema.properties`) still bridge normally.
+	//
+	// Other elicitation/approval flows (commandExecution, fileChange,
+	// permissions, real form-fills) are NOT affected — those still
+	// route through the attention bridge regardless of this flag, so
+	// the principal keeps a checkpoint on the truly load-bearing
+	// boundaries.
+	AutoAcceptMCPToolCalls bool
+
 	// ResumeThreadID, when non-empty, calls `thread/resume` instead
 	// of `thread/start` during the initial handshake. Used after
 	// host-runner restarts when a session was already opened against
@@ -974,6 +992,48 @@ func (d *AppServerDriver) handleServerRequest(
 	}
 
 	params := decodeParams(resp.Params)
+
+	// Bypass-mode short-circuit (v1.0.712). The codex per-spawn
+	// config.toml writes `approval_policy = "never"` by default —
+	// the contract is "the hub is the trust boundary, don't double-
+	// gate". codex still ships an `mcpServer/elicitation/request`
+	// with `_meta.codex_approval_kind="mcp_tool_call"` ahead of every
+	// MCP tool call regardless, which v1.0.711 wired through to the
+	// attention bridge and surfaced as a permission card the user
+	// has already opted out of. Auto-accept that case here with the
+	// same response shape resolvePendingApproval would write on a
+	// principal-approve, so codex proceeds, the tool runs, and the
+	// transcript records ONE compact system event per call instead
+	// of an attention round-trip the operator can't unsubscribe
+	// from.
+	//
+	// Scope: ONLY mcp_tool_call elicitations. Approval-shaped
+	// methods (commandExecution / fileChange / permissions) and
+	// real form-fill elicitations (non-empty requestedSchema.
+	// properties) still bridge to attention even in bypass mode —
+	// they're the truly load-bearing checkpoints the principal
+	// always wants on.
+	if d.AutoAcceptMCPToolCalls &&
+		isElicitationMethod(method) &&
+		isToolCallApprovalElicitation(params) {
+		_ = d.writeRawResponse(id, map[string]any{
+			"action":  "accept",
+			"content": map[string]any{},
+			"_meta":   map[string]any{"persist": "session"},
+		})
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
+			map[string]any{
+				"kind":   "appserver_mcp_tool_call_auto_accepted",
+				"method": method,
+				"reason": "approval_policy=never (bypass mode)",
+				// `summary` matches what the attention card would
+				// have shown — keeps the audit trail searchable on
+				// the same per-tool string.
+				"summary": attentionSummary(method, params),
+			})
+		return
+	}
+
 	attentionKind := "permission_prompt"
 	if isElicitationMethod(method) {
 		// codex re-uses MCP elicitation as the wire-level shape for two

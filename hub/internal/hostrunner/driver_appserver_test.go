@@ -1519,6 +1519,176 @@ func TestAppServerDriver_ToolCallApprovalRoutesAsPermissionPrompt(t *testing.T) 
 	}
 }
 
+// TestAppServerDriver_AutoAcceptMCPToolCallsBypassesAttention pins the
+// v1.0.712 fix: when the spawn is in "bypass" mode (codex
+// `approval_policy = "never"` — the production default per
+// codexApprovalPolicy + codexConfigTOML), the driver auto-accepts
+// `mcpServer/elicitation/request` frames tagged with
+// `_meta.codex_approval_kind == "mcp_tool_call"` without bridging
+// to an attention card. Real form-fill elicitations (non-empty
+// requestedSchema.properties) and approval-shaped methods (shell,
+// file change) are unaffected — those still raise cards.
+func TestAppServerDriver_AutoAcceptMCPToolCallsBypassesAttention(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_bypass"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	att := &fakeAttentionPoster{idPrefix: "att_bypass"}
+	drv := &AppServerDriver{
+		AgentID:                "agent-bypass",
+		Handle:                 "@coder",
+		Poster:                 poster,
+		Attention:              att,
+		Stdout:                 pipes.driverStdout,
+		Stdin:                  pipes.driverStdin,
+		FrameProfile:           codexProfileForTest(t),
+		HandshakeTimeout:       2 * time.Second,
+		CallTimeout:            2 * time.Second,
+		Closer:                 pipes.closeFn,
+		AutoAcceptMCPToolCalls: true,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	// codex sends an MCP-tool-call elicitation (empty schema + codex
+	// meta tag). Bypass mode → driver writes accept directly, no card.
+	server.serverRequest(11, "mcpServer/elicitation/request", map[string]any{
+		"serverName": "termipod",
+		"mode":       "form",
+		"_meta": map[string]any{
+			"codex_approval_kind": "mcp_tool_call",
+			"persist":             []any{"session", "always"},
+		},
+		"message":         "Allow the termipod MCP server to run tool \"projects_list\"?",
+		"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	})
+
+	// Wait for the response on id=11.
+	deadline := time.Now().Add(2 * time.Second)
+	var resp map[string]any
+	for time.Now().Before(deadline) && resp == nil {
+		for _, f := range server.seen() {
+			if id, ok := f["id"].(float64); ok && int64(id) == 11 {
+				if _, hasMethod := f["method"]; !hasMethod {
+					resp = f
+					break
+				}
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if resp == nil {
+		t.Fatal("driver did not auto-accept the mcp_tool_call elicitation in bypass mode")
+	}
+	result, _ := resp["result"].(map[string]any)
+	if got, _ := result["action"].(string); got != "accept" {
+		t.Errorf("auto-accept result.action = %q; want accept", got)
+	}
+	if got, hasContent := result["content"].(map[string]any); !hasContent || len(got) != 0 {
+		t.Errorf("auto-accept result.content = %v; want empty {} (matches schema)", got)
+	}
+	if meta, _ := result["_meta"].(map[string]any); meta == nil ||
+		meta["persist"] != "session" {
+		t.Errorf("auto-accept _meta.persist = %v; want session (skip-future-gates hint)", meta["persist"])
+	}
+
+	// MUST NOT have raised a card.
+	if cards := att.snapshot(); len(cards) != 0 {
+		t.Errorf("auto-accept raised %d attention cards; want 0 (bypass mode should be silent)",
+			len(cards))
+	}
+
+	// And a single compact audit event must record the call so the
+	// transcript still shows what was bypassed.
+	var auto int
+	for _, ev := range poster.snapshot() {
+		if ev.Payload["kind"] == "appserver_mcp_tool_call_auto_accepted" {
+			auto++
+		}
+	}
+	if auto != 1 {
+		t.Errorf("expected one appserver_mcp_tool_call_auto_accepted system event; got %d (events=%+v)",
+			auto, poster.snapshot())
+	}
+}
+
+// TestAppServerDriver_BypassDoesNotSkipFormFillElicitation pins the
+// scoping invariant: bypass mode auto-accepts ONLY mcp_tool_call
+// elicitations. A real form-fill elicitation (non-empty
+// requestedSchema.properties) still raises an attention card so the
+// principal can type their reply — auto-accepting would deserialize
+// an empty content map against a non-empty schema and stall the turn.
+func TestAppServerDriver_BypassDoesNotSkipFormFillElicitation(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_form"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	att := &fakeAttentionPoster{idPrefix: "att_form"}
+	drv := &AppServerDriver{
+		AgentID:                "agent-form",
+		Handle:                 "@coder",
+		Poster:                 poster,
+		Attention:              att,
+		Stdout:                 pipes.driverStdout,
+		Stdin:                  pipes.driverStdin,
+		FrameProfile:           codexProfileForTest(t),
+		HandshakeTimeout:       2 * time.Second,
+		CallTimeout:            2 * time.Second,
+		Closer:                 pipes.closeFn,
+		AutoAcceptMCPToolCalls: true, // bypass mode on, but…
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	// …a real form-fill elicitation arrives with non-empty schema.
+	server.serverRequest(12, "mcpServer/elicitation/request", map[string]any{
+		"serverName": "termipod",
+		"message":    "What is your favourite colour?",
+		"requestedSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"colour": map[string]any{"type": "string"},
+			},
+		},
+	})
+
+	// Card MUST be raised — auto-accept would stall the turn.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(att.snapshot()) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cards := att.snapshot()
+	if len(cards) != 1 {
+		t.Fatalf("form-fill elicitation in bypass mode got %d cards; want 1 (real input still gated)",
+			len(cards))
+	}
+	if cards[0].Kind != "elicit" {
+		t.Errorf("card.kind = %q; want elicit (form fill, not permission_prompt)", cards[0].Kind)
+	}
+}
+
 // TestAppServerDriver_Cancel_DrainsParkedRequests pins the bug where
 // canceling a turn left parked elicit/approval JSON-RPC ids open on
 // the codex side. turn/interrupt aborts in-flight tool calls, but

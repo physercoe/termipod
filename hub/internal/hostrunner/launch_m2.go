@@ -414,6 +414,12 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 			Stdin:        stdin,
 			FrameProfile: frameProfile,
 			Closer:       closer,
+			// Bypass MCP-tool-call elicitation cards when the spawn's
+			// `approval_policy` is "never" — the operator has already
+			// opted into hub-as-trust-boundary semantics (see
+			// codexApprovalPolicy + codexConfigTOML below). Other
+			// elicitation/approval flows still bridge to attention.
+			AutoAcceptMCPToolCalls: codexApprovalPolicy() == "never",
 		}
 	} else {
 		drv = &StdioDriver{

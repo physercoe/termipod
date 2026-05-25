@@ -1619,12 +1619,27 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // to 'agent' if the upstream profile didn't tag.
         final engineTag = (p['engine'] as String?) ?? 'agent';
         cumulativeBucketKey = engineTag;
-        // Context-window snapshot rides on the same event. Total
-        // tokens (input+output+reasoning, all cumulative) is what
-        // codex itself uses in its TUI statusline — it's the value
-        // the model sees its context filled with on the next turn.
+        // Context-window snapshot rides on the same event. For "fill"
+        // we want the most recent turn's token count — that's what
+        // the model sees the context filled with on the NEXT turn.
+        // Codex's tokenUsage frame carries both `.total.*` (cumulative
+        // across all turns, grows boundlessly) and `.last.*` (just
+        // the most recent turn). The profile emits `last_total_tokens`
+        // from `.last.totalTokens`; mobile prefers it when present
+        // and falls back to `total_tokens` for legacy events on disk
+        // (pre-v1.0.712 codex usage rows that only carry cumulative).
+        //
+        // The earlier comment on this branch claimed cumulative
+        // matched codex's TUI statusline — that was wrong, codex's
+        // statusline shows the per-turn last count. A long codex
+        // session previously showed wildly inflated "context fill"
+        // numbers (e.g. 169K/258K on a session whose actual fill was
+        // ~19K) — the v1.0.712 smoke regression that prompted this
+        // fix.
         final cw = (p['context_window'] as num?)?.toInt() ?? 0;
-        final used = (p['total_tokens'] as num?)?.toInt() ?? 0;
+        final lastUsed = (p['last_total_tokens'] as num?)?.toInt();
+        final cumulativeUsed = (p['total_tokens'] as num?)?.toInt() ?? 0;
+        final used = lastUsed ?? cumulativeUsed;
         if (cw > 0) latestContextWindow = cw;
         if (used > 0) latestContextUsed = used;
       } else if (kind == 'usage') {

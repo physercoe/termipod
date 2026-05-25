@@ -723,11 +723,28 @@ families:
             payload:
               cumulative:          "\"true\""
               engine:              "\"codex\""
+              # Cumulative session totals — correct for per-session cost
+              # accounting + per-engine token aggregation. NOT correct
+              # for "context window fill" (those would grow boundlessly
+              # since each turn re-sends the entire conversation as
+              # input). See `last_*` below for the per-turn snapshot.
               input_tokens:        "$.params.tokenUsage.total.inputTokens"
               output_tokens:       "$.params.tokenUsage.total.outputTokens"
               cached_input_tokens: "$.params.tokenUsage.total.cachedInputTokens"
               total_tokens:        "$.params.tokenUsage.total.totalTokens"
               reasoning_tokens:    "$.params.tokenUsage.total.reasoningOutputTokens"
+              # Per-turn snapshot — `last.totalTokens` is the size of
+              # the most recent turn's prompt + completion, which IS
+              # the model's view of "current context fill" (matches the
+              # number codex's own TUI statusline shows next to the
+              # context window indicator). Mobile uses these for the
+              # context-window strip; reads cumulative when the
+              # last_* keys are absent (pre-v1.0.712 events on disk).
+              last_input_tokens:   "$.params.tokenUsage.last.inputTokens"
+              last_output_tokens:  "$.params.tokenUsage.last.outputTokens"
+              last_cached_input_tokens: "$.params.tokenUsage.last.cachedInputTokens"
+              last_total_tokens:   "$.params.tokenUsage.last.totalTokens"
+              last_reasoning_tokens: "$.params.tokenUsage.last.reasoningOutputTokens"
               context_window:      "$.params.tokenUsage.modelContextWindow"
               thread_id:           "$.params.threadId"
 

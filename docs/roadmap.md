@@ -1,9 +1,9 @@
 # Roadmap
 
 > **Type:** vision
-> **Status:** Current (2026-05-18)
+> **Status:** Current (2026-05-25)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.630
+> **Last verified vs code:** v1.0.703
 
 **TL;DR.** The MVP target is the research demo from `blueprint.md` §9
 Phase 4: a user writes a directive on phone → steward decomposes →
@@ -128,7 +128,6 @@ working list — what's actually moving this week or next.
 |---|---|---|
 | **ADR-031 agent tool ergonomics — Phases 1+2 (MVP)** | Steward took 6 turns to read back a doc by ULID on 2026-05-18; root cause was no `documents.get` (fixed v1.0.630) + no discovery / depth / hint design. Locks in two-tier descriptions + `tools.get` meta-tool + structured hints + per-persona intent index. (`decisions/031-agent-tool-ergonomics.md`, `plans/agent-tool-ergonomics-rollout.md`) | After ADR-028/029 phase work or whenever the agent-side UX wedge is prioritized |
 | **ADR-028 host control CLI — Phase 1 `shutdown-all`** | Hands-off binary upgrades need a way to drain stewards on host-runners + restart hosts from the principal's seat. (`decisions/028-host-control-via-tunnel-and-cli.md`, `plans/hub-host-control-cli.md`) | Whenever the next host-runner upgrade is queued |
-| **ADR-030 governed actions + `propose` verb** | Apply-on-approve generalisation across deliverable / phase / task / worker-tool-call. (`decisions/030-governed-actions-and-propose-verb.md`, `plans/governed-actions-mvp-rollout.md`) | After current device-walkthrough cadence stabilizes |
 | **Hardware run of Candidate-A demo** | The actual MVP milestone (`decisions/001-locked-candidate-a.md`) | Two consecutive walkthrough-clean device tests |
 | **Cross-vendor integration smoke (slice 7 × 2)** | `request_help` end-to-end against a live codex binary AND a live gemini binary on a real test host — validates the vendor-neutral attention surface for both ADR-012 and ADR-013. Tests today use fakes for both protocols (JSON-RPC for codex, exec-per-turn JSONL for gemini); slice 7 closes the loop on real upstream binaries | Real codex + gemini binaries available in a test host |
 | **Briefing agent overnight schedule** | Demo path needs the steward to schedule the briefing autonomously | After hardware run smoke-tests the worker path |
@@ -175,6 +174,8 @@ Most recent first. Major work units only — bug-fix releases roll up.
 
 | Version | What |
 |---|---|
+| v1.0.696-703 | **ADR-036 claude-code statusLine as authoritative M4 telemetry channel.** Phase A (hub-side, v1.0.696-698): host-runner `status-fire` shim + UDS gateway `status_line` tool + adapter caches latest frame for in-process overrides + session_id rotation handler (fixes /clear blindness). Phase A.5 (v1.0.699): cold-open mobile bubble + busy-state regression fixed via testable kind-list sets. Phase B (v1.0.700-703): hub-side pricing infrastructure (operator-override YAML + //go:embed default, mtime hot-reload) + GET /sessions/{id}/cost endpoint + 5 mobile chips landing on the agent telemetry strip (process cost · session cost · 5h rate-limit · 7d rate-limit · 200K alarm) + AppBar `session_name` fallback. ~5,840 LOC + ~117 tests across 9 wedges. ADR-036 Accepted |
+| v1.0.674-695 | **ADR-030 governed actions + `propose` verb — all phases complete.** Generalises apply-on-approve from two bespoke branches to one MCP verb across 5 propose kinds (deliverable.set_state, phase.advance, task.set_status, agent.spawn, template.install) with Validate/DryRun/Apply/Rollback. 22 wedges across 24 commits: Phase 1 (hub, 11 wedges, ~2,775 LOC + ~85 tests) → Phase 2 (steward prompts + 3 scenarios) → Phase 3 (mobile cards + propose inbox + override sheet + policy viewer + stalled digest). ADR-030/032/033/034 all landed (envelope on fan-back, unified tool registry, questionAttentionKinds extension). Loop-closure audit catches every governed-action mutation. ADR-030 Accepted |
 | v1.0.624-630 | Seven-release follow-on series after the v1.0.620-623 spawn-robustness bundle: buildSpawnVars sibling-boundary fix (un-merged read); unbound `{{project_id}}` + `{{parent.handle}}` prompt refs + Layer-4 startup audit; steward wake never reached engine (unhandled `input.task_completed` kind across all drivers) → unified on `input.text`; worker/steward prompt blocked-protocol + validate-before-delegate; preserve blocked verdict on manual stop; mobile archive agent gets Feed tab; `documents.get` MCP tool + A2A sender attribution in relay body. Plus design landings: discussions + plans + ADRs 031/032 (Proposed) for the agent-tool-ergonomics and message-routing-envelope work the band-aids in this series motivated |
 | v1.0.620-623 | ADR-030 governed actions + spawn-robustness bundle. coder.v1 spawn incident class closed structurally: typed validators for 7 HIGH-severity free-form fields; agent-template naming spec + filename↔internal-id audit; steward prompt rewrite; MCP description hygiene rule; sync-wait three-state return for `agents.spawn`. ADR-030 Proposed (governed actions + propose verb) |
 | v1.0.612-619 | Eight follow-on fixes after the spawn-robustness bundle: `project_steward_request` resolution fans back to the general steward; A2A notification flipped to sender-side (`a2a.sent`); task close-out protocol footer in CLAUDE.md; per-engine context file (CLAUDE/AGENTS/GEMINI.md — codex/kimi/gemini stewards had been silently ignoring their prompt body); task-detail screen collapsed seven sections to three; `permission_mode` empty→skip default on MCP spawn + Library reset menu; host-runner terminate logging; abandoned-task auto-derive to `cancelled` + project-scoped agent history |

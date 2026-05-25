@@ -680,9 +680,39 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       // `notifier.state` — the latter is `@protected` /
       // `@visibleForTesting` in Riverpod 3.x, and `flutter analyze`
       // promotes the access to a warning that CI treats as fatal.
-      final alreadyLive =
+      var alreadyLive =
           ref.read(sshProvider(widget.connectionId)).isConnected &&
               sshNotifier.client != null;
+      // Pre-flight the cached SSH transport before trusting it. A
+      // network switch (wifi↔cellular, captive-portal handoff, suspend/
+      // resume) can leave us with a half-open TCP socket that
+      // [SshClient]'s 5–30s keep-alive watchdog hasn't detected yet.
+      // Without this probe the first real `exec()` inside
+      // [_setupTmuxBackend] is unbounded (no `timeout:` arg) and parks
+      // forever on `Future.wait([stdoutCompleter, stderrCompleter])`,
+      // which also wedges every subsequent exec call queued behind
+      // `_withExecLock` — the canonical "stuck spinner until force-
+      // kill" failure mode. A 3s `echo p` round-trip is the cheapest
+      // honest liveness probe; failure → dispose + dial fresh.
+      //
+      // We wrap with `.timeout(...)` at the call site in addition to
+      // passing `timeout:` to `exec` itself: the latter only bounds
+      // the inner `Future.wait` on stdout/stderr completers, not the
+      // `_withExecLock` queue-acquire phase. If a prior caller left
+      // the exec lock held (rare, but possible across screen revisits
+      // when the previous exec hung), the outer `.timeout` is what
+      // unblocks us. The fresh-dial path disposes the entire
+      // `SshClient`, taking the leaked lock with it.
+      if (alreadyLive) {
+        try {
+          await sshNotifier.client!
+              .exec('echo p', timeout: const Duration(seconds: 3))
+              .timeout(const Duration(seconds: 3));
+        } catch (_) {
+          alreadyLive = false;
+        }
+        if (!mounted || _isDisposed) return;
+      }
       if (!alreadyLive) {
         await sshNotifier.connectWithoutShell(connection, options);
         if (!mounted || _isDisposed) {
@@ -763,16 +793,34 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final sshClient = sshNotifier.client;
     if (sshClient == null) throw Exception('SSH client not available');
 
-    // tmux version check
+    // tmux version check. Bound the probe explicitly — although the
+    // pre-flight in [_connectAndSetup] should already have caught a
+    // half-open transport, a 10s ceiling here is defence-in-depth so
+    // that any residual hang propagates up to [_connectAndSetup]'s
+    // catch (which resets `_isConnecting` and surfaces a snackbar)
+    // instead of stranding the spinner.
     try {
-      final versionOutput = await sshClient.exec(TmuxCommands.version());
+      final versionOutput = await sshClient.exec(
+        TmuxCommands.version(),
+        timeout: const Duration(seconds: 10),
+      );
       _tmuxVersion = TmuxVersionInfo.parse(versionOutput);
     } catch (_) {
       _tmuxVersion = null;
     }
 
-    // Session tree
-    await _refreshSessionTree();
+    // Session tree. The setup-path call is `surfaceErrors: true` so
+    // that a hang or transport failure during the initial fetch isn't
+    // silently swallowed and recovered into the wrong code path —
+    // an empty session tree would fall through to the
+    // `else { sessionName = 'termipod-...' }` branch below and
+    // attempt to create a brand-new session on a possibly-dead
+    // socket. Throwing here is correct: `_connectAndSetup`'s catch
+    // resets `_isConnecting` and shows an error snackbar.
+    await _refreshSessionTree(
+      timeout: const Duration(seconds: 10),
+      surfaceErrors: true,
+    );
     if (!mounted || _isDisposed) return;
 
     final tmuxState = ref.read(tmuxProvider(widget.connectionId));
@@ -1137,17 +1185,33 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
   /// セッションツリー全体を取得して更新
-  Future<void> _refreshSessionTree() async {
+  /// Re-fetch the tmux session/window/pane tree and push it into
+  /// [tmuxProvider].
+  ///
+  /// [timeout] caps the underlying `exec()` so a half-open SSH
+  /// transport can never wedge this call forever (and, transitively,
+  /// the `_withExecLock` chain). 15s is a generous default for the
+  /// timer-driven path; the setup-path caller passes a tighter 10s.
+  /// [surfaceErrors] is `true` for the setup-path call so a failure
+  /// reaches [_connectAndSetup]'s catch and resets the spinner instead
+  /// of silently leaving us with an empty tree. Timer-driven calls
+  /// keep the silent-error semantics — a transient failure is just
+  /// retried on the next 10s tick.
+  Future<void> _refreshSessionTree({
+    Duration timeout = const Duration(seconds: 15),
+    bool surfaceErrors = false,
+  }) async {
     if (_isDisposed) return;
     final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
 
     try {
       final cmd = TmuxCommands.listAllPanes();
-      final output = await sshClient.exec(cmd);
+      final output = await sshClient.exec(cmd, timeout: timeout);
       if (!mounted || _isDisposed) return;
       ref.read(tmuxProvider(widget.connectionId).notifier).parseAndUpdateFullTree(output);
     } catch (_) {
+      if (surfaceErrors) rethrow;
       // Tree update errors are silently ignored (retried on next poll)
     }
   }

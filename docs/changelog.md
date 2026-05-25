@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.708
+> **Last verified vs code:** v1.0.709
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,80 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.709-alpha — 2026-05-25
+
+**Two on-device hotfixes from v1.0.708 smoke testing: tmux session
+cache no longer wiped on cold start, and the "stuck spinner on
+network switch" deadlock when opening a host row is gone.**
+
+### Fixed
+
+- **Active-sessions cache wiped on every cold start.** The
+  remembered-last-tmux-session feature
+  (`activeSessionsProvider` →
+  `lib/providers/active_session_provider.dart`) had a load-time
+  prune that filtered out rows referencing a "missing" connection
+  and then `_saveToStorage()`'d the filtered result. But
+  `connectionsProvider` is itself an async-load `Notifier`; the two
+  load orders race on every cold start. When the active-sessions
+  load completes first, `connectionsProvider.connections` is still
+  empty — every persisted row reads as orphaned and the entire
+  cache gets overwritten with `[]`. From the user's POV the cache
+  appeared never to persist; on the next session-open the terminal
+  fell back to `sessions.first.name` instead of the
+  last-attached one.
+  Fix is two invariants: (1) the load path is read-only with
+  respect to disk (delete-time `removeSessionsForConnection` in
+  `connections_screen.dart`/`connection_form_screen.dart` is now
+  the only authoritative cleanup path); (2) the in-memory prune is
+  gated on `connState.isLoading == false`, so a cold-start race
+  that fires the load before connections settles keeps every
+  persisted row visible. A regression test under
+  `test/providers/active_session_provider_test.dart` pre-seeds
+  `active_sessions` with the `connections` key intentionally
+  missing and asserts the disk file survives the load.
+- **Stuck "connecting" spinner after a transient network switch
+  (wifi↔cellular, captive-portal handoff, suspend/resume).** The
+  Hosts row → `TerminalScreen` path reuses the keep-alive SSH
+  client cached by `SshNotifier` when `alreadyLive == true`. If the
+  underlying TCP socket was half-open (e.g. the device just changed
+  networks), the first `sshClient.exec(TmuxCommands.version())`
+  inside `_setupTmuxBackend` had no `timeout:` argument and parked
+  forever on `Future.wait([stdoutCompleter, stderrCompleter])`,
+  wedging both `_isConnecting=true` (so the spinner stayed) AND
+  every later exec via the `_withExecLock` chain — the only
+  recovery was a force-kill of the app. The keep-alive watchdog
+  did eventually fire its own 3s timeout and dispose the client,
+  but whether the orphaned in-flight exec's stream completers ever
+  got errored was dartssh2-implementation-dependent.
+  Three-part fix in `lib/screens/terminal/terminal_screen.dart`:
+  (1) pre-flight the cached client with
+  `exec('echo p', timeout: Duration(seconds: 3))` before trusting
+  `alreadyLive` — failure → dispose and dial fresh; (2) bound the
+  version-probe and setup-time tree-refresh with `timeout: 10s`
+  each; (3) `_refreshSessionTree` gains a default 15s ceiling
+  (was unbounded) so timer-driven refreshes can never deadlock the
+  exec lock either. Setup-path now uses `surfaceErrors: true` so
+  a tree-fetch failure propagates to `_connectAndSetup`'s catch
+  (snackbar + reset spinner) instead of falling through to the
+  "create new termipod-* session" recovery branch on a possibly-
+  dead socket.
+
+### Why these landed together
+
+Both are mobile-only TmuxBackend regressions surfaced by on-device
+smoke testing of the v1.0.708 release. Each fix is independent
+and small (the cache fix is ~3 LOC of removed-write + ~3 LOC of
+new gate; the SSH fix is ~30 LOC across three call sites), and
+they share zero overlap — but they share the same diagnostic
+session, the same on-device repro path (open a host row that was
+last attached before a network change), and both are
+preconditions for the user trusting the "remember my session"
+experience. Shipping in one wedge keeps the commit history
+faithful to the investigation.
 
 ---
 

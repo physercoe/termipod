@@ -154,30 +154,47 @@ class ActiveSessionsNotifier extends Notifier<ActiveSessionsState> {
   }
 
   /// ストレージからセッション情報を読み込み
-  /// Prunes sessions whose connectionId no longer exists in connectionsProvider.
+  ///
+  /// Defensively filters out orphan rows whose `connectionId` no longer
+  /// maps to a live bookmark, BUT only when `connectionsProvider` has
+  /// actually finished hydrating. Both providers async-load on first
+  /// build and their resolution order is non-deterministic — if we
+  /// prune against an `isLoading: true` (empty) connections view, every
+  /// persisted row looks orphaned. The previous incarnation of this
+  /// method also `_saveToStorage()`'d the pruned result; under the race
+  /// that destructively wrote `[]` to disk on cold start and erased
+  /// the user's remembered-session cache.
+  ///
+  /// Two invariants now:
+  /// 1. **Never persist from the load path.** The authoritative orphan
+  ///    cleanup lives in delete-time `removeSessionsForConnection`
+  ///    (called from `connections_screen.dart` +
+  ///    `connection_form_screen.dart`). Load is read-only with respect
+  ///    to disk.
+  /// 2. **Gate the in-memory prune on `connections.isLoading == false`.**
+  ///    A cold-start race that fires the load before connections
+  ///    settles just keeps every persisted row in memory; the next
+  ///    legitimate mutation will rewrite the file with the current
+  ///    (post-hydration) view.
   Future<void> _loadFromStorage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonStr = prefs.getString(_storageKey);
-      if (jsonStr != null) {
-        final jsonList = jsonDecode(jsonStr) as List<dynamic>;
-        var sessions = jsonList
-            .map((json) => ActiveSession.fromJson(json as Map<String, dynamic>))
-            .toList();
+      if (jsonStr == null) return;
 
-        // Prune sessions for connections that no longer exist
-        final connections = ref.read(connectionsProvider).connections;
-        final validIds = connections.map((c) => c.id).toSet();
-        final before = sessions.length;
-        sessions = sessions.where((s) => validIds.contains(s.connectionId)).toList();
+      final jsonList = jsonDecode(jsonStr) as List<dynamic>;
+      var sessions = jsonList
+          .map((json) => ActiveSession.fromJson(json as Map<String, dynamic>))
+          .toList();
 
-        state = state.copyWith(sessions: sessions);
-
-        // Persist the pruned list if anything was removed
-        if (sessions.length < before) {
-          _saveToStorage();
-        }
+      final connState = ref.read(connectionsProvider);
+      if (!connState.isLoading) {
+        final validIds = connState.connections.map((c) => c.id).toSet();
+        sessions =
+            sessions.where((s) => validIds.contains(s.connectionId)).toList();
       }
+
+      state = state.copyWith(sessions: sessions);
     } catch (e) {
       // 読み込みエラーは無視（初回起動時など）
     }

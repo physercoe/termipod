@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.710
+> **Last verified vs code:** v1.0.711
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,52 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.711-alpha — 2026-05-25
+
+**Codex MCP-tool-call gates no longer auto-decline as
+"user rejected MCP tool call" whenever the host-runner runs
+with A2A enabled (the production default).**
+
+### Fixed
+
+- **`a2aPosterTap` masked the `AttentionPoster` surface of its
+  inner `*Client`.** `runner.go:311` wraps the agentPoster in
+  an `a2aPosterTap` whenever the host's A2A server is enabled
+  (every production deployment). The wrapper proxied
+  `PostAgentEvent` but had no `PostAttention` method. The codex
+  launch path at `launch_m2.go:405` then tried
+  `cfg.Client.(AttentionPoster)` and silently failed the cast,
+  leaving `AppServerDriver.Attention = nil`. Every
+  server-initiated request — including the
+  `mcpServer/elicitation/request` codex uses to gate MCP tool
+  calls (ADR-012 D3) — hit the no-bridge branch and
+  auto-declined with `{action: "decline"}`. Codex relayed that
+  to the agent as "user rejected MCP tool call". The principal
+  never saw a gate.
+  Fix: `(*a2aPosterTap).PostAttention` now delegates to the
+  inner client when it implements `AttentionPoster` (production
+  `*Client` always does); inner-doesn't-implement returns a
+  clean error so the driver's existing
+  `appserver_attention_post_failed` audit path captures it and
+  declines through the right per-method shape rather than
+  panicking. Two new tests
+  (`hub/internal/hostrunner/a2a_dispatcher_test.go::TestA2APosterTap_ImplementsAttentionPoster`
+  and the inner-without-AttentionPoster fallback) lock the
+  cast + delegate so a future refactor can't re-mask the
+  surface.
+
+### Why this is small
+
+One method added, two tests. The bug was a single missing
+interface implementation; the audit + decline machinery on
+both sides of the bridge was already in place — just never
+exercised because the cast failed before any call could fire.
+The reasoning trail in the codex_attention_kind discriminator,
+the rmcp shape mapping, and the principal-decision→codex-decision
+mapping are all unchanged from v1.0.710.
 
 ---
 

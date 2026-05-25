@@ -299,3 +299,30 @@ func (p *a2aPosterTap) PostAgentEvent(ctx context.Context, agentID, kind, produc
 	}
 	return p.inner.PostAgentEvent(ctx, agentID, kind, producer, payload)
 }
+
+// PostAttention delegates to the inner client's AttentionPoster
+// surface (production *Client implements both interfaces). Without
+// this, the type assertion `cfg.Client.(AttentionPoster)` at
+// launch_m2.go:405 silently fails whenever the agentPoster is wrapped
+// in a tap (which it always is when A2AAddr is set — the production
+// default), and the codex AppServerDriver runs with Attention=nil.
+// Every server-initiated approval / MCP-tool-call elicitation then
+// auto-declines, surfacing on the codex side as "user rejected MCP
+// tool call" — even though the principal never saw a gate. This is
+// the v1.0.711 fix for that smoke regression.
+//
+// Inner-doesn't-implement is treated as a programming error
+// (host-runner main has wired this for years); we surface it as a
+// non-fatal error rather than panicking so the driver's
+// `appserver_attention_post_failed` audit path still records the
+// miss and codex still gets a clean decline rather than a stalled
+// JSON-RPC request.
+func (p *a2aPosterTap) PostAttention(ctx context.Context, in AttentionIn) (AttentionOut, error) {
+	ap, ok := p.inner.(AttentionPoster)
+	if !ok {
+		return AttentionOut{}, fmt.Errorf(
+			"a2aPosterTap: inner %T does not implement AttentionPoster", p.inner,
+		)
+	}
+	return ap.PostAttention(ctx, in)
+}

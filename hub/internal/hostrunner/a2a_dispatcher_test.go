@@ -279,3 +279,76 @@ func (f *a2aTapInnerPoster) PostAgentEvent(_ context.Context, agentID, kind, pro
 	}{agentID, kind, producer, payload})
 	return nil
 }
+
+// a2aTapInnerWithAttention extends the minimal inner poster with an
+// AttentionPoster implementation so we can exercise the delegate path
+// added in v1.0.711. The plain a2aTapInnerPoster is left
+// intentionally narrow so the
+// "inner-doesn't-implement-AttentionPoster" failure path still has
+// fixture coverage.
+type a2aTapInnerWithAttention struct {
+	a2aTapInnerPoster
+	attCalls []AttentionIn
+	out      AttentionOut
+}
+
+func (f *a2aTapInnerWithAttention) PostAttention(_ context.Context, in AttentionIn) (AttentionOut, error) {
+	f.attCalls = append(f.attCalls, in)
+	return f.out, nil
+}
+
+// Regression cover for the v1.0.710-smoke bug: a2aPosterTap masked the
+// AttentionPoster surface of its inner *Client, so the codex
+// AppServerDriver launch path
+// (`cfg.Client.(AttentionPoster)` at launch_m2.go:405) silently failed
+// the cast whenever A2A was enabled. Every codex MCP-tool-call
+// approval auto-declined as a result, surfacing on the codex side as
+// "user rejected MCP tool call" even though the principal never saw a
+// gate. Locking the cast + delegate here so a future refactor can't
+// re-mask the surface.
+func TestA2APosterTap_ImplementsAttentionPoster(t *testing.T) {
+	inner := &a2aTapInnerWithAttention{
+		out: AttentionOut{ID: "att-1"},
+	}
+	tap := newA2APosterTap(inner, nil)
+
+	// The static cast — the exact shape launch_m2.go relies on.
+	var ap AttentionPoster = tap
+	out, err := ap.PostAttention(context.Background(), AttentionIn{
+		ScopeKind: "team",
+		Kind:      "permission_prompt",
+		Summary:   "approve projects.list",
+	})
+	if err != nil {
+		t.Fatalf("PostAttention: %v", err)
+	}
+	if out.ID != "att-1" {
+		t.Errorf("PostAttention returned %+v; want delegate-pass-through to inner.out", out)
+	}
+	if len(inner.attCalls) != 1 {
+		t.Fatalf("inner.PostAttention got %d calls; want 1", len(inner.attCalls))
+	}
+	if inner.attCalls[0].Kind != "permission_prompt" {
+		t.Errorf("inner.PostAttention kind = %q; want permission_prompt",
+			inner.attCalls[0].Kind)
+	}
+}
+
+// When the inner poster doesn't implement AttentionPoster (legacy
+// fakes, test stubs, future poster types), the tap returns a clean
+// error rather than panicking. The driver's existing
+// `appserver_attention_post_failed` audit path consumes this and
+// auto-declines with the right per-method shape, which is strictly
+// better than silently leaving Attention=nil and bypassing the
+// bridge entirely.
+func TestA2APosterTap_PostAttention_InnerWithoutAttentionPoster(t *testing.T) {
+	inner := &a2aTapInnerPoster{} // no PostAttention method
+	tap := newA2APosterTap(inner, nil)
+
+	_, err := tap.PostAttention(context.Background(), AttentionIn{
+		ScopeKind: "team", Kind: "permission_prompt", Summary: "x",
+	})
+	if err == nil {
+		t.Fatal("want error when inner does not implement AttentionPoster; got nil")
+	}
+}

@@ -44,6 +44,18 @@ type sessionOut struct {
 	ClosedAt       *string `json:"closed_at,omitempty"`
 	WorktreePath   string  `json:"worktree_path,omitempty"`
 	SpawnSpecYAML  string  `json:"spawn_spec_yaml,omitempty"`
+	// SessionNameHint is the latest non-empty `session_name` value
+	// claude-code's statusLine has emitted for this session (ADR-036
+	// v1.0.705 polish). Persisted on every status_line event ingest
+	// via captureSessionNameHint. Mobile renders it as the second
+	// fallback in the session-row title precedence —
+	// user title > session_name_hint > "(untitled session)". Stays
+	// empty for sessions on engines that don't surface a session_name
+	// (codex/gemini/kimi today) and for sessions whose first
+	// status_line frame hasn't fired yet; mobile's empty-string check
+	// handles both. NOT a substitute for user-set titles — those are
+	// load-bearing across surfaces (search index, audit log, voice).
+	SessionNameHint string `json:"session_name_hint,omitempty"`
 	// SessionCostUSDImputed is the derived hub-side total cost in USD
 	// across the session's usage events, applied against the active
 	// pricing table (ADR-036 D8 chip 2). Populated only on single-
@@ -141,7 +153,8 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		SELECT id, team_id, COALESCE(title, ''), COALESCE(scope_kind, ''),
 		       COALESCE(scope_id, ''), COALESCE(current_agent_id, ''),
 		       status, opened_at, last_active_at, closed_at,
-		       COALESCE(worktree_path, ''), COALESCE(spawn_spec_yaml, '')
+		       COALESCE(worktree_path, ''), COALESCE(spawn_spec_yaml, ''),
+		       COALESCE(session_name_hint, '')
 		FROM sessions
 		WHERE team_id = ?`
 	args := []any{team}
@@ -169,7 +182,8 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&ses.ID, &ses.TeamID, &ses.Title,
 			&ses.ScopeKind, &ses.ScopeID, &ses.CurrentAgentID,
 			&ses.Status, &ses.OpenedAt, &ses.LastActiveAt, &closedAt,
-			&ses.WorktreePath, &ses.SpawnSpecYAML); err != nil {
+			&ses.WorktreePath, &ses.SpawnSpecYAML,
+			&ses.SessionNameHint); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -192,13 +206,15 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		SELECT id, team_id, COALESCE(title, ''), COALESCE(scope_kind, ''),
 		       COALESCE(scope_id, ''), COALESCE(current_agent_id, ''),
 		       status, opened_at, last_active_at, closed_at,
-		       COALESCE(worktree_path, ''), COALESCE(spawn_spec_yaml, '')
+		       COALESCE(worktree_path, ''), COALESCE(spawn_spec_yaml, ''),
+		       COALESCE(session_name_hint, '')
 		FROM sessions
 		WHERE team_id = ? AND id = ?`, team, id).Scan(
 		&ses.ID, &ses.TeamID, &ses.Title,
 		&ses.ScopeKind, &ses.ScopeID, &ses.CurrentAgentID,
 		&ses.Status, &ses.OpenedAt, &ses.LastActiveAt, &closedAt,
 		&ses.WorktreePath, &ses.SpawnSpecYAML,
+		&ses.SessionNameHint,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "session not found")
@@ -750,6 +766,53 @@ func (s *Server) captureEngineSessionID(ctx context.Context, sessionID, kind, pr
 	_, _ = s.db.ExecContext(ctx,
 		`UPDATE sessions SET engine_session_id = ? WHERE id = ?`,
 		p.SessionID, sessionID)
+}
+
+// captureSessionNameHint lifts the auto-derived display label out of
+// claude-code's statusLine `session_name` field and stores it on the
+// session row so the session list page can show it as a fallback when
+// no user-set title exists. v1.0.705 polish on top of ADR-036 W6.
+//
+// Mirrors captureEngineSessionID's shape: same call site, same
+// kind+producer gate (status_line / agent), same best-effort silent
+// failure mode. The store-update is fire-and-forget — losing one
+// status_line frame's worth of name is harmless (the next ~10s frame
+// will re-stamp it, claude refreshes the name continuously).
+//
+// Stickiness: only writes when the latest payload carries a NON-EMPTY
+// session_name. Empty / missing values are a no-op (so a `/clear` that
+// rotates the engine_session_id before claude has auto-named the
+// fresh conversation keeps the prior visible name for ~10s rather
+// than blinking through "(untitled session)"). This matches the
+// reducer semantics on the mobile side — sessionNameFromEvents walks
+// backwards for the latest non-empty name.
+//
+// Reset on rotation: not done here. The hub already knows when an
+// engine_session_id rotation happens (status_line W3); a future
+// version could clear session_name_hint on rotation, but the current
+// "next frame overwrites" semantics are close enough that the
+// rotation handler isn't load-bearing for this column.
+func (s *Server) captureSessionNameHint(ctx context.Context, sessionID, kind, producer, payloadJSON string) {
+	if s.db == nil || sessionID == "" {
+		return
+	}
+	if kind != "status_line" || producer != "agent" {
+		return
+	}
+	var p struct {
+		SessionName string `json:"session_name"`
+	}
+	if err := json.Unmarshal([]byte(payloadJSON), &p); err != nil {
+		return
+	}
+	if p.SessionName == "" {
+		return
+	}
+	_, _ = s.db.ExecContext(ctx,
+		`UPDATE sessions SET session_name_hint = ?
+		  WHERE id = ?
+		    AND COALESCE(session_name_hint, '') != ?`,
+		p.SessionName, sessionID, p.SessionName)
 }
 
 // carryModeModelStateAcrossResume copies the prior agent's most recent

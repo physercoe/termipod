@@ -172,7 +172,16 @@ class _ResultTile extends ConsumerWidget {
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final sessionId = (row['session_id'] ?? '').toString();
-    final title = (row['session_title'] ?? '').toString();
+    final title = (row['session_title'] ?? '').toString().trim();
+    // v1.0.705 polish — same three-tier title precedence as the
+    // sessions list + me-page row. The search row uses different
+    // keys than `sessions` JSON maps (`session_title`/
+    // `session_name_hint`), so we apply the precedence inline rather
+    // than re-shape into a map for sessionDisplayTitle.
+    final hint = (row['session_name_hint'] ?? '').toString().trim();
+    final displayTitle = title.isNotEmpty
+        ? title
+        : (hint.isNotEmpty ? hint : '(untitled session)');
     final scopeKind = (row['scope_kind'] ?? '').toString();
     final scopeID = (row['scope_id'] ?? '').toString();
     final snippet = (row['snippet'] ?? '').toString();
@@ -182,7 +191,7 @@ class _ResultTile extends ConsumerWidget {
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       title: Text(
-        title.isEmpty ? '(untitled session)' : title,
+        displayTitle,
         style: GoogleFonts.spaceGrotesk(
           fontWeight: FontWeight.w600,
           fontSize: 14,

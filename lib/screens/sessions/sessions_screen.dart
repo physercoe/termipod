@@ -6,6 +6,7 @@ import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/host_label.dart';
+import '../../services/hub/session_display.dart';
 import '../../services/id_format.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
@@ -1898,13 +1899,18 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
           await ref.read(sessionsProvider.notifier).resume(id);
       if (!mounted) return;
       if (newAgentId != null && newAgentId.isNotEmpty) {
-        final title = (session['title'] ?? '').toString();
+        // v1.0.705 polish — use the shared session-title precedence
+        // (user title > session_name_hint > placeholder) so a resume
+        // into a never-renamed session lands on claude's auto-derived
+        // label instead of the literal "(untitled session)" string.
+        // The AppBar's _effectiveTitle() will continue updating from
+        // live status_line frames as the topic evolves.
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => SessionChatScreen(
               sessionId: id,
               agentId: newAgentId,
-              title: title.isEmpty ? '(untitled session)' : title,
+              title: sessionDisplayTitle(session),
             ),
           ),
         );
@@ -1944,7 +1950,13 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
       _ => muted,
     };
 
-    final displayTitle = title.isEmpty ? '(untitled session)' : title;
+    // v1.0.705 polish — three-tier title precedence shared with the
+    // me-page row, search results, and the AppBar fallback. Surfaces
+    // claude-code's auto-derived session_name when no user-set title
+    // exists; falls through to the literal placeholder when even the
+    // hint is empty (older claude versions or a never-fired
+    // status_line frame).
+    final displayTitle = sessionDisplayTitle(session);
 
     // Selecting? Render a Checkbox in the leading slot, hide the
     // per-row trailing actions (resume/menu) since they don't apply

@@ -253,6 +253,171 @@ func TestSessions_StampsAgentEvents(t *testing.T) {
 	}
 }
 
+// captureSessionNameHint sweeps payload.session_name out of every
+// status_line event a claude-code agent emits and writes it onto
+// sessions.session_name_hint. The mobile session list reads this
+// column as the second fallback when the user hasn't named the
+// session — without the column, the row stays "(untitled session)"
+// even though claude has a perfectly good auto-derived label.
+//
+// This covers v1.0.705 polish on top of ADR-036 W6.
+func TestSessions_CapturesSessionNameHint(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	// Open a session bound to the agent so the event-ingest path
+	// resolves sessionID via lookupSessionForAgent.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// 1. Non-status_line events MUST NOT touch the column. A `text`
+	// event with a `session_name` field would be a tagged-along
+	// surprise — the capture must gate on the (kind, producer) pair.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "text",
+			"producer": "agent",
+			"payload":  map[string]any{"session_name": "should not stick"},
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("post text event: status=%d body=%s", status, body)
+	}
+	if hint := readSessionNameHint(t, s, ses.ID); hint != "" {
+		t.Fatalf("text event leaked into session_name_hint: got %q", hint)
+	}
+
+	// 2. status_line with non-empty session_name writes the column.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "status_line",
+			"producer": "agent",
+			"payload":  map[string]any{"session_name": "List directory files"},
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("post status_line event: status=%d body=%s", status, body)
+	}
+	if hint := readSessionNameHint(t, s, ses.ID); hint != "List directory files" {
+		t.Fatalf("first hint = %q; want %q", hint, "List directory files")
+	}
+
+	// 3. A subsequent status_line with a DIFFERENT non-empty name
+	// overwrites — the column tracks the latest topic, not the first.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "status_line",
+			"producer": "agent",
+			"payload":  map[string]any{"session_name": "Refactor schema"},
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("post status_line refresh: status=%d body=%s", status, body)
+	}
+	if hint := readSessionNameHint(t, s, ses.ID); hint != "Refactor schema" {
+		t.Fatalf("refreshed hint = %q; want %q", hint, "Refactor schema")
+	}
+
+	// 4. status_line with empty session_name MUST NOT clobber. This
+	// preserves the visible name across the brief window after a
+	// `/clear` where claude has rotated engine_session_id but hasn't
+	// yet auto-named the fresh conversation. The mobile reducer has
+	// the same semantics — sessionNameFromEvents walks backwards for
+	// the latest non-empty value.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "status_line",
+			"producer": "agent",
+			"payload":  map[string]any{"session_name": ""},
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("post empty status_line: status=%d body=%s", status, body)
+	}
+	if hint := readSessionNameHint(t, s, ses.ID); hint != "Refactor schema" {
+		t.Fatalf("empty-name status_line clobbered hint: got %q want %q",
+			hint, "Refactor schema")
+	}
+
+	// 5. status_line missing the session_name key entirely is also
+	// a no-op (codex/gemini/kimi today; older claude versions).
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "status_line",
+			"producer": "agent",
+			"payload":  map[string]any{"model": "claude-opus-4-7"},
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("post bare status_line: status=%d body=%s", status, body)
+	}
+	if hint := readSessionNameHint(t, s, ses.ID); hint != "Refactor schema" {
+		t.Fatalf("session_name-absent status_line clobbered hint: got %q",
+			hint)
+	}
+
+	// 6. The hint surfaces on GET /sessions/{id} as
+	// `session_name_hint` so mobile can read it without a separate
+	// query.
+	status, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID, nil)
+	if status != http.StatusOK {
+		t.Fatalf("get session: status=%d body=%s", status, body)
+	}
+	var got sessionOut
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.SessionNameHint != "Refactor schema" {
+		t.Fatalf("GET session_name_hint = %q; want %q",
+			got.SessionNameHint, "Refactor schema")
+	}
+
+	// 7. The hint also surfaces on LIST /sessions so the session list
+	// page renders the fallback without N round-trips.
+	status, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/sessions", nil)
+	if status != http.StatusOK {
+		t.Fatalf("list: status=%d body=%s", status, body)
+	}
+	var list []sessionOut
+	if err := json.Unmarshal(body, &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	var found bool
+	for _, row := range list {
+		if row.ID == ses.ID {
+			if row.SessionNameHint != "Refactor schema" {
+				t.Fatalf("LIST session_name_hint = %q; want %q",
+					row.SessionNameHint, "Refactor schema")
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("session %s not in list output", ses.ID)
+	}
+}
+
+func readSessionNameHint(t *testing.T, s *Server, sessionID string) string {
+	t.Helper()
+	var hint string
+	if err := s.db.QueryRow(
+		`SELECT COALESCE(session_name_hint, '') FROM sessions WHERE id = ?`,
+		sessionID,
+	).Scan(&hint); err != nil {
+		t.Fatalf("read session_name_hint: %v", err)
+	}
+	return hint
+}
+
 // When an agent reaches a terminal status (crashed, failed, or
 // terminated), the active session pointing at it has no live process
 // to talk to and must auto-flip to 'paused'. ADR-009 D6 / the mobile

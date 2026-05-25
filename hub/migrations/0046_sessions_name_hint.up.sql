@@ -1,0 +1,17 @@
+-- Auto-derived display label for sessions whose `title` is empty
+-- (ADR-036 v1.0.705 polish). Populated from claude-code's
+-- statusLine `session_name` field — claude assigns a short
+-- conversational summary (e.g. "List directory files") to every
+-- live session and updates it as the topic evolves. Without this
+-- column, the session list page shows "(untitled session)" for
+-- every never-renamed row even when claude has a perfectly good
+-- name; the captureSessionNameHint event-ingest hook writes the
+-- latest non-empty value here, and mobile's session-row composer
+-- uses the column as the second-fallback in the
+-- `user-title > session_name_hint > "(untitled session)"` precedence.
+--
+-- Nullable: pre-W5 sessions, sessions on engines that don't surface
+-- a session_name (codex/gemini/kimi today), and freshly-rotated
+-- sessions whose first status_line hasn't fired yet all leave it
+-- empty. The mobile composer's null/empty branch handles all three.
+ALTER TABLE sessions ADD COLUMN session_name_hint TEXT;

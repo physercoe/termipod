@@ -12,6 +12,7 @@ import '../../providers/sessions_provider.dart';
 import '../../providers/urgent_tasks_provider.dart';
 import '../../services/host_label.dart';
 import '../../services/hub/open_steward_session.dart';
+import '../../services/hub/session_display.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
@@ -1015,9 +1016,9 @@ class _ActiveSessionsStrip extends StatelessWidget {
               final s = sessions[i];
               final id = (s['id'] ?? '').toString();
               final agentId = (s['current_agent_id'] ?? '').toString();
-              final rawTitle = (s['title'] ?? '').toString();
-              final title =
-                  rawTitle.isEmpty ? '(untitled session)' : rawTitle;
+              // v1.0.705 polish — shared three-tier title precedence
+              // (user title > session_name_hint > placeholder).
+              final title = sessionDisplayTitle(s);
               final scope = _scopeLabel(s);
               final steward = _stewardName(agentId);
               final engineHost = _engineHost(agentId);

@@ -51,6 +51,7 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 		    COALESCE(s.scope_kind, '')        AS scope_kind,
 		    COALESCE(s.scope_id, '')          AS scope_id,
 		    COALESCE(s.title, '')             AS session_title,
+		    COALESCE(s.session_name_hint, '') AS session_name_hint,
 		    ae.seq,
 		    ae.ts,
 		    ae.kind,
@@ -72,26 +73,27 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var (
-			eventID, sessionID, scopeKind, scopeID, title, ts, kind, snip string
-			seq                                                            int64
+			eventID, sessionID, scopeKind, scopeID, title, hint, ts, kind, snip string
+			seq                                                                  int64
 		)
 		if err := rows.Scan(
-			&eventID, &sessionID, &scopeKind, &scopeID, &title,
+			&eventID, &sessionID, &scopeKind, &scopeID, &title, &hint,
 			&seq, &ts, &kind, &snip,
 		); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		out = append(out, map[string]any{
-			"event_id":      eventID,
-			"session_id":    sessionID,
-			"scope_kind":    scopeKind,
-			"scope_id":      scopeID,
-			"session_title": title,
-			"seq":           seq,
-			"ts":            ts,
-			"kind":          kind,
-			"snippet":       snip,
+			"event_id":          eventID,
+			"session_id":        sessionID,
+			"scope_kind":        scopeKind,
+			"scope_id":          scopeID,
+			"session_title":     title,
+			"session_name_hint": hint,
+			"seq":               seq,
+			"ts":                ts,
+			"kind":              kind,
+			"snippet":           snip,
 		})
 	}
 	if err := rows.Err(); err != nil && err != sql.ErrNoRows {

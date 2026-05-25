@@ -3,7 +3,7 @@
 > **Type:** plan
 > **Status:** **COMPLETE** (2026-05-25). Phase A v1.0.696-698 (W1+W2+W3); Phase A.5 v1.0.699 (W3.5); Phase B v1.0.700-703 (W4-b + W4-a + W4-c + W5 + W6); on-device polish v1.0.704 (compact rate-limit subline) + v1.0.705 (session_name_hint persisted, surfaces on session list).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.704 (hub + mobile) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.705 (hub + mobile) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -289,19 +289,39 @@ W3's /clear fix on its own merit.
     relative-time rendering.
 
 - **W6 — `exceeds_200k_tokens` alarm + `session_name` fallback.** ✓
-  Shipped v1.0.703-alpha. Reducer `exceeds200kFromEvents` (latest-
-  wins, bool?, defensive against non-bool wire values) drives a red
-  leading tile in `_TelemetryStrip` (`200K cap · consider /clear`).
-  Reducer `sessionNameFromEvents` (latest-wins, String?, empty
-  normalized to null) sources the SessionChatScreen title fallback
-  via new `onSessionNameHint` callback + `_effectiveTitle()` getter
-  (user → hint → '(untitled session)' precedence). NEVER persisted
-  — fresh from status_line every render so `/clear`'s new session
-  shows its own label without state leaking. Tile rendered amber-
+  Shipped v1.0.703-alpha; session-name persistence added v1.0.705-
+  alpha. Reducer `exceeds200kFromEvents` (latest-wins, bool?,
+  defensive against non-bool wire values) drives a red leading tile
+  in `_TelemetryStrip` (`200K cap · consider /clear`). Reducer
+  `sessionNameFromEvents` (latest-wins, String?, empty normalized to
+  null) sources the SessionChatScreen title fallback via new
+  `onSessionNameHint` callback + `_effectiveTitle()` getter (user
+  → hint → '(untitled session)' precedence). Tile rendered amber-
   not-red was the literal plan spec; shipped red because the
   warning needs first-scan attention (left-most + red is the
   "must-act" tier; amber would conflate with rate-limits 80%).
   15 widget tests across 2 reducer groups.
+
+  **v1.0.705 reinterpretation: NEVER persisted → DOES persist as
+  `sessions.session_name_hint`.** The v1.0.703 plan said the
+  AppBar's session_name fallback must not write to the hub — fresh
+  from status_line every render so `/clear`'s new session shows its
+  own label without state leaking. On-device smoke surfaced the
+  real cost of that design: the session LIST page has no
+  agent-events context to walk, so every never-renamed session row
+  stayed `(untitled session)` even though claude had a perfectly
+  good name. The fix wires a hub-side `sessions.session_name_hint`
+  column populated on every status_line ingest (migration 0046 +
+  captureSessionNameHint mirror of captureEngineSessionID) and a
+  shared mobile helper `sessionDisplayTitle(Map)` that applies the
+  same `user title > session_name_hint > '(untitled session)'`
+  ladder at the session list row, me-page recent card, resume-into-
+  chat title, and search results. The `/clear`-leak concern from
+  the original spec is addressed by the column's semantics: empty/
+  missing `session_name` is a no-op (preserves prior visible name
+  for ~10s while claude auto-names the fresh conversation; matches
+  the mobile reducer's "walk backwards for latest non-empty"
+  contract). Added 7 hub-side tests + 6 mobile-side tests.
   - Original spec preserved as design intent:
     When `exceeds_200k_tokens = true`, surface an amber pill on
     the agent feed AppBar: "200K cap exceeded — consider /clear".

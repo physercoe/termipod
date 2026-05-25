@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.704
+> **Last verified vs code:** v1.0.705
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,76 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.705-alpha — 2026-05-25
+
+**ADR-036 Phase B polish — `session_name_hint` persisted + surfaces
+on the session list.** Second of two v1.0.703 on-device-smoke fixes.
+The session list page no longer renders `(untitled session)` for
+rows the user hasn't renamed — claude-code's auto-derived
+`session_name` now persists across the hub→mobile boundary and
+slots into a three-tier precedence ladder shared by every
+session-title surface.
+
+### Added
+
+- **Hub: `sessions.session_name_hint` column.** Migration `0046`
+  adds a nullable TEXT column to the sessions table. Populated by a
+  new `captureSessionNameHint` hook fired on every `agent_events`
+  insert — mirrors `captureEngineSessionID`'s gate
+  (kind=`status_line`, producer=`agent`) and writes the latest
+  non-empty `payload.session_name`. Empty / missing values are a
+  no-op so the column survives the `/clear`-then-fresh-conversation
+  window without blinking through `(untitled session)` on the list.
+- **Hub: `session_name_hint` field on `sessionOut`.** Included in
+  both LIST and GET responses so mobile can render the fallback
+  without an extra round-trip. Search results extended to also
+  carry the field alongside `session_title`.
+- **Mobile: `sessionDisplayTitle(Map)` shared helper.** New file
+  `lib/services/hub/session_display.dart` formalises the precedence
+  `user title > session_name_hint > '(untitled session)'`. Trims
+  defensively + tolerates missing keys (forward-roll safe for older
+  hub payloads). Used by sessions list row, me-page recent card,
+  and resume-into-chat title pass.
+
+### Changed
+
+- **Session list / me-page recent / search results all use the new
+  precedence.** Old call sites in
+  `lib/screens/sessions/sessions_screen.dart` (2 sites),
+  `lib/screens/me/me_screen.dart`, and
+  `lib/screens/sessions/search_screen.dart` rewritten to call the
+  shared helper (search inlines because its row uses
+  `session_title` keys instead of `title`).
+
+### Tests
+
+- `hub/internal/server/handlers_sessions_test.go` —
+  `TestSessions_CapturesSessionNameHint` covers 7 cases:
+  non-status_line event doesn't touch the column, first non-empty
+  status_line writes, second-non-empty overwrites (latest-wins),
+  empty `session_name` is a no-op (preserves prior value across
+  `/clear`), missing key entirely is a no-op (codex/gemini), GET
+  /sessions surfaces the column, LIST /sessions surfaces the column.
+- `test/services/hub/session_display_test.dart` — 6 cases on the
+  shared mobile helper: user title wins, hint fallback, placeholder
+  fallback, missing-key tolerance, whitespace-trim, null coercion.
+
+### Source
+
+- `hub/migrations/0046_sessions_name_hint.up.sql` + `.down.sql`
+- `hub/internal/server/handlers_sessions.go` — `captureSessionNameHint`,
+  `sessionOut.SessionNameHint`, list+get SELECT extensions.
+- `hub/internal/server/handlers_agent_events.go` — call into
+  `captureSessionNameHint` from `handlePostAgentEvent`.
+- `hub/internal/server/handlers_search_sessions.go` — search SELECT
+  + output map extended with `session_name_hint`.
+- `lib/services/hub/session_display.dart` (new)
+- `lib/screens/sessions/sessions_screen.dart`,
+  `lib/screens/me/me_screen.dart`,
+  `lib/screens/sessions/search_screen.dart` — call sites.
 
 ---
 

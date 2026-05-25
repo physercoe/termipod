@@ -2222,6 +2222,14 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   // state leaking from the prior conversation. Null = no name
   // surfaced yet (cold open) or claude cleared it.
   String? _sessionNameHint;
+  // v1.0.706 polish — latest status_line payload, forwarded up by
+  // AgentFeed. The session-details sheet reads `effort.level`,
+  // `output_style.name`, `thinking.enabled`, and `fast_mode` from
+  // here so live mid-session toggles (`/style`, `/thinking`)
+  // surface in the sheet even though session.init only carries the
+  // spawn-time values. Null = no status_line frame yet (cold open
+  // / older claude / non-claude engine).
+  Map<String, dynamic>? _latestStatusLine;
 
   // Effective AppBar title: user-set title wins; otherwise claude's
   // auto-derived hint; otherwise the (untitled session) placeholder
@@ -2607,6 +2615,11 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
               // icon below when there's no session.init payload yet.
               modeModel:
                   (_modeModel != null && _modeModel!.hasAny) ? _modeModel : null,
+              // v1.0.706 polish — pass the latest status_line payload
+              // through so the sheet can surface live mutable state
+              // (effort / output_style / thinking / fast_mode) that
+              // session.init only captures at spawn time.
+              statusLine: _latestStatusLine,
             ),
           if (_sessionInit == null && _modeModel != null && _modeModel!.hasAny)
             IconButton(
@@ -2711,6 +2724,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
         onSessionInit: (p) => setState(() => _sessionInit = p),
         onModeModelChanged: (d) => setState(() => _modeModel = d),
         onSessionNameHint: (n) => setState(() => _sessionNameHint = n),
+        onStatusLineChanged: (p) => setState(() => _latestStatusLine = p),
       ),
     );
   }

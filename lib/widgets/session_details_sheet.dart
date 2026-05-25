@@ -14,20 +14,91 @@
 //                                  still advertised
 //
 // All other widgets / helpers are file-private.
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
 
+// ---------------------------------------------------------------------------
+// v1.0.706 polish — top-level statusLine accessors for the SESSION STATE
+// section of showSessionDetailsSheet. Mirrors the agent_feed.dart pattern of
+// @visibleForTesting reducers — keeps the sheet's branch coverage pinable
+// without spinning the full widget tree.
+//
+// Each helper is defensive: claude's statusLine ships these as nested maps
+// or bare scalars depending on the field, and older binary versions omit
+// them. Empty string / null sentinel collapses the row at the caller cleanly.
+// ---------------------------------------------------------------------------
+
+@visibleForTesting
+String statusLineEffortLevel(Map<String, dynamic>? statusLine) {
+  if (statusLine == null) return '';
+  final e = statusLine['effort'];
+  if (e is Map) {
+    final lvl = e['level'];
+    if (lvl is String) return lvl;
+  }
+  // Older versions emit a bare string `effort: "xhigh"` rather than
+  // `{level: "xhigh"}`; accept both shapes.
+  if (e is String) return e;
+  return '';
+}
+
+@visibleForTesting
+String statusLineOutputStyleName(Map<String, dynamic>? statusLine) {
+  if (statusLine == null) return '';
+  final v = statusLine['output_style'];
+  if (v is Map) {
+    final name = v['name'];
+    if (name is String) return name;
+  }
+  if (v is String) return v;
+  return '';
+}
+
+/// Returns null when the field is absent (so the row hides); true / false
+/// when the wire frame is explicit. The "absent vs explicit false" distinction
+/// matters for the "thinking" row — older versions don't ship the field at
+/// all, and rendering "thinking: off" on those would be a guess.
+@visibleForTesting
+bool? statusLineThinkingEnabled(Map<String, dynamic>? statusLine) {
+  if (statusLine == null) return null;
+  final t = statusLine['thinking'];
+  if (t is Map) {
+    final en = t['enabled'];
+    if (en is bool) return en;
+  }
+  if (t is bool) return t;
+  return null;
+}
+
+@visibleForTesting
+bool? statusLineFastMode(Map<String, dynamic>? statusLine) {
+  if (statusLine == null) return null;
+  final v = statusLine['fast_mode'];
+  if (v is bool) return v;
+  return null;
+}
+
 /// Open the session.init details bottom sheet for [payload]. Public so
 /// SessionChatScreen can wire its AppBar chip to the same drawer the
 /// inline header used to use. [agentKind] surfaces the engine
 /// (claude-code, codex, ...) which session.init doesn't carry.
+///
+/// [statusLine] is the latest status_line frame's payload (v1.0.706
+/// polish). The sheet uses it to surface fields that are
+/// mutable mid-session and therefore NOT captured by session.init
+/// alone: `effort.level`, `output_style.name` (newer than
+/// session.init when the user has run `/style`), `thinking.enabled`,
+/// `fast_mode`. Nullable for cold-open and engines without
+/// statusLine.
 void showSessionDetailsSheet(
   BuildContext context,
   Map<String, dynamic> payload, {
   String? agentKind,
   ModeModelPickerData? modeModel,
+  Map<String, dynamic>? statusLine,
 }) {
   showModalBottomSheet<void>(
     context: context,
@@ -37,6 +108,7 @@ void showSessionDetailsSheet(
       payload: payload,
       agentKind: agentKind,
       modeModel: modeModel,
+      statusLine: statusLine,
     ),
   );
 }
@@ -59,11 +131,19 @@ class SessionInitChip extends StatelessWidget {
   // configured." Pass null when the engine doesn't advertise modes
   // or models and the chip should stay read-only.
   final ModeModelPickerData? modeModel;
+  // v1.0.706 polish — latest status_line frame payload. The chip
+  // itself doesn't render any status_line fields (the AppBar real
+  // estate is precious; the dynamic chips live in the telemetry
+  // strip below). It's passed through to the sheet on tap so the
+  // SESSION STATE section can show live effort / output_style /
+  // thinking / fast_mode.
+  final Map<String, dynamic>? statusLine;
   const SessionInitChip({
     super.key,
     required this.payload,
     this.agentKind,
     this.modeModel,
+    this.statusLine,
   });
 
   @override
@@ -78,7 +158,8 @@ class SessionInitChip extends StatelessWidget {
     final mcpServers = _payloadToMapList(payload['mcp_servers']);
     return InkWell(
       onTap: () => showSessionDetailsSheet(context, payload,
-          agentKind: agentKind, modeModel: modeModel),
+          agentKind: agentKind, modeModel: modeModel,
+          statusLine: statusLine),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -153,10 +234,12 @@ class _SessionDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> payload;
   final String? agentKind;
   final ModeModelPickerData? modeModel;
+  final Map<String, dynamic>? statusLine;
   const _SessionDetailsSheet({
     required this.payload,
     this.agentKind,
     this.modeModel,
+    this.statusLine,
   });
 
   @override
@@ -222,7 +305,16 @@ class _SessionDetailsSheet extends StatelessWidget {
     final model = payload['model']?.toString() ?? '';
     final version = payload['version']?.toString() ?? '';
     final permMode = payload['permission_mode']?.toString() ?? '';
-    final outputStyle = payload['output_style']?.toString() ?? '';
+    // session.init carries `output_style` as a flat string (the
+    // hostrunner stdio driver pulls `frame["output_style"]` → typed
+    // event payload). statusLine ships it as a {name: "default"} map
+    // and is mid-session-mutable; use statusLine when available so
+    // a `/style` toggle surfaces in the sheet.
+    final outputStyleFromInit = payload['output_style']?.toString() ?? '';
+    final outputStyleFromStatus = _statusLineOutputStyle();
+    final outputStyle = outputStyleFromStatus.isNotEmpty
+        ? outputStyleFromStatus
+        : outputStyleFromInit;
     final cwd = payload['cwd']?.toString() ?? '';
     final sessionId = payload['session_id']?.toString() ?? '';
 
@@ -248,6 +340,41 @@ class _SessionDetailsSheet extends StatelessWidget {
                   valueColor: _permModeColor(permMode)),
             if (outputStyle.isNotEmpty) _kvLine(context, 'style', outputStyle),
             if (sessionId.isNotEmpty) _kvLine(context, 'session', sessionId),
+          ],
+        ),
+      );
+    }
+
+    // v1.0.706 polish — live mutable state from claude's statusLine.
+    // Section gates on at least one extracted value (a non-claude
+    // engine or a cold-open session keeps it hidden). Each row
+    // gates independently — claude versions that drop a field still
+    // surface the others.
+    final effort = _statusLineEffort();
+    final thinking = _statusLineThinking();
+    final fastMode = _statusLineFastMode();
+    final hasStateSection = effort.isNotEmpty ||
+        thinking != null ||
+        fastMode != null;
+    if (hasStateSection) {
+      section(
+        'SESSION STATE',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (effort.isNotEmpty)
+              _kvLine(context, 'effort', effort,
+                  valueColor: _effortColor(effort)),
+            if (thinking != null)
+              _kvLine(context, 'thinking', thinking ? 'on' : 'off',
+                  valueColor: thinking
+                      ? DesignColors.success
+                      : mutedColor),
+            if (fastMode != null)
+              _kvLine(context, 'fast mode', fastMode ? 'on' : 'off',
+                  valueColor: fastMode
+                      ? DesignColors.warning
+                      : mutedColor),
           ],
         ),
       );
@@ -336,6 +463,34 @@ class _SessionDetailsSheet extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  // v1.0.706 polish — accessor wrappers delegate to top-level
+  // @visibleForTesting helpers (statusLineEffortLevel etc.) so the
+  // reducer branch-coverage can be pinned without spinning the full
+  // sheet widget tree.
+  String _statusLineEffort() => statusLineEffortLevel(statusLine);
+  String _statusLineOutputStyle() => statusLineOutputStyleName(statusLine);
+  bool? _statusLineThinking() => statusLineThinkingEnabled(statusLine);
+  bool? _statusLineFastMode() => statusLineFastMode(statusLine);
+
+  // Effort levels are a small enum claude uses to advertise the
+  // depth-of-thought knob: "low" / "medium" / "high" / "xhigh". Tint
+  // higher values warmer so the operator can spot an unusually
+  // expensive run at a glance without reading the label.
+  Color _effortColor(String level) {
+    switch (level.toLowerCase()) {
+      case 'low':
+        return DesignColors.textMuted;
+      case 'medium':
+        return DesignColors.success;
+      case 'high':
+        return DesignColors.warning;
+      case 'xhigh':
+        return DesignColors.error;
+      default:
+        return DesignColors.textMuted;
+    }
   }
 }
 

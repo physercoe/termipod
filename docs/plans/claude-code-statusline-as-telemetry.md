@@ -1,9 +1,9 @@
 # claude-code statusLine as telemetry
 
 > **Type:** plan
-> **Status:** **COMPLETE** (2026-05-25). Phase A v1.0.696-698 (W1+W2+W3); Phase A.5 v1.0.699 (W3.5); Phase B v1.0.700-703 (W4-b + W4-a + W4-c + W5 + W6); on-device polish v1.0.704 (compact rate-limit subline) + v1.0.705 (session_name_hint persisted, surfaces on session list).
+> **Status:** **COMPLETE** (2026-05-25). Phase A v1.0.696-698 (W1+W2+W3); Phase A.5 v1.0.699 (W3.5); Phase B v1.0.700-703 (W4-b + W4-a + W4-c + W5 + W6); on-device polish v1.0.704 (compact rate-limit subline) + v1.0.705 (session_name_hint persisted, surfaces on session list) + v1.0.706 (combined cost chip + SESSION STATE sheet section + tool_result default-folded).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.705 (hub + mobile) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.706 (hub + mobile) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -217,11 +217,11 @@ W3's /clear fix on its own merit.
     pricing package import-clean for future engines).
 
   - **W4-c — Session cost chip (mobile).** ✓ Shipped v1.0.701-alpha
-    (commit pending push). Polls `GET /sessions/{id}/cost` on a
-    15s timer in `_AgentFeedState`; cached response drives the
-    chip (rendered cyan to distinguish from process tile) AND its
-    tooltip. `buildSessionCostTooltipFromDetail` composes the
-    multi-line tooltip: disclaimer line + per-model breakdown
+    (commit pending push); merged into W4-a's tile v1.0.706-alpha
+    (see reinterpretation below). Polls `GET /sessions/{id}/cost`
+    on a 15s timer in `_AgentFeedState`; cached response drives the
+    tooltip composer. `buildSessionCostTooltipFromDetail` composes
+    the multi-line tooltip: disclaimer line + per-model breakdown
     (sorted, with token annotations + cache-zero suppression) +
     `snapshot_date (origin tier)` line + missing-models list +
     pair-context cross-reference. `hubClient.getSessionCost`
@@ -233,12 +233,35 @@ W3's /clear fix on its own merit.
     estimated — overshoot on tests because the tooltip composer
     earned its weight in pinning each rendering branch).
 
+  **v1.0.706 reinterpretation: chip PAIR → one combined chip.** The
+  D8 spec said "render BOTH chips side-by-side so the director can
+  cross-check (process resets on respawn, session preserves across
+  resumes)". On-device smoke showed the two numbers diverge 10-30%
+  WITHIN a single turn (legitimate — different measurement scopes;
+  statusLine is per-process live and /cost is hub-imputed pricing
+  × usage rolled up), and the divergence read as a bug to the
+  director rather than as a feature. The v1.0.706 fix collapses
+  them into ONE tile: headline = process (most-live), sub-line = N
+  turns, long-press tooltip surfaces session-imputed + the
+  per-model breakdown as cross-check. Glance budget stays focused
+  on one number; the dual-scope intent moves to the tooltip where
+  the explanation can pay for the cost. Same data, narrower
+  surface. W4-a's reducer + tile and W4-c's poll loop + tooltip
+  composer all preserved; only the OUTER tile-builder collapsed.
+
   - **Effort chip**: small badge ("xhigh", "high", "low"). Renders
-    only when present.
+    only when present. ✓ Shipped v1.0.706-alpha as a SESSION STATE
+    row in the session-details sheet rather than a top-strip badge
+    (the strip is already dense after W4/W5/W6; a row in the sheet
+    delivers the same signal without competing for glance budget).
+    Tinted warmer with the level so an unusually expensive run is
+    visible at a glance.
   - **Thinking chip**: brain icon, present-only when
-    `thinking.enabled = true`. Subtle — many users will leave it on.
+    `thinking.enabled = true`. ✓ Shipped v1.0.706-alpha as a
+    SESSION STATE row (same reasoning).
   - **Fast-mode badge**: present-only when `fast_mode = true`.
-    "FAST" badge in opus-orange (Opus Fast indicator).
+    ✓ Shipped v1.0.706-alpha as a SESSION STATE row (same
+    reasoning).
   - All non-cost chips self-gate per
     [[feedback_self_gating_widget_pattern]].
   - **Tests.** Per-sub-wedge as above; integration test in

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.705
+> **Last verified vs code:** v1.0.706
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,83 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.706-alpha — 2026-05-25
+
+**ADR-036 Phase B polish wave 2 — three on-device-smoke fixes.**
+
+### Changed
+
+- **One combined cost chip on the telemetry strip** (was three:
+  turn.result-summed, statusLine-live, hub-imputed). Headline shows
+  the most-live number available — process (statusLine cost) when
+  present, else turn-aggregated (turn.result). Sub-line carries
+  `N turn[s]` per the on-device ask. Long-press tooltip surfaces
+  whichever scopes ALSO have a value as cross-check lines, plus the
+  per-model breakdown when the hub-side detail loaded. The chips
+  used to diverge 10-30% within a single turn (different scopes,
+  legitimate but confusing); the tooltip explains the relationship
+  without eating glance budget. Engines that report no cost still
+  get the legacy "N turns" forward-progress tile.
+
+### Added
+
+- **SESSION STATE section on the session-details sheet** (opened by
+  tapping the AppBar engine chip). Four new live mutable fields
+  sourced from the latest status_line frame, each row self-gates on
+  presence:
+  - `effort` — claude's depth-of-thought knob (low / medium /
+    high / xhigh), tinted warmer as it climbs so an unusually
+    expensive run is visible at a glance.
+  - `thinking` — on/off (claude's thinking-mode toggle).
+  - `fast mode` — on/off.
+  - `style` (the existing AGENT row) now prefers status_line's
+    `output_style.name` over session.init's spawn-time capture
+    when both are present, so a mid-session `/style` toggle
+    actually surfaces.
+  Git branch deferred — claude's statusLine doesn't ship it; if the
+  user pushes for it, hub-side enrichment from `worktree_path` is
+  the natural next step (separate wedge).
+- **`onStatusLineChanged` callback on `AgentFeed`.** Mirrors the
+  existing `onSessionNameHint` shape (post-frame deferred fire,
+  identity-equality dedupe). SessionChatScreen tracks the latest
+  payload in `_latestStatusLine` and threads it through
+  `SessionInitChip` → `showSessionDetailsSheet`.
+- **New top-level reducer `latestStatusLinePayload(events)`** —
+  walks newest-last, returns the first `status_line` event's
+  payload as `Map<String, dynamic>?`. `@visibleForTesting` for
+  pinned-shape regression coverage.
+
+### Changed (continued)
+
+- **`tool_result` cards default-folded.** Two paths:
+  - **Orphan tool_result** (no matching parent tool_call in
+    scope — the parent fold contract doesn't apply). The
+    `_AgentEventCard` now defaults `_collapsed = true` for this
+    kind. Failed results (`payload.is_error == true`) auto-expand
+    so the diagnostic is visible without a tap.
+  - **`_ToolResultInline`** (rendered INSIDE a tool_call card when
+    that card is itself expanded). Converted from stateless to
+    stateful; the body hides behind a "result · N lines" header
+    that doubles as the tap target. Same auto-expand-on-error
+    contract.
+
+### Source
+
+- `lib/widgets/agent_feed.dart` — combined cost-tile builder
+  (~80 LOC), `latestStatusLinePayload` reducer (~20 LOC),
+  `_maybeFireStatusLineChanged` (~15 LOC), `onStatusLineChanged`
+  param, `_AgentEventCardState._defaultCollapsedForKind`,
+  `_ToolResultInline` → `_ToolResultInlineState` rewrite (~95 LOC).
+- `lib/widgets/session_details_sheet.dart` — `statusLine` param on
+  `showSessionDetailsSheet` + `SessionInitChip` + sheet; SESSION
+  STATE section + four `_statusLineXxx()` accessors +
+  `_effortColor` (~80 LOC).
+- `lib/screens/sessions/sessions_screen.dart` — `_latestStatusLine`
+  field, `onStatusLineChanged` callback wire, `statusLine` param
+  threaded into SessionInitChip.
 
 ---
 

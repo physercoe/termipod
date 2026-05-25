@@ -134,6 +134,29 @@ Map<String, dynamic>? rateLimitsFromEvents(List<Map<String, dynamic>> events) {
   return null;
 }
 
+/// Returns the verbatim latest `status_line` payload (or null if no
+/// such event has fired yet). v1.0.706 polish — the session-details
+/// sheet uses this to surface live mutable state (effort, thinking,
+/// fast_mode, output_style) that session.init carries only at spawn
+/// time and a /style or /thinking mid-session has since changed.
+///
+/// Walks newest-last and returns the FIRST status_line event's
+/// payload as a `Map<String, dynamic>` — claude resends the full
+/// snapshot every ~10s so the latest frame is always authoritative.
+/// Null = cold open, older claude versions without statusLine, or
+/// the operator removed the install.
+@visibleForTesting
+Map<String, dynamic>? latestStatusLinePayload(
+    List<Map<String, dynamic>> events) {
+  for (var i = events.length - 1; i >= 0; i--) {
+    final e = events[i];
+    if ((e['kind'] ?? '').toString() != 'status_line') continue;
+    final p = e['payload'];
+    if (p is Map) return p.cast<String, dynamic>();
+  }
+  return null;
+}
+
 /// Format a `resets_at` Unix-epoch-seconds value for the rate-limit
 /// chip's sub-line (ADR-036 W5 + v1.0.704 polish).
 ///
@@ -642,6 +665,16 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// (rotation across `/clear`). User-set titles always win at the
   /// parent — this callback only sources the candidate.
   final void Function(String? name)? onSessionNameHint;
+  /// v1.0.706 polish — fires whenever the latest status_line payload
+  /// changes (every new status_line event, ~10s claude cadence).
+  /// Used by SessionChatScreen to surface live mutable state
+  /// (effort.level, output_style.name, thinking.enabled, fast_mode)
+  /// in the session-details sheet — session.init only carries these
+  /// at spawn time, and a mid-session `/style` or `/thinking` toggle
+  /// has since changed them. The hub `agent_events.status_line`
+  /// table preserves the full series; this callback just forwards
+  /// the most recent snapshot. Null = no frame yet.
+  final void Function(Map<String, dynamic>? payload)? onStatusLineChanged;
   const AgentFeed({
     super.key,
     required this.agentId,
@@ -651,6 +684,7 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.onModeModelChanged,
     this.initialSeq,
     this.onSessionNameHint,
+    this.onStatusLineChanged,
   });
 
   @override
@@ -1761,6 +1795,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // label when the user hasn't set one. Reads the same events
     // already scanned for the chip pair; cheap incremental work.
     _maybeFireSessionNameHint(sessionNameFromEvents(_events));
+    // v1.0.706 — forward the latest status_line payload to the
+    // SessionChatScreen so the session-details sheet can show live
+    // mutable state (effort, thinking, fast_mode, output_style).
+    _maybeFireStatusLineChanged(latestStatusLinePayload(_events));
     return Column(
       children: [
         // session.init is rendered in the parent AppBar via the
@@ -2082,6 +2120,29 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       cb(hint);
+    });
+  }
+
+  // v1.0.706 — same deferred-post-frame pattern for status_line
+  // forwarding. We dedupe on identity of the payload reference (the
+  // reducer returns the SAME Map instance for the same latest event
+  // — when a new status_line lands, _events grows and a new payload
+  // reference replaces the cached one). Equality-on-content would
+  // be wrong here: a frame with identical content but a new event
+  // is still a refresh-tick the parent might want to know about (the
+  // sheet's "rates as of X seconds ago" annotation, future).
+  Map<String, dynamic>? _lastStatusLinePayload;
+  bool _lastStatusLinePayloadSet = false;
+  void _maybeFireStatusLineChanged(Map<String, dynamic>? payload) {
+    final cb = widget.onStatusLineChanged;
+    if (cb == null) return;
+    if (_lastStatusLinePayloadSet &&
+        identical(_lastStatusLinePayload, payload)) return;
+    _lastStatusLinePayload = payload;
+    _lastStatusLinePayloadSet = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      cb(payload);
     });
   }
 
@@ -4103,7 +4164,22 @@ class _AgentEventCardState extends State<AgentEventCard> {
   // chooses what to fold. Mounted state lives on the State, so the
   // sliver's keyed widgets keep collapsed rows collapsed across
   // scroll-and-back.
-  bool _collapsed = false;
+  //
+  // v1.0.706 polish — orphan tool_result cards (no matching parent
+  // tool_call in scope, so they aren't already folded INTO the
+  // parent card) default to collapsed. They're noisy by nature
+  // (long Bash output, file dumps) and the user is usually scanning
+  // for text turns. Failed results auto-expand so the error is
+  // visible without an extra tap.
+  late bool _collapsed = _defaultCollapsedForKind();
+
+  bool _defaultCollapsedForKind() {
+    final kind = (widget.event['kind'] ?? '').toString();
+    if (kind != 'tool_result') return false;
+    final p = widget.event['payload'];
+    if (p is Map && p['is_error'] == true) return false; // keep errors visible
+    return true;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5323,83 +5399,128 @@ class _TelemetryStrip extends StatelessWidget {
             'unblocking the next turn.',
       ));
     }
-    // Cost tile shape depends on whether the engine reports cost:
+    // ADR-036 v1.0.706 polish — ONE combined cost tile (was three:
+    // turn.result-sourced, statusLine-sourced, hub-imputed). The
+    // headline shows the most-live number available; the long-press
+    // tooltip carries the other two as cross-check references, plus
+    // per-model breakdown when the hub-side detail is loaded.
     //
-    //   - claude-code   → `$0.0123 · N turns` (cost+turns)
-    //   - codex         → no cost (codex's turn/completed doesn't ship
-    //                     it); falls through to the turns-only branch
-    //   - antigravity   → no cost (agy keeps Gemini usageMetadata
-    //                     in-memory only and never persists it); same
-    //                     turns-only branch
+    // On-device smoke showed process vs session diverging by 10–30%
+    // WITHIN a single turn — different measurement scopes (statusLine
+    // is per-process, /cost is hub-imputed pricing × usage), both
+    // legitimate but confusing rendered side-by-side. The director
+    // wants ONE "what does this turn cost me" number; cross-check is
+    // a long-press concern, not a glance concern.
     //
-    // Pre-fix the tile guarded on `totalCostUsd > 0` and rendered
-    // nothing otherwise — the whole strip then hid (no other tile
-    // passes either, since codex/agy also lack token totals), so the
-    // user lost even the turn count signal. Post-v1.0.654: when
-    // turns are known but cost isn't, surface "N turns" alone with a
-    // turns icon, so the strip still gives a forward-progress cue.
-    if (totalCostUsd > 0) {
+    // Headline precedence (most-live first):
+    //   1. processCostUsd   — statusLine cost.total_cost_usd, refreshes
+    //                         ~every 10s; resets on respawn, preserved
+    //                         across /clear (claude-code M4 only)
+    //   2. totalCostUsd     — sum of turn.result.cost_usd events;
+    //                         the legacy claude / codex path
+    //   3. (none — render the "N turns" forward-progress cue)
+    //
+    // Sub-line is ALWAYS `N turn[s]` per the user's ask — turn count is
+    // the second-most-asked-for number after dollars.
+    //
+    // Engine matrix:
+    //   - claude-code M4 → processCostUsd present, totalCostUsd usually
+    //                      also present; headline = process
+    //   - claude-code M2 → no statusLine; totalCostUsd from turn.result
+    //   - codex         → no statusLine, no turn.result cost; turns-only
+    //   - antigravity   → same as codex (gemini usageMetadata in-memory)
+    final headlineCost = processCostUsd ?? (totalCostUsd > 0 ? totalCostUsd : null);
+    if (headlineCost != null || turnCount > 0) {
+      final tooltip = StringBuffer();
+      if (headlineCost == null) {
+        // turns-only fallback (codex / agy)
+        tooltip.write('Completed turns this session. Cost not reported '
+            'by this engine.');
+      } else {
+        // Lead with the headline source so the reader knows which
+        // number they're looking at. "process" is the most-live scope;
+        // "turn-aggregated" is the legacy summed-across-turn-results
+        // scope.
+        final headlineLabel = processCostUsd != null
+            ? 'process (live statusLine)'
+            : 'turn-aggregated (sum of turn.result events)';
+        tooltip
+          ..write('\$')
+          ..write(headlineCost.toStringAsFixed(4))
+          ..write(' — ')
+          ..write(headlineLabel)
+          ..write(' across ')
+          ..write(turnCount)
+          ..write(' turn')
+          ..write(turnCount == 1 ? '' : 's')
+          ..write('.');
+        // Cross-check: any non-headline scope we ALSO have a value for
+        // gets surfaced as a reference. The 10–30% divergence the user
+        // observed is real — different scopes, different timings —
+        // and the tooltip is the right place to explain it without
+        // eating glance budget.
+        final cross = <String>[];
+        if (processCostUsd != null && totalCostUsd > 0 &&
+            processCostUsd != headlineCost) {
+          cross.add(
+              '\$${totalCostUsd.toStringAsFixed(4)} turn-aggregated '
+              '(sum of turn.result events; usually trails process by '
+              'one frame)');
+        }
+        if (sessionCostUsdImputed != null &&
+            sessionCostUsdImputed != headlineCost) {
+          cross.add(
+              '\$${sessionCostUsdImputed!.toStringAsFixed(4)} session-imputed '
+              '(hub-side: usage events × pricing table; '
+              'preserved across resumes)');
+        }
+        if (cross.isNotEmpty) {
+          tooltip.write('\n\nCross-check:');
+          for (final c in cross) {
+            tooltip..write('\n• ')..write(c);
+          }
+        }
+        // Per-model breakdown ships only when the hub-side detail
+        // GET /sessions/{id}/cost has resolved (~15s poll cadence).
+        // Reuse the existing composer so the breakdown shape stays in
+        // one place; we splice JUST the table portion since the lead
+        // header is already written above.
+        if (sessionCostDetail != null) {
+          final tail = buildSessionCostTooltipFromDetail(
+            sessionCostUsdImputed ?? 0,
+            sessionCostDetail,
+            pair: false,
+          );
+          // The composer's first line is "$X session — imputed…" which
+          // we don't want here (the cross-check above already surfaced
+          // the session number); strip everything up to the first
+          // double-newline so we keep only the per-model + rate-snapshot
+          // sections.
+          final breakIdx = tail.indexOf('\n\n');
+          if (breakIdx > 0 && breakIdx + 2 < tail.length) {
+            tooltip..write('\n\n')..write(tail.substring(breakIdx + 2));
+          }
+        }
+        tooltip.write('\n\nSubscription users aren\'t billed this — '
+            'it\'s an estimate against the public API rate sheet.');
+      }
       tiles.add(_TelemetryTile(
-        icon: Icons.payments_outlined,
-        label: '\$${totalCostUsd.toStringAsFixed(4)}',
-        sub: '$turnCount turn${turnCount == 1 ? '' : 's'}',
+        // The bolt icon (was on the process tile) tells the user "live".
+        // When we're showing turns-only, fall back to autorenew so the
+        // tile reads as a progress cue rather than a stale price.
+        icon: headlineCost != null
+            ? Icons.bolt_outlined
+            : Icons.autorenew_outlined,
+        label: headlineCost != null
+            ? '\$${headlineCost.toStringAsFixed(4)}'
+            : '$turnCount',
+        sub: headlineCost != null
+            ? '$turnCount turn${turnCount == 1 ? '' : 's'}'
+            : (turnCount == 1 ? 'turn' : 'turns'),
         color: DesignColors.success,
         fg: fg,
         muted: mutedColor,
-        tooltip:
-            'Cumulative cost across $turnCount completed turn${turnCount == 1 ? '' : 's'}.',
-      ));
-    }
-    // ADR-036 D8 chip pair (W4-a + W4-c). Both render when their
-    // source has fired; together they let the director cross-check
-    // (process resets on respawn, session preserves across resumes).
-    if (processCostUsd != null) {
-      final pair = sessionCostUsdImputed != null;
-      tiles.add(_TelemetryTile(
-        icon: Icons.bolt_outlined,
-        label: '\$${processCostUsd!.toStringAsFixed(4)}',
-        sub: 'process',
-        color: DesignColors.success,
-        fg: fg,
-        muted: mutedColor,
-        tooltip:
-            'Imputed cumulative USD this claude process — derived live from '
-            'the engine\'s own statusLine. Resets on respawn; preserved '
-            'across /clear and /model swaps.\n\n'
-            'Subscription users aren\'t billed this — it\'s an estimate '
-            'against the public API rate sheet.'
-            '${pair ? '\n\nPair: process vs session — see the session-cost '
-                'chip to its right for the cross-resume total.' : ''}',
-      ));
-    }
-    if (sessionCostUsdImputed != null) {
-      final pair = processCostUsd != null;
-      final tooltipText = buildSessionCostTooltipFromDetail(
-        sessionCostUsdImputed!,
-        sessionCostDetail,
-        pair: pair,
-      );
-      tiles.add(_TelemetryTile(
-        icon: Icons.payments_outlined,
-        label: '\$${sessionCostUsdImputed!.toStringAsFixed(4)}',
-        sub: 'session',
-        color: DesignColors.terminalCyan,
-        fg: fg,
-        muted: mutedColor,
-        tooltip: tooltipText,
-      ));
-    }
-    if (totalCostUsd == 0 && processCostUsd == null &&
-        sessionCostUsdImputed == null && turnCount > 0) {
-      tiles.add(_TelemetryTile(
-        icon: Icons.autorenew_outlined,
-        label: '$turnCount',
-        sub: turnCount == 1 ? 'turn' : 'turns',
-        color: DesignColors.success,
-        fg: fg,
-        muted: mutedColor,
-        tooltip:
-            'Completed turns this session. Cost not reported by this engine.',
+        tooltip: tooltip.toString(),
       ));
     }
     if (modelTotals.isNotEmpty) {
@@ -5798,10 +5919,36 @@ String _humanWindow(String raw) {
 /// the same collapsible-mono content rendering as the standalone
 /// tool_result card, but framed with a left-rail accent so the lineage
 /// from input → output reads at a glance.
-class _ToolResultInline extends StatelessWidget {
+///
+/// v1.0.706 polish — the result body itself is folded behind a
+/// "result · N lines" header by default; tapping the header expands.
+/// Errors auto-expand so the diagnostic is visible without an extra
+/// tap. Same fold contract as `_AgentEventCardState` for orphan
+/// tool_result cards.
+class _ToolResultInline extends StatefulWidget {
   final Map<String, dynamic> payload;
   final bool isError;
   const _ToolResultInline({required this.payload, required this.isError});
+
+  @override
+  State<_ToolResultInline> createState() => _ToolResultInlineState();
+}
+
+class _ToolResultInlineState extends State<_ToolResultInline> {
+  // Default folded for non-error results. Errors auto-expand so the
+  // diagnostic stays visible without a tap.
+  late bool _expanded = widget.isError;
+
+  @override
+  void didUpdateWidget(covariant _ToolResultInline old) {
+    super.didUpdateWidget(old);
+    // If the result flips to error after first render (e.g. a
+    // tool_call update streams in), auto-expand. Same as
+    // _FoldableToolCallState pattern.
+    if (widget.isError && !old.isError && !_expanded) {
+      _expanded = true;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5810,9 +5957,13 @@ class _ToolResultInline extends StatelessWidget {
         ? DesignColors.textMuted
         : DesignColors.textMutedLight;
     final accent =
-        isError ? DesignColors.error : DesignColors.success;
-    final content = payload['content'];
+        widget.isError ? DesignColors.error : DesignColors.success;
+    final content = widget.payload['content'];
     final text = content is String ? content : AgentEventCard._jsonPretty(content);
+    // Pre-compute the line count so the header can advertise "N
+    // lines" before any expansion. Cheap — content payloads max at
+    // ~16KB on the wire in practice; the split is O(N) once.
+    final lineCount = text.isEmpty ? 0 : '\n'.allMatches(text).length + 1;
     return Container(
       decoration: BoxDecoration(
         border: Border(left: BorderSide(color: accent, width: 2)),
@@ -5821,30 +5972,58 @@ class _ToolResultInline extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Icon(
-                isError ? Icons.error_outline : Icons.check_circle_outline,
-                size: 12,
-                color: accent,
+          // Header row also acts as the fold control. InkWell so the
+          // tap target is the entire strip, not just the chevron.
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  Icon(
+                    widget.isError
+                        ? Icons.error_outline
+                        : Icons.check_circle_outline,
+                    size: 12,
+                    color: accent,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    widget.isError ? 'result · error' : 'result',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: mutedColor,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  if (lineCount > 0) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      '· ${lineCount} line${lineCount == 1 ? '' : 's'}',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10,
+                        color: mutedColor,
+                      ),
+                    ),
+                  ],
+                  const Spacer(),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 14,
+                    color: mutedColor,
+                  ),
+                ],
               ),
-              const SizedBox(width: 4),
-              Text(
-                isError ? 'result · error' : 'result',
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: mutedColor,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 4),
-          _CollapsibleMono(
-            text: text,
-            color: isError ? DesignColors.error : null,
-          ),
+          if (_expanded) ...[
+            const SizedBox(height: 4),
+            _CollapsibleMono(
+              text: text,
+              color: widget.isError ? DesignColors.error : null,
+            ),
+          ],
         ],
       ),
     );

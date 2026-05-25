@@ -99,6 +99,135 @@ const kAgentBusyInferenceSkipKinds = <String>{
   'status_line',
 };
 
+/// Session-cost tooltip composer (ADR-036 D8 chip 2 — W4-c).
+///
+/// Renders the multi-line tooltip text for the session-cost chip from
+/// the GET /sessions/{id}/cost response. Layout:
+///
+///   $X.XXXX session — imputed against the public API rate sheet.
+///   Preserved across resumes (never resets within a session).
+///   Subscription users aren't actually billed this.
+///
+///   Usage by model:
+///   • opus 4.7: $X.XXX (↑N in / ↓N out / cache K)
+///   • sonnet 4.6: $X.XXX (↑N in / ↓N out)
+///
+///   Rates as of YYYY-MM-DD (operator override / embedded).
+///   Not priced: claude-future-99
+///   Pair: session vs process — see the process-cost chip…
+///
+/// [detail] is the raw response map; tolerant of null + missing
+/// fields. Public so widget tests can pin the rendered string without
+/// spinning the full strip.
+@visibleForTesting
+String buildSessionCostTooltipFromDetail(
+  double totalUsd,
+  Map<String, dynamic>? detail, {
+  bool pair = false,
+}) {
+  final buf = StringBuffer()
+    ..write('\$')
+    ..write(totalUsd.toStringAsFixed(4))
+    ..write(' session — imputed against the public API rate sheet. ')
+    ..write(
+        'Preserved across resumes (never resets within a session). ')
+    ..write('Subscription users aren\'t actually billed this.');
+
+  final breakdown = detail?['breakdown_by_model'];
+  final tokens = detail?['tokens_by_model'];
+  if (breakdown is Map && breakdown.isNotEmpty) {
+    buf.write('\n\nUsage by model:');
+    final entries = breakdown.entries.toList()
+      ..sort((a, b) => '${a.key}'.compareTo('${b.key}'));
+    for (final e in entries) {
+      final model = e.key.toString();
+      final usd = (e.value is num) ? (e.value as num).toDouble() : 0.0;
+      buf
+        ..write('\n• ')
+        ..write(_shortModelNameForTooltip(model))
+        ..write(': \$')
+        ..write(usd.toStringAsFixed(4));
+      if (tokens is Map && tokens[model] is Map) {
+        final tc = (tokens[model] as Map).cast<String, dynamic>();
+        final i = (tc['input'] as num?)?.toInt() ?? 0;
+        final o = (tc['output'] as num?)?.toInt() ?? 0;
+        final cr = (tc['cache_read'] as num?)?.toInt() ?? 0;
+        buf
+          ..write(' (↑')
+          ..write(i)
+          ..write(' in / ↓')
+          ..write(o)
+          ..write(' out');
+        if (cr > 0) buf..write(' / cache ')..write(cr);
+        buf.write(')');
+      }
+    }
+  }
+  final snapshot = (detail?['snapshot_date'] as String?) ?? '';
+  final origin = (detail?['origin'] as String?) ?? '';
+  if (snapshot.isNotEmpty || origin.isNotEmpty) {
+    buf.write('\n\nRates as of ');
+    buf.write(snapshot.isEmpty ? 'unknown' : snapshot);
+    if (origin.isNotEmpty) buf..write(' (')..write(origin)..write(' tier)');
+    buf.write('.');
+  }
+  final missingRaw = detail?['missing_models'];
+  if (missingRaw is List && missingRaw.isNotEmpty) {
+    buf.write('\nNot priced: ');
+    buf.write(missingRaw.map((m) => m.toString()).join(', '));
+  }
+  if (pair) {
+    buf.write(
+        '\n\nPair: session vs process — see the process-cost chip to its '
+        'left for the live in-process meter that resets on respawn.');
+  }
+  return buf.toString();
+}
+
+String _shortModelNameForTooltip(String raw) {
+  if (raw.startsWith('claude-')) {
+    final parts = raw.split('-');
+    if (parts.length >= 4) return '${parts[1]} ${parts[2]}.${parts[3]}';
+  }
+  return raw;
+}
+
+/// Process-cost reducer (ADR-036 D8 chip 1 — W4-a).
+///
+/// Walks the supplied event list newest-last and returns the latest
+/// `status_line.payload.cost.total_cost_usd` it finds, or null if no
+/// status_line event carries a cost block yet (cold-open race, older
+/// claude versions without statusLine, or operator removed the
+/// install).
+///
+/// The latest-wins semantics matter: statusLine fires at ~10s cadence
+/// and EACH frame is a fresh snapshot of the process-cumulative cost
+/// (not a delta). Summing would double-count by hundreds within a
+/// session; we just take the most recent value.
+///
+/// Returns null (not 0.0) when no cost has been observed — the chip
+/// self-gates on null per ADR-036 D9 ("blank > wrong"). A real
+/// claude process showing `cost.total_cost_usd = 0` IS a valid
+/// number (fresh respawn, no turn yet); it would render as
+/// "$0.0000".
+///
+/// Public so widget tests can exercise the reducer without spinning
+/// the full agent_feed widget tree.
+@visibleForTesting
+double? processCostFromEvents(List<Map<String, dynamic>> events) {
+  for (var i = events.length - 1; i >= 0; i--) {
+    final e = events[i];
+    if ((e['kind'] ?? '').toString() != 'status_line') continue;
+    final p = e['payload'];
+    if (p is! Map) continue;
+    final cost = p['cost'];
+    if (cost is! Map) continue;
+    final v = cost['total_cost_usd'];
+    if (v is num) return v.toDouble();
+  }
+  return null;
+}
+
 @visibleForTesting
 String? agentEventReplayKey(Map<String, dynamic> evt) {
   final kind = (evt['kind'] ?? '').toString();
@@ -397,20 +526,81 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // Cleared by a delayed setState; never re-fires within a session.
   bool _initialSeqHighlight = false;
 
+  // ADR-036 W4-c — periodic poll of GET /sessions/{id}/cost for the
+  // session-cost chip and its per-model-breakdown tooltip. Set on the
+  // first poll, refreshed every [_sessionCostPollInterval]. Null until
+  // the first response (chip self-gates on null per D9). The whole
+  // map carries: `total_usd`, `breakdown_by_model`, `tokens_by_model`,
+  // `missing_models`, `snapshot_date`, `origin`, `imputed`.
+  Map<String, dynamic>? _sessionCost;
+  Timer? _sessionCostTimer;
+  // 15s cadence matches statusLine's ~10s; longer would feel laggy
+  // when watching a chunky tool-use turn in real time, shorter is
+  // wasted polling. Each fetch is ~one cheap aggregation query on the
+  // hub side, so 15s is comfortable headroom.
+  static const Duration _sessionCostPollInterval = Duration(seconds: 15);
+
   @override
   void initState() {
     super.initState();
     _bootstrap();
     _scroll.addListener(_onScroll);
+    _startSessionCostPolling();
+  }
+
+  @override
+  void didUpdateWidget(covariant AgentFeed oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sessionId != widget.sessionId) {
+      // Session swap: nuke the prior cost so the chip self-gates
+      // until the new session's first poll lands, then restart the
+      // timer rooted at the new id.
+      _sessionCost = null;
+      _startSessionCostPolling();
+    }
   }
 
   @override
   void dispose() {
     _reconnectTimer?.cancel();
     _bannerGraceTimer?.cancel();
+    _sessionCostTimer?.cancel();
     _sub?.cancel();
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// (Re)start the periodic session-cost poll. No-ops when there is no
+  /// sessionId scope — the chip suppresses itself in that case anyway
+  /// (the endpoint requires a session id). Performs an immediate fetch
+  /// so the chip lights up on first paint without waiting a full
+  /// interval.
+  void _startSessionCostPolling() {
+    _sessionCostTimer?.cancel();
+    final sid = widget.sessionId;
+    if (sid == null || sid.isEmpty) return;
+    _fetchSessionCost(sid);
+    _sessionCostTimer = Timer.periodic(_sessionCostPollInterval, (_) {
+      if (!mounted) return;
+      _fetchSessionCost(sid);
+    });
+  }
+
+  Future<void> _fetchSessionCost(String sid) async {
+    try {
+      final client = ref.read(hubProvider.notifier).client;
+      final out = await client.getSessionCost(sid);
+      if (!mounted) return;
+      // sessionId might have flipped while the request was in flight
+      // — drop the response in that case so we don't stamp the old
+      // session's cost onto the new chip.
+      if (widget.sessionId != sid) return;
+      setState(() => _sessionCost = out);
+    } catch (_) {
+      // Swallow — the chip self-gates on null and a transient hub blip
+      // shouldn't blank a previously-good number. Leave _sessionCost
+      // at whatever it last held.
+    }
   }
 
   // User scrolling up away from the tail should stop auto-follow so
@@ -1287,10 +1477,26 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         }
       }
     }
+    // ADR-036 W4-a — process-cost extracted from the latest
+    // status_line frame's cost.total_cost_usd. Null when no
+    // status_line has carried a cost block yet (cold-open race,
+    // older claude versions, or operator removed the install).
+    final processCostUsd = processCostFromEvents(_events);
+    // ADR-036 W4-c — session-cost imputed by the hub. Polled out-of-
+    // band on the _sessionCostTimer; null until the first response
+    // lands (or when sessionId is unset).
+    double? sessionCostUsdImputed;
+    final scRaw = _sessionCost?['total_usd'];
+    if (scRaw is num && (scRaw > 0 || (_sessionCost?['tokens_by_model'] is Map
+        && (_sessionCost?['tokens_by_model'] as Map).isNotEmpty))) {
+      sessionCostUsdImputed = scRaw.toDouble();
+    }
     final hasTelemetry = turnCount > 0 ||
         modelTotals.isNotEmpty ||
         latestRateLimit != null ||
-        latestContextWindow != null;
+        latestContextWindow != null ||
+        processCostUsd != null ||
+        sessionCostUsdImputed != null;
     // Build the visible event list: drop folded-in kinds.
     //   tool_call_update — folded into parent tool_call card.
     //   tool_result      — paired with parent tool_call by tool_use_id;
@@ -1336,6 +1542,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             rateLimit: latestRateLimit,
             contextWindow: latestContextWindow,
             contextUsed: latestContextUsed,
+            processCostUsd: processCostUsd,
+            sessionCostUsdImputed: sessionCostUsdImputed,
+            sessionCostDetail: _sessionCost,
           ),
         if (_staleSince != null) _OfflineBanner(staleSince: _staleSince!),
         if (_loadingOlder)
@@ -4776,6 +4985,22 @@ class _TelemetryStrip extends StatelessWidget {
   // suppresses itself when capacity is null/zero.
   final int? contextWindow;
   final int? contextUsed;
+  // ADR-036 D8 chip 1 (W4-a) — process-cumulative USD from the latest
+  // claude-code status_line frame's cost.total_cost_usd. Null when no
+  // statusLine frame has carried a cost block. Resets to 0 on every
+  // process respawn; preserved across /clear and /model swaps within
+  // the same process.
+  final double? processCostUsd;
+  // ADR-036 D8 chip 2 (W4-c) — session-cumulative USD imputed by the
+  // hub from sum of agent_events.usage × pricing table. Null when the
+  // sessionCost endpoint hasn't responded yet OR when no priced model
+  // appeared in the session (degrade-blank per D9). Polled on a 15s
+  // cadence in the parent state.
+  final double? sessionCostUsdImputed;
+  // Full sessionCost endpoint response — drives the W4-c tooltip
+  // breakdown (per-model USD/tokens, snapshot_date, missing models).
+  // Null when sessionCostUsdImputed is null.
+  final Map<String, dynamic>? sessionCostDetail;
   const _TelemetryStrip({
     required this.totalCostUsd,
     required this.turnCount,
@@ -4783,6 +5008,9 @@ class _TelemetryStrip extends StatelessWidget {
     required this.rateLimit,
     this.contextWindow,
     this.contextUsed,
+    this.processCostUsd,
+    this.sessionCostUsdImputed,
+    this.sessionCostDetail,
   });
 
   @override
@@ -4827,7 +5055,48 @@ class _TelemetryStrip extends StatelessWidget {
         tooltip:
             'Cumulative cost across $turnCount completed turn${turnCount == 1 ? '' : 's'}.',
       ));
-    } else if (turnCount > 0) {
+    }
+    // ADR-036 D8 chip pair (W4-a + W4-c). Both render when their
+    // source has fired; together they let the director cross-check
+    // (process resets on respawn, session preserves across resumes).
+    if (processCostUsd != null) {
+      final pair = sessionCostUsdImputed != null;
+      tiles.add(_TelemetryTile(
+        icon: Icons.bolt_outlined,
+        label: '\$${processCostUsd!.toStringAsFixed(4)}',
+        sub: 'process',
+        color: DesignColors.success,
+        fg: fg,
+        muted: mutedColor,
+        tooltip:
+            'Imputed cumulative USD this claude process — derived live from '
+            'the engine\'s own statusLine. Resets on respawn; preserved '
+            'across /clear and /model swaps.\n\n'
+            'Subscription users aren\'t billed this — it\'s an estimate '
+            'against the public API rate sheet.'
+            '${pair ? '\n\nPair: process vs session — see the session-cost '
+                'chip to its right for the cross-resume total.' : ''}',
+      ));
+    }
+    if (sessionCostUsdImputed != null) {
+      final pair = processCostUsd != null;
+      final tooltipText = buildSessionCostTooltipFromDetail(
+        sessionCostUsdImputed!,
+        sessionCostDetail,
+        pair: pair,
+      );
+      tiles.add(_TelemetryTile(
+        icon: Icons.payments_outlined,
+        label: '\$${sessionCostUsdImputed!.toStringAsFixed(4)}',
+        sub: 'session',
+        color: DesignColors.terminalCyan,
+        fg: fg,
+        muted: mutedColor,
+        tooltip: tooltipText,
+      ));
+    }
+    if (totalCostUsd == 0 && processCostUsd == null &&
+        sessionCostUsdImputed == null && turnCount > 0) {
       tiles.add(_TelemetryTile(
         icon: Icons.autorenew_outlined,
         label: '$turnCount',

@@ -1,9 +1,9 @@
 # claude-code statusLine as telemetry
 
 > **Type:** plan
-> **Status:** In flight (2026-05-25) — **Phase A COMPLETE** (W1+W2+W3 shipped v1.0.696-698); **Phase A.5 COMPLETE** (W3.5 shipped v1.0.699); **Phase B W4-b SHIPPED** (v1.0.700, hub-side pricing infrastructure); W4-a + W4-c (mobile chips) pending
+> **Status:** In flight (2026-05-25) — **Phase A COMPLETE** (W1+W2+W3 shipped v1.0.696-698); **Phase A.5 COMPLETE** (W3.5 shipped v1.0.699); **Phase B W4-b + W4-a + W4-c COMPLETE** (v1.0.700 hub pricing infrastructure; v1.0.701 mobile chip pair); W5 + W6 pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.700 (hub) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.701 (hub + mobile) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -162,16 +162,15 @@ W3's /clear fix on its own merit.
   pricing-table infrastructure (D10) is testable in isolation
   before the mobile chip lands.
 
-  - **W4-a — Process cost chip (mobile).**
-    Reducer over `status_line` events, latest-wins. Reads
-    `cost.total_cost_usd` from the latest payload. Format:
-    `$0.12 (process)` or `$0.12 · 1m 58s` (cost + duration).
-    Tooltip: "Cumulative USD this claude process imputed against
-    the public API rate sheet. Resets on respawn; preserved across
-    `/clear` and `/model`. Subscription users aren't billed this;
-    it's an estimate."
-    Self-gates when no status_line payload has carried `cost` yet.
-    Wedge size: ~120 LOC + ~6 widget tests.
+  - **W4-a — Process cost chip (mobile).** ✓ Shipped v1.0.701-alpha
+    (commit pending push). `processCostFromEvents` reducer over
+    `status_line` events (latest-wins on
+    `payload.cost.total_cost_usd`); new `processCostUsd` parameter
+    on `_TelemetryStrip` renders `$X.XXXX · process` in green when
+    non-null. Tooltip per ADR-036 D8 disclaimer + pair-aware
+    cross-reference when the session chip is also visible. Self-
+    gates on null (cold-open before first status_line; older
+    claude). Wedge size shipped: ~75 LOC.
 
   - **W4-b — Hub pricing table + session-cost computation.** ✓
     Shipped v1.0.700-alpha (commit pending push). Per ADR-036 D10
@@ -217,15 +216,22 @@ W3's /clear fix on its own merit.
     layer to keep), and (c) the Warner-hook indirection (kept the
     pricing package import-clean for future engines).
 
-  - **W4-c — Session cost chip (mobile).**
-    Reads new `session_cost_usd_imputed` field from the agent/session
-    response. Tooltip shows per-model breakdown mirroring
-    /usage's "Usage by model" block, plus the active pricing
-    table's `snapshot_date` so users can spot stale config.
-    Self-gates when the field is null (unknown model fall-through
-    per D10 tier 3). Side-by-side with W4-a's chip in the strip;
-    paired-tooltip text explains the two scopes when both are
-    visible. Wedge size: ~140 LOC + ~6 widget tests.
+  - **W4-c — Session cost chip (mobile).** ✓ Shipped v1.0.701-alpha
+    (commit pending push). Polls `GET /sessions/{id}/cost` on a
+    15s timer in `_AgentFeedState`; cached response drives the
+    chip (rendered cyan to distinguish from process tile) AND its
+    tooltip. `buildSessionCostTooltipFromDetail` composes the
+    multi-line tooltip: disclaimer line + per-model breakdown
+    (sorted, with token annotations + cache-zero suppression) +
+    `snapshot_date (origin tier)` line + missing-models list +
+    pair-context cross-reference. `hubClient.getSessionCost`
+    swallows errors so a transient hub blip doesn't blank a
+    previously-good number. `didUpdateWidget` nukes the cache on
+    sessionId flip; in-flight responses dropped on flip too.
+    14 widget tests across 3 groups (reducer / tooltip / pair).
+    Wedge size shipped: ~115 LOC + 14 tests (vs ~140 LOC + 6 tests
+    estimated — overshoot on tests because the tooltip composer
+    earned its weight in pinning each rendering branch).
 
   - **Effort chip**: small badge ("xhigh", "high", "low"). Renders
     only when present.
@@ -279,7 +285,7 @@ W3's /clear fix on its own merit.
 |---|---|---|---|
 | A — hub channel | W1–W3 | ~780 + ~25 tests | shim happy path; dedupe test; rotation test; CI green (✓ done v1.0.696-698) |
 | A.5 — mobile filter regression fix | W3.5 | ~150 + ~10 tests | bubble-hide + busy-skip kind-list contract tests (✓ done v1.0.699) |
-| B.4 — cost chips (split per ADR-036 D8 + D10) | W4-a/b/c | ~540 + ~24 tests | hub pricing table hot-reload; session-aggregation correctness; chip pair side-by-side renders (W4-b ✓ done v1.0.700 — hub side; W4-a + W4-c mobile pending) |
+| B.4 — cost chips (split per ADR-036 D8 + D10) | W4-a/b/c | ~540 + ~24 tests | hub pricing table hot-reload; session-aggregation correctness; chip pair side-by-side renders (W4-b ✓ done v1.0.700; W4-a + W4-c ✓ done v1.0.701) |
 | B.5+6 — remaining mobile chips | W4-effort/W5/W6 | ~510 + ~20 tests | widget tests; CI green |
 | **Total** | **9** | **~1,980 + ~79 tests** | — |
 

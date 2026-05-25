@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.700
+> **Last verified vs code:** v1.0.701
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,96 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.701-alpha — 2026-05-25
+
+**ADR-036 Phase B W4-a + W4-c (paired): mobile cost-chip pair lands
+on the agent telemetry strip.** Companion to v1.0.700's hub-side
+pricing infrastructure. The two chips ship together because they're
+designed to be read together — process vs session cross-check tells
+the director what mode the agent is in (fresh vs resumed vs mid-/clear).
+
+### Added
+
+- **W4-a: process-cost chip** (`lib/widgets/agent_feed.dart`,
+  ~75 LOC). Reducer over `status_line` events
+  (`processCostFromEvents`): latest-wins on
+  `payload.cost.total_cost_usd`. Renders as `$X.XXXX · process` in
+  the existing `_TelemetryStrip`. Self-gates blank when no
+  status_line frame has carried a cost block yet (cold-open race,
+  older claude versions, operator removed the install). A real
+  `cost: 0` (fresh respawn, no turn yet) renders as `$0.0000` — the
+  zero-vs-null distinction matters per ADR-036 D9.
+- **W4-c: session-cost chip** (~115 LOC). Polls
+  `GET /v1/teams/{team}/sessions/{session}/cost` on a 15s timer
+  (matches statusLine cadence; longer would feel laggy on mid-turn
+  watching, shorter is wasted polling). Renders as `$Y.YYYY · session`
+  in cyan to distinguish from the green process tile. Tooltip
+  composer (`buildSessionCostTooltipFromDetail`) surfaces per-model
+  USD + token breakdown, snapshot_date + origin tier, and any
+  unpriced models seen this session.
+- **`hubClient.getSessionCost(id)`**
+  (`lib/services/hub/hub_client.dart`). Thin wrapper around the W4-b
+  endpoint; returns null on any error so the chip self-gates rather
+  than blocking the strip on a transient hub blip.
+- **Pair-aware tooltips.** When BOTH chips are visible, each
+  tooltip cross-references the other ("Pair: process vs session —
+  see the … chip to its left/right for the …"). Single-chip
+  fallback is silent on the pair language.
+
+### Lifecycle plumbing
+
+- `_AgentFeedState.didUpdateWidget` now nukes the cached cost on
+  sessionId change so a session swap doesn't briefly show the prior
+  conversation's number under the new id. Timer restarts rooted at
+  the new id; the immediate first-poll lights the chip without
+  waiting a full interval.
+- `dispose` cancels the new timer alongside the existing
+  reconnect/banner timers — same pattern, no new lifecycle shape.
+- In-flight responses are dropped when `widget.sessionId` flips
+  mid-fetch (prevents the prior session's payload landing on the
+  new chip).
+
+### Tests
+
+- `test/widgets/agent_feed_cost_chips_test.dart` — 14 tests across 3
+  groups:
+  - **`processCostFromEvents` (7):** null on no status_line, null on
+    status_line without cost block, latest-wins across multiple
+    snapshots, walks past interleaved events, zero-vs-null
+    discipline, int-vs-double JSON-decode tolerance, empty-list
+    handling.
+  - **`buildSessionCostTooltipFromDetail` (6):** disclaimer line
+    present + correct, 4-decimal precision, per-model breakdown
+    sorted + with token annotations + omitting cache-zero rows,
+    snapshot_date + origin tier rendered, missing_models surfaced,
+    pair-context line appears iff pair=true.
+  - **Cross-chip pair semantics (1):** the two reducers produce
+    independent non-null values without conflict.
+
+### Architecture notes
+
+- The existing `totalCostUsd` chip (codex / antigravity legacy from
+  `turn.result.cost_usd`) stays — it serves engines whose status_line
+  channel doesn't exist. For claude-code, that old chip stays $0
+  and the new pair takes the cost story. ADR-036 D9 "no chip is
+  load-bearing" holds.
+- Chip ordering in the strip reads as `[legacy cost] [process]
+  [session] [tokens] [context-window] [rate-limits]` — cost cluster
+  first so the dollars land in the first scan.
+- The 15s poll cadence is the trade-off point. A future optimization:
+  trigger an immediate refresh on each `usage` event arrival
+  (consumer would learn that a new token-bearing event landed and
+  the session total moved) — deferred until a user notices the
+  current cadence isn't snappy enough.
+
+### Plan status
+
+- ADR-036 Phase B half-shipped: cost-chip pair (W4-a/b/c) complete.
+  W5 (`rate_limits` row + alarm tier, ~250 LOC + ~10 tests) and W6
+  (`exceeds_200k_tokens` alarm + `session_name` sticky-header
+  fallback, ~120 LOC + ~5 tests) remain — both Flutter-only, neither
+  depends on the other.
 
 ## v1.0.700-alpha — 2026-05-25
 

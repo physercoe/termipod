@@ -553,6 +553,26 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Per-session imputed cost breakdown (ADR-036 D8 chip 2 + tooltip).
+  /// Returns `{session_id, total_usd, breakdown_by_model, tokens_by_model,
+  /// missing_models, snapshot_date, origin, imputed}`. The `imputed: true`
+  /// flag is always set and carries the subscription-disclaimer semantics
+  /// (subscription users aren't actually billed per-token; the numbers
+  /// are estimates against the public API rate sheet).
+  ///
+  /// Returns null on any error so the chip self-gates blank rather than
+  /// stalling the UI (the parent GET inlines `session_cost_usd_imputed`
+  /// for first-paint; this endpoint serves only the tooltip detail).
+  Future<Map<String, dynamic>?> getSessionCost(String id) async {
+    try {
+      final out = await _get('/v1/teams/${cfg.teamId}/sessions/$id/cost');
+      if (out is Map) return out.cast<String, dynamic>();
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Opens a new session. Most callers will pass `agentId` to attach
   /// the session to an existing steward; `worktreePath` and
   /// `spawnSpecYaml` are needed when the resume flow (W2-S3) wants to

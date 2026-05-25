@@ -1931,7 +1931,6 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final id = (session['id'] ?? '').toString();
-    final title = (session['title'] ?? '').toString();
     final status = (session['status'] ?? '').toString();
     final scopeKind = (session['scope_kind'] ?? '').toString();
     final agentId = (session['current_agent_id'] ?? '').toString();

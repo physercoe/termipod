@@ -99,6 +99,113 @@ const kAgentBusyInferenceSkipKinds = <String>{
   'status_line',
 };
 
+/// Rate-limits reducer (ADR-036 D7 — W5).
+///
+/// Walks the supplied event list newest-last and returns the latest
+/// `status_line.payload.rate_limits` block, or null if no status_line
+/// frame has carried one yet (cold-open race; older claude versions
+/// without statusLine; operator removed the install).
+///
+/// Latest-wins: each statusLine frame ships a fresh snapshot of the
+/// rolling-window state (it's an instantaneous percentage, not a
+/// delta), so we just take the most recent.
+///
+/// Shape returned (verbatim from the wire — per ADR-036 D7 §payload
+/// example):
+///
+///     { "five_hour": {"used_percentage": int, "resets_at": int (epoch s)},
+///       "seven_day":{"used_percentage": int, "resets_at": int (epoch s)} }
+///
+/// Either sub-block may be absent on a given frame; callers must
+/// null-check each before rendering.
+///
+/// Public so widget tests can exercise the reducer without spinning
+/// the full agent_feed widget tree.
+@visibleForTesting
+Map<String, dynamic>? rateLimitsFromEvents(List<Map<String, dynamic>> events) {
+  for (var i = events.length - 1; i >= 0; i--) {
+    final e = events[i];
+    if ((e['kind'] ?? '').toString() != 'status_line') continue;
+    final p = e['payload'];
+    if (p is! Map) continue;
+    final rl = p['rate_limits'];
+    if (rl is Map) return rl.cast<String, dynamic>();
+  }
+  return null;
+}
+
+/// Format a `resets_at` Unix-epoch-seconds value for the rate-limit
+/// chip's sub-line (ADR-036 W5).
+///
+/// Returns relative form ("in 4h 38m") for horizons under
+/// [_kRateLimitAbsoluteThreshold] (default 3 hours), absolute short
+/// form ("Mon 03:00") otherwise. Both render in device-local TZ per
+/// ADR-036 D7 — the wire field is TZ-agnostic epoch and the
+/// wall-clock-rendering TZ is a chip-side concern.
+///
+/// Edge cases:
+///   - past timestamps → "now" (the window already reset; the next
+///     status_line frame will refresh the value with the new resets_at).
+///   - null / non-positive epoch → empty string (caller drops the
+///     sub-line cleanly).
+///   - epoch farther than 14 days out → empty string (sanity bound;
+///     rate-limit windows reset within days, not weeks; protects
+///     against a unit-mistake landing a microsecond value here).
+///
+/// [now] is the reference time (defaults to `DateTime.now()`). Tests
+/// override to pin formatter output without sleeping.
+@visibleForTesting
+String formatRateLimitResetsAt(int? epochSeconds, {DateTime? now}) {
+  if (epochSeconds == null || epochSeconds <= 0) return '';
+  final ref = now ?? DateTime.now();
+  // resets_at is Unix-epoch SECONDS per the probe (claude ships values
+  // like 1779640200 — 10 digits = year-2026 in seconds; year-2026 in ms
+  // would be 13 digits and start with 17_796_…). Build the reference
+  // DateTime in UTC then convert to local for rendering.
+  final ts = DateTime.fromMillisecondsSinceEpoch(
+    epochSeconds * 1000,
+    isUtc: true,
+  ).toLocal();
+  final refLocal = ref.toLocal();
+  final diff = ts.difference(refLocal);
+  if (diff.isNegative || diff == Duration.zero) return 'now';
+  if (diff.inDays > 14) return ''; // sanity bound; misinterpreted unit
+  if (diff < _kRateLimitAbsoluteThreshold) {
+    if (diff.inMinutes < 1) return 'in <1m';
+    if (diff.inHours < 1) return 'in ${diff.inMinutes}m';
+    final m = diff.inMinutes % 60;
+    return m == 0 ? 'in ${diff.inHours}h' : 'in ${diff.inHours}h ${m}m';
+  }
+  return 'resets ${_fmtAbsoluteShort(ts)}';
+}
+
+const Duration _kRateLimitAbsoluteThreshold = Duration(hours: 3);
+
+String _fmtAbsoluteShort(DateTime localTs) {
+  // "Mon 03:00" — three-letter weekday, zero-padded HH:MM. Done
+  // longhand (not via intl) so the test harness doesn't need a
+  // locale package; the chip cadence + display is engineering-
+  // oriented and a fixed English form is appropriate.
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  // DateTime.weekday is 1..7 (Mon..Sun) — matches our array index.
+  final day = days[(localTs.weekday - 1).clamp(0, 6)];
+  final hh = localTs.hour.toString().padLeft(2, '0');
+  final mm = localTs.minute.toString().padLeft(2, '0');
+  return '$day $hh:$mm';
+}
+
+/// Alarm-tier color for a rate-limit window used-percentage (ADR-036
+/// W5 §alarm tier). 80% → amber; 95% → red; otherwise success-green.
+/// Public for testability. Returns DesignColors-level values so the
+/// strip caller doesn't have to repeat the threshold logic.
+@visibleForTesting
+({Color color, String severity}) rateLimitAlarmTier(num? usedPercentage) {
+  final p = (usedPercentage ?? 0).toDouble();
+  if (p >= 95) return (color: DesignColors.error, severity: 'red');
+  if (p >= 80) return (color: Colors.orange, severity: 'amber');
+  return (color: DesignColors.success, severity: 'green');
+}
+
 /// Session-cost tooltip composer (ADR-036 D8 chip 2 — W4-c).
 ///
 /// Renders the multi-line tooltip text for the session-cost chip from
@@ -1496,12 +1603,17 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         && (_sessionCost?['tokens_by_model'] as Map).isNotEmpty))) {
       sessionCostUsdImputed = scRaw.toDouble();
     }
+    // ADR-036 W5 — rate_limits sub-block from the latest status_line
+    // frame. Null until first status_line lands; either window may
+    // still be absent on a given frame (tile self-gates per window).
+    final rateLimitsFromStatus = rateLimitsFromEvents(_events);
     final hasTelemetry = turnCount > 0 ||
         modelTotals.isNotEmpty ||
         latestRateLimit != null ||
         latestContextWindow != null ||
         processCostUsd != null ||
-        sessionCostUsdImputed != null;
+        sessionCostUsdImputed != null ||
+        rateLimitsFromStatus != null;
     // Build the visible event list: drop folded-in kinds.
     //   tool_call_update — folded into parent tool_call card.
     //   tool_result      — paired with parent tool_call by tool_use_id;
@@ -1550,6 +1662,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             processCostUsd: processCostUsd,
             sessionCostUsdImputed: sessionCostUsdImputed,
             sessionCostDetail: _sessionCost,
+            rateLimitsFromStatus: rateLimitsFromStatus,
           ),
         if (_staleSince != null) _OfflineBanner(staleSince: _staleSince!),
         if (_loadingOlder)
@@ -5006,6 +5119,12 @@ class _TelemetryStrip extends StatelessWidget {
   // breakdown (per-model USD/tokens, snapshot_date, missing models).
   // Null when sessionCostUsdImputed is null.
   final Map<String, dynamic>? sessionCostDetail;
+  // ADR-036 W5 — rate_limits block from the latest status_line frame,
+  // verbatim from the wire: `{five_hour:{used_percentage,resets_at},
+  // seven_day:{used_percentage,resets_at}}`. Either sub-block may be
+  // absent; the renderer self-gates per window. Null when no
+  // status_line has carried a rate_limits block yet.
+  final Map<String, dynamic>? rateLimitsFromStatus;
   const _TelemetryStrip({
     required this.totalCostUsd,
     required this.turnCount,
@@ -5016,6 +5135,7 @@ class _TelemetryStrip extends StatelessWidget {
     this.processCostUsd,
     this.sessionCostUsdImputed,
     this.sessionCostDetail,
+    this.rateLimitsFromStatus,
   });
 
   @override
@@ -5226,6 +5346,49 @@ class _TelemetryStrip extends StatelessWidget {
               'the label names which one this status applies to.'
               '${status.isEmpty ? '' : '\nStatus: $status.'}'
               '${resetIn == null ? '' : '\nResets in ${_fmtCountdown(resetIn).replaceFirst('in ', '')}.'}',
+        ));
+      }
+    }
+    // ADR-036 W5 — rate-limits chip pair from status_line. One tile
+    // per window (5h rolling + 7d rolling). Distinct from the legacy
+    // single-window rate_limit chip above which serves claude's
+    // stream-json rate_limit_event (single window at a time, fires
+    // only when a limit hits); status_line.rate_limits ships both
+    // windows on every refresh, so we render them ambient.
+    final rlStatus = rateLimitsFromStatus;
+    if (rlStatus != null) {
+      for (final entry in <List<dynamic>>[
+        ['five_hour', '5h', '5-hour rolling'],
+        ['seven_day', '7d', '7-day rolling'],
+      ]) {
+        final wireKey = entry[0] as String;
+        final shortLabel = entry[1] as String;
+        final longLabel = entry[2] as String;
+        final w = rlStatus[wireKey];
+        if (w is! Map) continue; // self-gate: window absent on this frame
+        final pct = (w['used_percentage'] as num?);
+        final resetsAt = (w['resets_at'] as num?)?.toInt();
+        if (pct == null && resetsAt == null) continue;
+        final tier = rateLimitAlarmTier(pct);
+        final pctLabel = pct == null
+            ? '?'
+            : '${pct.toStringAsFixed(0)}%';
+        final resetsLabel = formatRateLimitResetsAt(resetsAt);
+        tiles.add(_TelemetryTile(
+          icon: Icons.timelapse,
+          label: '$shortLabel  $pctLabel',
+          sub: resetsLabel.isEmpty ? longLabel : resetsLabel,
+          color: tier.color,
+          fg: fg,
+          muted: mutedColor,
+          tooltip: 'Anthropic plan limit — $longLabel window'
+              '${pct == null ? '' : '\nUsed: $pctLabel'
+                  '${tier.severity == 'green' ? '' : ' (${tier.severity} — '
+                      '${tier.severity == 'amber' ? '≥80%, slow down' : '≥95%, throttling imminent'})'}'}'
+              '${resetsLabel.isEmpty ? '' : '\nResets: $resetsLabel'}'
+              '\n\nSource: claude statusLine `rate_limits.$wireKey`; '
+              'rolling, not aligned to a clock midnight. Rendered in '
+              'device-local time per ADR-036 D7.',
         ));
       }
     }

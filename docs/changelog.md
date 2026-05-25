@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.701
+> **Last verified vs code:** v1.0.702
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,96 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.702-alpha — 2026-05-25
+
+**ADR-036 Phase B W5: rate_limits chip pair from status_line lands
+on the agent telemetry strip.** Surfaces the Anthropic plan headroom
+that was previously invisible — 5-hour rolling window + 7-day
+rolling window, both color-tiered (green / amber at ≥80% / red at
+≥95%), with relative-or-absolute reset countdowns.
+
+### Added
+
+- **W5 reducer (`rateLimitsFromEvents`).** Latest-wins over
+  `status_line.payload.rate_limits`. Returns the verbatim wire shape
+  `{five_hour:{used_percentage,resets_at}, seven_day:{...}}` so the
+  renderer reads the original keys (less indirection). Either
+  sub-block may be absent on a given frame — the renderer self-gates
+  per window.
+- **Reset-time formatter (`formatRateLimitResetsAt`).** Renders
+  `resets_at` Unix-epoch-seconds in device-local TZ per ADR-036 D7:
+  - Relative `"in 4h 38m"` for horizons under 3h
+  - Absolute `"resets Mon 03:00"` (zero-padded HH:MM, 3-letter
+    weekday) otherwise
+  - `"in <1m"` for sub-minute horizons (vs `"in 0m"`)
+  - `"now"` for past timestamps (window already reset; next
+    status_line frame refreshes the value)
+  - Empty string for null/zero/negative + sanity-bounded reject
+    of horizons > 14 days out (misinterpreted-unit guard)
+- **Alarm-tier function (`rateLimitAlarmTier`).** Pure (pct → color
+  + severity label). Plan spec: ≥80% amber, ≥95% red, else green.
+  Returns a `(Color color, String severity)` record so the tile
+  caller writes the tier just once.
+- **Two rate-limit tiles in `_TelemetryStrip`.** Each tile shows
+  `5h  24%` / `7d  33%` label + reset-or-window-label sub-line.
+  Colored per its own window's alarm tier (the 5h can be red while
+  the 7d is still green — that's actually the diagnostic story).
+  Tooltip explains: which Anthropic window, current %, severity
+  tier interpretation, resets timestamp, source-key reference.
+
+### Distinct from the legacy rate_limit chip
+
+The agent feed already had a single-window rate-limit tile reading
+from claude's stream-json `rate_limit_event` (which fires only
+when a limit hits — `status: limited|warn|allowed`). That stays.
+The new pair from `status_line.rate_limits` is the ambient view —
+both windows on every refresh, present even when no event has
+fired. They render side-by-side; the legacy tile shows when claude
+emits one, the new pair is always there once statusLine is wired.
+
+### Tests
+
+- `test/widgets/agent_feed_rate_limits_test.dart` — 19 tests across
+  3 groups:
+  - **`rateLimitsFromEvents` (6):** null-on-no-statusLine, null-on-
+    no-rate_limits-block, verbatim wire-shape preservation, latest-
+    wins, walks-past-interleaved, empty list.
+  - **`formatRateLimitResetsAt` (7):** null/zero/negative → empty,
+    past → "now", 3 relative-band points, exact-3h-boundary tips
+    into absolute branch, device-local TZ verified via
+    constructed-then-back-from-epoch, 14-day sanity-bound, sub-
+    minute "in <1m".
+  - **`rateLimitAlarmTier` (6):** < 80% → green (incl. 79.9
+    boundary), 80–94.999% → amber (incl. exact-80 boundary),
+    ≥ 95% → red, null → green, color-vs-severity invariant.
+
+### Architecture notes
+
+- Picked the 3h relative/absolute threshold based on a director's
+  scan attention: any horizon under ~3h is "I might hit this
+  during my current task"; past 3h is "schedule something for
+  reset day" — different cognitive frames. The 3h cutoff is
+  documented in the formatter constant so a future tweak is one
+  line.
+- Both windows' tiles render even when only one window's data is
+  present on a given frame (the other tile suppresses). This is
+  the right shape for the "statusLine carries some frames with
+  partial data" defensive case — no per-tile dependency on the
+  sibling.
+- The probe-verified `resets_at` field is Unix-epoch seconds
+  (10-digit values like 1779640200 — year 2026 in seconds; the
+  same magnitude in ms would be 13 digits and lead with 17_796_…).
+  Formatter assumes seconds; future engines that ship ms would
+  need a magnitude-detect branch (out of scope; document in the
+  reducer when antigravity ships its own statusLine equivalent).
+
+### Plan status
+
+- ADR-036 Phase B W4-a/b/c + W5 complete. **W6 only remains**:
+  `exceeds_200k_tokens` AppBar alarm + `session_name` sticky-
+  header fallback. ~120 LOC + ~5 tests. Both flutter, neither
+  depends on the other.
 
 ## v1.0.701-alpha — 2026-05-25
 

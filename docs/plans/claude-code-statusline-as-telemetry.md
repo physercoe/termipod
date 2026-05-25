@@ -1,9 +1,9 @@
 # claude-code statusLine as telemetry
 
 > **Type:** plan
-> **Status:** In flight (2026-05-25) — **Phase A COMPLETE** (W1+W2+W3 shipped v1.0.696-698); **Phase A.5 COMPLETE** (W3.5 shipped v1.0.699); **Phase B W4-b + W4-a + W4-c COMPLETE** (v1.0.700 hub pricing infrastructure; v1.0.701 mobile chip pair); W5 + W6 pending
+> **Status:** In flight (2026-05-25) — **Phase A COMPLETE** (W1+W2+W3 shipped v1.0.696-698); **Phase A.5 COMPLETE** (W3.5 shipped v1.0.699); **Phase B W4-b + W4-a + W4-c COMPLETE** (v1.0.700 hub pricing infrastructure; v1.0.701 mobile chip pair); **W5 COMPLETE** (v1.0.702 rate_limits chip pair); W6 pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.701 (hub + mobile) + claude-code 2.1.150 on host
+> **Last verified vs code:** v1.0.702 (hub + mobile) + claude-code 2.1.150 on host
 > **Implements:** [ADR-036](../decisions/036-claude-code-statusline-telemetry.md)
 
 **TL;DR.** Wire claude-code's statusLine JSON into M4 LocalLogTail
@@ -246,8 +246,22 @@ W3's /clear fix on its own merit.
     payload → no chips; full payload → 4 chips in order; cost
     transitions update both chips independently.
 
-- **W5 — `rate_limits` surface.**
-  - Render a row in the session details sheet AND a compact
+- **W5 — `rate_limits` surface.** ✓ Shipped v1.0.702-alpha. Three
+  top-level helpers (`rateLimitsFromEvents` reducer +
+  `formatRateLimitResetsAt` formatter + `rateLimitAlarmTier` color/
+  severity function) plus two adjacent tiles in `_TelemetryStrip`
+  (one per window, each independently tiered). Session-details-
+  sheet row deferred — the agent-feed pair is the load-bearing
+  surface; session-details-sheet can mirror it later if a user asks.
+  Steward-overlay headroom row also deferred (separate file; not a
+  blocker for the main chip-pair story). 19 widget tests (reducer
+  6 + formatter 7 + alarm 6). Wedge size shipped: ~145 LOC + 19
+  tests (vs ~250 LOC + ~10 tests estimated — undershot LOC because
+  the existing _TelemetryStrip + _TelemetryTile infrastructure
+  carried the visual weight; overshot tests because the formatter's
+  branch coverage earned the extra cases).
+  - Original spec (still authoritative for the deferred pieces):
+    Render a row in the session details sheet AND a compact
     overview-strip entry on the agent feed:
     `5h: 24% (in 4h 38m) · 7d: 33% (resets Mon 03:00)`.
   - Format `resets_at` (Unix epoch, TZ-agnostic; Q4 resolved

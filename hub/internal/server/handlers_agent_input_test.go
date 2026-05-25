@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -787,6 +789,163 @@ func TestPostAgentInput_MonotonicSeq(t *testing.T) {
 			t.Errorf("seq = %d, want %d", seq, lastSeq+1)
 		}
 		lastSeq = seq
+	}
+}
+
+// TestPostAgentInput_RenderedTextStamped — v1.0.708 polish
+// (ADR-032 D-10). When the input is a regular text turn (not raw),
+// the hub stamps payload.rendered_text against the operator-editable
+// envelope templates so the host-runner can pass it through verbatim
+// without needing access to the hub's filesystem.
+//
+// Verifies:
+//   - rendered_text is present alongside the structured envelope keys
+//   - the rendered string contains the principal-directive header
+//     and the body verbatim
+//   - raw inputs (slash commands) do NOT carry rendered_text (no
+//     envelope was rendered)
+//   - the embedded default produces the same prose contract today's
+//     hardcoded host-runner path emits (sender/kind/reply line all
+//     reach the engine)
+func TestPostAgentInput_RenderedTextStamped(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	t.Run("regular_text_stamps_rendered_text", func(t *testing.T) {
+		body := map[string]any{
+			"kind": "text",
+			"body": "survey the citation graph",
+		}
+		status, raw := postInput(t, h, defaultTeamID, agentID, body)
+		if status != http.StatusCreated {
+			t.Fatalf("status = %d body=%s", status, raw)
+		}
+		var out map[string]any
+		_ = json.Unmarshal(raw, &out)
+		var payloadJSON string
+		_ = s.db.QueryRow(
+			`SELECT payload_json FROM agent_events WHERE id = ?`,
+			out["id"],
+		).Scan(&payloadJSON)
+		var payload map[string]any
+		_ = json.Unmarshal([]byte(payloadJSON), &payload)
+		rendered, _ := payload["rendered_text"].(string)
+		if rendered == "" {
+			t.Fatalf("rendered_text missing or empty: %v", payload)
+		}
+		// Embedded default uses today's hardcoded prose; the rendered
+		// string must contain the directive header + body + chat reply
+		// contract. If any of these disappears, the hub-side render +
+		// host-runner pass-through path is broken end-to-end.
+		for _, want := range []string{
+			"[directive from the principal]",
+			"survey the citation graph",
+			"Reply in this chat",
+		} {
+			if !strings.Contains(rendered, want) {
+				t.Errorf("rendered_text missing %q: %q", want, rendered)
+			}
+		}
+	})
+
+	t.Run("raw_slash_command_omits_rendered_text", func(t *testing.T) {
+		// Raw inputs bypass envelope composition entirely (v1.0.707);
+		// there's nothing to render. Confirm rendered_text is absent
+		// on those rows so the host-runner falls through to the
+		// verbatim body via the no-envelope branch.
+		body := map[string]any{
+			"kind": "text",
+			"body": "/clear",
+			"raw":  true,
+		}
+		status, raw := postInput(t, h, defaultTeamID, agentID, body)
+		if status != http.StatusCreated {
+			t.Fatalf("status = %d body=%s", status, raw)
+		}
+		var out map[string]any
+		_ = json.Unmarshal(raw, &out)
+		var payloadJSON string
+		_ = s.db.QueryRow(
+			`SELECT payload_json FROM agent_events WHERE id = ?`,
+			out["id"],
+		).Scan(&payloadJSON)
+		var payload map[string]any
+		_ = json.Unmarshal([]byte(payloadJSON), &payload)
+		if _, ok := payload["rendered_text"]; ok {
+			t.Errorf("rendered_text leaked into a raw input: %v",
+				payload["rendered_text"])
+		}
+	})
+}
+
+// TestPostAgentInput_RenderedTextHonoursOperatorOverride — v1.0.708
+// end-to-end smoke. Edit the envelope template on disk (the same path
+// mobile's TemplateEditorScreen writes to), post a text input, and
+// confirm the rendered_text reflects the override.
+//
+// This is the load-bearing assurance the user asked for: "can I
+// iterate the prompt without rebuilding?" The mtime hot-reload pulls
+// the new template in on the next Resolve, which runs per-render. No
+// hub restart involved.
+func TestPostAgentInput_RenderedTextHonoursOperatorOverride(t *testing.T) {
+	s, dir := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	// Write a distinct override at the canonical operator path.
+	overrideDir := filepath.Join(dir, "team", "templates", "envelope")
+	if err := os.MkdirAll(overrideDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	override := filepath.Join(overrideDir, "active.yaml")
+	customYAML := `schema_version: 1
+snapshot_date: 2026-05-25
+frame: |
+  >>> CUSTOM-FRAME {{.Kind}} {{.Sender}} <<<
+  {{.Text}}
+  {{.ReplyInstruction}}
+roles:
+  principal: "THE-OPERATOR"
+  system: "system"
+  peer_steward: "@{{.Handle}} (steward)"
+  peer_worker: "@{{.Handle}} (worker)"
+reply_instruction:
+  a2a: "a2a"
+  attention_reply: "att"
+  none: "n"
+  chat: "chat-reply"
+fallbacks:
+  empty_kind: "msg"
+  empty_handle: "anon"
+`
+	if err := os.WriteFile(override, []byte(customYAML), 0o644); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
+
+	body := map[string]any{"kind": "text", "body": "smoke"}
+	status, raw := postInput(t, h, defaultTeamID, agentID, body)
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", status, raw)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+	var payloadJSON string
+	_ = s.db.QueryRow(
+		`SELECT payload_json FROM agent_events WHERE id = ?`,
+		out["id"],
+	).Scan(&payloadJSON)
+	var payload map[string]any
+	_ = json.Unmarshal([]byte(payloadJSON), &payload)
+	rendered, _ := payload["rendered_text"].(string)
+	if !strings.Contains(rendered, ">>> CUSTOM-FRAME") {
+		t.Errorf("operator override frame not used: %q", rendered)
+	}
+	if !strings.Contains(rendered, "THE-OPERATOR") {
+		t.Errorf("operator override role label not used: %q", rendered)
+	}
+	if !strings.Contains(rendered, "smoke") {
+		t.Errorf("body lost: %q", rendered)
 	}
 }
 

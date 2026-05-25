@@ -6,7 +6,7 @@ description: The L3 message contract. Every message between agents, and between 
 # 032. Message routing — the orchestration message envelope
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-18; **revised 2026-05-19**; **D-9 raw-bypass amendment 2026-05-25**) — D-1..D-9
+> **Status:** Proposed (2026-05-18; **revised 2026-05-19**; **D-9 raw-bypass + D-10 configurable templates amendments 2026-05-25**) — D-1..D-10
 > widen the original `message-routing-envelope` scope to the full L3
 > message contract, per the [orchestration-contract discussion](../discussions/orchestration-contract.md).
 > The ADR is still Proposed (never Accepted), so revision in place is
@@ -17,7 +17,7 @@ description: The L3 message contract. Every message between agents, and between 
 > suite green). Flips to `Accepted` after on-device verification
 > confirms engines read the rendered envelope reliably.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.707-alpha
+> **Last verified vs code:** v1.0.708-alpha
 
 **TL;DR.** Every message crossing an agent boundary — principal→agent,
 agent→agent (A2A), agent→principal, system→agent — is a structured
@@ -236,6 +236,64 @@ prefixed turn as prose and never recognises the command). The
 admission pipeline (D-7) only fires on envelope-bearing rows, so raw
 rows skip admission entirely; this is fine because there is no
 provenance to validate and no cause to walk.
+
+### D-10. Envelope rendering is hot-loadable template config
+
+Amendment added 2026-05-25 (v1.0.708-alpha). The prose the engine
+sees — the bracketed header (`[<kind> from <sender>]`), the role
+labels (`"the principal"`, `"@h (a peer steward)"`, …), and the
+per-`reply_via` instruction — is now sourced from an
+operator-editable YAML at `<HUB_DATA>/team/templates/envelope/active.yaml`
+rather than hardcoded Go prose. The hub-side
+`hub/internal/envelope/` package owns parsing + validation +
+rendering; the resulting string is stamped onto each input.text
+event as `payload.rendered_text` before the row is persisted, and
+the host-runner forwards it verbatim to the driver.
+
+**Why move rendering from the host-runner to the hub.** The
+templates live on the hub's filesystem (the operator's iteration
+surface — mobile's `TemplateEditorScreen` or `ssh && $EDITOR`).
+Host-runners run on separate hosts (blueprint §3.2) and do not share
+the hub's data root. Rendering on the hub side ships the result over
+the existing `agent_events` channel; the host-runner stays
+transport-only and never needs to know what the templates say.
+
+**Closed enums remain code-defined.** The four kinds
+(`directive`/`question`/`report`/`notification` — D-2), the four
+roles (`principal`/`peer_steward`/`peer_worker`/`system` — D-2), the
+three transports (`session`/`a2a`/`attention` — D-2 + D-5), and the
+`deriveReplyVia(kind, transport)` mapping (D-5) are protocol
+contracts. The template *variables against* them — a YAML edit that
+introduces an unknown role hits the loader's `roles["default"]`
+fallback (or, failing that, the bare-handle render), and an unknown
+`reply_via` collapses the instruction line to empty. The template
+cannot redefine the protocol; only its visible prose.
+
+**Three-tier resolution + graceful degradation.** Mirrors the
+pricing-loader pattern (ADR-036 D-10 + the
+`feedback_hot_loadable_config_with_embedded_default` discipline):
+operator override on disk → embedded `templates/envelope/active.yaml`
+on `hub.TemplatesFS` → per-key fallback to the embedded value for
+the missing key alone. mtime-driven hot-reload — operator edits land
+on the next `Resolve()` call, no hub restart. Validate failure on the
+override file warns under `envelope.config_error` and falls through to
+embedded; the engine never sees a half-rendered turn.
+
+**Host-runner defence-in-depth.** When the hub's render path is
+unavailable (legacy rows pre-D-10, hub-side loader disabled in a
+test, future engine-direct admission path), the host-runner's
+`renderEnvelopeTurn` retains the original hardcoded prose as a
+fallback that's bytewise-identical to the embedded YAML's content.
+This is the same redundancy class as the embedded fallback inside
+the hub-side loader: the consumer is always-defended.
+
+**What this does not break.** D-1 (envelope schema), D-2 (closed
+enums), D-3 (binding by handle), D-5 (reply_via derivation), D-6
+(single compose authority), D-7 (admission pipeline), and D-8 (no
+shim) all remain in force. D-9's raw-bypass also remains in force:
+raw inputs skip envelope composition entirely, so they have no
+`rendered_text` either, and the host-runner falls through to the
+verbatim body via the no-envelope branch.
 
 **What this does not break.** "No shim" concerns *persisted runtime
 data*, not first-party code. `seed-demo` writes only static state

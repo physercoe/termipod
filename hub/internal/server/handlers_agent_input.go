@@ -554,6 +554,16 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 			for k, v := range env.PayloadMap() {
 				payloadMap[k] = v
 			}
+			// ADR-032 D-10: render the envelope into the engine-facing
+			// prose here so the host-runner can pass it through verbatim.
+			// Hub is the only process that has the operator-editable
+			// templates on its filesystem; host-runner is just transport.
+			// An empty string falls back to the host-runner's hardcoded
+			// prose (renderInboundEnvelope path), so a misconfigured
+			// loader can never block a turn.
+			if rendered := s.renderEnvelopeForDriver(env); rendered != "" {
+				payloadMap["rendered_text"] = rendered
+			}
 		}
 	}
 

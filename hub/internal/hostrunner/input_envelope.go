@@ -18,13 +18,23 @@ import (
 
 // inboundEnvelope mirrors the hub-composed MessageEnvelope as it arrives
 // on an input.text payload. Read-only on the host-runner side.
+//
+// ADR-032 D-10: `RenderedText` is the hub-side render of the envelope
+// against the operator-editable templates (hub/internal/envelope).
+// When present, the host-runner forwards it verbatim to the driver
+// without re-rendering — the templates only live on the hub's
+// filesystem and the host-runner must remain transport-only. Empty
+// (legacy rows pre-D-10, or hub-side render failure) → fall through
+// to renderEnvelopeTurn's hardcoded prose, preserving backward
+// compatibility and providing a defence-in-depth fallback.
 type inboundEnvelope struct {
-	From   envEndpoint `json:"from"`
-	To     envEndpoint `json:"to"`
-	Kind   string      `json:"kind"`
-	Text   string      `json:"text"`
-	Cause  string      `json:"cause"`
-	Thread envThread   `json:"thread"`
+	From         envEndpoint `json:"from"`
+	To           envEndpoint `json:"to"`
+	Kind         string      `json:"kind"`
+	Text         string      `json:"text"`
+	Cause        string      `json:"cause"`
+	Thread       envThread   `json:"thread"`
+	RenderedText string      `json:"rendered_text"`
 }
 
 type envEndpoint struct {
@@ -43,6 +53,16 @@ type envThread struct {
 // A payload carrying no envelope (from.role empty — a legacy/malformed
 // row) falls back to its plain `text` field so the engine still receives
 // something rather than nothing.
+//
+// ADR-032 D-10: the hub stamps `payload.rendered_text` against the
+// operator-editable templates before the row is persisted. The host-
+// runner prefers that string when present so the operator's wording
+// reaches the engine without the host-runner needing access to the
+// hub's filesystem. Empty `rendered_text` (legacy rows / hub-side
+// render failure / loader disabled) falls through to the hardcoded
+// `renderEnvelopeTurn` path below — same prose as pre-v1.0.708, so
+// the consumer side is always-defended against a busted operator
+// template.
 func renderInboundEnvelope(raw json.RawMessage) (text string, selfEcho bool) {
 	var e inboundEnvelope
 	if err := json.Unmarshal(raw, &e); err != nil {
@@ -53,6 +73,9 @@ func renderInboundEnvelope(raw json.RawMessage) (text string, selfEcho bool) {
 	}
 	if isSelfEcho(e) {
 		return "", true
+	}
+	if e.RenderedText != "" {
+		return e.RenderedText, false
 	}
 	return renderEnvelopeTurn(e), false
 }

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"strings"
+
+	"github.com/termipod/hub/internal/envelope"
 )
 
 // The L3 orchestration message contract (ADR-032).
@@ -199,4 +201,32 @@ func (s *Server) composeTextInputEnvelope(ctx context.Context, in *agentInputIn,
 		MessageEndpoint{Role: RolePrincipal}, to,
 		KindDirective, in.Body, in.Cause,
 		MessageThread{Transport: TransportSession, ID: sessionID})
+}
+
+// renderEnvelopeForDriver produces the engine-facing prose for a
+// MessageEnvelope using the operator-editable templates (ADR-032 D-10).
+// The result is stamped onto payload["rendered_text"] alongside the
+// structured envelope fields so the host-runner can prefer the
+// pre-rendered string without re-doing the work + re-parsing the
+// templates on its own filesystem (which it doesn't have — see
+// blueprint §3.2 on the hub / host-runner process split).
+//
+// Empty string when the loader is nil (test paths that haven't wired
+// it) or when the envelope's `from.role` is empty (legacy / malformed
+// row; host-runner's no-envelope fallback handles those).
+func (s *Server) renderEnvelopeForDriver(env MessageEnvelope) string {
+	if s.envelope == nil {
+		return ""
+	}
+	if env.From.Role == "" {
+		return ""
+	}
+	tpl := s.envelope.Resolve()
+	return tpl.Render(envelope.Message{
+		Kind:       env.Kind,
+		FromRole:   env.From.Role,
+		FromHandle: env.From.Handle,
+		Transport:  env.Thread.Transport,
+		Text:       env.Text,
+	})
 }

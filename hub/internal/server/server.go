@@ -19,6 +19,7 @@ import (
 	"github.com/termipod/hub/internal/agentfamilies"
 	"github.com/termipod/hub/internal/auth"
 	"github.com/termipod/hub/internal/buildinfo"
+	"github.com/termipod/hub/internal/envelope"
 	"github.com/termipod/hub/internal/pricing"
 )
 
@@ -59,6 +60,14 @@ type Server struct {
 	// operator-edited override file lights up without restart. See
 	// hub/internal/pricing/loader.go for the three-tier resolution.
 	pricing *pricing.Loader
+	// envelope renders the engine-facing prose for every input.text
+	// envelope (ADR-032 D-10 + v1.0.708-alpha). Same 3-tier hot-
+	// reload as pricing; the operator override lives under
+	// <HUB_DATA>/team/templates/envelope/active.yaml — reachable
+	// through the existing /templates REST surface + mobile's
+	// TemplateEditorScreen, so prompt iteration doesn't require a
+	// rebuild. See hub/internal/envelope/loader.go.
+	envelope *envelope.Loader
 }
 
 func New(cfg Config) (*Server, error) {
@@ -138,7 +147,19 @@ func New(cfg Config) (*Server, error) {
 		// shape for this case. Log instead until a per-team audit
 		// channel exists.
 		s.log.Warn("pricing config", "action", action, "msg", summary, "meta", meta)
-	})
+	}).WithHubData(cfg.DataRoot)
+	// Envelope template loader (ADR-032 D-10). Same audit-via-log
+	// pattern as pricing — `envelope.config_error` rows are operator-
+	// facing diagnostics for parse/validation failures on the
+	// override file. The host-runner is unaffected by a bad template
+	// because the legacy hardcoded prose remains on the consumer
+	// side as a defence-in-depth fallback. WithHubData binds the
+	// loader to the same on-disk root the server uses, so the
+	// override path tracks the configured data root rather than
+	// relying on $HUB_DATA being identical in every deploy + test.
+	s.envelope = envelope.NewLoader(func(action, summary string, meta map[string]any) {
+		s.log.Warn("envelope config", "action", action, "msg", summary, "meta", meta)
+	}).WithHubData(cfg.DataRoot)
 	s.router = s.buildRouter()
 	return s, nil
 }

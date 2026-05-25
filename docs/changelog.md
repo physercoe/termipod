@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-25)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.707
+> **Last verified vs code:** v1.0.708
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,93 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.708-alpha — 2026-05-25
+
+**Configurable envelope templates with mobile-editable hot-reload
+(ADR-032 D-10).** The prose the engine sees on every wrapped turn —
+the bracketed header `[<kind> from <sender>]`, the role labels, the
+per-`reply_via` instruction — was hardcoded Go since v1.0.648.
+Iterating the wording required a rebuild + redeploy. Now lives in
+an operator-editable YAML at
+`<HUB_DATA>/team/templates/envelope/active.yaml` with mtime-driven
+hot-reload.
+
+The override path is already part of the existing `/templates`
+REST surface — mobile's `TemplateEditorScreen` lists + edits it
+zero-code-changes-needed, same as every other operator template.
+
+### Added
+
+- **`hub/internal/envelope/` package** — three-tier loader mirroring
+  the pricing pattern. `Templates.Validate()` compiles every YAML
+  string into a `text/template.Template` once (Option
+  `missingkey=zero` so a typo'd variable renders empty rather than
+  erroring). `Templates.Render(envelope.Message)` produces the
+  engine-facing prose. `DeriveReplyVia(kind, transport)` is the same
+  closed-enum mapping the host-runner uses, exposed here so the
+  envelope package stays import-clean.
+- **`hub/templates/envelope/active.yaml`** — the seeded operator
+  override (auto-discovered by `writeBuiltinTemplates`, mobile-
+  editable via the existing template surface). Byte-equivalent to
+  today's hardcoded prose so v1.0.708 ships with zero observable
+  wording change.
+- **Server-side rendering** — `s.envelope *envelope.Loader`
+  constructed in `server.New()` and bound to `cfg.DataRoot` via
+  `WithHubData`. `composeTextInputEnvelope` calls a new
+  `renderEnvelopeForDriver` that resolves the loader and stamps
+  `payload.rendered_text` alongside the structured envelope keys.
+- **Host-runner pass-through** — `inboundEnvelope.RenderedText`
+  added; `renderInboundEnvelope` prefers it when present, falls
+  through to the existing hardcoded `renderEnvelopeTurn` otherwise
+  (defence-in-depth: a missing / busted operator template can never
+  block a turn).
+
+### Changed
+
+- **ADR-032 amended with D-10** (Envelope rendering is hot-loadable
+  template config). Documents the host-runner → hub render move,
+  why the closed enums stay code-defined, and the three-tier
+  graceful-degradation contract.
+
+### Tests
+
+- **`hub/internal/envelope/types_test.go`** — 16 cases: Validate
+  acceptance + four rejection paths (unknown schema version, empty
+  frame, empty fallbacks, malformed template string), Render
+  smoke across principal-directive / A2A-peer-steward /
+  system-notification, empty-kind fallback, unknown-role fall-
+  through to default, unknown-role + no default fall to bare
+  handle, no-handle fall to empty-handle fallback, leading-@
+  normalisation, missing reply_via collapses cleanly,
+  DeriveReplyVia closed-enum table.
+- **`hub/internal/envelope/loader_test.go`** — 9 cases: embedded
+  origin when no override, embedded-template-compiles-and-renders
+  build invariant, operator override precedence, env-override
+  path precedence, parse-error fall-through with audit warning,
+  validation-error fall-through, second-call cache identity,
+  mtime-driven hot-reload, permission-denied audit, nil-warner
+  safety.
+- **`hub/internal/server/handlers_agent_input_test.go`** —
+  TestPostAgentInput_RenderedTextStamped (2 sub-cases: regular
+  text stamps rendered_text containing header/body/reply line;
+  raw slash command omits rendered_text entirely).
+  TestPostAgentInput_RenderedTextHonoursOperatorOverride —
+  end-to-end smoke: write an override on disk, post a text, assert
+  the rendered_text picks up the override's frame + role label.
+- **`hub/internal/server/server.go`** pricing loader gains
+  `WithHubData(cfg.DataRoot)` alongside the new envelope loader
+  for symmetry; both now track the server's data root rather than
+  relying on `$HUB_DATA` being identical in every deploy.
+
+### Source
+
+- `hub/internal/envelope/{types,loader}.go` + `templates/envelope/active.yaml`
+- `hub/internal/server/{server,input_envelope,handlers_agent_input}.go`
+- `hub/internal/hostrunner/input_envelope.go`
+- `docs/decisions/032-message-routing-envelope.md` (D-10 amendment)
 
 ---
 

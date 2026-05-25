@@ -1,0 +1,85 @@
+# Envelope rendering templates (ADR-032 D-10).
+#
+# This file controls the prose the engine sees when the hub wraps an
+# input.text turn in the message envelope (sender, kind, reply
+# instruction). Edits land in <HUB_DATA>/team/templates/envelope/active.yaml
+# and hot-reload on mtime change — no hub restart needed. Mobile edits
+# this file through the same TemplateEditorScreen used for prompt
+# templates (lib/screens/team/templates_screen.dart); SSH-and-edit
+# works too.
+#
+# ## What you can change
+#
+#   - The frame shape (header + body + reply instruction layout)
+#   - The wording of every role label (principal / system / peer_*)
+#   - The wording of every reply-via instruction
+#   - The fallbacks for empty kind / handle
+#
+# ## What is NOT in this file (ADR-032 §D-2 contract)
+#
+# The closed enums — kind (directive/question/report/notification),
+# role (principal/peer_steward/peer_worker/system), and transport
+# (session/a2a/attention) — are protocol contracts and stay in code.
+# This template VARIABLES against them; it cannot redefine them.
+#
+# ## Template variables
+#
+# Go text/template syntax. Variables exposed:
+#
+#   frame.{Kind, Sender, Text, ReplyInstruction}
+#     The complete turn — header line + body + reply contract.
+#
+#   roles.<role>.{Handle}
+#     Renders the sender description. `principal` and `system` are
+#     handle-less; `peer_steward` and `peer_worker` get the handle.
+#
+#   reply_instruction.<reply_via>.{FromHandle}
+#     Renders the reply contract. `FromHandle` is bare (no @).
+#
+# Missing keys degrade to empty string (text/template's
+# `missingkey=zero` option) so a typo never bricks the turn.
+#
+# ## Snapshot
+#
+# This file's `snapshot_date` records when its content was set. The
+# loader surfaces it on audit warnings so an operator can spot config
+# whose ages don't match the rest of the deploy.
+
+schema_version: 1
+snapshot_date: 2026-05-25
+
+frame: |
+  [{{.Kind}} from {{.Sender}}]
+  {{.Text}}
+
+  {{.ReplyInstruction}}
+
+roles:
+  principal:    "the principal"
+  system:       "the system"
+  peer_steward: "@{{.Handle}} (a peer steward)"
+  peer_worker:  "@{{.Handle}} (a peer worker)"
+  # Default for unrecognised roles — surfaces as "@<handle>" with no
+  # parenthetical descriptor. Triggered only by a future role that
+  # didn't update this file alongside its closed-enum addition.
+  default:      "@{{.Handle}}"
+
+reply_instruction:
+  a2a: 'To respond, send an A2A message back: a2a.invoke(handle="{{.FromHandle}}", kind="report").'
+  attention_reply: "To respond, resolve the originating request."
+  none: "Informational — no reply is routed. Act on it if it concerns work you own."
+  # Softened from the pre-v1.0.648 "Reply in this chat when you have a
+  # result." That wording implied every message required a substantive
+  # result and pushed agents (especially agy with
+  # --dangerously-skip-permissions) into deep investigation on casual
+  # greetings. The match-the-ask guidance now lives in the prompt; the
+  # envelope just says "reply when ready" without prescribing a "result".
+  chat: "Reply in this chat. Match the response to the ask — a brief acknowledgement is fine when the directive isn't a task."
+
+fallbacks:
+  # Used when the envelope's `kind` field is empty (shouldn't happen
+  # post-ADR-032 admission but a malformed legacy row could land here).
+  empty_kind: "message"
+  # Used when a peer_steward / peer_worker arrives without a handle
+  # (also shouldn't happen post-admission; defensive).
+  empty_handle: "an agent"

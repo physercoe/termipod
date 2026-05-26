@@ -83,13 +83,32 @@ func (s *fakeAppServer) run() {
 		s.got = append(s.got, req)
 		fn, hasFn := s.respond[stringField(req, "method")]
 		s.mu.Unlock()
-		if id, hasID := req["id"]; hasID && hasFn {
-			result := fn(req)
-			s.send(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      id,
-				"result":  result,
-			})
+		if id, hasID := req["id"]; hasID {
+			if hasFn {
+				result := fn(req)
+				s.send(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      id,
+					"result":  result,
+				})
+			} else {
+				// Match real codex behaviour for unregistered methods —
+				// send `-32601 Method not found`. Without this the
+				// driver's Call() blocks until CallTimeout for any
+				// request a test forgot to register a handler for
+				// (e.g. the Wedge F handshake-side
+				// account/rateLimits/read pull). Tests that DO care
+				// about the response register an onCall handler.
+				method, _ := req["method"].(string)
+				s.send(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      id,
+					"error": map[string]any{
+						"code":    -32601,
+						"message": "method not found: " + method,
+					},
+				})
+			}
 		}
 	}
 }
@@ -1772,5 +1791,319 @@ func TestAppServerDriver_Cancel_DrainsParkedRequests(t *testing.T) {
 	result, _ := resp["result"].(map[string]any)
 	if got, _ := result["action"].(string); got != "cancel" {
 		t.Errorf("parked elicit cancel.action = %q; want cancel", got)
+	}
+}
+
+// ─── Wedge F: rate-limit + account telemetry (~M4 claude-code parity) ───
+//
+// Tests the engine-agnostic `kind: status_line` emission path the ADR-036
+// Phase B mobile chips consume. Codex's wire shape (`RateLimitSnapshot`
+// with `primary` / `secondary` `RateLimitWindow {usedPercent, resetsAt}`)
+// gets translated to claude-statusLine's
+// `{rate_limits.{five_hour,seven_day}.{used_percentage,resets_at}}` shape
+// so chip code stays single-engine.
+//
+// Both `emitRateLimitsStatusLine` (the helper) and the two call sites
+// (handshake `account/rateLimits/read` response + `translateNotification`
+// `account/rateLimits/updated` early-emission) are covered.
+
+func TestEmitRateLimitsStatusLine_FullSnapshot(t *testing.T) {
+	poster := &fakePoster{}
+	drv := &AppServerDriver{AgentID: "agent-x", Poster: poster}
+	drv.emitRateLimitsStatusLine(context.Background(), map[string]any{
+		"primary": map[string]any{
+			"usedPercent":         float64(42),
+			"windowDurationMins":  float64(300),
+			"resetsAt":            float64(1777443000),
+		},
+		"secondary": map[string]any{
+			"usedPercent":         float64(12),
+			"windowDurationMins":  float64(10080),
+			"resetsAt":            float64(1778047800),
+		},
+		"rateLimitReachedType": nil,
+	})
+	evts := poster.snapshot()
+	if len(evts) != 1 {
+		t.Fatalf("emitRateLimitsStatusLine: want 1 event, got %d", len(evts))
+	}
+	if evts[0].Kind != "status_line" {
+		t.Fatalf("kind = %q; want status_line", evts[0].Kind)
+	}
+	if evts[0].Producer != "agent" {
+		t.Errorf("producer = %q; want agent", evts[0].Producer)
+	}
+	rl, _ := evts[0].Payload["rate_limits"].(map[string]any)
+	if rl == nil {
+		t.Fatalf("payload.rate_limits missing; payload = %+v", evts[0].Payload)
+	}
+	fh, _ := rl["five_hour"].(map[string]any)
+	if fh == nil {
+		t.Fatalf("rate_limits.five_hour missing")
+	}
+	if got, _ := fh["used_percentage"].(int); got != 42 {
+		t.Errorf("five_hour.used_percentage = %v; want 42", fh["used_percentage"])
+	}
+	if got, _ := fh["resets_at"].(int64); got != 1777443000 {
+		t.Errorf("five_hour.resets_at = %v; want 1777443000", fh["resets_at"])
+	}
+	sd, _ := rl["seven_day"].(map[string]any)
+	if sd == nil {
+		t.Fatalf("rate_limits.seven_day missing")
+	}
+	if got, _ := sd["used_percentage"].(int); got != 12 {
+		t.Errorf("seven_day.used_percentage = %v; want 12", sd["used_percentage"])
+	}
+	if got, _ := sd["resets_at"].(int64); got != 1778047800 {
+		t.Errorf("seven_day.resets_at = %v; want 1778047800", sd["resets_at"])
+	}
+}
+
+func TestEmitRateLimitsStatusLine_PrimaryOnly(t *testing.T) {
+	poster := &fakePoster{}
+	drv := &AppServerDriver{AgentID: "agent-x", Poster: poster}
+	drv.emitRateLimitsStatusLine(context.Background(), map[string]any{
+		"primary": map[string]any{
+			"usedPercent": float64(7),
+			"resetsAt":    float64(1777443000),
+		},
+		"secondary": nil,
+	})
+	evts := poster.snapshot()
+	if len(evts) != 1 {
+		t.Fatalf("want 1 event, got %d", len(evts))
+	}
+	rl, _ := evts[0].Payload["rate_limits"].(map[string]any)
+	if _, has := rl["five_hour"]; !has {
+		t.Errorf("five_hour missing when primary is present")
+	}
+	if _, has := rl["seven_day"]; has {
+		t.Errorf("seven_day should be omitted when secondary is null; got %+v", rl["seven_day"])
+	}
+}
+
+func TestEmitRateLimitsStatusLine_BothNull_SuppressesEvent(t *testing.T) {
+	// When codex returns a snapshot with both windows null
+	// (e.g. early-handshake before any API call has set rate limits),
+	// we DON'T post a `status_line` event — mobile's reducer would
+	// see an empty rate_limits map and render "—" anyway, and the
+	// empty DB row is just noise.
+	poster := &fakePoster{}
+	drv := &AppServerDriver{AgentID: "agent-x", Poster: poster}
+	drv.emitRateLimitsStatusLine(context.Background(), map[string]any{
+		"primary":   nil,
+		"secondary": nil,
+	})
+	if got := len(poster.snapshot()); got != 0 {
+		t.Errorf("want 0 events when both windows null; got %d", got)
+	}
+}
+
+func TestEmitRateLimitsStatusLine_NilSnapshot(t *testing.T) {
+	poster := &fakePoster{}
+	drv := &AppServerDriver{AgentID: "agent-x", Poster: poster}
+	drv.emitRateLimitsStatusLine(context.Background(), nil)
+	if got := len(poster.snapshot()); got != 0 {
+		t.Errorf("want 0 events on nil snapshot; got %d", got)
+	}
+}
+
+func TestAppServerDriver_TranslateRateLimitsUpdated_EmitsStatusLine(t *testing.T) {
+	// translateNotification's early-emission case for
+	// account/rateLimits/updated: a real-shape notification frame
+	// produces a status_line event AND the existing profile-driven
+	// rate_limit event (dual-emit, matches claude-code's pattern).
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_rl"}}
+	})
+	server.onCall("account/rateLimits/read", func(_ map[string]any) any {
+		// Suppress the handshake-side emission so this test only
+		// counts the notification-side one — match the both-null
+		// path (which short-circuits).
+		return map[string]any{
+			"rateLimits": map[string]any{
+				"primary":   nil,
+				"secondary": nil,
+			},
+		}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-rl",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+	server.waitForMethod("thread/start", time.Second)
+
+	server.notify("account/rateLimits/updated", map[string]any{
+		"rateLimits": map[string]any{
+			"primary": map[string]any{
+				"usedPercent":        float64(73),
+				"windowDurationMins": float64(300),
+				"resetsAt":           float64(1777443000),
+			},
+			"secondary": map[string]any{
+				"usedPercent":        float64(15),
+				"windowDurationMins": float64(10080),
+				"resetsAt":           float64(1778047800),
+			},
+			"rateLimitReachedType": nil,
+		},
+	})
+
+	// Expect: lifecycle (handshake) + status_line (this notification)
+	// + rate_limit (profile-driven from same notification).
+	events := poster.wait(t, 3, 2*time.Second)
+	var sawStatusLine, sawRateLimit bool
+	for _, e := range events {
+		switch e.Kind {
+		case "status_line":
+			sawStatusLine = true
+			rl, _ := e.Payload["rate_limits"].(map[string]any)
+			fh, _ := rl["five_hour"].(map[string]any)
+			if got, _ := fh["used_percentage"].(int); got != 73 {
+				t.Errorf("five_hour.used_percentage = %v; want 73", fh["used_percentage"])
+			}
+		case "rate_limit":
+			sawRateLimit = true
+		}
+	}
+	if !sawStatusLine {
+		t.Errorf("missing status_line event in posted set: %+v", events)
+	}
+	if !sawRateLimit {
+		t.Errorf("missing rate_limit event (profile-driven) in posted set: %+v", events)
+	}
+}
+
+func TestAppServerDriver_HandshakeFetchesRateLimits(t *testing.T) {
+	// handshake-side account/rateLimits/read pull: when the fake
+	// server returns a non-null snapshot, we emit status_line
+	// immediately so the mobile chip has data before the first
+	// account/rateLimits/updated push (which may take many minutes
+	// or never fire if usage stays under the windows).
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_init"}}
+	})
+	server.onCall("account/rateLimits/read", func(_ map[string]any) any {
+		return map[string]any{
+			"rateLimits": map[string]any{
+				"primary": map[string]any{
+					"usedPercent": float64(3),
+					"resetsAt":    float64(1777443000),
+				},
+				"secondary": map[string]any{
+					"usedPercent": float64(1),
+					"resetsAt":    float64(1778047800),
+				},
+			},
+		}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-init",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+	server.waitForMethod("account/rateLimits/read", time.Second)
+
+	// Expect lifecycle + status_line (handshake-side snapshot).
+	// Wait up to 2s — handshake completion + the snapshot emission
+	// are both asynchronous to Start() returning.
+	events := poster.wait(t, 2, 2*time.Second)
+	var sawStatusLine bool
+	for _, e := range events {
+		if e.Kind == "status_line" {
+			sawStatusLine = true
+			rl, _ := e.Payload["rate_limits"].(map[string]any)
+			fh, _ := rl["five_hour"].(map[string]any)
+			if got, _ := fh["used_percentage"].(int); got != 3 {
+				t.Errorf("handshake five_hour.used_percentage = %v; want 3", fh["used_percentage"])
+			}
+		}
+	}
+	if !sawStatusLine {
+		t.Errorf("missing status_line from handshake snapshot in posted set: %+v", events)
+	}
+}
+
+func TestAppServerDriver_HandshakeRateLimitsRead_ErrorSwallowed(t *testing.T) {
+	// When account/rateLimits/read returns -32601 (older codex, or
+	// the fake's default unknown-method response), handshake MUST
+	// succeed cleanly. Old codex builds may not have implemented
+	// this method yet — graceful degradation rather than handshake
+	// failure is the contract.
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_old"}}
+	})
+	// No onCall("account/rateLimits/read") — fake's default -32601.
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-old",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v (handshake should swallow rate_limits/read failure)", err)
+	}
+	t.Cleanup(drv.Stop)
+	if got := drv.ThreadID(); got != "thr_old" {
+		t.Errorf("ThreadID = %q; want thr_old", got)
+	}
+	// No status_line event posted on the failure path — only
+	// lifecycle. Mobile chip falls back to whatever the
+	// rate_limit_event-style notifications eventually carry.
+	events := poster.wait(t, 1, 2*time.Second)
+	for _, e := range events {
+		if e.Kind == "status_line" {
+			t.Errorf("status_line should not fire on rate_limits/read failure; got %+v", e)
+		}
 	}
 }

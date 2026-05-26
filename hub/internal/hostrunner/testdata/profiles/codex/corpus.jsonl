@@ -41,7 +41,11 @@
 # v1.0.712 changelog entry for the on-device regression that surfaced
 # this distinction.
 {"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thr_abc","turnId":"turn_001","tokenUsage":{"total":{"totalTokens":79354,"inputTokens":79173,"cachedInputTokens":54784,"outputTokens":181,"reasoningOutputTokens":44},"last":{"totalTokens":19986,"inputTokens":19924,"cachedInputTokens":19328,"outputTokens":62,"reasoningOutputTokens":0},"modelContextWindow":258400}}}
-{"jsonrpc":"2.0","method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":42,"windowDurationMins":60,"resetsAt":"2026-04-29T11:00:00Z"},"secondary":{"usedPercent":12,"windowDurationMins":10080,"resetsAt":"2026-05-06T10:00:00Z"},"rateLimitReachedType":null}}}
+# resetsAt is upstream-documented Unix-epoch SECONDS (codex-rs/
+# protocol/src/protocol.rs:2025 — "Unix timestamp (seconds since
+# epoch) when the window resets"). Earlier versions of this corpus
+# carried an ISO 8601 STRING here; the wire shape is numeric.
+{"jsonrpc":"2.0","method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":1777443000},"secondary":{"usedPercent":12,"windowDurationMins":10080,"resetsAt":1778047800},"rateLimitReachedType":null}}}
 
 # 8. MCP server startup
 {"jsonrpc":"2.0","method":"mcpServer/startupStatus/updated","params":{"name":"termipod","status":"ready","error":null}}

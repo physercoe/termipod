@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-25)
+> **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.712
+> **Last verified vs code:** v1.0.713
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,81 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.713-alpha — 2026-05-26
+
+**Codex M2 gains rate-limit chip parity with claude-code M4 statusLine
+(ADR-036 Phase B chip contract).** Wedge F from
+[`discussions/codex-m2-app-server-surface-audit.md`](discussions/codex-m2-app-server-surface-audit.md)
+§5-F lands hub-only — mobile chips render without any Flutter change.
+
+### Added
+
+- **`AppServerDriver.emitRateLimitsStatusLine`** — translates codex's
+  upstream `RateLimitSnapshot {primary, secondary}` wire shape
+  (`codex-rs/app-server-protocol/src/protocol/v2/account.rs:257-353`)
+  into the engine-agnostic ADR-036 mobile-chip contract
+  `payload.rate_limits.{five_hour, seven_day}.{used_percentage,
+  resets_at}`. Posted as `kind: status_line, producer: agent` — same
+  event shape claude-code's statusLine shim emits, so the existing
+  mobile chip reducers (`rateLimitsFromEvents` in
+  `lib/widgets/agent_feed.dart:125`) consume it uniformly.
+
+- **Handshake-time pull** at `driver_appserver.go::handshake`. After
+  `thread/start` returns, calls `account/rateLimits/read` (upstream
+  `common.rs:923`) and emits a `status_line` snapshot if the response
+  carries non-null windows. Means mobile has chip data BEFORE codex's
+  first `account/rateLimits/updated` push — that notification can
+  take many minutes (or never fire at all if usage stays well under
+  the windows).
+
+- **Notification-time emission** at `translateNotification`. An
+  `account/rateLimits/updated` frame (upstream `common.rs:1517`) now
+  triggers an additional `status_line` event alongside the existing
+  profile-driven `kind: rate_limit` event (dual-emit, symmetric with
+  claude-code's `rate_limit_event` + statusLine dual path). Both
+  kinds are in mobile's `kAgentFeedAlwaysHiddenKinds` set
+  (`agent_feed.dart:74-79`) so neither clutters the transcript.
+
+- **7 driver tests** covering the full snapshot, primary-only,
+  both-null suppression, nil-snapshot guard, the notification path,
+  the handshake-time pull, and `-32601` graceful degradation when
+  the codex build doesn't implement the read method yet.
+
+### Why no shim install (unlike v1.0.696-698 claude-code statusLine)
+
+Codex's app-server protocol exposes `RateLimitSnapshot` as a
+first-class JSON-RPC notification on the same stdio pipe
+`AppServerDriver` already reads. The whole v1.0.696-698 stack
+(statusLine shim binary + UDS gateway + `~/.claude/settings.local.
+json` wrap-and-passthrough) was load-bearing for claude-code only
+because that engine's sole data export is a shell command claude
+invokes every ~10s. Codex was designed app-server-first; this
+wedge is ~150 LOC + 8 tests instead of ~760 LOC + 16 tests.
+
+### Fixed
+
+- `hub/internal/hostrunner/testdata/profiles/codex/corpus.jsonl`
+  `account/rateLimits/updated` frame's `resetsAt` is now numeric
+  Unix-epoch seconds (was an ISO 8601 string — wrong per upstream
+  `codex-rs/protocol/src/protocol.rs:2025` which documents
+  `resets_at: Option<i64>` as "Unix timestamp (seconds since
+  epoch)"). The malformed fixture didn't break any existing
+  assertions but would have masked the wedge's wire-shape
+  expectations.
+
+- Test scaffolding: `fakeAppServer` now responds with JSON-RPC
+  `-32601 Method not found` for unregistered request methods (was
+  silently dropping them, which would have hung the new
+  handshake-side `account/rateLimits/read` call until
+  `CallTimeout`). Matches real codex behaviour.
+
+### Citations
+
+- ADR-036 mobile-chip contract example payload:
+  [`decisions/036-claude-code-statusline-telemetry.md:100-103`](decisions/036-claude-code-statusline-telemetry.md)
+- Wedge sizing + scope:
+  [`discussions/codex-m2-app-server-surface-audit.md`](discussions/codex-m2-app-server-surface-audit.md) §5-F
 
 ## v1.0.712-alpha — 2026-05-25
 

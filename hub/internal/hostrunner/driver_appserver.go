@@ -321,6 +321,31 @@ func (d *AppServerDriver) handshake(ctx context.Context) error {
 		d.threadID = out.Thread.ID
 		d.threadIDMu.Unlock()
 	}
+
+	// Wedge F: pull the initial rate-limit snapshot so the mobile
+	// chip has data BEFORE the first `account/rateLimits/updated`
+	// notification fires (which can take minutes if no API call has
+	// hit a rate-limit boundary yet, or the entire spawn if usage
+	// stays well under the windows). The response carries the same
+	// RateLimitSnapshot as the notification, so we reuse
+	// emitRateLimitsStatusLine for both paths — one source of truth
+	// for the wire→status_line translation.
+	//
+	// Best-effort: a failed call shouldn't fail handshake. Codex
+	// returns this on every account type (API key + ChatGPT + Bedrock)
+	// per upstream `codex-rs/app-server-protocol/src/protocol/v2/
+	// account.rs:181` — the response is identical-shape across them.
+	// Cite: `common.rs:923` (client request macro block) for the
+	// method, `account.rs:257-353` for the RateLimitSnapshot +
+	// RateLimitWindow shapes consumed.
+	if rlRes, err := d.Call(ctx, "account/rateLimits/read", map[string]any{}); err == nil {
+		var rlOut struct {
+			RateLimits map[string]any `json:"rateLimits"`
+		}
+		if jerr := json.Unmarshal(rlRes, &rlOut); jerr == nil && rlOut.RateLimits != nil {
+			d.emitRateLimitsStatusLine(ctx, rlOut.RateLimits)
+		}
+	}
 	return nil
 }
 
@@ -1431,10 +1456,124 @@ func (d *AppServerDriver) translateNotification(ctx context.Context, raw []byte)
 			}
 		}
 	}
+	// Wedge F: account/rateLimits/updated piggybacks an additional
+	// `kind: status_line` emission carrying the rate-limit data in
+	// the engine-agnostic ADR-036 shape mobile chips already consume.
+	// The profile keeps emitting `kind: rate_limit` (audit/debug
+	// shape, symmetric with claude-code's rate_limit_event path) —
+	// both events are filtered from transcript rendering by mobile's
+	// kAgentFeedAlwaysHiddenKinds + kAgentBusyInferenceSkipKinds
+	// sets, so the dual emission doesn't clutter the feed.
+	if method == "account/rateLimits/updated" {
+		if params, ok := frame["params"].(map[string]any); ok {
+			if rl, ok := params["rateLimits"].(map[string]any); ok {
+				d.emitRateLimitsStatusLine(ctx, rl)
+			}
+		}
+	}
 	evts := ApplyProfile(frame, d.FrameProfile)
 	for _, e := range evts {
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, e.Kind, e.Producer, e.Payload)
 	}
+}
+
+// emitRateLimitsStatusLine posts a `kind: status_line` agent event
+// shaped to the ADR-036 mobile-chip contract:
+//
+//	payload.rate_limits.five_hour = {used_percentage: int, resets_at: epoch_seconds}
+//	payload.rate_limits.seven_day  = {used_percentage: int, resets_at: epoch_seconds}
+//
+// Wire shape consumed (upstream `codex-rs/app-server-protocol/src/
+// protocol/v2/account.rs:257-353`):
+//
+//	snapshot.primary   = RateLimitWindow {used_percent: i32, ...}
+//	snapshot.secondary = RateLimitWindow {used_percent: i32, ...}
+//
+// The "five_hour"/"seven_day" labels are semantic legacy from
+// claude-code's statusLine — codex's `primary`/`secondary` map onto
+// the same chip slots regardless of the actual `windowDurationMins`
+// codex carries. The chip already shows the relative reset countdown
+// (via formatRateLimitResetsAtRelative); operators reading the
+// codex docs will recognise the bucketing intent.
+//
+// resets_at is upstream-documented Unix-epoch SECONDS
+// (`codex-rs/protocol/src/protocol.rs:2025`) — same unit as claude
+// statusLine's, so no conversion. We pass it through as-is.
+//
+// Called from BOTH the handshake (initial snapshot via
+// account/rateLimits/read response) and translateNotification
+// (live updates via account/rateLimits/updated). Single helper,
+// single emission shape.
+//
+// Either window may be null/absent — codex omits a window when its
+// account-type lacks that bucket (e.g. API-key may carry only one).
+// Mobile's reducer null-checks each sub-block, so we omit unset
+// keys rather than emit nulls.
+func (d *AppServerDriver) emitRateLimitsStatusLine(ctx context.Context, snapshot map[string]any) {
+	if snapshot == nil {
+		return
+	}
+	rateLimits := map[string]any{}
+	if w := rateLimitWindow(snapshot["primary"]); w != nil {
+		rateLimits["five_hour"] = w
+	}
+	if w := rateLimitWindow(snapshot["secondary"]); w != nil {
+		rateLimits["seven_day"] = w
+	}
+	if len(rateLimits) == 0 {
+		// Nothing usable — codex returned a snapshot with both
+		// windows null. Don't post an empty event (the mobile
+		// reducer's `if rl is Map` guard would treat it as no
+		// data anyway; emitting just creates a DB row).
+		return
+	}
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "status_line", "agent",
+		map[string]any{
+			"rate_limits": rateLimits,
+		})
+}
+
+// rateLimitWindow translates one codex RateLimitWindow into the
+// mobile-side {used_percentage, resets_at} block. Returns nil when
+// the input is missing/non-map or carries no usable signal —
+// callers should omit the key entirely rather than emit a partial
+// block (mobile's chip would render "—" for an empty block).
+func rateLimitWindow(raw any) map[string]any {
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := map[string]any{}
+	if v, ok := m["usedPercent"]; ok && v != nil {
+		// Wire shape is i32; survive whatever JSON unmarshal
+		// hands us (float64 from json.Decoder, int from manual
+		// construction).
+		switch n := v.(type) {
+		case float64:
+			out["used_percentage"] = int(n)
+		case int:
+			out["used_percentage"] = n
+		case int64:
+			out["used_percentage"] = int(n)
+		}
+	}
+	if v, ok := m["resetsAt"]; ok && v != nil {
+		// Wire shape is i64 Unix-epoch SECONDS (upstream
+		// `protocol.rs:2025`). Same unit as claude statusLine, so
+		// pass through as-is. Survive number-shape variance.
+		switch n := v.(type) {
+		case float64:
+			out["resets_at"] = int64(n)
+		case int:
+			out["resets_at"] = int64(n)
+		case int64:
+			out["resets_at"] = n
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // handleAgentMessageDelta accumulates one streaming chunk and ensures

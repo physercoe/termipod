@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.721
+> **Last verified vs code:** v1.0.722
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,45 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.722-alpha — 2026-05-26
+
+**Raw-SSH disconnect no longer collapses to a black screen.**
+
+User-initiated disconnect from the terminal screen's overflow menu
+tears down the `SSHClient`, which closes the persistent shell
+channel, which fires `RawPtyBackend.shellExited` *synchronously
+inside the `await`*. The pre-fix listener
+(`terminal_screen.dart:785-788`) re-entered `_disconnect()`; both
+calls eventually reached `Navigator.pop(context)`, the original
+popped the terminal route, and the recursive call then popped one
+route further — `HomeScreen` itself — leaving the user staring at
+the empty layer beneath the `IndexedStack`.
+
+### Fixed
+- **mobile / raw-SSH terminal:** `_disconnect()` is now
+  non-reentrant (`bool _isDisconnecting` flag) and cancels
+  `_shellExitedSub` before awaiting the SSH teardown, so the
+  shell-exited stream cannot reach the listener at all during our
+  own pop. The listener also short-circuits on `_isDisconnecting`
+  as belt-and-braces against any future emit path. Repro chain:
+  open Raw shell from Hosts → back to Hosts (green dot stays
+  because `SshNotifier` holds the keep-alive) → reopen → overflow
+  → Disconnect → fix lands user on Hosts instead of a black screen.
+  Same class as v1.0.717: a stream listener firing inside its own
+  termination await, with an asymmetric-recovery navigation cost.
+
+### Notes
+- No new tests — the bug surface is a four-line guard in a 4 000-LOC
+  widget; building a useful end-to-end harness (mock `SshNotifier`,
+  mock `RawPtyBackend`, mock `Navigator`) wasn't justified for the
+  guard's complexity. Manual smoke is the verification path.
+- Codex's 2026-05-25 security review
+  ([`discussions/security-audit.md`](discussions/security-audit.md))
+  also touched the SSH path — F-09, F-10, F-11 — but is unrelated
+  to this fix. Those land separately.
 
 ---
 

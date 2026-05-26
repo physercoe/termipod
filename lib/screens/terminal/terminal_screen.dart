@@ -189,6 +189,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   Timer? _treeRefreshTimer;
   Timer? _staleWatchdog;
   bool _isDisposed = false;
+  // Re-entrancy guard for [_disconnect]. User-initiated disconnect tears
+  // down the SSH client, which closes the persistent shell channel,
+  // which fires `RawPtyBackend.shellExited` mid-await — and the
+  // `shellExited` listener at the bottom of `_setupRawPtyBackend`
+  // calls `_disconnect()` again. Without this flag the recursive call
+  // also issues a `Navigator.pop()` after the original pop has
+  // already removed the terminal route, so the second pop pops the
+  // route below (HomeScreen) → black screen below the IndexedStack.
+  bool _isDisconnecting = false;
   // Timestamp of the last successful pane poll. Used by the
   // stale-connection watchdog + latency indicator to flag when the
   // SSH socket looks alive (`isConnected == true`) but no fresh data
@@ -782,8 +791,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // letting the keep-alive watchdog misread this as a network drop
     // and reconnect into a brand-new shell — that behavior surprised
     // users who expected `exit` to mean "I'm done".
+    //
+    // `_isDisconnecting` short-circuits when WE initiated the teardown:
+    // our own SSH disconnect closes the shell channel, which fires
+    // this stream synchronously inside the await of `_disconnect()`,
+    // and a recursive call would pop one route too many. `_disconnect`
+    // also cancels this subscription early as belt-and-braces; the
+    // flag check covers any path that emits before that cancellation.
     _shellExitedSub = rawBackend.shellExited.listen((_) {
-      if (!mounted || _isDisposed) return;
+      if (!mounted || _isDisposed || _isDisconnecting) return;
       _disconnect();
     });
   }
@@ -4076,6 +4092,19 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// SSH接続を切断して前の画面に戻る
   Future<void> _disconnect() async {
+    // Re-entrancy guard — see [_isDisconnecting] for the full bug
+    // chain. A second `_disconnect()` arriving here mid-await would
+    // pop one route too many.
+    if (_isDisconnecting) return;
+    _isDisconnecting = true;
+
+    // Defense in depth: drop the shell-exited listener BEFORE the SSH
+    // teardown so the stream's synchronous emit during cleanup can't
+    // reach our listener at all. Combined with the flag above, two
+    // independent paths now keep the recursive call from forming.
+    await _shellExitedSub?.cancel();
+    _shellExitedSub = null;
+
     // ポーリングを停止
     _backend?.pausePolling();
     _treeRefreshTimer?.cancel();

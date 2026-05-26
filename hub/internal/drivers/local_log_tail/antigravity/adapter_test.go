@@ -327,3 +327,80 @@ func (c *captureRunner) Run(_ context.Context, _ string, args ...string) ([]byte
 	}
 	return []byte(c.out), nil
 }
+
+// v1.0.718 (G3 — session-details parity): the launch-time session.init
+// payload populates engine/version/cwd/permission_mode so the mobile
+// session-details sheet doesn't render blank rows for antigravity
+// stewards. Mirrors the codex v1.0.715 contract +
+// AppServerDriver.emitSessionInit.
+func TestAdapter_BuildLaunchTimeSessionInit_PopulatesAllFields(t *testing.T) {
+	a := &Adapter{Config: Config{
+		Engine:         "antigravity",
+		Workdir:        "/home/op/agytest",
+		PermissionMode: "dangerously-skip-permissions",
+		EngineVersion:  "1.0.2",
+	}}
+	got := a.buildLaunchTimeSessionInit("conv-abc")
+
+	want := map[string]any{
+		"session_id":      "conv-abc",
+		"engine":          "antigravity",
+		"version":         "1.0.2",
+		"cwd":             "/home/op/agytest",
+		"permission_mode": "dangerously-skip-permissions",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("payload has %d keys; want %d (%v)", len(got), len(want), got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("payload[%q] = %v; want %v", k, got[k], v)
+		}
+	}
+}
+
+// Section-gating contract: empty fields drop out so mobile's `isEmpty`
+// rendering hides absent rows. session_id is always present (it's the
+// resume cursor; ADR-035 D8). Mirrors the same contract on
+// AppServerDriver.emitSessionInit (v1.0.715) — same upstream consumer
+// shape, identical "blank > wrong" discipline.
+func TestAdapter_BuildLaunchTimeSessionInit_SkipsEmptyFields(t *testing.T) {
+	a := &Adapter{Config: Config{
+		// All optional fields zero — only session_id should land.
+		Workdir: "",
+	}}
+	got := a.buildLaunchTimeSessionInit("conv-only")
+
+	if len(got) != 1 {
+		t.Fatalf("expected only session_id; got %v", got)
+	}
+	if got["session_id"] != "conv-only" {
+		t.Errorf("session_id = %v; want conv-only", got["session_id"])
+	}
+	for _, k := range []string{"engine", "version", "cwd", "permission_mode"} {
+		if _, present := got[k]; present {
+			t.Errorf("unexpected key %q in payload: %v", k, got)
+		}
+	}
+}
+
+// Default-mode (no --dangerously-skip-permissions) renders the
+// flag-derived "interactive" string so mobile colour-maps to green
+// (safest posture — every tool gate raises the arrow-nav menu the
+// operator must answer). Per the antigravity statusLine research
+// (docs/discussions/antigravity-statusline-research.md), the
+// flag-derived string is preferred over a translated alias for grep
+// affinity on the hub side.
+func TestAdapter_BuildLaunchTimeSessionInit_PermissionModeInteractive(t *testing.T) {
+	a := &Adapter{Config: Config{
+		Engine:         "antigravity",
+		Workdir:        "/tmp/x",
+		PermissionMode: "interactive",
+		EngineVersion:  "1.0.2",
+	}}
+	got := a.buildLaunchTimeSessionInit("c1")
+
+	if got["permission_mode"] != "interactive" {
+		t.Errorf("permission_mode = %v; want \"interactive\"", got["permission_mode"])
+	}
+}

@@ -23,6 +23,24 @@ type Config struct {
 	// os.UserHomeDir(). The W7 launch glue may set a per-spawn HOME for
 	// MCP-config isolation on shared hosts (ADR-035 D7).
 	HomeDir string
+	// Engine names the engine family for the session.init payload (always
+	// "antigravity" in production; left configurable so tests can vary).
+	// v1.0.718 session-details parity (G3 of the antigravity statusLine
+	// research). Mirrors AppServerDriver.Engine.
+	Engine string
+	// PermissionMode is the launch-derived permission posture
+	// ("dangerously-skip-permissions" if --dangerously-skip-permissions
+	// is on backend.cmd, else "interactive"). Surfaced verbatim — no
+	// translation; per the rationale in
+	// docs/discussions/antigravity-statusline-research.md, the
+	// flag-derived string is easier to grep on the hub side than a
+	// shorter alias.
+	PermissionMode string
+	// EngineVersion is the `agy --version` output ("1.0.2" on a current
+	// host). Resolved by the launch glue via agentfamilies.VersionFlag +
+	// runVersion, mirroring the codex pattern. Optional; empty just
+	// hides the row in the mobile session-details sheet.
+	EngineVersion string
 	// Poster publishes AgentEvents to the hub.
 	Poster locallogtail.EventPoster
 	// Log is optional; defaults to slog.Default().
@@ -185,13 +203,23 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 	a.ConversationID = convID
 	a.mu.Unlock()
 
-	// Persist the resume cursor (ADR-035 D8 / ADR-014). The hub's
-	// captureEngineSessionID lifts `session_id` off any agent-posted
-	// session.init into sessions.engine_session_id; on respawn
-	// spliceAntigravityResume threads it back as `agy --conversation
-	// <id>`. Engine-neutral column, agy-shaped value (the conversationId).
+	// Persist the resume cursor + the launch-time session metadata.
+	//
+	// session_id is the load-bearing field — ADR-035 D8 / ADR-014 — the
+	// hub's captureEngineSessionID lifts it into sessions.engine_session_
+	// id; on respawn spliceAntigravityResume threads it back as
+	// `agy --conversation <id>`.
+	//
+	// v1.0.718 (G3 — antigravity session-details parity, mirror of
+	// codex v1.0.715) extends the payload with engine/version/permission
+	// _mode/cwd so the mobile session-details sheet renders engine
+	// identity for antigravity stewards (previously: blank rows). The
+	// model field arrives later via the mapper's <USER_SETTINGS_CHANGE>
+	// extraction (see runLoop's merge below at "Mapper-emitted session.
+	// init events" — the partial payload merges with this one so the
+	// AppBar header surfaces engine + model + sid together).
 	_ = a.Poster.PostAgentEvent(ctx, a.AgentID, "session.init", "agent",
-		map[string]any{"session_id": convID})
+		a.buildLaunchTimeSessionInit(convID))
 
 	transcript, err := WaitForTranscript(waitCtx, homeDir, convID, 0)
 	if err != nil {
@@ -307,6 +335,32 @@ func (a *Adapter) Stop() {
 // locallogtail.Adapter contract satisfied.
 func (a *Adapter) OnHook(_ context.Context, _ string, _ map[string]any) (map[string]any, error) {
 	return map[string]any{}, nil
+}
+
+// buildLaunchTimeSessionInit assembles the session.init payload posted
+// once at startup. session_id is always present; the other fields are
+// added only when populated so mobile's section-gating
+// (which checks `isEmpty` per field) hides absent rows cleanly instead
+// of rendering "—" (matches the AppServerDriver.emitSessionInit shape
+// from v1.0.715).
+//
+// Pulled out so the launch-glue tests can pin field selection without
+// spinning the whole resolveAndRun pipeline.
+func (a *Adapter) buildLaunchTimeSessionInit(convID string) map[string]any {
+	payload := map[string]any{"session_id": convID}
+	if a.Engine != "" {
+		payload["engine"] = a.Engine
+	}
+	if a.EngineVersion != "" {
+		payload["version"] = a.EngineVersion
+	}
+	if a.Workdir != "" {
+		payload["cwd"] = a.Workdir
+	}
+	if a.PermissionMode != "" {
+		payload["permission_mode"] = a.PermissionMode
+	}
+	return payload
 }
 
 // Compile-time assertion: *Adapter satisfies locallogtail.Adapter.

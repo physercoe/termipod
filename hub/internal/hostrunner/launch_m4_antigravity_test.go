@@ -162,3 +162,41 @@ func mustReadJSON(t *testing.T, path string) map[string]any {
 	}
 	return out
 }
+
+// v1.0.718 (G3): permission_mode for antigravity's session.init is
+// derived verbatim from backend.cmd — agy 1.0.2 surface only auto-
+// approves under --dangerously-skip-permissions; absent that flag the
+// agent stops at every tool gate (interactive). Per the antigravity
+// statusLine research, the flag-derived strings are surfaced without
+// translation; the mobile _permModeColor switch carries both
+// vocabularies (claude-code, codex, and now antigravity) in one
+// switch.
+func TestPermissionModeFromCmd_Antigravity(t *testing.T) {
+	cases := []struct {
+		name string
+		cmd  string
+		want string
+	}{
+		{"bare invocation", "agy", "interactive"},
+		{"with --dangerously-skip-permissions", "agy --dangerously-skip-permissions", "dangerously-skip-permissions"},
+		{"flag in the middle", "agy --add-dir /tmp --dangerously-skip-permissions --sandbox", "dangerously-skip-permissions"},
+		{"sandbox alone is still interactive", "agy --sandbox", "interactive"},
+		{"empty cmd", "", "interactive"},
+		// Defensive: a literal substring match would falsely positive
+		// on argv like `agy --print "--dangerously-skip-permissions"`
+		// being part of a prompt. The implementation splits on
+		// whitespace and matches whole tokens, so the test pins that
+		// boundary discipline.
+		{"flag as part of a prompt body should not match",
+			`agy --print "tell me about --dangerously-skip-permissions"`,
+			"interactive"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := permissionModeFromCmd(tc.cmd); got != tc.want {
+				t.Errorf("permissionModeFromCmd(%q) = %q; want %q",
+					tc.cmd, got, tc.want)
+			}
+		})
+	}
+}

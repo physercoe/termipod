@@ -14,10 +14,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/termipod/hub"
+	"github.com/termipod/hub/internal/agentfamilies"
 	locallogtail "github.com/termipod/hub/internal/drivers/local_log_tail"
 	"github.com/termipod/hub/internal/drivers/local_log_tail/antigravity"
 )
@@ -124,11 +126,34 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 			"handle", cfg.Spawn.Handle, "workdir", workdir, "err", werr)
 	}
 
+	// v1.0.718 (G3 — session-details parity, mirror of codex v1.0.715):
+	// resolve launch-time engine identity so the adapter's session.init
+	// post can populate the engine/version/cwd/permission_mode fields
+	// the mobile session-details sheet reads
+	// (`lib/widgets/session_details_sheet.dart`). Without these, the
+	// AGENT + WORKDIR sections rendered blank for antigravity stewards.
+	//
+	// PermissionMode is derived from backend.cmd verbatim: the launch
+	// glue invokes agy with or without --dangerously-skip-permissions,
+	// and we surface that flag-derived string (no translation per the
+	// rationale in docs/discussions/antigravity-statusline-research.md
+	// — easier to grep on the hub side than a shorter alias).
+	engineVersion := ""
+	if fam, ok := agentfamilies.ByName(cfg.Spawn.Kind); ok && fam.VersionFlag != "" {
+		if path, perr := exec.LookPath(fam.Bin); perr == nil && path != "" {
+			if v, vok := runVersion(ctx, path, fam.VersionFlag); vok {
+				engineVersion = v
+			}
+		}
+	}
 	adapter, err := antigravity.NewAdapter(antigravity.Config{
-		AgentID: cfg.Spawn.ChildID,
-		Workdir: workdir,
-		Poster:  cfg.Client,
-		Log:     cfg.Log,
+		AgentID:        cfg.Spawn.ChildID,
+		Workdir:        workdir,
+		Engine:         cfg.Spawn.Kind,
+		EngineVersion:  engineVersion,
+		PermissionMode: permissionModeFromCmd(spec.Backend.Cmd),
+		Poster:         cfg.Client,
+		Log:            cfg.Log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("antigravity M4: new adapter: %w", err)
@@ -309,4 +334,26 @@ func conversationIDFromCmd(cmd string) string {
 		}
 	}
 	return ""
+}
+
+// permissionModeFromCmd inspects backend.cmd for agy's auto-approve flag
+// and returns a verbatim flag-derived label for the session.init
+// payload's permission_mode field. Surfaced to mobile's session-details
+// sheet (`lib/widgets/session_details_sheet.dart`).
+//
+// agy 1.0.2 surface (`agy --help`): only --dangerously-skip-permissions
+// auto-approves; absent that flag, every tool gate raises an
+// interactive arrow-nav menu the operator must answer. (--sandbox
+// modifies execution, not permission policy, so it doesn't change the
+// label.) v1.0.718 G3 — value strings are intentionally raw, not
+// translated to claude-code's "bypassPermissions" / "default" alias
+// vocabulary; the mobile _permModeColor switch is extended to map both
+// vocabularies to the same colour family.
+func permissionModeFromCmd(cmd string) string {
+	for _, tok := range strings.Fields(cmd) {
+		if tok == "--dangerously-skip-permissions" {
+			return "dangerously-skip-permissions"
+		}
+	}
+	return "interactive"
 }

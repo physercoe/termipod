@@ -823,6 +823,9 @@ Color _permModeColor(String mode) {
     // codex
     case 'on-request':
     case 'untrusted':
+    // antigravity (v1.0.718 G3 — flag-derived; bare `agy` invocation
+    // raises an interactive arrow-nav menu at every tool gate)
+    case 'interactive':
       return DesignColors.success;
     // claude-code
     case 'acceptEdits':
@@ -833,6 +836,11 @@ Color _permModeColor(String mode) {
     case 'bypassPermissions':
     // codex
     case 'never':
+    // antigravity (v1.0.718 G3 — agy invoked with
+    // --dangerously-skip-permissions, every tool runs without
+    // confirmation; same risk class as claude-code's
+    // bypassPermissions and codex's `never`)
+    case 'dangerously-skip-permissions':
       return DesignColors.error;
     default:
       // granular (codex experimental) + anything new lands here —

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.717
+> **Last verified vs code:** v1.0.718
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,81 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.718-alpha — 2026-05-26
+
+**Antigravity session-details parity (G3 of the statusLine research).**
+Mobile's session-details sheet now renders the engine identity rows
+(engine / model / version / cwd / permission_mode / session_id) for
+antigravity stewards instead of leaving them blank. Mirrors the codex
+v1.0.715 contract; ships the first wedge of the antigravity statusLine
+research's G1–G6 plan
+([`discussions/antigravity-statusline-research.md`](discussions/antigravity-statusline-research.md)
+§6 G3). Hub-only structural work plus a one-arm mobile colour-map
+extension; no statusLine install pipeline yet — G1 + G2 land next.
+
+### Added
+
+- **`antigravity.Config.{Engine, PermissionMode, EngineVersion}`** —
+  launch-time fields the adapter folds into the initial `session.init`
+  payload. `Workdir` was already present (it's the pathresolver key)
+  and now also surfaces as `cwd` on the payload.
+- **`Adapter.buildLaunchTimeSessionInit()`** — pulled the payload
+  assembly into a helper so tests pin field selection without
+  spinning the whole `resolveAndRun` pipeline. Empty fields drop
+  out (blank > wrong; mobile section-gating relies on the
+  `isEmpty` check).
+- **`launch_m4_antigravity.go::permissionModeFromCmd()`** — token-
+  matches `--dangerously-skip-permissions` on backend.cmd and
+  returns the verbatim flag-derived label
+  (`"dangerously-skip-permissions"`) or `"interactive"` (default —
+  agy raises an arrow-nav menu at every tool gate). Whole-token
+  match so a literal flag inside a `--print "..."` body doesn't
+  false-positive.
+- **EngineVersion resolution** — mirrors the codex pattern at
+  `launch_m2.go:417-422`: `agentfamilies.ByName(kind).VersionFlag` +
+  `exec.LookPath` + `runVersion`. Resolves to `1.0.2` on the dev
+  host. Best-effort — a missing binary just leaves the field empty.
+
+### Changed
+
+- **`lib/widgets/session_details_sheet.dart::_permModeColor`** —
+  extended for antigravity's flag-derived vocabulary.
+  `"interactive"` → green (safest; user-gated). `"dangerously-skip-
+  permissions"` → red (same risk class as claude-code's
+  `"bypassPermissions"` and codex's `"never"`). The two existing
+  vocabularies (claude-code + codex) are unchanged; antigravity's
+  strings sit alongside them in the same switch. Per the research
+  doc's recommendation, the raw flag-derived strings are preferred
+  over a translated alias for grep affinity on the hub side.
+
+### Tests
+
+- `TestAdapter_BuildLaunchTimeSessionInit_PopulatesAllFields`,
+  `TestAdapter_BuildLaunchTimeSessionInit_SkipsEmptyFields`,
+  `TestAdapter_BuildLaunchTimeSessionInit_PermissionModeInteractive`
+  in `internal/drivers/local_log_tail/antigravity/adapter_test.go` —
+  pin the field selection contract + the blank-fields-drop discipline
+  + the default `"interactive"` mode.
+- `TestPermissionModeFromCmd_Antigravity` in
+  `internal/hostrunner/launch_m4_antigravity_test.go` — 6 cases
+  covering bare invocation, mid-argv flag, sandbox-without-skip,
+  empty cmd, and the whole-token-match boundary that prevents
+  false-positives from prompt bodies containing the literal flag
+  string.
+
+### Notes
+
+- Field source comments mirror the codex `emitSessionInit` precedent
+  at `driver_appserver.go:1548-1611`; the consumer shape (mobile)
+  is identical across engines, so adding a new engine row to the
+  session-details sheet is now a YAML+constructor diff, not a
+  Flutter change.
+- The G3 wedge is statusLine-independent — the
+  `Adapter.buildLaunchTimeSessionInit` payload contains only
+  launch-time fields; G1 + G2 will later add a status_line-sourced
+  override layer (mirroring the claude-code M4 adapter precedence
+  rules at `adapter.go:160-180`).
 
 ## v1.0.717-alpha — 2026-05-26
 

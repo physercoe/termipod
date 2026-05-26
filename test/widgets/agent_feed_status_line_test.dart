@@ -68,6 +68,29 @@ void main() {
       expect(kAgentBusyInferenceSkipKinds, contains('rate_limit'));
     });
 
+    test('includes raw so codex resume does not pin busy(cancel)', () {
+      // The bug (v1.0.717): on codex M2 resume, the post-handshake
+      // tail (newest-first) was:
+      //   1. system{mcp_server_startup status=ready}  ← skipped
+      //   2. raw{method: thread/goal/cleared}         ← NOT skipped
+      //   3. usage / session.init / lifecycle.started (would idle)
+      // The walker hit raw at step 2 and returned true → cancel
+      // button shown → user tapped → no active turn → turn/interrupt
+      // no-op → no closing event → stuck forever.
+      //
+      // Confirmed from the dev-host hub DB on 2026-05-26 in session
+      // 01KSH9EW... with new agent 01KSH9GG...; three raw events
+      // (thread/goal/cleared, remoteControl/status/changed,
+      // configWarning) all from codex notifications without profile
+      // rules per agent_families.yaml:782-787.
+      //
+      // Class kin: same multi-consumer-dispatch-fails-open as
+      // v1.0.667 (usage) and v1.0.699 (status_line). Producer
+      // (driver / profile) adds a new pre-turn-active event kind;
+      // consumer's skip list misses it.
+      expect(kAgentBusyInferenceSkipKinds, contains('raw'));
+    });
+
     test('does NOT include text / thought / tool_call', () {
       // These ARE turn-active signals — if any of them is the latest
       // agent event, the agent IS busy. Skipping them would make the

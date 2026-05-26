@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.716
+> **Last verified vs code:** v1.0.717
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,68 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.717-alpha — 2026-05-26
+
+**Codex resume no longer pins busy(cancel) forever.** On the v1.0.716
+on-device smoke, a resumed codex session displayed the red Cancel
+button immediately after handshake and tapping it produced no visible
+response. Reproduced and confirmed from the dev-host hub DB
+(`/var/lib/termipod-hub/hub.db`, session `01KSH9EW…`, new agent
+`01KSH9GG…`).
+
+### The producer
+
+After handshake, codex emits three notifications without a profile
+rule — `thread/goal/cleared`, `remoteControl/status/changed`,
+`configWarning` (bubblewrap-missing). These land via ApplyProfile's
+intentional forward-compat catch-all (`agent_families.yaml:782-787`)
+as `kind: raw`. The newest in the tail
+(`thread/goal/cleared` at `04:43:28.287Z`) sits **above** the
+authoritative `session.init` (which would have made inference idle).
+
+### The consumer (the actual bug)
+
+Mobile's `_isAgentBusy()` walks events newest-first, skipping a known
+list (`usage`, `rate_limit`, `status_line`, plus `system`/`user`
+producer rules). **`raw` was not in the skip list**, so the walker
+returned `true` at the very first `raw` event encountered — never
+reaching `session.init`. Cancel button was correctly *shown* per the
+inference, but with no active turn `turn/interrupt` was a no-op
+(no `turnId` → malformed RPC per upstream codex), so nothing closed
+the busy state.
+
+### Class kin
+
+Same multi-consumer-dispatch-fails-open class as v1.0.667 (`usage`
+added to skip list) and v1.0.699 (`status_line` added). Producer
+(driver / profile catch-all) emits a new pre-turn-active event kind;
+consumer's skip list misses it. The codex frame profile docs are
+explicit that `raw` is forward-compat housekeeping
+(`agent_families.yaml:782-787`) — by definition NOT a turn-active
+signal.
+
+### Fixed
+
+- **`lib/widgets/agent_feed.dart:96`** — add `'raw'` to
+  `kAgentBusyInferenceSkipKinds`. One-line change, mirrors the
+  v1.0.667 + v1.0.699 fix pattern. Extended the inline comment in
+  `_isAgentBusy()` to cite this fix alongside the prior two.
+- **`test/widgets/agent_feed_status_line_test.dart`** — new test
+  pinning `raw` membership with verbatim citation of the DB tail
+  that proved the bug; mirrors the v1.0.667/v1.0.699 test shape.
+
+### References
+
+- DB inspection helper: `/tmp/inspect-resume-bug.go`, used against a
+  read-only snapshot of `/var/lib/termipod-hub/hub.db`. The
+  inspector + the captured tail rows are quoted in this commit's
+  message for forensics.
+- Hub-side cancel handler at `hub/internal/hostrunner/
+  driver_appserver.go:531-553` is left as-is — it correctly checks
+  `d.TurnID()` and the no-active-turn path is a legitimate no-op.
+  Once mobile stops falsely showing the Cancel button, the
+  no-turn-to-cancel scenario won't be reachable through the UI.
 
 ## v1.0.716-alpha — 2026-05-26
 

@@ -90,6 +90,19 @@ const kAgentFeedAlwaysHiddenKinds = <String>{
 /// fires before any turn runs and would otherwise stick the spawn
 /// in busy(cancel) state until the first real assistant frame.
 ///
+/// v1.0.717 adds `raw` — codex post-handshake notifications without
+/// a profile rule (`thread/goal/cleared`, `remoteControl/status/
+/// changed`, `configWarning`) land via ApplyProfile's intentional
+/// forward-compat catch-all (`agent_families.yaml:782-787`). On a
+/// fresh spawn these arrive between session.init and the user's
+/// first prompt and get masked by the next turn's text/turn.result.
+/// On RESUME without a new prompt the conversation is parked — the
+/// `raw` event sits at the tail forever, pinning busy(cancel) and
+/// making cancel a no-op (no active turnId to interrupt). Class
+/// kin: the producer (driver / profile) added a new pre-turn-active
+/// event kind; this consumer's skip list missed it. Same multi-
+/// consumer-dispatch failure mode as v1.0.667 / v1.0.699.
+///
 /// Anything NOT in this set (and not in the explicit terminal-kind
 /// branches above) signals turn-active.
 @visibleForTesting
@@ -97,6 +110,7 @@ const kAgentBusyInferenceSkipKinds = <String>{
   'usage',
   'rate_limit',
   'status_line',
+  'raw',
 };
 
 /// Rate-limits reducer (ADR-036 D7 — W5).
@@ -2038,6 +2052,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // sticks in busy(cancel) state until the first real assistant
       // frame. See [kAgentBusyInferenceSkipKinds] for the
       // testable kind-list.
+      // v1.0.717: same again for `raw` — codex post-handshake
+      // notifications without profile rules (thread/goal/cleared,
+      // configWarning, remoteControl/status/changed) land via
+      // ApplyProfile's forward-compat catch-all. On RESUME without
+      // an immediate new prompt, the raw event sat at the tail
+      // forever and made cancel a no-op (no active turn to
+      // interrupt). Confirmed from `agent_events` on the dev host
+      // 2026-05-26.
       if (kAgentBusyInferenceSkipKinds.contains(kind)) continue;
       // Any other agent-produced kind — text streaming, thought,
       // tool_call mid-flight, plan, raw, etc. — means the turn is

@@ -304,6 +304,40 @@ weekly_window}` from session telemetry — engine-agnostic by
 design — so once the hub maps codex's shape into the same
 contract, every chip renders without mobile changes.
 
+**Mechanism — wire-native, no shim install.** The data path is
+strictly the JSON-RPC pipe `AppServerDriver` already owns;
+nothing leaves the existing stdio connection:
+
+| | claude-code M4 (v1.0.696-698) | codex M2 (this wedge) |
+| --- | --- | --- |
+| Data export interface | `~/.claude/settings.local.json::statusLine.command` — a shell command claude invokes every ~10s with JSON on stdin | first-class JSON-RPC notification on the active connection |
+| Shim binary | required (`hub/internal/hostrunner/statusline_shim/`) | none |
+| UDS gateway | required (`hub/internal/hostrunner/uds_gateway.go`) | none |
+| Config merge | wrap-and-passthrough into operator's existing statusLine | none |
+| Total scope shipped | ~760 LOC + 16 tests | ~150 LOC + 8 tests |
+
+Inside the codex process, codex makes its own API calls, sees
+rate-limit headers in the responses, and maintains a
+`RateLimitSnapshot` in process memory. We never touch the API
+and never need OAuth tokens or ChatGPT creds. Codex hands us
+that snapshot two ways on the stdio pipe we're already reading:
+
+- **client→server pull** — we `d.Call(ctx, "account/rateLimits/
+  read", nil)` once at handshake. Same `client_request`
+  protocol-macro block as `thread/start`, `thread/resume`,
+  `fs/readFile` (`common.rs:923`) — methods we already call.
+- **server→client push** — codex emits `account/rateLimits/
+  updated` whenever the snapshot changes. Same notification
+  macro block as `thread/started`, `turn/started`,
+  `hook/started` (`common.rs:1517`) — notifications we already
+  read in `translateNotification`.
+
+The reason: codex was designed app-server-first (the JSON-RPC
+protocol IS its public surface, so `RateLimitSnapshot` is
+first-class on the wire); claude-code was TUI-first with hooks
+retrofitted, so `statusLine` is the only export plug and we
+had to install a shim through it.
+
 **On the wire** (cited):
 
 | Surface | Method/Notification | Source |

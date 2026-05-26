@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.713
+> **Last verified vs code:** v1.0.714
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,55 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.714-alpha — 2026-05-26
+
+**Wedge F follow-up — drop the misrouted `kind: rate_limit` profile
+rule for codex.** v1.0.713 on-device smoke surfaced a duplicate
+chip: alongside the new ADR-036 5h + 7d tiles (driven by Wedge F's
+`status_line` emission), a literal **"300"** tile appeared with a
+long-press tooltip "Rate-limit window (300)".
+
+### Root cause
+
+The pre-existing codex profile rule at `agentfamilies/agent_families.
+yaml` translated `account/rateLimits/updated` to `kind: rate_limit`
+with `window: $.params.rateLimits.primary.windowDurationMins` —
+codex's wire field is **numeric minutes** (e.g. 300 = 5h). Mobile's
+legacy single-window `rate_limit` chip at `agent_feed.dart:5668-5699`
+was designed for claude's stream-json `rate_limit_event` SDK frame,
+which carries `window` as a **string label** like `"five_hour"` /
+`"seven_day"`. The Dart code does `(rl['window'] ?? '').toString()`
+then renders via `_humanWindow(...)` — for claude's string it
+becomes "5h"; for codex's number it becomes the literal "300".
+
+The misrouting predated Wedge F (the rule landed when codex M2 first
+shipped), but was invisible because no one had a long-enough codex
+session for the notification to fire on the principal device. v1.0.713
+introduced the proper engine-agnostic `status_line` chip pair beside
+the legacy chip — making the misroute visible.
+
+### Fixed
+
+- Removed the codex profile rule for `account/rateLimits/updated`.
+  Wedge F's `AppServerDriver.emitRateLimitsStatusLine` is now the
+  sole translation path and produces only the engine-agnostic
+  `status_line` shape mobile's ADR-036 chip pair consumes.
+- Unmatched notifications fall through to ApplyProfile's
+  `kind: raw` default — verbose-mode debugging audit trail intact;
+  the legacy `rate_limit` chip stays dormant for codex.
+- `TestProfile_Codex_TranslatesAppServerNotifications` wantKinds:
+  `account/rateLimits/updated` → `raw` (was `rate_limit`).
+- `TestAppServerDriver_TranslateRateLimitsUpdated_EmitsStatusLine`:
+  inverted the `rate_limit` assertion (now expects ABSENT) and
+  added a `raw` fallback assertion.
+
+### Why mobile didn't change
+
+The legacy single-window `rate_limit` chip stays for claude's
+stream-json `rate_limit_event` frames (older claude SDK builds
+that don't ship statusLine). Removing the codex profile rule is
+enough — claude's chip behaviour is untouched.
 
 ## v1.0.713-alpha — 2026-05-26
 

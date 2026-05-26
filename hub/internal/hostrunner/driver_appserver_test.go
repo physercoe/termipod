@@ -1969,9 +1969,13 @@ func TestAppServerDriver_TranslateRateLimitsUpdated_EmitsStatusLine(t *testing.T
 	})
 
 	// Expect: lifecycle (handshake) + status_line (this notification)
-	// + rate_limit (profile-driven from same notification).
+	// + raw fallback (profile no longer emits kind=rate_limit since
+	// v1.0.714 — the misrouted profile rule was removed because
+	// mobile's legacy rate_limit chip rendered codex's numeric
+	// windowDurationMins as a literal "300" tile beside the new 5h/
+	// 7d chip pair; status_line is the authoritative path).
 	events := poster.wait(t, 3, 2*time.Second)
-	var sawStatusLine, sawRateLimit bool
+	var sawStatusLine, sawRateLimit, sawRaw bool
 	for _, e := range events {
 		switch e.Kind {
 		case "status_line":
@@ -1983,13 +1987,19 @@ func TestAppServerDriver_TranslateRateLimitsUpdated_EmitsStatusLine(t *testing.T
 			}
 		case "rate_limit":
 			sawRateLimit = true
+		case "raw":
+			sawRaw = true
 		}
 	}
 	if !sawStatusLine {
 		t.Errorf("missing status_line event in posted set: %+v", events)
 	}
-	if !sawRateLimit {
-		t.Errorf("missing rate_limit event (profile-driven) in posted set: %+v", events)
+	if sawRateLimit {
+		t.Errorf("kind=rate_limit should no longer fire from "+
+			"account/rateLimits/updated since v1.0.714: %+v", events)
+	}
+	if !sawRaw {
+		t.Errorf("missing kind=raw fallback (profile rule removed): %+v", events)
 	}
 }
 

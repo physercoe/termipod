@@ -63,7 +63,12 @@ func TestProfile_Codex_TranslatesAppServerNotifications(t *testing.T) {
 		{"item/completed", "fileChange"}:                "tool_result",
 		{"item/completed", "mcpToolCall"}:               "tool_result",
 		{"thread/tokenUsage/updated", ""}:               "usage",
-		{"account/rateLimits/updated", ""}:              "rate_limit",
+		// account/rateLimits/updated has no profile emit since v1.0.714
+		// — translation moved into AppServerDriver.emitRateLimitsStatusLine
+		// to produce the ADR-036 mobile-chip shape directly. The
+		// notification falls through to the kind=raw fallback so the
+		// verbose-mode audit trail stays intact.
+		{"account/rateLimits/updated", ""}:              "raw",
 		{"mcpServer/startupStatus/updated", ""}:         "system",
 		// Unprofiled — falls through to kind=raw via ApplyProfile's
 		// fallback. Forward-compatibility, not a bug.

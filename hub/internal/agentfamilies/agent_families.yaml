@@ -748,21 +748,21 @@ families:
               context_window:      "$.params.tokenUsage.modelContextWindow"
               thread_id:           "$.params.threadId"
 
-        # ── account/rateLimits/updated  →  rate_limit ───────────
-        # codex bundles primary + secondary windows; we surface
-        # primary (the one most likely to throttle) and let
-        # `payload.secondary` ride along for any UI that wants the
-        # weekly window too.
-        - match: { method: account/rateLimits/updated }
-          emit:
-            kind: rate_limit
-            producer: agent
-            payload:
-              window:    "$.params.rateLimits.primary.windowDurationMins"
-              status:    "$.params.rateLimits.rateLimitReachedType"
-              resets_at: "$.params.rateLimits.primary.resetsAt"
-              used_pct:  "$.params.rateLimits.primary.usedPercent"
-              secondary: "$.params.rateLimits.secondary"
+        # ── account/rateLimits/updated  →  (no profile emit) ────
+        # Authoritative translation lives in AppServerDriver.
+        # emitRateLimitsStatusLine (driver_appserver.go), which
+        # posts kind=status_line in the ADR-036 mobile-chip shape
+        # (rate_limits.{five_hour,seven_day}.{used_percentage,
+        # resets_at}). The earlier profile rule emitted
+        # kind=rate_limit with `window` = `windowDurationMins`
+        # (numeric, e.g. 300) which mobile's legacy single-window
+        # rate_limit chip — designed for claude's stream-json
+        # rate_limit_event (string `window: "five_hour"`) — would
+        # render as a literal "300" tile beside the new 5h/7d
+        # chip pair. v1.0.713 on-device smoke surfaced the dup.
+        # Falling through to ApplyProfile's kind=raw fallback keeps
+        # the verbose-mode audit trail without re-routing the data
+        # through the wrong chip semantics.
 
         # ── mcpServer/startupStatus/updated  →  system ──────────
         # Visible in the transcript so a misconfigured mcp server

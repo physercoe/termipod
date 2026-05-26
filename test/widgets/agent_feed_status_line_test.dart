@@ -49,79 +49,73 @@ void main() {
     });
   });
 
-  group('kAgentBusyInferenceSkipKinds (v1.0.667 + v1.0.699)', () {
-    test('includes status_line so cold-open does not pin busy(cancel)', () {
-      // The bug: a cold-open status_line (the only agent event before
-      // the user types anything) fell through to the default "agent
-      // sent something, must be busy" branch in _isAgentBusy. With no
-      // turn.result / session.init / completion to clear it, the
-      // spawn stuck in busy(cancel) until the first real turn.
-      expect(kAgentBusyInferenceSkipKinds, contains('status_line'));
+  group('kAgentTurnActiveKinds (v1.0.721 — allowlist inversion)', () {
+    // The pre-v1.0.721 contract was the inverse — a denylist
+    // `kAgentBusyInferenceSkipKinds` that every new pre-turn-active
+    // kind required appending to or the busy pill stuck on forever
+    // (v1.0.667 `usage`, v1.0.699 `status_line`, v1.0.717 `raw`).
+    // The new contract: default = idle; only allowlisted kinds
+    // flip _isAgentBusy to true. See docs/discussions/consumer-side-
+    // dispatch-contracts.md Fix A.
+
+    test('includes the core turn-active kinds', () {
+      // These are the kinds whose arrival LATER in the event tail
+      // than the last terminal kind means the agent is actively
+      // producing output. Stable list; producer-side additions are
+      // almost always telemetry, not new turn-active signals.
+      expect(kAgentTurnActiveKinds, contains('text'));
+      expect(kAgentTurnActiveKinds, contains('tool_call'));
+      expect(kAgentTurnActiveKinds, contains('thought'));
+      expect(kAgentTurnActiveKinds, contains('plan'));
     });
 
-    test('still includes usage + rate_limit (v1.0.667 fix)', () {
-      // Regression guard for v1.0.667 — pre-fix `usage` fell through
-      // to "busy" and pinned the pill on after every turn.result
-      // (wire order: turn.result → text → usage means the LATEST
-      // agent event is usage by the time the strip refreshes).
-      expect(kAgentBusyInferenceSkipKinds, contains('usage'));
-      expect(kAgentBusyInferenceSkipKinds, contains('rate_limit'));
+    test('does NOT include the four historical denylist members', () {
+      // Regression guards. Pre-v1.0.721 these were in
+      // kAgentBusyInferenceSkipKinds — explicit "do not signal busy"
+      // entries. Under the allowlist inversion they're absent by
+      // default; the four bugs that prompted denylist additions
+      // (v1.0.667/699/717/720) are auto-fixed by the inversion.
+      expect(kAgentTurnActiveKinds, isNot(contains('usage')));
+      expect(kAgentTurnActiveKinds, isNot(contains('rate_limit')));
+      expect(kAgentTurnActiveKinds, isNot(contains('status_line')));
+      expect(kAgentTurnActiveKinds, isNot(contains('raw')));
     });
 
-    test('includes raw so codex resume does not pin busy(cancel)', () {
-      // The bug (v1.0.717): on codex M2 resume, the post-handshake
-      // tail (newest-first) was:
-      //   1. system{mcp_server_startup status=ready}  ← skipped
-      //   2. raw{method: thread/goal/cleared}         ← NOT skipped
-      //   3. usage / session.init / lifecycle.started (would idle)
-      // The walker hit raw at step 2 and returned true → cancel
-      // button shown → user tapped → no active turn → turn/interrupt
-      // no-op → no closing event → stuck forever.
-      //
-      // Confirmed from the dev-host hub DB on 2026-05-26 in session
-      // 01KSH9EW... with new agent 01KSH9GG...; three raw events
-      // (thread/goal/cleared, remoteControl/status/changed,
-      // configWarning) all from codex notifications without profile
-      // rules per agent_families.yaml:782-787.
-      //
-      // Class kin: same multi-consumer-dispatch-fails-open as
-      // v1.0.667 (usage) and v1.0.699 (status_line). Producer
-      // (driver / profile) adds a new pre-turn-active event kind;
-      // consumer's skip list misses it.
-      expect(kAgentBusyInferenceSkipKinds, contains('raw'));
+    test('does NOT include terminal kinds (handled by explicit branches)', () {
+      // _isAgentBusy has explicit short-circuit branches for these
+      // kinds (return false on session.init / turn.result /
+      // completion / lifecycle.exited / lifecycle.stopped). They
+      // must NOT also appear in the active-kinds allowlist — that
+      // would produce a contradictory contract (this is turn-active
+      // AND also a terminal that returns idle).
+      expect(kAgentTurnActiveKinds, isNot(contains('session.init')));
+      expect(kAgentTurnActiveKinds, isNot(contains('turn.result')));
+      expect(kAgentTurnActiveKinds, isNot(contains('completion')));
+      expect(kAgentTurnActiveKinds, isNot(contains('lifecycle')));
     });
 
-    test('does NOT include text / thought / tool_call', () {
-      // These ARE turn-active signals — if any of them is the latest
-      // agent event, the agent IS busy. Skipping them would make the
-      // pill silent during streaming.
-      expect(kAgentBusyInferenceSkipKinds, isNot(contains('text')));
-      expect(kAgentBusyInferenceSkipKinds, isNot(contains('thought')));
-      expect(kAgentBusyInferenceSkipKinds, isNot(contains('tool_call')));
-    });
-
-    test('does NOT include session.init / turn.result / completion', () {
-      // These are explicit terminal-kind branches in _isAgentBusy
-      // (they return false directly — "idle"). Adding them to the
-      // skip set would still work (they'd skip past, no other event
-      // is found, returns false) but it'd obscure the contract.
-      // Pin: the skip set is for AMBIGUOUS-not-turn-active kinds,
-      // not for terminal kinds.
-      expect(kAgentBusyInferenceSkipKinds, isNot(contains('session.init')));
-      expect(kAgentBusyInferenceSkipKinds, isNot(contains('turn.result')));
-      expect(kAgentBusyInferenceSkipKinds, isNot(contains('completion')));
+    test('does NOT include system / tool_result (motion-by-themselves: false)', () {
+      // `system` carries telemetry like mcp_server_startup,
+      // turn_started markers, etc. — none mean motion by
+      // themselves.
+      // `tool_result` sits between two `tool_call`s in a multi-tool
+      // turn; by itself doesn't mean motion (the next `tool_call`
+      // or `text` does). Keeping it out avoids a per-direction race
+      // where the result lands after the next tool_call.
+      expect(kAgentTurnActiveKinds, isNot(contains('system')));
+      expect(kAgentTurnActiveKinds, isNot(contains('tool_result')));
     });
   });
 
-  group('cross-set discipline', () {
-    test('status_line appears in BOTH gates', () {
-      // ADR-036 D4 contract: status_line is chip-only. That means
-      // BOTH the feed-bubble layer AND the busy-state inference
-      // must skip it. Adding only one would leave the other bug
-      // open. This test pins the two-gate symmetry so a future
-      // refactor that splits the kind out of one set fails here.
+  group('kAgentFeedAlwaysHiddenKinds cross-set discipline', () {
+    test('status_line stays in always-hidden (ADR-036 D4)', () {
+      // The chip-source-only kinds must stay hidden from the
+      // transcript bubble layer regardless of the busy-inference
+      // refactor.
       expect(kAgentFeedAlwaysHiddenKinds, contains('status_line'));
-      expect(kAgentBusyInferenceSkipKinds, contains('status_line'));
+      expect(kAgentFeedAlwaysHiddenKinds, contains('usage'));
+      expect(kAgentFeedAlwaysHiddenKinds, contains('rate_limit'));
+      expect(kAgentFeedAlwaysHiddenKinds, contains('session.init'));
     });
   });
 }

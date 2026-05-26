@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.720
+> **Last verified vs code:** v1.0.721
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,91 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.721-alpha — 2026-05-26
+
+**Consumer-side dispatch contracts — Fix A + Fix B from
+[`discussions/consumer-side-dispatch-contracts.md`](discussions/consumer-side-dispatch-contracts.md).**
+Structural fix for the four-in-48h multi-consumer-dispatch
+fails-open recurrences (v1.0.667 / v1.0.699 / v1.0.717 / v1.0.720).
+Replaces the mobile busy-inference denylist with an allowlist
+(`default = idle`, opt-in for turn-active) and lands a cross-cutting
+contract test that fails CI on any unclassified producer-emitted
+event kind.
+
+### Fix A — allowlist invert for `_isAgentBusy`
+
+- **`lib/widgets/agent_feed.dart`** — removed
+  `kAgentBusyInferenceSkipKinds` (4-entry denylist that grew from
+  v1.0.667 / 699 / 717). Replaced with
+  `kAgentTurnActiveKinds` (5-entry allowlist: `text`, `tool_call`,
+  `tool_call_update`, `thought`, `plan`).
+- **`_isAgentBusy`** — the walker now only flips to `true` for
+  kinds in the allowlist. Any other agent-produced kind passes
+  through. Terminal kinds (`turn.result`, `completion`,
+  `session.init`, `lifecycle.{exited,stopped}`) still short-circuit
+  to `false` via explicit branches.
+- Failure-mode inversion: a missing-from-allowlist kind makes a
+  busy agent appear idle (cancel button hides). The pre-v1.0.721
+  inverse — a stuck cancel button that did nothing — was strictly
+  worse UX. "Cancel button hidden" recovers on the next
+  text/tool_call within a tick.
+
+### Fix B — kind-classification contract test
+
+- **`test/widgets/agent_feed_kind_classification_test.dart`** (new)
+  — at test-time, regex-scans every `PostAgentEvent(...)` literal
+  in `hub/**.go` + every `emit.kind:` in `agent_families.yaml`,
+  then asserts each collected kind is classified in exactly one of:
+  - `kAgentTurnActiveKinds` (signals motion), or
+  - `kAgentFeedAlwaysHiddenKinds` (chip-source only), or
+  - `_kKindsExplicitlyIgnoredByBusyInference` (test-local allowlist
+    with per-kind rationale comments).
+- Producer adding a new kind without classifying it fails this
+  test before merge. The failure message points to the discussion
+  doc + the three sets the contributor can add to.
+- 18 kinds collected from the current tree; all 18 classified.
+- Cross-set discipline asserted (turn-active ∩ always-hidden = ∅;
+  turn-active ∩ explicit-ignore = ∅).
+
+### Updated tests
+
+- **`test/widgets/agent_feed_status_line_test.dart`** — pre-fix
+  tests asserted membership in `kAgentBusyInferenceSkipKinds`
+  (the denylist). Inverted to assert non-membership in
+  `kAgentTurnActiveKinds`. Existing claude-code precedence + cross-
+  set discipline tests preserved.
+
+### Notes
+
+- **Coverage:** Fix A retroactively fixes the four historical
+  denylist additions — they're no longer needed because the four
+  kinds (`usage`, `rate_limit`, `status_line`, `raw`) are simply
+  absent from the allowlist. v1.0.720's chip-strip-reducer fix
+  (different dispatch shape, branch chain) stays in place; Fix B's
+  contract test prevents the chip-strip class of recurrence
+  symmetrically.
+- **Fix C (single source-of-truth kind registry) deferred** per
+  the discussion doc's recommendation: right end state, wrong next
+  step.
+- **Hub-side dispatch sites** (audit subject kinds, attention
+  card kinds, route prefixes) are NOT covered by this contract
+  test — they share the `kind` literal pattern but live in
+  different column-sets. The discussion doc §7 raises this as an
+  open question; the tight PostAgentEvent + YAML emit regex
+  pair is the conservative scoping.
+- **Engine-agnostic by construction:** new producer-side engines
+  inherit the contract. The next status_line-emitting engine
+  works on mobile without a per-engine code path; the next
+  pre-turn-active kind requires explicit consumer-side
+  classification.
+
+### References
+
+- [`discussions/consumer-side-dispatch-contracts.md`](discussions/consumer-side-dispatch-contracts.md)
+  — design rationale, three-fix sketch, recommendation.
+- Changelog entries the inversion retroactively addresses:
+  v1.0.667 / v1.0.699 / v1.0.717 / v1.0.720.
 
 ## v1.0.720-alpha — 2026-05-26
 

@@ -78,39 +78,77 @@ const kAgentFeedAlwaysHiddenKinds = <String>{
   'status_line',
 };
 
-/// Event kinds that `_isAgentBusy` skips over when walking events
-/// backwards to infer turn-active state.
+/// Event kinds that DECISIVELY signal an in-flight turn.
 ///
-/// These are pure-telemetry channels — their arrival does NOT mean a
-/// turn is in motion. Pre-v1.0.667 `usage` was missing here, which
-/// pinned the busy pill on forever (wire order at end-of-turn is
-/// `turn.result → text → usage`, so the latest agent event would be
-/// `usage` falling through to the default "busy" branch). v1.0.699
-/// adds `status_line` for the same reason — cold-open statusLine
-/// fires before any turn runs and would otherwise stick the spawn
-/// in busy(cancel) state until the first real assistant frame.
+/// **v1.0.721 — allowlist invert (`docs/discussions/consumer-side-
+/// dispatch-contracts.md` Fix A).** Previously this contract was a
+/// denylist (`kAgentBusyInferenceSkipKinds`) — every new pre-turn-
+/// active event kind required a one-line addition or the busy pill
+/// stuck on forever. The denylist took four hits in 48h before this
+/// inversion landed:
 ///
-/// v1.0.717 adds `raw` — codex post-handshake notifications without
-/// a profile rule (`thread/goal/cleared`, `remoteControl/status/
-/// changed`, `configWarning`) land via ApplyProfile's intentional
-/// forward-compat catch-all (`agent_families.yaml:782-787`). On a
-/// fresh spawn these arrive between session.init and the user's
-/// first prompt and get masked by the next turn's text/turn.result.
-/// On RESUME without a new prompt the conversation is parked — the
-/// `raw` event sits at the tail forever, pinning busy(cancel) and
-/// making cancel a no-op (no active turnId to interrupt). Class
-/// kin: the producer (driver / profile) added a new pre-turn-active
-/// event kind; this consumer's skip list missed it. Same multi-
-/// consumer-dispatch failure mode as v1.0.667 / v1.0.699.
+///   - v1.0.667 — codex `usage` events at end-of-turn (wire order
+///     `turn.result → text → usage`) sat as the LATEST event,
+///     falling through to the "anything else is busy" branch.
+///   - v1.0.699 — claude-code `status_line` cold-open frames fired
+///     before any turn, sticking busy(cancel) until the first turn.
+///   - v1.0.717 — codex `raw` events on resume (post-handshake
+///     `thread/goal/cleared` etc. via the profile's forward-compat
+///     catch-all, `agent_families.yaml:782-787`) sat as the latest
+///     event on parked-after-resume conversations.
+///   - The same class also bit consumer-side dispatch in v1.0.720
+///     (chip-strip reducer; different shape — not solvable by
+///     allowlist alone, see Fix B below).
 ///
-/// Anything NOT in this set (and not in the explicit terminal-kind
-/// branches above) signals turn-active.
+/// The new contract: **default = idle.** A kind missing from this
+/// allowlist appears idle even when the agent is busy — at worst,
+/// the cancel button hides, the user sends another prompt, and the
+/// next real text/tool_call event pushes inference back to busy
+/// within a tick. That UX is strictly better than the pre-v1.0.721
+/// inverse (cancel button shown but no turn to cancel → user taps,
+/// nothing happens, user gives up).
+///
+/// The allowlist is small and stable (producer-side new kinds are
+/// almost always telemetry); the denylist grew unboundedly as
+/// every engine added telemetry channels.
+///
+/// Membership rationale per kind:
+///   - `text` — assistant streaming output. Live mid-turn.
+///   - `tool_call` — tool dispatched, waiting for result. Mid-turn.
+///   - `thought` — codex/claude reasoning blocks emitted before the
+///     final text. Mid-turn.
+///   - `plan` — claude/agy plan-update frames; the agent is actively
+///     re-thinking. Mid-turn.
+///
+/// Notably NOT here (and not in the explicit terminal-kinds switch
+/// in `_isAgentBusy`):
+///   - `tool_result` — sits between two `tool_call`s in a multi-tool
+///     turn. By itself doesn't mean motion (the next `tool_call`
+///     or `text` does). Keeping it out avoids a per-direction race
+///     where the result lands after the next tool_call.
+///   - `usage`, `rate_limit`, `status_line`, `raw`, `system` — pure
+///     telemetry / forward-compat catch-all. Default-idle by the
+///     allowlist inversion.
+///   - `session.init`, `turn.result`, `completion`, `lifecycle` —
+///     handled by explicit branches in `_isAgentBusy` (terminal,
+///     short-circuit to idle).
+///
+/// **Adding a new kind that DOES signal busy:** add it here and
+/// extend the contract test in
+/// `test/widgets/agent_feed_kind_classification_test.dart`.
+///
+/// **Adding a new kind that does NOT signal busy:** add it to that
+/// same test's `kKindsExplicitlyIgnoredByBusyInference` set with a
+/// one-line rationale. The test fails on any unclassified kind, so
+/// the next producer-side addition can't ship without a consumer-
+/// side decision.
 @visibleForTesting
-const kAgentBusyInferenceSkipKinds = <String>{
-  'usage',
-  'rate_limit',
-  'status_line',
-  'raw',
+const kAgentTurnActiveKinds = <String>{
+  'text',
+  'tool_call',
+  'tool_call_update', // ACP streaming variant — tool call is updating mid-flight
+  'thought',
+  'plan',
 };
 
 /// Rate-limits reducer (ADR-036 D7 — W5).
@@ -2066,11 +2104,25 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // user can interrupt a running turn to send their next prompt
   // (the predictive-input case the user spelled out).
   //
-  // Scan from the tail backwards looking for the latest "real" event —
-  // skip producer='user' input echoes since those don't reflect agent
-  // state. A terminal kind (turn.result / completion / a lifecycle
-  // exit) means idle; anything else from the agent side means busy.
-  // No events at all → idle.
+  // v1.0.721 — allowlist invert (Fix A from
+  // `docs/discussions/consumer-side-dispatch-contracts.md`). Previously
+  // this walker defaulted to "busy" for any agent-produced kind not in
+  // a denylist, which required a one-line patch every time a producer
+  // emitted a new pre-turn-active kind (v1.0.667 `usage`, v1.0.699
+  // `status_line`, v1.0.717 `raw`). The new contract: **default = idle**.
+  // A turn-active signal is an OPT-IN — only kinds in
+  // [kAgentTurnActiveKinds] flip the walker to busy. Telemetry channels
+  // (usage / rate_limit / status_line / raw / system) don't need to be
+  // enumerated; they pass through. Terminal kinds and lifecycle
+  // transitions still short-circuit to idle via explicit branches
+  // below.
+  //
+  // The fail-mode inversion: a missing-from-allowlist kind makes a
+  // busy agent appear idle (cancel button hidden). The pre-v1.0.721
+  // inverse was worse — cancel button shown but no turn to cancel,
+  // user taps, nothing happens. "Cancel button hidden" recovers on
+  // the next text/tool_call within a tick; "stuck cancel" persisted
+  // until the user gave up.
   bool _isAgentBusy() {
     for (final e in _events.reversed) {
       final producer = (e['producer'] ?? '').toString();
@@ -2090,39 +2142,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // scanning so a recent text/tool_call wins the decision.
         continue;
       }
-      // 'system' covers a grab-bag of telemetry frames (status
-      // updates, server-startup pings) that don't, on their own,
-      // mean a turn is in progress. Skip and keep scanning so a
-      // real text/tool_call signal can win.
-      if (kind == 'system') continue;
-      // v1.0.667: 'usage' is per-message telemetry too — the
-      // claude-code M4 adapter posts a usage frame AFTER each
-      // assistant message AND after each turn's Stop hook
-      // (turn.result). Concretely the wire order for an end-of-turn
-      // is: turn.result → text → usage. Reading from the tail back,
-      // the LATEST agent event is `usage`, which fell through to
-      // the default "return true" branch — keeping the busy pill
-      // stuck on forever even after turn.result fired.
-      //
-      // v1.0.699: same regression class for `status_line` —
-      // claude-code statusLine fires ~10s cadence including at
-      // cold-open BEFORE any turn runs. Without skipping, the spawn
-      // sticks in busy(cancel) state until the first real assistant
-      // frame. See [kAgentBusyInferenceSkipKinds] for the
-      // testable kind-list.
-      // v1.0.717: same again for `raw` — codex post-handshake
-      // notifications without profile rules (thread/goal/cleared,
-      // configWarning, remoteControl/status/changed) land via
-      // ApplyProfile's forward-compat catch-all. On RESUME without
-      // an immediate new prompt, the raw event sat at the tail
-      // forever and made cancel a no-op (no active turn to
-      // interrupt). Confirmed from `agent_events` on the dev host
-      // 2026-05-26.
-      if (kAgentBusyInferenceSkipKinds.contains(kind)) continue;
-      // Any other agent-produced kind — text streaming, thought,
-      // tool_call mid-flight, plan, raw, etc. — means the turn is
-      // still in motion.
-      return true;
+      // ALLOWLIST: only kinds we've classified as turn-active signal
+      // motion. Everything else — telemetry (usage / rate_limit /
+      // status_line / raw / system), unknown future kinds — is
+      // treated as no-signal and the walker continues scanning.
+      if (kAgentTurnActiveKinds.contains(kind)) return true;
     }
     return false;
   }

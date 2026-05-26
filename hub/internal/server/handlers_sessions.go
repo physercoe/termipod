@@ -627,7 +627,14 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 		switch deadKind.String {
 		case "claude-code":
 			specYAML = spliceClaudeResume(specYAML, engineSessionID.String)
-		case "gemini-cli", "kimi-code":
+		case "gemini-cli", "kimi-code", "codex":
+			// Codex shares the ACP splice shape (top-level
+			// `resume_session_id` YAML field) by design: AppServerDriver
+			// reads SpawnSpec.ResumeSessionID and threads it as the
+			// `thread/resume` JSON-RPC method's `threadId` param
+			// (driver_appserver.go::handshake → upstream
+			// `codex-rs/app-server-protocol/src/protocol/common.rs:457`).
+			// One YAML field, two protocol surfaces.
 			specYAML = spliceACPResume(specYAML, engineSessionID.String)
 		case "antigravity":
 			specYAML = spliceAntigravityResume(specYAML, engineSessionID.String)

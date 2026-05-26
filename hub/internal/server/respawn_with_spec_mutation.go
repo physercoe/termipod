@@ -129,7 +129,13 @@ func (s *Server) respawnWithSpecMutation(
 		switch kind.String {
 		case "claude-code":
 			mutated = spliceClaudeResume(mutated, engineSessionID.String)
-		case "gemini-cli", "kimi-code":
+		case "gemini-cli", "kimi-code", "codex":
+			// Codex shares the ACP splice shape (top-level
+			// `resume_session_id` YAML field). AppServerDriver reads
+			// SpawnSpec.ResumeSessionID and threads it into the
+			// `thread/resume` JSON-RPC handshake. Keeps the splice
+			// site engine-neutral; the protocol mapping happens
+			// driver-side.
 			mutated = spliceACPResume(mutated, engineSessionID.String)
 		}
 	}

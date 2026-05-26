@@ -100,11 +100,20 @@ func rewriteClaudeResumeFlag(cmd, sessionID string) (string, bool) {
 }
 
 // spliceACPResume injects (or replaces) a top-level `resume_session_id`
-// scalar in the rendered spawn_spec_yaml. ACPDriver.Start reads this
-// field via SpawnSpec.ResumeSessionID and, when the agent advertises
-// loadSession capability, calls session/load instead of session/new
-// so the spawned daemon reattaches to its prior conversation
-// (ADR-021 W1.2).
+// scalar in the rendered spawn_spec_yaml. Two driver families consume
+// the spliced field via the same `SpawnSpec.ResumeSessionID` accessor:
+//
+//   - ACPDriver (gemini-cli, kimi-code): calls session/load with this
+//     id instead of session/new when the agent advertises loadSession
+//     capability (ADR-021 W1.2).
+//   - AppServerDriver (codex): calls `thread/resume` with this id as
+//     the `threadId` param instead of `thread/start` so codex
+//     reattaches to its prior thread (v1.0.716).
+//
+// The function name kept its ACP-historical prefix; the operation is
+// engine-neutral ("set top-level `resume_session_id`"). Renaming would
+// touch every call site without changing behaviour, so we accept the
+// slight naming drift.
 //
 // Behaviour mirrors spliceClaudeResume's defensive shape:
 //   - sessionID empty → return spec unchanged.

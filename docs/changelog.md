@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.715
+> **Last verified vs code:** v1.0.716
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,66 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.716-alpha — 2026-05-26
+
+**Codex M2 resume fixed end-to-end.** Stopping a codex steward and
+resuming it now reattaches to the prior thread instead of cold-
+starting with a fresh `session_id`. Three connected gaps closed
+in one wedge:
+
+### The three breaks
+
+1. **`handlers_sessions.go:627`** (`POST /sessions/{id}/resume`)
+   switch arm didn't include `case "codex":`. Captured
+   `engine_session_id` was discarded; the new spawn rendered with
+   no `resume_session_id` field.
+2. **`respawn_with_spec_mutation.go:129`** (mode/model swap respawn
+   path) had the same switch-arm gap. Both resume entry points
+   were equally broken.
+3. **`launch_m2.go`** codex branch never wired
+   `spec.ResumeSessionID` → `AppServerDriver.ResumeThreadID`. Even
+   if the YAML field had been spliced, the driver would have
+   ignored it and called `thread/start` anyway.
+
+End-to-end before this wedge: hub captures `thread.id` correctly
+(via v1.0.715's `session.init` emission) → respawn switch drops it
+on the floor → launch_m2 wouldn't have read it anyway → codex
+gets a fresh `thread/start` → mobile shows a new session id.
+
+### Fix
+
+- Both switch arms gain `"codex"`, sharing the `spliceACPResume`
+  call site (already the right shape: top-level
+  `resume_session_id` YAML field). Codex and the ACP family
+  (`gemini-cli`, `kimi-code`) share the SpawnSpec field; the
+  protocol-level translation diverges driver-side.
+- `launch_m2.go` codex branch now sets `ResumeThreadID:
+  spec.ResumeSessionID`. Empty stays empty → `thread/start`.
+  Non-empty → `thread/resume` with `params.threadId` set per
+  upstream `codex-rs/app-server-protocol/src/protocol/common.rs:457`.
+- `SpawnSpec.ResumeSessionID` + `spliceACPResume` doc comments
+  updated to acknowledge codex as the second consumer (the
+  function name keeps its ACP-historical prefix; renaming would
+  touch every call site without behaviour change).
+
+### New test
+
+- `TestAppServerDriver_ResumeThreadID_CallsThreadResume` — pins
+  the driver-side contract: non-empty `ResumeThreadID` triggers
+  `thread/resume` with the prior thread id; `thread/start` is NOT
+  called; `ThreadID()` reflects the resumed value.
+
+### Caveat
+
+Codex's `thread/resume` semantics are upstream-controlled. If
+codex's app-server can't find the prior thread (e.g. the
+`~/.codex/sessions/.../rollout-*.jsonl` was deleted between the
+stop and the resume), it returns an error and the handshake
+fails. v1.0.716 doesn't add a "resume fell through to start"
+fallback — that's a deliberate follow-up gate, because silently
+cold-starting on resume-failure is the original bug. We surface
+the failure to the operator instead.
 
 ## v1.0.715-alpha — 2026-05-26
 

@@ -430,6 +430,20 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 			Stdin:        stdin,
 			FrameProfile: frameProfile,
 			Closer:       closer,
+			// Resume cursor (ADR-014). When the hub respawns this
+			// agent into the same session row, handlers_sessions.go +
+			// respawn_with_spec_mutation.go splice the prior
+			// `engine_session_id` (codex's thread id, captured from
+			// our v1.0.715 session.init payload) into the spec's
+			// top-level `resume_session_id` YAML field — same field
+			// ACPDriver reads, one shape for both engine families.
+			// Driver-side, AppServerDriver.handshake() converts
+			// non-empty ResumeThreadID into a `thread/resume` JSON-RPC
+			// call (upstream `codex-rs/app-server-protocol/src/protocol/
+			// common.rs:457`) instead of `thread/start`, so codex
+			// reattaches to its prior conversation. Empty → fresh
+			// thread/start, no behavior change.
+			ResumeThreadID: spec.ResumeSessionID,
 			// Session-init metadata (fallbacks; thread/start response
 			// supersedes when present).
 			Engine:         familyName,

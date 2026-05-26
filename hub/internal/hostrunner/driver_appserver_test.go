@@ -2312,6 +2312,75 @@ func TestApprovalPolicyToString(t *testing.T) {
 	}
 }
 
+// TestAppServerDriver_ResumeThreadID_CallsThreadResume verifies the
+// resume path end-to-end at the driver level: when ResumeThreadID is
+// non-empty, handshake calls `thread/resume` with the prior thread id
+// in `params.threadId` instead of `thread/start`. The hub respawn
+// path threads this via SpawnSpec.ResumeSessionID → launch_m2 →
+// AppServerDriver.ResumeThreadID; this test pins the driver-side
+// contract.
+//
+// Without this, codex respawns ALWAYS cold-started — the explicit
+// bug the user reported when resuming a stopped codex steward (see
+// v1.0.716 changelog).
+func TestAppServerDriver_ResumeThreadID_CallsThreadResume(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/resume", func(_ map[string]any) any {
+		return map[string]any{
+			"thread": map[string]any{"id": "thr_resumed_99"},
+			"model":  "gpt-5-2025-04-29",
+		}
+	})
+	// thread/start handler intentionally omitted — the test fails
+	// loudly (-32601 method not found) if the driver tries to start
+	// instead of resume.
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-resume",
+		Handle:           "codex-resume",
+		Engine:           "codex",
+		ResumeThreadID:   "thr_resumed_99",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v (resume handshake should succeed via thread/resume)", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	// Verify thread/resume was called with the correct threadId param.
+	resumeFrame := server.waitForMethod("thread/resume", time.Second)
+	params, _ := resumeFrame["params"].(map[string]any)
+	if got, _ := params["threadId"].(string); got != "thr_resumed_99" {
+		t.Errorf("thread/resume.params.threadId = %q; want thr_resumed_99", got)
+	}
+
+	// Verify thread/start was NOT called.
+	for _, f := range server.seen() {
+		if m, _ := f["method"].(string); m == "thread/start" {
+			t.Errorf("thread/start should not be called when ResumeThreadID is set; saw frame: %+v", f)
+		}
+	}
+
+	// Verify the resumed thread id propagates to ThreadID().
+	if got := drv.ThreadID(); got != "thr_resumed_99" {
+		t.Errorf("ThreadID after resume = %q; want thr_resumed_99", got)
+	}
+}
+
 func TestEmitSessionInit_NothingToPost(t *testing.T) {
 	// When all session-init inputs are empty (no Engine, no
 	// EngineVersion, no Workdir, no PermissionMode, and an empty

@@ -54,12 +54,17 @@ type SpawnSpec struct {
 
 	// ResumeSessionID is the engine-side cursor captured from a prior
 	// session.init event (sessions.engine_session_id, ADR-014 + ADR-021
-	// W1.1). When set on an ACP-capable spawn, ACPDriver calls
-	// session/load with this id instead of session/new so the agent
-	// reattaches to its prior conversation. Other launch paths (M2/M4)
-	// ignore this field — claude's --resume flag is spliced directly
-	// into backend.cmd, and gemini's exec-per-turn driver captures its
-	// own cursor from per-turn init frames.
+	// W1.1). Two driver paths consume it via the same field:
+	//   - ACPDriver (gemini-cli, kimi-code): calls session/load with
+	//     this id instead of session/new so the daemon reattaches to
+	//     its prior conversation.
+	//   - AppServerDriver (codex): converts this into the
+	//     `thread/resume` JSON-RPC method's `threadId` param so codex
+	//     reattaches to its prior thread (upstream `codex-rs/
+	//     app-server-protocol/src/protocol/common.rs:457`). v1.0.716.
+	// claude-code's --resume flag is spliced directly into backend.cmd
+	// via spliceClaudeResume (different YAML site). antigravity uses
+	// --conversation similarly via spliceAntigravityResume.
 	ResumeSessionID string `yaml:"resume_session_id"`
 
 	// AuthMethod is the steward-template-declared override for the ACP

@@ -404,3 +404,66 @@ func TestAdapter_BuildLaunchTimeSessionInit_PermissionModeInteractive(t *testing
 		t.Errorf("permission_mode = %v; want \"interactive\"", got["permission_mode"])
 	}
 }
+
+// v1.0.719 (G1+G2 — statusLine pipeline): OnStatusLine caches the
+// payload so a future in-process consumer (session.init field
+// overrides, etc.) can read it. The gateway invokes the sink AFTER
+// posting the verbatim AgentEvent, so mobile chips already get the
+// snapshot regardless of what this sink does.
+func TestAdapter_OnStatusLine_CachesLatest(t *testing.T) {
+	a := &Adapter{Config: Config{AgentID: "ag1", Workdir: "/tmp/x"}}
+
+	if got := a.LatestStatusLine(); got != nil {
+		t.Errorf("pre-fire LatestStatusLine = %v; want nil", got)
+	}
+
+	first := map[string]any{"agent_state": "idle", "version": "1.0.2"}
+	a.OnStatusLine(context.Background(), first)
+	got := a.LatestStatusLine()
+	if got == nil {
+		t.Fatal("expected cached payload, got nil")
+	}
+	if got["agent_state"] != "idle" || got["version"] != "1.0.2" {
+		t.Errorf("cached payload = %v; want {agent_state: idle, version: 1.0.2}", got)
+	}
+
+	// Subsequent fires replace (latest-wins, like the chip reducers
+	// on mobile).
+	second := map[string]any{"agent_state": "working", "version": "1.0.2"}
+	a.OnStatusLine(context.Background(), second)
+	got = a.LatestStatusLine()
+	if got["agent_state"] != "working" {
+		t.Errorf("cache not refreshed: %v", got)
+	}
+}
+
+// A nil payload (gateway feeds {} on a malformed shim post) is stored
+// as an empty map rather than ignored, so a later reader can
+// distinguish "fired with no fields" from "never fired."
+func TestAdapter_OnStatusLine_NilPayloadStoredAsEmpty(t *testing.T) {
+	a := &Adapter{Config: Config{AgentID: "ag1", Workdir: "/tmp/x"}}
+	a.OnStatusLine(context.Background(), nil)
+	got := a.LatestStatusLine()
+	if got == nil {
+		t.Fatal("nil payload should land as empty map, not nil")
+	}
+	if len(got) != 0 {
+		t.Errorf("empty payload expected; got %v", got)
+	}
+}
+
+// The returned snapshot is a copy — mutating it doesn't poison the
+// cache for the next reader. Pins the defensive-copy contract.
+func TestAdapter_LatestStatusLine_ReturnsCopy(t *testing.T) {
+	a := &Adapter{Config: Config{AgentID: "ag1", Workdir: "/tmp/x"}}
+	a.OnStatusLine(context.Background(),
+		map[string]any{"agent_state": "idle"})
+
+	snap1 := a.LatestStatusLine()
+	snap1["agent_state"] = "POISONED"
+
+	snap2 := a.LatestStatusLine()
+	if snap2["agent_state"] != "idle" {
+		t.Errorf("cache poisoned: %v (snap1 mutation leaked)", snap2)
+	}
+}

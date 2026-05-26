@@ -79,6 +79,18 @@ type Adapter struct {
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	reader  *Reader
+
+	// latestStatusLine caches the most recent statusLine payload posted
+	// by the gateway (v1.0.719 G1/G2 — antigravity statusLine pipeline).
+	// Held under mu so OnStatusLine concurrent with reads of LatestStatusLine
+	// stays safe.
+	//
+	// Currently this is a write-only cache — no in-process consumer
+	// yet. A future wedge (the G2 session.init field-override layer
+	// from `docs/discussions/antigravity-statusline-research.md` §6
+	// G2) will read it on subsequent session.init re-posts; the cache
+	// is in place now so we don't have to revisit the sink wiring.
+	latestStatusLine map[string]any
 }
 
 // NewAdapter validates mandatory config so the W7 launch glue can fall
@@ -335,6 +347,46 @@ func (a *Adapter) Stop() {
 // locallogtail.Adapter contract satisfied.
 func (a *Adapter) OnHook(_ context.Context, _ string, _ map[string]any) (map[string]any, error) {
 	return map[string]any{}, nil
+}
+
+// OnStatusLine satisfies hostrunner.StatusLineSink. Invoked synchronously
+// by the per-spawn UDS gateway after it posts the verbatim status_line
+// AgentEvent to the hub (so mobile chip reducers see the snapshot
+// regardless of what we do here). The gateway already handles dedup +
+// hub post; this sink is for in-process side effects only.
+//
+// v1.0.719 G1+G2: caches the latest snapshot for future consumers
+// (e.g. a G2-style session.init field-override layer that re-emits
+// model/version/cwd/permission_mode from the statusLine payload once
+// it's seen one). Today there are no readers — the cache is laid in
+// so the wiring is stable.
+//
+// Nil payload (the gateway feeds {} on a malformed shim post) is
+// stored as an empty map rather than ignored so a later LatestStatusLine
+// caller can tell "no fire ever" (nil) from "fire with no fields" ({}).
+func (a *Adapter) OnStatusLine(_ context.Context, payload map[string]any) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	a.latestStatusLine = payload
+}
+
+// LatestStatusLine returns a snapshot of the most recent statusLine
+// payload, or nil if none has been received. Safe to call concurrently.
+// Useful for tests + future in-process consumers.
+func (a *Adapter) LatestStatusLine() map[string]any {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.latestStatusLine == nil {
+		return nil
+	}
+	out := make(map[string]any, len(a.latestStatusLine))
+	for k, v := range a.latestStatusLine {
+		out[k] = v
+	}
+	return out
 }
 
 // buildLaunchTimeSessionInit assembles the session.init payload posted

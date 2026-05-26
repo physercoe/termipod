@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.718
+> **Last verified vs code:** v1.0.719
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,112 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.719-alpha — 2026-05-26
+
+**Antigravity statusLine pipeline (G1+G2 of the statusLine research).**
+The per-spawn UDS gateway is now wired for antigravity spawns and
+`installAntigravityStatusLine` installs a managed `statusLine` block
+into agy's host-global `~/.gemini/antigravity-cli/settings.json`. Each
+fire of agy's statusLine command (state-diff cadence — verified live
+on 2026-05-26: zero fires during a 139s idle window) lands on the
+gateway, gets deduped (1s identical-payload window), and posts an
+`AgentEvent{kind:"status_line", producer:"agent", payload:<verbatim>}`
+to the hub — the same shape mobile chip reducers already consume for
+claude-code (ADR-036 D3/D4). No mobile change in this wedge; the
+chips light up automatically the moment hub-side events flow.
+
+### Added
+
+- **`hub/internal/hostrunner/statusline_install_antigravity.go`** —
+  new `installAntigravityStatusLine(udsSocket, hostRunnerExe)`. Mirrors
+  the claude-code `installClaudeStatusLine` shape (atomic-rename,
+  wrap-and-passthrough preserves operator-set commands under
+  `_termipod_wrapped_command`, `_termipod_managed` marker) but targets
+  agy's host-global settings.json instead of claude's per-workdir
+  `.claude/settings.local.json`. Sets the agy-specific
+  `enabled: true` field alongside the command (host-verified: agy
+  ships `{"type":"","command":"","enabled":true}` as the empty
+  default; without `enabled: true` the install is silently inert).
+- **`antigravity.Adapter.OnStatusLine(ctx, payload)`** — implements
+  `hostrunner.StatusLineSink`. Caches the latest snapshot under
+  `mu`; gateway posts the verbatim AgentEvent before invoking the
+  sink, so mobile gets the snapshot regardless of what the sink
+  does. Today the cache is write-only; a future G2 wedge will read
+  it on a session.init re-post to override model/version/cwd from
+  statusLine-sourced fields (mirroring the claude-code precedence
+  rules at `drivers/local_log_tail/claude_code/adapter.go:160-180`).
+- **`antigravity.Adapter.LatestStatusLine()`** — returns a defensive
+  copy of the cached snapshot, or `nil` if none received. Useful
+  for tests + the future override consumer.
+- **`hub/internal/hostrunner/statusline_install_antigravity_test.go`**
+  — 5 tests pinning: fresh install, re-install over managed block
+  preserves sibling keys (`enableTelemetry`, `trustedWorkspaces`),
+  operator-config wrapping, prior-wrap preservation across
+  re-install, and composition with `preTrustWorkspaceAntigravity`
+  (both functions write the same file; neither must clobber the
+  other's keys).
+- **3 new sink tests in `antigravity/adapter_test.go`** —
+  `OnStatusLine_CachesLatest`, `OnStatusLine_NilPayloadStoredAsEmpty`
+  (the gateway feeds `{}` on a malformed shim post; we store as empty
+  map so readers can distinguish "fired with no fields" from "never
+  fired"), and `LatestStatusLine_ReturnsCopy` (poisoning the snapshot
+  doesn't leak).
+
+### Changed
+
+- **`hub/internal/hostrunner/launch_m4_antigravity.go`** — runs
+  `installAntigravityStatusLine` after `preTrustWorkspaceAntigravity`
+  (both write the same file; the order matches the install→spawn
+  ordering agy caches at). After tmux launch, starts a per-spawn UDS
+  gateway via `StartGateway` (mirrors claude-code's
+  `launch_m4_locallogtail.go:258` — the gateway code already
+  handles statusLine dedup + hub post). Wires `gw.StatusLineSink =
+  adapter`. Returns `Gateway: gw` + `HostRunnerExe: hostRunnerExe`
+  in the launch result (the M4LocalLogTailLaunchResult struct
+  already supported these fields). Best-effort: a nil
+  `GatewayHubClient` falls back to pre-v1.0.719 behaviour
+  (no statusLine pipeline; useful for tests).
+- **`hub/internal/hostrunner/runner.go`** — passes
+  `GatewayHubClient: a.Client` to `launchM4Antigravity` (1-line
+  change; mirrors the claude-code arm above).
+
+### Notes
+
+- **Why a host-global file works.** agy caches `statusLine.command`
+  at process boot (host-verified by the `/statusline delete` requires
+  "reset" string in the binary; agy doesn't re-read settings.json
+  per fire). So the install→spawn ordering on each new spawn — write
+  file → tmux launch boots agy → agy caches OUR command — gives each
+  concurrent spawn its own effective statusLine even on the shared
+  file. This is the B1 resolution from the research doc, symmetric
+  with ADR-035 D7 (which chose host-global MCP config over per-spawn
+  HOME for the same reason agy's OAuth lives in `~/.gemini`).
+- **No mobile change in this wedge.** The mobile chip reducers
+  (context fill ring, 200K alarm tile, rate-limit-style chips —
+  written for ADR-036 D4) consume `payload.context_window`,
+  `payload.exceeds_200k_tokens`, etc. — fields the antigravity
+  statusLine payload provides (live probe verified 2026-05-26,
+  research doc §2.3 + §2.4). They start flowing the moment the
+  AgentEvent flows.
+- **The G2 session.init field-override layer is deferred.** Today
+  the `LatestStatusLine` cache is write-only. The original G2
+  scope ("adapter consumes status_line + overrides session.init
+  fields") is split: G1 (install + sink wiring + cache) ships in
+  this version; G2-extended (in-process consumer that re-emits
+  session.init with model/version overrides) becomes a follow-up
+  wedge if/when on-device smoke shows mobile needs the refresh
+  channel.
+
+### References
+
+- [`discussions/antigravity-statusline-research.md`](discussions/antigravity-statusline-research.md)
+  §6 G1 + G2 — sizing and design choices.
+- [`drivers/local_log_tail/claude_code/adapter.go:160-180`](../hub/internal/drivers/local_log_tail/claude_code/adapter.go) —
+  the in-process override precedence pattern the future G2 wedge
+  will mirror.
+- ADR-036 D3/D4 — the cross-engine `kind:"status_line"` AgentEvent
+  contract this wedge piggybacks on.
 
 ## v1.0.718-alpha — 2026-05-26
 

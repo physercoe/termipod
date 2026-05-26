@@ -680,7 +680,11 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				Launcher: a.Launcher,
 				Client:   a.agentPoster,
 				HubURL:   hubURLForAgent,
-				Log:      a.Log,
+				// v1.0.719 (G1): the per-spawn UDS gateway POSTs
+				// status_line AgentEvents through this client.
+				// Mirrors the claude-code arm above.
+				GatewayHubClient: a.Client,
+				Log:              a.Log,
 			})
 			if lerr != nil {
 				a.Log.Error("M4 antigravity launch failed; marking agent failed (no PaneDriver fallback)",

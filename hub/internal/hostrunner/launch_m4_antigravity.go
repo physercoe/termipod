@@ -126,6 +126,31 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 			"handle", cfg.Spawn.Handle, "workdir", workdir, "err", werr)
 	}
 
+	// v1.0.719 (G1 — statusLine telemetry pipeline). Install the
+	// `statusLine` block into agy's host-global settings.json pointing
+	// at host-runner's status-fire shim against the per-spawn UDS
+	// gateway (started below). The shim posts every fire to the
+	// gateway's status_line tool → AgentEvent{kind:"status_line",
+	// producer:"agent"} → mobile chip reducers (context fill,
+	// 200K alarm, etc. already engine-agnostic by ADR-036 D4).
+	//
+	// agy caches statusLine.command at boot (host-verified: `/statusline
+	// delete` requires "reset" per binary strings), so the
+	// install→spawn ordering on each new spawn — write file → launch
+	// agy → agy caches our command — gives each concurrent spawn its
+	// own effective statusLine even on the shared file.
+	//
+	// Best-effort: a failed install degrades chips to whatever the
+	// transcript-derived path provides (today: nothing — the chip
+	// strip just stays blank), which is no worse than v1.0.718. The
+	// agent itself still launches.
+	hostRunnerExe := hostRunnerExePath()
+	udsPath := socketPath(cfg.Spawn.ChildID)
+	if werr := installAntigravityStatusLine(udsPath, hostRunnerExe); werr != nil {
+		cfg.Log.Warn("antigravity M4: install statusLine failed; mobile chips will stay blank",
+			"handle", cfg.Spawn.Handle, "err", werr)
+	}
+
 	// v1.0.718 (G3 — session-details parity, mirror of codex v1.0.715):
 	// resolve launch-time engine identity so the adapter's session.init
 	// post can populate the engine/version/cwd/permission_mode fields
@@ -191,13 +216,45 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 	}
 	adapter.PaneID = pane
 
+	// v1.0.719 (G1 — statusLine pipeline). Start the per-spawn UDS
+	// gateway BEFORE driver.Start so the shim can reach it on the
+	// first statusLine fire. Antigravity has no hook surface (no
+	// HookSink wired), only the status_line route — the gateway code
+	// already returns mcpGWErrMethodNotFound for unknown tool calls,
+	// so leaving HookSink nil is safe.
+	//
+	// StatusLineSink → adapter caches the latest snapshot for the
+	// in-process consumer surface (G2 — currently a no-op cache; a
+	// future wedge can use it for session.init field overrides
+	// mirroring the claude-code precedence rules at
+	// `drivers/local_log_tail/claude_code/adapter.go:160-180`).
+	//
+	// GatewayHubClient is the *Client the gateway uses to POST
+	// status_line AgentEvents to the hub. Wired from runner.go
+	// (a.Client) — mirrors claude-code's launch_m4_locallogtail.go:258.
+	var gw *McpGateway
+	var gwCleanup func()
+	if cfg.GatewayHubClient != nil {
+		var gerr error
+		gw, gwCleanup, gerr = StartGateway(ctx, cfg.Spawn.ChildID, cfg.GatewayHubClient)
+		if gerr != nil {
+			return nil, fmt.Errorf("antigravity M4: start gateway: %w", gerr)
+		}
+		gw.StatusLineSink = adapter
+	}
+	// Defensive nil-gateway path: a caller that didn't wire
+	// GatewayHubClient gets the pre-v1.0.719 behaviour (no statusLine
+	// pipeline). Mostly useful for tests that construct the launch
+	// config manually.
 	if err := driver.Start(ctx); err != nil {
-		return nil, fmt.Errorf("antigravity M4: driver start: %w", err)
+		return nil, gatewayTeardown(gwCleanup, fmt.Errorf("antigravity M4: driver start: %w", err))
 	}
 
 	return &M4LocalLogTailLaunchResult{
-		PaneID: pane,
-		Driver: driver,
+		PaneID:        pane,
+		Driver:        driver,
+		Gateway:       gw,
+		HostRunnerExe: hostRunnerExe,
 	}, nil
 }
 

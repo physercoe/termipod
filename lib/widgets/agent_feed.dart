@@ -1685,6 +1685,64 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // even though usage was flowing.
         final cw = (p['context_window'] as num?)?.toInt() ?? 0;
         if (cw > 0) latestContextWindow = cw;
+      } else if (kind == 'status_line') {
+        // v1.0.720 — antigravity's M4 path emits ONLY status_line
+        // events for token + context-window data (no `usage` events
+        // from the transcript — the agy transcript doesn't carry
+        // token counts; statusLine is the authoritative source per
+        // the antigravity statusLine research §2.4).
+        //
+        // The nested `context_window.current_usage` block is shape-
+        // identical to claude-code's `usage` block, so we shape-shift
+        // here: extract from that nested path and feed the same
+        // perMessageInput / perMessageCacheRead / perMessageCacheCreate
+        // state the claude-code branch above writes. The downstream
+        // chip strip (latestInput / billableInput / token-flow pill)
+        // then renders identically for antigravity without per-engine
+        // branching at the render layer.
+        //
+        // claude-code stewards also receive status_line events but
+        // also emit `usage` events from JSONL — the `usage` branch
+        // above wins on latest-write semantics. So this branch is
+        // additive and degrades cleanly for all engines that ship
+        // a statusLine.
+        final cw = p['context_window'];
+        if (cw is Map) {
+          final cur = cw['current_usage'];
+          if (cur is Map) {
+            // Same field names as claude-code's usage block (verified
+            // on the dev host 2026-05-26; research doc §2.3 + §2.4).
+            final i = (cur['input_tokens'] as num?)?.toInt();
+            final cr =
+                (cur['cache_read_input_tokens'] as num?)?.toInt();
+            final cc =
+                (cur['cache_creation_input_tokens'] as num?)?.toInt();
+            final o = (cur['output_tokens'] as num?)?.toInt();
+            if (i != null) perMessageInput = i;
+            if (cr != null) perMessageCacheRead = cr;
+            if (cc != null) perMessageCacheCreate = cc;
+            if (o != null) perMessageOutput = o;
+          }
+          // antigravity carries the model's static context size at
+          // `context_window.context_window_size`. claude-code carries
+          // it as `usage.context_window`. Same semantic; different
+          // path. Latest-wins set, same shape as the `usage` branch.
+          final sz = (cw['context_window_size'] as num?)?.toInt() ?? 0;
+          if (sz > 0) latestContextWindow = sz;
+        }
+        // Capture model from session.init-style top-level model field
+        // (antigravity statusLine carries {model: {id, display_name}}).
+        // claude-code's status_line carries the same shape, so this
+        // is engine-agnostic.
+        final m = p['model'];
+        if (m is Map) {
+          final n = (m['display_name'] as String?) ??
+              (m['id'] as String?) ??
+              (m['name'] as String?);
+          if (n != null && n.isNotEmpty) perMessageModel = n;
+        } else if (m is String && m.isNotEmpty) {
+          perMessageModel = m;
+        }
       }
     }
     // If no by_model rows arrived (codex's turn/completed doesn't

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.719
+> **Last verified vs code:** v1.0.720
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,70 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.720-alpha — 2026-05-26
+
+**Mobile chip strip now reads `status_line` events.** v1.0.719 wired
+the antigravity statusLine pipeline end-to-end (16 status_line events
+flowing per the dev-host hub DB inspection on session
+`01KSHDVRQQ…`), but mobile rendered no chips. Smoking gun: the
+chip-strip reducer at `lib/widgets/agent_feed.dart:1600-1688` walks
+events for `kind == 'turn.result'` / `'usage'` / `'rate_limit'` —
+**`'status_line'` was never in the dispatch.** Antigravity emits
+ONLY `status_line` events for token + context-window data (no
+transcript-derived `usage` events; agy's transcript doesn't carry
+token counts — statusLine is the authoritative source per the
+antigravity statusLine research §2.4). So the chip strip stayed
+blank for antigravity stewards even though hub-side data was
+correctly flowing.
+
+### Fixed
+
+- **`lib/widgets/agent_feed.dart`** — added an `else if (kind ==
+  'status_line')` branch alongside the existing claude-code per-
+  message and codex cumulative branches. Extracts from the nested
+  `context_window.current_usage` block (shape-identical to claude-
+  code's top-level `usage` block per research §2.4) plus
+  `context_window.context_window_size`. Same `perMessageInput` /
+  `perMessageCacheRead` / `perMessageCacheCreate` / `latestContextWindow`
+  variables the claude-code branch writes — the downstream chip
+  strip / token-flow pill renders identically for antigravity with
+  no per-engine branching at the render layer. Model name extraction
+  also handles `{id, display_name}` (antigravity's shape; same as
+  claude-code's status_line model field).
+
+### Class kin
+
+Recurrence #4 in 48h of `feedback_engine_dispatch_sweep` — producer
+emits an event kind; consumer's per-kind dispatch list misses it.
+Same class as v1.0.667 (`usage` → busy-skip), v1.0.699
+(`status_line` → busy-skip), v1.0.717 (`raw` → busy-skip), and now
+v1.0.720 (`status_line` → chip-strip dispatch). The pattern's
+strong enough that a discussion doc on durable consumer-side
+contracts is overdue (see follow-up below).
+
+### Notes
+
+- claude-code stewards are unaffected: the M4 adapter emits BOTH
+  `usage` events (from JSONL) AND `status_line` events. The
+  `usage` branch above wins on latest-write semantics — the new
+  branch is additive and degrades cleanly.
+- Codex stewards likewise unaffected: codex emits cumulative
+  `usage` events (`_isCumulativeUsage` shape); the new branch fires
+  for any `status_line` codex emits but `latestContextWindow` is
+  set via the `usage` branch path and that's the chip's authoritative
+  source on codex.
+- Engine-agnostic by construction: `status_line` from any engine
+  with the same payload shape (`payload.context_window.current_usage.*`)
+  feeds the same chip without further work.
+
+### Follow-up
+
+A discussion doc on durable consumer-side dispatch contracts is
+warranted given 4 instances in 48h. Pattern: every kind that
+producers emit should be classified in ONE pinned set (turn-active /
+chip-only / always-hidden / etc.); consumers register against the
+set, not against ad-hoc kind names. Defer; not blocking this fix.
 
 ## v1.0.719-alpha — 2026-05-26
 

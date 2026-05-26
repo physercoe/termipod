@@ -35,8 +35,14 @@ those should never fire on us. The other four can fire and at
 minimum need per-method correct DECLINE shapes to avoid latent
 codex-side stall.
 
-This doc audits the surface, fixes the misread, and proposes 4
-wedges. Pick when convenient; not loading anyone right now.
+This doc audits the surface, fixes the misread, and proposes 6
+wedges (5 sized + 1 speculative). The highest-value pick is
+**Wedge F** — codex's `account/rateLimits/updated` +
+`account/read` notifications expose a richer rate-limit + plan
+surface than claude-code's M4 statusLine, and the mobile chips
+that landed in ADR-036 Phase B already consume the engine-
+agnostic contract. Pick when convenient; not loading anyone
+right now.
 
 ---
 
@@ -156,10 +162,14 @@ mode is method-specific (some stall the turn, some skip and log).
 Notifications coverage is broader — translation lives at
 `:1353-1444` — but we skip many. Not audited in this pass.
 
-## 4. The four real gaps
+## 4. The five real gaps
 
 After ruling out the experimental + v1 dormant methods, the
-live surface area for improvement is narrow:
+live surface area for improvement is narrow. Four are
+defensive corrections to existing coverage; the fifth (§5-F)
+is the highest-value addition — it unlocks claude-code-M4
+parity for codex steward telemetry chips that already exist
+mobile-side.
 
 1. **Per-server bypass scoping** (v1.0.712 lacuna). The
    `AutoAcceptMCPToolCalls` flag is set per-driver based on
@@ -184,6 +194,14 @@ live surface area for improvement is narrow:
    operators install custom codex hooks, they fire silently.
    Surfacing them as system events makes hook debugging possible
    from the transcript.
+5. **`account/rateLimits/updated` + `account/updated` +
+   `account/read` + `account/rateLimits/read`** — completely
+   untranslated. Codex carries a richer rate-limit + plan-type
+   + credits-balance surface than claude-code's M4 statusLine;
+   the ADR-036 mobile chips already consume the engine-agnostic
+   shape; we just don't map codex's `primary`/`secondary`
+   `RateLimitWindow` into `5h_window`/`weekly_window` on the
+   hub side. Highest-value gap. Detail in §5-F.
 
 ## 5. Wedge catalogue (sized, unselected)
 
@@ -275,6 +293,88 @@ pattern from v1.0.696-698).
 
 Listed here so the option doesn't vanish; not a near-term ask.
 
+### F — Rate-limit + account telemetry parity with claude-code M4 (~150 LOC + 8 tests)
+
+**Highest-value wedge in this catalogue** — codex's v2 protocol
+exposes a richer rate-limit + account-state surface than
+claude-code's M4 statusLine, but our driver doesn't translate
+any of it. The mobile chips that landed in ADR-036 Phase B
+(v1.0.700-703) consume `usage.rate_limits.{5h_window,
+weekly_window}` from session telemetry — engine-agnostic by
+design — so once the hub maps codex's shape into the same
+contract, every chip renders without mobile changes.
+
+**On the wire** (cited):
+
+| Surface | Method/Notification | Source |
+| --- | --- | --- |
+| Initial snapshot fetch | `account/rateLimits/read` | `protocol/common.rs:923` |
+| Live updates | `account/rateLimits/updated` | `protocol/common.rs:1517` |
+| Account state fetch | `account/read` | `protocol/common.rs:1029` |
+| Account-state push | `account/updated` (`AccountUpdatedNotification`) | `app-server-protocol/.../v2/account.rs:242` |
+
+**`RateLimitSnapshot`** (`account.rs:257`) carries:
+`{limit_id, limit_name, primary: RateLimitWindow,
+secondary: RateLimitWindow, credits: CreditsSnapshot,
+plan_type, rate_limit_reached_type}`. **`RateLimitWindow`**
+(`account.rs:337`) is
+`{used_percent, window_duration_mins, resets_at}`.
+
+**Shape mapping to existing mobile contract:**
+
+| claude-code statusLine field | codex equivalent | Notes |
+| --- | --- | --- |
+| `rate_limits.5h_window.used_percent` | `primary.used_percent` | direct |
+| `rate_limits.5h_window.windowMinutes` | `primary.window_duration_mins` | direct |
+| `rate_limits.5h_window.resets_at` | `primary.resets_at` | direct (Unix epoch ms) |
+| `rate_limits.5h_window.used` | (absent) | codex is percent-only; mobile chip should fall back to `"NN%"` when raw absent |
+| `rate_limits.weekly_window.*` | `secondary.*` | same fields |
+| `usage.model` | `turn_context.model` | already in JSONL — separate path |
+| `oauthAccount.organizationRateLimitTier` | `plan_type` + `credits.balance` | richer than claude — explicit plan + dollar balance |
+| (none) | `rate_limit_reached_type` | bonus — semantic "why" (rate-limited / credits depleted / workspace-owner-vs-member usage-limit) |
+
+**Implementation scope:**
+
+1. **Handshake** (`driver_appserver.go:278`): after
+   `initialize` + `thread/start`, also `Call(ctx,
+   "account/read", {})` + `Call(ctx, "account/rateLimits/read",
+   {})`. Stamp the responses into the existing `session.init`
+   + first `usage` agent_events the mobile already reads.
+2. **Notification translation** (`driver_appserver.go:1353`):
+   add `account/rateLimits/updated` + `account/updated` cases.
+   Emit the existing `usage` event kind; populate
+   `rate_limits.5h_window` / `rate_limits.weekly_window` from
+   `primary`/`secondary`; surface `credits` + `plan_type` +
+   `rate_limit_reached_type` as new optional fields on `usage`
+   (mobile ignores unknown fields).
+3. **Codex frame profile** (`agentfamilies/agent_families.yaml`):
+   JSONPath extractors mirroring the claude-code statusLine
+   mapping (the `last_*` per-turn extractors from v1.0.712 are
+   the closest precedent — same `notification`-driven shape).
+4. **Mobile** — no change needed for chip rendering. Optional
+   follow-up wedge surfaces `credits.balance` + `rate_limit_
+   reached_type` once the operator confirms the parity baseline
+   works.
+
+**Test scope:** hub-only — 1 handshake-pair test
+(account/read + rateLimits/read decorate session.init), 4
+notification-translation tests (rate-limit, account-updated,
+both-windows-present, only-primary-present), 3 chip-mapping
+tests (RateLimitWindow → 5h_window shape with raw
+`used`-absent fallback).
+
+**Risk:** low — additive, engine-agnostic contract on the
+mobile side is already proven (claude-code M4 ships it). The
+unknowns are minor (do we get `resets_at` in ms or s? codex
+declares `i64` without unit; verify empirically before chip
+labels). Same class of work as v1.0.712.
+
+**Why this is highest-priority:** every claude-code M4
+statusLine affordance the operator likes has a direct codex
+equivalent on the wire that we discard. Wedges A-D are
+defensive corrections; Wedge F is genuine new capability for
+the codex steward UX.
+
 ## 6. What this doc deliberately doesn't do
 
 - Pick a wedge. The user explicitly deferred: "doc these into
@@ -301,8 +401,15 @@ Listed here so the option doesn't vanish; not a near-term ask.
 - `hub/internal/hostrunner/driver_appserver.go:965-1175` —
   current server-request handler + decline plumbing.
 - `hub/internal/hostrunner/driver_appserver.go:1353-1444` —
-  notification translation (out of scope for this audit).
+  notification translation (gap for Wedge F + C).
 - `codex-rs/app-server-protocol/src/protocol/common.rs:1321-1385`
   — upstream `server_request_definitions!` macro invocation.
+- `codex-rs/app-server-protocol/src/protocol/v2/account.rs:181-353`
+  — upstream `GetAccountRateLimitsResponse` +
+  `AccountRateLimitsUpdatedNotification` + `RateLimitSnapshot`
+  + `RateLimitWindow` (Wedge F shape source).
 - `codex-rs/core/src/hook_runtime.rs` — upstream hook execution
   runtime (proof that hooks are codex-internal).
+- [[decisions/036-claude-code-statusline-telemetry.md]] +
+  [[plans/claude-code-statusline-as-telemetry.md]] — the engine-
+  agnostic mobile chip contract Wedge F adopts.

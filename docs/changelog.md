@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-26)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.714
+> **Last verified vs code:** v1.0.715
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,79 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.715-alpha — 2026-05-26
+
+**Codex M2 session-details sheet parity with claude-code M4.** The
+mobile session-details bottom sheet at
+`lib/widgets/session_details_sheet.dart` reads `engine` / `model` /
+`version` / `permission_mode` / `cwd` / `session_id` from a
+`session.init` event payload to populate the AGENT + WORKDIR
+sections. Claude-code's M4 LocalLogTail adapter has posted this
+event since the engine landed; codex M2 didn't, so codex stewards
+showed a near-empty sheet on the principal device.
+
+### Added
+
+- **`AppServerDriver.emitSessionInit`** in
+  `hub/internal/hostrunner/driver_appserver.go`. Posts
+  `kind: session.init, producer: agent` after `thread/start` returns,
+  carrying `engine`, `model`, `version`, `cwd`, `permission_mode`,
+  `session_id`, `model_provider`, `service_tier`. All fields omitted
+  when empty so the mobile sheet's per-row `isEmpty` gating hides
+  absent fields cleanly.
+
+- **Launch-time metadata fields** on `AppServerDriver`: `Engine`,
+  `Workdir`, `PermissionMode`, `EngineVersion`. Populated from
+  `launch_m2.go` via the existing `agentfamilies.ByName` +
+  `runVersion` capability probe. These are fallbacks; the
+  authoritative source is the `thread/start` response which carries
+  codex's post-merge view of `cwd` + `approvalPolicy` (the operator
+  may have a project-level `.codex/config.toml` overriding our
+  `codexApprovalPolicy()` env-default).
+
+- **`approvalPolicyToString` helper** that flattens codex's
+  `AskForApproval` JSON (kebab-case string for unit variants,
+  object for the experimental `granular` variant per upstream
+  `codex-rs/app-server-protocol/src/protocol/v2/shared.rs:162-179`)
+  into a 1-line label. Granular variants surface the sub-policy
+  key as the label (full sub-policy detail isn't useful in a chip
+  pill; operators reading the verbose-mode payload still see it).
+
+- **Mobile `_permModeColor` extended** for codex's permission-mode
+  vocabulary at `lib/widgets/session_details_sheet.dart:805`.
+  Semantic equivalence across engines:
+  - green (`success`): claude `default`/`plan`; codex `on-request`/`untrusted`
+  - amber (`warning`): claude `acceptEdits`; codex `on-failure`
+  - red (`error`): claude `bypassPermissions`; codex `never`
+  - muted: granular + anything new we haven't mapped
+
+- **4 driver tests** covering: full response with all fields,
+  launch-time fallback when response omits cwd + approvalPolicy,
+  the approvalPolicyToString helper (4 unit + 2 granular + 2 junk
+  cases), and the empty-input suppression guard.
+
+### Why the response supersedes launch-time fields
+
+Codex's `thread/start` resolves `cwd` after its own tilde-expansion
++ project-root logic; resolves `approvalPolicy` after merging
+operator config layers (env-default ← user config ← project
+config). The host-runner-side `expandedWorkdir` + `codexApprovalPolicy()`
+captures the launch-time intent but not the post-merge truth — they
+diverge whenever an operator runs codex in a directory with a
+project-level `.codex/config.toml`. Always preferring the response
+keeps the sheet honest.
+
+### Citations
+
+- `codex-rs/app-server-protocol/src/protocol/v2/thread.rs:195-220` —
+  `ThreadStartResponse` shape (model, cwd, approvalPolicy fields).
+- `codex-rs/app-server-protocol/src/protocol/v2/shared.rs:162` —
+  `AskForApproval` enum wire shape (kebab-case + granular variant).
+- `lib/widgets/session_details_sheet.dart:305-345` — mobile
+  consumer reading `payload.engine/model/version/permission_mode/cwd/session_id`.
+- `hub/internal/drivers/local_log_tail/claude_code/adapter.go:421` —
+  the claude-code precedent this session.init mirrors.
 
 ## v1.0.714-alpha — 2026-05-26
 

@@ -83,6 +83,28 @@ type AppServerDriver struct {
 	// way the StdioDriver does.
 	FrameProfile *agentfamilies.FrameProfile
 
+	// Engine, Workdir, PermissionMode, EngineVersion are launch-time
+	// metadata baked into the session.init event the driver emits
+	// after thread/start. They're not strictly required (the driver
+	// works fine with them empty) but they unlock the codex M2
+	// session-details sheet on mobile (`session_details_sheet.dart`)
+	// which reads `engine`, `model`, `version`, `permission_mode`,
+	// `cwd`, `session_id` from session.init payloads. Mirrors what
+	// the claude-code adapter emits at
+	// `hub/internal/drivers/local_log_tail/claude_code/adapter.go:421`.
+	//
+	// PermissionMode wins as the fallback when the thread/start
+	// response doesn't carry `approvalPolicy` (older codex builds);
+	// the response value supersedes when present.
+	//
+	// Workdir similarly is the operator-side spawn workdir; the
+	// thread/start response's `cwd` supersedes when present (codex's
+	// canonical view of where it's actually running).
+	Engine         string
+	Workdir        string
+	PermissionMode string
+	EngineVersion  string
+
 	// AutoAcceptMCPToolCalls suppresses the attention-card round-trip
 	// on codex's `mcpServer/elicitation/request` frames tagged with
 	// `_meta.codex_approval_kind == "mcp_tool_call"`. Set during
@@ -309,18 +331,49 @@ func (d *AppServerDriver) handshake(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", method, err)
 	}
-	// thread/start returns { thread: { id, ... } }; thread/resume
-	// shares the shape. Capture id either way.
+	// thread/start returns { thread: { id, ... }, model, cwd,
+	// approvalPolicy, ... } (upstream `codex-rs/app-server-protocol/
+	// src/protocol/v2/thread.rs:195-220`); thread/resume shares the
+	// shape (`thread.rs:280-310`). Capture id + the session-init
+	// fields the mobile session-details sheet reads.
 	var out struct {
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
+		Model          string `json:"model"`
+		ModelProvider  string `json:"modelProvider"`
+		ServiceTier    string `json:"serviceTier"`
+		Cwd            string `json:"cwd"`
+		ApprovalPolicy any    `json:"approvalPolicy"`
 	}
-	if err := json.Unmarshal(res, &out); err == nil && out.Thread.ID != "" {
+	_ = json.Unmarshal(res, &out)
+	if out.Thread.ID != "" {
 		d.threadIDMu.Lock()
 		d.threadID = out.Thread.ID
 		d.threadIDMu.Unlock()
 	}
+
+	// session.init — the mobile session-details sheet
+	// (`session_details_sheet.dart`) reads model/version/permission_
+	// mode/cwd/session_id from this payload. Same event kind +
+	// shape as the claude-code adapter posts
+	// (`drivers/local_log_tail/claude_code/adapter.go:421`); the
+	// engine field differs but the consumer shape is unified.
+	//
+	// Prefer the thread/start response's canonical view over the
+	// launch-time fields: codex's `cwd` reflects the resolved path
+	// after its own tilde-expansion and project-root logic; its
+	// `approvalPolicy` reflects the actual policy after config.toml
+	// merge (which can differ from our `codexApprovalPolicy()` env
+	// override if a project-level `.codex/config.toml` overrides).
+	d.emitSessionInit(ctx, sessionInitInputs{
+		threadID:        out.Thread.ID,
+		model:           out.Model,
+		modelProvider:   out.ModelProvider,
+		serviceTier:     out.ServiceTier,
+		cwdFromResponse: out.Cwd,
+		approvalPolicy:  approvalPolicyToString(out.ApprovalPolicy),
+	})
 
 	// Wedge F: pull the initial rate-limit snapshot so the mobile
 	// chip has data BEFORE the first `account/rateLimits/updated`
@@ -1475,6 +1528,115 @@ func (d *AppServerDriver) translateNotification(ctx context.Context, raw []byte)
 	for _, e := range evts {
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, e.Kind, e.Producer, e.Payload)
 	}
+}
+
+// sessionInitInputs collects the per-spawn session-init data sourced
+// partly from launch_m2's spawn config (driver struct fields) and
+// partly from codex's `thread/start` response. The response wins for
+// any field both sources carry — codex's canonical view of `cwd` and
+// `approvalPolicy` reflects post-merge resolution that the
+// host-runner-side launch fields don't capture.
+type sessionInitInputs struct {
+	threadID        string
+	model           string
+	modelProvider   string
+	serviceTier     string
+	cwdFromResponse string
+	approvalPolicy  string
+}
+
+// emitSessionInit posts the engine-agnostic `kind: session.init`
+// event the mobile session-details sheet
+// (`lib/widgets/session_details_sheet.dart`) consumes. Mirrors the
+// claude-code M4 adapter's session.init shape
+// (`drivers/local_log_tail/claude_code/adapter.go:421`) so the same
+// chip + drawer code renders for codex without a per-engine branch.
+//
+// Field sources:
+//   - engine          ← d.Engine (launch-time, e.g. "codex")
+//   - model           ← thread/start.model (canonical)
+//   - version         ← d.EngineVersion (launch-time `codex --version`)
+//   - cwd             ← thread/start.cwd (canonical) → fallback d.Workdir
+//   - permission_mode ← thread/start.approvalPolicy (canonical) →
+//                       fallback d.PermissionMode (codexApprovalPolicy())
+//   - session_id      ← thread.id (we already capture this on threadID)
+//   - model_provider  ← thread/start.modelProvider (e.g. "openai")
+//   - service_tier    ← thread/start.serviceTier (e.g. "default", optional)
+//
+// All fields are omitted when empty so mobile's section-gating
+// (which checks `isEmpty` per field) hides absent rows cleanly
+// instead of rendering "—".
+func (d *AppServerDriver) emitSessionInit(ctx context.Context, in sessionInitInputs) {
+	payload := map[string]any{}
+	if d.Engine != "" {
+		payload["engine"] = d.Engine
+	}
+	if in.model != "" {
+		payload["model"] = in.model
+	}
+	if d.EngineVersion != "" {
+		payload["version"] = d.EngineVersion
+	}
+	// cwd: response wins, launch-time falls back.
+	cwd := in.cwdFromResponse
+	if cwd == "" {
+		cwd = d.Workdir
+	}
+	if cwd != "" {
+		payload["cwd"] = cwd
+	}
+	// permission_mode: response wins, launch-time falls back.
+	permMode := in.approvalPolicy
+	if permMode == "" {
+		permMode = d.PermissionMode
+	}
+	if permMode != "" {
+		payload["permission_mode"] = permMode
+	}
+	if in.threadID != "" {
+		payload["session_id"] = in.threadID
+	}
+	if in.modelProvider != "" {
+		payload["model_provider"] = in.modelProvider
+	}
+	if in.serviceTier != "" {
+		payload["service_tier"] = in.serviceTier
+	}
+	if len(payload) == 0 {
+		// Nothing to surface — handshake response was empty AND no
+		// launch-time fields wired. Don't post a bare DB row.
+		return
+	}
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "session.init", "agent", payload)
+}
+
+// approvalPolicyToString flattens codex's `approvalPolicy` JSON
+// (kebab-case string for the unit variants, object for the
+// experimental `granular` variant) into a single display label.
+// Upstream wire shape: `codex-rs/app-server-protocol/src/protocol/
+// v2/shared.rs:162-179` — values are `untrusted`, `on-failure`,
+// `on-request`, `never`, or `{granular: {...}}` (experimental).
+//
+// We pass simple variants through verbatim and label the granular
+// variant as "granular" (the inner sub-policy detail isn't useful
+// in a 1-line chip; operators who need it can read the verbose-
+// mode payload). Returns empty for null / unknown shapes — the
+// caller falls back to the launch-time `d.PermissionMode`.
+func approvalPolicyToString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case map[string]any:
+		// Experimental granular variant; preserve the discriminator
+		// in case future codex changes ship more struct variants we
+		// haven't seen yet. Falls back to "granular" if no obvious
+		// key.
+		for k := range t {
+			return k
+		}
+		return "granular"
+	}
+	return ""
 }
 
 // emitRateLimitsStatusLine posts a `kind: status_line` agent event

@@ -2117,3 +2117,210 @@ func TestAppServerDriver_HandshakeRateLimitsRead_ErrorSwallowed(t *testing.T) {
 		}
 	}
 }
+
+// ─── Polish: session.init for codex M2 (mobile session-details sheet) ───
+//
+// The mobile session-details sheet
+// (`lib/widgets/session_details_sheet.dart`) renders AGENT + WORKDIR
+// sections from a `session.init` payload's `engine` / `model` /
+// `version` / `permission_mode` / `cwd` / `session_id` fields.
+// claude-code's M4 adapter posts this event from JSONL session.init
+// frames; the codex M2 driver now posts it after thread/start using
+// the response's authoritative `model` + `cwd` + `approvalPolicy`,
+// falling back to launch-time fields for older codex builds.
+
+func TestAppServerDriver_HandshakeEmitsSessionInit(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{
+			"thread": map[string]any{
+				"id":            "thr_si_1",
+				"modelProvider": "openai",
+			},
+			"model":          "gpt-5-2025-04-29",
+			"modelProvider":  "openai",
+			"serviceTier":    "default",
+			"cwd":            "/home/dev/proj",
+			"approvalPolicy": "on-request",
+		}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-si",
+		Handle:           "codex-dev",
+		Engine:           "codex",
+		Workdir:          "/tmp/wd-fallback",
+		PermissionMode:   "never",
+		EngineVersion:    "codex-cli 0.133.0",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+	server.waitForMethod("thread/start", time.Second)
+
+	// lifecycle.started (handshake) + session.init. We don't assert
+	// the exact count because the rate-limits read may also have
+	// posted (or short-circuited with both-null) — focus on the
+	// session.init shape.
+	var init *postedEvent
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, e := range poster.snapshot() {
+			if e.Kind == "session.init" {
+				init = &e
+				break
+			}
+		}
+		if init != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if init == nil {
+		t.Fatalf("session.init never posted; saw %+v", poster.snapshot())
+	}
+	want := map[string]string{
+		"engine":          "codex",
+		"model":           "gpt-5-2025-04-29",
+		"version":         "codex-cli 0.133.0",
+		"cwd":             "/home/dev/proj",        // response wins
+		"permission_mode": "on-request",            // response wins
+		"session_id":      "thr_si_1",
+		"model_provider":  "openai",
+		"service_tier":    "default",
+	}
+	for k, v := range want {
+		got, _ := init.Payload[k].(string)
+		if got != v {
+			t.Errorf("session.init.payload[%q] = %q; want %q", k, got, v)
+		}
+	}
+	if got, _ := init.Payload["permission_mode"].(string); got == "never" {
+		t.Errorf("permission_mode should come from response (on-request), not " +
+			"launch-time fallback (never); response must supersede")
+	}
+}
+
+func TestAppServerDriver_HandshakeSessionInit_LaunchTimeFallback(t *testing.T) {
+	// When thread/start response omits cwd + approvalPolicy (older
+	// codex builds, or thread/resume that doesn't re-emit them),
+	// fall back to the launch-time Workdir + PermissionMode fields.
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{
+			"thread": map[string]any{"id": "thr_si_2"},
+			"model":  "gpt-5-mini-2025-04-29",
+			// cwd + approvalPolicy intentionally omitted
+		}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-si2",
+		Handle:           "codex-old",
+		Engine:           "codex",
+		Workdir:          "/srv/proj",
+		PermissionMode:   "never",
+		EngineVersion:    "codex-cli 0.99.0",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+	server.waitForMethod("thread/start", time.Second)
+
+	var init *postedEvent
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && init == nil {
+		for _, e := range poster.snapshot() {
+			if e.Kind == "session.init" {
+				init = &e
+				break
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if init == nil {
+		t.Fatalf("session.init never posted; saw %+v", poster.snapshot())
+	}
+	if got, _ := init.Payload["cwd"].(string); got != "/srv/proj" {
+		t.Errorf("cwd fallback to launch-time Workdir = %q; want /srv/proj", got)
+	}
+	if got, _ := init.Payload["permission_mode"].(string); got != "never" {
+		t.Errorf("permission_mode fallback to launch-time = %q; want never", got)
+	}
+	if got, _ := init.Payload["model"].(string); got != "gpt-5-mini-2025-04-29" {
+		t.Errorf("model from response = %q; want gpt-5-mini-2025-04-29", got)
+	}
+}
+
+func TestApprovalPolicyToString(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"on-request", "on-request", "on-request"},
+		{"never", "never", "never"},
+		{"untrusted", "untrusted", "untrusted"},
+		{"on-failure", "on-failure", "on-failure"},
+		// Experimental granular variant: object with one key naming
+		// the sub-policy. We surface the key as the label rather
+		// than rendering the full sub-policy verbosely in the chip.
+		{"granular-keyed", map[string]any{"sandboxApproval": true}, "sandboxApproval"},
+		{"granular-empty", map[string]any{}, "granular"},
+		{"nil", nil, ""},
+		{"numeric-junk", float64(42), ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := approvalPolicyToString(c.in)
+			if got != c.want {
+				t.Errorf("approvalPolicyToString(%v) = %q; want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestEmitSessionInit_NothingToPost(t *testing.T) {
+	// When all session-init inputs are empty (no Engine, no
+	// EngineVersion, no Workdir, no PermissionMode, and an empty
+	// thread/start response), don't post a bare DB row. Caller
+	// would otherwise leak an empty session.init event.
+	poster := &fakePoster{}
+	drv := &AppServerDriver{AgentID: "agent-empty", Poster: poster}
+	drv.emitSessionInit(context.Background(), sessionInitInputs{})
+	if got := len(poster.snapshot()); got != 0 {
+		t.Errorf("want 0 events when nothing to surface; got %+v", poster.snapshot())
+	}
+}

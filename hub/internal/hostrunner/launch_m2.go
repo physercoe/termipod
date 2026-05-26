@@ -405,6 +405,22 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		if c, ok := cfg.Client.(AttentionPoster); ok {
 			attention = c
 		}
+		// Launch-time metadata for the session.init event the driver
+		// emits after thread/start. The mobile session-details sheet
+		// (`lib/widgets/session_details_sheet.dart`) reads these via
+		// `payload.engine/version/permission_mode/cwd` to populate the
+		// AGENT + WORKDIR sections. thread/start's response is
+		// canonical and supersedes (codex resolves its own cwd +
+		// post-merge approval_policy); these are the fallbacks for
+		// older codex builds that omit those response fields.
+		engineVersion := ""
+		if fam, ok := agentfamilies.ByName(cfg.Spawn.Kind); ok && fam.VersionFlag != "" {
+			if path, perr := exec.LookPath(fam.Bin); perr == nil && path != "" {
+				if v, vok := runVersion(ctx, path, fam.VersionFlag); vok {
+					engineVersion = v
+				}
+			}
+		}
 		drv = &AppServerDriver{
 			AgentID:      cfg.Spawn.ChildID,
 			Handle:       cfg.Spawn.Handle,
@@ -414,6 +430,12 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 			Stdin:        stdin,
 			FrameProfile: frameProfile,
 			Closer:       closer,
+			// Session-init metadata (fallbacks; thread/start response
+			// supersedes when present).
+			Engine:         familyName,
+			Workdir:        expandedWorkdir,
+			PermissionMode: codexApprovalPolicy(),
+			EngineVersion:  engineVersion,
 			// Bypass MCP-tool-call elicitation cards when the spawn's
 			// `approval_policy` is "never" — the operator has already
 			// opted into hub-as-trust-boundary semantics (see

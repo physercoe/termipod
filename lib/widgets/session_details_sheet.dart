@@ -798,20 +798,45 @@ List<Map<String, dynamic>> _payloadToMapList(Object? v) {
   ];
 }
 
-// bypassPermissions / acceptEdits / default / plan: only "default"
-// and "plan" are restrictive; the others let the agent edit/run
-// without prompting and deserve an amber/red pill so the operator
-// notices.
+// Permission-mode color signal — restrictive policies are green,
+// open-permission policies are amber/red so the operator notices at
+// a glance. Two engines today:
+//
+//   claude-code values: default / plan / acceptEdits / bypassPermissions
+//   codex values:       on-request / on-failure / untrusted / never /
+//                       granular (experimental)
+//
+// Color mapping (semantic equivalence between engines):
+//   green  = approval gated for every action (codex on-request,
+//            untrusted; claude default, plan)
+//   amber  = file edits auto-approved, exec gated (codex on-failure
+//            ≈ "ask only when something breaks"; claude acceptEdits)
+//   red    = everything auto-approved (codex never; claude
+//            bypassPermissions). Operator should see this in red
+//            because the agent can edit + run anything unattended.
+//   muted  = unknown / granular / engine variants we haven't mapped.
 Color _permModeColor(String mode) {
   switch (mode) {
+    // claude-code
     case 'default':
     case 'plan':
+    // codex
+    case 'on-request':
+    case 'untrusted':
       return DesignColors.success;
+    // claude-code
     case 'acceptEdits':
+    // codex
+    case 'on-failure':
       return DesignColors.warning;
+    // claude-code
     case 'bypassPermissions':
+    // codex
+    case 'never':
       return DesignColors.error;
     default:
+      // granular (codex experimental) + anything new lands here —
+      // muted, no color signal, until we explicitly classify.
       return DesignColors.textMuted;
   }
 }

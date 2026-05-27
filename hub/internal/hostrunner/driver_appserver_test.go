@@ -279,15 +279,19 @@ func TestAppServerDriver_HandshakeAndTurn(t *testing.T) {
 		"turn": map[string]any{"id": "turn_001", "status": "completed"},
 	})
 
-	// poster sees: lifecycle.started + (system turn/started) +
-	// (text) + (turn.result). The lifecycle event is posted before
-	// handshake, so it's already there.
-	events := poster.wait(t, 4, 2*time.Second)
+	// poster sees: lifecycle.started + session.init (from thread/start
+	// response, v1.0.715) + (system turn/started) + (text) +
+	// (turn.result). The lifecycle event is posted before handshake,
+	// so it's already there. Wait for 5 events specifically to avoid a
+	// race where wait() returns at 4 before turn.result lands — that's
+	// what bit CI after session.init was added to the sequence.
+	events := poster.wait(t, 5, 2*time.Second)
 	wantKinds := map[string]bool{
-		"lifecycle":   false,
-		"system":      false,
-		"text":        false,
-		"turn.result": false,
+		"lifecycle":    false,
+		"session.init": false,
+		"system":       false,
+		"text":         false,
+		"turn.result":  false,
 	}
 	for _, e := range events {
 		if _, ok := wantKinds[e.Kind]; ok {

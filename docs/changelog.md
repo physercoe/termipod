@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-26)
+> **Status:** Current (2026-05-27)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.722
+> **Last verified vs code:** v1.0.723
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,79 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.723-alpha — 2026-05-27
+
+**Cross-host blob read path closed end-to-end at the agent layer.**
+
+Pre-v1.0.723 a worker on host A could `attach` bytes into the hub
+blob store and reference them by sha, but a worker on host B had no
+way to fetch them: there was no agent-facing read tool, and the A2A
+inbound dispatcher (`a2a_dispatcher.go:258`) explicitly stripped
+non-text parts ("for the MVP we only consume text"). Mobile consumed
+the bytes via `/v1/blobs/<sha>` directly; agents could not. This
+wedge closes that gap.
+
+### Added
+
+- **`blob_get` native MCP tool** (`mcp_more.go:mcpGetBlob`,
+  `native_tools.go`) — read the bytes of a blob by sha256 or by
+  full URI (`blob:sha256/<hex>` / `hub-blob://<hex>`). Returns
+  `{sha256, size, mime, content_base64}` — the same shape `attach`
+  produces, inverted. `WorkerEligible: true`, `TierTrivial`. Three
+  distinct error paths: -32602 for malformed sha shape, -32000
+  "blob not found" for missing rows, -32000 "blob row exists but
+  bytes missing on disk" for the half-state operators see when a
+  partial restore loses files but keeps DB rows.
+
+### Changed
+
+- **A2A inbound dispatcher renders file + data parts as text.**
+  `extractTextParts` → `renderInboundParts`
+  (`a2a_dispatcher.go:253-…`). File parts render as
+  `[file: <uri> (<mime>, <size> bytes)]` so the receiving agent
+  has the URI in its prompt and can call `blob_get` to fetch the
+  bytes. Inline-bytes file parts are summarized (no base64 in
+  prompt) with a nudge to `attach + reference by sha` instead.
+  Data parts render as `[data: <compact-json>]` truncated to 512
+  chars. Handles both the A2A v0.3 nested `file: {...}` shape and
+  the looser flat form some peers and fixtures use.
+- **`attach` tool description rewritten** to remove the dead "or
+  path (server reads — only blessed paths)" claim — the
+  implementation has only ever supported `content_base64`. The
+  rewrite explains that path-based attaching is the pane-marker
+  surface (`<<mcp:attach {"path": "..."}>>`), a different control
+  channel from the MCP tool.
+
+### Tests
+
+- `TestMCP_BlobGet_RoundtripsAttachedBytes` — full attach → get
+  byte-equality round-trip including non-printable bytes.
+- `TestMCP_BlobGet_AcceptsBlobURIForm` — both URI schemes resolve
+  to the same sha.
+- `TestMCP_BlobGet_RejectsMalformedInputs` — 6 sub-cases (no args,
+  empty sha, wrong length, uppercase, non-hex, unknown scheme) all
+  surface -32602 not -32000.
+- `TestMCP_BlobGet_NotFoundReturnsClearError` — error echoes the
+  sha so callers can confirm they passed the right value.
+- `TestMCP_BlobGet_MissingFileSurfacedSeparately` — the half-state
+  carries a distinct message.
+- `TestA2AHubDispatcher_RendersFilePartsAsText` — 4 sub-cases
+  covering flat, nested, bare-uri, and data-part shapes.
+- `TestA2AHubDispatcher_InlineBytesSummarized` — inline-bytes
+  files don't leak base64 into the prompt.
+- `TestA2AHubDispatcher_UnrenderableKindsReturnErrDispatch`
+  replaces the obsolete `…EmptyPartsReturnsErrDispatch` (which
+  pinned the lifted text-only gate).
+
+### Surfaced by
+
+[discussions/multi-agent-harness-landscape.md](discussions/multi-agent-harness-landscape.md)
+§5.0 — verifying "can two stewards on two hosts share a file" against
+the codebase exposed the half-implemented state. A1 in the same doc
+proposed the close.
 
 ---
 

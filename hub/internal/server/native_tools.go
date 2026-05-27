@@ -390,20 +390,52 @@ func buildNativeTools() []nativeTool {
 		},
 		{
 			Name:  "attach",
-			Short: "Attach a resource to an entity.",
-			Description: "Upload a small file as a content-addressed blob. Accepts either " +
-				"content_base64 (inline) or path (server reads — only blessed paths).",
+			Short: "Upload a small file as a content-addressed blob.",
+			Description: "Upload a file (≤25 MiB) into the hub's content-addressed blob store. " +
+				"`content_base64` carries the bytes inline as base64; `filename` is a human-friendly " +
+				"label, NOT a server-side path (this tool does NOT read files from disk — base64-encode " +
+				"the bytes in the agent process before calling). Returns `{sha256, size, mime, filename}`.\n\n" +
+				"The returned `sha256` is the content-addressed handle: cite it as `blob:sha256/<hex>` in " +
+				"artifact URIs, A2A messages, and document references. Same bytes = same sha (dedup'd).\n\n" +
+				"To read bytes back, call `blob_get` with the sha. For path-based attaching from " +
+				"inside a pane (no base64 round-trip) emit the marker `<<mcp:attach {\"path\": \"...\"}>>` " +
+				"on a line — the host-runner reads the file from your local disk and forwards it.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"filename":       map[string]any{"type": "string"},
-					"content_base64": map[string]any{"type": "string"},
-					"mime":           map[string]any{"type": "string"},
+					"filename":       map[string]any{"type": "string", "description": "human-friendly label (e.g. 'screenshot.png'); not a server-side path"},
+					"content_base64": map[string]any{"type": "string", "description": "bytes inline, base64-encoded (raw bytes after decode must be ≤25 MiB)"},
+					"mime":           map[string]any{"type": "string", "description": "optional; defaults to application/octet-stream"},
 				},
 				"required": []string{"filename", "content_base64"},
 			},
 			Tier: TierRoutine, WorkerEligible: true,
 			Handler: argsOnly((*Server).mcpAttach),
+		},
+		{
+			Name:  "blob_get",
+			Short: "Read bytes from the hub blob store by sha256.",
+			Description: "Fetch the bytes of a content-addressed blob by its sha256 (the handle " +
+				"returned by `attach`, or the hex portion of a `blob:sha256/<hex>` / " +
+				"`hub-blob://<hex>` URI). Returns `{sha256, size, mime, content_base64}` — bytes are " +
+				"base64-encoded so the JSON-RPC frame stays printable.\n\n" +
+				"Required: ONE of `sha256` (bare 64-char lowercase hex) OR `uri` (full `blob:sha256/...` " +
+				"or `hub-blob://...` form). Passing the URI verbatim lets you skip slicing the scheme " +
+				"yourself when reading it from an A2A file part.\n\n" +
+				"Use this when another agent has called `attach` and referenced the sha in a message, " +
+				"artifact row, or document — this tool turns that reference back into the bytes.\n\n" +
+				"Returns -32602 if the sha shape is invalid, -32000 \"blob not found\" if no row " +
+				"matches, and -32000 \"blob row exists but bytes missing on disk\" if the DB row " +
+				"survives without the file (typically a partial-restore operator error).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"sha256": map[string]any{"type": "string", "description": "bare 64-character lowercase hex sha256"},
+					"uri":    map[string]any{"type": "string", "description": "alternative to sha256: 'blob:sha256/<hex>' or 'hub-blob://<hex>'"},
+				},
+			},
+			Tier: TierTrivial, WorkerEligible: true,
+			Handler: argsOnly((*Server).mcpGetBlob),
 		},
 		{
 			Name:        "get_event",
@@ -633,7 +665,8 @@ var nativeToolMeta = map[string]struct {
 	"request_select":          {false, []string{"request_approval", "request_help"}},
 	"request_help":            {false, []string{"request_select", "get_attention"}},
 	"request_project_steward": {false, []string{"agents_spawn", "delegate"}},
-	"attach":                  {false, []string{"artifacts_create", "documents_create"}},
+	"attach":                  {false, []string{"blob_get", "artifacts_create", "documents_create"}},
+	"blob_get":                {true, []string{"attach", "artifacts_get", "documents_get"}},
 	"get_event":               {true, []string{"get_feed", "search"}},
 	"get_parent_thread":       {true, []string{"a2a_invoke", "agents_get"}},
 	"update_own_task_status":  {false, []string{"tasks_update", "tasks_complete"}},

@@ -211,6 +211,161 @@ func TestMCP_Attach_StoresBlob(t *testing.T) {
 	}
 }
 
+// blob_get: round-trip a blob via attach + blob_get, confirm the bytes
+// come back equal. This is the load-bearing assertion for cross-host
+// file transfer: host A's attach writes, host B's blob_get reads.
+func TestMCP_BlobGet_RoundtripsAttachedBytes(t *testing.T) {
+	s, _ := newTestServer(t)
+	payload := []byte("the quick brown fox\x00\x01\x02") // include non-printable
+
+	attachArgs, _ := json.Marshal(map[string]any{
+		"filename":       "fox.bin",
+		"content_base64": base64.StdEncoding.EncodeToString(payload),
+		"mime":           "application/octet-stream",
+	})
+	out, jerr := s.mcpAttach(context.Background(), attachArgs)
+	if jerr != nil {
+		t.Fatalf("attach: %+v", jerr)
+	}
+	sha := firstFieldFromMCPResult(t, out, "sha256")
+
+	getArgs, _ := json.Marshal(map[string]any{"sha256": sha})
+	got, jerr := s.mcpGetBlob(context.Background(), getArgs)
+	if jerr != nil {
+		t.Fatalf("blob_get: %+v", jerr)
+	}
+	gotShape := mcpResultMap(t, got)
+	if gotShape["sha256"] != sha {
+		t.Errorf("sha256 = %v, want %v", gotShape["sha256"], sha)
+	}
+	if int(gotShape["size"].(float64)) != len(payload) {
+		t.Errorf("size = %v, want %d", gotShape["size"], len(payload))
+	}
+	if gotShape["mime"] != "application/octet-stream" {
+		t.Errorf("mime = %v, want application/octet-stream", gotShape["mime"])
+	}
+	b64, _ := gotShape["content_base64"].(string)
+	bytes, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("content_base64 not decodable: %v", err)
+	}
+	if string(bytes) != string(payload) {
+		t.Errorf("round-tripped bytes mismatch: got %q want %q", bytes, payload)
+	}
+}
+
+// blob_get accepts the URI verbatim — agents reading the URI from
+// an A2A file part shouldn't have to slice "blob:sha256/" themselves.
+func TestMCP_BlobGet_AcceptsBlobURIForm(t *testing.T) {
+	s, _ := newTestServer(t)
+	payload := []byte("uri form")
+	attachArgs, _ := json.Marshal(map[string]any{
+		"filename":       "u.txt",
+		"content_base64": base64.StdEncoding.EncodeToString(payload),
+	})
+	out, _ := s.mcpAttach(context.Background(), attachArgs)
+	sha := firstFieldFromMCPResult(t, out, "sha256")
+
+	for _, uri := range []string{
+		"blob:sha256/" + sha,
+		"hub-blob://" + sha,
+	} {
+		args, _ := json.Marshal(map[string]any{"uri": uri})
+		got, jerr := s.mcpGetBlob(context.Background(), args)
+		if jerr != nil {
+			t.Errorf("uri %q: %+v", uri, jerr)
+			continue
+		}
+		shape := mcpResultMap(t, got)
+		if shape["sha256"] != sha {
+			t.Errorf("uri %q: sha = %v, want %v", uri, shape["sha256"], sha)
+		}
+	}
+}
+
+// blob_get fails closed on inputs that look like a sha but aren't,
+// so caller bugs (passing a ULID, a path, an empty string) surface
+// as -32602 rather than being silently swallowed as "not found".
+func TestMCP_BlobGet_RejectsMalformedInputs(t *testing.T) {
+	s, _ := newTestServer(t)
+	cases := []struct {
+		name string
+		args map[string]any
+	}{
+		{"no sha or uri", map[string]any{}},
+		{"empty sha", map[string]any{"sha256": ""}},
+		{"sha wrong length", map[string]any{"sha256": "abc"}},
+		{"sha uppercase", map[string]any{"sha256": strings.Repeat("A", 64)}},
+		{"sha non-hex", map[string]any{"sha256": strings.Repeat("z", 64)}},
+		{"unknown URI scheme", map[string]any{"uri": "s3://bucket/key"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			args, _ := json.Marshal(c.args)
+			_, jerr := s.mcpGetBlob(context.Background(), args)
+			if jerr == nil {
+				t.Fatal("err = nil, want validation error")
+			}
+			if jerr.Code != -32602 {
+				t.Errorf("code = %d, want -32602 (invalid params)", jerr.Code)
+			}
+		})
+	}
+}
+
+// Unknown sha (well-formed shape, no matching row) returns -32000
+// with the sha in the error message so callers can confirm they
+// passed the right value (same discipline as documents_get).
+func TestMCP_BlobGet_NotFoundReturnsClearError(t *testing.T) {
+	s, _ := newTestServer(t)
+	sha := strings.Repeat("0", 64)
+	args, _ := json.Marshal(map[string]any{"sha256": sha})
+	_, jerr := s.mcpGetBlob(context.Background(), args)
+	if jerr == nil {
+		t.Fatal("err = nil, want not-found error")
+	}
+	if jerr.Code != -32000 {
+		t.Errorf("code = %d, want -32000", jerr.Code)
+	}
+	if !strings.Contains(jerr.Message, sha) {
+		t.Errorf("error message %q does not echo the sha", jerr.Message)
+	}
+}
+
+// The half-state — blobs row exists but bytes are gone — surfaces
+// as a distinct error message so operators can tell "you typed the
+// wrong sha" from "your hub's DataRoot is partially restored."
+func TestMCP_BlobGet_MissingFileSurfacedSeparately(t *testing.T) {
+	s, _ := newTestServer(t)
+	payload := []byte("about to vanish")
+	attachArgs, _ := json.Marshal(map[string]any{
+		"filename":       "v.bin",
+		"content_base64": base64.StdEncoding.EncodeToString(payload),
+	})
+	out, _ := s.mcpAttach(context.Background(), attachArgs)
+	sha := firstFieldFromMCPResult(t, out, "sha256")
+
+	// Pull the on-disk path and delete the file out from under the
+	// row, simulating the half-state we want to surface.
+	var path string
+	if err := s.db.QueryRow(`SELECT scope_path FROM blobs WHERE sha256 = ?`, sha).
+		Scan(&path); err != nil {
+		t.Fatalf("read scope_path: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove blob file: %v", err)
+	}
+
+	args, _ := json.Marshal(map[string]any{"sha256": sha})
+	_, jerr := s.mcpGetBlob(context.Background(), args)
+	if jerr == nil {
+		t.Fatal("err = nil, want bytes-missing error")
+	}
+	if !strings.Contains(jerr.Message, "bytes missing on disk") {
+		t.Errorf("error message %q doesn't name the half-state", jerr.Message)
+	}
+}
+
 // update_own_task_status: assignment check rejects foreign tasks.
 func TestMCP_UpdateOwnTaskStatus_EnforcesAssignee(t *testing.T) {
 	s, _ := newTestServer(t)
@@ -396,6 +551,19 @@ func firstFieldFromMCPResult(t *testing.T, out any, key string) string {
 	}
 	v, _ := m[key].(string)
 	return v
+}
+
+// mcpResultMap decodes the full top-level JSON object out of an MCP
+// tool result. Use when the test needs more than one field (e.g.
+// blob_get returns sha256 + size + mime + content_base64 together).
+func mcpResultMap(t *testing.T, out any) map[string]any {
+	t.Helper()
+	body := mcpResultTextBody(t, out)
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatalf("unmarshal mcp body: %v — body=%s", err, body)
+	}
+	return m
 }
 
 // permission_prompt: an Approve decision recorded in decisions_json

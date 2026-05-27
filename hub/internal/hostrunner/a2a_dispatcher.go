@@ -64,10 +64,13 @@ func newA2AHubDispatcher(c a2aInputPoster) *a2aHubDispatcher {
 	}
 }
 
-// Dispatch extracts text from msg.Parts and posts it as kind=text input
-// to the hub with producer="a2a". A message with no text parts yields
-// an error so the message/send handler can mark the task failed rather
-// than silently dropping the submission.
+// Dispatch renders msg.Parts into the agent's prompt as kind=text input
+// with producer="a2a". Text parts pass through verbatim; file parts
+// become "[file: <uri> (...)]" lines the receiver can resolve via
+// `blob_get`; data parts become "[data: ...]" lines. A message that
+// renders to an empty string yields an error so the message/send
+// handler can mark the task failed rather than silently dropping the
+// submission.
 //
 // On success the dispatcher records (agentID, taskID, store) so driver
 // output for this agent can be appended back to the task history. A
@@ -75,12 +78,12 @@ func newA2AHubDispatcher(c a2aInputPoster) *a2aHubDispatcher {
 // the new one takes its slot.
 func (d *a2aHubDispatcher) Dispatch(ctx context.Context, agentID string, msg a2a.Message,
 	taskID string, store *a2a.TaskStore) error {
-	text, err := extractTextParts(msg.Parts)
+	text, err := renderInboundParts(msg.Parts)
 	if err != nil {
 		return fmt.Errorf("%w: %v", a2a.ErrDispatch, err)
 	}
 	if text == "" {
-		return fmt.Errorf("%w: message has no text parts", a2a.ErrDispatch)
+		return fmt.Errorf("%w: message has no renderable parts", a2a.ErrDispatch)
 	}
 	fields := map[string]any{
 		"kind":     "text",
@@ -250,33 +253,162 @@ func parseTermipodMeta(raw json.RawMessage) map[string]any {
 	return meta.Termipod
 }
 
-// extractTextParts folds A2A Parts into a single string. A2A v0.3 allows
-// a few part kinds (text/file/data); for the MVP we only consume text
-// and concat with newlines so multi-part messages arrive at the agent
-// intact. Unknown kinds are skipped (not errors) so peers can ship
+// renderInboundParts folds A2A Parts into a single string the receiving
+// agent can read. A2A v0.3 allows three part kinds (text/file/data);
+// we concat with newlines so multi-part messages arrive intact.
+//
+// Pre-v1.0.723 this function consumed only text parts and dropped
+// file/data on the floor — the "MVP: text only" gate. That made
+// cross-host file transfer half-implemented (host A could `attach` and
+// the bytes reached the hub, but host B's agent never saw the URI in
+// its prompt and so had no way to call `blob_get` to fetch them).
+//
+// We now render non-text parts as text lines so the receiving agent
+// has the URI in its prompt:
+//
+//   - file part   → "[file: <uri> (<mime>, <size> bytes)]"
+//   - data part   → "[data: <json>]" (compact JSON, truncated to ~512 chars)
+//
+// Bytes-inline file parts (`file.bytes` carrying base64 directly) are
+// summarized — we don't inject base64 into the prompt because (a) it
+// pollutes context and (b) peers should `attach` first then reference
+// the sha if they want the receiver to act on the bytes.
+//
+// Unknown kinds are still skipped (not errors) so peers can ship
 // richer messages without breaking simple agents.
-func extractTextParts(raw json.RawMessage) (string, error) {
+func renderInboundParts(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
 		return "", nil
 	}
-	var parts []struct {
-		Kind string `json:"kind"`
-		Text string `json:"text"`
-	}
+	var parts []inboundPart
 	if err := json.Unmarshal(raw, &parts); err != nil {
 		return "", err
 	}
 	var b strings.Builder
 	for _, p := range parts {
-		if p.Kind != "text" || p.Text == "" {
+		line := renderOnePart(p)
+		if line == "" {
 			continue
 		}
 		if b.Len() > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(p.Text)
+		b.WriteString(line)
 	}
 	return b.String(), nil
+}
+
+// inboundPart accepts both the A2A v0.3 canonical FilePart shape
+// (`file: {uri | bytes, mimeType, name}`) and the looser flat form
+// some peers and tests use (`uri` directly at the part level).
+// Either shape resolves cleanly via the helper getters below.
+type inboundPart struct {
+	Kind string          `json:"kind"`
+	Text string          `json:"text,omitempty"`
+	File *inboundFileRef `json:"file,omitempty"`
+
+	// Flat-form fallbacks used by older test fixtures and some A2A
+	// peers that didn't follow the nested FilePart shape.
+	URI      string `json:"uri,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+
+	// Data part — passthrough as compact JSON.
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
+type inboundFileRef struct {
+	URI      string `json:"uri,omitempty"`
+	Bytes    string `json:"bytes,omitempty"` // base64; summarized, not inlined
+	MimeType string `json:"mimeType,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+}
+
+// renderOnePart returns the prompt-line shape for one part, or ""
+// if there's nothing usable to render. Caller joins non-empty
+// returns with newlines.
+func renderOnePart(p inboundPart) string {
+	switch p.Kind {
+	case "text":
+		return p.Text
+	case "file":
+		uri, mime, name, size := fileFields(p)
+		var hasInlineBytes bool
+		if p.File != nil {
+			hasInlineBytes = p.File.Bytes != ""
+		}
+		// Pick the most agent-actionable piece (URI is what blob_get
+		// consumes); fall back to the bytes-inline summary if the
+		// peer chose to inline base64 instead of pre-attaching.
+		switch {
+		case uri != "":
+			return "[file: " + uri + fileSuffix(mime, size) + "]"
+		case hasInlineBytes:
+			label := name
+			if label == "" {
+				label = "(inline)"
+			}
+			return "[file: " + label + fileSuffix(mime, size) + " — inline bytes; ask peer to attach + reference by sha to fetch]"
+		}
+		return ""
+	case "data":
+		if len(p.Data) == 0 {
+			return ""
+		}
+		// Compact and truncate so a peer can't blow out context with
+		// a multi-MB data part.
+		raw := strings.Join(strings.Fields(string(p.Data)), " ")
+		const dataTruncate = 512
+		if len(raw) > dataTruncate {
+			raw = raw[:dataTruncate] + "…"
+		}
+		return "[data: " + raw + "]"
+	}
+	return ""
+}
+
+// fileFields resolves uri/mime/name/size across the two valid shapes.
+// The nested `file:` form wins when present (canonical A2A v0.3
+// FilePart); the flat form fills in otherwise.
+func fileFields(p inboundPart) (uri, mime, name string, size int64) {
+	if p.File != nil {
+		uri = p.File.URI
+		mime = p.File.MimeType
+		name = p.File.Name
+		size = p.File.Size
+	}
+	if uri == "" {
+		uri = p.URI
+	}
+	if mime == "" {
+		mime = p.MimeType
+	}
+	if name == "" {
+		name = p.Name
+	}
+	if size == 0 {
+		size = p.Size
+	}
+	return uri, mime, name, size
+}
+
+// fileSuffix renders the " (mime, N bytes)" tail when any metadata
+// is known. Returns "" so the inner bracket form stays compact when
+// the peer sent only a bare URI.
+func fileSuffix(mime string, size int64) string {
+	var parts []string
+	if mime != "" {
+		parts = append(parts, mime)
+	}
+	if size > 0 {
+		parts = append(parts, fmt.Sprintf("%d bytes", size))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
 }
 
 // a2aPosterTap wraps an AgentEventPoster so every driver-emitted event

@@ -369,8 +369,21 @@ func (s *Server) mcpRequestProjectSteward(ctx context.Context, team, fromID stri
 }
 
 // ---------------------------------------------------------------------
-// attach — upload base64 content as a blob, return {sha256, size}
+// attach / blob_get — upload + read the hub blob store
 // ---------------------------------------------------------------------
+//
+// attach takes a base64-encoded body and writes it to the
+// content-addressed blob store at <DataRoot>/blobs/<aa>/<bb>/<sha>.
+// blob_get is the inverse — sha in, bytes out — and is what makes
+// cross-host file transfer work end-to-end at the agent layer.
+// Without it, an attach on host A could only be consumed by mobile;
+// the receiving agent on host B had the URI but no way to fetch
+// the bytes.
+//
+// Naming: native registry uses verb-first names (get_feed, get_event,
+// get_attention, get_project_doc); blob_get keeps that house style.
+// The dotted form (blob.get) is reserved for the authority registry
+// and is not exposed today — current callers are all native dispatch.
 
 type attachArgs struct {
 	Filename      string `json:"filename"`
@@ -419,6 +432,100 @@ func (s *Server) mcpAttach(ctx context.Context, raw json.RawMessage) (any, *jrpc
 		"mime":     mime,
 		"filename": a.Filename,
 	}), nil
+}
+
+// blobGetArgs accepts either the bare sha256 hex or a full URI
+// (`blob:sha256/<hex>` or `hub-blob://<hex>`). Accepting both shapes
+// means agents can pass the URI they read out of an A2A inbound file
+// part verbatim, without slicing the scheme prefix themselves.
+type blobGetArgs struct {
+	SHA256 string `json:"sha256"`
+	URI    string `json:"uri"`
+}
+
+// mcpGetBlob is the read companion to attach. Returns the bytes
+// base64-encoded so the wire transport (JSON-RPC over stdio) stays
+// printable; 25 MiB raw → ~33 MiB base64 still fits a single frame.
+// The body inside `content_base64` is the SAME shape attach accepts —
+// round-tripping a blob between two agents is symmetric.
+func (s *Server) mcpGetBlob(ctx context.Context, raw json.RawMessage) (any, *jrpcError) {
+	var a blobGetArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, &jrpcError{Code: -32602, Message: "invalid args: " + err.Error()}
+	}
+	sha := strings.TrimSpace(a.SHA256)
+	if sha == "" && a.URI != "" {
+		sha = shaFromBlobURI(a.URI)
+	}
+	if sha == "" {
+		return nil, &jrpcError{Code: -32602, Message: "sha256 (or uri) is required"}
+	}
+	// Cheap shape check before hitting the DB. sha256 hex is exactly 64
+	// lowercase-hex characters; rejecting other shapes here keeps the
+	// blob lookup from masking caller bugs as "not found".
+	if !isHexSHA256(sha) {
+		return nil, &jrpcError{Code: -32602, Message: "sha256 must be 64 lowercase hex characters"}
+	}
+
+	var path, mime string
+	var size int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT scope_path, size, mime FROM blobs WHERE sha256 = ?`, sha).
+		Scan(&path, &size, &mime)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, &jrpcError{Code: -32000, Message: "blob not found: " + sha}
+	}
+	if err != nil {
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		// Row exists but file is gone — surface as a distinct error so
+		// operators can diagnose the half-state (typically a manual rm
+		// under DataRoot or a partial restore).
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, &jrpcError{Code: -32000,
+				Message: "blob row exists but bytes missing on disk: " + sha}
+		}
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	return mcpResultJSON(map[string]any{
+		"sha256":         sha,
+		"size":           size,
+		"mime":           mime,
+		"content_base64": base64.StdEncoding.EncodeToString(body),
+	}), nil
+}
+
+// shaFromBlobURI strips the canonical scheme prefixes (`blob:sha256/`
+// and `hub-blob://`) and returns the bare sha. Returns "" if the
+// input doesn't match either prefix; the caller treats that as a
+// missing sha.
+func shaFromBlobURI(uri string) string {
+	uri = strings.TrimSpace(uri)
+	if rest, ok := strings.CutPrefix(uri, "blob:sha256/"); ok {
+		return rest
+	}
+	if rest, ok := strings.CutPrefix(uri, "hub-blob://"); ok {
+		return rest
+	}
+	return ""
+}
+
+// isHexSHA256 reports whether s is exactly 64 lowercase hex chars.
+// Inline so the cost is a single allocation-free pass over the bytes;
+// importing regexp for a constant-shape check would be more code.
+func isHexSHA256(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------

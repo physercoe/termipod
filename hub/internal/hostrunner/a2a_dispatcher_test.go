@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/termipod/hub/internal/hostrunner/a2a"
@@ -55,13 +56,23 @@ func TestA2AHubDispatcher_PostsTextInput(t *testing.T) {
 	}
 }
 
-func TestA2AHubDispatcher_EmptyPartsReturnsErrDispatch(t *testing.T) {
+// Pre-v1.0.723 this test pinned the "MVP: text only" gate at
+// extractTextParts: a file-only A2A message returned ErrDispatch.
+// That gate stranded cross-host file transfer (host A's attach
+// landed in the hub blob store but host B's agent never saw the URI
+// in its prompt, so couldn't call blob_get). renderInboundParts now
+// renders file parts as text lines; a message that ONLY contains
+// kinds we still don't render (unknown future kinds) is the new
+// empty-renderable case.
+func TestA2AHubDispatcher_UnrenderableKindsReturnErrDispatch(t *testing.T) {
 	p := &fakeInputPoster{}
 	d := newA2AHubDispatcher(p)
 	msg := a2a.Message{
 		MessageID: "m-2",
 		Role:      "user",
-		Parts:     json.RawMessage(`[{"kind":"file","uri":"blob://x"}]`),
+		// "future" is not a known A2A part kind; renderOnePart returns
+		// "" for it so the joined render is empty.
+		Parts: json.RawMessage(`[{"kind":"future","payload":"x"}]`),
 	}
 	err := d.Dispatch(context.Background(), "agent-x", msg, "task-2", a2a.NewTaskStore())
 	if err == nil {
@@ -71,7 +82,107 @@ func TestA2AHubDispatcher_EmptyPartsReturnsErrDispatch(t *testing.T) {
 		t.Errorf("err = %v, want ErrDispatch wrap", err)
 	}
 	if len(p.calls) != 0 {
-		t.Errorf("posted %d times, want 0 for empty text", len(p.calls))
+		t.Errorf("posted %d times, want 0 for empty render", len(p.calls))
+	}
+}
+
+// File parts are no longer dropped at the consumer; they render as
+// "[file: <uri> (...)]" lines the receiving agent can resolve via
+// blob_get. This is the v1.0.723 cross-host file-transfer fix.
+func TestA2AHubDispatcher_RendersFilePartsAsText(t *testing.T) {
+	cases := []struct {
+		name       string
+		parts      string
+		wantSubstr []string
+	}{
+		{
+			name: "flat form with uri+mime+size",
+			parts: `[
+				{"kind":"text","text":"here you go"},
+				{"kind":"file","uri":"blob:sha256/abc","mimeType":"image/png","size":42}
+			]`,
+			wantSubstr: []string{
+				"here you go",
+				"[file: blob:sha256/abc (image/png, 42 bytes)]",
+			},
+		},
+		{
+			name: "nested A2A v0.3 FilePart shape",
+			parts: `[
+				{"kind":"file","file":{"uri":"blob:sha256/def","mimeType":"text/plain","size":7,"name":"hello.txt"}}
+			]`,
+			wantSubstr: []string{"[file: blob:sha256/def (text/plain, 7 bytes)]"},
+		},
+		{
+			name: "bare uri with no mime/size",
+			parts: `[
+				{"kind":"file","uri":"blob:sha256/bare"}
+			]`,
+			wantSubstr: []string{"[file: blob:sha256/bare]"},
+		},
+		{
+			name: "data part renders compact",
+			parts: `[
+				{"kind":"text","text":"saw this"},
+				{"kind":"data","data":{"k":"v","n":7}}
+			]`,
+			wantSubstr: []string{`saw this`, `[data: {"k":"v","n":7}]`},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := &fakeInputPoster{}
+			d := newA2AHubDispatcher(p)
+			msg := a2a.Message{
+				MessageID: "m-" + c.name,
+				Role:      "user",
+				Parts:     json.RawMessage(c.parts),
+			}
+			if err := d.Dispatch(context.Background(), "agent-x", msg, "t-"+c.name, a2a.NewTaskStore()); err != nil {
+				t.Fatalf("Dispatch: %v", err)
+			}
+			if len(p.calls) != 1 {
+				t.Fatalf("posts = %d, want 1", len(p.calls))
+			}
+			body, _ := p.calls[0].fields["body"].(string)
+			for _, want := range c.wantSubstr {
+				if !strings.Contains(body, want) {
+					t.Errorf("body missing %q\nbody = %q", want, body)
+				}
+			}
+		})
+	}
+}
+
+// Inline bytes (file.bytes carrying base64) get a summary line that
+// nudges the peer toward attach+sha so we don't pollute context with
+// base64 content. The bytes themselves are dropped.
+func TestA2AHubDispatcher_InlineBytesSummarized(t *testing.T) {
+	p := &fakeInputPoster{}
+	d := newA2AHubDispatcher(p)
+	msg := a2a.Message{
+		MessageID: "m-inline",
+		Role:      "user",
+		Parts: json.RawMessage(`[{
+			"kind":"file",
+			"file":{"bytes":"YWFhYWFhYWFhYQ==","mimeType":"text/plain","size":10,"name":"notes.txt"}
+		}]`),
+	}
+	if err := d.Dispatch(context.Background(), "agent-x", msg, "t-inline", a2a.NewTaskStore()); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if len(p.calls) != 1 {
+		t.Fatalf("posts = %d, want 1", len(p.calls))
+	}
+	body, _ := p.calls[0].fields["body"].(string)
+	if !strings.Contains(body, "notes.txt") {
+		t.Errorf("body missing inline file name: %q", body)
+	}
+	if !strings.Contains(body, "attach + reference by sha") {
+		t.Errorf("body missing nudge toward attach+sha: %q", body)
+	}
+	if strings.Contains(body, "YWFhYWFhYWFhYQ==") {
+		t.Errorf("body leaked inline base64 into prompt: %q", body)
 	}
 }
 

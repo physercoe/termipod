@@ -61,6 +61,7 @@ var toolTiers = map[string]string{
 	"request_decision":         TierRoutine,   // meta — same
 	"request_project_steward":  TierRoutine,   // meta — raises attention item, no direct effect
 	"attach":                   TierRoutine,
+	"blob_get":                 TierTrivial, // read-only by sha; no side effects
 	"get_event":              TierTrivial,
 	"get_task":               TierTrivial,
 	"get_parent_thread":      TierTrivial,

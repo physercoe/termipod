@@ -15,13 +15,17 @@ orchestrating Claude Code / Codex / ACP). The pattern that is winning
 is **"harness on top of a stochastic-executor engine"** — exactly
 TermiPod's architecture. We are not behind the frontier; we are in
 the same lane. The most directly borrowable pieces are omo's
-filesystem-mailbox three-state lifecycle, OAuth-enabled MCP loader,
-per-agent fallback model chains, and a deep-introspection `doctor`
-command. The hook-taxonomy framing surfaces a recovery-layer gap
-that v1.0.711 (`a2aPosterTap` mask) and v1.0.722 (recursive
-disconnect) both pointed at. This doc inventories the landscape and
-ranks what to borrow; concrete picks belong in follow-up plans or
-ADRs.
+filesystem-mailbox three-state lifecycle (urgent because cross-host
+A2A — including blob-attachment payloads — already moves real bytes
+through the hub), per-agent fallback model chains, and a deep-
+introspection `doctor` command. The hook-taxonomy framing surfaces a
+recovery-layer gap that v1.0.711 (`a2aPosterTap` mask) and v1.0.722
+(recursive disconnect) both pointed at. OAuth-enabled MCP and auto-
+compaction are deferred — the former adds weeks of spec work for
+post-MVP ergonomics; the latter overlaps with engine-native
+`/compact` surfaces in claude-code and codex. This doc inventories
+the landscape and ranks what to borrow; concrete picks belong in
+follow-up plans or ADRs.
 
 Companion to [integrating-open-source-agents.md](integrating-open-source-agents.md),
 which asks "can these engines drop into our [driving modes](../reference/glossary.md#driving-mode)
@@ -244,6 +248,32 @@ would surface convergent or divergent decisions cleanly.
 
 Ranked by *fit × leverage × cost*.
 
+### 5.0 Grounding — what already works cross-host
+
+Before reading the borrow list it helps to know what cross-host
+coordination TermiPod already supports today. Two facts that change
+which pieces are urgent:
+
+- **Cross-host project membership works.** `agents.project_id`
+  (`hub/migrations/0040_agents_project_id.up.sql:18`) and
+  `agents.host_id` (`hub/migrations/0001_initial.up.sql:44`) are
+  independent columns; no constraint binds a project to a single
+  host. Two stewards under the same project on different hosts is a
+  supported configuration — A2A through the hub's reverse-tunnel
+  relay carries their messages.
+- **Cross-host file sharing works for ≤25 MiB via the hub blob
+  store.** `hub/internal/server/handlers_blobs.go:22-65` puts bytes
+  at `<DataRoot>/blobs/<aa>/<bb>/<sha>` on POST and serves them on
+  GET. Agent A uploads → references the sha in an A2A envelope or
+  artifact row → Agent B downloads. Above 25 MiB the design slot
+  exists (blueprint §4: hub holds references, hosts hold bytes) but
+  the host-runner serve-bytes endpoint is not implemented yet.
+
+Both facts make **A1 (mailbox three-state lifecycle) more urgent
+than the abstract pitch suggests** — every cross-host A2A envelope
+that references attached bytes is a real file transfer that should
+survive host-runner crash with a defined in-flight state.
+
 ### 5.1 Tier A — borrow soon, well-shaped pieces
 
 **A1. Mailbox three-state lifecycle for A2A.** Adopt
@@ -257,13 +287,7 @@ crash. Lands in `hub/internal/server/handlers_a2a.go` or a new
 load-bearing piece — we would otherwise reinvent it after a stuck-
 message incident.
 
-**A2. OAuth-enabled MCP servers** (RFC 9728 + 8414 + 7591 + PKCE
-+ auto-refresh + 0600 token store). We assume MCP servers are
-bring-your-own-bearer. Sites: `hub/internal/hubmcpserver/`. Multi-day
-implementation, not a wedge, but the spec work is already done by
-the RFCs.
-
-**A3. Per-agent fallback model chains** with variant + thinking
+**A2. Per-agent fallback model chains** with variant + thinking
 config. `agent_families.yaml` drives engine selection but lacks
 graceful degradation. Lands as a new `fallback_models:` key in
 `hub/internal/agentfamilies/agent_families.yaml`, consumed by
@@ -271,7 +295,7 @@ graceful degradation. Lands as a new `fallback_models:` key in
 allowlist-over-denylist discipline already documented in
 [consumer-side-dispatch-contracts.md](consumer-side-dispatch-contracts.md).
 
-**A4. Doctor command (`hub doctor --verbose`).** We have `/health`
+**A3. Doctor command (`hub doctor --verbose`).** We have `/health`
 but no deep introspection that lists *(runtime-injected MCPs / loaded
 YAML profiles / spawned agents / tmux pane status / migration
 version)*. Lands as `hub/cmd/hub-server/doctor.go` or as a
@@ -312,15 +336,18 @@ mobile session-details sheet.
 composition primitives in the template loader would let users
 override one section without forking a whole prompt. Cheap.
 
-**B4. Auto-compaction preserving task state** (OpenHarness's
-headline). Mobile-first means our users *will* hit context limits.
-The pattern: serialize the live task list + recent attention items +
-last N `agent_events` to a "carry-forward" blob that gets injected
-after `/clear`. Pairs with ADR-029. Significant; roadmap-scale, not
-a wedge.
-
 ### 5.3 Tier C — watch, don't copy
 
+- **Auto-compaction preserving task state** (OpenHarness's
+  headline). claude-code and codex both ship their own
+  context-compaction surfaces (`/compact`, automatic on context
+  pressure) which already preserve the engine record; layering a
+  hub-side carry-forward on top is not urgent. Re-open if a real
+  user-visible "tasks vanished after compaction" incident lands.
+- **OAuth-enabled MCP servers** (RFC 9728 + 8414 + 7591 + PKCE +
+  auto-refresh + 0600 token store). Deferred to post-MVP — adds
+  weeks of spec implementation to support a tier-3 MCP ergonomics
+  that bring-your-own-bearer already covers for our user shape.
 - **Hash-anchored edit (Hashline)** — engine-side; Claude Code's
   Edit tool already does this. Not our layer.
 - **Ralph loop completion marker** — we have `/loop` with cron +
@@ -369,13 +396,14 @@ specifics:
    should match the crash-recovery properties of the filesystem
    pattern (the `.delivering-` TTL is the load-bearing piece).
 
-3. **The next 6 months will reward whoever solves long-session
-   survival.** OpenHarness leads with auto-compaction; omo has
-   session-recovery + intelligent compaction. Mobile-first makes
-   this acute for us. ADR-029 + ADR-030 + ADR-032 are the right
-   primitives; the missing piece is the carry-forward serialization
-   that survives `/clear`. This is the strongest candidate for the
-   next strategic wedge.
+3. **Long-session survival is a shared frontier.** OpenHarness
+   leads with auto-compaction; omo has session-recovery +
+   intelligent compaction. Mobile-first makes this acute for us in
+   theory — but claude-code and codex both ship their own
+   `/compact` surfaces today, so the user-visible gap is smaller
+   than the marketing suggests. Re-evaluate if/when a real
+   "context-pressure lost my tasks" incident lands; until then the
+   engine-native compaction does the work.
 
 ---
 

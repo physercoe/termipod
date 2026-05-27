@@ -1,9 +1,9 @@
 # Multi-agent harness landscape
 
 > **Type:** discussion
-> **Status:** Open (2026-05-27) — landscape capture; no decisions taken
+> **Status:** Open (2026-05-27) — landscape capture; one borrow shipped (v1.0.723), others remain unselected
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.722
+> **Last verified vs code:** v1.0.723
 > **Freshness:** snapshot (refresh when a new harness crosses ~10k stars or shifts architecture)
 
 **TL;DR.** Three open-source multi-agent harnesses are pulling away
@@ -14,18 +14,22 @@ from the pack in mid-2026: **code-yeongyu/oh-my-openagent** ("omo",
 orchestrating Claude Code / Codex / ACP). The pattern that is winning
 is **"harness on top of a stochastic-executor engine"** — exactly
 TermiPod's architecture. We are not behind the frontier; we are in
-the same lane. The most directly borrowable pieces are omo's
-filesystem-mailbox three-state lifecycle (urgent because cross-host
-A2A — including blob-attachment payloads — already moves real bytes
-through the hub), per-agent fallback model chains, and a deep-
-introspection `doctor` command. The hook-taxonomy framing surfaces a
-recovery-layer gap that v1.0.711 (`a2aPosterTap` mask) and v1.0.722
-(recursive disconnect) both pointed at. OAuth-enabled MCP and auto-
-compaction are deferred — the former adds weeks of spec work for
-post-MVP ergonomics; the latter overlaps with engine-native
-`/compact` surfaces in claude-code and codex. This doc inventories
-the landscape and ranks what to borrow; concrete picks belong in
-follow-up plans or ADRs.
+the same lane. Verifying §5.0's "cross-host file sharing" claim
+against the codebase surfaced a half-implemented state (producer
+side worked, consumer side dropped file parts and had no read tool);
+**v1.0.723 closed that gap** by adding `blob_get` and lifting the
+A2A text-only render gate. The remaining Tier A borrow candidates
+are per-agent fallback model chains and a deep-introspection
+`doctor` command. The hook-taxonomy framing surfaces a recovery-
+layer gap that v1.0.711 (`a2aPosterTap` mask) and v1.0.722
+(recursive disconnect) both pointed at. OAuth-enabled MCP, auto-
+compaction, and the omo mailbox three-state lifecycle are deferred
+— the first adds weeks of spec work for post-MVP ergonomics; the
+second overlaps with engine-native `/compact` surfaces in
+claude-code and codex; the third is a defensive durability pattern
+without a stranded-envelope incident yet to motivate it. This doc
+inventories the landscape and ranks what to borrow; concrete picks
+belong in follow-up plans or ADRs.
 
 Companion to [integrating-open-source-agents.md](integrating-open-source-agents.md),
 which asks "can these engines drop into our [driving modes](../reference/glossary.md#driving-mode)
@@ -261,33 +265,30 @@ which pieces are urgent:
   host. Two stewards under the same project on different hosts is a
   supported configuration — A2A through the hub's reverse-tunnel
   relay carries their messages.
-- **Cross-host file sharing works for ≤25 MiB via the hub blob
-  store.** `hub/internal/server/handlers_blobs.go:22-65` puts bytes
-  at `<DataRoot>/blobs/<aa>/<bb>/<sha>` on POST and serves them on
-  GET. Agent A uploads → references the sha in an A2A envelope or
-  artifact row → Agent B downloads. Above 25 MiB the design slot
-  exists (blueprint §4: hub holds references, hosts hold bytes) but
-  the host-runner serve-bytes endpoint is not implemented yet.
+- **Cross-host file sharing works end-to-end at the agent layer for
+  ≤25 MiB via the hub blob store** (closed in **v1.0.723**).
+  Producer side: `attach` MCP tool or `<<mcp:attach {"path":...}>>`
+  pane marker puts bytes at `<DataRoot>/blobs/<aa>/<bb>/<sha>`
+  (`hub/internal/server/handlers_blobs.go:22-65`). Consumer side:
+  `blob_get` MCP tool reads the bytes by sha or by full URI
+  (`hub/internal/server/mcp_more.go:mcpGetBlob`), and
+  `renderInboundParts` (`hub/internal/hostrunner/a2a_dispatcher.go`)
+  surfaces file parts to the receiving agent as
+  `[file: <uri> (<mime>, <size> bytes)]` lines instead of dropping
+  them. Pre-v1.0.723 the consumer side was missing both pieces, so
+  the path was half-implemented — bytes reached the hub but the
+  receiving agent had no way to act on them. Above 25 MiB the
+  design slot exists (blueprint §4: hub holds references, hosts
+  hold bytes) but the host-runner serve-bytes endpoint is not
+  implemented yet.
 
-Both facts make **A1 (mailbox three-state lifecycle) more urgent
-than the abstract pitch suggests** — every cross-host A2A envelope
-that references attached bytes is a real file transfer that should
-survive host-runner crash with a defined in-flight state.
+These two facts together make cross-host coordination viable at
+the agent layer today — both messaging and bounded file transfer
+work without operator-level intervention.
 
 ### 5.1 Tier A — borrow soon, well-shaped pieces
 
-**A1. Mailbox three-state lifecycle for A2A.** Adopt
-*unread / delivering / processed* with a `.delivering-{uuid}`
-reservation file and a 10-minute TTL reclamation pass.
-[ADR-032](../decisions/032-message-routing-envelope.md) envelopes
-already carry sender stamping; what we lack is a defined "in-flight"
-state that survives [host-runner](../reference/glossary.md#host-runner)
-crash. Lands in `hub/internal/server/handlers_a2a.go` or a new
-`hub/internal/mailbox/` package. The TTL pattern is the
-load-bearing piece — we would otherwise reinvent it after a stuck-
-message incident.
-
-**A2. Per-agent fallback model chains** with variant + thinking
+**A1. Per-agent fallback model chains** with variant + thinking
 config. `agent_families.yaml` drives engine selection but lacks
 graceful degradation. Lands as a new `fallback_models:` key in
 `hub/internal/agentfamilies/agent_families.yaml`, consumed by
@@ -295,13 +296,24 @@ graceful degradation. Lands as a new `fallback_models:` key in
 allowlist-over-denylist discipline already documented in
 [consumer-side-dispatch-contracts.md](consumer-side-dispatch-contracts.md).
 
-**A3. Doctor command (`hub doctor --verbose`).** We have `/health`
+**A2. Doctor command (`hub doctor --verbose`).** We have `/health`
 but no deep introspection that lists *(runtime-injected MCPs / loaded
 YAML profiles / spawned agents / tmux pane status / migration
 version)*. Lands as `hub/cmd/hub-server/doctor.go` or as a
 [hub-tui](../reference/glossary.md#host-runner) screen. Cheap;
 immediately useful when triaging mobile reports of "it isn't
 working."
+
+> **Removed from Tier A in this revision.** The earlier draft listed
+> *Mailbox three-state lifecycle for A2A* (unread / delivering /
+> processed with `.delivering-{uuid}` reservation + 10-minute TTL
+> reclamation) as A1. Its urgency was tied to the half-implemented
+> cross-host file path described in §5.0. That gap was closed by
+> v1.0.723 with a different mechanism — adding the agent-side blob
+> read tool, not by reshaping envelope durability. Without that
+> motivation, the mailbox lifecycle is a defensive pattern without
+> a real incident to justify it; it moves to Tier C until one
+> lands.
 
 ### 5.2 Tier B — borrow with adaptation
 
@@ -338,6 +350,17 @@ override one section without forking a whole prompt. Cheap.
 
 ### 5.3 Tier C — watch, don't copy
 
+- **Mailbox three-state lifecycle for A2A envelopes** (omo's
+  `unread / .delivering-{uuid} / processed/` shape with a 10-minute
+  TTL reclamation pass). A defensive durability pattern;
+  [ADR-032](../decisions/032-message-routing-envelope.md) envelopes
+  carry sender stamping but no in-flight state that survives
+  host-runner crash. Demoted from Tier A in the v1.0.723 revision
+  — its urgency was tied to the now-closed cross-host file path
+  (§5.0). Re-open if a stranded-envelope incident lands; the borrow
+  cost is one new package under `hub/internal/mailbox/` (or
+  additional state on the existing A2A envelope record) plus a
+  reaper goroutine for the TTL sweep.
 - **Auto-compaction preserving task state** (OpenHarness's
   headline). claude-code and codex both ship their own
   context-compaction surfaces (`/compact`, automatic on context
@@ -391,10 +414,12 @@ specifics:
    state.** omo's mailbox is JSON files on disk with
    `.delivering-` reservations. OpenHarness's memory is markdown
    files on disk. We picked hub-as-authority + bytes-on-hosts (per
-   blueprint §3.2). That is a different trade-off (concurrency,
-   multi-host, audit), and worth defending — but our A2A relay
-   should match the crash-recovery properties of the filesystem
-   pattern (the `.delivering-` TTL is the load-bearing piece).
+   blueprint §3.2) — a different trade-off (concurrency, multi-host,
+   audit) worth defending. The crash-recovery piece of the
+   filesystem pattern (envelope-durability state machine) is
+   captured as a Tier C item for now (§5.3); revisit if a real
+   stranded-envelope incident lands rather than borrowing it
+   preemptively.
 
 3. **Long-session survival is a shared frontier.** OpenHarness
    leads with auto-compaction; omo has session-recovery +
@@ -409,24 +434,22 @@ specifics:
 
 ## 7. Open questions
 
-- Does the mailbox three-state lifecycle warrant its own package
-  (`hub/internal/mailbox/`), or does it live as additional state on
-  the existing A2A envelope record? The former is cleaner; the
-  latter is closer to ADR-032's "envelope as durable record" framing.
-- Is OAuth-enabled MCP a `hub/internal/mcp/oauth/` subpackage, or
-  does it belong in `hub/internal/auth/` next to the existing
-  middleware? The OAuth flows are MCP-specific (dynamic client
-  registration, PKCE) but the token store is auth.
-- For B4 (auto-compaction), what is the right shape for the
-  carry-forward blob — JSON dropped into the next system prompt, or
-  a synthesized "previous session summary" appended to the YAML
-  profile's `prompt_append`? The latter generalizes; the former is
-  faster to ship.
 - Should we cut a quarterly refresh cycle for this doc (status
   flipped to *Stale* every 90 days unless re-verified)? The
   landscape moved enough between [integrating-open-source-agents.md](integrating-open-source-agents.md)
   (2026-04-30) and this doc (2026-05-27) that a stale-by-default
   policy would be honest.
+- If/when the mailbox three-state lifecycle (§5.3) gets reopened by
+  a real incident, does it warrant its own package
+  (`hub/internal/mailbox/`), or does it live as additional state on
+  the existing A2A envelope record? The former is cleaner; the
+  latter is closer to ADR-032's "envelope as durable record"
+  framing.
+- When auto-compaction (§5.3) eventually gets revisited, what is
+  the right shape for the carry-forward blob — JSON dropped into
+  the next system prompt, or a synthesized "previous session
+  summary" appended to the YAML profile's `prompt_append`? The
+  latter generalizes; the former is faster to ship.
 
 ---
 
@@ -453,7 +476,8 @@ specifics:
 - [codex-m2-app-server-surface-audit.md](codex-m2-app-server-surface-audit.md)
   — recent example of source-grounded audit before borrowing.
 - [consumer-side-dispatch-contracts.md](consumer-side-dispatch-contracts.md)
-  — the allowlist-over-denylist discipline A3 should follow.
+  — the allowlist-over-denylist discipline A1 (fallback model
+  chains) should follow.
 - [ADR-027](../decisions/027-local-log-tail-driver.md),
   [ADR-029](../decisions/029-tasks-as-first-class-primitive.md),
   [ADR-030](../decisions/030-governed-actions-and-propose-verb.md),

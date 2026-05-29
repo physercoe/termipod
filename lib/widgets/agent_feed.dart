@@ -19,6 +19,7 @@ import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
 import 'agent_compose.dart';
 import 'agent_feed/feed_reducer.dart';
+import 'agent_feed/feed_render.dart';
 import 'markdown_builders.dart';
 import 'session_details_sheet.dart';
 
@@ -902,7 +903,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // own token totals. The bare `usage` event only carries the parent's
     // last-message numbers and undercounts when sub-agents are active.
     double totalCostUsd = 0.0;
-    final modelTotals = <String, _ModelTokens>{};
+    final modelTotals = <String, ModelTokens>{};
     Map<String, dynamic>? latestRateLimit;
     int turnCount = 0;
     // Codex publishes cumulative session totals on each
@@ -913,7 +914,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // authoritative claude source is turn.result.by_model. The
     // latest cumulative event replaces — it's not a delta — so we
     // track it separately and fold it in once below.
-    _ModelTokens? cumulativeUsage;
+    ModelTokens? cumulativeUsage;
     String cumulativeBucketKey = 'agent';
     // Latest known context-window stats (codex's
     // thread/tokenUsage/updated carries both modelContextWindow and the
@@ -936,7 +937,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     int? perMessageCacheRead;
     int? perMessageCacheCreate;
     // v1.0.668: also capture output + model so we can synthesise a
-    // _ModelTokens entry for the token-flow pill. M4 doesn't emit
+    // ModelTokens entry for the token-flow pill. M4 doesn't emit
     // turn.result.by_model (the driver-of-record source for
     // modelTotals), so the pill stayed blank even though every
     // assistant message carried full usage. SET semantics here
@@ -958,7 +959,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             final v = entry.value;
             if (v is! Map) continue;
             final tot = modelTotals.putIfAbsent(
-                entry.key.toString(), _ModelTokens.empty);
+                entry.key.toString(), ModelTokens.empty);
             tot.add(v.cast<String, dynamic>());
           }
         }
@@ -969,7 +970,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // notification supersedes; we don't sum. Claude's per-
         // message usage events lack the `cumulative` marker and
         // are handled in the next branch.
-        final t = _ModelTokens.empty();
+        final t = ModelTokens.empty();
         t.input = (p['input_tokens'] as num?)?.toInt() ?? 0;
         t.output = (p['output_tokens'] as num?)?.toInt() ?? 0;
         t.cacheRead = (p['cached_input_tokens'] as num?)?.toInt() ?? 0;
@@ -1112,7 +1113,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // pre-v1.0.662 1M-tokens bug).
     if (modelTotals.isEmpty &&
         (perMessageInput != null || perMessageOutput != null)) {
-      final t = _ModelTokens.empty();
+      final t = ModelTokens.empty();
       // Snapshot fields drive the chip; cumulative fields stay 0 so
       // the SUM-on-display logic in _TelemetryStrip reads only the
       // per-message values via billableInput / output.
@@ -1855,7 +1856,7 @@ class _PermissionPromptCardState
     final input = widget.payload['input'];
     final inputText = input == null
         ? ''
-        : (input is String ? input : AgentEventCard._jsonPretty(input));
+        : (input is String ? input : feedJsonPretty(input));
     final tierColor = switch (_tier) {
       'strategic' => DesignColors.error,
       'significant' => DesignColors.warning,
@@ -1940,7 +1941,7 @@ class _PermissionPromptCardState
             ),
           ] else if (inputText.isNotEmpty) ...[
             const SizedBox(height: 6),
-            _CollapsibleMono(text: inputText),
+            CollapsibleMono(text: inputText),
           ],
           if (_isStrategic) ...[
             const SizedBox(height: 8),
@@ -2461,16 +2462,16 @@ class AgentEventCard extends StatefulWidget {
       case 'tool_call':
         final name = (payload['name'] ?? payload['tool'] ?? 'tool').toString();
         final input = payload['input'] ?? payload['arguments'] ?? payload['args'];
-        s = '$name\n${_jsonPretty(input is Map ? input : payload)}';
+        s = '$name\n${feedJsonPretty(input is Map ? input : payload)}';
         break;
       case 'tool_result':
         final content = payload['content'];
         if (content is String && content.isNotEmpty) {
           s = content;
         } else if (content is Map || content is List) {
-          s = _jsonPretty(content);
+          s = feedJsonPretty(content);
         } else {
-          s = (payload['text'] ?? _jsonPretty(payload)).toString();
+          s = (payload['text'] ?? feedJsonPretty(payload)).toString();
         }
         break;
       case 'system':
@@ -2478,13 +2479,13 @@ class AgentEventCard extends StatefulWidget {
         // to the full payload so audit-trail entries copy with their
         // structured fields intact.
         final t = (payload['text'] ?? payload['summary'] ?? '').toString();
-        s = t.isNotEmpty ? t : _jsonPretty(payload);
+        s = t.isNotEmpty ? t : feedJsonPretty(payload);
         break;
       default:
         final t = (payload['text'] ?? '').toString();
-        s = t.isNotEmpty ? t : _jsonPretty(payload);
+        s = t.isNotEmpty ? t : feedJsonPretty(payload);
     }
-    return s.isEmpty ? _jsonPretty(event) : s;
+    return s.isEmpty ? feedJsonPretty(event) : s;
   }
 
   Widget _body(
@@ -2502,7 +2503,7 @@ class AgentEventCard extends StatefulWidget {
       case 'thought':
         return _markdownBody(
           ctx,
-          (payload['text'] ?? _jsonPretty(payload)).toString(),
+          (payload['text'] ?? feedJsonPretty(payload)).toString(),
           isThought: kind == 'thought',
         );
       case 'raw':
@@ -2540,7 +2541,7 @@ class AgentEventCard extends StatefulWidget {
         // fall back to pretty JSON otherwise.
         final t = payload['text']?.toString();
         if (t != null && t.isNotEmpty) return _textBody(ctx, t);
-        return _textBody(ctx, _jsonPretty(payload));
+        return _textBody(ctx, feedJsonPretty(payload));
     }
   }
 
@@ -2695,7 +2696,7 @@ class AgentEventCard extends StatefulWidget {
     // hidden, but tag the subtype on top so the user can spot the kind.
     final t = p['text']?.toString();
     if (t != null && t.isNotEmpty) return _textBody(ctx, t);
-    return _textBody(ctx, _jsonPretty(p));
+    return _textBody(ctx, feedJsonPretty(p));
   }
 
   Widget _lifecycleBody(BuildContext ctx, Map<String, dynamic> p) {
@@ -2852,14 +2853,14 @@ class AgentEventCard extends StatefulWidget {
     final name = id.isNotEmpty ? toolNames[id] : null;
     final isError = p['is_error'] == true;
     final content = p['content'];
-    final text = content is String ? content : _jsonPretty(content);
+    final text = content is String ? content : feedJsonPretty(content);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (name != null) _kv(ctx, 'tool', name),
         if (id.isNotEmpty) _kv(ctx, 'tool_use_id', id),
         if (isError) _kv(ctx, 'is_error', 'true'),
-        _CollapsibleMono(
+        CollapsibleMono(
           text: text,
           color: isError ? DesignColors.error : null,
         ),
@@ -2898,7 +2899,7 @@ class AgentEventCard extends StatefulWidget {
   }
 
   Widget _errorBody(BuildContext ctx, Map<String, dynamic> p) {
-    final msg = (p['error'] ?? p['message'] ?? _jsonPretty(p)).toString();
+    final msg = (p['error'] ?? p['message'] ?? feedJsonPretty(p)).toString();
     return _mono(ctx, msg, color: DesignColors.error);
   }
 
@@ -2908,7 +2909,7 @@ class AgentEventCard extends StatefulWidget {
   Widget _planBody(BuildContext ctx, Map<String, dynamic> p) {
     final entriesRaw = p['entries'];
     if (entriesRaw is! List || entriesRaw.isEmpty) {
-      return _mono(ctx, _jsonPretty(p));
+      return _mono(ctx, feedJsonPretty(p));
     }
     final rows = <Widget>[];
     for (final e in entriesRaw) {
@@ -3050,7 +3051,7 @@ class AgentEventCard extends StatefulWidget {
         if (method != null && method.isNotEmpty) _kv(ctx, 'method', method),
         if (sessionUpdate != null && sessionUpdate.isNotEmpty)
           _kv(ctx, 'update', sessionUpdate),
-        _CollapsibleMono(text: _jsonPretty(p)),
+        CollapsibleMono(text: feedJsonPretty(p)),
       ],
     );
   }
@@ -3255,14 +3256,6 @@ class AgentEventCard extends StatefulWidget {
                 : DesignColors.textPrimaryLight),
       ),
     );
-  }
-
-  static String _jsonPretty(Object? v) {
-    try {
-      return const JsonEncoder.withIndent('  ').convert(v);
-    } catch (_) {
-      return v?.toString() ?? '';
-    }
   }
 
   static Color _accentFor(String kind, String producer) {
@@ -3667,8 +3660,8 @@ class _ApprovalCardState extends ConsumerState<_ApprovalCard> {
         if (widget.params.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: _CollapsibleMono(
-              text: AgentEventCard._jsonPretty(widget.params),
+            child: CollapsibleMono(
+              text: feedJsonPretty(widget.params),
             ),
           ),
         if (decided != null)
@@ -3875,7 +3868,7 @@ class _AskUserQuestionCardState extends ConsumerState<_AskUserQuestionCard> {
     if (primary == null) {
       // Defensive fallback: payload didn't match the expected shape.
       // Render the raw input so nothing is silently hidden.
-      return _CollapsibleMono(text: AgentEventCard._jsonPretty(widget.input));
+      return CollapsibleMono(text: feedJsonPretty(widget.input));
     }
     final header = (primary['header'] ?? '').toString();
     final question = (primary['question'] ?? '').toString();
@@ -4010,71 +4003,6 @@ class _AskOption {
   const _AskOption({required this.label, required this.description});
 }
 
-/// Mono text that collapses past _kCollapseLines with a toggle. Long
-/// tool_call inputs and tool_result outputs would otherwise dominate the
-/// feed — a single grep result can push everything else off-screen.
-class _CollapsibleMono extends StatefulWidget {
-  final String text;
-  final Color? color;
-  const _CollapsibleMono({required this.text, this.color});
-
-  @override
-  State<_CollapsibleMono> createState() => _CollapsibleMonoState();
-}
-
-const int _kCollapseLines = 12;
-
-class _CollapsibleMonoState extends State<_CollapsibleMono> {
-  bool _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final lines = widget.text.split('\n');
-    final overflow = lines.length > _kCollapseLines;
-    final shown = (overflow && !_expanded)
-        ? lines.take(_kCollapseLines).join('\n')
-        : widget.text;
-    final muted = isDark
-        ? DesignColors.textMuted
-        : DesignColors.textMutedLight;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SelectableText(
-          shown,
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 11,
-            color: widget.color ??
-                (isDark
-                    ? DesignColors.textPrimary
-                    : DesignColors.textPrimaryLight),
-          ),
-        ),
-        if (overflow)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              onPressed: () => setState(() => _expanded = !_expanded),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                minimumSize: const Size(0, 24),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: muted,
-              ),
-              child: Text(
-                _expanded
-                    ? 'Collapse'
-                    : 'Show all (${lines.length} lines)',
-                style: GoogleFonts.jetBrainsMono(fontSize: 10),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 /// Tool-call card body with a manual fold control. The body is
 /// expanded by default — this matches the prior behavior so the user
 /// doesn't lose at-a-glance context — but the user can tap the
@@ -4173,11 +4101,11 @@ class _FoldableToolCallState extends State<_FoldableToolCall> {
           if (widget.toolId.isNotEmpty)
             _ToolKvLine(label: 'id', value: widget.toolId),
           if (widget.input != null)
-            _CollapsibleMono(text: AgentEventCard._jsonPretty(widget.input)),
+            CollapsibleMono(text: feedJsonPretty(widget.input)),
           if (widget.preview != null && widget.preview!.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: _CollapsibleMono(text: widget.preview!),
+              child: CollapsibleMono(text: widget.preview!),
             ),
           if (hasResult)
             Padding(
@@ -4386,67 +4314,10 @@ class _StatusPill extends StatelessWidget {
 /// Tap → bottom-sheet with a per-model breakdown when by_model lands;
 /// for now keeps the strip compact and tap-inert (the data fits in one
 /// row at typical phone widths).
-/// Aggregated token totals for one model across all turn.result frames.
-/// Mutable so the build-time aggregation loop can fold each frame in
-/// without rebuilding the map every event.
-class _ModelTokens {
-  int input = 0;
-  int output = 0;
-  int cacheRead = 0;
-  int cacheCreate = 0;
-  double costUsd = 0.0;
-  // Static per-model capacity carried by claude's modelUsage and
-  // codex's tokenUsage.modelContextWindow. Driver normalizes both
-  // into `context_window` on the wire. 0 = unknown/not reported.
-  int contextWindow = 0;
-  int maxOutputTokens = 0;
-  // Latest per-call input + cache totals (NOT cumulative), used to
-  // estimate current context-window utilization. claude's `result`
-  // frame ships these as cumulative within the run, so this matches
-  // what claude itself shows in its TUI: "what was loaded for the
-  // most recent message."
-  int latestInput = 0;
-  int latestCacheRead = 0;
-  int latestCacheCreate = 0;
-
-  static _ModelTokens empty() => _ModelTokens();
-
-  void add(Map<String, dynamic> v) {
-    final i = (v['input'] as num?)?.toInt() ?? 0;
-    final o = (v['output'] as num?)?.toInt() ?? 0;
-    final cr = (v['cache_read'] as num?)?.toInt() ?? 0;
-    final cc = (v['cache_create'] as num?)?.toInt() ?? 0;
-    final c = (v['cost_usd'] as num?)?.toDouble() ?? 0.0;
-    input += i;
-    output += o;
-    cacheRead += cr;
-    cacheCreate += cc;
-    costUsd += c;
-    // Static metadata — overwrite (not sum). The driver carries
-    // these per-model on every turn.result; the latest non-zero
-    // wins so a model swap mid-session updates the capacity.
-    final cw = (v['context_window'] as num?)?.toInt() ?? 0;
-    if (cw > 0) contextWindow = cw;
-    final mo = (v['max_output_tokens'] as num?)?.toInt() ?? 0;
-    if (mo > 0) maxOutputTokens = mo;
-    // Latest-turn snapshot — overwrites each call so a single
-    // backward walk (or sequential add()) leaves the trailing
-    // values intact.
-    latestInput = i;
-    latestCacheRead = cr;
-    latestCacheCreate = cc;
-  }
-
-  // Total billable input = fresh input + cache writes (cache reads are
-  // billed at a 10% rate at most providers, so callers can show them
-  // separately rather than rolling them into the headline number).
-  int get billableInput => input + cacheCreate;
-}
-
 class _TelemetryStrip extends StatelessWidget {
   final double totalCostUsd;
   final int turnCount;
-  final Map<String, _ModelTokens> modelTotals;
+  final Map<String, ModelTokens> modelTotals;
   final Map<String, dynamic>? rateLimit;
   // Context window: total capacity and current used. Codex sources
   // the pair from `thread/tokenUsage/updated` (`modelContextWindow` +
@@ -5097,7 +4968,7 @@ class _ToolResultInlineState extends State<_ToolResultInline> {
     final accent =
         widget.isError ? DesignColors.error : DesignColors.success;
     final content = widget.payload['content'];
-    final text = content is String ? content : AgentEventCard._jsonPretty(content);
+    final text = content is String ? content : feedJsonPretty(content);
     // Pre-compute the line count so the header can advertise "N
     // lines" before any expansion. Cheap — content payloads max at
     // ~16KB on the wire in practice; the split is O(N) once.
@@ -5157,7 +5028,7 @@ class _ToolResultInlineState extends State<_ToolResultInline> {
           ),
           if (_expanded) ...[
             const SizedBox(height: 4),
-            _CollapsibleMono(
+            CollapsibleMono(
               text: text,
               color: widget.isError ? DesignColors.error : null,
             ),

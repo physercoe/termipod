@@ -6,9 +6,9 @@ description: Executable wedge-by-wedge plan to split lib/widgets/agent_feed.dart
 # Agent feed split — phased
 
 > **Type:** plan
-> **Status:** In flight — W0 shipped (v1.0.729); W1–W6 pending
+> **Status:** In flight — W0 (v1.0.729) + W1 (v1.0.730) shipped; W2–W6 pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.729
+> **Last verified vs code:** v1.0.730
 
 **TL;DR.** `lib/widgets/agent_feed.dart` is 6,196 LOC / 37 classes — the
 largest file in the repo and a recurring regression site (the event-kind
@@ -83,17 +83,15 @@ to public and updating their call sites — fully compiler-checked.
   `_isVerboseOnly` (2502), `_isCumulativeUsage` (2521),
   `_collapseStreamingPartials` (static, 2544).
 
-**Layer 1 — `lib/widgets/agent_feed/feed_render.dart`** (~700 LOC)
-- Promote to public top-level fns (rename, update call sites):
-  `_mono`→`feedMono` (4272), `_kv`→`feedKv` (4241), `_textBody`→`feedTextBody`
-  (4058), `_jsonPretty`→`feedJsonPretty` (4286).
-- Move shared widgets: `_CollapsibleMono` (5042), `_DiffView`/`_DiffLine`/
-  `_DiffKind` (5274/5262/5260), `_StatusPill` (5374), `_ModelTokens`
-  (5418), `_humanWindow` (6058), `_fmtTokens` (5893, today a static on
-  `_TelemetryStrip`).
-- **Dedup removals:** delete `_ToolKvLine` (5225) and route its callers to
-  a shared `feedKvLine`; collapse the two identical `_payloadOf` (2777,
-  3178) into one `feedPayloadOf`.
+**Layer 1 — `lib/widgets/agent_feed/feed_render.dart`** (~130 LOC as
+shipped — see the refined W1 section below; this initial sketch over-listed)
+- Cross-cluster, moved in W1: `feedJsonPretty` (← `AgentEventCard.
+  _jsonPretty`), `CollapsibleMono` (← `_CollapsibleMono` + its
+  `_kCollapseLines`/State), `ModelTokens` (← `_ModelTokens`).
+- ~~`_mono`/`_kv`/`_textBody`, `_DiffView`/`_DiffLine`/`_DiffKind`,
+  `_StatusPill`, `_humanWindow`/`_fmtTokens`, `_ToolKvLine`,
+  `_payloadOf`~~ — call-site analysis showed these are single-cluster;
+  they migrate with their cluster (W3/W4/W6) or dedup in W5, not here.
 
 **Layer 2 — six cluster libraries under `lib/widgets/agent_feed/`**
 - `event_card.dart` (~1,140): `AgentEventCard` (3436), `_AgentEventCardState`
@@ -160,7 +158,7 @@ from the discussion doc on purpose (reducer first — see TL;DR).
 | Wedge | Library created | ~LOC out | Risk | Guard |
 |---|---|---:|---|---|
 | **W0** | `feed_reducer.dart` (Layer 0) — ✅ v1.0.729 | ~500 | low | the 10 reducer tests (unchanged via re-export) |
-| **W1** | `feed_render.dart` (Layer 1) + dedup | ~700 | low-med | compiler (every renamed call site) + analyze |
+| **W1** | `feed_render.dart` (Layer 1) — ✅ v1.0.730 (cross-cluster only) | ~130 | low-med | compiler (every renamed call site) + analyze |
 | **W2** | `feed_misc.dart` | ~150 | trivial | analyze + smoke |
 | **W3** | `telemetry_strip.dart` | ~520 | low | `_cost_chips`/`_rate_limits`/`_status_line` tests + smoke |
 | **W4** | `tool_renderers.dart` | ~350 | low | smoke: tool-call fold, tool_result, diff |
@@ -178,13 +176,31 @@ widget-coupled.) **Acceptance met** modulo CI confirmation (no local
 Flutter; verified statically: balanced braces, no leaked widget deps in
 the reducer, no unused imports, all call sites updated).
 
-### W1 — feed_render (the enabler)
-Promote `feedMono/feedKv/feedTextBody/feedJsonPretty`; move the shared
-widgets; **remove** `_ToolKvLine` and the duplicate `_payloadOf`. Update
-every call site (compiler-enforced). **Acceptance:** no `_ToolKvLine`, one
-`feedPayloadOf`; `analyze` zero new warnings; all card tests green. This
-wedge touches the most call sites but each is a mechanical rename the
-compiler catches.
+### W1 — feed_render (the enabler) — ✅ shipped v1.0.730
+**Scope refined from this section's original wording after precise
+call-site analysis (lazy / cross-cluster, ratified 2026-05-29).** Layer 1
+holds **only** the symbols used by more than one cluster (or by the
+container + telemetry); single-cluster helpers migrate with their own
+cluster's wedge. Measured distribution:
+
+- **Cross-cluster → moved now:** `feedJsonPretty` (← `AgentEventCard.
+  _jsonPretty`; event_card + approval + interaction + tool_renderers),
+  `CollapsibleMono` (← `_CollapsibleMono`; all five clusters),
+  `ModelTokens` (← `_ModelTokens`; container + telemetry).
+- **Single-cluster → deferred to their wedge:** `_kv`/`_mono`/`_textBody`
+  + `_DiffView`/`_DiffLine`/`_DiffKind` (event_card-only → W6);
+  `_StatusPill` + `_ToolKvLine` (tool_renderers-only → W4);
+  `_fmtTokens`/`_humanWindow` (telemetry-only → W3). The `_payloadOf`
+  dedup is intra-cluster (both copies in interaction) → W5.
+
+Why: moving single-cluster helpers into a "shared" layer is premature
+generalization — each stays usable in-library until its cluster moves,
+so there is no cross-library break to pre-empt. **This sets the pattern
+for W2–W6: each cluster wedge carries its own single-cluster helpers;
+only promote to `feed_render` when a second consumer appears.**
+`feed_render.dart` ended ~130 LOC (not the ~700 originally sketched).
+`analyze` clean; no test referenced the moved symbols so no re-export
+was needed (unlike W0's reducer).
 
 ### W2–W6 — cluster extractions
 Each cluster moves to its own library importing Layers 0/1. Order is

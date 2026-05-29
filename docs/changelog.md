@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.729
+> **Last verified vs code:** v1.0.730
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,32 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.730-alpha — 2026-05-29
+
+**agent_feed split W1 — shared render layer extracted (no behavior change).**
+
+Second wedge of `docs/plans/agent-feed-split.md`. New
+`lib/widgets/agent_feed/feed_render.dart` (Layer 1) holds the feed's
+genuinely **cross-cluster** render primitives.
+
+### Changed
+- New `feed_render.dart`: `feedJsonPretty` (was `AgentEventCard._jsonPretty`;
+  used by event_card + approval + interaction + tool_renderers),
+  `CollapsibleMono` (was `_CollapsibleMono`; used by all five card
+  clusters), `ModelTokens` (was `_ModelTokens`; used by the container's
+  per-model aggregation **and** the telemetry strip). Private names
+  promoted to public; `agent_feed.dart` imports the new library.
+- `agent_feed.dart` shrinks ~5,170 → ~5,040 LOC. Removing `_ModelTokens`
+  also re-attached the `_TelemetryStrip` doc comment to its class.
+- **Scope refined from the plan after precise call-site analysis:** only
+  the three symbols above are cross-cluster. The rest the plan listed
+  (`_kv`/`_mono`/`_textBody`, `_DiffView`/`_DiffLine`/`_DiffKind`,
+  `_StatusPill`, `_fmtTokens`/`_humanWindow`, `_ToolKvLine`) are
+  single-cluster and now migrate with their cluster's own wedge (W3/W4/
+  W6); the `_payloadOf` dedup defers to W5 (intra-cluster). This avoids
+  premature generalization and keeps the layering clean. Pure
+  rearrangement.
 
 ## v1.0.729-alpha — 2026-05-29
 

@@ -6,9 +6,9 @@ description: Executable wedge-by-wedge plan to split lib/widgets/agent_feed.dart
 # Agent feed split — phased
 
 > **Type:** plan
-> **Status:** Proposed (not started)
+> **Status:** In flight — W0 shipped (v1.0.729); W1–W6 pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.728
+> **Last verified vs code:** v1.0.729
 
 **TL;DR.** `lib/widgets/agent_feed.dart` is 6,196 LOC / 37 classes — the
 largest file in the repo and a recurring regression site (the event-kind
@@ -159,7 +159,7 @@ from the discussion doc on purpose (reducer first — see TL;DR).
 
 | Wedge | Library created | ~LOC out | Risk | Guard |
 |---|---|---:|---|---|
-| **W0** | `feed_reducer.dart` (Layer 0) | ~500 | low | the 10 reducer tests (unchanged via re-export) |
+| **W0** | `feed_reducer.dart` (Layer 0) — ✅ v1.0.729 | ~500 | low | the 10 reducer tests (unchanged via re-export) |
 | **W1** | `feed_render.dart` (Layer 1) + dedup | ~700 | low-med | compiler (every renamed call site) + analyze |
 | **W2** | `feed_misc.dart` | ~150 | trivial | analyze + smoke |
 | **W3** | `telemetry_strip.dart` | ~520 | low | `_cost_chips`/`_rate_limits`/`_status_line` tests + smoke |
@@ -167,11 +167,16 @@ from the discussion doc on purpose (reducer first — see TL;DR).
 | **W5** | `approval_cards.dart` + `interaction_cards.dart` (one PR) | ~1,170 | med | smoke: permission/AskUser/plan/selection/compaction |
 | **W6** | `event_card.dart` | ~1,140 | med | full feed smoke; container becomes residue |
 
-### W0 — feed_reducer (do first)
-Move the top-level reducer fns, then lift the 11 `_AgentFeedState`
-classifier methods into pure functions (parameterise the field reads).
-Re-export from `agent_feed.dart`. **Acceptance:** the 10 reducer tests
-pass with no import edits; container shrinks ~500 LOC; `analyze` clean.
+### W0 — feed_reducer (do first) — ✅ shipped v1.0.729
+Moved the top-level reducer fns, then lifted the 11 `_AgentFeedState`
+classifier methods into pure functions (`_events`/`_verbose` field reads
+became parameters). `agent_feed.dart` imports + re-exports
+`feed_reducer.dart`; the 10 reducer tests resolve unchanged.
+`agent_feed.dart` shrank 6,196 → ~5,170 LOC.
+(`_latestModeModelData`/`_modeModelSig` stayed in `_AgentFeedState` —
+widget-coupled.) **Acceptance met** modulo CI confirmation (no local
+Flutter; verified statically: balanced braces, no leaked widget deps in
+the reducer, no unused imports, all call sites updated).
 
 ### W1 — feed_render (the enabler)
 Promote `feedMono/feedKv/feedTextBody/feedJsonPretty`; move the shared

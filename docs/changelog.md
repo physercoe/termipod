@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.728
+> **Last verified vs code:** v1.0.729
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,35 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.729-alpha — 2026-05-29
+
+**agent_feed split W0 — reducer layer extracted (no behavior change).**
+
+First wedge of `docs/plans/agent-feed-split.md` (R2A of
+`docs/discussions/monolith-refactor.md`). The pure reducer/formatter/
+classification layer of `lib/widgets/agent_feed.dart` (the repo's
+largest file) moves to a new `lib/widgets/agent_feed/feed_reducer.dart`
+free-function library.
+
+### Changed
+- New `lib/widgets/agent_feed/feed_reducer.dart` (Layer 0): the
+  already-top-level reducers (`kAgentTurnActiveKinds`,
+  `kAgentFeedAlwaysHiddenKinds`, `agentEventIsReplay`,
+  `agentEventReplayKey`, `rateLimitsFromEvents`, `processCostFromEvents`,
+  `latestStatusLinePayload`, `modeModelStateFromEvents`, the rate-limit/
+  cost/envelope formatters, …) plus eleven classifier methods lifted out
+  of `_AgentFeedState` as pure free functions (`agentIsBusy`,
+  `isHiddenInFeed`, `isGatedToolName`, `isVerboseOnly`,
+  `isCumulativeUsage`, `collapseStreamingPartials`,
+  `latestSessionInitPayload`, `isIdleDropSignature`, `stringList`).
+  Instance-field reads became parameters (`_events`/`_verbose` → args).
+- `agent_feed.dart` imports and **re-exports** `feed_reducer.dart`, so
+  the ten `test/widgets/agent_feed_*` reducer tests resolve unchanged —
+  they are the behavior-preservation proof for the move.
+- `agent_feed.dart` shrinks 6,196 → ~5,170 LOC. No widget logic changed;
+  `_latestModeModelData`/`_modeModelSig` stay in `_AgentFeedState`
+  (widget-coupled). Pure rearrangement.
 
 ## v1.0.728-alpha — 2026-05-29
 

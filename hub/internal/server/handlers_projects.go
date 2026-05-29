@@ -240,6 +240,18 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, reason)
 		return
 	}
+	// F-07: docs_root is served as a filesystem directory, so bound it
+	// to the hub data root at the door. An absolute path, a ~/-relative
+	// path, or a ../ escape that resolves outside the data root would
+	// make get_project_doc / list_project_docs an arbitrary-file oracle
+	// under the hub UID.
+	if in.DocsRoot != "" {
+		if _, ok := s.boundDocsRoot(in.DocsRoot); !ok {
+			writeErr(w, http.StatusBadRequest,
+				"docs_root must resolve within the hub data root")
+			return
+		}
+	}
 	// Enforce max tree depth = 2 (Blueprint §6.1 / IA §6.2 W5). A sub-project
 	// may only parent off a top-level project: if the proposed parent already
 	// has its own parent, reject the create. This keeps mobile UI flat enough

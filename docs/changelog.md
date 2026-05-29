@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.727
+> **Last verified vs code:** v1.0.728
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,35 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.728-alpha — 2026-05-29
+
+**Filesystem path-traversal closed on template install and project docs
+(security-audit F-03 + F-07).**
+
+### Security
+
+- **F-03 — `installProposedTemplate` now validates every component that
+  becomes a filesystem path.** `category` and `name` are checked with
+  the existing `safeCategoryName` / `safeTemplateName` guards (no
+  separators, parent refs, or hidden-file prefixes) and `blob_sha256`
+  with `isHexSHA256` (exactly 64 hex chars). Previously all three were
+  unvalidated: `category`/`name` could `../`-escape `team/templates`
+  (arbitrary write), and a crafted `blob_sha256` containing `/` and
+  `..` survived `blobPath`'s `sha[:2]`/`sha[2:4]` slicing to read an
+  arbitrary file (arbitrary read). This is the single chokepoint for
+  both the ADR-030 `template.install` apply path and the legacy
+  `template_proposal` alias.
+- **F-07 — project `docs_root` is bounded to the hub data root.** The
+  new `boundDocsRoot` helper expands and cleans the value and confirms
+  it stays within `DataRoot`; the project-create handler rejects an
+  escaping `docs_root` with 400, and `resolveDocsRoot` refuses one at
+  read time (so legacy rows can't serve files either). Previously an
+  absolute or `~/`-expanded `docs_root` made `get_project_doc` /
+  `list_project_docs` an arbitrary-file read oracle under the hub UID;
+  the prior containment check only bounded paths *within* the root, not
+  the root itself. (Operators needing docs outside the data root would
+  add a configurable allowlist of bases — noted as future work.)
 
 ## v1.0.727-alpha — 2026-05-29
 

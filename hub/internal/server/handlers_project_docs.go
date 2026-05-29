@@ -38,8 +38,33 @@ func (s *Server) resolveDocsRoot(ctx context.Context, team, project string) (str
 	if !docsRoot.Valid || docsRoot.String == "" {
 		return "", os.ErrNotExist
 	}
-	root := docsRoot.String
-	// Expand ~ to the user's home so templates can use ~/docs/proj-x.
+	root, ok := s.boundDocsRoot(docsRoot.String)
+	if !ok {
+		// F-07 backstop: a docs_root that escapes the hub data root is
+		// refused at read time too, so a legacy row (or any future write
+		// path that bypassed validation) can't turn the project-doc
+		// reader into an arbitrary-file oracle under the hub UID.
+		// Treated as "no docs" — fail closed, no info leak — with a
+		// warning so the operator can spot the misconfiguration.
+		s.log.Warn("docs_root escapes hub data root; refusing to serve",
+			"team", team, "project", project, "docs_root", docsRoot.String)
+		return "", os.ErrNotExist
+	}
+	return root, nil
+}
+
+// boundDocsRoot expands (~/, relative) and cleans a raw docs_root value
+// and confirms the result stays within the hub data root. Returns
+// (cleanPath, true) when safe; ("", false) when it escapes (F-07).
+// Shared by resolveDocsRoot (the read-time backstop) and the project
+// create handler (reject at the door). Project docs live under the hub
+// data root; pointing docs_root outside it is what made it a file-read
+// oracle. (A configurable allowlist of additional bases could relax
+// this later if external docs dirs are ever needed.)
+func (s *Server) boundDocsRoot(raw string) (string, bool) {
+	root := raw
+	// Expand ~ to the user's home so a ~/-relative value still resolves;
+	// it must still land within the data root to be served.
 	if strings.HasPrefix(root, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			root = filepath.Join(home, root[2:])
@@ -48,7 +73,12 @@ func (s *Server) resolveDocsRoot(ctx context.Context, team, project string) (str
 	if !filepath.IsAbs(root) {
 		root = filepath.Join(s.cfg.DataRoot, root)
 	}
-	return filepath.Clean(root), nil
+	root = filepath.Clean(root)
+	dataRoot := filepath.Clean(s.cfg.DataRoot)
+	if root != dataRoot && !strings.HasPrefix(root, dataRoot+string(os.PathSeparator)) {
+		return "", false
+	}
+	return root, true
 }
 
 func (s *Server) handleListProjectDocs(w http.ResponseWriter, r *http.Request) {

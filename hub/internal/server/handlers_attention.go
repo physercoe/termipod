@@ -843,6 +843,21 @@ func (s *Server) installProposedTemplate(payload string) ([]byte, error) {
 	if p.Category == "" || p.Name == "" || p.BlobSHA256 == "" {
 		return nil, errors.New("payload missing category/name/blob_sha256")
 	}
+	// F-03: every component flows into a filesystem path, so validate
+	// before use. category/name must be safe single segments (no
+	// separators, parent refs, or hidden-file prefixes) or the
+	// filepath.Join calls below escape team/templates; the sha must be
+	// 64 hex chars or blobPath's sha[:2]/sha[2:4] slicing turns a
+	// crafted "../" into an arbitrary-read primitive.
+	if !safeCategoryName(p.Category) {
+		return nil, fmt.Errorf("unsafe template category %q", p.Category)
+	}
+	if !safeTemplateName(p.Name) {
+		return nil, fmt.Errorf("unsafe template name %q", p.Name)
+	}
+	if !isHexSHA256(p.BlobSHA256) {
+		return nil, fmt.Errorf("invalid blob_sha256 %q (want 64 lowercase hex chars)", p.BlobSHA256)
+	}
 	body, err := os.ReadFile(s.blobPath(p.BlobSHA256))
 	if err != nil {
 		return nil, fmt.Errorf("read blob: %w", err)

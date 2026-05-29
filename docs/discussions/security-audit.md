@@ -1,9 +1,9 @@
 # Security audit — Codex review + independent verdict
 
 > **Type:** discussion
-> **Status:** Open — remediation in progress; F-01 + F-04 + F-08 fixed (v1.0.724–726)
+> **Status:** Open — remediation in progress; F-01/F-03/F-04/F-07/F-08 fixed (v1.0.724–728)
 > **Audience:** contributors, reviewers
-> **Last verified vs code:** v1.0.726
+> **Last verified vs code:** v1.0.728
 
 **TL;DR.** A third-party static review by Codex (revision `d3e1c53`,
 2026-05-25) surfaced **4 Critical, 6 High, 1 Medium** findings across
@@ -23,10 +23,10 @@ started** — see §0 for status; pick the next item from §3.
 | **F-04** | Critical | **Fixed** — decider identity bound to the authenticated token; override gate requires `owner`/`user` kind (`principalActor` in `handlers_attention.go`). `by` from the body is inert. | v1.0.724 |
 | **F-01** | Critical | **Fixed** — `auth.Middleware` allowlists bearer kinds `owner`/`user`/`host`; `agent` (and any unknown kind) is refused with 403 over the network. Network agents authenticate via `/mcp/{token}` (outside the middleware) and host-runner relays under its host token + `X-Agent-Id`. **Exception (v1.0.727):** the hub's own in-process authority-tool dispatch (`mcp_authority.go`) forwards an agent token as a bearer *after* the MCP role check — exempted via an unspoofable `auth.WithInProcessDispatch` context marker. | v1.0.726–727 |
 | F-02 | Critical | Open | — |
-| F-03 | Critical | Open (partial — new `blob_get` validates via `isHexSHA256`; the original `handlers_attention.go:813` attention path still passes `blob_sha256` to `blobPath` unvalidated) | — |
+| **F-03** | Critical | **Fixed** — `installProposedTemplate` validates `category`/`name` (`safeCategoryName`/`safeTemplateName`) and `blob_sha256` (`isHexSHA256`) before any path use; closes both the arbitrary-write (category/name `../`) and arbitrary-read (crafted sha through `blobPath` slicing) vectors. Single chokepoint for the ADR-030 apply + legacy alias paths. | v1.0.728 |
 | F-05 | High | Open | — |
 | F-06 | Medium | Open | — |
-| F-07 | High | Open | — |
+| **F-07** | High | **Fixed** — `docs_root` bounded to the hub data root via `boundDocsRoot`: rejected with 400 at project-create, refused at read time in `resolveDocsRoot` (covers legacy rows). Closes the arbitrary-file read oracle. | v1.0.728 |
 | **F-08** | High | **Fixed** — `from_id` + cost attribution derived from the token via `eventSender` (`handlers_events.go`); forged `from_id`/`usage_tokens` can no longer impersonate or budget-DoS a victim. Also wired the previously-dead `X-Agent-Id` host-relay derivation. | v1.0.725 |
 | F-09–F-11 | High | Open | — |
 
@@ -82,11 +82,11 @@ means the framing needs a qualifier.
 |---|---|---|---|
 | **F-01** | Critical | **Fixed (v1.0.726)** | Was: `auth/token.go` middleware checked only revoke + expiry; `handlers_policy.go` wrote policy from any bearer; no `kind='agent'` reject. Now: middleware allowlists `owner`/`user`/`host` bearer kinds and refuses `agent` (+ unknown) with 403. Verified agents never present a bearer — host-runner relays under its host token + `X-Agent-Id` (`mcp_gateway.go`), and `/mcp/{token}` is mounted outside the middleware. |
 | **F-02** | Critical | Confirmed, nuanced | `server.go:244-248` mounts `/a2a/relay/*` outside auth, with explicit "deferred" comment. Agent / host IDs are **80-bit-random ULIDs** (`ids.go:11`), so cold-guessing the URL is impractical. Real residual risk is **authenticated cross-agent abuse** (a worker reads sibling IDs via list endpoints + posts as them) more than internet-scale guessing. URL-as-capability is still brittle (URLs are logged, proxied, indexed). |
-| **F-03** | Critical | **Confirmed, broader** | `handlers_attention.go:817,827` joins `p.Category` + `p.Name` unvalidated → arbitrary write. **Additionally**: `p.BlobSHA256` is also unvalidated and is passed straight to `s.blobPath()` at `:813`, which slices `sha[:2]` / `sha[2:4]` — if `sha` contains `/` and `..` segments, `filepath.Join + Clean` resolves outside `<DataRoot>/blobs/`. That gives an **arbitrary-read primitive** triggered by the same approval, paired with the write. Codex's remediation mentions SHA validation but didn't separately call out the read primitive. |
+| **F-03** | Critical | **Fixed (v1.0.728)** | Was: `installProposedTemplate` joined `p.Category` + `p.Name` unvalidated (arbitrary write) and passed `p.BlobSHA256` to `s.blobPath()` whose `sha[:2]`/`sha[2:4]` slicing let a crafted `/`+`..` sha resolve outside `<DataRoot>/blobs/` (arbitrary read, paired with the write). Now: category/name validated by `safeCategoryName`/`safeTemplateName`, sha by `isHexSHA256`, all before any path use. |
 | **F-04** | Critical | **Fixed (v1.0.724)** | Was: `handlers_attention.go:651` `a.In.By != "@principal"` was the only override gate; quorum logic at `:533` + `:715` recorded `DeciderHandle: in.By` from the body. Now: `principalActor` derives the decider handle from the authenticated token scope and gates override on `owner`/`user` kind; `handleDecideAttention` overwrites `in.By` at a single chokepoint so the body is inert. |
 | **F-05** | High | Confirmed | Token scope is parsed in scattered call sites (`handlers_tasks.go:167`, `audit.go:79`, `mcp.go:195`, `handlers_agents.go:1089`) but only for attribution flavour. Bearer middleware does no `route.team == tok.scope.team` enforcement. In a multi-team deployment this is real cross-tenant leakage. |
 | **F-06** | Medium | Confirmed verbatim | `mcp.go:200` queries `WHERE token_hash = ? AND revoked_at IS NULL`. `token.go:151-156` (REST path) does check `expires_at`. Inconsistent contract. |
-| **F-07** | High | Confirmed | `handlers_projects.go:311` inserts caller-supplied `in.DocsRoot` unvalidated. `handlers_project_docs.go:43-51` preserves absolute paths and expands `~/`. Containment check at `:116-120` only stops escaping *the chosen root* — it doesn't bound the root itself. File-read oracle under the hub UID. |
+| **F-07** | High | **Fixed (v1.0.728)** | Was: `handlers_projects.go` inserted caller-supplied `in.DocsRoot` unvalidated; `resolveDocsRoot` preserved absolute paths + expanded `~/`; the containment check bounded paths within the root but not the root itself → file-read oracle under the hub UID. Now: `boundDocsRoot` confines `docs_root` to `DataRoot` — 400 at create, refused at read time (covers legacy rows). |
 | **F-08** | High | **Fixed (v1.0.725)** | Was: `handlers_events.go:82,100-102` stored `in.FromID` as-is and called `accumulateSpend(in.FromID, …)` — forged-cost pause + forged attribution both reachable. Now: `eventSender` derives the sender from the token (agent → own `scope.agent_id`; host → stamped `X-Agent-Id`; human → body `from_id` but no spend). Tracing also showed the `X-Agent-Id` host-relay derivation was never implemented hub-side despite the `mcp_gateway.go` comment — now wired. |
 | **F-09** | High | Confirmed | `ssh_client.dart:270-280` (jump) + `:295-306` (target) both construct `SSHClient` without `onVerifyHostKey`. dartssh2 auto-accepts when callback is null. **Code-hygiene aside**: comments around these blocks (e.g. `:294`, `:302`, `:313`, `:319`, `:552`) are Japanese — violates the English-only rule in `CLAUDE.md`. Worth a same-pass cleanup when this lands. |
 | **F-10** | High | Confirmed | `data_port_service.dart:96-99,117-122` pulls private keys, passphrases, and SSH passwords out of secure storage into a JSON-serialisable map. The destination (`PublicFileStore`) is Android `Download/TermiPod/` or iOS Documents via `UIFileSharingEnabled`. UI warning doesn't change the actual posture. |
@@ -132,10 +132,11 @@ two items and pair some. Each line is a candidate wedge:
    verification (TOFU + persisted fingerprints) + encrypted backup
    default + `tmuxPath` validation/quoting. They co-locate in
    `lib/services/ssh/` and `lib/services/data_port_service.dart`.
-5. **F-03 + F-07 — filesystem read/write traversal pair.** Validate
-   `category` / `name` / `blob_sha256` for templates; allowlist
-   `docs_root` to administrator-configured bases. Both filesystem
-   surfaces, one wedge.
+5. **F-03 + F-07 — filesystem read/write traversal pair.** ✅ **Done
+   in v1.0.728.** Validated `category`/`name`/`blob_sha256` for template
+   install; bounded `docs_root` to the hub data root (a configurable
+   allowlist of additional bases is left as future work if external
+   docs dirs are ever needed). Both filesystem surfaces, one wedge.
 6. **F-02 — A2A relay auth.** Biggest design lift; codex's
    "per-agent high-entropy capability" idea works, but it interacts
    with the tunnel envelope from ADR-032. Worth a discussion doc

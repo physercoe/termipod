@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.731
+> **Last verified vs code:** v1.0.732
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,26 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.732-alpha — 2026-05-29
+
+**agent_feed split W3 — telemetry_strip cluster extracted (no behavior
+change).**
+
+Fourth wedge of `docs/plans/agent-feed-split.md`. New
+`lib/widgets/agent_feed/telemetry_strip.dart` holds the cost/token/
+rate-limit strip cluster.
+
+### Changed
+- Moved `TelemetryStrip` (was `_TelemetryStrip`; the only cross-library
+  symbol, so the only one made public) plus its telemetry-only privates
+  `_TelemetryTile`, `_fmtTokens`, `_humanWindow`, `_shortModelName`,
+  `_fmtCountdown`, `_rateLimitColor`, `_resetIn`. The cluster reads
+  `ModelTokens` (from `feed_render`) and four reducer formatters (from
+  `feed_reducer`) via import; the container still computes the inputs and
+  passes them as constructor args.
+- `agent_feed.dart` shrinks ~4,851 → ~4,233 LOC (−618). Pure
+  rearrangement; the rate-limits test is reducer-only (no widget ref).
 
 ## v1.0.731-alpha — 2026-05-29
 

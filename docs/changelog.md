@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.730
+> **Last verified vs code:** v1.0.731
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,23 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.731-alpha — 2026-05-29
+
+**agent_feed split W2 — feed_misc chrome widgets extracted (no behavior
+change).**
+
+Third wedge of `docs/plans/agent-feed-split.md`. New
+`lib/widgets/agent_feed/feed_misc.dart` holds the three small
+container-only chrome widgets, promoted to public:
+`OfflineBanner` (← `_OfflineBanner`), `VerboseToggleChip`
+(← `_VerboseToggleChip`), `NewEventsPill` (← `_NewEventsPill`).
+
+### Changed
+- These are used solely by `_AgentFeedState`; the move shrinks the
+  monolith (it is not a shared layer). `agent_feed.dart` imports the new
+  library. ~5,040 → ~4,851 LOC. Pure rearrangement; no test referenced
+  the moved widgets.
 
 ## v1.0.730-alpha — 2026-05-29
 

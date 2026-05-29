@@ -6,9 +6,9 @@ description: Executable wedge-by-wedge plan to split lib/widgets/agent_feed.dart
 # Agent feed split — phased
 
 > **Type:** plan
-> **Status:** In flight — W0 (v1.0.729) + W1 (v1.0.730) shipped; W2–W6 pending
+> **Status:** In flight — W0 (729) + W1 (730) + W2 (731) shipped; W3–W6 pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.730
+> **Last verified vs code:** v1.0.731
 
 **TL;DR.** `lib/widgets/agent_feed.dart` is 6,196 LOC / 37 classes — the
 largest file in the repo and a recurring regression site (the event-kind
@@ -159,7 +159,7 @@ from the discussion doc on purpose (reducer first — see TL;DR).
 |---|---|---:|---|---|
 | **W0** | `feed_reducer.dart` (Layer 0) — ✅ v1.0.729 | ~500 | low | the 10 reducer tests (unchanged via re-export) |
 | **W1** | `feed_render.dart` (Layer 1) — ✅ v1.0.730 (cross-cluster only) | ~130 | low-med | compiler (every renamed call site) + analyze |
-| **W2** | `feed_misc.dart` | ~150 | trivial | analyze + smoke |
+| **W2** | `feed_misc.dart` — ✅ v1.0.731 | ~190 | trivial | analyze + smoke |
 | **W3** | `telemetry_strip.dart` | ~520 | low | `_cost_chips`/`_rate_limits`/`_status_line` tests + smoke |
 | **W4** | `tool_renderers.dart` | ~350 | low | smoke: tool-call fold, tool_result, diff |
 | **W5** | `approval_cards.dart` + `interaction_cards.dart` (one PR) | ~1,170 | med | smoke: permission/AskUser/plan/selection/compaction |

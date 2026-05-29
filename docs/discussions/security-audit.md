@@ -1,9 +1,9 @@
 # Security audit — Codex review + independent verdict
 
 > **Type:** discussion
-> **Status:** Open — remediation in progress; F-04 fixed in v1.0.724
+> **Status:** Open — remediation in progress; F-04 + F-08 fixed (v1.0.724–725)
 > **Audience:** contributors, reviewers
-> **Last verified vs code:** v1.0.724
+> **Last verified vs code:** v1.0.725
 
 **TL;DR.** A third-party static review by Codex (revision `d3e1c53`,
 2026-05-25) surfaced **4 Critical, 6 High, 1 Medium** findings across
@@ -24,9 +24,11 @@ started** — see §0 for status; pick the next item from §3.
 | F-01 | Critical | Open (next) | — |
 | F-02 | Critical | Open | — |
 | F-03 | Critical | Open (partial — new `blob_get` validates via `isHexSHA256`; the original `handlers_attention.go:813` attention path still passes `blob_sha256` to `blobPath` unvalidated) | — |
-| F-05–F-08 | High | Open | — |
-| F-09–F-11 | High | Open | — |
+| F-05 | High | Open | — |
 | F-06 | Medium | Open | — |
+| F-07 | High | Open | — |
+| **F-08** | High | **Fixed** — `from_id` + cost attribution derived from the token via `eventSender` (`handlers_events.go`); forged `from_id`/`usage_tokens` can no longer impersonate or budget-DoS a victim. Also wired the previously-dead `X-Agent-Id` host-relay derivation. | v1.0.725 |
+| F-09–F-11 | High | Open | — |
 
 **Sibling found while fixing F-04 (not in the original audit):**
 `handleResolveAttention` (POST `/attention/{id}/resolve`,
@@ -85,7 +87,7 @@ means the framing needs a qualifier.
 | **F-05** | High | Confirmed | Token scope is parsed in scattered call sites (`handlers_tasks.go:167`, `audit.go:79`, `mcp.go:195`, `handlers_agents.go:1089`) but only for attribution flavour. Bearer middleware does no `route.team == tok.scope.team` enforcement. In a multi-team deployment this is real cross-tenant leakage. |
 | **F-06** | Medium | Confirmed verbatim | `mcp.go:200` queries `WHERE token_hash = ? AND revoked_at IS NULL`. `token.go:151-156` (REST path) does check `expires_at`. Inconsistent contract. |
 | **F-07** | High | Confirmed | `handlers_projects.go:311` inserts caller-supplied `in.DocsRoot` unvalidated. `handlers_project_docs.go:43-51` preserves absolute paths and expands `~/`. Containment check at `:116-120` only stops escaping *the chosen root* — it doesn't bound the root itself. File-read oracle under the hub UID. |
-| **F-08** | High | Confirmed | `handlers_events.go:82,100-102` stores `in.FromID` as-is and calls `accumulateSpend(in.FromID, …)`. No token-to-agent binding. Forged-cost pause + forged-attribution event records are both reachable. |
+| **F-08** | High | **Fixed (v1.0.725)** | Was: `handlers_events.go:82,100-102` stored `in.FromID` as-is and called `accumulateSpend(in.FromID, …)` — forged-cost pause + forged attribution both reachable. Now: `eventSender` derives the sender from the token (agent → own `scope.agent_id`; host → stamped `X-Agent-Id`; human → body `from_id` but no spend). Tracing also showed the `X-Agent-Id` host-relay derivation was never implemented hub-side despite the `mcp_gateway.go` comment — now wired. |
 | **F-09** | High | Confirmed | `ssh_client.dart:270-280` (jump) + `:295-306` (target) both construct `SSHClient` without `onVerifyHostKey`. dartssh2 auto-accepts when callback is null. **Code-hygiene aside**: comments around these blocks (e.g. `:294`, `:302`, `:313`, `:319`, `:552`) are Japanese — violates the English-only rule in `CLAUDE.md`. Worth a same-pass cleanup when this lands. |
 | **F-10** | High | Confirmed | `data_port_service.dart:96-99,117-122` pulls private keys, passphrases, and SSH passwords out of secure storage into a JSON-serialisable map. The destination (`PublicFileStore`) is Android `Download/TermiPod/` or iOS Documents via `UIFileSharingEnabled`. UI warning doesn't change the actual posture. |
 | **F-11** | High (conditional) | Confirmed | `ssh_client.dart:323` `'test -x ${options.tmuxPath}'` + `:558-561` `_resolveTmuxCommand` do unquoted string interpolation. `data_port_service.dart` import path validates only top-level shape, not per-field. Trigger: malicious import + first connection. |

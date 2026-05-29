@@ -5,12 +5,50 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/termipod/hub/internal/auth"
 	"github.com/termipod/hub/internal/events"
 )
+
+// eventSender resolves the authoritative sender for a posted channel
+// event from the authenticated caller, not the request body (F-08).
+// It returns the from_id to record and the agent id to charge spend
+// against (empty unless the caller is a bound agent, so a forged
+// usage_tokens block can never auto-pause a victim agent).
+//
+//   - agent token: bound to its own scope.agent_id; the body's from_id
+//     is ignored — an agent can only speak (and spend) as itself.
+//   - host token: the deputy relaying for its agents. Trust the
+//     X-Agent-Id header host-runner stamps (see mcp_gateway.go); the
+//     comment there always intended the hub to derive identity from it.
+//   - owner/user (human via mobile): keep the supplied from_id for chat
+//     provenance, but never accrue spend to a human-named target.
+func eventSender(r *http.Request, bodyFromID string) (fromID, spendAgentID string) {
+	fromID = bodyFromID
+	tok, ok := auth.FromContext(r.Context())
+	if !ok || tok == nil {
+		return fromID, ""
+	}
+	switch tok.Kind {
+	case "agent":
+		var sc mcpScope
+		_ = json.Unmarshal([]byte(tok.ScopeJSON), &sc)
+		if sc.AgentID != "" {
+			fromID = sc.AgentID
+			spendAgentID = sc.AgentID
+		}
+	case "host":
+		if h := strings.TrimSpace(r.Header.Get("X-Agent-Id")); h != "" {
+			fromID = h
+		}
+		spendAgentID = fromID
+	}
+	return fromID, spendAgentID
+}
 
 // postEventIn accepts a subset of events.Event from clients.
 // Server stamps id, received_ts, and schema_version.
@@ -66,6 +104,11 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 
 	id := NewID()
 
+	// F-08: the sender is derived from the authenticated token, never
+	// the body. spendAgentID is empty unless the caller is a bound
+	// agent, so a forged usage_tokens block cannot pause a victim.
+	fromID, spendAgentID := eventSender(r, in.FromID)
+
 	_, err := s.db.ExecContext(r.Context(), `
 		INSERT INTO events (
 			id, schema_version, ts, received_ts, channel_id, type,
@@ -79,7 +122,7 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 		now.Format(time.RFC3339Nano),
 		ch,
 		in.Type,
-		in.FromID,
+		fromID,
 		string(toIDsJSON),
 		string(partsJSON),
 		nullStr(in.TaskID),
@@ -97,8 +140,8 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 	// If the event carries usage cost, accumulate onto the sender agent
 	// and auto-pause if spent ≥ budget. Enforcement is inline so there's no
 	// race between "over budget" and the next tool call spending more.
-	if in.UsageTokens != nil && in.UsageTokens.CostCents != 0 && in.FromID != "" {
-		s.accumulateSpend(r.Context(), in.FromID, in.UsageTokens.CostCents)
+	if in.UsageTokens != nil && in.UsageTokens.CostCents != 0 && spendAgentID != "" {
+		s.accumulateSpend(r.Context(), spendAgentID, in.UsageTokens.CostCents)
 	}
 
 	evt := map[string]any{
@@ -108,7 +151,7 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 		"received_ts":    now.Format(time.RFC3339Nano),
 		"channel_id":     ch,
 		"type":           in.Type,
-		"from_id":        in.FromID,
+		"from_id":        fromID,
 		"to_ids":         json.RawMessage(toIDsJSON),
 		"parts":          json.RawMessage(partsJSON),
 		"metadata":       json.RawMessage(meta),

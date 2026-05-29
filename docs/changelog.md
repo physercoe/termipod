@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.724
+> **Last verified vs code:** v1.0.725
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,34 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.725-alpha — 2026-05-29
+
+**Channel-event sender + cost attribution are bound to the
+authenticated token, not the request body (security-audit F-08).**
+
+### Security
+
+- **`handlePostEvent` no longer trusts `from_id` from the body.** It
+  was written straight into the event row and passed to
+  `accumulateSpend`, so any token could (a) impersonate another agent's
+  `from_id` in a channel and (b) forge a `usage_tokens` cost block
+  against a victim agent to drive it over budget and trigger the
+  auto-pause — a denial-of-service on a sibling agent. The new
+  `eventSender` helper derives the sender from the caller's token: an
+  `agent` token is bound to its own `scope.agent_id` (body ignored); a
+  `host` token (the deputy relaying for its agents) is trusted via the
+  `X-Agent-Id` header host-runner already stamps; `owner`/`user`
+  (humans) keep their supplied `from_id` for chat provenance but never
+  accrue spend. See `docs/discussions/security-audit.md` §F-08.
+
+### Fixed
+
+- **Per-agent event attribution via `X-Agent-Id` is now actually
+  implemented hub-side.** `mcp_gateway.go` stamped the header and a
+  comment claimed "the hub derives identity from X-Agent-Id," but no
+  hub handler read it — channel-event `from_id` was whatever the body
+  said. `eventSender` closes that producer→consumer gap.
 
 ## v1.0.724-alpha — 2026-05-29
 

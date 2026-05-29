@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.734
+> **Last verified vs code:** v1.0.735
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,39 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.735-alpha — 2026-05-29
+
+**agent_feed split W6 (final) — event card extracted; agent_feed.dart is
+now the container (no behavior change).**
+
+Seventh and last wedge of `docs/plans/agent-feed-split.md`. New
+`lib/widgets/agent_feed/event_card.dart` holds the per-event transcript
+card — the residue the other five cluster wedges peeled around.
+
+### Changed
+- Moved `AgentEventCard` (stays public — the feed container builds it)
+  plus its event-card-only privates `_AgentEventCardState`, `_CardHeader`,
+  the markdown body, `_kv`/`_mono`/`_textBody`/`_fmtDuration`, and the
+  diff trio `_DiffView`/`_DiffLine`/`_DiffKind`.
+- The card composes the already-extracted clusters via import:
+  `FoldableToolCall` (tool_renderers), `ApprovalCard`/`AskUserQuestionCard`
+  (approval_cards), `CollapsibleMono`/`feedJsonPretty` (feed_render),
+  `envelopeSenderLabel`/`renderAttentionReplyText` (feed_reducer), and the
+  markdown builders.
+- Dropped six imports from the container that were only the event card's
+  (`flutter/services.dart`, `flutter_markdown`, `markdown` as `md`,
+  `markdown_builders.dart`, `agent_feed/approval_cards.dart`,
+  `agent_feed/tool_renderers.dart`).
+- Restored `AgentEventCard`'s class doc comment, inadvertently removed
+  with the interaction block in W5 (v1.0.734).
+- `agent_feed.dart` shrinks ~2,749 → ~1,574 LOC — **6,196 → 1,574 overall
+  across W0–W6 (−75%)**; it is now the feed container (`_AgentFeedState`:
+  subscribe/ingest/scroll/build + side-effects). It sits above the plan's
+  aspirational ≤1,100 target because `_AgentFeedState` is a single
+  cohesive stateful class, not a further peelable cluster; `event_card.dart`
+  is 1,207 LOC, marginally over the 1,200 soft ceiling. Both are flagged
+  in the plan as possible separate follow-ups, not part of this split.
 
 ## v1.0.734-alpha — 2026-05-29
 

@@ -6,9 +6,9 @@ description: Executable wedge-by-wedge plan to split lib/widgets/agent_feed.dart
 # Agent feed split — phased
 
 > **Type:** plan
-> **Status:** In flight — W0–W5 shipped (729–734); W6 pending
+> **Status:** Complete — W0–W6 shipped (v1.0.729–735), all CI green
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.734
+> **Last verified vs code:** v1.0.735
 
 **TL;DR.** `lib/widgets/agent_feed.dart` is 6,196 LOC / 37 classes — the
 largest file in the repo and a recurring regression site (the event-kind
@@ -163,7 +163,7 @@ from the discussion doc on purpose (reducer first — see TL;DR).
 | **W3** | `telemetry_strip.dart` — ✅ v1.0.732 | ~636 | low | `_cost_chips`/`_rate_limits`/`_status_line` tests + smoke |
 | **W4** | `tool_renderers.dart` — ✅ v1.0.733 | ~376 | low | smoke: tool-call fold, tool_result, diff |
 | **W5** | `approval_cards.dart` + `interaction_cards.dart` (one PR) — ✅ v1.0.734 | ~1,125 | med | smoke: permission/AskUser/plan/selection/compaction |
-| **W6** | `event_card.dart` | ~1,140 | med | full feed smoke; container becomes residue |
+| **W6** | `event_card.dart` — ✅ v1.0.735 | 1,207 | med | full feed smoke; container becomes residue |
 
 ### W0 — feed_reducer (do first) — ✅ shipped v1.0.729
 Moved the top-level reducer fns, then lifted the 11 `_AgentFeedState`
@@ -227,6 +227,32 @@ banner · verbose toggle.
 - On-device feed smoke clean after W2–W6.
 - The R0 CI LOC ceiling (monolith-refactor.md) ratchets down as wedges
   land — wire `agent_feed/*` siblings into it.
+
+### Outcome (v1.0.735, W6 complete)
+
+`agent_feed.dart` went **6,196 → 1,574 LOC (−75%)**; the regression-prone
+event-kind dispatch/classification logic is now isolated in the
+standalone, test-covered `feed_reducer.dart`. Two acceptance numbers came
+in **modestly over their aspirational ceilings**, reported honestly here
+rather than chased with unplanned churn:
+
+- **Container 1,574 LOC (target ≤1,100).** The residue is a single
+  cohesive `_AgentFeedState` (subscribe/ingest/scroll/build + the
+  `_maybeFire*`/`_onSetMode` side-effects), not a further peelable
+  *cluster*. Getting under 1,100 would mean splitting the container's own
+  lifecycle/build logic — a different kind of refactor (extract a
+  controller / state-notifier) and a separate effort, not part of this
+  cluster-extraction plan.
+- **`event_card.dart` 1,207 LOC (soft ceiling 1,200).** One cohesive
+  card; the diff sub-renderer (`_DiffView`/`_DiffLine`/`_DiffKind`) is the
+  only obvious further peel and is ~110 LOC — a future micro-wedge if the
+  ceiling is ever enforced.
+
+`_ToolKvLine` is gone (W4); the double `_payloadOf` collapsed to one
+private helper (W5, kept private — single-cluster — rather than the
+originally-sketched public `feedPayloadOf`, per the lazy/cross-cluster
+rule); the reducer is a standalone tested library (W0). All wedges CI
+green; no behavior change.
 
 ---
 

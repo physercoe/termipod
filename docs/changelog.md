@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.732
+> **Last verified vs code:** v1.0.733
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,28 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.733-alpha — 2026-05-29
+
+**agent_feed split W4 — tool_renderers cluster extracted (no behavior
+change).**
+
+Fifth wedge of `docs/plans/agent-feed-split.md`. New
+`lib/widgets/agent_feed/tool_renderers.dart` holds the foldable
+tool_call card and its inline tool_result body.
+
+### Changed
+- Moved `FoldableToolCall` (was `_FoldableToolCall`; the only
+  cross-library symbol — used by the event card — so the only one made
+  public) plus tool-call-only privates `_FoldableToolCallState`,
+  `_ToolKvLine`, `_StatusPill`, `_ToolResultInline`(+State).
+- `toolIconFor` was a `static` on `AgentEventCard` whose **sole caller**
+  was `_FoldableToolCallState`; it moves in as the private top-level
+  `_toolIconFor` rather than forcing a back-import of the container
+  (which would create an import cycle). Reads `CollapsibleMono` +
+  `feedJsonPretty` from `feed_render` via import.
+- `_DiffView`/`_DiffLine`/`_DiffKind` stay (event_card-only → W6).
+- `agent_feed.dart` shrinks ~4,233 → ~3,874 LOC. Pure rearrangement.
 
 ## v1.0.732-alpha — 2026-05-29
 

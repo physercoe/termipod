@@ -135,7 +135,8 @@ class _PermissionPromptCardState
   ///   compaction                — render "Compact context now?" prompt
   ///
   /// user_question is NOT handled here — it goes through
-  /// approval_request agent_events + _ApprovalCard, not attention_items.
+  /// approval_request agent_events + ApprovalCard (approval_cards.dart),
+  /// not attention_items.
   String get _dialogType =>
       (widget.payload['dialog_type'] ?? 'tool_permission').toString();
 

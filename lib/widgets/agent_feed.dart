@@ -1347,7 +1347,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // for request_select (multi-choice). Both cards filter by
               // agent_id so a prompt for a different steward doesn't
               // appear here.
-              const Positioned(
+              Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,

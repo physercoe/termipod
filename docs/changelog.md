@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.733
+> **Last verified vs code:** v1.0.734
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,38 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.734-alpha — 2026-05-29
+
+**agent_feed split W5 — interaction + approval clusters extracted (no
+behavior change).**
+
+Sixth wedge of `docs/plans/agent-feed-split.md`, shipped as one PR (the
+two clusters are independent class relocations — the one-thing rule is
+honored by *kind* of change, not file count). Two new libraries:
+`lib/widgets/agent_feed/interaction_cards.dart` (the inline
+attention-item surfaces) and `lib/widgets/agent_feed/approval_cards.dart`
+(the in-event approval-request + AskUserQuestion cards).
+
+### Changed
+- Moved to `interaction_cards.dart`: `PendingPermissionPrompts` +
+  `PendingSelections` (was `_…`; the only cross-library symbols — the
+  container mounts them — so the only two made public), plus the
+  interaction-only privates `_PermissionPromptCard`(+State),
+  `_PlanApprovalBody`, `_CompactionBody`, `_SelectionCard`(+State).
+- Moved to `approval_cards.dart`: `ApprovalCard` + `AskUserQuestionCard`
+  (was `_…`; the event card renders them, so public), plus the
+  approval-only privates `_ApprovalCardState`, `_ApprovalOption`,
+  `_DecisionChip`, `_AskUserQuestionCardState`, `_AskOption`.
+- The two byte-identical `_payloadOf` statics (one each on
+  `_PendingPermissionPrompts`/`_PendingSelections`) folded into a single
+  private top-level helper in `interaction_cards.dart` — single-cluster,
+  so it stays private per the split's lazy/cross-cluster rule.
+- Both clusters read `CollapsibleMono` + `feedJsonPretty` from
+  `feed_render` via import; no reducer dependency.
+- `agent_feed.dart` shrinks ~3,875 → ~2,749 LOC. Pure rearrangement;
+  the now-unused `dart:convert` import (its only use was the moved
+  `_payloadOf`) was dropped from the container.
 
 ## v1.0.733-alpha — 2026-05-29
 

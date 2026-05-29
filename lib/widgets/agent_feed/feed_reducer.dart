@@ -23,7 +23,6 @@ import '../../theme/design_colors.dart';
 /// filter (W1.3) to drop frames whose content already appears in the
 /// cached transcript so the user doesn't see every prior turn twice
 /// after a resume.
-@visibleForTesting
 bool agentEventIsReplay(Map<String, dynamic> evt) {
   final p = evt['payload'];
   if (p is! Map) return false;
@@ -66,7 +65,6 @@ bool agentEventIsReplay(Map<String, dynamic> evt) {
 ///
 /// Public so widget tests can assert membership without spinning the
 /// full `_AgentFeedState` widget tree.
-@visibleForTesting
 const kAgentFeedAlwaysHiddenKinds = <String>{
   'session.init',
   'usage',
@@ -138,7 +136,6 @@ const kAgentFeedAlwaysHiddenKinds = <String>{
 /// one-line rationale. The test fails on any unclassified kind, so
 /// the next producer-side addition can't ship without a consumer-
 /// side decision.
-@visibleForTesting
 const kAgentTurnActiveKinds = <String>{
   'text',
   'tool_call',
@@ -169,7 +166,6 @@ const kAgentTurnActiveKinds = <String>{
 ///
 /// Public so widget tests can exercise the reducer without spinning
 /// the full agent_feed widget tree.
-@visibleForTesting
 Map<String, dynamic>? rateLimitsFromEvents(List<Map<String, dynamic>> events) {
   for (var i = events.length - 1; i >= 0; i--) {
     final e = events[i];
@@ -193,7 +189,6 @@ Map<String, dynamic>? rateLimitsFromEvents(List<Map<String, dynamic>> events) {
 /// snapshot every ~10s so the latest frame is always authoritative.
 /// Null = cold open, older claude versions without statusLine, or
 /// the operator removed the install.
-@visibleForTesting
 Map<String, dynamic>? latestStatusLinePayload(
     List<Map<String, dynamic>> events) {
   for (var i = events.length - 1; i >= 0; i--) {
@@ -236,7 +231,6 @@ Map<String, dynamic>? latestStatusLinePayload(
 ///
 /// [now] is the reference time (defaults to `DateTime.now()`). Tests
 /// override to pin formatter output without sleeping.
-@visibleForTesting
 String formatRateLimitResetsAt(int? epochSeconds, {DateTime? now}) {
   if (epochSeconds == null || epochSeconds <= 0) return '';
   final ref = now ?? DateTime.now();
@@ -276,7 +270,6 @@ String formatRateLimitResetsAt(int? epochSeconds, {DateTime? now}) {
 /// Returns empty string for the same defensive inputs as the compact
 /// formatter (null / non-positive / past / >14d out) so the tooltip
 /// composer can splice it cleanly without a separate gate.
-@visibleForTesting
 String formatRateLimitResetsAtAbsolute(int? epochSeconds, {DateTime? now}) {
   if (epochSeconds == null || epochSeconds <= 0) return '';
   final ref = now ?? DateTime.now();
@@ -308,7 +301,6 @@ String _fmtAbsoluteShort(DateTime localTs) {
 /// W5 §alarm tier). 80% → amber; 95% → red; otherwise success-green.
 /// Public for testability. Returns DesignColors-level values so the
 /// strip caller doesn't have to repeat the threshold logic.
-@visibleForTesting
 ({Color color, String severity}) rateLimitAlarmTier(num? usedPercentage) {
   final p = (usedPercentage ?? 0).toDouble();
   if (p >= 95) return (color: DesignColors.error, severity: 'red');
@@ -329,7 +321,6 @@ String _fmtAbsoluteShort(DateTime localTs) {
 /// and prompts `/clear`. Returns null when absent so the caller can
 /// self-gate (chip suppresses entirely vs rendering a literal
 /// "false" reassurance the wire didn't actually send).
-@visibleForTesting
 bool? exceeds200kFromEvents(List<Map<String, dynamic>> events) {
   for (var i = events.length - 1; i >= 0; i--) {
     final e = events[i];
@@ -360,7 +351,6 @@ bool? exceeds200kFromEvents(List<Map<String, dynamic>> events) {
 ///
 /// Empty strings from the wire are normalized to null so the caller
 /// has one falsy check instead of two.
-@visibleForTesting
 String? sessionNameFromEvents(List<Map<String, dynamic>> events) {
   for (var i = events.length - 1; i >= 0; i--) {
     final e = events[i];
@@ -393,7 +383,6 @@ String? sessionNameFromEvents(List<Map<String, dynamic>> events) {
 /// [detail] is the raw response map; tolerant of null + missing
 /// fields. Public so widget tests can pin the rendered string without
 /// spinning the full strip.
-@visibleForTesting
 String buildSessionCostTooltipFromDetail(
   double totalUsd,
   Map<String, dynamic>? detail, {
@@ -487,7 +476,6 @@ String _shortModelNameForTooltip(String raw) {
 ///
 /// Public so widget tests can exercise the reducer without spinning
 /// the full agent_feed widget tree.
-@visibleForTesting
 double? processCostFromEvents(List<Map<String, dynamic>> events) {
   for (var i = events.length - 1; i >= 0; i--) {
     final e = events[i];
@@ -502,7 +490,6 @@ double? processCostFromEvents(List<Map<String, dynamic>> events) {
   return null;
 }
 
-@visibleForTesting
 String? agentEventReplayKey(Map<String, dynamic> evt) {
   final kind = (evt['kind'] ?? '').toString();
   final raw = evt['payload'];
@@ -541,7 +528,6 @@ String? agentEventReplayKey(Map<String, dynamic> evt) {
 ///
 /// Returns null when neither a mode nor a model has been advertised —
 /// the strip widget hides itself in that case.
-@visibleForTesting
 Map<String, dynamic>? modeModelStateFromEvents(List<Map<String, dynamic>> events) {
   String? currentMode;
   List<Map<String, dynamic>>? availableModes;
@@ -608,7 +594,6 @@ Map<String, dynamic>? modeModelStateFromEvents(List<Map<String, dynamic>> events
 /// envelope loader all fall through to this static map. Kept in sync
 /// with the default `hub/templates/envelope/active.yaml` so the
 /// degraded path still looks correct.
-@visibleForTesting
 String envelopeRoleLabel(String role) {
   switch (role) {
     case 'principal':
@@ -628,7 +613,6 @@ String envelopeRoleLabel(String role) {
 /// Precedence: `payload.from_label` (operator-template-resolved at
 /// hub send-time) → `@handle (<static role label>)` → bare static
 /// label. Public for `agent_compose_envelope_label_test.dart`.
-@visibleForTesting
 String envelopeSenderLabel({
   required String role,
   required String handle,

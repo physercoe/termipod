@@ -1,9 +1,9 @@
 # Integrating open-source and computer-use agents
 
 > **Type:** discussion
-> **Status:** Open (2026-04-30)
+> **Status:** Open (2026-05-28, revised) — adds Reasonix as 5th CLI-coding-agent candidate in Group A; original snapshot 2026-04-30
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.349
+> **Last verified vs code:** v1.0.349 (whole doc — Reasonix sub-section verified vs v1.0.723)
 
 **TL;DR.** Termipod's plurality today is commercial engines (claude-code,
 codex, gemini-cli). The 2026 open-source landscape splits sharply into
@@ -68,6 +68,13 @@ paradigm space.
 - **OpenHands** / **SWE-agent** — research-grounded GitHub-issue solvers;
   YAML-configurable agent-computer interface (ACI).
 - **Goose** (Block) — CLI agent with built-in session model and rewind.
+- **Reasonix** (esengine/DeepSeek-Reasonix, ~12k stars, MIT,
+  TypeScript) — DeepSeek-only by design; engineered around DeepSeek's
+  prefix-cache invariant (claimed 99.82% cache hit / ~5× cost
+  reduction on real multi-hour sessions). MCP-native; hooks
+  (`PreToolUse` / `PostToolUse` / `UserPromptSubmit` / `Stop`);
+  Claude-format skill compatibility (reads `.claude/skills/<name>/SKILL.md`).
+  Also ships a Tauri desktop client and a Chinese-platform QQ bridge.
 - **Cline** — VS Code extension; not a spawnable CLI in a tmux pane.
 
 **Messaging-gateway personal agents:**
@@ -133,12 +140,21 @@ three is missing, it's an architectural change.
 | **Goose** | M2 | New profile | Days | Built-in session/rewind would benefit from an ADR-014-style engine session-id capture rule. |
 | **OpenHands**, **SWE-agent** | M2 (ACI commands) | New profile | Days | YAML-configurable already; profile work is matching. Neither speaks MCP outbound — see §8 gap (3). |
 | **Aider** | M4, or M2 with text profile | **DSL extension required** | Wedge | Markdown + diff blocks, not JSON frames. ADR-010 expression DSL is JSON-path only. Either extend DSL with regex matchers (`profile_version: 2`) or accept M4 fidelity. |
+| **Reasonix** | M2 | New profile | Days | DeepSeek-only by design (1 backend, deliberately — "coupling to one backend is the feature"). Hooks lifecycle (`PreToolUse` / `PostToolUse` / `UserPromptSubmit` / `Stop`) maps cleanly to ADR-010 events. MCP-native (stdio / SSE / Streamable HTTP). M4 also feasible because the desktop client persists session state under `~/.reasonix/` — local-log-tail target if M2 frames prove awkward. Engine-level borrowable design ideas (cache-aware loop, tool-call repair, `/apply` gate, plan-mode bridge) catalogued separately in [reasonix-loop-borrows.md](reasonix-loop-borrows.md). |
 | **Cline** | — | — | Out of paradigm | VS Code extension, not a spawnable CLI. Termipod's host-runner spawns a process and steers stdio; Cline is steered from inside an editor. |
 
 The OpenClaude case is the validation case for ADR-010: a real second
 engine in this family lands without Go. The Aider case is the first
 honest stress test of the frame-profile DSL — it tells us whether the
 expression subset is wide enough or needs `profile_version: 2`.
+**Reasonix is the most design-interesting of the group** for reasons
+that are *not* about whether it integrates (M2 + new profile is the
+same straightforward path as OpenCode or Goose). Its loop is
+engineered against a specific backend invariant — DeepSeek's prefix-
+cache stability — that the other four engines simply ignore. The
+integration question is small; the design question raised by the
+attempt is large enough to warrant its own
+[discussion](reasonix-loop-borrows.md). See also §11 below.
 
 ---
 
@@ -345,10 +361,15 @@ stays out for MVP, in for post-MVP via ADR-015.
 - [Discussion — fork and engine context mutations](fork-and-engine-context-mutations.md)
 - [Discussion — multi-engine frame parsing](multi-engine-frame-parsing.md)
 - [Discussion — transcript source of truth](transcript-source-of-truth.md)
-- External (snapshot 2026-04-30):
+- External (snapshot 2026-04-30; Reasonix added 2026-05-28):
   - OpenClaude — github.com/Gitlawb/openclaude
   - OpenClaw — github.com/openclaw/openclaw
   - Hermes Agent — hermes-agent.nousresearch.com
   - Cua — github.com/trycua/cua
   - OpenCUA — opencua.xlang.ai
   - Awesome Computer Use — github.com/ranpox/awesome-computer-use
+  - Reasonix — github.com/esengine/DeepSeek-Reasonix
+- [Discussion — loop-design borrows from Reasonix](reasonix-loop-borrows.md)
+  — Tier A/B engineering ideas pulled out of Reasonix that apply
+  engine-agnostically to TermiPod's loop, separated from the
+  Reasonix-as-engine integration question above.

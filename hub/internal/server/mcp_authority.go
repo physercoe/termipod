@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 
+	"github.com/termipod/hub/internal/auth"
 	"github.com/termipod/hub/internal/hubmcpserver"
 )
 
@@ -35,6 +36,12 @@ type chiRouterTransport struct{ router http.Handler }
 
 func (t chiRouterTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	rec := httptest.NewRecorder()
+	// Mark the request as in-process authority dispatch so the bearer
+	// middleware's kind allowlist (F-01) exempts the agent token forwarded
+	// here — the MCP role check already authorized the tool before this
+	// self-call. The marker is a Go context value, unspoofable from the
+	// network.
+	req = req.WithContext(auth.WithInProcessDispatch(req.Context()))
 	t.router.ServeHTTP(rec, req)
 	return rec.Result(), nil
 }

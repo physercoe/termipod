@@ -17,7 +17,24 @@ type ctxKey int
 
 const (
 	tokenCtx ctxKey = iota
+	inProcessCtx
 )
+
+// WithInProcessDispatch marks a request context as originating from the
+// hub's own in-process authority-tool dispatch (the chiRouterTransport
+// self-call), not the network. Such a request has already passed the
+// MCP role check before being forwarded to the REST routes, so the
+// bearer-kind allowlist (F-01) exempts it — an agent token is the
+// legitimate credential there. A Go context value cannot be injected by
+// a network client, so this is unspoofable from the wire.
+func WithInProcessDispatch(ctx context.Context) context.Context {
+	return context.WithValue(ctx, inProcessCtx, true)
+}
+
+func isInProcessDispatch(ctx context.Context) bool {
+	v, _ := ctx.Value(inProcessCtx).(bool)
+	return v
+}
 
 type Token struct {
 	ID        string
@@ -117,10 +134,16 @@ func Middleware(db *sql.DB) func(http.Handler) http.Handler {
 			case "owner", "user", "host":
 				// legitimate bearer kinds
 			default:
-				http.Error(w,
-					"token kind not permitted for bearer auth (agents authenticate via /mcp/{token})",
-					http.StatusForbidden)
-				return
+				// agent (+ any unknown kind): rejected on the network,
+				// but the hub's own in-process authority dispatch
+				// (already role-checked at the MCP layer) forwards an
+				// agent token here legitimately — exempt it.
+				if !isInProcessDispatch(r.Context()) {
+					http.Error(w,
+						"token kind not permitted for bearer auth (agents authenticate via /mcp/{token})",
+						http.StatusForbidden)
+					return
+				}
 			}
 			ctx := context.WithValue(r.Context(), tokenCtx, tok)
 			next.ServeHTTP(w, r.WithContext(ctx))

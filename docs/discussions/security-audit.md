@@ -21,7 +21,7 @@ started** — see §0 for status; pick the next item from §3.
 | ID | Sev | Status | Landed |
 |---|---|---|---|
 | **F-04** | Critical | **Fixed** — decider identity bound to the authenticated token; override gate requires `owner`/`user` kind (`principalActor` in `handlers_attention.go`). `by` from the body is inert. | v1.0.724 |
-| **F-01** | Critical | **Fixed** — `auth.Middleware` allowlists bearer kinds `owner`/`user`/`host`; `agent` (and any unknown kind) is refused with 403 before any handler. Safe because agents never use bearer auth (host-runner relays under its host token + `X-Agent-Id`; agents authenticate via `/mcp/{token}`, outside the middleware). | v1.0.726 |
+| **F-01** | Critical | **Fixed** — `auth.Middleware` allowlists bearer kinds `owner`/`user`/`host`; `agent` (and any unknown kind) is refused with 403 over the network. Network agents authenticate via `/mcp/{token}` (outside the middleware) and host-runner relays under its host token + `X-Agent-Id`. **Exception (v1.0.727):** the hub's own in-process authority-tool dispatch (`mcp_authority.go`) forwards an agent token as a bearer *after* the MCP role check — exempted via an unspoofable `auth.WithInProcessDispatch` context marker. | v1.0.726–727 |
 | F-02 | Critical | Open | — |
 | F-03 | Critical | Open (partial — new `blob_get` validates via `isHexSHA256`; the original `handlers_attention.go:813` attention path still passes `blob_sha256` to `blobPath` unvalidated) | — |
 | F-05 | High | Open | — |

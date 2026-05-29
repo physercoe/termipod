@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.726
+> **Last verified vs code:** v1.0.727
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,24 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.727-alpha — 2026-05-29
+
+**Fix: F-01 bearer-kind allowlist must exempt the hub's in-process
+authority-tool dispatch.**
+
+### Fixed
+
+- v1.0.726's F-01 reject broke the rich-authority MCP tools (e.g.
+  `templates.agent.create`) for agents. Those tools dispatch in-process
+  by forwarding the agent's token as an HTTP bearer through the hub's
+  own routes (`mcp_authority.go` `chiRouterTransport`), *after* the MCP
+  role check has already authorized the call — so the bearer middleware
+  saw an `agent` kind and returned 403. The middleware now exempts
+  requests marked `auth.WithInProcessDispatch` (a Go context value the
+  transport sets; unspoofable from the network), so network agent
+  bearers stay rejected while the trusted, already-role-checked
+  self-call is allowed. Regression-covered by `TestTemplateAuthoring_W2`.
 
 ## v1.0.726-alpha — 2026-05-29
 

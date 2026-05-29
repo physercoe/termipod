@@ -1,9 +1,9 @@
 # Security audit — Codex review + independent verdict
 
 > **Type:** discussion
-> **Status:** Open — findings catalogued; remediation order proposed, work not yet scheduled
+> **Status:** Open — remediation in progress; F-04 fixed in v1.0.724
 > **Audience:** contributors, reviewers
-> **Last verified vs code:** v1.0.721
+> **Last verified vs code:** v1.0.724
 
 **TL;DR.** A third-party static review by Codex (revision `d3e1c53`,
 2026-05-25) surfaced **4 Critical, 6 High, 1 Medium** findings across
@@ -11,8 +11,35 @@ the Go hub and the Flutter mobile client. An independent re-check at
 HEAD `4d598b7` (v1.0.721) confirmed every citation at file:line, with
 one additional read primitive found on F-03 not separately called out
 in the codex remediation. This file catalogues the findings, records
-the verdict, and proposes the remediation order. **No code wedges have
-been scheduled yet** — pick from §3 when starting work.
+the verdict, and proposes the remediation order. **Remediation has
+started** — see §0 for status; pick the next item from §3.
+
+---
+
+## 0. Remediation status
+
+| ID | Sev | Status | Landed |
+|---|---|---|---|
+| **F-04** | Critical | **Fixed** — decider identity bound to the authenticated token; override gate requires `owner`/`user` kind (`principalActor` in `handlers_attention.go`). `by` from the body is inert. | v1.0.724 |
+| F-01 | Critical | Open (next) | — |
+| F-02 | Critical | Open | — |
+| F-03 | Critical | Open (partial — new `blob_get` validates via `isHexSHA256`; the original `handlers_attention.go:813` attention path still passes `blob_sha256` to `blobPath` unvalidated) | — |
+| F-05–F-08 | High | Open | — |
+| F-09–F-11 | High | Open | — |
+| F-06 | Medium | Open | — |
+
+**Sibling found while fixing F-04 (not in the original audit):**
+`handleResolveAttention` (POST `/attention/{id}/resolve`,
+`handlers_attention.go:983`) writes `resolved_by` straight from the
+request body and flips an item to `resolved` **without** running the
+propose dispatcher / quorum / Apply. Two notes: (1) the mobile client
+sends `by`, not `resolved_by` (`hub_client.dart:2059`), so the
+attribution field is already inert from that caller — a latent
+key-mismatch; (2) `resolved_by` is an FK-to-`agents(id)` column, so a
+naive "bind to token handle" fix would write a non-id value. Lower
+severity than F-04 (no governed action executes), but same
+identity-from-body class. Needs its own small wedge: decide whether
+this raw-resolve path should exist at all, and if so bind + gate it.
 
 The original codex report is preserved verbatim in §6.
 
@@ -54,7 +81,7 @@ means the framing needs a qualifier.
 | **F-01** | Critical | Confirmed | `auth/token.go:89-110` middleware checks only revoke + expiry; no kind / scope. `handlers_policy.go:88-145` writes policy from any bearer; empty body explicitly clears it. `handlers_agents.go:1088-1090` only uses token for principal-label templating; doesn't reject `kind='agent'`. Exploit chain intact end-to-end. |
 | **F-02** | Critical | Confirmed, nuanced | `server.go:244-248` mounts `/a2a/relay/*` outside auth, with explicit "deferred" comment. Agent / host IDs are **80-bit-random ULIDs** (`ids.go:11`), so cold-guessing the URL is impractical. Real residual risk is **authenticated cross-agent abuse** (a worker reads sibling IDs via list endpoints + posts as them) more than internet-scale guessing. URL-as-capability is still brittle (URLs are logged, proxied, indexed). |
 | **F-03** | Critical | **Confirmed, broader** | `handlers_attention.go:817,827` joins `p.Category` + `p.Name` unvalidated → arbitrary write. **Additionally**: `p.BlobSHA256` is also unvalidated and is passed straight to `s.blobPath()` at `:813`, which slices `sha[:2]` / `sha[2:4]` — if `sha` contains `/` and `..` segments, `filepath.Join + Clean` resolves outside `<DataRoot>/blobs/`. That gives an **arbitrary-read primitive** triggered by the same approval, paired with the write. Codex's remediation mentions SHA validation but didn't separately call out the read primitive. |
-| **F-04** | Critical | Confirmed | `handlers_attention.go:651` `a.In.By != "@principal"` is the only override gate; comment at `:635-636` notes "token-identity check is a follow-up wedge." Quorum logic at `:533` + `:715` also records `DeciderHandle: in.By`, so the same forgery is the regular-approval forgery too — not just override. |
+| **F-04** | Critical | **Fixed (v1.0.724)** | Was: `handlers_attention.go:651` `a.In.By != "@principal"` was the only override gate; quorum logic at `:533` + `:715` recorded `DeciderHandle: in.By` from the body. Now: `principalActor` derives the decider handle from the authenticated token scope and gates override on `owner`/`user` kind; `handleDecideAttention` overwrites `in.By` at a single chokepoint so the body is inert. |
 | **F-05** | High | Confirmed | Token scope is parsed in scattered call sites (`handlers_tasks.go:167`, `audit.go:79`, `mcp.go:195`, `handlers_agents.go:1089`) but only for attribution flavour. Bearer middleware does no `route.team == tok.scope.team` enforcement. In a multi-team deployment this is real cross-tenant leakage. |
 | **F-06** | Medium | Confirmed verbatim | `mcp.go:200` queries `WHERE token_hash = ? AND revoked_at IS NULL`. `token.go:151-156` (REST path) does check `expires_at`. Inconsistent contract. |
 | **F-07** | High | Confirmed | `handlers_projects.go:311` inserts caller-supplied `in.DocsRoot` unvalidated. `handlers_project_docs.go:43-51` preserves absolute paths and expands `~/`. Containment check at `:116-120` only stops escaping *the chosen root* — it doesn't bound the root itself. File-read oracle under the hub UID. |
@@ -86,11 +113,11 @@ vector). The TypeScript hub-TUI was excluded by their own scope note.
 Codex proposed an order in §6's "Remediation Priority." I'd promote
 two items and pair some. Each line is a candidate wedge:
 
-1. **F-04 — derive approver identity from token, not body.** Cheapest
-   fix (1-line change in `handleAttentionOverride` + sibling sites),
-   and it's the actual gate on the human-in-the-loop story. Without
-   this, the whole "principal approves dangerous things" model is
-   theatre. Promote to #1.
+1. **F-04 — derive approver identity from token, not body.** ✅ **Done
+   in v1.0.724.** Was the cheapest fix and the actual gate on the
+   human-in-the-loop story — without it the whole "principal approves
+   dangerous things" model was theatre. Bound the decider to the token
+   and gated override on human token kind (`principalActor`).
 2. **F-01 — token-kind discrimination at REST middleware.** Add a
    `kind != 'agent'` reject for admin / spawn / policy / template /
    approval routes. This is the most-reachable attack chain.

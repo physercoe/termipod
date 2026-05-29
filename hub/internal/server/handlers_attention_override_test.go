@@ -9,7 +9,22 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/termipod/hub/internal/auth"
 )
+
+// mintToken inserts an auth token of the given kind + scope and returns
+// its plaintext, for use as a Bearer in doReq. Lets a test act as a
+// non-principal caller (agent/host) to exercise the F-04 override gate.
+func mintToken(t *testing.T, s *Server, kind string, scope map[string]any) string {
+	t.Helper()
+	plain := auth.NewToken()
+	b, _ := json.Marshal(scope)
+	if err := auth.InsertToken(context.Background(), s.db, kind, string(b), plain, NewID(), NowUTC()); err != nil {
+		t.Fatalf("mint %s token: %v", kind, err)
+	}
+	return plain
+}
 
 // ADR-030 W9 — principal-override path. Each sub-test:
 //   1. Raises a propose row (mcpPropose).
@@ -308,7 +323,9 @@ func TestOverride_StillOpenRow_Returns409(t *testing.T) {
 	}
 }
 
-// 6. Override caller must be @principal.
+// 6. Override authority is bound to the token kind, not the body
+// (F-04). An agent token cannot override even if it forges
+// `by:"@principal"` in the payload.
 func TestOverride_NonPrincipalCaller_Returns403(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	dir := s.cfg.DataRoot
@@ -326,15 +343,24 @@ func TestOverride_NonPrincipalCaller_Returns403(t *testing.T) {
 	})
 	out, _ := s.mcpPropose(context.Background(), defaultTeamID, agentID, args)
 	attID := unwrapMcpResult(t, out)["request_id"].(string)
+
+	// Resolve the row with the principal (owner) token.
 	doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/attention/"+attID+"/decide",
-		map[string]any{"decision": "approve", "by": "@principal"})
+		map[string]any{"decision": "approve"})
 
-	status, body := doReq(t, s, token, http.MethodPost,
+	// An agent token attempts the override while forging
+	// by:"@principal" in the body — the gate reads the token kind, so
+	// the forged body cannot escalate it.
+	agentTok := mintToken(t, s, "agent", map[string]any{
+		"team": defaultTeamID, "role": "worker",
+		"agent_id": agentID, "handle": "w",
+	})
+	status, body := doReq(t, s, agentTok, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/attention/"+attID+"/decide",
-		map[string]any{"decision": "override", "by": "@steward.x", "override": true})
+		map[string]any{"decision": "override", "by": "@principal", "override": true})
 	if status != http.StatusForbidden {
-		t.Fatalf("non-principal override = %d; want 403", status)
+		t.Fatalf("agent override = %d; want 403", status)
 	}
 	if !strings.Contains(string(body), "principal") {
 		t.Errorf("body should mention principal-only: %s", string(body))
@@ -424,5 +450,60 @@ func TestOverride_KindWithoutRollback_Returns422(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "no Rollback") {
 		t.Errorf("body should explain rollback unsupported: %s", string(body))
+	}
+}
+
+// 10. F-04 attribution integrity: the recorded decider handle is
+// derived from the authenticated token's scope, never from the
+// request body. A forged `by` is dropped on the floor.
+func TestDecide_RecordedByIgnoresForgedBody(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	dir := s.cfg.DataRoot
+	reqWithPolicy(t, s, dir, `  task.set_status:
+    default_tier: principal
+    override_allowed: true`)
+
+	proj := seedProject(t, s, defaultTeamID)
+	taskID := seedTask(t, s, proj, "t", "in_progress")
+	agentID := seedAgentWithKind(t, s, defaultTeamID, "w", "claude-code", proj)
+	args, _ := json.Marshal(map[string]any{
+		"kind":        "task.set_status",
+		"target_ref":  map[string]any{"project_id": proj, "task_id": taskID},
+		"change_spec": map[string]any{"status": "done"},
+	})
+	out, _ := s.mcpPropose(context.Background(), defaultTeamID, agentID, args)
+	attID := unwrapMcpResult(t, out)["request_id"].(string)
+
+	// Approve with the owner (principal) token but forge by:"@evil".
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/attention/"+attID+"/decide",
+		map[string]any{"decision": "approve", "by": "@evil"})
+	if status != http.StatusOK {
+		t.Fatalf("decide: %d body=%s", status, string(body))
+	}
+
+	// The attention.decide audit row records the token-derived handle
+	// (@principal for the owner token), and the forged body never
+	// appears.
+	var meta string
+	if err := s.db.QueryRow(`
+		SELECT meta_json FROM audit_events
+		 WHERE action = 'attention.decide' AND target_id = ?
+		 ORDER BY ts DESC LIMIT 1`, attID).Scan(&meta); err != nil {
+		t.Fatalf("read decide audit: %v", err)
+	}
+	if !strings.Contains(meta, `"by":"@principal"`) {
+		t.Errorf("decide audit by should be token-derived @principal, got: %s", meta)
+	}
+	if strings.Contains(meta, "@evil") {
+		t.Errorf("forged body `by` leaked into audit: %s", meta)
+	}
+
+	// The decisions_json trail likewise records the token handle.
+	var decisions string
+	_ = s.db.QueryRow(`SELECT decisions_json FROM attention_items WHERE id = ?`,
+		attID).Scan(&decisions)
+	if !strings.Contains(decisions, `"by":"@principal"`) || strings.Contains(decisions, "@evil") {
+		t.Errorf("decisions_json should record token handle not body: %s", decisions)
 	}
 }

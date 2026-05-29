@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/termipod/hub/internal/auth"
 )
 
 type attentionIn struct {
@@ -296,8 +297,13 @@ func (s *Server) handleGetAttention(w http.ResponseWriter, r *http.Request) {
 
 type attentionDecideIn struct {
 	Decision string `json:"decision"` // 'approve' | 'reject'
-	By       string `json:"by,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+	// By is the decider handle. INPUT IS IGNORED — the server
+	// overwrites it with the authenticated token's scope handle
+	// (F-04). The field is retained so the same struct can be reused
+	// for the fan-back reply, where the server-derived value rides
+	// back out.
+	By     string `json:"by,omitempty"`
+	Reason string `json:"reason,omitempty"`
 	// OptionID names the picked option for kind='select' attention
 	// items (request_select MCP tool). The request stores the option
 	// labels in pending_payload_json; the picked id flows back to the
@@ -310,8 +316,8 @@ type attentionDecideIn struct {
 	// Ignored for kinds whose answer space is constrained.
 	Body string `json:"body,omitempty"`
 	// Override flips the "already resolved" 409 into the ADR-030 W9
-	// principal-override path. Requires `By == "@principal"` (MVP
-	// principal gate — a token-identity check is a future wedge) and
+	// principal-override path. Requires the authenticated token to be
+	// principal-tier (owner|user kind — see principalActor, F-04) and
 	// `policy.KindFor(change_kind).OverrideAllowed == true`. The
 	// override path appends an override decision entry, dispatches
 	// through `ProposeKind.Rollback`, emits an `attention.override`
@@ -341,6 +347,25 @@ type attentionDecideOut struct {
 // today — the net effect is one executed action, not two, and the duplicate
 // decision row is visible in the trail. Tightening this needs a CAS on the
 // status column; deferred until we have >1 active approver per tier.
+// principalActor resolves the authenticated caller for an attention
+// decision. The recorded decider handle is always derived from the
+// token scope — never from the request body — so an agent cannot
+// attribute a decision to "@principal" (or anyone) by setting `by` in
+// the payload (F-04). `isPrincipal` is true only for the two human
+// token kinds (owner, user); agents and hosts can decide within policy
+// quorum but can never wield principal-tier override authority.
+//
+// With no token in context (only reachable off the authed router — the
+// middleware rejects unauthenticated callers before this handler) it
+// fails closed: empty handle, not a principal.
+func principalActor(ctx context.Context) (handle string, isPrincipal bool) {
+	tok, ok := auth.FromContext(ctx)
+	if !ok || tok == nil {
+		return "", false
+	}
+	return principalFromScope(tok.ScopeJSON), tok.Kind == "owner" || tok.Kind == "user"
+}
+
 func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "id")
@@ -349,6 +374,13 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	// F-04: bind the decider identity to the authenticated token, not
+	// the request body. Every downstream site (decisions_json,
+	// ProposeApplyContext.DeciderHandle, the attention.decide audit
+	// row, the fan-back reply, and the override gate) reads `in.By`, so
+	// overwriting it here is the single chokepoint that makes a
+	// caller-supplied `by` inert.
+	in.By, _ = principalActor(r.Context())
 	// approve | reject are the standard decisions; `override` is
 	// accepted only when paired with override=true (ADR-030 W9).
 	// The override handler appends its own "override" entry to
@@ -632,8 +664,9 @@ type attentionOverrideArgs struct {
 // Reached only when handleDecideAttention sees `status != "open"` AND
 // `in.Override == true`. Guard rails:
 //
-//  1. Caller must be principal-tier. MVP: `in.By == "@principal"`
-//     (token-identity check is a follow-up wedge).
+//  1. Caller must be principal-tier — the authenticated token's kind
+//     is owner or user (principalActor, F-04). The request body's `by`
+//     is never trusted for this gate.
 //  2. The row must come from the propose ladder. `change_kind == ""`
 //     means a legacy non-propose row (request_help, select, …);
 //     override is not defined for those.
@@ -648,9 +681,9 @@ type attentionOverrideArgs struct {
 // The row stays in `status = 'resolved'` (the override doesn't
 // re-open it — the override IS the next state).
 func (s *Server) handleAttentionOverride(w http.ResponseWriter, r *http.Request, a attentionOverrideArgs) {
-	if a.In.By != "@principal" {
+	if _, isPrincipal := principalActor(r.Context()); !isPrincipal {
 		writeErr(w, http.StatusForbidden,
-			"override requires principal-tier caller (MVP gate: by='@principal')")
+			"override requires a principal-tier caller (owner or user token); agents and hosts cannot override a resolved decision")
 		return
 	}
 	if a.Status != "resolved" {

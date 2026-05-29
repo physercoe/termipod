@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-27)
+> **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.723
+> **Last verified vs code:** v1.0.724
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,34 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.724-alpha — 2026-05-29
+
+**Principal-override identity is bound to the authenticated token, not
+the request body (security-audit F-04).**
+
+### Security
+
+- **Attention decide/override authority no longer reads the caller's
+  identity from the request body.** Previously `handleAttentionOverride`
+  gated the ADR-030 W9 principal-override path on `by == "@principal"`
+  taken from the JSON payload, and the regular `/decide` path recorded
+  `by` from the body into `decisions_json`, the `attention.decide`
+  audit row, and `ProposeApplyContext.DeciderHandle`. Any agent could
+  set `by:"@principal"` to override a resolved decision or forge the
+  decider attribution. The decider handle is now derived from the
+  authenticated token's scope at a single chokepoint in
+  `handleDecideAttention`, and the override gate requires the token's
+  kind to be `owner` or `user` (humans) via the new `principalActor`
+  helper — `agent`/`host` tokens are refused with 403. A caller-supplied
+  `by` is now inert. See `docs/discussions/security-audit.md` §F-04.
+
+**Newly-found sibling (not yet fixed):** `handleResolveAttention`
+(POST `/attention/{id}/resolve`) writes `resolved_by` from the body and
+resolves an item without running the propose dispatcher. The mobile
+client already sends `by` (not `resolved_by`), so the field is inert
+from that caller, and `resolved_by` is an FK-to-`agents(id)` column —
+the fix needs its own small investigation. Tracked in security-audit.md.
 
 ## v1.0.723-alpha — 2026-05-27
 

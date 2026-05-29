@@ -7,8 +7,6 @@
 // authority on the event list. Telemetry-only helpers (_TelemetryTile,
 // _fmtTokens, _humanWindow, …) stay private here — only `TelemetryStrip`
 // is referenced cross-library (by the container), so only it is public.
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 

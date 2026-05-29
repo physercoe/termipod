@@ -56,12 +56,15 @@ Map<String, dynamic> _payloadOf(Map<String, dynamic> attention) {
 /// Trivial / Routine tiers don't reach here: the server short-
 /// circuits them in mcpPermissionPrompt with an audit-only allow.
 class PendingPermissionPrompts extends ConsumerWidget {
-  const PendingPermissionPrompts();
+  // The watched agent's id, passed down by the feed container. (Was read
+  // by reaching up to the container's private State via
+  // findAncestorStateOfType; that coupling can't cross the library
+  // boundary, and data-flows-down matches the other extracted widgets.)
+  final String agentId;
+  const PendingPermissionPrompts({required this.agentId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feed = context.findAncestorStateOfType<_AgentFeedState>();
-    final agentId = feed?.widget.agentId ?? '';
     final attention = ref
             .watch(hubProvider.select((s) => s.value?.attention)) ??
         const <Map<String, dynamic>>[];
@@ -449,12 +452,14 @@ class _CompactionBody extends StatelessWidget {
 /// for the user's pick; surfacing this card in the chat keeps the round-
 /// trip in one place instead of forcing a trip to the Me page.
 class PendingSelections extends ConsumerWidget {
-  const PendingSelections();
+  // The watched agent's id, passed down by the feed container — see the
+  // note on PendingPermissionPrompts for why this is a constructor arg
+  // rather than a findAncestorStateOfType reach-up.
+  final String agentId;
+  const PendingSelections({required this.agentId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feed = context.findAncestorStateOfType<_AgentFeedState>();
-    final agentId = feed?.widget.agentId ?? '';
     final attention = ref
             .watch(hubProvider.select((s) => s.value?.attention)) ??
         const <Map<String, dynamic>>[];

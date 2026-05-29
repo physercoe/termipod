@@ -1354,8 +1354,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    PendingSelections(),
-                    PendingPermissionPrompts(),
+                    PendingSelections(agentId: widget.agentId),
+                    PendingPermissionPrompts(agentId: widget.agentId),
                   ],
                 ),
               ),

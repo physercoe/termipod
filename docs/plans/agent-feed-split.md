@@ -164,7 +164,7 @@ from the discussion doc on purpose (reducer first — see TL;DR).
 | **W2** | `feed_misc.dart` | ~150 | trivial | analyze + smoke |
 | **W3** | `telemetry_strip.dart` | ~520 | low | `_cost_chips`/`_rate_limits`/`_status_line` tests + smoke |
 | **W4** | `tool_renderers.dart` | ~350 | low | smoke: tool-call fold, tool_result, diff |
-| **W5** | `approval_cards.dart` + `interaction_cards.dart` | ~1,170 | med | smoke: permission/AskUser/plan/selection/compaction |
+| **W5** | `approval_cards.dart` + `interaction_cards.dart` (one PR) | ~1,170 | med | smoke: permission/AskUser/plan/selection/compaction |
 | **W6** | `event_card.dart` | ~1,140 | med | full feed smoke; container becomes residue |
 
 ### W0 — feed_reducer (do first)
@@ -225,12 +225,13 @@ banner · verbose toggle.
 
 ---
 
-## Open questions
+## Resolved decisions
 
-1. **W5 as one PR or two?** ~1,170 LOC across two cluster files. Default
-   to two PRs (approval, then interaction) to honor the ≤3-day / one-thing
-   rule; merge only if they prove trivially mechanical.
-2. **Reducer as free functions or a `FeedReducer` class?** Free functions
-   match today's top-level shape and the existing tests. Defer any
-   class-wrapping to a later, separate step if a stateful reducer is ever
-   wanted (it isn't today).
+1. **W5 is one PR.** Approval + interaction clusters ship together
+   (~1,170 LOC). The moves are mechanical class relocations (no edits),
+   so the one-thing rule is honored by *kind* of change, not file count;
+   bundling them keeps the wedge count and review overhead down.
+2. **Reducer is free functions** — no `FeedReducer` class. Matches today's
+   top-level shape and the 10 existing tests, which call the functions
+   directly. No stateful reducer is wanted today; revisit only if one ever
+   is (separate step).

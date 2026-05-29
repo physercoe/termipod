@@ -1,9 +1,9 @@
 # Security audit — Codex review + independent verdict
 
 > **Type:** discussion
-> **Status:** Open — remediation in progress; F-04 + F-08 fixed (v1.0.724–725)
+> **Status:** Open — remediation in progress; F-01 + F-04 + F-08 fixed (v1.0.724–726)
 > **Audience:** contributors, reviewers
-> **Last verified vs code:** v1.0.725
+> **Last verified vs code:** v1.0.726
 
 **TL;DR.** A third-party static review by Codex (revision `d3e1c53`,
 2026-05-25) surfaced **4 Critical, 6 High, 1 Medium** findings across
@@ -21,7 +21,7 @@ started** — see §0 for status; pick the next item from §3.
 | ID | Sev | Status | Landed |
 |---|---|---|---|
 | **F-04** | Critical | **Fixed** — decider identity bound to the authenticated token; override gate requires `owner`/`user` kind (`principalActor` in `handlers_attention.go`). `by` from the body is inert. | v1.0.724 |
-| F-01 | Critical | Open (next) | — |
+| **F-01** | Critical | **Fixed** — `auth.Middleware` allowlists bearer kinds `owner`/`user`/`host`; `agent` (and any unknown kind) is refused with 403 before any handler. Safe because agents never use bearer auth (host-runner relays under its host token + `X-Agent-Id`; agents authenticate via `/mcp/{token}`, outside the middleware). | v1.0.726 |
 | F-02 | Critical | Open | — |
 | F-03 | Critical | Open (partial — new `blob_get` validates via `isHexSHA256`; the original `handlers_attention.go:813` attention path still passes `blob_sha256` to `blobPath` unvalidated) | — |
 | F-05 | High | Open | — |
@@ -80,7 +80,7 @@ means the framing needs a qualifier.
 
 | ID | Sev | Verdict | Independent notes |
 |---|---|---|---|
-| **F-01** | Critical | Confirmed | `auth/token.go:89-110` middleware checks only revoke + expiry; no kind / scope. `handlers_policy.go:88-145` writes policy from any bearer; empty body explicitly clears it. `handlers_agents.go:1088-1090` only uses token for principal-label templating; doesn't reject `kind='agent'`. Exploit chain intact end-to-end. |
+| **F-01** | Critical | **Fixed (v1.0.726)** | Was: `auth/token.go` middleware checked only revoke + expiry; `handlers_policy.go` wrote policy from any bearer; no `kind='agent'` reject. Now: middleware allowlists `owner`/`user`/`host` bearer kinds and refuses `agent` (+ unknown) with 403. Verified agents never present a bearer — host-runner relays under its host token + `X-Agent-Id` (`mcp_gateway.go`), and `/mcp/{token}` is mounted outside the middleware. |
 | **F-02** | Critical | Confirmed, nuanced | `server.go:244-248` mounts `/a2a/relay/*` outside auth, with explicit "deferred" comment. Agent / host IDs are **80-bit-random ULIDs** (`ids.go:11`), so cold-guessing the URL is impractical. Real residual risk is **authenticated cross-agent abuse** (a worker reads sibling IDs via list endpoints + posts as them) more than internet-scale guessing. URL-as-capability is still brittle (URLs are logged, proxied, indexed). |
 | **F-03** | Critical | **Confirmed, broader** | `handlers_attention.go:817,827` joins `p.Category` + `p.Name` unvalidated → arbitrary write. **Additionally**: `p.BlobSHA256` is also unvalidated and is passed straight to `s.blobPath()` at `:813`, which slices `sha[:2]` / `sha[2:4]` — if `sha` contains `/` and `..` segments, `filepath.Join + Clean` resolves outside `<DataRoot>/blobs/`. That gives an **arbitrary-read primitive** triggered by the same approval, paired with the write. Codex's remediation mentions SHA validation but didn't separately call out the read primitive. |
 | **F-04** | Critical | **Fixed (v1.0.724)** | Was: `handlers_attention.go:651` `a.In.By != "@principal"` was the only override gate; quorum logic at `:533` + `:715` recorded `DeciderHandle: in.By` from the body. Now: `principalActor` derives the decider handle from the authenticated token scope and gates override on `owner`/`user` kind; `handleDecideAttention` overwrites `in.By` at a single chokepoint so the body is inert. |
@@ -120,9 +120,12 @@ two items and pair some. Each line is a candidate wedge:
    human-in-the-loop story — without it the whole "principal approves
    dangerous things" model was theatre. Bound the decider to the token
    and gated override on human token kind (`principalActor`).
-2. **F-01 — token-kind discrimination at REST middleware.** Add a
-   `kind != 'agent'` reject for admin / spawn / policy / template /
-   approval routes. This is the most-reachable attack chain.
+2. **F-01 — token-kind discrimination at REST middleware.** ✅ **Done
+   in v1.0.726.** Implemented as a middleware-level allowlist
+   (`owner`/`user`/`host`) rather than a per-route denylist — agents
+   never legitimately present a bearer, so this is the cleanest,
+   forward-compatible closure and protects routes not separately
+   enumerated.
 3. **F-08 — derive event sender + cost from token.** Same fix shape
    as F-04; small.
 4. **F-09 + F-10 + F-11 — Flutter trio, one release.** Host-key

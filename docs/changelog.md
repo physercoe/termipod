@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.725
+> **Last verified vs code:** v1.0.726
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,26 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.726-alpha — 2026-05-29
+
+**Agent-kind tokens are refused as REST bearers at the auth middleware
+(security-audit F-01).**
+
+### Security
+
+- **`auth.Middleware` now allowlists bearer token kinds: `owner`,
+  `user`, `host`.** An `agent` token (or any future kind) presented as
+  an `Authorization: Bearer` credential is rejected with 403 before any
+  handler runs. Previously the middleware checked only revocation +
+  expiry, so an agent token could reach privileged routes
+  (policy write, template install, spawn) that lacked their own
+  per-handler gate. This is safe because agents never legitimately use
+  bearer auth: the host-runner relays all agent operations under its
+  own host token + `X-Agent-Id`, and agent tokens authenticate via
+  `/mcp/{token}`, which is mounted outside this middleware. The
+  allowlist fails closed for unknown kinds. See
+  `docs/discussions/security-audit.md` §F-01.
 
 ## v1.0.725-alpha — 2026-05-29
 

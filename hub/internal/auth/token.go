@@ -104,6 +104,24 @@ func Middleware(db *sql.DB) func(http.Handler) http.Handler {
 				http.Error(w, "invalid token", http.StatusUnauthorized)
 				return
 			}
+			// F-01: only human (owner|user) and deputy (host) tokens are
+			// legitimate bearer credentials. An agent's door is
+			// /mcp/{token} (mounted outside this middleware); agent
+			// operations against the REST API are relayed by the
+			// host-runner under its host token + X-Agent-Id, so an agent
+			// token presented as a bearer here is either a misuse or a
+			// stolen credential trying to reach privileged routes
+			// (policy/template/spawn/admin). Allowlist the bearer kinds
+			// and fail closed for agent + any future kind.
+			switch tok.Kind {
+			case "owner", "user", "host":
+				// legitimate bearer kinds
+			default:
+				http.Error(w,
+					"token kind not permitted for bearer auth (agents authenticate via /mcp/{token})",
+					http.StatusForbidden)
+				return
+			}
 			ctx := context.WithValue(r.Context(), tokenCtx, tok)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

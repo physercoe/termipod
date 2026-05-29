@@ -324,8 +324,9 @@ func TestOverride_StillOpenRow_Returns409(t *testing.T) {
 }
 
 // 6. Override authority is bound to the token kind, not the body
-// (F-04). An agent token cannot override even if it forges
-// `by:"@principal"` in the payload.
+// (F-04). A non-principal bearer (here a host token — agent tokens are
+// already refused at auth.Middleware per F-01) cannot override even
+// when it forges `by:"@principal"` in the payload.
 func TestOverride_NonPrincipalCaller_Returns403(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	dir := s.cfg.DataRoot
@@ -349,18 +350,17 @@ func TestOverride_NonPrincipalCaller_Returns403(t *testing.T) {
 		"/v1/teams/"+defaultTeamID+"/attention/"+attID+"/decide",
 		map[string]any{"decision": "approve"})
 
-	// An agent token attempts the override while forging
-	// by:"@principal" in the body — the gate reads the token kind, so
-	// the forged body cannot escalate it.
-	agentTok := mintToken(t, s, "agent", map[string]any{
-		"team": defaultTeamID, "role": "worker",
-		"agent_id": agentID, "handle": "w",
+	// A non-principal bearer (host) attempts the override while forging
+	// by:"@principal" in the body — principalActor reads the token kind,
+	// so the forged body cannot escalate it.
+	hostTok := mintToken(t, s, "host", map[string]any{
+		"team": defaultTeamID, "role": "host",
 	})
-	status, body := doReq(t, s, agentTok, http.MethodPost,
+	status, body := doReq(t, s, hostTok, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/attention/"+attID+"/decide",
 		map[string]any{"decision": "override", "by": "@principal", "override": true})
 	if status != http.StatusForbidden {
-		t.Fatalf("agent override = %d; want 403", status)
+		t.Fatalf("host override = %d; want 403", status)
 	}
 	if !strings.Contains(string(body), "principal") {
 		t.Errorf("body should mention principal-only: %s", string(body))

@@ -15,14 +15,17 @@ import (
 	"github.com/termipod/hub/internal/auth"
 )
 
-// mintNonOwnerToken issues an agent-kind bearer for the given team and
-// returns the plaintext. Used to assert the owner-scope gate on admin
-// endpoints — any kind != "owner" must 403.
+// mintNonOwnerToken issues a user-kind (non-owner human) bearer for the
+// given team and returns the plaintext. Used to assert the owner-scope
+// gate (requireOwner) on admin endpoints — a legitimate human bearer
+// that still isn't the owner must 403. (Agent-kind bearers are now
+// refused earlier, at auth.Middleware, per F-01, so they no longer
+// reach the per-handler owner gate.)
 func mintNonOwnerToken(t *testing.T, s *Server, team string) string {
 	t.Helper()
 	plain := auth.NewToken()
-	scope := `{"team":"` + team + `","role":"agent","agent_id":"a-test"}`
-	if err := auth.InsertToken(context.Background(), s.db, "agent", scope,
+	scope := `{"team":"` + team + `","role":"member","handle":"member"}`
+	if err := auth.InsertToken(context.Background(), s.db, "user", scope,
 		plain, NewID(), NowUTC()); err != nil {
 		t.Fatalf("mint non-owner token: %v", err)
 	}

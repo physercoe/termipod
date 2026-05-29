@@ -9,8 +9,10 @@ import (
 )
 
 // F-08 — a posted channel event's sender and cost attribution are
-// derived from the authenticated token, not the request body. These
-// tests pin the three caller shapes (agent / host / human).
+// derived from the authenticated token, not the request body. Agent
+// bearers are refused at the middleware (F-01), so the live caller
+// shapes that reach the handler are the host relay (X-Agent-Id) and
+// humans; these tests pin both.
 
 func seedEventChannel(t *testing.T, s *Server, id string) {
 	t.Helper()
@@ -41,10 +43,12 @@ func lastEventFrom(t *testing.T, s *Server, channelID string) string {
 	return from
 }
 
-// An agent token cannot impersonate another agent's from_id, and a
-// forged usage_tokens block cannot charge spend to a victim — both are
-// bound to the agent's own scope.agent_id.
-func TestPostEvent_AgentCannotForgeSenderOrSpend(t *testing.T) {
+// An agent token presented as a REST bearer is refused at the auth
+// middleware (F-01) — it cannot even reach the events handler, so a
+// forged from_id / usage_tokens block never lands and no victim is
+// charged. (eventSender's agent branch remains as defense-in-depth for
+// the handler layer; the live agent path is the host relay below.)
+func TestPostEvent_AgentBearerRefusedAtMiddleware(t *testing.T) {
 	s, _ := newA2ATestServer(t)
 	seedEventChannel(t, s, "chan-f08")
 
@@ -64,18 +68,20 @@ func TestPostEvent_AgentCannotForgeSenderOrSpend(t *testing.T) {
 			"parts":        []map[string]any{{"kind": "text", "text": "hi"}},
 			"usage_tokens": map[string]any{"cost_cents": 500},
 		})
-	if status != http.StatusCreated {
-		t.Fatalf("post event = %d body=%s", status, string(body))
+	if status != http.StatusForbidden {
+		t.Fatalf("agent bearer post = %d body=%s; want 403", status, string(body))
 	}
 
-	if got := lastEventFrom(t, s, "chan-f08"); got != attacker {
-		t.Errorf("from_id = %q; want attacker %q (forged victim ignored)", got, attacker)
+	// No event was written and no one was charged.
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE channel_id = 'chan-f08'`).Scan(&n); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("events written = %d; want 0 (request refused at middleware)", n)
 	}
 	if got := spentCents(t, s, victim); got != 0 {
-		t.Errorf("victim spent_cents = %d; want 0 (no forged-cost DoS)", got)
-	}
-	if got := spentCents(t, s, attacker); got != 500 {
-		t.Errorf("attacker spent_cents = %d; want 500 (bound to self)", got)
+		t.Errorf("victim spent_cents = %d; want 0", got)
 	}
 }
 

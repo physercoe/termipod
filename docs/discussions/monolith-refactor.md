@@ -211,6 +211,16 @@ The two dominant pieces are `_AgentFeedState` (the feed container +
 event reducer, ~1,800 LOC) and the per-event card rendering (~1,140 LOC).
 This is the new R2-class monolith and the highest-value target.
 
+> **The executable wedge sequence lives in
+> `docs/plans/agent-feed-split.md`** (PLAN). A code-grounded read of the
+> file revised the ordering below: the reducer is already top-level pure
+> functions with 10 dedicated test files, so it is extracted **first**
+> (lowest risk), and a shared render-primitives layer is extracted second
+> to dissolve the existing `_ToolKvLine`/`_payloadOf` duplication and
+> unblock clean cluster moves. The cluster table below remains the
+> cleavage map; the plan doc is authoritative for sequence and mechanism
+> (import-based layering, not `part`).
+
 **Cleavage by class cluster** (verified against the class list at HEAD):
 
 | New file | Classes (line refs at v1.0.728) | ~LOC |

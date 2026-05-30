@@ -211,22 +211,64 @@ explain why mid-task escalation is correct rather than a leak.
 *delegation*) or [`governance-roles.md`](../spine/governance-roles.md)
 (steward responsibility wording).
 
-### 3.4 The escalation UX contract is under-specified
+### 3.4 The escalation contract is under-specified — and it is *per request-kind*
 
 The attention primitives exist — `request_approval`, `request_select`
 (carries options), `request_help` ([`attention-interaction-model.md`](attention-interaction-model.md);
 [ADR-020](../decisions/020-director-action-surface.md);
-[ADR-011](../decisions/011-turn-based-attention-delivery.md)). What is
-not stated as a **contract** is the essay's normative shape: *every*
-escalation to the principal should be **batched, contextualized, and
-posed as a choice with options + tradeoffs + a recommendation** —
-never an open-ended "what now?". This is an A1 (attention-economy)
-obligation, not just a UI nicety: an open-ended question spends the
-principal's judgment on framing the problem instead of deciding it.
+[ADR-011](../decisions/011-turn-based-attention-delivery.md)). What was
+not stated as a **contract** is the *form* an escalation must take — and
+the key refinement (raised in review) is that the form is **not uniform;
+it depends on the kind of act**:
 
-*Proposed home:* a contract clause in [`attention-interaction-model.md`](attention-interaction-model.md)
-and/or [ADR-020](../decisions/020-director-action-surface.md), with the
-"pose, don't ask" rule applying to steward prompts.
+- a **decision** (`request_approval` / `request_select` / a `propose`)
+  is *posed* — concrete options + tradeoffs + a recommended default,
+  never an open-ended "what now?";
+- a **help / clarification** (`request_help`) instead carries concrete
+  **situational context** — what was tried, what is blocking, the
+  specific info needed — so the higher tier grasps the situation. Forcing
+  an options list on an open question is as wrong as posing a bare
+  decision.
+
+This is a per-kind **communication contract between actors** — the
+agent→principal case of the orchestration layer's typed envelope
+(`kind ∈ {directive, question, report, notification}`). It is an A1
+(attention-economy) obligation: the wrong form spends the principal's
+judgment on framing instead of deciding (decision) or on reconstructing
+context (help).
+
+*Landed:* the contract clause is in [`governance-roles.md`](../spine/governance-roles.md)
+(steward responsibility) and carried — prompt-soft — by the 8 bundled
+steward prompts. Hard enforcement (a hub validator) is the deferred
+3.4-code in §4.
+
+### 3.6 Execution-policy loop-breakers are time/spend-based, not failure-based
+
+*(Added 2026-05-30, from a review question — does the harness bound
+agent execution by failure count / retries / exceptions?)* The
+discussion's control-loop overlay calls for **loop-breakers (max
+iterations, stuck-detection)**. Verified against the code, termipod
+implements the *time / spend / stuck* breakers but **not the
+failure-count or iteration ones**:
+
+| Breaker | In code |
+|---|---|
+| inactivity 20m → escalate; absolute 2h → terminate | ✅ `loop_sweep.go` (ADR-034) |
+| spend cap (`budget_cents`) → pause + attention | ✅ `budget.go` |
+| stall → widen assignees; stuck-pane → attention | ✅ `escalation.go`, `runner.go` |
+| dead pane → `crashed` | ✅ `reconcile.go` |
+| **consecutive-failure cap / retry cap** | ❌ none — retries are ad-hoc, unbounded |
+| **iteration / turn cap** | ❌ none |
+| **in-loop exception recovery (`recover()`)** | ❌ none — failures surface as terminal states, not bounded retries |
+
+The consequence: an agent that fails the same compile 30× silently
+burns budget until the **2h absolute cap or the spend cap** trips —
+coarse backstops, not a tight loop-breaker. A failure-cap that breaks at
+failure #N and escalates is the missing piece; its code spec is the
+3.6-code candidate in §4. Risk to weigh (a default-correctness concern): the failure *classifier*
+is the load-bearing part — false positives pause healthy agents — so it
+should default to **escalate, not terminate** (cheap-to-recover),
+consistent with the §3.1 reversibility corollary.
 
 ### 3.5 Record the operating-vs-implementation basis distinction
 
@@ -269,7 +311,7 @@ best-fit spine doc, with a cross-reference back here:
 | 3.1 reversibility lever | [`blueprint.md`](../spine/blueprint.md) §2 — corollary under the axioms |
 | 3.2 classification axes | [`permission-model.md`](../reference/permission-model.md) — the "auto-allow routine, surface strategic" section |
 | 3.3 classify decisions, not tasks | [`orchestration-layer.md`](../spine/orchestration-layer.md) §3 — the decision is the unit of delegation |
-| 3.4 escalation contract (pose, don't ask) | [`governance-roles.md`](../spine/governance-roles.md) — the steward's surface-decisions responsibility |
+| 3.4 escalation contract (**per request-kind**) | [`governance-roles.md`](../spine/governance-roles.md) — the steward's surface-work responsibility, **plus the 8 bundled steward prompts** (behaviour-as-data) |
 | 3.5 operating-vs-implementation basis | [`orchestration-layer.md`](../spine/orchestration-layer.md) §1 — extends "a layer is a lens, not a box" |
 
 **What is deferred to an ADR (the *code* versions).** An ADR earns its
@@ -288,17 +330,25 @@ and the code surfaces are real and verified, not hypothetical:
   reversible-by-**default** so the steward can auto-demote decisions is
   a behaviour/policy change.
 - **3.4-code — enforce, don't just prompt.** A hub-side validator on
-  attention payloads (require options + a recommendation) would make
-  the §3.4 contract hard rather than prompt-soft.
+  attention payloads (a *decision*-kind item must carry ≥2 options + a
+  recommendation; a *help*-kind item must carry context) would make the
+  §3.4 contract hard rather than prompt-soft.
+- **3.6-code — failure-cap loop-breaker (see §3.6).** A
+  consecutive-failure counter + threshold that breaks a thrashing agent
+  loop and escalates, complementing the existing time/spend breakers in
+  `loop_sweep.go` / `budget.go`. The likely largest of these; the code
+  spec is in §3.6.
 
 Per the essay's own anti-pillar-inflation rule — and §5's first open
 question — the disciplined MVP call is **document the heuristic, build
 the classifier later**. The hand-authored `kinds:` table already works
 for a single principal; an axis-resolver is additive value, not a
-current need. So: **no ADR is opened now.** When one of the drivers
-above becomes concrete, the matching ADR is *"Decision classification
-and the reversibility lever"* (3.1-code + 3.2-code travel together,
-since the reversibility lever is one of the classification axes).
+current need. So: **no ADR is opened now.** When a driver becomes
+concrete, two ADRs are pre-shaped: *"Decision classification and the
+reversibility lever"* (3.1-code + 3.2-code travel together, since the
+reversibility lever is one of the classification axes) and *"Execution
+loop-breakers: failure-cap policy"* (3.6-code, companion to ADR-034's
+time-based breakers).
 
 New terms this doc coins locally — *coordination force*, *basis /
 projection*, *decision class (human-class / agent-class)*,

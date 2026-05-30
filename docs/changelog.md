@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.751
+> **Last verified vs code:** v1.0.752
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,34 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.752-alpha — 2026-05-30
+
+**Per-kind steward escalation contract in the bundled prompts.**
+
+Follow-up to the v1.0.751 spine enrichment. The escalation contract
+documented in `governance-roles.md` was monolithic ("pose every
+escalation as a choice"); a review sharpened it to be **per request-
+kind**, and the bundled steward prompts now actually carry it (they
+previously exposed the `request_*` primitives without the form contract).
+
+### Changed
+- **8 bundled steward prompts** (`steward.v1`, `.general`, `.research`,
+  `.infra`, `.codex`, `.gemini`, `.kimi`, `.antigravity`) gain a
+  "match the escalation form to its kind" rule: a *decision*
+  (`request_approval` / `request_select` / `propose`) is posed with
+  2-3 options + tradeoffs + a recommended default; a *help /
+  clarification* (`request_help`) carries concrete context instead.
+  Behaviour-as-data (embedded via `//go:embed all:templates`); no Go
+  change. The `steward.claude-m4` smoke fixture is left as-is.
+- `governance-roles.md`: the steward surface-work contract reworked to
+  per-kind (decision → options; help → context) and labelled a
+  communication contract between actors.
+- `discussions/coordination-basis-and-decision-classification.md`: §3.4
+  refined to per-kind; new §3.6 records that the execution-loop
+  breakers are time/spend/stuck-based, not failure/iteration-based
+  (no consecutive-failure cap, no in-loop `recover()`), with the
+  failure-cap code spec deferred to a future ADR.
 
 ## v1.0.751-alpha — 2026-05-30
 

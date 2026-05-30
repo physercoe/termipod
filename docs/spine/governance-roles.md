@@ -73,29 +73,36 @@ The split is enforced by:
 - Bundled prompts — every steward prompt names the manager/IC invariant explicitly.
 - [ADR-017](../decisions/017-layered-stewards.md) D4 — the general steward inherits the invariant from D6 + D7 and from the prompt.
 
-### How a steward surfaces a decision: pose, don't ask
+### How a steward surfaces work to the director: match the form to the kind
 
-Surfacing a decision to the director spends the system's scarcest
-resource — the principal's attention ([`blueprint.md`](blueprint.md)
-A1). So an escalation is not an open-ended "what now?"; it is **posed
-as a choice**. The contract every steward escalation honours:
+Reaching the director spends the system's scarcest resource — the
+principal's attention ([`blueprint.md`](blueprint.md) A1) — so the
+*form* of an escalation is a contract, and it depends on **what kind of
+act the message is** (the envelope `kind` taxonomy of
+[`orchestration-layer.md`](orchestration-layer.md) §2; the attention
+kinds of [`../reference/permission-model.md`](../reference/permission-model.md)).
+One size does not fit all:
 
-- **Pose, don't ask.** Carry concrete options with their tradeoffs and
-  a **recommended default**, so the principal *decides* rather than
-  re-derives the problem. An escalation that makes the human frame the
-  question has already spent the attention it was meant to save. This
-  is why the attention primitive for a fork is `request_select` (options
-  in, choice out), not free-text.
-- **Contextualize.** Include what was tried and why the decision is
-  human-class (irreversible / low-verifiability / wide / taste-laden —
-  [`../reference/permission-model.md`](../reference/permission-model.md)),
-  not just the raw fork.
-- **Batch, don't interrupt.** Queue escalations for the director's next
-  glance instead of blocking on each; silence is the default while
-  agent-class work proceeds.
+- **A decision** (`request_approval`, `request_select`, or a `propose`)
+  is **posed, not asked.** Carry 2–3 concrete options with their
+  tradeoffs and a **recommended default**, so the principal *decides*
+  rather than re-derives the problem. An escalation that makes the human
+  frame the question has already spent the attention it was meant to
+  save — which is why the fork primitive is `request_select` (options
+  in, choice out), not free text.
+- **A help / clarification request** (`request_help`) instead carries
+  **concrete situational context** — what was tried, what is blocking,
+  and the specific information or judgement needed — so the higher tier
+  grasps the situation without digging. Here the obligation is *context*,
+  not options; forcing an options list on an open question is as wrong as
+  posing a bare decision.
+- **Either way, batch — don't interrupt.** Queue for the director's next
+  glance; silence is the default while agent-class work proceeds.
 
-This is a *prompt-soft* contract today — it lives in the bundled
-steward prompts, not a hub validator (an enforcement option is noted in
+This is a per-kind **communication contract between actors** — the
+agent→principal case of the orchestration layer's typed envelope. It is
+*prompt-soft* today — carried by the bundled steward prompts, not a hub
+validator (an enforcement option is noted in
 [`../discussions/coordination-basis-and-decision-classification.md`](../discussions/coordination-basis-and-decision-classification.md)
 §4). The attention-delivery mechanics are
 [ADR-011](../decisions/011-turn-based-attention-delivery.md) /

@@ -6,9 +6,9 @@ description: Executable wedge-by-wedge plan to split lib/services/hub/hub_client
 # Hub client split — phased
 
 > **Type:** plan
-> **Status:** In progress — W1–W6 shipped (v1.0.736–741: transport, SystemApi, Blobs+Search, EventsApi, AttentionApi, AdminApi); W7+ pending. NOTE: the real decomposition needs more sub-clients than the original 11-row map (Admin, Hosts, Tasks, Templates, AgentFamilies split out); the wedge table is being relabelled as each lands.
+> **Status:** In progress — W1–W7 shipped (v1.0.736–742: transport, SystemApi, Blobs+Search, EventsApi, AttentionApi, AdminApi, HostsApi); W8+ pending. NOTE: the real decomposition needs more sub-clients than the original 11-row map (Admin, Hosts, Tasks, Templates, AgentFamilies split out); the wedge table is being relabelled as each lands.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.741
+> **Last verified vs code:** v1.0.742
 
 **TL;DR.** `lib/services/hub/hub_client.dart` is 3,571 LOC — one
 `HubClient` class with **208 `Future`/`Stream` methods** grouped by
@@ -146,7 +146,7 @@ seam cheaply before the big ones. One version bump per wedge.
 | ~~**W4**~~ ✅ | `EventsApi` (SSE; `_streamPath`/`_extractData` + all three stream methods incl. `streamAgentEvents` pulled from the agent-events section). **Shipped v1.0.739.** | `events_api.dart` | low-med (raw stream) |
 | ~~**W5**~~ ✅ | `AttentionApi` (list+cached+actions, cherry-picked from 3 banner regions). **Shipped v1.0.740.** | `attention_api.dart` | low |
 | ~~**W6**~~ ✅ | `AdminApi` — fleet admin/ops + policy.yaml editor (contiguous block, cleaved before Hosts). **Shipped v1.0.741.** | `admin_api.dart` | low |
-| **W7** | `HostsApi` — host lists + lifecycle + mutations | `hosts_api.dart` | low |
+| ~~**W7**~~ ✅ | `HostsApi` — host lists + lifecycle + mutations. **Shipped v1.0.742.** | `hosts_api.dart` | low |
 | **W7** | `SessionsApi` | `sessions_api.dart` | med (size) |
 | **W8** | `RunsApi` | `runs_api.dart` | med |
 | **W9** | `AgentsApi` | `agents_api.dart` | med (size) |

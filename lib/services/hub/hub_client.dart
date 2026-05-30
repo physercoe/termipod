@@ -7,6 +7,7 @@ import 'admin_api.dart';
 import 'attention_api.dart';
 import 'blobs_api.dart';
 import 'events_api.dart';
+import 'hosts_api.dart';
 import 'hub_snapshot_cache.dart';
 import 'hub_transport.dart';
 import 'search_api.dart';
@@ -62,6 +63,9 @@ class HubClient {
   /// Operator admin & ops: fleet shutdown/restart/update, DB vacuum,
   /// token rotation, cross-team audit, and the team policy.yaml editor.
   late final AdminApi admin = AdminApi(_t);
+
+  /// Host registry: list (live + cached), delete, SSH-hint + capabilities.
+  late final HostsApi hosts = HostsApi(_t);
 
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
@@ -172,19 +176,10 @@ class HubClient {
 
   // ---- collections ----
 
-  Future<List<Map<String, dynamic>>> listHosts() =>
-      _listJson('/v1/teams/${cfg.teamId}/hosts');
+  Future<List<Map<String, dynamic>>> listHosts() => hosts.listHosts();
 
-  /// Read-through variant of [listHosts]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listHostsCached() =>
-      readThrough<List<Map<String, dynamic>>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint: '/v1/teams/${cfg.teamId}/hosts',
-        fetch: listHosts,
-        decode: _decodeListMaps,
-      );
+      hosts.listHostsCached();
 
   Future<List<Map<String, dynamic>>> listAgents({
     bool includeArchived = false,
@@ -1704,14 +1699,9 @@ class HubClient {
         sessionId: sessionId,
       );
 
-  // ---- host lifecycle ----
+  // ---- host lifecycle → HostsApi (W7) ----
 
-  /// Removes a host row. The hub refuses if the host still has active
-  /// agents (anything not terminated/failed); the UI should surface the
-  /// 409 to the operator.
-  Future<void> deleteHost(String hostId) async {
-    await _delete('/v1/teams/${cfg.teamId}/hosts/$hostId');
-  }
+  Future<void> deleteHost(String hostId) => hosts.deleteHost(hostId);
 
   // ---- attention actions ----
 
@@ -2940,37 +2930,16 @@ class HubClient {
     );
   }
 
-  // ---- host mutations (blueprint §5.3.2 / §5.3.3, P0.6) ----
+  // ---- host mutations → HostsApi (W7) ----
 
-  /// Non-secret SSH connection hints the hub stores to help the phone bind
-  /// a hub-registered host to a local Connection. Secret keys (password,
-  /// private_key, passphrase, secret, token) are rejected by the server.
-  Future<void> updateHostSSHHint(
-    String hostId,
-    Map<String, dynamic> hint,
-  ) async {
-    await _patch(
-      '/v1/teams/${cfg.teamId}/hosts/$hostId/ssh_hint',
-      {'ssh_hint_json': hint},
-    );
-  }
+  Future<void> updateHostSSHHint(String hostId, Map<String, dynamic> hint) =>
+      hosts.updateHostSSHHint(hostId, hint);
 
-  /// Replaces the host's capabilities map (binary presence/version). Probed
-  /// by host-runner and heartbeated up; clients read this to drive the
-  /// driving-mode fallback list.
   Future<void> updateHostCapabilities(
     String hostId,
     Map<String, dynamic> capabilities,
-  ) async {
-    final req = await _open(
-      'PUT',
-      '/v1/teams/${cfg.teamId}/hosts/$hostId/capabilities',
-    );
-    req.headers.contentType = ContentType.json;
-    req.add(utf8.encode(jsonEncode({'capabilities_json': capabilities})));
-    final resp = await req.close();
-    await _readJson(resp);
-  }
+  ) =>
+      hosts.updateHostCapabilities(hostId, capabilities);
 
   // ---- project docs (read-only) ----
 

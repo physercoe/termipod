@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.741
+> **Last verified vs code:** v1.0.742
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,21 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.742-alpha — 2026-05-30
+
+**hub_client split W7 — `HostsApi` extracted (no behavior change).**
+
+Seventh wedge of `docs/plans/hub-client-split.md`.
+
+### Added
+- `HostsApi` (`hosts_api.dart`) — `listHosts`/`listHostsCached`,
+  `deleteHost`, `updateHostSSHHint`, `updateHostCapabilities`
+  (cherry-picked from the collections + host-lifecycle + host-mutations
+  regions).
+- `HubClient` `hosts` getter + five delegators.
 
 ---
 

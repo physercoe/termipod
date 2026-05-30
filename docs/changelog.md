@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.738
+> **Last verified vs code:** v1.0.739
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,22 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.739-alpha — 2026-05-30
+
+**hub_client split W4 — `EventsApi` extracted (no behavior change).**
+
+Fourth wedge of `docs/plans/hub-client-split.md`. All Server-Sent-Events
+streaming now lives in one place.
+
+### Added
+- `EventsApi` (`events_api.dart`) — `streamEvents`, `streamTeamEvents`,
+  and `streamAgentEvents`, plus the private SSE frame machinery
+  (`_streamPath`/`_extractData`). `streamAgentEvents` was pulled out of
+  the agent-events section because it shares the same `_streamPath`
+  helper; keeping all three stream methods together is the cohesive cut.
+- `HubClient` `events` sub-client getter + delegators for the three
+  stream methods.
 
 ## v1.0.738-alpha — 2026-05-30
 

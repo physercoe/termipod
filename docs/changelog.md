@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.737
+> **Last verified vs code:** v1.0.738
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,27 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.738-alpha — 2026-05-30
+
+**hub_client split W3 — `BlobsApi` + `SearchApi` extracted (no behavior
+change).**
+
+Third wedge of `docs/plans/hub-client-split.md`. Two small, isolated
+domains validated against the transport seam.
+
+### Added
+- `BlobsApi` (`blobs_api.dart`) — `uploadBlob`/`downloadBlob`/
+  `downloadBlobCached`, reaching the transport's raw `open`/`readJson`
+  and the `blobCache` for offline-safe rendering.
+- `SearchApi` (`search_api.dart`) — `searchEvents` (FTS5) +
+  `listAuditEvents`/`listAuditEventsCached`.
+- `HubClient` `blobs` and `search` sub-client getters + one-line
+  delegators for the six moved methods.
+
+### Removed
+- Dropped the now-orphaned `import 'dart:async'` from `hub_client.dart`
+  (its only user, `unawaited`, moved to `BlobsApi`).
 
 ## v1.0.737-alpha — 2026-05-30
 

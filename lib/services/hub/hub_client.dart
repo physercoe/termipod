@@ -1,11 +1,12 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'blob_bytes_cache.dart';
 import 'hub_read_through.dart';
+import 'blobs_api.dart';
 import 'hub_snapshot_cache.dart';
 import 'hub_transport.dart';
+import 'search_api.dart';
 import 'system_api.dart';
 
 // HubConfig, HubApiError, and HubTransport now live in hub_transport.dart;
@@ -42,6 +43,12 @@ class HubClient {
 
   /// Hub-level endpoints: probe/stats, insights, tokens, governance config.
   late final SystemApi system = SystemApi(_t);
+
+  /// Content-addressed blob upload/download (+ disk-first cache).
+  late final BlobsApi blobs = BlobsApi(_t);
+
+  /// Full-text event search + the team audit-event feed.
+  late final SearchApi search = SearchApi(_t);
 
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
@@ -3118,158 +3125,46 @@ class HubClient {
     return body;
   }
 
-  // ---- blobs (content-addressed) ----
+  // ---- blobs (content-addressed) → BlobsApi (W3) ----
 
-  /// Uploads raw bytes; returns `{sha256, size, mime}`. Dedup is automatic
-  /// server-side — same bytes → same sha → no duplicate row. 25 MiB cap.
-  Future<Map<String, dynamic>> uploadBlob(
-    List<int> bytes, {
-    String? mime,
-  }) async {
-    final req = await _open('POST', '/v1/blobs');
-    req.headers.contentType = ContentType.parse(mime ?? 'application/octet-stream');
-    req.add(bytes);
-    final resp = await req.close();
-    final out = await _readJson(resp);
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> uploadBlob(List<int> bytes, {String? mime}) =>
+      blobs.uploadBlob(bytes, mime: mime);
 
-  /// Downloads blob bytes by sha. Caller is responsible for writing to
-  /// disk / piping to share_plus; we keep the full payload in memory since
-  /// the server caps uploads at 25 MiB anyway.
-  ///
-  /// When [blobCache] is attached, a successful fetch is persisted to the
-  /// content-addressed on-disk cache so subsequent reads — including ones
-  /// issued while the hub is unreachable — can be served via
-  /// [downloadBlobCached] without a network round-trip.
-  Future<List<int>> downloadBlob(String sha) async {
-    final req = await _open('GET', '/v1/blobs/$sha');
-    final resp = await req.close();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      final msg = await resp.transform(utf8.decoder).join();
-      throw HubApiError(resp.statusCode, msg);
-    }
-    final out = <int>[];
-    await for (final chunk in resp) {
-      out.addAll(chunk);
-    }
-    final c = blobCache;
-    if (c != null) {
-      // Fire-and-forget the write so a slow disk doesn't block image
-      // rendering. Misses on the next fetch just re-download.
-      unawaited(c.put(sha, out));
-    }
-    return out;
-  }
+  Future<List<int>> downloadBlob(String sha) => blobs.downloadBlob(sha);
 
-  /// Disk-first variant of [downloadBlob]: returns cached bytes when the
-  /// content-addressed cache has them, otherwise falls back to a live
-  /// fetch. Transport failures with a cache hit still resolve — that's
-  /// the whole point of offline-safe image rendering. Transport failures
-  /// with no cached copy rethrow unchanged so callers can render an
-  /// error placeholder.
-  ///
-  /// 4xx responses (blob missing, auth denied) always rethrow; a stale
-  /// cache entry is never served against an authoritative negative
-  /// response. 5xx and SocketException/TimeoutException/HttpException
-  /// fall back to the cache when available.
-  Future<List<int>> downloadBlobCached(String sha) async {
-    final c = blobCache;
-    if (c != null) {
-      final hit = await c.get(sha);
-      if (hit != null) return hit;
-    }
-    try {
-      return await downloadBlob(sha);
-    } catch (e) {
-      if (c == null) rethrow;
-      if (e is HubApiError && e.status < 500) rethrow;
-      if (e is! HubApiError &&
-          e is! SocketException &&
-          e is! TimeoutException &&
-          e is! HttpException) {
-        rethrow;
-      }
-      final hit = await c.get(sha);
-      if (hit != null) return hit;
-      rethrow;
-    }
-  }
+  Future<List<int>> downloadBlobCached(String sha) =>
+      blobs.downloadBlobCached(sha);
 
-  // ---- search ----
+  // ---- search + audit → SearchApi (W3) ----
 
-  /// Full-text search over event parts. Returns matching events newest-
-  /// first, each with `id`, `received_ts`, `channel_id`, `type`, `from_id`,
-  /// and `parts` (the original event parts JSON). The hub uses SQLite
-  /// FTS5; the `q` string accepts FTS5 match syntax.
-  Future<List<Map<String, dynamic>>> searchEvents(
-    String q, {
-    int? limit,
-  }) {
-    final query = <String, String>{'q': q};
-    if (limit != null) query['limit'] = '$limit';
-    return _listJson('/v1/search', query: query);
-  }
+  Future<List<Map<String, dynamic>>> searchEvents(String q, {int? limit}) =>
+      search.searchEvents(q, limit: limit);
 
-  /// Lists audit events for the configured team, newest first. Each row
-  /// has `id`, `ts`, `actor_kind`, `actor_handle`, `action`, `target_kind`,
-  /// `target_id`, `summary`, and optional `meta`.
-  ///
-  /// [action] filters to an exact action string (e.g. `agent.spawn`).
-  /// [since] is an ISO-8601 UTC timestamp lower bound. [limit] is clamped
-  /// to 500 by the server. [projectId] scopes to one project (W2 Activity
-  /// feed): includes rows whose target is the project plus rows whose
-  /// meta carries a matching `project_id`.
   Future<List<Map<String, dynamic>>> listAuditEvents({
     String? action,
     String? since,
     String? projectId,
     int? limit,
-  }) {
-    final query = <String, String>{};
-    if (action != null && action.isNotEmpty) query['action'] = action;
-    if (since != null && since.isNotEmpty) query['since'] = since;
-    if (projectId != null && projectId.isNotEmpty) {
-      query['project_id'] = projectId;
-    }
-    if (limit != null) query['limit'] = '$limit';
-    return _listJson(
-      '/v1/teams/${cfg.teamId}/audit',
-      query: query.isEmpty ? null : query,
-    );
-  }
+  }) =>
+      search.listAuditEvents(
+        action: action,
+        since: since,
+        projectId: projectId,
+        limit: limit,
+      );
 
-  /// Read-through variant of [listAuditEvents]; see [listRunsCached] for
-  /// the offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listAuditEventsCached({
     String? action,
     String? since,
     String? projectId,
     int? limit,
-  }) {
-    final query = <String, String>{};
-    if (action != null && action.isNotEmpty) query['action'] = action;
-    if (since != null && since.isNotEmpty) query['since'] = since;
-    if (projectId != null && projectId.isNotEmpty) {
-      query['project_id'] = projectId;
-    }
-    if (limit != null) query['limit'] = '$limit';
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey(
-        '/v1/teams/${cfg.teamId}/audit',
-        query.isEmpty ? null : query,
-      ),
-      fetch: () => listAuditEvents(
+  }) =>
+      search.listAuditEventsCached(
         action: action,
         since: since,
         projectId: projectId,
         limit: limit,
-      ),
-      decode: _decodeListMaps,
-    );
-  }
+      );
 
   // ---- SSE event stream ----
 

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.752
+> **Last verified vs code:** v1.0.753
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,40 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.753-alpha — 2026-05-30
+
+**Fix: project-page "View" routed to the spawn sheet instead of the
+live project steward.**
+
+On a project whose steward state read `working`, tapping the
+StewardStrip's **View** affordance popped the *Spawn project steward*
+sheet — even though the steward was live and visible on the project's
+Agents tab.
+
+Root cause: `openStewardSession` collected live stewards with the
+handle-suffix predicates (`isStewardHandle` / `isGeneralStewardHandle`),
+which know `steward` / `*-steward` / `@steward` but **not** project
+stewards. The hub spawns those as `@steward.<pid8>` with kind
+`steward.v1` (`handlers_project_steward.go`), so the project steward was
+never added to the live set; the project-scope branch then found no
+project-bound steward and fell through to the spawn sheet. The Agents
+tab matched on `project_id` alone, which is why it still showed the
+steward. The Sessions list had already worked around this inline.
+
+### Fixed
+- **Project steward "View" / "Direct" / "Resume" affordances** now open
+  the live steward's project-scoped session instead of the spawn sheet
+  (`open_steward_session.dart`).
+
+### Changed
+- New canonical steward predicates in `steward_handle.dart`:
+  `isStewardKind(kind)` (kind-based, the domain-model signal — `kind`
+  starts with `steward.`) and `isStewardAgent(agent)` (handle **or**
+  kind). `openStewardSession` and the Sessions-list grouping now both
+  use `isStewardAgent`, replacing the Sessions list's inline workaround.
 
 ---
 

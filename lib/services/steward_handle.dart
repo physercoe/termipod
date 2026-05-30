@@ -36,6 +36,35 @@ bool isStewardHandle(String? handle) {
 bool isGeneralStewardHandle(String? handle) =>
     handle == generalStewardHandle;
 
+/// Authoritative "is this agent a steward?" signal, keyed on the
+/// `kind` column rather than the handle. Per the domain model
+/// (CLAUDE.md: *"Steward — a coordinating agent (`kind` starts with
+/// `steward.`)"*), kind is the canonical signal.
+///
+/// The handle-suffix predicates above only know `steward` / `*-steward`
+/// / `@steward`; they deliberately miss **project stewards**, which the
+/// hub spawns as `@steward.<pid8>` with kind `steward.v1`
+/// (see `handlers_project_steward.go`). Any code that means "any kind
+/// of steward agent" — picking a live steward to open its session,
+/// counting steward presence — must consult this, or project stewards
+/// vanish (e.g. the project-page "View" affordance fell through to the
+/// spawn sheet because the project steward was never recognised).
+bool isStewardKind(String? kind) =>
+    kind != null && kind.startsWith('steward.');
+
+/// True when the agent map is a steward by either its handle (general
+/// / domain conventions) or its `kind` (project stewards + the
+/// authoritative signal). Reads `handle` and `kind` off the JSON map
+/// the app holds for each agent — the single predicate every "is this
+/// a steward?" call site should use.
+bool isStewardAgent(Map<String, dynamic> agent) {
+  final handle = (agent['handle'] ?? '').toString();
+  final kind = (agent['kind'] ?? '').toString();
+  return isStewardHandle(handle) ||
+      isGeneralStewardHandle(handle) ||
+      isStewardKind(kind);
+}
+
 /// Human label for a steward handle. Trims the `-steward` suffix on
 /// domain handles so AppBars and chips read `research` / `infra`
 /// instead of `research-steward` / `infra-steward`. Plain `steward`

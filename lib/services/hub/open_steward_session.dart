@@ -59,16 +59,22 @@ Future<void> openStewardSession(
   // Calling out the "1 with no session" case to SessionsScreen is
   // deliberate: the user might want Resume, or might want to spawn
   // another steward — either path lives on that surface now.
-  // Include `@steward` (the general team concierge) alongside the
-  // project / domain stewards. isStewardHandle deliberately excludes
-  // `@steward` because the two roles diverge for project pages — but
-  // the Me FAB and other entry-points want a single "talk to any live
-  // steward" path. Without this, a user whose only steward is the
-  // general one sees the spawn sheet instead of the chat.
+  // Collect every live steward — general (`@steward`), domain
+  // (`*-steward`), and project (`@steward.<pid8>`, kind `steward.v1`)
+  // — via the kind-aware `isStewardAgent`. The Me FAB and the project
+  // page both want a single "talk to any live steward" path; the
+  // handle-suffix predicates alone miss the general concierge (handles
+  // diverge by role) and the project stewards (kind, not handle), so
+  // either one would otherwise fall through to the spawn sheet.
   final liveStewards = <Map<String, dynamic>>[];
   for (final a in hub.agents) {
-    final handle = (a['handle'] ?? '').toString();
-    if (!isStewardHandle(handle) && !isGeneralStewardHandle(handle)) continue;
+    // Use the kind-aware predicate, not the handle alone: project
+    // stewards are spawned as `@steward.<pid8>` with kind `steward.v1`
+    // (handlers_project_steward.go), which the handle-suffix checks
+    // deliberately miss. Without this, a project page whose steward is
+    // "working" routes its "View" tap to the spawn sheet instead of the
+    // live steward's session, because the steward is never collected.
+    if (!isStewardAgent(a)) continue;
     final status = (a['status'] ?? '').toString();
     if (status == 'running' || status == 'pending') {
       liveStewards.add(a);

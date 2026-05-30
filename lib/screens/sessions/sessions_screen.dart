@@ -781,20 +781,12 @@ List<_StewardGroup> _groupByStateward(
   final liveStewardIds = <String>{};
   final groups = <_StewardGroup>[];
   for (final a in agents) {
-    final handle = (a['handle'] ?? '').toString();
-    final kind = (a['kind'] ?? '').toString();
     // Steward predicates by handle don't catch project stewards —
     // they're spawned with @steward.<pid8> (handlers_project_steward.go
-    // line 46) which isStewardHandle deliberately excludes. Use the
-    // `kind` column as the authoritative steward signal alongside the
-    // handle-based predicates so general + domain + project stewards
-    // all surface in the Sessions list.
-    final isStewardKind = kind == 'steward.v1' || kind.startsWith('steward.');
-    if (!isStewardHandle(handle) &&
-        !isGeneralStewardHandle(handle) &&
-        !isStewardKind) {
-      continue;
-    }
+    // line 46) which isStewardHandle deliberately excludes. isStewardAgent
+    // folds in the `kind` column as the authoritative steward signal so
+    // general + domain + project stewards all surface in the Sessions list.
+    if (!isStewardAgent(a)) continue;
     final status = (a['status'] ?? '').toString();
     if (status != 'running' &&
         status != 'pending' &&

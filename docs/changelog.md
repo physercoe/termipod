@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.746
+> **Last verified vs code:** v1.0.747
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,24 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.747-alpha — 2026-05-30
+
+**hub_client split W12 — `DeliverablesApi` extracted (no behavior change).**
+
+Twelfth wedge of `docs/plans/hub-client-split.md`.
+
+### Added
+- `DeliverablesApi` (`deliverables_api.dart`) — deliverables (list/get +
+  cached, ratify/unratify/send-back), acceptance criteria (list + cached,
+  create, mark-met/failed/waive), project overview (+ cached), document
+  version history (+ cached), content-addressed artifacts (list/get +
+  cached), and reviews (list/get + cached, create/decide). Carries the
+  private cache + UI-vocabulary helpers (`_invalidateProjectDeliverable`,
+  `_markCriterion`, `_reviewStateToServer`, `_reviewRowToUI`).
+- `HubClient` `deliverables` getter + twenty-seven delegators.
 
 ---
 

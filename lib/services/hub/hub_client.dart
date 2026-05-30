@@ -134,7 +134,6 @@ class HubClient {
   List<Map<String, dynamic>> _decodeListMaps(Object body) =>
       _t.decodeListMaps(body);
 
-  Map<String, dynamic> _decodeMap(Object body) => _t.decodeMap(body);
 
   Future<void> _invalidate(String prefix) => _t.invalidate(prefix);
 
@@ -146,7 +145,6 @@ class HubClient {
   }) =>
       _t.open(method, path, query: query, auth: auth);
 
-  Future<dynamic> _readJson(HttpClientResponse resp) => _t.readJson(resp);
 
   Future<dynamic> _get(String path,
           {Map<String, String>? query, bool auth = true}) =>
@@ -785,7 +783,7 @@ class HubClient {
   /// Fetches the raw YAML body of a project template by name (W3 YAML
   /// reveal sheet). The hub serves this as `text/yaml` rather than
   /// JSON — caller receives the file contents as a UTF-8 string.
-  /// Routes around _readJson because the response body is not JSON.
+  /// Routes around the JSON decode path because the body is not JSON.
   Future<String> getProjectTemplateYaml(String name) async {
     final req = await _open(
       'GET',

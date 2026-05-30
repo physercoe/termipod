@@ -35,6 +35,11 @@ Fifteenth wedge of `docs/plans/hub-client-split.md`.
   the project/task/channel-writes block).
 - `HubClient` `tasks` getter + six delegators.
 
+### Removed
+- The now-orphaned `_decodeMap` and `_readJson` transport shims (their
+  last `HubClient` callers — `getTaskCached`/`patchTask` — moved to
+  `TasksApi`). Caught by CI as `unused_element`.
+
 ---
 
 ## v1.0.749-alpha — 2026-05-30

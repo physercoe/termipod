@@ -268,7 +268,10 @@ failure #N and escalates is the missing piece; its code spec is the
 3.6-code candidate in §4. Risk to weigh (a default-correctness concern): the failure *classifier*
 is the load-bearing part — false positives pause healthy agents — so it
 should default to **escalate, not terminate** (cheap-to-recover),
-consistent with the §3.1 reversibility corollary.
+consistent with the §3.1 reversibility corollary. **The full SOTA
+survey and a four-tier design menu are in
+[`agent-execution-reliability-and-failure-caps.md`](agent-execution-reliability-and-failure-caps.md)**
+(researched 2026-05-30 before any ADR).
 
 ### 3.5 Record the operating-vs-implementation basis distinction
 

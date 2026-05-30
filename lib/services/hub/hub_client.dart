@@ -18,6 +18,7 @@ import 'runs_api.dart';
 import 'search_api.dart';
 import 'sessions_api.dart';
 import 'system_api.dart';
+import 'templates_api.dart';
 
 // HubConfig, HubApiError, and HubTransport now live in hub_transport.dart;
 // re-exported here so the many `import '.../hub_client.dart'` call sites
@@ -96,6 +97,9 @@ class HubClient {
 
   /// Plans + plan steps: list/get (live + cached), create/update, steps.
   late final PlansApi plans = PlansApi(_t);
+
+  /// Behavior-as-data config: project/agent templates + agent families.
+  late final TemplatesApi templates = TemplatesApi(_t);
 
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
@@ -513,199 +517,48 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  // ---- templates + agent families → TemplatesApi (W14) ----
+
   Future<List<Map<String, dynamic>>> listTemplates() =>
-      _listJson('/v1/teams/${cfg.teamId}/templates');
+      templates.listTemplates();
 
-  /// Read-through variant of [listTemplates]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listTemplatesCached() =>
-      readThrough<List<Map<String, dynamic>>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint: '/v1/teams/${cfg.teamId}/templates',
-        fetch: listTemplates,
-        decode: _decodeListMaps,
-      );
+      templates.listTemplatesCached();
 
-  /// Returns raw template body (YAML / markdown / JSON — the endpoint
-  /// doesn't parse). Caller renders as text.
-  ///
-  /// When [merged] is true, the server overlays the on-disk template
-  /// onto the embedded built-in (disk wins per-key, missing keys fall
-  /// through). Use this from spawn callers that need a complete spec
-  /// even when the disk copy is stale. The editor calls without
-  /// [merged] so user comments are preserved on round-trip.
-  Future<String> getTemplate(
-    String category,
-    String name, {
-    bool merged = false,
-  }) async {
-    final path = '/v1/teams/${cfg.teamId}/templates/$category/$name'
-        '${merged ? '?merge=1' : ''}';
-    final req = await _open('GET', path);
-    final resp = await req.close();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      final msg = await resp.transform(utf8.decoder).join();
-      throw HubApiError(resp.statusCode, msg);
-    }
-    return resp.transform(utf8.decoder).join();
-  }
+  Future<String> getTemplate(String category, String name,
+          {bool merged = false}) =>
+      templates.getTemplate(category, name, merged: merged);
 
-  /// Writes (creates or overwrites) a template file. Body is the raw
-  /// editor contents — server treats yaml/markdown/json bytes verbatim.
-  /// Returns server-confirmed `{category, name, size}`.
   Future<Map<String, dynamic>> putTemplate(
-    String category,
-    String name,
-    String body,
-  ) async {
-    final req = await _open(
-      'PUT',
-      '/v1/teams/${cfg.teamId}/templates/$category/$name',
-    );
-    req.headers.contentType =
-        ContentType('application', _mimeForName(name), charset: 'utf-8');
-    req.add(utf8.encode(body));
-    final resp = await req.close();
-    final raw = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, raw);
-    }
-    return (jsonDecode(raw) as Map).cast<String, dynamic>();
-  }
+          String category, String name, String body) =>
+      templates.putTemplate(category, name, body);
 
-  /// Re-walks the embedded templates FS and overwrites the on-disk copy
-  /// with the bundled bytes. Use case: after a hub upgrade ships a fixed
-  /// bundled template (e.g. ADR-029's close-out footer), the operator
-  /// taps "Reset bundled templates" to pick up the new version without
-  /// per-file deletes. User-only files (no embedded counterpart) are
-  /// preserved — see hub-side `handleResetBundledTemplates` for the
-  /// contract. Returns `{overwritten, created}` counts.
-  Future<Map<String, dynamic>> resetBundledTemplates() async {
-    final out = await _post(
-        '/v1/teams/${cfg.teamId}/templates/reset', const <String, dynamic>{});
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> resetBundledTemplates() =>
+      templates.resetBundledTemplates();
 
-  /// Deletes a template file. The bundled defaults live in the embedded
-  /// FS, so deleting a disk file falls back to the built-in on next read.
-  Future<void> deleteTemplate(String category, String name) async {
-    final req = await _open(
-      'DELETE',
-      '/v1/teams/${cfg.teamId}/templates/$category/$name',
-    );
-    final resp = await req.close();
-    final raw = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, raw);
-    }
-  }
+  Future<void> deleteTemplate(String category, String name) =>
+      templates.deleteTemplate(category, name);
 
-  /// Lists known agent families: embedded defaults plus any operator-
-  /// authored overrides. Each entry carries a `source` field
-  /// ("embedded" | "override" | "custom") so the UI can render a chip.
-  Future<List<Map<String, dynamic>>> listAgentFamilies() async {
-    final out = await _get('/v1/teams/${cfg.teamId}/agent-families');
-    final fams = (out as Map)['families'] as List? ?? const [];
-    return fams.map((e) => (e as Map).cast<String, dynamic>()).toList();
-  }
+  Future<List<Map<String, dynamic>>> listAgentFamilies() =>
+      templates.listAgentFamilies();
 
-  /// Read-through variant of [listAgentFamilies]; see [listRunsCached]
-  /// for the offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>>
-      listAgentFamiliesCached() =>
-          readThrough<List<Map<String, dynamic>>>(
-            cache: snapshotCache,
-            hubKey: _cacheHubKey,
-            endpoint: '/v1/teams/${cfg.teamId}/agent-families',
-            fetch: listAgentFamilies,
-            decode: _decodeListMaps,
-          );
+      listAgentFamiliesCached() => templates.listAgentFamiliesCached();
 
-  /// Returns the structured record for one family. The `source` field
-  /// disambiguates embedded vs. override vs. custom — callers gate the
-  /// editor on this (embedded entries are read-only previews).
-  Future<Map<String, dynamic>> getAgentFamily(String family) async {
-    final out = await _get('/v1/teams/${cfg.teamId}/agent-families/$family');
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> getAgentFamily(String family) =>
+      templates.getAgentFamily(family);
 
-  /// Writes (creates or overwrites) an agent-family override. Body is
-  /// raw YAML for a single family record (no `families:` wrapper).
-  /// Server validates strictly — typos in keys or unknown modes 400.
-  Future<Map<String, dynamic>> putAgentFamily(
-    String family,
-    String yamlBody,
-  ) async {
-    final req = await _open(
-      'PUT',
-      '/v1/teams/${cfg.teamId}/agent-families/$family',
-    );
-    req.headers.contentType =
-        ContentType('application', 'yaml', charset: 'utf-8');
-    req.add(utf8.encode(yamlBody));
-    final resp = await req.close();
-    final raw = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, raw);
-    }
-    return (jsonDecode(raw) as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> putAgentFamily(String family, String yamlBody) =>
+      templates.putAgentFamily(family, yamlBody);
 
-  /// Wipes every agent-family override file so the team falls back to
-  /// the embedded defaults. Counterpart to [resetBundledTemplates] —
-  /// same "restore bundled defaults" semantic. Operator-authored
-  /// custom families (no embedded counterpart) ARE deleted too; the
-  /// mobile UI surfaces this in the confirmation dialog. Returns
-  /// `{removed}` count.
-  Future<Map<String, dynamic>> resetAgentFamilies() async {
-    final out = await _post(
-        '/v1/teams/${cfg.teamId}/agent-families/reset', const <String, dynamic>{});
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> resetAgentFamilies() =>
+      templates.resetAgentFamilies();
 
-  /// Deletes an agent-family override file. 409 from the backend means
-  /// the family is embedded — the caller should disable via override
-  /// instead of deleting.
-  Future<void> deleteAgentFamily(String family) async {
-    final req = await _open(
-      'DELETE',
-      '/v1/teams/${cfg.teamId}/agent-families/$family',
-    );
-    final resp = await req.close();
-    final raw = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, raw);
-    }
-  }
+  Future<void> deleteAgentFamily(String family) =>
+      templates.deleteAgentFamily(family);
 
-  /// Renames a template within its category. Server refuses overwrites
-  /// (409) — UI must surface that as a user-visible error.
-  Future<void> renameTemplate(
-    String category,
-    String name,
-    String newName,
-  ) async {
-    final req = await _open(
-      'PATCH',
-      '/v1/teams/${cfg.teamId}/templates/$category/$name',
-    );
-    req.headers.contentType = ContentType.json;
-    req.add(utf8.encode(jsonEncode({'new_name': newName})));
-    final resp = await req.close();
-    final raw = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, raw);
-    }
-  }
-
-  String _mimeForName(String n) {
-    final lower = n.toLowerCase();
-    if (lower.endsWith('.md')) return 'markdown';
-    if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'yaml';
-    if (lower.endsWith('.json')) return 'json';
-    return 'plain';
-  }
+  Future<void> renameTemplate(String category, String name, String newName) =>
+      templates.renameTemplate(category, name, newName);
 
   // ---- tokens + governance config → SystemApi (W2) ----
 

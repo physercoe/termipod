@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.748
+> **Last verified vs code:** v1.0.749
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,21 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.749-alpha — 2026-05-30
+
+**hub_client split W14 — `TemplatesApi` extracted (no behavior change).**
+
+Fourteenth wedge of `docs/plans/hub-client-split.md`.
+
+### Added
+- `TemplatesApi` (`templates_api.dart`) — the behavior-as-data config
+  files: project/agent templates (list/get/put/rename/delete +
+  reset-bundled, with the private `_mimeForName`) and agent families
+  (list/get/put/delete + reset).
+- `HubClient` `templates` getter + thirteen delegators.
 
 ---
 

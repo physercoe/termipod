@@ -1,9 +1,9 @@
 # Monolith refactor — agent_feed, terminal_screen, hub_client, 1k-LOC screens
 
 > **Type:** discussion
-> **Status:** Open (not started — files have grown, not shrunk)
+> **Status:** Open — R2A (agent_feed) shipped v1.0.729–735; R1 (hub_client) plan authored, W1+ pending; R0/R2T/R3 not started
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.728
+> **Last verified vs code:** v1.0.735
 > **Freshness:** rolling
 
 **TL;DR.** Tech-debt sketch for the largest files in the Flutter app.
@@ -142,7 +142,17 @@ ceiling + allowlist documented in the script header.
 
 ---
 
-## R1 — `hub_client.dart` split (3,571 LOC → ~300 LOC facade + entity clients)
+## R1 — `hub_client.dart` split (3,571 LOC → ~450 LOC facade + entity clients)
+
+> **The executable wedge sequence lives in
+> `docs/plans/hub-client-split.md`** (PLAN, authored v1.0.735). A
+> code-grounded read refined the cleavage below: every method routes
+> through a ~140-LOC private transport, so the plan extracts a **public
+> `HubTransport`** first (W1) and injects it into per-domain sub-clients,
+> keeping `HubClient` a **thin facade** (delegators + getters) so **no
+> call site changes** — only 8 files name `HubClient`; the rest hold the
+> provider's `client` handle. The entity buckets below remain
+> directional; the plan's domain map is authoritative.
 
 **Scope:** `lib/services/hub/hub_client.dart` (3,571 LOC, single class).
 No sub-clients exist yet (`lib/services/hub/` already has sibling
@@ -432,12 +442,8 @@ have momentum.
 | ID | Wedge | Target | Days | Status |
 |---|---|---|---:|---|
 | R0 | CI LOC tripwire (staged ceiling + ratchet) | ceiling 6,300→1,500 | 0.5 | not started |
-| R1 | hub_client → sub-clients + facade | 3,571 → 350 + clients | 3–4 | not started |
-| R2A.1 | agent_feed: feed_misc + telemetry_strip | -825 | 1 | not started |
-| R2A.2 | agent_feed: tool_renderers | -600 | 1.5 | not started |
-| R2A.3 | agent_feed: approval + interaction cards | -1,170 | 2 | not started |
-| R2A.4 | agent_feed: event_card | -1,140 | 2 | not started |
-| R2A.5 | agent_feed: feed_reducer (pure, tested) | -400 | 3 | not started |
+| R1 | hub_client → sub-clients + facade | 3,571 → 450 + clients | 3–4 | plan authored (`plans/hub-client-split.md`); W1+ pending |
+| R2A.* | agent_feed split (W0–W6) | 6,196 → 1,574 | — | **shipped** v1.0.729–735 (`plans/agent-feed-split.md`, Complete) |
 | R2T.1 | TerminalLifecycleController | -250 | 1 | not started |
 | R2T.2 | TerminalTransferController | -400 | 1.5 | not started |
 | R2T.3 | TerminalScrollController | -500 | 2 | not started |

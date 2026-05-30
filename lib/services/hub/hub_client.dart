@@ -13,6 +13,7 @@ import 'events_api.dart';
 import 'hosts_api.dart';
 import 'hub_snapshot_cache.dart';
 import 'hub_transport.dart';
+import 'plans_api.dart';
 import 'runs_api.dart';
 import 'search_api.dart';
 import 'sessions_api.dart';
@@ -92,6 +93,9 @@ class HubClient {
   /// Project work-products: deliverables (+ratify/send-back), criteria,
   /// project overview, document versions, artifacts, and reviews.
   late final DeliverablesApi deliverables = DeliverablesApi(_t);
+
+  /// Plans + plan steps: list/get (live + cached), create/update, steps.
+  late final PlansApi plans = PlansApi(_t);
 
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
@@ -1862,120 +1866,66 @@ class HubClient {
   }) =>
       deliverables.decideReview(reviewId, decision: decision, note: note);
 
-  // ---- plans + plan_steps (blueprint §6.2) ----
+  // ---- plans + plan_steps → PlansApi (W13) ----
 
   Future<List<Map<String, dynamic>>> listPlans({
     String? projectId,
     String? status,
-  }) {
-    final q = <String, String>{};
-    if (projectId != null) q['project'] = projectId;
-    if (status != null) q['status'] = status;
-    return _listJson(
-      '/v1/teams/${cfg.teamId}/plans',
-      query: q.isEmpty ? null : q,
-    );
-  }
+  }) =>
+      plans.listPlans(projectId: projectId, status: status);
 
-  /// Read-through variant of [listPlans]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listPlansCached({
     String? projectId,
     String? status,
-  }) {
-    final q = <String, String>{};
-    if (projectId != null) q['project'] = projectId;
-    if (status != null) q['status'] = status;
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey(
-        '/v1/teams/${cfg.teamId}/plans',
-        q.isEmpty ? null : q,
-      ),
-      fetch: () => listPlans(projectId: projectId, status: status),
-      decode: _decodeListMaps,
-    );
-  }
+  }) =>
+      plans.listPlansCached(projectId: projectId, status: status);
 
-  Future<Map<String, dynamic>> getPlan(String planId) async {
-    final out = await _get('/v1/teams/${cfg.teamId}/plans/$planId');
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> getPlan(String planId) => plans.getPlan(planId);
 
-  /// Read-through variant of [getPlan]; see [listRunsCached] for the
-  /// offline-fallback contract.
-  Future<CachedResponse<Map<String, dynamic>>> getPlanCached(
-    String planId,
-  ) =>
-      readThrough<Map<String, dynamic>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint: '/v1/teams/${cfg.teamId}/plans/$planId',
-        fetch: () => getPlan(planId),
-        decode: _decodeMap,
-      );
+  Future<CachedResponse<Map<String, dynamic>>> getPlanCached(String planId) =>
+      plans.getPlanCached(planId);
 
   Future<Map<String, dynamic>> createPlan({
     required String projectId,
     String? templateId,
     int? version,
     Map<String, dynamic>? spec,
-  }) async {
-    final body = <String, dynamic>{'project_id': projectId};
-    if (templateId != null) body['template_id'] = templateId;
-    if (version != null) body['version'] = version;
-    if (spec != null) body['spec_json'] = spec;
-    final out = await _post('/v1/teams/${cfg.teamId}/plans', body);
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      plans.createPlan(
+        projectId: projectId,
+        templateId: templateId,
+        version: version,
+        spec: spec,
+      );
 
   Future<void> updatePlan(
     String planId, {
-    String? status, // blueprint §6.2 lifecycle values
+    String? status,
     Map<String, dynamic>? spec,
-  }) async {
-    final body = <String, dynamic>{};
-    if (status != null) body['status'] = status;
-    if (spec != null) body['spec_json'] = spec;
-    await _patch('/v1/teams/${cfg.teamId}/plans/$planId', body);
-  }
+  }) =>
+      plans.updatePlan(planId, status: status, spec: spec);
 
   Future<List<Map<String, dynamic>>> listPlanSteps(String planId) =>
-      _listJson('/v1/teams/${cfg.teamId}/plans/$planId/steps');
+      plans.listPlanSteps(planId);
 
-  /// Read-through variant of [listPlanSteps]; see [listRunsCached] for
-  /// the offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listPlanStepsCached(
-    String planId,
-  ) =>
-      readThrough<List<Map<String, dynamic>>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint: '/v1/teams/${cfg.teamId}/plans/$planId/steps',
-        fetch: () => listPlanSteps(planId),
-        decode: _decodeListMaps,
-      );
+          String planId) =>
+      plans.listPlanStepsCached(planId);
 
   Future<Map<String, dynamic>> createPlanStep(
     String planId, {
     required int phaseIdx,
     required int stepIdx,
-    required String kind, // 'agent_spawn' | 'llm_call' | 'shell' | 'mcp_call' | 'human_decision'
+    required String kind,
     Map<String, dynamic>? spec,
-  }) async {
-    final body = <String, dynamic>{
-      'phase_idx': phaseIdx,
-      'step_idx': stepIdx,
-      'kind': kind,
-    };
-    if (spec != null) body['spec_json'] = spec;
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/plans/$planId/steps',
-      body,
-    );
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      plans.createPlanStep(
+        planId,
+        phaseIdx: phaseIdx,
+        stepIdx: stepIdx,
+        kind: kind,
+        spec: spec,
+      );
 
   Future<void> updatePlanStep(
     String planId,
@@ -1984,17 +1934,15 @@ class HubClient {
     String? agentId,
     Map<String, dynamic>? inputRefs,
     Map<String, dynamic>? outputRefs,
-  }) async {
-    final body = <String, dynamic>{};
-    if (status != null) body['status'] = status;
-    if (agentId != null) body['agent_id'] = agentId;
-    if (inputRefs != null) body['input_refs_json'] = inputRefs;
-    if (outputRefs != null) body['output_refs_json'] = outputRefs;
-    await _patch(
-      '/v1/teams/${cfg.teamId}/plans/$planId/steps/$stepId',
-      body,
-    );
-  }
+  }) =>
+      plans.updatePlanStep(
+        planId,
+        stepId,
+        status: status,
+        agentId: agentId,
+        inputRefs: inputRefs,
+        outputRefs: outputRefs,
+      );
 
   // ---- host mutations → HostsApi (W7) ----
 

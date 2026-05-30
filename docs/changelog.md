@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.747
+> **Last verified vs code:** v1.0.748
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,19 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.748-alpha — 2026-05-30
+
+**hub_client split W13 — `PlansApi` extracted (no behavior change).**
+
+Thirteenth wedge of `docs/plans/hub-client-split.md`.
+
+### Added
+- `PlansApi` (`plans_api.dart`) — plans (list/get + cached, create,
+  update) and plan steps (list + cached, create, update).
+- `HubClient` `plans` getter + ten delegators.
 
 ---
 

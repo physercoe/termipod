@@ -6,9 +6,9 @@ description: Executable wedge-by-wedge plan to split lib/services/hub/hub_client
 # Hub client split — phased
 
 > **Type:** plan
-> **Status:** In progress — W1–W12 shipped (v1.0.736–747; …, DocumentsApi, DeliverablesApi); remaining: PlansApi, ProjectsApi, TasksApi, TemplatesApi + AgentFamiliesApi. NOTE: the real decomposition needs more sub-clients than the original 11-row map (Admin, Hosts, Tasks, Templates, AgentFamilies split out); the wedge table is being relabelled as each lands.
+> **Status:** In progress — W1–W13 shipped (v1.0.736–748; …, DeliverablesApi, PlansApi); remaining: ProjectsApi, TasksApi, TemplatesApi + AgentFamiliesApi. NOTE: the real decomposition needs more sub-clients than the original 11-row map (Admin, Hosts, Tasks, Templates, AgentFamilies split out); the wedge table is being relabelled as each lands.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.747
+> **Last verified vs code:** v1.0.748
 
 **TL;DR.** `lib/services/hub/hub_client.dart` is 3,571 LOC — one
 `HubClient` class with **208 `Future`/`Stream` methods** grouped by
@@ -153,6 +153,7 @@ seam cheaply before the big ones. One version bump per wedge.
 | **W10** | `ProjectsApi` (+ tasks, channels) | `projects_api.dart` | med (size) |
 | ~~**W11**~~ ✅ | `DocumentsApi` — documents + annotations (13 methods + private cache helper); reviews/deliverables/plans split into later wedges. **Shipped v1.0.746.** | `documents_api.dart` | med |
 | ~~**W12**~~ ✅ | `DeliverablesApi` — deliverables/criteria/overview/versions/artifacts/reviews (27 methods + 4 private helpers). **Shipped v1.0.747.** | `deliverables_api.dart` | med |
+| ~~**W13**~~ ✅ | `PlansApi` — plans + plan steps (10 methods). **Shipped v1.0.748.** | `plans_api.dart` | low |
 | W12+ | *(optional, deferred)* migrate call sites to `client.<domain>.x()`, drop delegators | — | high blast radius |
 
 **Per-wedge recipe** (mirrors the agent_feed playbook):

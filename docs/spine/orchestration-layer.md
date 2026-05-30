@@ -1,7 +1,7 @@
 # Orchestration layer
 
 > **Type:** axiom
-> **Status:** Current (2026-05-19)
+> **Status:** Current (2026-05-30)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.631-alpha
 
@@ -48,6 +48,21 @@ The steward "orchestrates" as its *role*; the orchestration layer is
 the *contract within which it does so*. The layer is a lens, not a
 fourth box.
 
+The same caution applies one level up. The Hub / Host-runner / Agent
+decomposition and this layer's typing discipline are an
+**implementation basis** — the right shape for *building* the system.
+They are not the **operating basis** — the shape for *structuring the
+work*, which is the division of judgment between the principal and the
+agents (what the human decides vs. what is delegated;
+[`../reference/permission-model.md`](../reference/permission-model.md),
+[`governance-roles.md`](governance-roles.md)). The heaviest coordination
+force in a single-principal cooperative harness sits on that operating
+axis, not on the implementation layering. Mistaking the implementation
+basis for the operating model — designing the *work* the way the
+*software* is layered — is frame capture; the two are different
+projections of one system. See
+[`../discussions/coordination-basis-and-decision-classification.md`](../discussions/coordination-basis-and-decision-classification.md).
+
 ## 2. The contract — messages are typed
 
 Everything that crosses an agent boundary — principal→agent,
@@ -84,6 +99,21 @@ The unit of the orchestration layer is not the message — it is the
 closes it. `cause` is what makes the loop expressible: every message
 names the directive it serves, so the tree of delegated and
 fanned-out work threads back to one originating intent.
+
+The loop is the unit of **liveness**; the **decision** is the unit of
+**delegation**. A task ([ADR-029](../decisions/029-tasks-as-first-class-primitive.md))
+contains many decisions of mixed class — most agent-class (delegate
+freely), a few human-class (need the principal's taste). Delegation
+therefore happens *at the decision, not at the task*: a worker grinds
+through the agent-class decisions and surfaces a human-class one
+*mid-task* via a governed action or an attention item — it does not
+wait for a task boundary, and the steward does not claw back a whole
+task to reach one decision buried inside it. Mid-task escalation is the
+contract working, not a leak. Which decisions are human-class is the
+classification basis in
+[`../reference/permission-model.md`](../reference/permission-model.md);
+the wider rationale is
+[`../discussions/coordination-basis-and-decision-classification.md`](../discussions/coordination-basis-and-decision-classification.md).
 
 Two invariants govern the loop:
 

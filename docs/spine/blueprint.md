@@ -1,7 +1,7 @@
 # termipod blueprint
 
 > **Type:** axiom
-> **Status:** Current (2026-05-05)
+> **Status:** Current (2026-05-30)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.351
 
@@ -65,6 +65,23 @@ autonomy. Every autonomous action must be bounded by a rule that existed
 
 Three axioms, three forces: **filtering** (A1), **distribution** (A2),
 **governance** (A3).
+
+**Corollary — reversibility buys back attention.** A1 makes the
+principal's attention the scarcest resource; a decision is surfaced to
+them when it is irreversible, hard to verify, wide-blast-radius, or
+taste-laden (the classification basis is in
+[`../reference/permission-model.md`](../reference/permission-model.md)).
+Those properties are not all fixed — *reversibility and verifiability
+are designable.* A construction that is reversible by default
+(worktrees, checkpoints, `dry_run`, terminate-via-respawn) or cheaply
+verifiable (tests, type-checks, acceptance criteria) lets the steward
+**auto-demote** a decision out of the principal's queue without losing
+the ability to undo it. So, where two designs are otherwise equal,
+**prefer the reversible one** — not (only) for safety, but because it
+converts a human-class decision into an agent-class one and returns the
+scarce resource. This is the highest-leverage move the system has on
+its own attention budget. Rationale and the wider basis discussion:
+[`../discussions/coordination-basis-and-decision-classification.md`](../discussions/coordination-basis-and-decision-classification.md).
 
 ---
 

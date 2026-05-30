@@ -249,23 +249,56 @@ the basis we did choose, and why.*
 
 ---
 
-## 4. Graduation path
+## 4. Graduation path — principle now, code only when driven
 
-This doc is the discussion step. If the gaps hold up on review:
+**Correction (2026-05-30).** An earlier draft of this section proposed
+folding 3.1 + 3.2 into "a single new ADR." That conflated two different
+things. In this repo an **ADR records a decision realized in code**,
+usually with a rollout plan — the exemplar is
+[ADR-030](../decisions/030-governed-actions-and-propose-verb.md) →
+[`governed-actions-mvp-rollout.md`](../plans/governed-actions-mvp-rollout.md)
+(~1300–1500 LOC, a `policy.go` schema change, five `apply_*.go`
+handlers). All five gaps in §3, *as stated*, are **principles** — they
+are doc enrichments with **zero code**. They do not need an ADR.
 
-- **3.1 + 3.2** are the substantive ones and travel together (the
-  reversibility lever *is* one of the classification axes). They merit
-  either a single new ADR — *"Decision classification and the
-  reversibility lever"* — or a paired amendment to
-  [`permission-model.md`](../reference/permission-model.md) +
-  [`forbidden-patterns.md`](../spine/forbidden-patterns.md).
-- **3.3 + 3.4** are prompt/contract clarifications — light edits to
-  [`orchestration-layer.md`](../spine/orchestration-layer.md) /
-  [`governance-roles.md`](../spine/governance-roles.md) /
-  [`attention-interaction-model.md`](attention-interaction-model.md),
-  plus the bundled steward prompts.
-- **3.5** is a one-paragraph framing amendment to
-  [`blueprint.md`](../spine/blueprint.md).
+**What was done now (doc-only).** Each principle was enriched into its
+best-fit spine doc, with a cross-reference back here:
+
+| Gap | Landed in |
+|---|---|
+| 3.1 reversibility lever | [`blueprint.md`](../spine/blueprint.md) §2 — corollary under the axioms |
+| 3.2 classification axes | [`permission-model.md`](../reference/permission-model.md) — the "auto-allow routine, surface strategic" section |
+| 3.3 classify decisions, not tasks | [`orchestration-layer.md`](../spine/orchestration-layer.md) §3 — the decision is the unit of delegation |
+| 3.4 escalation contract (pose, don't ask) | [`governance-roles.md`](../spine/governance-roles.md) — the steward's surface-decisions responsibility |
+| 3.5 operating-vs-implementation basis | [`orchestration-layer.md`](../spine/orchestration-layer.md) §1 — extends "a layer is a lens, not a box" |
+
+**What is deferred to an ADR (the *code* versions).** An ADR earns its
+place only if/when a concrete driver makes us build the machinery —
+and the code surfaces are real and verified, not hypothetical:
+
+- **3.2-code — an axis-driven classifier.** The governed-action policy
+  ships today as a hand-authored `kinds:` block in `policy.yaml`
+  (`hub/internal/server/policy.go`, `Kinds map[string]KindPolicy`; the
+  tier is carried as `AssignedTier`). The code version adds
+  reversibility/verifiability/blast-radius/taste-load fields per kind
+  and a resolver that *computes* the tier from the axes instead of
+  hand-authoring it. New schema + resolver + tests.
+- **3.1-code — flip a default.** Worker worktrees are `optional` today
+  (`hub/internal/hostrunner/spec.go`). Making worktree/checkpoint
+  reversible-by-**default** so the steward can auto-demote decisions is
+  a behaviour/policy change.
+- **3.4-code — enforce, don't just prompt.** A hub-side validator on
+  attention payloads (require options + a recommendation) would make
+  the §3.4 contract hard rather than prompt-soft.
+
+Per the essay's own anti-pillar-inflation rule — and §5's first open
+question — the disciplined MVP call is **document the heuristic, build
+the classifier later**. The hand-authored `kinds:` table already works
+for a single principal; an axis-resolver is additive value, not a
+current need. So: **no ADR is opened now.** When one of the drivers
+above becomes concrete, the matching ADR is *"Decision classification
+and the reversibility lever"* (3.1-code + 3.2-code travel together,
+since the reversibility lever is one of the classification axes).
 
 New terms this doc coins locally — *coordination force*, *basis /
 projection*, *decision class (human-class / agent-class)*,

@@ -1,7 +1,7 @@
 # Permission model
 
 > **Type:** reference
-> **Status:** Current (2026-05-01)
+> **Status:** Current (2026-05-30)
 > **Audience:** contributors · template authors · operators
 > **Last verified vs code:** v1.0.350-alpha
 
@@ -29,6 +29,22 @@ This file documents the tool-call gate. ADR-011 + `discussions/attention-interac
 Routine tool calls (Read, Bash, Edit, Write, WebSearch, WebFetch, engine-internal `Task`) are **not** something the director should be asked about each time. The director's role is to direct, not operate (ADR-005). A director who has to ratify every Bash call is operating, not directing.
 
 Strategic decisions — approve a plan, pick between options, ask for help — are *exactly* what the director should be asked about. Those go through the attention gate.
+
+### What makes a decision "strategic" — the classification axes
+
+"Routine vs strategic" is the binary the gate enforces; the *basis* for the split is four axes. A decision (or governed-action kind, per [ADR-030](../decisions/030-governed-actions-and-propose-verb.md)) leans **strategic — surface it** as it scores higher on:
+
+| Axis | Routine (auto-allow) | Strategic (surface) |
+|---|---|---|
+| **Reversibility** | reversible — a two-way door (edit in a worktree, respawn) | irreversible / costly to undo (publish, delete, spend) |
+| **Verifiability** | cheaply checkable after the fact (tests, type-check, run) | no clear success test — needs taste |
+| **Blast radius** | narrow, contained | sets direction / wide consequences |
+| **Taste-load** | mechanical, one right answer | trades off things only the principal can weigh |
+
+Schematically, surface when `(irreversibility · blast_radius · taste_load) / verifiability` crosses the director's tolerance. The axes are a *heuristic for authors*, not a runtime formula — today the strategic set is hand-enumerated (the engine's routine-tool list here; the `kinds:` block in `policy.yaml` for governed actions). Two consequences worth stating:
+
+- **Classifying a *new* kind:** score it on the four axes rather than copying an existing row by precedent.
+- **The numerator is designable.** Reversibility and verifiability are not fixed properties — a checkpoint, a sandbox, or a hard test *lowers* them, demoting a would-be-strategic decision to routine and buying back the principal's attention. This is the [`blueprint.md`](../spine/blueprint.md) §2 reversibility corollary applied at the gate. Full basis discussion: [`../discussions/coordination-basis-and-decision-classification.md`](../discussions/coordination-basis-and-decision-classification.md).
 
 The three modes below differ in **how** routine tool calls are gated: by the engine itself (default), by the hub via MCP (prompt), or not at all (dangerously-skip). All three respect the principle by leaving strategic decisions to the attention gate.
 

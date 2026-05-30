@@ -1,7 +1,7 @@
 # Governance roles
 
 > **Type:** axiom
-> **Status:** Current (2026-05-01)
+> **Status:** Current (2026-05-30)
 > **Audience:** contributors · template authors · prompt authors
 > **Last verified vs code:** v1.0.350-alpha
 
@@ -72,6 +72,36 @@ The split is enforced by:
 - [ADR-016](../decisions/016-subagent-scope-manifest.md) D7 self-modification guard — a steward cannot edit its own kind's template.
 - Bundled prompts — every steward prompt names the manager/IC invariant explicitly.
 - [ADR-017](../decisions/017-layered-stewards.md) D4 — the general steward inherits the invariant from D6 + D7 and from the prompt.
+
+### How a steward surfaces a decision: pose, don't ask
+
+Surfacing a decision to the director spends the system's scarcest
+resource — the principal's attention ([`blueprint.md`](blueprint.md)
+A1). So an escalation is not an open-ended "what now?"; it is **posed
+as a choice**. The contract every steward escalation honours:
+
+- **Pose, don't ask.** Carry concrete options with their tradeoffs and
+  a **recommended default**, so the principal *decides* rather than
+  re-derives the problem. An escalation that makes the human frame the
+  question has already spent the attention it was meant to save. This
+  is why the attention primitive for a fork is `request_select` (options
+  in, choice out), not free-text.
+- **Contextualize.** Include what was tried and why the decision is
+  human-class (irreversible / low-verifiability / wide / taste-laden —
+  [`../reference/permission-model.md`](../reference/permission-model.md)),
+  not just the raw fork.
+- **Batch, don't interrupt.** Queue escalations for the director's next
+  glance instead of blocking on each; silence is the default while
+  agent-class work proceeds.
+
+This is a *prompt-soft* contract today — it lives in the bundled
+steward prompts, not a hub validator (an enforcement option is noted in
+[`../discussions/coordination-basis-and-decision-classification.md`](../discussions/coordination-basis-and-decision-classification.md)
+§4). The attention-delivery mechanics are
+[ADR-011](../decisions/011-turn-based-attention-delivery.md) /
+[`../discussions/attention-interaction-model.md`](../discussions/attention-interaction-model.md);
+the director-side surface is
+[ADR-020](../decisions/020-director-action-surface.md).
 
 ### Steward (general) vs. Steward (domain): two tiers, same role
 

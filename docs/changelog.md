@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.736
+> **Last verified vs code:** v1.0.737
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,29 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.737-alpha — 2026-05-30
+
+**hub_client split W2 — `SystemApi` extracted (no behavior change).**
+
+Second wedge of `docs/plans/hub-client-split.md`. New
+`lib/services/hub/system_api.dart` owns the hub-level (non-entity)
+endpoints; `HubClient` delegates to it, so call sites are unchanged.
+
+### Added
+- `SystemApi` — probe/stats (`getInfo`/`verifyAuth`/`getHubStats`), the
+  insights aggregator (`getInsights`/`getInsightsCached` +
+  `_insightsScopeQuery`), owner-only tokens (`listTokens`/`issueToken`/
+  `revokeToken`), and hub-wide governance config (`getHubRolesConfig`/
+  `putHubRolesConfig`/`resetHubRolesConfig`).
+- `HubTransport.listJson` — promoted the generic GET→list-of-maps helper
+  (was `HubClient._listJson`, 30 call sites) so every sub-client shares
+  one wrapper; `HubClient._listJson` is now a shim forwarding to it.
+
+### Changed
+- `HubClient` gained a `system` sub-client getter and one-line delegators
+  for the twelve moved methods; the private `_insightsScopeQuery` helper
+  moved into `SystemApi` (no leftover reference).
 
 ## v1.0.736-alpha — 2026-05-30
 

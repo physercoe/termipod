@@ -6,9 +6,9 @@ description: Executable wedge-by-wedge plan to split lib/services/hub/hub_client
 # Hub client split — phased
 
 > **Type:** plan
-> **Status:** Open — not started (plan authored v1.0.735)
+> **Status:** In progress — W1 (transport) + W2 (SystemApi) shipped (v1.0.736–737); W3+ pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.735
+> **Last verified vs code:** v1.0.737
 
 **TL;DR.** `lib/services/hub/hub_client.dart` is 3,571 LOC — one
 `HubClient` class with **208 `Future`/`Stream` methods** grouped by
@@ -115,7 +115,7 @@ are approximate at v1.0.735 and each wedge re-confirms its line range.
 | Sub-client | Absorbs (banners) | ~LOC |
 |---|---|---:|
 | **HubTransport** | transport + cache plumbing (`HubClient` head) | 140 |
-| **SystemApi** | info/probe · tokens · governance config | 200 |
+| **SystemApi** | info/probe · stats · insights · tokens · governance config | 280 |
 | **HostsApi** | host lifecycle · host mutations · admin/ops fleet | 190 |
 | **SessionsApi** | sessions | 460 |
 | **AgentsApi** | collections(agents) · spawn · general steward · agent lifecycle · agent events | 640 |
@@ -140,8 +140,8 @@ seam cheaply before the big ones. One version bump per wedge.
 
 | ID | Wedge | New file | Risk |
 |---|---|---|---|
-| **W1** | Extract `HubTransport`; HubClient holds `_t`, keeps private shims forwarding to it, forwards cache setters. Bodies untouched. | `hub_transport.dart` | low (mechanical, internal) |
-| **W2** | `SystemApi` (info/probe + tokens + governance) | `system_api.dart` | low |
+| ~~**W1**~~ ✅ | Extract `HubTransport`; HubClient holds `_t`, keeps private shims forwarding to it, forwards cache setters. Bodies untouched. **Shipped v1.0.736.** | `hub_transport.dart` | low (mechanical, internal) |
+| ~~**W2**~~ ✅ | `SystemApi` (info/probe + stats + insights + tokens + governance). Also promoted `_listJson` → `HubTransport.listJson`. **Shipped v1.0.737.** | `system_api.dart` | low |
 | **W3** | `BlobsApi` + `SearchApi` (raw `open`/`readJson` via transport) | `blobs_api.dart`, `search_api.dart` | low |
 | **W4** | `EventsApi` (SSE; moves `_streamPath`/`_extractData` too) | `events_api.dart` | low-med (raw stream) |
 | **W5** | `AttentionApi` | `attention_api.dart` | low |

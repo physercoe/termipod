@@ -6,6 +6,7 @@ import 'blob_bytes_cache.dart';
 import 'hub_read_through.dart';
 import 'hub_snapshot_cache.dart';
 import 'hub_transport.dart';
+import 'system_api.dart';
 
 // HubConfig, HubApiError, and HubTransport now live in hub_transport.dart;
 // re-exported here so the many `import '.../hub_client.dart'` call sites
@@ -35,6 +36,12 @@ class HubClient {
 
   /// The shared transport, exposed for the per-domain sub-clients.
   HubTransport get transport => _t;
+
+  // Per-domain sub-clients (docs/plans/hub-client-split.md). The legacy
+  // methods below delegate to these; call sites may also use them directly.
+
+  /// Hub-level endpoints: probe/stats, insights, tokens, governance config.
+  late final SystemApi system = SystemApi(_t);
 
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
@@ -93,44 +100,14 @@ class HubClient {
 
   Future<void> _delete(String path) => _t.delete(path);
 
-  // ---- info / probe ----
+  // ---- info / probe / insights → SystemApi (W2) ----
 
-  /// Probe the hub. Doesn't require a token, so we use it from the bootstrap
-  /// wizard to validate the URL before the user pastes the token.
-  Future<Map<String, dynamic>> getInfo() async {
-    final out = await _get('/v1/_info', auth: false);
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> getInfo() => system.getInfo();
 
-  /// Probe with auth — fails fast if the token is wrong. Uses /hosts because
-  /// it's cheap and always exists for a valid team.
-  Future<void> verifyAuth() async {
-    await _get('/v1/teams/${cfg.teamId}/hosts');
-  }
+  Future<void> verifyAuth() => system.verifyAuth();
 
-  /// Hub-self capacity report — machine, DB, and live counts. Backs the
-  /// Hub group on the Hosts tab + the Hub Detail screen (ADR-022 D2 /
-  /// insights-phase-1.md W1). Authed but not team-scoped: the hub box
-  /// is shared across teams, so the endpoint sits at /v1/hub/stats
-  /// rather than /v1/teams/{team}/hosts/...
-  Future<Map<String, dynamic>> getHubStats() async {
-    final out = await _get('/v1/hub/stats');
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> getHubStats() => system.getHubStats();
 
-  /// Scope-parameterized insights aggregator (ADR-022 D3,
-  /// insights-phase-1 W2 + insights-phase-2 W1). Returns Tier-1
-  /// dimensions — spend / latency / errors / concurrency — summed
-  /// across `agent_events` filtered by the requested scope (project /
-  /// team / agent / engine / host) and the optional time range. The
-  /// hub caches the response with a 30s TTL keyed on
-  /// (scope_kind, scope_id, since, until); the panel layers a
-  /// snapshot cache on top per ADR-006.
-  ///
-  /// Exactly one of the *Id / engine params must be set — the hub
-  /// 400s otherwise. We intentionally don't enumerate `InsightsScope`
-  /// here; Dart-side it's the `InsightsScope` value object in
-  /// providers/insights_provider.dart that builds the q-param.
   Future<Map<String, dynamic>> getInsights({
     String? projectId,
     String? teamId,
@@ -140,25 +117,18 @@ class HubClient {
     bool stewardOnly = false,
     DateTime? since,
     DateTime? until,
-  }) async {
-    final q = _insightsScopeQuery(
-      projectId: projectId,
-      teamId: teamId,
-      agentId: agentId,
-      engine: engine,
-      hostId: hostId,
-    );
-    if (stewardOnly) q['kind'] = 'steward';
-    if (since != null) q['since'] = since.toUtc().toIso8601String();
-    if (until != null) q['until'] = until.toUtc().toIso8601String();
-    final out = await _get('/v1/insights', query: q);
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      system.getInsights(
+        projectId: projectId,
+        teamId: teamId,
+        agentId: agentId,
+        engine: engine,
+        hostId: hostId,
+        stewardOnly: stewardOnly,
+        since: since,
+        until: until,
+      );
 
-  /// Read-through variant of [getInsights]; same offline-fallback
-  /// contract as [listHostsCached]. The endpoint key folds the scope
-  /// pair + since + until into the cache row so reads at different
-  /// scopes don't shadow each other.
   Future<CachedResponse<Map<String, dynamic>>> getInsightsCached({
     String? projectId,
     String? teamId,
@@ -168,22 +138,8 @@ class HubClient {
     bool stewardOnly = false,
     DateTime? since,
     DateTime? until,
-  }) {
-    final q = _insightsScopeQuery(
-      projectId: projectId,
-      teamId: teamId,
-      agentId: agentId,
-      engine: engine,
-      hostId: hostId,
-    );
-    if (stewardOnly) q['kind'] = 'steward';
-    if (since != null) q['since'] = since.toUtc().toIso8601String();
-    if (until != null) q['until'] = until.toUtc().toIso8601String();
-    return readThrough<Map<String, dynamic>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey('/v1/insights', q),
-      fetch: () => getInsights(
+  }) =>
+      system.getInsightsCached(
         projectId: projectId,
         teamId: teamId,
         agentId: agentId,
@@ -192,34 +148,7 @@ class HubClient {
         stewardOnly: stewardOnly,
         since: since,
         until: until,
-      ),
-      decode: _decodeMap,
-    );
-  }
-
-  // _insightsScopeQuery builds the {scope_param: id} singleton map.
-  // Exactly one of the params must be non-empty — the hub enforces
-  // this too, but failing fast on the client surfaces caller bugs
-  // synchronously instead of as a 400 round-trip.
-  Map<String, String> _insightsScopeQuery({
-    String? projectId,
-    String? teamId,
-    String? agentId,
-    String? engine,
-    String? hostId,
-  }) {
-    final entries = <String, String>{};
-    if (projectId != null && projectId.isNotEmpty) entries['project_id'] = projectId;
-    if (teamId != null && teamId.isNotEmpty) entries['team_id'] = teamId;
-    if (agentId != null && agentId.isNotEmpty) entries['agent_id'] = agentId;
-    if (engine != null && engine.isNotEmpty) entries['engine'] = engine;
-    if (hostId != null && hostId.isNotEmpty) entries['host_id'] = hostId;
-    if (entries.length != 1) {
-      throw ArgumentError(
-          'getInsights requires exactly one of projectId/teamId/agentId/engine/hostId; got $entries');
-    }
-    return entries;
-  }
+      );
 
   // ---- collections ----
 
@@ -900,86 +829,31 @@ class HubClient {
     return 'plain';
   }
 
-  // ---- tokens (owner-only) ----
+  // ---- tokens + governance config → SystemApi (W2) ----
 
-  /// Lists all tokens for the team (metadata only, no plaintext). Requires
-  /// the caller to hold an owner-kind token; non-owners get 403.
-  Future<List<Map<String, dynamic>>> listTokens() =>
-      _listJson('/v1/teams/${cfg.teamId}/tokens');
+  Future<List<Map<String, dynamic>>> listTokens() => system.listTokens();
 
-  /// Issues a new token and returns the plaintext exactly once. Treat the
-  /// response's `plaintext` field as write-once: show it to the user, then
-  /// drop it from memory — the hub never stores it.
   Future<Map<String, dynamic>> issueToken({
     String kind = 'user',
     String role = 'principal',
     String? handle,
     String? expiresAt,
-  }) async {
-    final body = <String, dynamic>{'kind': kind, 'role': role};
-    if (handle != null && handle.isNotEmpty) body['handle'] = handle;
-    if (expiresAt != null && expiresAt.isNotEmpty) {
-      body['expires_at'] = expiresAt;
-    }
-    final out = await _post('/v1/teams/${cfg.teamId}/tokens', body);
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      system.issueToken(
+        kind: kind,
+        role: role,
+        handle: handle,
+        expiresAt: expiresAt,
+      );
 
-  Future<void> revokeToken(String id) async {
-    await _post(
-      '/v1/teams/${cfg.teamId}/tokens/$id/revoke',
-      const <String, dynamic>{},
-    );
-  }
+  Future<void> revokeToken(String id) => system.revokeToken(id);
 
-  // ---- hub-wide governance config (owner-only) ----
+  Future<String> getHubRolesConfig() => system.getHubRolesConfig();
 
-  /// Fetches the active operation-scope manifest (`roles.yaml`).
-  /// Returns the on-disk overlay if present; otherwise returns the
-  /// embedded built-in so the editor always has a starting point.
-  /// Requires an owner-kind token; non-owners get 403.
-  Future<String> getHubRolesConfig() async {
-    final req = await _open('GET', '/v1/hub/config/roles');
-    req.headers.set(HttpHeaders.acceptHeader, 'application/yaml');
-    final resp = await req.close();
-    final body = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, body);
-    }
-    return body;
-  }
+  Future<String> putHubRolesConfig(String yaml) =>
+      system.putHubRolesConfig(yaml);
 
-  /// Writes `roles.yaml` atomically: server validates by parsing the
-  /// supplied YAML, snapshots any prior overlay to `roles.yaml.bak`,
-  /// writes the new body, and hot-reloads the manifest. Parse failure
-  /// surfaces as HubApiError(400) without touching disk. Hot-reload
-  /// failure rolls back from the `.bak`. Returns the canonical body
-  /// the hub is now serving.
-  Future<String> putHubRolesConfig(String yaml) async {
-    final req = await _open('PUT', '/v1/hub/config/roles');
-    req.headers.contentType =
-        ContentType('application', 'yaml', charset: 'utf-8');
-    req.add(utf8.encode(yaml));
-    final resp = await req.close();
-    final body = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, body);
-    }
-    return body;
-  }
-
-  /// Removes the on-disk `roles.yaml` overlay and hot-reloads back to
-  /// the embedded default. Returns the embedded body. Idempotent —
-  /// succeeds whether or not an overlay file currently exists.
-  Future<String> resetHubRolesConfig() async {
-    final req = await _open('DELETE', '/v1/hub/config/roles');
-    final resp = await req.close();
-    final body = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, body);
-    }
-    return body;
-  }
+  Future<String> resetHubRolesConfig() => system.resetHubRolesConfig();
 
   // ---- admin / ops fleet (ADR-028 Phase 5) ----
   //
@@ -1129,11 +1003,8 @@ class HubClient {
   Future<List<Map<String, dynamic>>> _listJson(
     String path, {
     Map<String, String>? query,
-  }) async {
-    final out = await _get(path, query: query);
-    if (out == null) return const [];
-    return (out as List).cast<Map<String, dynamic>>();
-  }
+  }) =>
+      _t.listJson(path, query: query);
 
   // ---- project / task / channel writes ----
 

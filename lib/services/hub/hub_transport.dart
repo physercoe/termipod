@@ -141,6 +141,16 @@ class HubTransport {
     return readJson(resp);
   }
 
+  /// Convenience: GET a path expected to return a JSON array of objects,
+  /// decoded to a list of maps (empty list when the body is null). The
+  /// most common shape across the per-domain sub-clients.
+  Future<List<Map<String, dynamic>>> listJson(String path,
+      {Map<String, String>? query}) async {
+    final out = await get(path, query: query);
+    if (out == null) return const [];
+    return (out as List).cast<Map<String, dynamic>>();
+  }
+
   Future<dynamic> post(String path, Object body,
       {Map<String, String>? query}) async {
     final req = await open('POST', path, query: query);

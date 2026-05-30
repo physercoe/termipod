@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.735
+> **Last verified vs code:** v1.0.736
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,33 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.736-alpha — 2026-05-30
+
+**hub_client split W1 — `HubTransport` extracted (no behavior change).**
+
+First wedge of `docs/plans/hub-client-split.md` (R1 of the monolith
+refactor). New `lib/services/hub/hub_transport.dart` owns the shared
+HTTP + cache plumbing every `HubClient` method routes through; the
+God-class is being peeled into per-domain sub-clients in later wedges.
+
+### Added
+- `HubTransport` — a public transport class holding the `HttpClient`,
+  the two optional caches (`snapshotCache`/`blobCache`), and public verb
+  + decode plumbing (`get`/`post`/`patch`/`put`/`delete`, raw
+  `open`/`readJson`, `invalidate`, `decodeListMaps`/`decodeMap`,
+  `cacheHubKey`). Sub-clients will be injected with it.
+
+### Changed
+- `HubConfig` and `HubApiError` moved into `hub_transport.dart` and are
+  re-exported from `hub_client.dart`, so every existing
+  `import '.../hub_client.dart'` (incl. the `show HubApiError` test)
+  resolves unchanged.
+- `HubClient` now holds a `HubTransport`; its private `_get`/`_post`/…
+  plumbing became thin shims forwarding to it, and `snapshotCache`/
+  `blobCache` became forwarding getters/setters so the provider wiring
+  in `hub_provider.dart` is untouched. The 208 domain method bodies are
+  byte-for-byte unchanged.
 
 ## v1.0.735-alpha — 2026-05-29
 

@@ -5,43 +5,12 @@ import 'dart:io';
 import 'blob_bytes_cache.dart';
 import 'hub_read_through.dart';
 import 'hub_snapshot_cache.dart';
+import 'hub_transport.dart';
 
-/// Connection settings for a Termipod Hub daemon.
-///
-/// Stored split between SharedPreferences (baseUrl/teamId, plus a pointer
-/// to the secure-storage entry) and flutter_secure_storage (token). The
-/// [HubConfig] value itself is ephemeral — built when needed, not persisted.
-class HubConfig {
-  final String baseUrl;
-  final String token;
-  final String teamId;
-
-  const HubConfig({
-    required this.baseUrl,
-    required this.token,
-    required this.teamId,
-  });
-
-  bool get isValid =>
-      baseUrl.isNotEmpty && token.isNotEmpty && teamId.isNotEmpty;
-
-  HubConfig copyWith({String? baseUrl, String? token, String? teamId}) =>
-      HubConfig(
-        baseUrl: baseUrl ?? this.baseUrl,
-        token: token ?? this.token,
-        teamId: teamId ?? this.teamId,
-      );
-}
-
-/// Error thrown for non-2xx HTTP responses from the hub.
-class HubApiError implements Exception {
-  final int status;
-  final String message;
-  HubApiError(this.status, this.message);
-
-  @override
-  String toString() => 'HubApiError($status): $message';
-}
+// HubConfig, HubApiError, and HubTransport now live in hub_transport.dart;
+// re-exported here so the many `import '.../hub_client.dart'` call sites
+// keep resolving them unchanged (see docs/plans/hub-client-split.md).
+export 'hub_transport.dart' show HubConfig, HubApiError, HubTransport;
 
 /// Thin REST + SSE client for the Termipod Hub HTTP API.
 ///
@@ -55,122 +24,74 @@ class HubApiError implements Exception {
 /// a candidate URL before the user has pasted a token.
 class HubClient {
   final HubConfig cfg;
-  final HttpClient _http;
+
+  /// Shared HTTP + cache transport. Held privately; the per-domain
+  /// sub-clients (see docs/plans/hub-client-split.md) are constructed
+  /// against it as each wedge peels them off. The legacy method bodies
+  /// below still reach it through the private `_get`/`_post`/… shims.
+  final HubTransport _t;
+
+  HubClient(this.cfg) : _t = HubTransport(cfg);
+
+  /// The shared transport, exposed for the per-domain sub-clients.
+  HubTransport get transport => _t;
 
   /// Optional read-through cache for list/get responses. Set by the
-  /// provider after construction so the client can stay dumb about
-  /// how/where the SQLite db lives. When null, the *Cached methods act
-  /// as thin wrappers — no offline fallback, staleSince is always null.
-  HubSnapshotCache? snapshotCache;
+  /// provider after construction; forwarded to the transport so the
+  /// sub-clients and the legacy methods share one cache. When null, the
+  /// *Cached methods act as thin wrappers — no offline fallback.
+  HubSnapshotCache? get snapshotCache => _t.snapshotCache;
+  set snapshotCache(HubSnapshotCache? v) => _t.snapshotCache = v;
 
-  /// Optional content-addressed cache for `/v1/blobs/{sha}` bytes. Set
-  /// alongside [snapshotCache] by the provider. When null, downloadBlob
-  /// degrades to a pure network fetch (pre-cache behaviour).
-  BlobBytesCache? blobCache;
-
-  HubClient(this.cfg)
-      : _http = HttpClient()
-          ..connectionTimeout = const Duration(seconds: 8)
-          ..idleTimeout = const Duration(seconds: 30);
+  /// Optional content-addressed cache for `/v1/blobs/{sha}` bytes. When
+  /// null, downloadBlob degrades to a pure network fetch.
+  BlobBytesCache? get blobCache => _t.blobCache;
+  set blobCache(BlobBytesCache? v) => _t.blobCache = v;
 
   void close() {
-    _http.close(force: true);
+    _t.close();
   }
 
-  /// Partition key for the snapshot cache. Scoped by baseUrl + teamId so
-  /// switching hubs or teams never surfaces another partition's rows.
-  String get _cacheHubKey =>
-      hubCacheKey(baseUrl: cfg.baseUrl, teamId: cfg.teamId);
+  // ---- transport shims ----
+  //
+  // Forward to [HubTransport] so the existing method bodies below stay
+  // byte-for-byte unchanged while the per-domain sub-clients are peeled
+  // off one wedge at a time. As each domain moves to its own *Api class
+  // it calls `_t.<verb>` directly; the matching shim is removed once its
+  // last caller has left.
 
-  List<Map<String, dynamic>> _decodeListMaps(Object body) => [
-        for (final r in body as List) (r as Map).cast<String, dynamic>(),
-      ];
+  String get _cacheHubKey => _t.cacheHubKey;
 
-  Map<String, dynamic> _decodeMap(Object body) =>
-      (body as Map).cast<String, dynamic>();
+  List<Map<String, dynamic>> _decodeListMaps(Object body) =>
+      _t.decodeListMaps(body);
 
-  /// Drop every cached row whose endpoint key starts with [prefix] on the
-  /// current hub partition. Called from mutation methods so the next read
-  /// re-fetches instead of serving a pre-write snapshot. No-op when no
-  /// cache is attached.
-  Future<void> _invalidate(String prefix) async {
-    final c = snapshotCache;
-    if (c == null) return;
-    await c.invalidatePrefix(_cacheHubKey, prefix);
-  }
+  Map<String, dynamic> _decodeMap(Object body) => _t.decodeMap(body);
 
-  Uri _uri(String path, [Map<String, String>? query]) {
-    final base = cfg.baseUrl.endsWith('/')
-        ? cfg.baseUrl.substring(0, cfg.baseUrl.length - 1)
-        : cfg.baseUrl;
-    final u = Uri.parse('$base$path');
-    if (query == null || query.isEmpty) return u;
-    return u.replace(queryParameters: {...u.queryParameters, ...query});
-  }
+  Future<void> _invalidate(String prefix) => _t.invalidate(prefix);
 
   Future<HttpClientRequest> _open(
     String method,
     String path, {
     Map<String, String>? query,
     bool auth = true,
-  }) async {
-    final uri = _uri(path, query);
-    final req = await _http.openUrl(method, uri);
-    req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-    if (auth && cfg.token.isNotEmpty) {
-      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${cfg.token}');
-    }
-    return req;
-  }
+  }) =>
+      _t.open(method, path, query: query, auth: auth);
 
-  Future<dynamic> _readJson(HttpClientResponse resp) async {
-    final body = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, body);
-    }
-    if (body.isEmpty) return null;
-    return jsonDecode(body);
-  }
+  Future<dynamic> _readJson(HttpClientResponse resp) => _t.readJson(resp);
 
-  Future<dynamic> _get(String path, {Map<String, String>? query, bool auth = true}) async {
-    final req = await _open('GET', path, query: query, auth: auth);
-    final resp = await req.close();
-    return _readJson(resp);
-  }
+  Future<dynamic> _get(String path,
+          {Map<String, String>? query, bool auth = true}) =>
+      _t.get(path, query: query, auth: auth);
 
-  Future<dynamic> _post(String path, Object body, {Map<String, String>? query}) async {
-    final req = await _open('POST', path, query: query);
-    req.headers.contentType = ContentType.json;
-    req.add(utf8.encode(jsonEncode(body)));
-    final resp = await req.close();
-    return _readJson(resp);
-  }
+  Future<dynamic> _post(String path, Object body,
+          {Map<String, String>? query}) =>
+      _t.post(path, body, query: query);
 
-  Future<dynamic> _patch(String path, Object body) async {
-    final req = await _open('PATCH', path);
-    req.headers.contentType = ContentType.json;
-    req.add(utf8.encode(jsonEncode(body)));
-    final resp = await req.close();
-    return _readJson(resp);
-  }
+  Future<dynamic> _patch(String path, Object body) => _t.patch(path, body);
 
-  Future<dynamic> _put(String path, Object body) async {
-    final req = await _open('PUT', path);
-    req.headers.contentType = ContentType.json;
-    req.add(utf8.encode(jsonEncode(body)));
-    final resp = await req.close();
-    return _readJson(resp);
-  }
+  Future<dynamic> _put(String path, Object body) => _t.put(path, body);
 
-  Future<void> _delete(String path) async {
-    final req = await _open('DELETE', path);
-    final resp = await req.close();
-    // Drain body so the connection can be reused.
-    final body = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, body);
-    }
-  }
+  Future<void> _delete(String path) => _t.delete(path);
 
   // ---- info / probe ----
 

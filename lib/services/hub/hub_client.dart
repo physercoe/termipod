@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'blob_bytes_cache.dart';
 import 'hub_read_through.dart';
+import 'admin_api.dart';
 import 'attention_api.dart';
 import 'blobs_api.dart';
 import 'events_api.dart';
@@ -57,6 +58,10 @@ class HubClient {
 
   /// Attention queue: list (live + cached), decide/resolve, context.
   late final AttentionApi attention = AttentionApi(_t);
+
+  /// Operator admin & ops: fleet shutdown/restart/update, DB vacuum,
+  /// token rotation, cross-team audit, and the team policy.yaml editor.
+  late final AdminApi admin = AdminApi(_t);
 
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
@@ -866,141 +871,55 @@ class HubClient {
   /// Lists the fleet for the Admin pane. With [ping] the hub round-trips
   /// host.ping at each live host so each row reports the version it is
   /// actually running right now.
-  Future<List<Map<String, dynamic>>> adminListHosts({bool ping = false}) async {
-    final out = await _get('/v1/admin/hosts',
-        query: ping ? {'ping': '1'} : null);
-    final hosts = (out as Map)['hosts'];
-    return hosts == null ? [] : _decodeListMaps(hosts);
-  }
+  Future<List<Map<String, dynamic>>> adminListHosts({bool ping = false}) =>
+      admin.adminListHosts(ping: ping);
 
-  /// Fires host.shutdown (exit 0 — stays down) at one host.
   Future<Map<String, dynamic>> adminHostShutdown(String hostId,
-      {String? reason}) async {
-    final out = await _post('/v1/admin/hosts/$hostId/shutdown',
-        reason == null ? {} : {'reason': reason});
-    return _decodeMap(out);
-  }
+          {String? reason}) =>
+      admin.adminHostShutdown(hostId, reason: reason);
 
-  /// Fires host.restart (exit 75 — systemd respawns) at one host.
   Future<Map<String, dynamic>> adminHostRestart(String hostId,
-      {String? reason}) async {
-    final out = await _post('/v1/admin/hosts/$hostId/restart',
-        reason == null ? {} : {'reason': reason});
-    return _decodeMap(out);
-  }
+          {String? reason}) =>
+      admin.adminHostRestart(hostId, reason: reason);
 
-  /// Fires host.update (fetch + verify + install + respawn) at one host.
   Future<Map<String, dynamic>> adminHostUpdate(String hostId,
-      {String? reason}) async {
-    final out = await _post('/v1/admin/hosts/$hostId/update',
-        reason == null ? {} : {'reason': reason});
-    return _decodeMap(out);
-  }
+          {String? reason}) =>
+      admin.adminHostUpdate(hostId, reason: reason);
 
-  /// Fleet-wide shutdown / restart / update. The hub orchestrates the
-  /// fan-out; the response carries a per-host result list.
-  Future<Map<String, dynamic>> adminFleetShutdown({String? reason}) async {
-    final out = await _post('/v1/admin/fleet/shutdown',
-        reason == null ? {} : {'reason': reason});
-    return _decodeMap(out);
-  }
+  Future<Map<String, dynamic>> adminFleetShutdown({String? reason}) =>
+      admin.adminFleetShutdown(reason: reason);
 
-  Future<Map<String, dynamic>> adminFleetRestart({String? reason}) async {
-    final out = await _post('/v1/admin/fleet/restart',
-        reason == null ? {} : {'reason': reason});
-    return _decodeMap(out);
-  }
+  Future<Map<String, dynamic>> adminFleetRestart({String? reason}) =>
+      admin.adminFleetRestart(reason: reason);
 
-  Future<Map<String, dynamic>> adminFleetUpdate({String? reason}) async {
-    final out = await _post('/v1/admin/fleet/update',
-        reason == null ? {} : {'reason': reason});
-    return _decodeMap(out);
-  }
+  Future<Map<String, dynamic>> adminFleetUpdate({String? reason}) =>
+      admin.adminFleetUpdate(reason: reason);
 
-  /// Runs VACUUM on the live hub database and reports bytes reclaimed.
-  Future<Map<String, dynamic>> adminDbVacuum() async {
-    final out = await _post('/v1/admin/db/vacuum', {});
-    return _decodeMap(out);
-  }
+  Future<Map<String, dynamic>> adminDbVacuum() => admin.adminDbVacuum();
 
-  /// Rotates the host bearer token across the fleet. The plaintext of
-  /// the new token is in `new_token` — shown once.
-  Future<Map<String, dynamic>> adminRotateTokens(
-      {bool forceRevoke = false}) async {
-    final out = await _post('/v1/admin/tokens/rotate',
-        forceRevoke ? {'force_revoke': true} : {});
-    return _decodeMap(out);
-  }
+  Future<Map<String, dynamic>> adminRotateTokens({bool forceRevoke = false}) =>
+      admin.adminRotateTokens(forceRevoke: forceRevoke);
 
-  /// Cross-team audit query for the Admin pane and the audit screen.
-  /// [actionPrefix] is left-anchored — pass "host." to catch the whole
-  /// host-verb family in one query.
   Future<List<Map<String, dynamic>>> adminListAudit({
     String? actionPrefix,
     String? targetKind,
     String? actor,
     String? since,
     int limit = 100,
-  }) async {
-    final q = <String, String>{'limit': '$limit'};
-    if (actionPrefix != null && actionPrefix.isNotEmpty) {
-      q['action_prefix'] = actionPrefix;
-    }
-    if (targetKind != null && targetKind.isNotEmpty) {
-      q['target_kind'] = targetKind;
-    }
-    if (actor != null && actor.isNotEmpty) q['actor'] = actor;
-    if (since != null && since.isNotEmpty) q['since'] = since;
-    final out = await _get('/v1/admin/audit', query: q);
-    final events = (out as Map)['events'];
-    return events == null ? [] : _decodeListMaps(events);
-  }
+  }) =>
+      admin.adminListAudit(
+        actionPrefix: actionPrefix,
+        targetKind: targetKind,
+        actor: actor,
+        since: since,
+        limit: limit,
+      );
 
-  /// Fetches the raw team policy.yaml. Returns an empty string when the
-  /// hub has no policy file yet — the editor treats that as a blank canvas.
-  Future<String> getPolicy() async {
-    final req = await _open('GET', '/v1/teams/${cfg.teamId}/policy');
-    req.headers.set(HttpHeaders.acceptHeader, 'application/yaml');
-    final resp = await req.close();
-    final body = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, body);
-    }
-    return body;
-  }
+  Future<String> getPolicy() => admin.getPolicy();
 
-  /// ADR-030 W21 — read-only view of the policy file's `kinds:` block,
-  /// parsed server-side so the Flutter binary doesn't need a YAML
-  /// parser. Returns `{kindName: {default_tier, commits,
-  /// override_allowed, escalate_on_*, quorum: {tier: {m}}}, ...}`.
-  /// Empty map when the file is absent OR when the `kinds:` block is
-  /// omitted from a legacy policy.yaml. Throws HubApiError(500) when
-  /// the file is on disk but malformed (operator hand-edited it
-  /// outside the PUT flow).
-  Future<Map<String, dynamic>> getPolicyKinds() async {
-    final out = await _get('/v1/teams/${cfg.teamId}/policy/kinds');
-    final m = (out as Map).cast<String, dynamic>();
-    final kinds = m['kinds'];
-    if (kinds is Map) {
-      return kinds.cast<String, dynamic>();
-    }
-    return const {};
-  }
+  Future<Map<String, dynamic>> getPolicyKinds() => admin.getPolicyKinds();
 
-  /// Writes team policy.yaml atomically and triggers an in-memory reload.
-  /// Parse errors are surfaced as HubApiError(400) so the caller can show
-  /// the YAML diagnostic to the user without overwriting the good file.
-  Future<void> putPolicy(String yaml) async {
-    final req = await _open('PUT', '/v1/teams/${cfg.teamId}/policy');
-    req.headers.contentType =
-        ContentType('application', 'yaml', charset: 'utf-8');
-    req.add(utf8.encode(yaml));
-    final resp = await req.close();
-    final body = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, body);
-    }
-  }
+  Future<void> putPolicy(String yaml) => admin.putPolicy(yaml);
 
   Future<List<Map<String, dynamic>>> _listJson(
     String path, {

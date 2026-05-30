@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.740
+> **Last verified vs code:** v1.0.741
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,23 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.741-alpha — 2026-05-30
+
+**hub_client split W6 — `AdminApi` extracted (no behavior change).**
+
+Sixth wedge of `docs/plans/hub-client-split.md`. The operator admin/ops
+surface (ADR-028 Phase 5) is a contiguous, self-contained block.
+
+### Added
+- `AdminApi` (`admin_api.dart`) — per-host + fleet shutdown/restart/
+  update, `adminDbVacuum`, `adminRotateTokens`, `adminListAudit`, and the
+  team `policy.yaml` editor (`getPolicy`/`getPolicyKinds`/`putPolicy`).
+- `HubClient` `admin` getter + thirteen delegators.
+
+Note: this is the `AdminApi` split; the original plan numbered W6 as
+`HostsApi` (host lists/lifecycle/mutations), which becomes W7. The admin
+block was cleaved first because it is contiguous and lower-risk.
 
 ## v1.0.740-alpha — 2026-05-30
 

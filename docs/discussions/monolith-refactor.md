@@ -1,9 +1,9 @@
 # Monolith refactor — agent_feed, terminal_screen, hub_client, 1k-LOC screens
 
 > **Type:** discussion
-> **Status:** Open — R2A (agent_feed) shipped v1.0.729–735; R1 (hub_client) plan authored, W1+ pending; R0/R2T/R3 not started
+> **Status:** Open — R2A (agent_feed) shipped v1.0.729–735; R1 (hub_client) shipped v1.0.736–751 (16 sub-clients + facade); R0/R2T/R3 not started
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.735
+> **Last verified vs code:** v1.0.751
 > **Freshness:** rolling
 
 **TL;DR.** Tech-debt sketch for the largest files in the Flutter app.
@@ -442,7 +442,7 @@ have momentum.
 | ID | Wedge | Target | Days | Status |
 |---|---|---|---:|---|
 | R0 | CI LOC tripwire (staged ceiling + ratchet) | ceiling 6,300→1,500 | 0.5 | not started |
-| R1 | hub_client → sub-clients + facade | 3,571 → 450 + clients | 3–4 | plan authored (`plans/hub-client-split.md`); W1+ pending |
+| R1 | hub_client → sub-clients + facade | 3,571 → 1,563 + 16 clients | 3–4 | **shipped** v1.0.736–751 (`plans/hub-client-split.md`, Complete) |
 | R2A.* | agent_feed split (W0–W6) | 6,196 → 1,574 | — | **shipped** v1.0.729–735 (`plans/agent-feed-split.md`, Complete) |
 | R2T.1 | TerminalLifecycleController | -250 | 1 | not started |
 | R2T.2 | TerminalTransferController | -400 | 1.5 | not started |

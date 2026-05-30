@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-29)
+> **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.750
+> **Last verified vs code:** v1.0.751
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,42 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.751-alpha — 2026-05-30
+
+**hub_client split W16 — `ProjectsApi` extracted; monolith fully cleaved
+(no behavior change).**
+
+Sixteenth and final wedge of `docs/plans/hub-client-split.md`. With the
+project domain peeled off, every `HubClient` method body now lives in a
+per-domain `*Api` sub-client; `HubClient` is a pure facade of one-line
+delegators over a shared `HubTransport`. No call site changed.
+
+### Added
+- `ProjectsApi` (`projects_api.dart`, 489 LOC) — projects
+  (`listProjects`/`getProject` + cached, `createProject`,
+  `updateProject`, `archiveProject`), phase/lifecycle
+  (`getProjectPhase`, `advanceProjectPhase`, `setProjectPhase`,
+  `getStewardState`, `getProjectTemplateYaml`), channels
+  (`listChannels`/`listTeamChannels` + cached, `createChannel`,
+  `createTeamChannel`), channel events (`postProjectChannelEvent`,
+  `postTeamChannelEvent`, `listProjectChannelEvents`/
+  `listTeamChannelEvents` + cached, plus the shared private
+  `_postEvent`), `listPrincipals`, and project docs
+  (`listProjectDocs` + cached, `getProjectDoc`).
+- `HubClient` `projects` getter + delegators for all of the above.
+
+### Removed
+- All remaining legacy transport shims (`_get`/`_post`/`_patch`/
+  `_delete`/`_open`/`_invalidate`/`_listJson`/`_cacheHubKey`/
+  `_decodeListMaps`) — W16 moved their last callers, so they became
+  defined-but-unreferenced. `HubClient` no longer imports `dart:io`
+  or `dart:convert` (no raw HTTP/codec work left in the facade).
+
+### Changed
+- `hub_client.dart` 1,845 → 1,563 LOC. The split is complete: a
+  ~3,571-LOC God-class is now a 1,563-LOC facade + 16 focused
+  sub-clients (R1 of `docs/discussions/monolith-refactor.md`).
 
 ## v1.0.750-alpha — 2026-05-30
 

@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'blob_bytes_cache.dart';
 import 'hub_read_through.dart';
 import 'admin_api.dart';
@@ -14,6 +11,7 @@ import 'hosts_api.dart';
 import 'hub_snapshot_cache.dart';
 import 'hub_transport.dart';
 import 'plans_api.dart';
+import 'projects_api.dart';
 import 'runs_api.dart';
 import 'search_api.dart';
 import 'sessions_api.dart';
@@ -39,10 +37,10 @@ export 'hub_transport.dart' show HubConfig, HubApiError, HubTransport;
 class HubClient {
   final HubConfig cfg;
 
-  /// Shared HTTP + cache transport. Held privately; the per-domain
-  /// sub-clients (see docs/plans/hub-client-split.md) are constructed
-  /// against it as each wedge peels them off. The legacy method bodies
-  /// below still reach it through the private `_get`/`_post`/… shims.
+  /// Shared HTTP + cache transport. Held privately and injected into each
+  /// per-domain sub-client (see docs/plans/hub-client-split.md). With W16
+  /// every method body now lives in a sub-client; `HubClient` is a pure
+  /// facade of delegators.
   final HubTransport _t;
 
   HubClient(this.cfg) : _t = HubTransport(cfg);
@@ -105,6 +103,9 @@ class HubClient {
   /// Tasks (ADR-029): list/get (live + cached), create, patch.
   late final TasksApi tasks = TasksApi(_t);
 
+  /// Projects + their channels, channel events, principals, project docs.
+  late final ProjectsApi projects = ProjectsApi(_t);
+
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
   /// sub-clients and the legacy methods share one cache. When null, the
@@ -121,43 +122,10 @@ class HubClient {
     _t.close();
   }
 
-  // ---- transport shims ----
-  //
-  // Forward to [HubTransport] so the existing method bodies below stay
-  // byte-for-byte unchanged while the per-domain sub-clients are peeled
-  // off one wedge at a time. As each domain moves to its own *Api class
-  // it calls `_t.<verb>` directly; the matching shim is removed once its
-  // last caller has left.
-
-  String get _cacheHubKey => _t.cacheHubKey;
-
-  List<Map<String, dynamic>> _decodeListMaps(Object body) =>
-      _t.decodeListMaps(body);
-
-
-  Future<void> _invalidate(String prefix) => _t.invalidate(prefix);
-
-  Future<HttpClientRequest> _open(
-    String method,
-    String path, {
-    Map<String, String>? query,
-    bool auth = true,
-  }) =>
-      _t.open(method, path, query: query, auth: auth);
-
-
-  Future<dynamic> _get(String path,
-          {Map<String, String>? query, bool auth = true}) =>
-      _t.get(path, query: query, auth: auth);
-
-  Future<dynamic> _post(String path, Object body,
-          {Map<String, String>? query}) =>
-      _t.post(path, body, query: query);
-
-  Future<dynamic> _patch(String path, Object body) => _t.patch(path, body);
-
-
-  Future<void> _delete(String path) => _t.delete(path);
+  // The per-domain method bodies have all moved to their *Api sub-clients
+  // (docs/plans/hub-client-split.md); the legacy private transport shims
+  // (`_get`/`_post`/…) they used are gone now that W16 (ProjectsApi)
+  // removed their last callers. Reach the transport via `_t.<verb>`.
 
   // ---- info / probe / insights → SystemApi (W2) ----
 
@@ -250,89 +218,35 @@ class HubClient {
       agents.listSpawnsCached();
 
   Future<List<Map<String, dynamic>>> listProjects({bool? isTemplate}) =>
-      _listJson(
-        '/v1/teams/${cfg.teamId}/projects',
-        query: isTemplate == null
-            ? null
-            : {'is_template': isTemplate ? 'true' : 'false'},
-      );
+      projects.listProjects(isTemplate: isTemplate);
 
-  /// Fetches a single project by id (`/v1/teams/{team}/projects/{id}`).
-  /// Used by pull-to-refresh on the project detail screen so the owner
-  /// can pick up server-side resolution (overview_widget,
-  /// phase_tiles_template, etc.) without re-loading the whole team list.
-  Future<Map<String, dynamic>> getProject(String projectId) async {
-    final out = await _get(
-      '/v1/teams/${cfg.teamId}/projects/$projectId',
-    );
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> getProject(String projectId) =>
+      projects.getProject(projectId);
 
-  /// Read-through variant of [listProjects]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listProjectsCached({
     bool? isTemplate,
-  }) {
-    final q = isTemplate == null
-        ? null
-        : {'is_template': isTemplate ? 'true' : 'false'};
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/projects', q),
-      fetch: () => listProjects(isTemplate: isTemplate),
-      decode: _decodeListMaps,
-    );
-  }
+  }) =>
+      projects.listProjectsCached(isTemplate: isTemplate);
 
   Future<List<Map<String, dynamic>>> listChannels(String projectId) =>
-      _listJson('/v1/teams/${cfg.teamId}/projects/$projectId/channels');
+      projects.listChannels(projectId);
 
-  /// Read-through variant of [listChannels]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listChannelsCached(
     String projectId,
   ) =>
-      readThrough<List<Map<String, dynamic>>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint:
-            '/v1/teams/${cfg.teamId}/projects/$projectId/channels',
-        fetch: () => listChannels(projectId),
-        decode: _decodeListMaps,
-      );
+      projects.listChannelsCached(projectId);
 
-  /// Team-scope channels (project_id NULL, scope_kind='team'). `#hub-meta`
-  /// is auto-seeded by hub init — it's the principal↔steward room.
   Future<List<Map<String, dynamic>>> listTeamChannels() =>
-      _listJson('/v1/teams/${cfg.teamId}/channels');
+      projects.listTeamChannels();
 
-  /// Read-through variant of [listTeamChannels]; see [listRunsCached] for
-  /// the offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listTeamChannelsCached() =>
-      readThrough<List<Map<String, dynamic>>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint: '/v1/teams/${cfg.teamId}/channels',
-        fetch: listTeamChannels,
-        decode: _decodeListMaps,
-      );
+      projects.listTeamChannelsCached();
 
-  Future<Map<String, dynamic>> createTeamChannel(String name) async {
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/channels',
-      {'name': name},
-    );
-    await _invalidate('/v1/teams/${cfg.teamId}/channels');
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> createTeamChannel(String name) =>
+      projects.createTeamChannel(name);
 
-  /// Humans don't have a dedicated table; they're tracked as `auth_tokens`
-  /// rows with `scope.role='principal'`. This endpoint coalesces by
-  /// `scope.handle`, returning one row per unique handle plus a bucket for
-  /// unnamed tokens.
   Future<List<Map<String, dynamic>>> listPrincipals() =>
-      _listJson('/v1/teams/${cfg.teamId}/principals');
+      projects.listPrincipals();
 
   /// Lists attention items for the team.
   ///
@@ -596,21 +510,14 @@ class HubClient {
 
   Future<void> putPolicy(String yaml) => admin.putPolicy(yaml);
 
-  Future<List<Map<String, dynamic>>> _listJson(
-    String path, {
-    Map<String, String>? query,
-  }) =>
-      _t.listJson(path, query: query);
-
   // ---- project / task / channel writes ----
 
   Future<Map<String, dynamic>> createProject({
     required String name,
     String? docsRoot,
     String? configYaml,
-    // Blueprint §6.1 fields (P0.1):
     String? goal,
-    String? kind, // 'goal' | 'standing'
+    String? kind,
     String? parentProjectId,
     String? templateId,
     Map<String, dynamic>? parameters,
@@ -619,33 +526,23 @@ class HubClient {
     String? stewardAgentId,
     String? onCreateTemplateId,
     Map<String, dynamic>? policyOverrides,
-  }) async {
-    final body = <String, dynamic>{'name': name};
-    if (docsRoot != null && docsRoot.isNotEmpty) body['docs_root'] = docsRoot;
-    if (configYaml != null && configYaml.isNotEmpty) {
-      body['config_yaml'] = configYaml;
-    }
-    if (goal != null) body['goal'] = goal;
-    if (kind != null) body['kind'] = kind;
-    if (parentProjectId != null) body['parent_project_id'] = parentProjectId;
-    if (templateId != null) body['template_id'] = templateId;
-    if (parameters != null) body['parameters_json'] = parameters;
-    if (isTemplate != null) body['is_template'] = isTemplate;
-    if (budgetCents != null) body['budget_cents'] = budgetCents;
-    if (stewardAgentId != null) body['steward_agent_id'] = stewardAgentId;
-    if (onCreateTemplateId != null) {
-      body['on_create_template_id'] = onCreateTemplateId;
-    }
-    if (policyOverrides != null) {
-      body['policy_overrides_json'] = policyOverrides;
-    }
-    final out = await _post('/v1/teams/${cfg.teamId}/projects', body);
-    await _invalidate('/v1/teams/${cfg.teamId}/projects');
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      projects.createProject(
+        name: name,
+        docsRoot: docsRoot,
+        configYaml: configYaml,
+        goal: goal,
+        kind: kind,
+        parentProjectId: parentProjectId,
+        templateId: templateId,
+        parameters: parameters,
+        isTemplate: isTemplate,
+        budgetCents: budgetCents,
+        stewardAgentId: stewardAgentId,
+        onCreateTemplateId: onCreateTemplateId,
+        policyOverrides: policyOverrides,
+      );
 
-  /// PATCHes mutable project fields (P0.1). Pass only the fields you're
-  /// changing — null-valued keys are omitted from the body.
   Future<Map<String, dynamic>> updateProject(
     String projectId, {
     String? name,
@@ -658,144 +555,53 @@ class HubClient {
     String? onCreateTemplateId,
     Map<String, dynamic>? policyOverrides,
     String? docsRoot,
-    /// Per-phase tile composition override. Shape:
-    /// `{"<phase>": ["documents", "outputs", ...]}`. Pass an empty map
-    /// to clear the override (falls back to template YAML + chassis
-    /// default). Pass null to leave the existing value untouched.
     Map<String, List<String>>? phaseTileOverrides,
-    /// Per-phase hero (overview-widget) override (ADR-024 D10). Shape:
-    /// `{"<phase>": "<hero_slug>"}`. Empty map → clear. Null → leave
-    /// untouched. Vocab is the closed `kKnownOverviewWidgets` set;
-    /// unknown slugs are accepted by the hub but fall back to the
-    /// template-side resolution.
     Map<String, String>? overviewWidgetOverrides,
-
-    /// Per-project loop-closure deadline override (ADR-034 amendment).
-    /// Minutes. Pass 0 to clear the override (the project reverts to the
-    /// hub default budget); null leaves the value unchanged.
     int? loopInactivityMinutes,
     int? loopAbsoluteCapMinutes,
-  }) async {
-    final body = <String, dynamic>{};
-    if (name != null) body['name'] = name;
-    if (goal != null) body['goal'] = goal;
-    if (kind != null) body['kind'] = kind;
-    if (templateId != null) body['template_id'] = templateId;
-    if (parameters != null) body['parameters_json'] = parameters;
-    if (budgetCents != null) body['budget_cents'] = budgetCents;
-    if (loopInactivityMinutes != null) {
-      body['loop_inactivity_minutes'] = loopInactivityMinutes;
-    }
-    if (loopAbsoluteCapMinutes != null) {
-      body['loop_absolute_cap_minutes'] = loopAbsoluteCapMinutes;
-    }
-    if (stewardAgentId != null) body['steward_agent_id'] = stewardAgentId;
-    if (onCreateTemplateId != null) {
-      body['on_create_template_id'] = onCreateTemplateId;
-    }
-    if (policyOverrides != null) {
-      body['policy_overrides_json'] = policyOverrides;
-    }
-    if (docsRoot != null) body['docs_root'] = docsRoot;
-    if (phaseTileOverrides != null) {
-      // Pass empty map through as null on the wire so the server
-      // clears the column (consistent with nullRawJSON semantics).
-      body['phase_tile_overrides'] =
-          phaseTileOverrides.isEmpty ? null : phaseTileOverrides;
-    }
-    if (overviewWidgetOverrides != null) {
-      body['overview_widget_overrides'] =
-          overviewWidgetOverrides.isEmpty ? null : overviewWidgetOverrides;
-    }
-    final out = await _patch(
-      '/v1/teams/${cfg.teamId}/projects/$projectId',
-      body,
-    );
-    await _invalidate('/v1/teams/${cfg.teamId}/projects');
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      projects.updateProject(
+        projectId,
+        name: name,
+        goal: goal,
+        kind: kind,
+        templateId: templateId,
+        parameters: parameters,
+        budgetCents: budgetCents,
+        stewardAgentId: stewardAgentId,
+        onCreateTemplateId: onCreateTemplateId,
+        policyOverrides: policyOverrides,
+        docsRoot: docsRoot,
+        phaseTileOverrides: phaseTileOverrides,
+        overviewWidgetOverrides: overviewWidgetOverrides,
+        loopInactivityMinutes: loopInactivityMinutes,
+        loopAbsoluteCapMinutes: loopAbsoluteCapMinutes,
+      );
 
-  Future<void> archiveProject(String projectId) async {
-    await _delete('/v1/teams/${cfg.teamId}/projects/$projectId');
-    await _invalidate('/v1/teams/${cfg.teamId}/projects');
-  }
+  Future<void> archiveProject(String projectId) =>
+      projects.archiveProject(projectId);
 
-  /// Reads the current phase + template phase order + transition log
-  /// for a project (lifecycle W1). Returns a payload of the shape
-  /// `{project_id, phase, phases:[...], history:[...]}` — fields are
-  /// empty for lifecycle-disabled projects.
-  Future<Map<String, dynamic>> getProjectPhase(String projectId) async {
-    final out = await _get(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/phase',
-    );
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> getProjectPhase(String projectId) =>
+      projects.getProjectPhase(projectId);
 
-  /// Walks the project to the next phase in its template's phase order
-  /// (lifecycle W1). Throws [HubApiError] with code 409 +
-  /// `application/problem+json` body when required acceptance criteria
-  /// for the current phase haven't been met. The returned payload has
-  /// the same shape as [getProjectPhase].
   Future<Map<String, dynamic>> advanceProjectPhase(
     String projectId, {
     String? toPhase,
     String? reason,
-  }) async {
-    final body = <String, dynamic>{};
-    if (toPhase != null && toPhase.isNotEmpty) body['to_phase'] = toPhase;
-    if (reason != null && reason.isNotEmpty) body['reason'] = reason;
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/phase/advance',
-      body,
-    );
-    await _invalidate('/v1/teams/${cfg.teamId}/projects');
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      projects.advanceProjectPhase(projectId, toPhase: toPhase, reason: reason);
 
-  /// Admin-only direct phase set (lifecycle W1, hydration / repair). Skips
-  /// criteria gating; the audit row is `project.phase_set` (or
-  /// `project.phase_reverted` when moving backwards in the template's
-  /// order).
   Future<Map<String, dynamic>> setProjectPhase(
     String projectId,
     String phase,
-  ) async {
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/phase',
-      {'phase': phase},
-    );
-    await _invalidate('/v1/teams/${cfg.teamId}/projects');
-    return (out as Map).cast<String, dynamic>();
-  }
+  ) =>
+      projects.setProjectPhase(projectId, phase);
 
-  /// Reads the project steward's live state (lifecycle W3 — A3 §10.1).
-  /// Cache-Control on the response is `private, no-cache`, so this
-  /// always hits the network rather than the snapshot cache.
-  /// Returns the JSON map verbatim — `{scope, agent_id, state,
-  /// current_action?, handoff?}`.
-  Future<Map<String, dynamic>> getStewardState(String projectId) async {
-    final out = await _get(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/steward/state',
-    );
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> getStewardState(String projectId) =>
+      projects.getStewardState(projectId);
 
-  /// Fetches the raw YAML body of a project template by name (W3 YAML
-  /// reveal sheet). The hub serves this as `text/yaml` rather than
-  /// JSON — caller receives the file contents as a UTF-8 string.
-  /// Routes around the JSON decode path because the body is not JSON.
-  Future<String> getProjectTemplateYaml(String name) async {
-    final req = await _open(
-      'GET',
-      '/v1/teams/${cfg.teamId}/templates/projects/$name.yaml',
-    );
-    final resp = await req.close();
-    final body = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, body);
-    }
-    return body;
-  }
+  Future<String> getProjectTemplateYaml(String name) =>
+      projects.getProjectTemplateYaml(name);
 
   Future<Map<String, dynamic>> createTask(
     String projectId, {
@@ -819,37 +625,8 @@ class HubClient {
   Future<Map<String, dynamic>> createChannel(
     String projectId,
     String name,
-  ) async {
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/channels',
-      {'name': name},
-    );
-    await _invalidate('/v1/teams/${cfg.teamId}/projects/$projectId/channels');
-    return (out as Map).cast<String, dynamic>();
-  }
-
-  /// Shared POST for both project- and team-scope channels. [path] is the
-  /// channel events URL the server mounts the reused [handlePostEvent] on.
-  Future<Map<String, dynamic>> _postEvent(
-    String path, {
-    required String type,
-    List<Map<String, dynamic>>? parts,
-    String? fromId,
-    List<String>? toIds,
-    String? taskId,
-    String? correlationId,
-  }) async {
-    final body = <String, dynamic>{'type': type};
-    if (parts != null) body['parts'] = parts;
-    if (fromId != null && fromId.isNotEmpty) body['from_id'] = fromId;
-    if (toIds != null && toIds.isNotEmpty) body['to_ids'] = toIds;
-    if (taskId != null && taskId.isNotEmpty) body['task_id'] = taskId;
-    if (correlationId != null && correlationId.isNotEmpty) {
-      body['correlation_id'] = correlationId;
-    }
-    final out = await _post(path, body);
-    return (out as Map).cast<String, dynamic>();
-  }
+  ) =>
+      projects.createChannel(projectId, name);
 
   Future<Map<String, dynamic>> postProjectChannelEvent(
     String projectId,
@@ -861,8 +638,9 @@ class HubClient {
     String? taskId,
     String? correlationId,
   }) =>
-      _postEvent(
-        '/v1/teams/${cfg.teamId}/projects/$projectId/channels/$channelId/events',
+      projects.postProjectChannelEvent(
+        projectId,
+        channelId,
         type: type,
         parts: parts,
         fromId: fromId,
@@ -880,8 +658,8 @@ class HubClient {
     String? taskId,
     String? correlationId,
   }) =>
-      _postEvent(
-        '/v1/teams/${cfg.teamId}/channels/$channelId/events',
+      projects.postTeamChannelEvent(
+        channelId,
         type: type,
         parts: parts,
         fromId: fromId,
@@ -894,77 +672,40 @@ class HubClient {
     String channelId, {
     String? since,
     int? limit,
-  }) {
-    final q = <String, String>{};
-    if (since != null && since.isNotEmpty) q['since'] = since;
-    if (limit != null) q['limit'] = '$limit';
-    return _listJson(
-      '/v1/teams/${cfg.teamId}/channels/$channelId/events',
-      query: q.isEmpty ? null : q,
-    );
-  }
+  }) =>
+      projects.listTeamChannelEvents(channelId, since: since, limit: limit);
 
   Future<List<Map<String, dynamic>>> listProjectChannelEvents(
     String projectId,
     String channelId, {
     String? since,
     int? limit,
-  }) {
-    final q = <String, String>{};
-    if (since != null && since.isNotEmpty) q['since'] = since;
-    if (limit != null) q['limit'] = '$limit';
-    return _listJson(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/channels/$channelId/events',
-      query: q.isEmpty ? null : q,
-    );
-  }
+  }) =>
+      projects.listProjectChannelEvents(
+        projectId,
+        channelId,
+        since: since,
+        limit: limit,
+      );
 
-  /// Read-through caches for channel-event bootstrap. Mirrors the
-  /// agent_events tail caching: each call snapshots the most recent
-  /// window-sized fetch under one cache row per (channel, limit). SSE
-  /// then takes over for live updates into the screen's in-memory
-  /// state, so the cache is only consulted on cold open / network
-  /// failure. We deliberately omit `since` from the cache key — the
-  /// "what did I last read here" snapshot is what offline UX wants;
-  /// every distinct since-cursor would otherwise bloat the cache
-  /// without any payback for offline reads.
   Future<CachedResponse<List<Map<String, dynamic>>>>
       listTeamChannelEventsCached(
     String channelId, {
     int? limit,
-  }) {
-    final q = limit == null ? null : {'limit': '$limit'};
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey(
-        '/v1/teams/${cfg.teamId}/channels/$channelId/events',
-        q,
-      ),
-      fetch: () => listTeamChannelEvents(channelId, limit: limit),
-      decode: _decodeListMaps,
-    );
-  }
+  }) =>
+          projects.listTeamChannelEventsCached(channelId, limit: limit);
 
   Future<CachedResponse<List<Map<String, dynamic>>>>
       listProjectChannelEventsCached(
     String projectId,
     String channelId, {
     int? limit,
-  }) {
-    final q = limit == null ? null : {'limit': '$limit'};
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey(
-        '/v1/teams/${cfg.teamId}/projects/$projectId/channels/$channelId/events',
-        q,
-      ),
-      fetch: () =>
-          listProjectChannelEvents(projectId, channelId, limit: limit),
-      decode: _decodeListMaps,
-    );
-  }
+  }) =>
+          projects.listProjectChannelEventsCached(
+            projectId,
+            channelId,
+            limit: limit,
+          );
 
   // ---- spawn + steward → AgentsApi (W9) ----
 
@@ -1753,39 +1494,16 @@ class HubClient {
 
   // ---- project docs (read-only) ----
 
-  /// Flat list of doc entries under the project's docs_root. Each entry
-  /// has `path` (relative), `size`, `mod_time`, and optional `is_dir`.
-  /// Returns an empty list if the project has no docs_root configured.
   Future<List<Map<String, dynamic>>> listProjectDocs(String projectId) =>
-      _listJson('/v1/teams/${cfg.teamId}/projects/$projectId/docs');
+      projects.listProjectDocs(projectId);
 
-  /// Read-through variant of [listProjectDocs]; see [listRunsCached] for
-  /// the offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listProjectDocsCached(
     String projectId,
   ) =>
-      readThrough<List<Map<String, dynamic>>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint: '/v1/teams/${cfg.teamId}/projects/$projectId/docs',
-        fetch: () => listProjectDocs(projectId),
-        decode: _decodeListMaps,
-      );
+      projects.listProjectDocsCached(projectId);
 
-  /// Reads a single doc as a UTF-8 string. The hub serves any file type;
-  /// caller decides how to render based on extension.
-  Future<String> getProjectDoc(String projectId, String relPath) async {
-    final req = await _open(
-      'GET',
-      '/v1/teams/${cfg.teamId}/projects/$projectId/docs/$relPath',
-    );
-    final resp = await req.close();
-    final body = await resp.transform(utf8.decoder).join();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HubApiError(resp.statusCode, body);
-    }
-    return body;
-  }
+  Future<String> getProjectDoc(String projectId, String relPath) =>
+      projects.getProjectDoc(projectId, relPath);
 
   // ---- blobs (content-addressed) → BlobsApi (W3) ----
 

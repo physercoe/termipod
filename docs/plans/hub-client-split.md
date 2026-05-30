@@ -6,9 +6,9 @@ description: Executable wedge-by-wedge plan to split lib/services/hub/hub_client
 # Hub client split — phased
 
 > **Type:** plan
-> **Status:** In progress — W1–W15 shipped (v1.0.736–750; …, TemplatesApi, TasksApi); remaining: ProjectsApi (projects + channels + project docs) — the final wedge. NOTE: the real decomposition needs more sub-clients than the original 11-row map (Admin, Hosts, Tasks, Templates, AgentFamilies split out); the wedge table is being relabelled as each lands.
+> **Status:** Complete — W1–W16 shipped (v1.0.736–751). All 16 sub-clients extracted; `HubClient` is now a pure facade of one-line delegators over a shared `HubTransport`, with every transport shim removed. NOTE: the real decomposition needed more sub-clients than the original 11-row map (Admin, Hosts, Tasks, Templates split out separately); the wedge table was relabelled as each landed.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.750
+> **Last verified vs code:** v1.0.751
 
 **TL;DR.** `lib/services/hub/hub_client.dart` is 3,571 LOC — one
 `HubClient` class with **208 `Future`/`Stream` methods** grouped by
@@ -150,7 +150,7 @@ seam cheaply before the big ones. One version bump per wedge.
 | ~~**W8**~~ ✅ | `SessionsApi` (11 session methods). **Shipped v1.0.743.** | `sessions_api.dart` | med (size) |
 | ~~**W10**~~ ✅ | `RunsApi` — schedules + runs (24 methods incl. 2 private translators); dropped orphaned `_put` shim. **Shipped v1.0.745.** | `runs_api.dart` | med |
 | ~~**W9**~~ ✅ | `AgentsApi` — 22 methods (collections + spawn + steward + lifecycle + event queue). **Shipped v1.0.744.** | `agents_api.dart` | med (size) |
-| **W10** | `ProjectsApi` (+ tasks, channels) | `projects_api.dart` | med (size) |
+| ~~**W16**~~ ✅ | `ProjectsApi` — projects + phase/lifecycle + channels + channel events + principals + project docs (28 methods + private `_postEvent`), cherry-picked from 3 banner regions. Final wedge: also removed all remaining transport shims + `dart:io`/`dart:convert` imports from the facade. **Shipped v1.0.751.** | `projects_api.dart` | med (size) |
 | ~~**W11**~~ ✅ | `DocumentsApi` — documents + annotations (13 methods + private cache helper); reviews/deliverables/plans split into later wedges. **Shipped v1.0.746.** | `documents_api.dart` | med |
 | ~~**W12**~~ ✅ | `DeliverablesApi` — deliverables/criteria/overview/versions/artifacts/reviews (27 methods + 4 private helpers). **Shipped v1.0.747.** | `deliverables_api.dart` | med |
 | ~~**W13**~~ ✅ | `PlansApi` — plans + plan steps (10 methods). **Shipped v1.0.748.** | `plans_api.dart` | low |
@@ -170,18 +170,23 @@ seam cheaply before the big ones. One version bump per wedge.
 
 ---
 
-## Outcome target
+## Outcome
 
-`hub_client.dart` 3,571 → **~450** (facade: `HubConfig`, `HubApiError`,
-the sub-client getters, and 208 one-line delegators) + 11 cohesive
-sub-client libraries + a 140-LOC `HubTransport`. If the optional W12+
-call-site migration ever runs, the delegators dissolve and the facade
-drops further — but that is a separate, higher-risk effort and not
-promised here.
+Final numbers (W16, v1.0.751): `hub_client.dart` **3,571 → 1,563 LOC**
+— a pure facade of ~200 one-line delegators + the 16 sub-client getters
++ cache passthroughs — sitting over **16 cohesive sub-client libraries**
+(`system`, `blobs`, `search`, `events`, `attention`, `admin`, `hosts`,
+`sessions`, `agents`, `runs`, `documents`, `deliverables`, `plans`,
+`templates`, `tasks`, `projects`) and a `HubTransport`. The original
+~450-LOC facade target assumed the delegators would also dissolve; they
+don't, because the call-site migration (optional W17+) is deliberately
+deferred as a separate, higher-blast-radius effort.
 
-Honesty clause (per the agent_feed outcome): a facade of 208 trivial
-delegators is still a few hundred LOC. That is acceptable — the value
-is that every domain's *logic* now lives in a small, named, testable
-unit, and the God-class is gone. Report the real final numbers in this
-section when W11 lands; do not chase a smaller delegator count with
-churn.
+Honesty clause (per the agent_feed outcome): a facade of ~200 trivial
+delegators is still ~1,560 LOC, well above the aspirational ~450. That
+is the cost of the **zero-call-site-change** invariant — every public
+method must keep its signature as a delegator until call sites migrate.
+The win banked here is structural, not line-count: every domain's
+*logic* now lives in a small, named, independently testable unit, and
+the 3,571-LOC God-class is gone. The remaining facade LOC is honest
+overhead, not chased down with churn.

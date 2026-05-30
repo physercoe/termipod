@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.739
+> **Last verified vs code:** v1.0.740
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,20 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.740-alpha — 2026-05-30
+
+**hub_client split W5 — `AttentionApi` extracted (no behavior change).**
+
+Fifth wedge of `docs/plans/hub-client-split.md`. The attention queue's
+list + actions are now one cohesive client, cherry-picked from three
+separate banner regions.
+
+### Added
+- `AttentionApi` (`attention_api.dart`) — `listAttention`/
+  `listAttentionCached` (+ the static `_attentionQuery` helper),
+  `decideAttention`, `getAttentionContext`, `resolveAttention`.
+- `HubClient` `attention` getter + five delegators.
 
 ## v1.0.739-alpha — 2026-05-30
 

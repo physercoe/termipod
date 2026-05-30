@@ -16,7 +16,7 @@ Three layers (see `docs/spine/blueprint.md`):
 - **Host-runner** — a Go deputy on each host. Spawns agents, owns
   their tmux panes, enforces policy, relays agent↔hub MCP calls.
 - **Agent** — the stochastic executor: Claude Code, Codex, Gemini
-  CLI, or Kimi Code.
+  CLI, Kimi Code, or Antigravity.
 
 **A2A** (agent-to-agent) tunnels through the hub via a reverse-tunnel
 relay, so a steward on a VPS can drive a worker on a NAT'd GPU box.
@@ -104,10 +104,12 @@ definitions are in `docs/reference/glossary.md`.
 
 ## Engines & driving modes
 
-Four engines: claude-code, codex, gemini-cli, kimi-code. Each agent
-runs in one **driving mode** (the `agents.driving_mode` column) — the
-control channel differs, governance is identical. Authoritative
-source: `docs/spine/protocols.md` §5.
+Five engine families: claude-code, codex, gemini-cli, kimi-code,
+antigravity. (`gemini-cli` is deprecated — Google retires it
+2026-06-18 for consumer tiers — and `antigravity` is its M4-only
+successor; see ADR-035.) Each agent runs in one **driving mode** (the
+`agents.driving_mode` column) — the control channel differs,
+governance is identical. Authoritative source: `docs/spine/protocols.md` §5.
 
 - **M1 — ACP.** JSON-RPC over stdio via an ACP adapter. Used by
   Codex, Gemini CLI, Kimi Code.

@@ -331,12 +331,14 @@ Owned by the vendor; their schema, their record store, their
 lifecycle.
 - *Distinguish from:* **agent** (hub's row + role).
 
-### claude-code / codex / gemini-cli
-The three supported `agent kind`s. Each has its own driver
-(StdioDriver, AppServerDriver, ExecResumeDriver), frame profile,
-MCP config format, and resume mechanism. ADR-010 pulls vendor
-schema parsing into YAML so adding a fourth is a YAML edit, not a
-Go rebuild.
+### claude-code / codex / gemini-cli / kimi-code / antigravity
+The five supported `agent kind` families (see
+`hub/internal/agentfamilies/agent_families.yaml`). Each has its own
+driver, frame profile, MCP config format, and resume mechanism.
+ADR-010 pulls vendor schema parsing into YAML, so adding another is a
+YAML edit, not a Go rebuild. `gemini-cli` is deprecated (Google
+retires it 2026-06-18 for consumer tiers); `antigravity` is its
+M4-only successor (ADR-035).
 
 ### engine record
 The engine's native conversation file. Claude

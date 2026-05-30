@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.744
+> **Last verified vs code:** v1.0.745
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,26 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.745-alpha — 2026-05-30
+
+**hub_client split W10 — `RunsApi` extracted (no behavior change).**
+
+Tenth wedge of `docs/plans/hub-client-split.md`.
+
+### Added
+- `RunsApi` (`runs_api.dart`) — schedules (list/cached/create/patch/
+  delete/run) and runs (list/get + cached, create/complete, metric-URI,
+  metrics/images/histograms + cached, sweep-summary, putHistograms),
+  plus the private `_runStatusToServer`/`_runRowToUI` UI-vocabulary
+  translators.
+- `HubClient` `runs` getter + twenty-two delegators.
+
+### Removed
+- The orphaned `HubClient._put` shim (`putRunHistograms`, its only
+  caller, moved to `RunsApi` and uses `HubTransport.put` directly).
 
 ---
 

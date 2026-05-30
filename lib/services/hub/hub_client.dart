@@ -11,6 +11,7 @@ import 'events_api.dart';
 import 'hosts_api.dart';
 import 'hub_snapshot_cache.dart';
 import 'hub_transport.dart';
+import 'runs_api.dart';
 import 'search_api.dart';
 import 'sessions_api.dart';
 import 'system_api.dart';
@@ -78,6 +79,10 @@ class HubClient {
   /// and the per-agent event queue (post/list/cache).
   late final AgentsApi agents = AgentsApi(_t);
 
+  /// Runs + schedules: list/get (live + cached), create/complete, the
+  /// metric/image/histogram/sweep digests, and schedule CRUD + fire.
+  late final RunsApi runs = RunsApi(_t);
+
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
   /// sub-clients and the legacy methods share one cache. When null, the
@@ -131,7 +136,6 @@ class HubClient {
 
   Future<dynamic> _patch(String path, Object body) => _t.patch(path, body);
 
-  Future<dynamic> _put(String path, Object body) => _t.put(path, body);
 
   Future<void> _delete(String path) => _t.delete(path);
 
@@ -1379,329 +1383,127 @@ class HubClient {
   }) =>
       attention.resolveAttention(id, by: by, reason: reason);
 
-  // ---- schedules (team-scoped, blueprint §6.3) ----
-  //
-  // Schedules trigger a plan from a template — they never spawn agents
-  // directly (§7 forbidden pattern). Pre-P0.3 clients that POSTed a `spawn`
-  // block will get 400; the wire shape is a hard break at alpha.
+  // ---- schedules + runs → RunsApi (W10) ----
 
   Future<List<Map<String, dynamic>>> listSchedules({String? projectId}) =>
-      _listJson(
-        '/v1/teams/${cfg.teamId}/schedules',
-        query: projectId == null ? null : {'project': projectId},
-      );
+      runs.listSchedules(projectId: projectId);
 
-  /// Read-through variant of [listSchedules]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listSchedulesCached({
     String? projectId,
-  }) {
-    final q = projectId == null ? null : {'project': projectId};
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/schedules', q),
-      fetch: () => listSchedules(projectId: projectId),
-      decode: _decodeListMaps,
-    );
-  }
+  }) =>
+      runs.listSchedulesCached(projectId: projectId);
 
   Future<Map<String, dynamic>> createSchedule({
     required String projectId,
     required String templateId,
-    required String triggerKind, // 'cron' | 'manual' | 'on_create'
+    required String triggerKind,
     String? cronExpr,
     Map<String, dynamic>? parameters,
     bool? enabled,
-  }) async {
-    final body = <String, dynamic>{
-      'project_id': projectId,
-      'template_id': templateId,
-      'trigger_kind': triggerKind,
-    };
-    if (cronExpr != null && cronExpr.isNotEmpty) body['cron_expr'] = cronExpr;
-    if (parameters != null) body['parameters_json'] = parameters;
-    if (enabled != null) body['enabled'] = enabled;
-    final out = await _post('/v1/teams/${cfg.teamId}/schedules', body);
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      runs.createSchedule(
+        projectId: projectId,
+        templateId: templateId,
+        triggerKind: triggerKind,
+        cronExpr: cronExpr,
+        parameters: parameters,
+        enabled: enabled,
+      );
 
-  /// PATCHes an existing schedule. Only cron schedules accept [cronExpr].
   Future<void> patchSchedule(
     String id, {
     bool? enabled,
     String? cronExpr,
     Map<String, dynamic>? parameters,
-  }) async {
-    final body = <String, dynamic>{};
-    if (enabled != null) body['enabled'] = enabled;
-    if (cronExpr != null) body['cron_expr'] = cronExpr;
-    if (parameters != null) body['parameters_json'] = parameters;
-    await _patch('/v1/teams/${cfg.teamId}/schedules/$id', body);
-  }
+  }) =>
+      runs.patchSchedule(
+        id,
+        enabled: enabled,
+        cronExpr: cronExpr,
+        parameters: parameters,
+      );
 
-  Future<void> deleteSchedule(String id) =>
-      _delete('/v1/teams/${cfg.teamId}/schedules/$id');
+  Future<void> deleteSchedule(String id) => runs.deleteSchedule(id);
 
-  /// Manually fires a schedule, creating a plan row. Works for any
-  /// trigger_kind. Returns the new plan id.
-  Future<String> runSchedule(String id) async {
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/schedules/$id/run',
-      const <String, dynamic>{},
-    );
-    return ((out as Map).cast<String, dynamic>()['plan_id'] ?? '').toString();
-  }
-
-  // ---- runs (blueprint §6.5) ----
-  //
-  // Runs are hub's lightweight record of a compute activity. Bulk data
-  // (checkpoints, tb logs) lives on the producing host; hub only stores
-  // name/status/metric URIs.
+  Future<String> runSchedule(String id) => runs.runSchedule(id);
 
   Future<List<Map<String, dynamic>>> listRuns({
     String? projectId,
     String? status,
     int? limit,
-  }) async {
-    final q = <String, String>{};
-    if (projectId != null && projectId.isNotEmpty) q['project'] = projectId;
-    if (status != null && status.isNotEmpty) q['status'] = _runStatusToServer(status);
-    if (limit != null) q['limit'] = '$limit';
-    final rows = await _listJson(
-      '/v1/teams/${cfg.teamId}/runs',
-      query: q.isEmpty ? null : q,
-    );
-    return [for (final r in rows) _runRowToUI(r)];
-  }
+  }) =>
+      runs.listRuns(projectId: projectId, status: status, limit: limit);
 
-  /// Read-through variant of [listRuns] that serves the last cached
-  /// snapshot if the network is down. Cache is keyed on the full URL
-  /// (path + sorted query), so different filters get independent rows.
   Future<CachedResponse<List<Map<String, dynamic>>>> listRunsCached({
     String? projectId,
     String? status,
     int? limit,
-  }) {
-    final q = <String, String>{};
-    if (projectId != null && projectId.isNotEmpty) q['project'] = projectId;
-    if (status != null && status.isNotEmpty) {
-      q['status'] = _runStatusToServer(status);
-    }
-    if (limit != null) q['limit'] = '$limit';
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey(
-        '/v1/teams/${cfg.teamId}/runs',
-        q.isEmpty ? null : q,
-      ),
-      fetch: () => listRuns(
-        projectId: projectId,
-        status: status,
-        limit: limit,
-      ),
-      decode: _decodeListMaps,
-    );
-  }
+  }) =>
+      runs.listRunsCached(projectId: projectId, status: status, limit: limit);
 
-  Future<Map<String, dynamic>> getRun(String runId) async {
-    final out = await _get('/v1/teams/${cfg.teamId}/runs/$runId');
-    return _runRowToUI((out as Map).cast<String, dynamic>());
-  }
+  Future<Map<String, dynamic>> getRun(String runId) => runs.getRun(runId);
 
-  /// Read-through variant of [getRun]; see [listRunsCached] for the
-  /// offline-fallback contract.
-  Future<CachedResponse<Map<String, dynamic>>> getRunCached(
-    String runId,
-  ) =>
-      readThrough<Map<String, dynamic>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint: '/v1/teams/${cfg.teamId}/runs/$runId',
-        fetch: () => getRun(runId),
-        decode: _decodeMap,
-      );
+  Future<CachedResponse<Map<String, dynamic>>> getRunCached(String runId) =>
+      runs.getRunCached(runId);
 
   Future<Map<String, dynamic>> createRun({
     required String projectId,
-    required String kind, // e.g. 'train', 'eval', 'notebook'
+    required String kind,
     String? agentId,
     String? parentRunId,
     String? name,
     Map<String, dynamic>? metadata,
-  }) async {
-    final body = <String, dynamic>{'project_id': projectId, 'kind': kind};
-    if (agentId != null) body['agent_id'] = agentId;
-    if (parentRunId != null) body['parent_run_id'] = parentRunId;
-    if (name != null) body['name'] = name;
-    if (metadata != null) body['metadata_json'] = metadata;
-    final out = await _post('/v1/teams/${cfg.teamId}/runs', body);
-    await _invalidate('/v1/teams/${cfg.teamId}/runs');
-    return (out as Map).cast<String, dynamic>();
-  }
-
-  Future<void> completeRun(
-    String runId, {
-    required String status, // 'succeeded' | 'failed' | 'cancelled'
-    String? summary,
-  }) async {
-    // Server vocabulary uses 'completed'; the rest of the mobile UI says
-    // 'succeeded'. Translate at the boundary.
-    final body = <String, dynamic>{'status': _runStatusToServer(status)};
-    if (summary != null) body['summary'] = summary;
-    await _post('/v1/teams/${cfg.teamId}/runs/$runId/complete', body);
-    await _invalidate('/v1/teams/${cfg.teamId}/runs');
-  }
-
-  // UI run-status 'succeeded' ↔ server 'completed'. All other values pass
-  // through unchanged.
-  String _runStatusToServer(String uiStatus) =>
-      uiStatus == 'succeeded' ? 'completed' : uiStatus;
-
-  Map<String, dynamic> _runRowToUI(Map<String, dynamic> row) {
-    if (row['status'] == 'completed') {
-      return {...row, 'status': 'succeeded'};
-    }
-    return row;
-  }
-
-  Future<void> attachRunMetricURI(
-    String runId, {
-    required String kind, // e.g. 'tensorboard', 'wandb'
-    required String uri,
-  }) async {
-    await _post(
-      '/v1/teams/${cfg.teamId}/runs/$runId/metric_uri',
-      {'kind': kind, 'uri': uri},
-    );
-  }
-
-  /// Pulls the run's metric digests — one row per metric name, each with
-  /// a downsampled [[step, value], ...] points array. The host-runner
-  /// metric poller (trackio/wandb/tensorboard) writes these; the mobile
-  /// app renders them as inline sparklines. Bulk time-series stay on the
-  /// host per blueprint §4.
-  Future<List<Map<String, dynamic>>> getRunMetrics(String runId) =>
-      _listJson('/v1/teams/${cfg.teamId}/runs/$runId/metrics');
-
-  /// Read-through variant of [getRunMetrics]; see [listRunsCached] for the
-  /// offline-fallback contract.
-  Future<CachedResponse<List<Map<String, dynamic>>>> getRunMetricsCached(
-    String runId,
-  ) =>
-      readThrough<List<Map<String, dynamic>>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint: '/v1/teams/${cfg.teamId}/runs/$runId/metrics',
-        fetch: () => getRunMetrics(runId),
-        decode: _decodeListMaps,
-      );
-
-  /// Lists a run's image-panel entries — the wandb "Images" equivalent.
-  /// Each row carries a `metric_name` + `step` + `blob_sha`. The mobile UI
-  /// groups by metric_name and fetches frame bytes lazily via
-  /// [downloadBlob] as the slider is scrubbed.
-  Future<List<Map<String, dynamic>>> getRunImages(
-    String runId, {
-    String? metric,
   }) =>
-      _listJson(
-        '/v1/teams/${cfg.teamId}/runs/$runId/images',
-        query: metric == null ? null : {'metric': metric},
+      runs.createRun(
+        projectId: projectId,
+        kind: kind,
+        agentId: agentId,
+        parentRunId: parentRunId,
+        name: name,
+        metadata: metadata,
       );
 
-  /// Read-through variant of [getRunImages]; see [listRunsCached] for the
-  /// offline-fallback contract.
+  Future<void> completeRun(String runId,
+          {required String status, String? summary}) =>
+      runs.completeRun(runId, status: status, summary: summary);
+
+  Future<void> attachRunMetricURI(String runId,
+          {required String kind, required String uri}) =>
+      runs.attachRunMetricURI(runId, kind: kind, uri: uri);
+
+  Future<List<Map<String, dynamic>>> getRunMetrics(String runId) =>
+      runs.getRunMetrics(runId);
+
+  Future<CachedResponse<List<Map<String, dynamic>>>> getRunMetricsCached(
+          String runId) =>
+      runs.getRunMetricsCached(runId);
+
+  Future<List<Map<String, dynamic>>> getRunImages(String runId,
+          {String? metric}) =>
+      runs.getRunImages(runId, metric: metric);
+
   Future<CachedResponse<List<Map<String, dynamic>>>> getRunImagesCached(
-    String runId, {
-    String? metric,
-  }) {
-    final q = metric == null ? null : {'metric': metric};
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey(
-        '/v1/teams/${cfg.teamId}/runs/$runId/images',
-        q,
-      ),
-      fetch: () => getRunImages(runId, metric: metric),
-      decode: _decodeListMaps,
-    );
-  }
+          String runId, {String? metric}) =>
+      runs.getRunImagesCached(runId, metric: metric);
 
-  /// Per-project sweep summary — one row per run in this project, each
-  /// carrying {run_id, status, config_json (string), final_metrics
-  /// (map name→last value), created_at}. Feeds the cross-run scatter
-  /// panel (wandb "parallel coords" archetype) on the Project detail
-  /// screen. Avoids the N+1 fan-out that listRuns + getRunMetrics would
-  /// require.
-  Future<List<Map<String, dynamic>>> getProjectSweepSummary(
-          String projectId) =>
-      _listJson(
-        '/v1/teams/${cfg.teamId}/projects/$projectId/sweep-summary',
-      );
+  Future<List<Map<String, dynamic>>> getProjectSweepSummary(String projectId) =>
+      runs.getProjectSweepSummary(projectId);
 
-  /// Read-through variant of [getProjectSweepSummary]; see [listRunsCached]
-  /// for the offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>>
       getProjectSweepSummaryCached(String projectId) =>
-          readThrough<List<Map<String, dynamic>>>(
-            cache: snapshotCache,
-            hubKey: _cacheHubKey,
-            endpoint:
-                '/v1/teams/${cfg.teamId}/projects/$projectId/sweep-summary',
-            fetch: () => getProjectSweepSummary(projectId),
-            decode: _decodeListMaps,
-          );
+          runs.getProjectSweepSummaryCached(projectId);
 
-  /// Lists a run's histogram entries — the wandb "Distributions" panel.
-  /// Each row is `{name, step, buckets: {edges, counts}, updated_at}`.
-  /// The mobile widget groups by metric_name and renders a scrubber
-  /// across steps so the distribution shift over training is visible.
-  Future<List<Map<String, dynamic>>> getRunHistograms(
-    String runId, {
-    String? metric,
-  }) =>
-      _listJson(
-        '/v1/teams/${cfg.teamId}/runs/$runId/histograms',
-        query: metric == null ? null : {'metric': metric},
-      );
+  Future<List<Map<String, dynamic>>> getRunHistograms(String runId,
+          {String? metric}) =>
+      runs.getRunHistograms(runId, metric: metric);
 
-  /// Read-through variant of [getRunHistograms]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> getRunHistogramsCached(
-    String runId, {
-    String? metric,
-  }) {
-    final q = metric == null ? null : {'metric': metric};
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey(
-        '/v1/teams/${cfg.teamId}/runs/$runId/histograms',
-        q,
-      ),
-      fetch: () => getRunHistograms(runId, metric: metric),
-      decode: _decodeListMaps,
-    );
-  }
+          String runId, {String? metric}) =>
+      runs.getRunHistogramsCached(runId, metric: metric);
 
-  /// Upserts histogram digests for a run. Body shape:
-  ///   [{"name":..., "step":N, "buckets":{"edges":[...],"counts":[...]}}]
-  /// Rows are keyed by (run, metric_name, step) — PUTs for the same
-  /// triple replace the stored buckets. Used by host-runners that
-  /// forward binned tensors from trackio/wandb. Not called from the
-  /// mobile UI today; exposed so tests (and future import flows) can
-  /// populate histograms without hitting the database directly.
   Future<void> putRunHistograms(
-    String runId,
-    List<Map<String, dynamic>> histograms,
-  ) =>
-      _put(
-        '/v1/teams/${cfg.teamId}/runs/$runId/histograms',
-        {'histograms': histograms},
-      );
+          String runId, List<Map<String, dynamic>> histograms) =>
+      runs.putRunHistograms(runId, histograms);
 
   // ---- documents + reviews (blueprint §6.7, §6.8) ----
 

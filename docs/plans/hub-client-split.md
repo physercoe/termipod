@@ -6,9 +6,9 @@ description: Executable wedge-by-wedge plan to split lib/services/hub/hub_client
 # Hub client split — phased
 
 > **Type:** plan
-> **Status:** In progress — W1–W10 shipped (v1.0.736–745; …, AgentsApi, RunsApi); remaining: ProjectsApi, TasksApi, DocumentsApi, TemplatesApi + AgentFamiliesApi. NOTE: the real decomposition needs more sub-clients than the original 11-row map (Admin, Hosts, Tasks, Templates, AgentFamilies split out); the wedge table is being relabelled as each lands.
+> **Status:** In progress — W1–W11 shipped (v1.0.736–746; …, RunsApi, DocumentsApi[docs+annotations]); remaining: Reviews+Deliverables+Plans, ProjectsApi, TasksApi, TemplatesApi + AgentFamiliesApi. NOTE: the real decomposition needs more sub-clients than the original 11-row map (Admin, Hosts, Tasks, Templates, AgentFamilies split out); the wedge table is being relabelled as each lands.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.745
+> **Last verified vs code:** v1.0.746
 
 **TL;DR.** `lib/services/hub/hub_client.dart` is 3,571 LOC — one
 `HubClient` class with **208 `Future`/`Stream` methods** grouped by
@@ -151,7 +151,7 @@ seam cheaply before the big ones. One version bump per wedge.
 | ~~**W10**~~ ✅ | `RunsApi` — schedules + runs (24 methods incl. 2 private translators); dropped orphaned `_put` shim. **Shipped v1.0.745.** | `runs_api.dart` | med |
 | ~~**W9**~~ ✅ | `AgentsApi` — 22 methods (collections + spawn + steward + lifecycle + event queue). **Shipped v1.0.744.** | `agents_api.dart` | med (size) |
 | **W10** | `ProjectsApi` (+ tasks, channels) | `projects_api.dart` | med (size) |
-| **W11** | `DocumentsApi` | `documents_api.dart` | med (largest) |
+| ~~**W11**~~ ✅ | `DocumentsApi` — documents + annotations (13 methods + private cache helper); reviews/deliverables/plans split into later wedges. **Shipped v1.0.746.** | `documents_api.dart` | med |
 | W12+ | *(optional, deferred)* migrate call sites to `client.<domain>.x()`, drop delegators | — | high blast radius |
 
 **Per-wedge recipe** (mirrors the agent_feed playbook):

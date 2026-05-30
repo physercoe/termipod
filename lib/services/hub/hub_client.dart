@@ -7,6 +7,7 @@ import 'admin_api.dart';
 import 'agents_api.dart';
 import 'attention_api.dart';
 import 'blobs_api.dart';
+import 'documents_api.dart';
 import 'events_api.dart';
 import 'hosts_api.dart';
 import 'hub_snapshot_cache.dart';
@@ -82,6 +83,10 @@ class HubClient {
   /// Runs + schedules: list/get (live + cached), create/complete, the
   /// metric/image/histogram/sweep digests, and schedule CRUD + fire.
   late final RunsApi runs = RunsApi(_t);
+
+  /// Documents + their director annotations: list/get/create, typed-
+  /// section edit + status, and the annotation overlay.
+  late final DocumentsApi documents = DocumentsApi(_t);
 
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
@@ -1505,181 +1510,90 @@ class HubClient {
           String runId, List<Map<String, dynamic>> histograms) =>
       runs.putRunHistograms(runId, histograms);
 
-  // ---- documents + reviews (blueprint §6.7, §6.8) ----
+  // ---- documents + annotations → DocumentsApi (W11) ----
 
   Future<List<Map<String, dynamic>>> listDocuments({String? projectId}) =>
-      _listJson(
-        '/v1/teams/${cfg.teamId}/documents',
-        query: projectId == null ? null : {'project': projectId},
-      );
+      documents.listDocuments(projectId: projectId);
 
-  /// Read-through variant of [listDocuments]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listDocumentsCached({
     String? projectId,
-  }) {
-    final q = projectId == null ? null : {'project': projectId};
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/documents', q),
-      fetch: () => listDocuments(projectId: projectId),
-      decode: _decodeListMaps,
-    );
-  }
+  }) =>
+      documents.listDocumentsCached(projectId: projectId);
 
-  Future<Map<String, dynamic>> getDocument(String docId) async {
-    final out = await _get('/v1/teams/${cfg.teamId}/documents/$docId');
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> getDocument(String docId) =>
+      documents.getDocument(docId);
 
-  /// Read-through variant of [getDocument]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<Map<String, dynamic>>> getDocumentCached(
-    String docId,
-  ) =>
-      readThrough<Map<String, dynamic>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint: '/v1/teams/${cfg.teamId}/documents/$docId',
-        fetch: () => getDocument(docId),
-        decode: _decodeMap,
-      );
+          String docId) =>
+      documents.getDocumentCached(docId);
 
-  /// Either [contentInline] or [artifactId] must be non-null (server enforces
-  /// a XOR CHECK constraint). Set [schemaId] for typed (W5a) documents —
-  /// the hub then carries content_inline as a JSON sections blob and the
-  /// kind allowlist is bypassed in favor of template-declared kinds.
   Future<Map<String, dynamic>> createDocument({
     required String projectId,
-    required String kind, // e.g. 'report', 'design', 'note', 'proposal'
+    required String kind,
     required String title,
     String? schemaId,
     String? contentInline,
     String? artifactId,
     String? authorAgentId,
-  }) async {
-    final body = <String, dynamic>{
-      'project_id': projectId,
-      'kind': kind,
-      'title': title,
-    };
-    if (schemaId != null && schemaId.isNotEmpty) body['schema_id'] = schemaId;
-    if (contentInline != null) body['content_inline'] = contentInline;
-    if (artifactId != null) body['artifact_id'] = artifactId;
-    if (authorAgentId != null) body['author_agent_id'] = authorAgentId;
-    final out = await _post('/v1/teams/${cfg.teamId}/documents', body);
-    await _invalidate('/v1/teams/${cfg.teamId}/documents');
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      documents.createDocument(
+        projectId: projectId,
+        kind: kind,
+        title: title,
+        schemaId: schemaId,
+        contentInline: contentInline,
+        artifactId: artifactId,
+        authorAgentId: authorAgentId,
+      );
 
-  /// W5a — Structured Document Viewer (A4). Edits a single section's
-  /// body. Pass [expectedLastAuthoredAt] (from the loaded section's
-  /// `last_authored_at`) for optimistic concurrency; server returns 412
-  /// ([HubApiError] with status=412) if the row's value disagrees,
-  /// with a `server_section` payload the UI can use to show diff.
   Future<Map<String, dynamic>> patchDocumentSection({
     required String documentId,
     required String slug,
     required String body,
     String? expectedLastAuthoredAt,
     String? lastAuthoredBySessionId,
-  }) async {
-    final payload = <String, dynamic>{'body': body};
-    if (expectedLastAuthoredAt != null && expectedLastAuthoredAt.isNotEmpty) {
-      payload['expected_last_authored_at'] = expectedLastAuthoredAt;
-    }
-    if (lastAuthoredBySessionId != null &&
-        lastAuthoredBySessionId.isNotEmpty) {
-      payload['last_authored_by_session_id'] = lastAuthoredBySessionId;
-    }
-    final out = await _patch(
-      '/v1/teams/${cfg.teamId}/documents/$documentId/sections/$slug',
-      payload,
-    );
-    await _invalidate(
-      '/v1/teams/${cfg.teamId}/documents/$documentId',
-    );
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      documents.patchDocumentSection(
+        documentId: documentId,
+        slug: slug,
+        body: body,
+        expectedLastAuthoredAt: expectedLastAuthoredAt,
+        lastAuthoredBySessionId: lastAuthoredBySessionId,
+      );
 
-  /// W5a — POST /sections/{slug}/status. [status] is one of `empty`,
-  /// `draft`, `ratified`. Returns the updated section payload.
   Future<Map<String, dynamic>> setDocumentSectionStatus({
     required String documentId,
     required String slug,
     required String status,
-  }) async {
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/documents/$documentId/sections/$slug/status',
-      {'status': status},
-    );
-    await _invalidate(
-      '/v1/teams/${cfg.teamId}/documents/$documentId',
-    );
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      documents.setDocumentSectionStatus(
+        documentId: documentId,
+        slug: slug,
+        status: status,
+      );
 
-  // ---- ADR-020 W1: document annotations ------------------------------
-  // Director redline / comment / suggestion / question on a typed-doc
-  // section. Append-only-on-content (resolve, don't delete; D3).
-
-  /// GET /documents/{doc}/annotations.
-  /// [section] filters to one slug; [status] is `open` (default),
-  /// `resolved`, or `all`.
   Future<List<Map<String, dynamic>>> listAnnotations({
     required String documentId,
     String? section,
     String? status,
-  }) async {
-    final q = <String, String>{};
-    if (section != null && section.isNotEmpty) q['section'] = section;
-    if (status != null && status.isNotEmpty) q['status'] = status;
-    final out = await _get(
-      '/v1/teams/${cfg.teamId}/documents/$documentId/annotations',
-      query: q.isEmpty ? null : q,
-    );
-    final m = (out as Map).cast<String, dynamic>();
-    return (m['annotations'] as List? ?? const [])
-        .map((e) => (e as Map).cast<String, dynamic>())
-        .toList();
-  }
+  }) =>
+      documents.listAnnotations(
+        documentId: documentId,
+        section: section,
+        status: status,
+      );
 
-  /// Read-through variant of [listAnnotations]; see [listRunsCached]
-  /// for the offline-fallback contract. Annotation overlays use this
-  /// so a director's notes on a section render even when the hub is
-  /// unreachable.
   Future<CachedResponse<List<Map<String, dynamic>>>> listAnnotationsCached({
     required String documentId,
     String? section,
     String? status,
-  }) {
-    final q = <String, String>{};
-    if (section != null && section.isNotEmpty) q['section'] = section;
-    if (status != null && status.isNotEmpty) q['status'] = status;
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey(
-        '/v1/teams/${cfg.teamId}/documents/$documentId/annotations',
-        q.isEmpty ? null : q,
-      ),
-      fetch: () => listAnnotations(
+  }) =>
+      documents.listAnnotationsCached(
         documentId: documentId,
         section: section,
         status: status,
-      ),
-      decode: (raw) {
-        // Annotations return as {annotations: [...]} on the wire but the
-        // raw fetch already unwraps to a list — match that shape so the
-        // cached body and the live body decode identically.
-        return _decodeListMaps(raw);
-      },
-    );
-  }
+      );
 
-  /// POST /documents/{doc}/annotations. [kind] defaults to `comment`.
-  /// [charStart]/[charEnd] are optional in-section offsets.
   Future<Map<String, dynamic>> createAnnotation({
     required String documentId,
     required String sectionSlug,
@@ -1687,75 +1601,32 @@ class HubClient {
     String kind = 'comment',
     int? charStart,
     int? charEnd,
-  }) async {
-    final payload = <String, dynamic>{
-      'section_slug': sectionSlug,
-      'body': body,
-      'kind': kind,
-    };
-    if (charStart != null) payload['char_start'] = charStart;
-    if (charEnd != null) payload['char_end'] = charEnd;
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/documents/$documentId/annotations',
-      payload,
-    );
-    await _invalidate(
-      '/v1/teams/${cfg.teamId}/documents/$documentId/annotations',
-    );
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      documents.createAnnotation(
+        documentId: documentId,
+        sectionSlug: sectionSlug,
+        body: body,
+        kind: kind,
+        charStart: charStart,
+        charEnd: charEnd,
+      );
 
-  /// PATCH /annotations/{id}. Author-only on the server side; passing
-  /// either [body] or [kind] (or both) updates the row.
   Future<Map<String, dynamic>> patchAnnotation({
     required String annotationId,
     String? body,
     String? kind,
-  }) async {
-    final payload = <String, dynamic>{};
-    if (body != null) payload['body'] = body;
-    if (kind != null) payload['kind'] = kind;
-    final out = await _patch(
-      '/v1/teams/${cfg.teamId}/annotations/$annotationId',
-      payload,
-    );
-    final m = (out as Map).cast<String, dynamic>();
-    await _invalidateAnnotationsForDoc(m);
-    return m;
-  }
+  }) =>
+      documents.patchAnnotation(
+        annotationId: annotationId,
+        body: body,
+        kind: kind,
+      );
 
-  /// POST /annotations/{id}/resolve. Soft-close per ADR-020 D3.
-  Future<Map<String, dynamic>> resolveAnnotation(String annotationId) async {
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/annotations/$annotationId/resolve',
-      const {},
-    );
-    final m = (out as Map).cast<String, dynamic>();
-    await _invalidateAnnotationsForDoc(m);
-    return m;
-  }
+  Future<Map<String, dynamic>> resolveAnnotation(String annotationId) =>
+      documents.resolveAnnotation(annotationId);
 
-  /// POST /annotations/{id}/reopen.
-  Future<Map<String, dynamic>> reopenAnnotation(String annotationId) async {
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/annotations/$annotationId/reopen',
-      const {},
-    );
-    final m = (out as Map).cast<String, dynamic>();
-    await _invalidateAnnotationsForDoc(m);
-    return m;
-  }
-
-  /// PATCH/resolve/reopen all return the updated annotation row whose
-  /// `document_id` field is the only handle the mutation methods have on
-  /// the cache-key prefix. Pull it out and drop the matching list rows.
-  Future<void> _invalidateAnnotationsForDoc(Map<String, dynamic> row) async {
-    final docId = (row['document_id'] ?? '').toString();
-    if (docId.isEmpty) return;
-    await _invalidate(
-      '/v1/teams/${cfg.teamId}/documents/$docId/annotations',
-    );
-  }
+  Future<Map<String, dynamic>> reopenAnnotation(String annotationId) =>
+      documents.reopenAnnotation(annotationId);
 
   // ---- W5b: deliverables + components + project overview --------------
   // A3 §4 + §5 + §9. Mobile uses these to render the Structured

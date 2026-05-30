@@ -18,6 +18,7 @@ import 'runs_api.dart';
 import 'search_api.dart';
 import 'sessions_api.dart';
 import 'system_api.dart';
+import 'tasks_api.dart';
 import 'templates_api.dart';
 
 // HubConfig, HubApiError, and HubTransport now live in hub_transport.dart;
@@ -100,6 +101,9 @@ class HubClient {
 
   /// Behavior-as-data config: project/agent templates + agent families.
   late final TemplatesApi templates = TemplatesApi(_t);
+
+  /// Tasks (ADR-029): list/get (live + cached), create, patch.
+  late final TasksApi tasks = TasksApi(_t);
 
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the
@@ -420,72 +424,34 @@ class HubClient {
         includeEscalated: includeEscalated,
       );
 
+  // ---- tasks → TasksApi (W15) ----
+
   Future<List<Map<String, dynamic>>> listTasks(
     String projectId, {
     String? status,
     String? priority,
     String? sort,
-  }) {
-    final q = <String, String>{};
-    if (status != null && status.isNotEmpty) q['status'] = status;
-    if (priority != null && priority.isNotEmpty) q['priority'] = priority;
-    if (sort != null && sort.isNotEmpty) q['sort'] = sort;
-    return _listJson(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
-      query: q.isEmpty ? null : q,
-    );
-  }
+  }) =>
+      tasks.listTasks(projectId,
+          status: status, priority: priority, sort: sort);
 
-  Future<Map<String, dynamic>> getTask(String projectId, String taskId) async {
-    final out = await _get(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/tasks/$taskId',
-    );
-    return (out as Map).cast<String, dynamic>();
-  }
+  Future<Map<String, dynamic>> getTask(String projectId, String taskId) =>
+      tasks.getTask(projectId, taskId);
 
-  /// Read-through variant of [listTasks]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listTasksCached(
     String projectId, {
     String? status,
     String? priority,
     String? sort,
-  }) {
-    final q = <String, String>{};
-    if (status != null && status.isNotEmpty) q['status'] = status;
-    if (priority != null && priority.isNotEmpty) q['priority'] = priority;
-    if (sort != null && sort.isNotEmpty) q['sort'] = sort;
-    return readThrough<List<Map<String, dynamic>>>(
-      cache: snapshotCache,
-      hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey(
-        '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
-        q.isEmpty ? null : q,
-      ),
-      fetch: () => listTasks(
-        projectId,
-        status: status,
-        priority: priority,
-        sort: sort,
-      ),
-      decode: _decodeListMaps,
-    );
-  }
+  }) =>
+      tasks.listTasksCached(projectId,
+          status: status, priority: priority, sort: sort);
 
-  /// Read-through variant of [getTask]; see [listRunsCached] for the
-  /// offline-fallback contract.
   Future<CachedResponse<Map<String, dynamic>>> getTaskCached(
     String projectId,
     String taskId,
   ) =>
-      readThrough<Map<String, dynamic>>(
-        cache: snapshotCache,
-        hubKey: _cacheHubKey,
-        endpoint:
-            '/v1/teams/${cfg.teamId}/projects/$projectId/tasks/$taskId',
-        fetch: () => getTask(projectId, taskId),
-        decode: _decodeMap,
-      );
+      tasks.getTaskCached(projectId, taskId);
 
   Future<Map<String, dynamic>> patchTask(
     String projectId,
@@ -494,28 +460,15 @@ class HubClient {
     String? title,
     String? bodyMd,
     String? priority,
-  }) async {
-    final body = <String, dynamic>{};
-    if (status != null) body['status'] = status;
-    if (title != null) body['title'] = title;
-    if (bodyMd != null) body['body_md'] = bodyMd;
-    if (priority != null) body['priority'] = priority;
-    final req = await _open(
-      'PATCH',
-      '/v1/teams/${cfg.teamId}/projects/$projectId/tasks/$taskId',
-    );
-    req.headers.contentType = ContentType.json;
-    req.add(utf8.encode(jsonEncode(body)));
-    final resp = await req.close();
-    final out = await _readJson(resp);
-    await _invalidate('/v1/teams/${cfg.teamId}/projects/$projectId/tasks');
-    // Hub PATCH returns 204 No Content; re-fetch to return the fresh row
-    // so callers can setState with the updated task without a second trip.
-    if (out == null) {
-      return getTask(projectId, taskId);
-    }
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      tasks.patchTask(
+        projectId,
+        taskId,
+        status: status,
+        title: title,
+        bodyMd: bodyMd,
+        priority: priority,
+      );
 
   // ---- templates + agent families → TemplatesApi (W14) ----
 
@@ -854,24 +807,16 @@ class HubClient {
     String? parentTaskId,
     String? status,
     String? priority,
-  }) async {
-    final body = <String, dynamic>{'title': title};
-    if (bodyMd != null && bodyMd.isNotEmpty) body['body_md'] = bodyMd;
-    if (assigneeId != null && assigneeId.isNotEmpty) {
-      body['assignee_id'] = assigneeId;
-    }
-    if (parentTaskId != null && parentTaskId.isNotEmpty) {
-      body['parent_task_id'] = parentTaskId;
-    }
-    if (status != null && status.isNotEmpty) body['status'] = status;
-    if (priority != null && priority.isNotEmpty) body['priority'] = priority;
-    final out = await _post(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
-      body,
-    );
-    await _invalidate('/v1/teams/${cfg.teamId}/projects/$projectId/tasks');
-    return (out as Map).cast<String, dynamic>();
-  }
+  }) =>
+      tasks.createTask(
+        projectId,
+        title: title,
+        bodyMd: bodyMd,
+        assigneeId: assigneeId,
+        parentTaskId: parentTaskId,
+        status: status,
+        priority: priority,
+      );
 
   Future<Map<String, dynamic>> createChannel(
     String projectId,

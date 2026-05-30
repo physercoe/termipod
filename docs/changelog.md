@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.749
+> **Last verified vs code:** v1.0.750
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,20 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.750-alpha — 2026-05-30
+
+**hub_client split W15 — `TasksApi` extracted (no behavior change).**
+
+Fifteenth wedge of `docs/plans/hub-client-split.md`.
+
+### Added
+- `TasksApi` (`tasks_api.dart`) — `listTasks`/`getTask` (+ cached),
+  `patchTask`, `createTask` (cherry-picked from the sessions region +
+  the project/task/channel-writes block).
+- `HubClient` `tasks` getter + six delegators.
 
 ---
 

@@ -216,7 +216,7 @@ func toolRegistry() []ToolSpec {
 			"Mark an agent terminated; the host-runner kills the process on its next loop. Required: agent (id).",
 			tierSignificant, false),
 		spec("agents_resume", "agents.resume",
-			"Resume a paused but still-alive agent (SIGCONT its pane). Required: agent (id). Does not respawn a dead agent.",
+			"Inverse of agents.terminate: respawn a terminated agent's paused session (fresh process, continues from worktree+cursor). Required: agent (id).",
 			tierRoutine, false),
 		// --- hosts (W3) ---
 		spec("hosts_list", "hosts.list",

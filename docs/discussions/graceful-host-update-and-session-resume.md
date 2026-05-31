@@ -1,6 +1,6 @@
 ---
 name: Graceful host-runner update and session resume
-description: Design exploration for an orchestrated host-runner update lifecycle — drain, update, auto-resume — so that shipping a host-runner fix (e.g. the trackio metric-poller change) does not hard-kill every agent on the host and strand its sessions in a manual, principal-only resume. Documents the current behaviour verified against code (host.update fires a hard restart with no drain; agent death flips sessions to paused reactively; resume exists but is REST/principal-driven and split across two paths — SIGCONT a paused-alive agent vs respawn a dead agent's paused session; no auto-resume on reconnect; no session MCP surface so a steward cannot resume). Proposes a three-phase lifecycle (graceful drain with a checkpoint signal + bounded wait → update → auto-resume of the sessions that were running, gated by a resume-on-reconnect intent so deliberately-paused sessions are left alone) and a steward-reachable respawn, and lays out the open questions (drain timeout, auto-resume scope, in-flight turn handling, ordering vs version verification). Relates to ADR-028 (host control CLI) and ADR-034 (orchestration loop closure / lifecycle hooks).
+description: Design exploration for an orchestrated host-runner update lifecycle — drain, update, auto-resume — so that shipping a host-runner fix (e.g. the trackio metric-poller change) does not hard-kill every agent on the host and strand its sessions in a manual, principal-only resume. Documents the current behaviour verified against code (host.update fires a hard restart with no drain; agent death flips sessions to paused reactively; resume exists across two paths — SIGCONT a paused-alive agent vs respawn a dead agent's paused session — and the per-agent respawn is now steward-reachable via agents.resume, but there is no fleet-wide auto-resume on reconnect and no session-list MCP surface to enumerate what's paused). Proposes a three-phase lifecycle (graceful drain with a checkpoint signal + bounded wait → update → auto-resume of the sessions that were running, gated by a resume-on-reconnect intent so deliberately-paused sessions are left alone) and a steward-reachable respawn, and lays out the open questions (drain timeout, auto-resume scope, in-flight turn handling, ordering vs version verification). Relates to ADR-028 (host control CLI) and ADR-034 (orchestration loop closure / lifecycle hooks).
 ---
 
 # Graceful host-runner update and session resume
@@ -12,17 +12,20 @@ description: Design exploration for an orchestrated host-runner update lifecycle
 > drain → update → resume lifecycle. Feeds a future ADR (likely an
 > ADR-028 extension).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.756
+> **Last verified vs code:** v1.0.757
 
 **TL;DR.** Every host-runner upgrade (binary swap + restart) hard-kills
 all agents on that host. Today the system copes *reactively*: the dead
-processes flip their sessions to `paused`, and a human resumes each one
-by hand — there is no graceful drain, no auto-resume, and no
-steward-reachable resume. As host-runner fixes ship more often (the
-trackio change is the immediate trigger), this needs to become an
-orchestrated lifecycle: **drain** (signal agents to checkpoint, pause
-them cleanly, wait briefly) → **update** → **auto-resume** the sessions
-that were running, leaving deliberately-paused ones alone.
+processes flip their sessions to `paused`, and they are brought back one
+at a time — a steward can now respawn an individual terminated worker
+(`agents.resume`, v1.0.757), but there is still no graceful drain and no
+**fleet-wide auto-resume**, so a host update strands every session on
+the host until each is resumed by hand. As host-runner fixes ship more
+often (the trackio change is the immediate trigger), this needs to
+become an orchestrated lifecycle: **drain** (signal agents to
+checkpoint, pause them cleanly, wait briefly) → **update** →
+**auto-resume** the sessions that were running, leaving
+deliberately-paused ones alone.
 
 ---
 
@@ -55,9 +58,14 @@ toward (many agents per host), so the ad-hoc path won't hold.
     `paused` session, reusing `worktree_path` + `spawn_spec_yaml` +
     `engine_session_id` so it continues where it left off. Requires the
     session to be `paused` and to carry a spawn spec.
-  - Both are REST/mobile only. There are **no session MCP tools**, and
-    `agents.resume` (added v1.0.756) only does the SIGCONT path — so a
-    **steward cannot bring a dead worker back**; only a human can.
+  - **Steward reachability (v1.0.757):** `agents.resume` is now the
+    inverse of `agents.terminate` — it finds the paused session the
+    terminate left behind (keyed by the agent id the steward already
+    holds) and respawns it via `resumePausedSession`. So a steward *can*
+    bring back a worker it terminated. What's still missing is the
+    **automatic, fleet-wide** case below (a host update kills *many*
+    agents at once with no one calling resume per agent), and session
+    *visibility* (no `sessions.list` MCP tool to discover what's paused).
 - **No auto-resume on reconnect.** When the host reconnects (heartbeat),
   nothing re-spawns the sessions that were running before the update.
 - **Partial substrate already exists:** the host-command queue
@@ -89,14 +97,15 @@ A host update should be three explicit phases instead of one hard verb.
 
 Coordination shouldn't require the human. Two gaps:
 
-- A steward can `agents.terminate` and now `agents.resume` (SIGCONT) but
-  cannot **respawn** a dead worker's session. Either expose a
-  session-respawn MCP tool (keyed by agent → its paused session) or
-  fold respawn into `agents.resume` so one verb "brings the worker
-  back" whether it was suspended or killed.
-- Stewards have **no session visibility** at all (no `sessions.list` /
-  `sessions.get` MCP tools), so even diagnosing "which of my workers is
-  paused" is currently impossible from the agent side.
+- **Done (v1.0.757):** `agents.resume` respawns a terminated agent's
+  paused session (keyed by agent → its paused session, via
+  `resumePausedSession`). One verb brings a terminated worker back.
+- **Still open:** stewards have **no session visibility** (no
+  `sessions.list` / `sessions.get` MCP tools), so diagnosing "which of
+  my workers is paused" from the agent side is impossible; and there is
+  no *bulk* "resume everything this host was running" — the steward
+  would have to call `agents.resume` per agent, which it can't even
+  enumerate. The fleet-wide auto-resume (phase 3) is the real gap.
 
 ## 5. Open questions
 

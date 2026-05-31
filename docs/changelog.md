@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.756
+> **Last verified vs code:** v1.0.757
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,30 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.757-alpha — 2026-05-31
+
+**Correction: `agents.resume` is now the inverse of `agents.terminate`
+(session respawn), not a SIGCONT.** v1.0.756 shipped `agents.resume` as
+an un-pause (SIGCONT) of a still-alive process — but there is no
+`agents.pause` tool, so a steward had no way to reach that state, and
+the genuinely useful operation is bringing back a worker it
+**terminated**. Terminating an agent leaves its session `paused`; the
+respawn path existed (`handleResumeSession`) but was principal-only.
+
+### Changed
+- **`agents.resume`** now respawns the terminated agent's paused session
+  — a fresh process that continues from the worktree + transcript cursor
+  — keyed by the agent id the steward already holds. Returns the new
+  agent id, or 409 if the agent has no paused session. The SIGCONT
+  un-pause stays available at `POST /agents/{id}/resume` for the mobile
+  budget-pause case; it is just no longer the MCP tool's target.
+- Extracted `resumePausedSession` from `handleResumeSession` so the
+  session-keyed (REST) and agent-keyed (`POST /agents/{agent}/resume-session`,
+  `handleResumeAgentSession`) paths respawn identically. Tests for the
+  agent-keyed respawn + the no-paused-session 409.
 
 ---
 

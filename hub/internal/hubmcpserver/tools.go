@@ -755,15 +755,15 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "agents.resume",
-			Description: "Resume a PAUSED but still-alive agent — the host-runner sends its pane SIGCONT so it continues from where it was suspended. Required: `agent`. Use this to un-pause a worker the system paused (e.g. a budget cap) or one paused manually. NOTE: this does NOT respawn an agent whose process already DIED (e.g. after a host-runner restart) — that is a session respawn, which is principal-driven today (see the host-drain design). Pair with `agents.terminate`.",
-			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id"}}}`),
+			Description: "The inverse of `agents.terminate`: bring a terminated worker's work back. Terminating an agent leaves its session PAUSED; this respawns that session — a FRESH process that continues from the preserved worktree + transcript cursor (it is NOT the same process, and not the same agent id). Required: `agent` (the terminated agent's id). Returns the new agent id. Returns 409 if the agent has no paused session to resume (it may still be live, or its session was archived). NOTE: this is a session respawn, distinct from un-pausing a still-alive process.",
+			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id of the terminated agent whose session to respawn"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				a, _ := args["agent"].(string)
 				if a == "" {
 					return nil, fmt.Errorf("agent is required")
 				}
 				var out json.RawMessage
-				if err := c.do("POST", c.teamPath("/agents/"+url.PathEscape(a)+"/resume"), nil, nil, &out); err != nil {
+				if err := c.do("POST", c.teamPath("/agents/"+url.PathEscape(a)+"/resume-session"), nil, nil, &out); err != nil {
 					return nil, err
 				}
 				return out, nil

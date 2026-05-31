@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -23,12 +24,12 @@ import (
 // as a deprecated alias for one release per plan §8.
 
 type sessionIn struct {
-	Title          string `json:"title,omitempty"`
-	ScopeKind      string `json:"scope_kind,omitempty"`
-	ScopeID        string `json:"scope_id,omitempty"`
-	AgentID        string `json:"agent_id,omitempty"`
-	WorktreePath   string `json:"worktree_path,omitempty"`
-	SpawnSpecYAML  string `json:"spawn_spec_yaml,omitempty"`
+	Title         string `json:"title,omitempty"`
+	ScopeKind     string `json:"scope_kind,omitempty"`
+	ScopeID       string `json:"scope_id,omitempty"`
+	AgentID       string `json:"agent_id,omitempty"`
+	WorktreePath  string `json:"worktree_path,omitempty"`
+	SpawnSpecYAML string `json:"spawn_spec_yaml,omitempty"`
 }
 
 type sessionOut struct {
@@ -132,10 +133,10 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 	s.recordAudit(r.Context(), team, "session.open", "session", id,
 		coalesceTitle(in.Title, "session opened"),
 		map[string]any{
-			"scope_kind":     scopeKind,
-			"scope_id":       in.ScopeID,
-			"agent_id":       in.AgentID,
-			"worktree_path":  in.WorktreePath,
+			"scope_kind":    scopeKind,
+			"scope_id":      in.ScopeID,
+			"agent_id":      in.AgentID,
+			"worktree_path": in.WorktreePath,
 		})
 	writeJSON(w, http.StatusCreated, sessionOut{
 		ID: id, TeamID: team, Title: in.Title,
@@ -555,39 +556,47 @@ func (s *Server) handleForkSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "session")
+	out, code, err := s.resumePausedSession(r.Context(), team, id)
+	if err != nil {
+		writeErr(w, code, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
 
+// resumePausedSession respawns the agent inside a paused session and
+// returns the response body (or an HTTP status + error). Shared by the
+// session-keyed REST handler and the agent-keyed steward path
+// (handleResumeAgentSession), so both respawn identically. See
+// handleResumeSession's doc comment for the continuity contract.
+func (s *Server) resumePausedSession(ctx context.Context, team, id string) (map[string]any, int, error) {
 	var (
 		status, currentAgentID, worktreePath, spawnSpecYAML sql.NullString
 		engineSessionID                                     sql.NullString
 	)
-	err := s.db.QueryRowContext(r.Context(), `
+	err := s.db.QueryRowContext(ctx, `
 		SELECT status, current_agent_id, worktree_path, spawn_spec_yaml,
 		       engine_session_id
 		  FROM sessions WHERE team_id = ? AND id = ?`, team, id).Scan(
 		&status, &currentAgentID, &worktreePath, &spawnSpecYAML,
 		&engineSessionID)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeErr(w, http.StatusNotFound, "session not found")
-		return
+		return nil, http.StatusNotFound, errors.New("session not found")
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+		return nil, http.StatusInternalServerError, err
 	}
 	if status.String != "paused" {
-		writeErr(w, http.StatusConflict,
-			"session not paused (status="+status.String+")")
-		return
+		return nil, http.StatusConflict,
+			errors.New("session not paused (status=" + status.String + ")")
 	}
 	if !currentAgentID.Valid || currentAgentID.String == "" {
-		writeErr(w, http.StatusConflict,
-			"session has no current_agent_id to derive handle/host from")
-		return
+		return nil, http.StatusConflict,
+			errors.New("session has no current_agent_id to derive handle/host from")
 	}
 	if !spawnSpecYAML.Valid || spawnSpecYAML.String == "" {
-		writeErr(w, http.StatusConflict,
-			"session has no spawn_spec_yaml — likely opened pre-resume; close + start fresh")
-		return
+		return nil, http.StatusConflict,
+			errors.New("session has no spawn_spec_yaml — likely opened pre-resume; close + start fresh")
 	}
 
 	// Pull the dead agent's identity (handle, kind, host, parent) so the
@@ -595,7 +604,7 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 	var (
 		deadHandle, deadKind, deadHostID, deadParentID sql.NullString
 	)
-	if err := s.db.QueryRowContext(r.Context(), `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT handle, kind, host_id,
 		       (SELECT parent_agent_id FROM agent_spawns
 		         WHERE child_agent_id = agents.id
@@ -604,9 +613,8 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 		team, currentAgentID.String).Scan(
 		&deadHandle, &deadKind, &deadHostID, &deadParentID,
 	); err != nil {
-		writeErr(w, http.StatusInternalServerError,
-			"lookup dead agent: "+err.Error())
-		return
+		return nil, http.StatusInternalServerError,
+			fmt.Errorf("lookup dead agent: %w", err)
 	}
 
 	// ADR-014: thread the captured engine session id back into the
@@ -649,21 +657,19 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 		SpawnSpec:    specYAML,
 		WorktreePath: worktreePath.String,
 	}
-	out, code, derr := s.DoSpawn(r.Context(), team, in)
+	out, code, derr := s.DoSpawn(ctx, team, in)
 	if derr != nil {
-		writeErr(w, code, derr.Error())
-		return
+		return nil, code, derr
 	}
 
 	// Stamp the new agent onto the session and flip back to active.
 	now := NowUTC()
-	if _, err := s.db.ExecContext(r.Context(), `
+	if _, err := s.db.ExecContext(ctx, `
 		UPDATE sessions
 		   SET current_agent_id = ?, status = 'active', last_active_at = ?
 		 WHERE team_id = ? AND id = ?`,
 		out.AgentID, now, team, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+		return nil, http.StatusInternalServerError, err
 	}
 	// ADR-026 W7 — carry forward the prior agent's last advertised
 	// mode/model state. kimi-cli's session/load returns an empty `{}`
@@ -677,20 +683,53 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 	// gemini-cli echoes state on load anyway, so the duplicate lands
 	// on a list mobile reduces to the same final state. Best-effort —
 	// failure leaves the picker hidden but doesn't fail the resume.
-	s.carryModeModelStateAcrossResume(r.Context(),
+	s.carryModeModelStateAcrossResume(ctx,
 		currentAgentID.String, out.AgentID)
-	s.recordAudit(r.Context(), team, "session.resume", "session", id,
+	s.recordAudit(ctx, team, "session.resume", "session", id,
 		"resumed; new agent="+out.AgentID,
 		map[string]any{
 			"prior_agent_id": currentAgentID.String,
 			"new_agent_id":   out.AgentID,
 		})
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"session_id":     id,
 		"new_agent_id":   out.AgentID,
 		"prior_agent_id": currentAgentID.String,
 		"spawn_id":       out.SpawnID,
-	})
+	}, http.StatusOK, nil
+}
+
+// handleResumeAgentSession is POST /v1/teams/{team}/agents/{agent}/resume-session.
+// The steward-facing inverse of agents.terminate: it finds the paused
+// session whose current agent is {agent} (terminate leaves the session
+// paused) and respawns it — a fresh process continues from the
+// worktree + transcript cursor. Distinct from POST /agents/{id}/resume,
+// which SIGCONTs a still-alive paused process.
+func (s *Server) handleResumeAgentSession(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	agentID := chi.URLParam(r, "agent")
+
+	var sessionID string
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT id FROM sessions
+		 WHERE team_id = ? AND current_agent_id = ? AND status = 'paused'
+		 ORDER BY last_active_at DESC LIMIT 1`,
+		team, agentID).Scan(&sessionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusConflict,
+			"no paused session for this agent (nothing to resume — the agent may still be live, or its session was archived)")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out, code, rerr := s.resumePausedSession(r.Context(), team, sessionID)
+	if rerr != nil {
+		writeErr(w, code, rerr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // lookupSessionForAgent returns the live (active or paused) session

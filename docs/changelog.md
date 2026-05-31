@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.755
+> **Last verified vs code:** v1.0.756
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,43 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.756-alpha — 2026-05-31
+
+**Run cleanup tools + steward-reachable resume; host-drain design.**
+Follow-ups to the trackio fix: agents could create a junk/typo'd run or
+mis-attach an artifact but had no way to remove it, and resume was
+principal-only.
+
+### Added
+- **`runs.delete`** MCP tool + `DELETE /v1/teams/{team}/runs/{run}`
+  (`handleDeleteRun`). Drops a run created in error; its
+  metric/image/histogram digests cascade away (FK), artifacts it
+  produced are **detached** (`run_id → NULL`, kept — content-addressed),
+  child runs detached. Use `runs.update status=cancelled` to keep a real
+  run for the audit trail.
+- **`runs.detach_artifact`** MCP tool +
+  `DELETE /v1/teams/{team}/runs/{run}/artifacts/{artifact}`
+  (`handleDetachRunArtifact`). Unlinks a wrongly-attached artifact from a
+  run; the artifact and its bytes survive.
+- **`agents.resume`** MCP tool → existing `POST /agents/{id}/resume`. A
+  steward can now SIGCONT a paused-but-alive worker (e.g. budget pause)
+  — previously resume was REST/principal-only. (Respawning a *dead*
+  agent after a host restart is session-level and still principal-driven
+  — see the host-drain design.)
+- All three registered across the catalog + ToolSpec + toolMeta
+  registries; tests for delete/detach (FK cascade + artifact detach +
+  team scoping).
+
+### Docs
+- New discussion
+  [`graceful-host-update-and-session-resume.md`](discussions/graceful-host-update-and-session-resume.md)
+  — the host-runner update lifecycle (drain → update → auto-resume),
+  current-state trace, and open questions. Raised because shipping a
+  host-runner change (like the trackio fix) hard-kills every agent on
+  the host and strands sessions in a manual resume.
 
 ---
 

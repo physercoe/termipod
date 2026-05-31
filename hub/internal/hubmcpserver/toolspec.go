@@ -178,6 +178,14 @@ func toolRegistry() []ToolSpec {
 			"Update an existing run's mutable fields (status, config, or link "+
 				"trackio metrics). Required: run. Fixes typos without recreating.",
 			tierRoutine, true),
+		spec("runs_delete", "runs.delete",
+			"Delete a run created in error (digests removed, artifacts detached). "+
+				"Required: run. Use runs.update status=cancelled to keep it for audit.",
+			tierRoutine, false),
+		spec("runs_detach_artifact", "runs.detach_artifact",
+			"Unlink a wrongly-attached artifact from a run (keeps the artifact). "+
+				"Required: run, artifact.",
+			tierRoutine, false),
 		spec("runs_attach_artifact", "runs.attach_artifact",
 			"Attach an artifact to a run. Required: run, project_id, kind, name, uri.",
 			tierRoutine, true),
@@ -207,6 +215,9 @@ func toolRegistry() []ToolSpec {
 		spec("agents_terminate", "agents.terminate",
 			"Mark an agent terminated; the host-runner kills the process on its next loop. Required: agent (id).",
 			tierSignificant, false),
+		spec("agents_resume", "agents.resume",
+			"Resume a paused but still-alive agent (SIGCONT its pane). Required: agent (id). Does not respawn a dead agent.",
+			tierRoutine, false),
 		// --- hosts (W3) ---
 		spec("hosts_list", "hosts.list",
 			"List host-runners registered with the team (id, name, status, capabilities). No arguments.",
@@ -391,6 +402,8 @@ var toolMeta = map[string]toolMetaEntry{
 	"runs_get":                  {true, []string{"runs_list", "artifacts_list"}},
 	"runs_create":               {false, []string{"runs_attach_artifact", "runs_list"}},
 	"runs_update":               {false, []string{"runs_get", "runs_create"}},
+	"runs_delete":               {false, []string{"runs_update", "runs_list"}},
+	"runs_detach_artifact":      {false, []string{"runs_get", "artifacts_list"}},
 	"runs_attach_artifact":      {false, []string{"runs_get", "artifacts_create"}},
 	"artifacts_list":            {true, []string{"artifacts_get", "artifacts_create"}},
 	"artifacts_get":             {true, []string{"artifacts_list", "runs_get"}},
@@ -399,6 +412,7 @@ var toolMeta = map[string]toolMetaEntry{
 	"agents_get":                {true, []string{"agents_list", "get_parent_thread"}},
 	"agents_spawn":              {false, []string{"agents_fanout", "agents_list"}},
 	"agents_terminate":          {false, []string{"agents_list", "pause_self"}},
+	"agents_resume":             {false, []string{"agents_get", "agents_terminate"}},
 	"hosts_list":                {true, []string{"hosts_get", "hosts_update_ssh_hint"}},
 	"hosts_get":                 {true, []string{"hosts_list"}},
 	"hosts_update_ssh_hint":     {false, []string{"hosts_get"}},

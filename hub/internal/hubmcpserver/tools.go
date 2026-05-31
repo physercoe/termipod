@@ -265,6 +265,37 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "runs.delete",
+			Description: "Delete a run created in error or a throwaway test run. Required: `run`. Its metric/image/histogram digests are removed with it; artifacts the run produced are DETACHED (kept, just unlinked — they're content-addressed and may be referenced elsewhere); child runs are detached. To abandon a real run while keeping it for the audit trail, use `runs.update status=cancelled` instead.",
+			InputSchema: schema(`{"type":"object","required":["run"],"properties":{"run":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["run"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("run is required")
+				}
+				if err := c.do("DELETE", c.teamPath("/runs/"+url.PathEscape(id)), nil, nil, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "run": id}, nil
+			},
+		},
+		{
+			Name:        "runs.detach_artifact",
+			Description: "Unlink a wrongly-attached artifact from a run. Required: `run`, `artifact`. The artifact row and its bytes survive — only the run↔artifact link is cleared (run_id → NULL). Use this to fix a mis-attached artifact without deleting it.",
+			InputSchema: schema(`{"type":"object","required":["run","artifact"],"properties":{"run":{"type":"string"},"artifact":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				runID, _ := args["run"].(string)
+				artID, _ := args["artifact"].(string)
+				if runID == "" || artID == "" {
+					return nil, fmt.Errorf("run and artifact are required")
+				}
+				if err := c.do("DELETE", c.teamPath("/runs/"+url.PathEscape(runID)+"/artifacts/"+url.PathEscape(artID)), nil, nil, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "run": runID, "artifact": artID}, nil
+			},
+		},
+		{
 			Name:        "documents.list",
 			Description: "List documents in the team. Optional `project` filters by project id. Returns rows with `id`, `project_id`, `kind`, `title`, `created_at`, etc — NOT the document body. Use `documents.get` to fetch a single doc's full body.\n\nNote: this is the documents-TABLE listing (rows authored via `documents.create`). It is NOT the same as `get_project_doc` which reads files from the project's filesystem `docs_root` (shared human-authored context). The two surfaces don't overlap.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),
@@ -717,6 +748,22 @@ func buildTools() []toolDef {
 				body := map[string]any{"status": "terminated"}
 				var out json.RawMessage
 				if err := c.do("PATCH", c.teamPath("/agents/"+url.PathEscape(a)), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "agents.resume",
+			Description: "Resume a PAUSED but still-alive agent — the host-runner sends its pane SIGCONT so it continues from where it was suspended. Required: `agent`. Use this to un-pause a worker the system paused (e.g. a budget cap) or one paused manually. NOTE: this does NOT respawn an agent whose process already DIED (e.g. after a host-runner restart) — that is a session respawn, which is principal-driven today (see the host-drain design). Pair with `agents.terminate`.",
+			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				a, _ := args["agent"].(string)
+				if a == "" {
+					return nil, fmt.Errorf("agent is required")
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/agents/"+url.PathEscape(a)+"/resume"), nil, nil, &out); err != nil {
 					return nil, err
 				}
 				return out, nil

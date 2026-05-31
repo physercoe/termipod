@@ -440,6 +440,87 @@ func (s *Server) deriveTrackioHostFromAgent(ctx context.Context, agentID, team s
 	return host
 }
 
+// handleDeleteRun is DELETE /v1/teams/{team}/runs/{run}. Drops a run
+// created in error (or a throwaway test run). Its metric/image/histogram
+// digests cascade away via FK (ON DELETE CASCADE). Content-addressed
+// artifacts produced by the run are DETACHED (run_id → NULL), not
+// deleted — they may be referenced elsewhere and deleting bytes is a
+// separate concern. Child runs are detached (parent_run_id → NULL) so
+// they don't dangle.
+func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	runID := chi.URLParam(r, "run")
+
+	var found string
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT id FROM runs
+		 WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
+		runID, team).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback()
+
+	for _, stmt := range []string{
+		`UPDATE artifacts SET run_id = NULL WHERE run_id = ?`,
+		`UPDATE runs SET parent_run_id = NULL WHERE parent_run_id = ?`,
+		`DELETE FROM runs WHERE id = ?`,
+	} {
+		if _, err := tx.ExecContext(r.Context(), stmt, runID); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.recordAudit(r.Context(), team, "run.delete", "run", runID,
+		"delete run", nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDetachRunArtifact is DELETE
+// /v1/teams/{team}/runs/{run}/artifacts/{artifact}. It UNLINKS a
+// wrongly-attached artifact from a run (run_id → NULL); the artifact row
+// and its bytes survive (artifacts are content-addressed and may be
+// referenced elsewhere). To remove the artifact entirely is a separate,
+// deliberately-absent operation.
+func (s *Server) handleDetachRunArtifact(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	runID := chi.URLParam(r, "run")
+	artID := chi.URLParam(r, "artifact")
+
+	res, err := s.db.ExecContext(r.Context(), `
+		UPDATE artifacts SET run_id = NULL
+		WHERE id = ? AND run_id = ?
+		  AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
+		artID, runID, team)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeErr(w, http.StatusNotFound, "artifact not attached to this run")
+		return
+	}
+	s.recordAudit(r.Context(), team, "run.detach_artifact", "artifact", artID,
+		"detach artifact from run", map[string]any{"run_id": runID})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleAttachMetricURI(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	runID := chi.URLParam(r, "run")

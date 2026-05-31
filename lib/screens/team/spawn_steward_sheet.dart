@@ -121,6 +121,12 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
       final live = <String>{};
       for (final a in hub.agents) {
         final handle = (a['handle'] ?? '').toString();
+        // Handle-only by design, NOT isStewardAgent: this set drives a
+        // duplicate-handle collision check against user-typed names,
+        // which `validateStewardHandle` constrains to `steward` /
+        // `*-steward` (no `@`). A project steward's `@steward.<pid8>`
+        // handle can never collide with valid input, so folding project
+        // stewards in would be a no-op.
         if (!isStewardHandle(handle)) continue;
         final status = (a['status'] ?? '').toString();
         if (status == 'running' ||

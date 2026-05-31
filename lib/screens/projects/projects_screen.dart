@@ -227,6 +227,11 @@ Future<void> confirmAndRecreateSteward(
     if (hubAfter != null) {
       String? newStewardId;
       for (final a in hubAfter.agents) {
+        // Team-singleton scope, NOT isStewardAgent: this pairs with the
+        // `showSpawnStewardSheet` recreate above (handle `steward` /
+        // `*-steward`) and breaks on the first match. A project steward
+        // (`@steward.<pid8>`) must never be picked here or we'd mint a
+        // team session against the wrong agent.
         if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
         final status = (a['status'] ?? '').toString();
         if (status != 'running' && status != 'pending') continue;
@@ -252,6 +257,12 @@ Future<void> confirmAndRecreateSteward(
 /// spawned steward is on its way up — no reason to flash "No steward"
 /// during the 3s reconcile window. Top-level so both the AppBar chip
 /// and the W4 auto-bootstrap trigger share one definition.
+///
+/// Team-singleton scope, NOT isStewardAgent: this gates the W4
+/// auto-bootstrap of the team `steward`. A user whose only stewards are
+/// project ones (`@steward.<pid8>`) still needs the team steward
+/// bootstrapped, so project stewards deliberately do NOT count as
+/// "present" here.
 bool stewardPresent(List<Map<String, dynamic>> agents) {
   for (final a in agents) {
     if (!isStewardHandle((a['handle'] ?? '').toString())) continue;

@@ -1,6 +1,6 @@
 import 'steward_handle.dart';
 
-// Liveness classifier for the team steward agent.
+// Liveness classifier for the steward fleet (general, domain, project).
 //
 // A wedged claude process keeps `status='running'` on the hub but stops
 // emitting `agent_events`, so a binary present/absent signal can show
@@ -25,7 +25,7 @@ enum StewardLiveness {
   /// status=pending — host-runner hasn't picked up the spawn yet. Grey.
   starting,
 
-  /// No live steward (no agent matches isStewardHandle, or all matching
+  /// No live steward (no agent matches isStewardAgent, or all matching
   /// ones are terminated/failed/archived). Grey "No steward" — tap to
   /// spawn a new one.
   none,
@@ -49,17 +49,22 @@ const Duration stuckWindow = Duration(minutes: 30);
 ///
 /// `agents` is the `hub_state.agents` list — each row is the JSON map
 /// returned by `GET /v1/teams/{team}/agents`. With multi-steward we
-/// classify across every steward handle (`steward`, `*-steward`) and
-/// surface the *worst* state — one healthy + one stuck reads as
-/// "stuck" so the user notices. Single-steward installs are the
-/// degenerate case where the loop only finds one matching row.
+/// classify across every steward — general (`@steward`), domain
+/// (`*-steward`), and project (`@steward.<pid8>`, kind `steward.v1`) —
+/// via `isStewardAgent`, and surface the *worst* state: one healthy +
+/// one stuck reads as "stuck" so the user notices. This classifier is a
+/// fail-safe signal whose whole job is to avoid a false-green chip on a
+/// dead steward, so it must err toward catching every steward kind —
+/// the handle-only predicate silently dropped project stewards.
+/// Single-steward installs are the degenerate case where the loop only
+/// finds one matching row.
 StewardLiveness stewardLiveness(
   List<Map<String, dynamic>> agents, {
   DateTime? now,
 }) {
   final clock = now ?? DateTime.now().toUtc();
   for (final a in agents) {
-    if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
+    if (!isStewardAgent(a)) continue;
     final status = (a['status'] ?? '').toString();
     if (status == 'pending') return StewardLiveness.starting;
     if (status != 'running') continue; // terminated/failed/archived → none

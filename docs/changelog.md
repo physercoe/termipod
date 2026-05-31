@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.753
+> **Last verified vs code:** v1.0.754
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,35 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.754-alpha — 2026-05-31
+
+**Sweep of the remaining handle-only steward predicates (follow-up to
+v1.0.753).**
+
+Audited the five sites still keying steward identity on the handle
+predicates rather than `isStewardAgent`. Outcome: one was a genuine
+fail-safe gap; the other four are correctly **team-singleton scoped**
+and now say so in-code, so they no longer read as latent bugs.
+
+### Fixed
+- **`stewardLiveness`** (`steward_liveness.dart`) now classifies across
+  every steward — general, domain, **and project** (`@steward.<pid8>`,
+  kind `steward.v1`) — via `isStewardAgent`. This is a fail-safe chip
+  whose job is to avoid a false-green on a dead steward, so it must
+  catch a wedged project steward too; the handle-only check silently
+  dropped them. (Regression test added.)
+
+### Changed
+- Made the deliberate team-singleton scoping explicit at the four sites
+  that intentionally exclude project stewards (no behaviour change):
+  `stewardPresent` + the recreate-mint-session loop in `projects_screen.dart`
+  (W4 team-steward bootstrap / recreate), `_findSteward` in
+  `steward_config_screen.dart` (Team → Steward card), and the
+  duplicate-handle collision set in `spawn_steward_sheet.dart` (project
+  handles can't collide with valid user input by construction).
 
 ---
 

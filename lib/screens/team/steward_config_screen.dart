@@ -208,6 +208,11 @@ class _StewardConfigScreenState extends ConsumerState<StewardConfigScreen> {
   /// while the AppBar chip (which iterates with state-aware logic)
   /// already shows "starting". Prefer running > pending > everything
   /// else, then falls back to the most recent row by handle.
+  ///
+  /// Team-singleton scope, NOT isStewardAgent: this is the Team →
+  /// Steward config card for the team steward. A project steward
+  /// (`@steward.<pid8>`) must not surface here as "the current
+  /// steward", so the handle-only predicate is intentional.
   static Map<String, dynamic>? _findSteward(
       List<Map<String, dynamic>> agents) {
     Map<String, dynamic>? running;

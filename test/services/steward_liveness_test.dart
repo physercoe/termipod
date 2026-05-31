@@ -64,6 +64,26 @@ void main() {
       );
     });
 
+    test('classifies a project steward (@steward.<pid8>, kind steward.v1)', () {
+      // Regression: project stewards carry a handle the handle-suffix
+      // predicate misses, so the classifier must key on `kind`. A stuck
+      // project steward should still read as stuck, not false-green none.
+      final t = now
+          .subtract(stuckWindow + const Duration(minutes: 1))
+          .toIso8601String();
+      expect(
+        stewardLiveness([
+          {
+            'handle': '@steward.abcd1234',
+            'kind': 'steward.v1',
+            'status': 'running',
+            'last_event_at': t,
+          },
+        ], now: now),
+        StewardLiveness.stuck,
+      );
+    });
+
     test('returns none for terminated steward', () {
       expect(
         stewardLiveness([steward(status: 'terminated')], now: now),

@@ -27,7 +27,7 @@ type AdminAuditRow struct {
 // since (ISO-8601 UTC), limit (default 100, clamped 500). Rows are
 // newest-first.
 func (s *Server) handleAdminListAudit(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	q := r.URL.Query()

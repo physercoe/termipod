@@ -240,8 +240,8 @@ func TestAdminFleetShutdown_NonOwnerGets403(t *testing.T) {
 	if status != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403; body=%s", status, body)
 	}
-	if !strings.Contains(string(body), "owner") {
-		t.Errorf("body=%s, expected mention of owner gate", body)
+	if !strings.Contains(string(body), "operator") {
+		t.Errorf("body=%s, expected mention of operator gate", body)
 	}
 }
 

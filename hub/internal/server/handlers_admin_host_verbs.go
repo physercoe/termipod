@@ -50,7 +50,7 @@ func (s *Server) handleAdminHostRestart(w http.ResponseWriter, r *http.Request) 
 // stopOneHost so the session-stop + audit behaviour matches the fleet
 // path exactly.
 func (s *Server) adminHostStopVerb(w http.ResponseWriter, r *http.Request, verb string) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	host := chi.URLParam(r, "host")
@@ -82,7 +82,7 @@ func (s *Server) adminHostStopVerb(w http.ResponseWriter, r *http.Request, verb 
 // + exit 75). Delegates to updateOneHost so the audit row matches the
 // fleet path.
 func (s *Server) handleAdminHostUpdate(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	host := chi.URLParam(r, "host")

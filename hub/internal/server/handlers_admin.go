@@ -67,7 +67,7 @@ func (s *Server) handleAdminFleetRestart(w http.ResponseWriter, r *http.Request)
 // POST /v1/teams/{team}/sessions/{id}/resume route — once the host is
 // back (manually for shutdown, automatically for restart).
 func (s *Server) fleetStopVerb(w http.ResponseWriter, r *http.Request, verb string) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	action := strings.TrimPrefix(verb, "host.") // "shutdown" | "restart"
@@ -269,7 +269,7 @@ type AdminFleetUpdateResponse struct {
 // the CLI therefore reports the host outcomes but not the hub's — the
 // operator confirms the hub with `hub-server version` once it respawns.
 func (s *Server) handleAdminFleetUpdate(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	var in AdminFleetUpdateRequest

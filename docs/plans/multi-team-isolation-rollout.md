@@ -2,10 +2,11 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-05-31) — ADR-037 open questions Q1–Q4
-> are resolved; wedges below reflect the locked branches. **W1 shipped
-> (v1.0.760-alpha).** W2 next.
+> are resolved. **W1 shipped (v1.0.760-alpha); W2 shipped
+> (v1.0.761-alpha) — the W1+W2 MVP isolation bar is met and ADR-037 is
+> Accepted.** W3 (provisioning) next.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.760
+> **Last verified vs code:** v1.0.761
 
 **TL;DR.** Turn termipod's already-team-scoped data layer into enforced
 multi-team isolation so external testers can each be handed a `team_id`
@@ -65,26 +66,42 @@ group. Notable deltas from the original sketch below:
 same-team admitted, teamless fail-closed, operator bypass (unit).
 Full `go test ./...` green.
 
-### W2 — Operator / principal split
+### W2 — Operator / principal split — **SHIPPED v1.0.761-alpha**
 
 **Goal.** A hub operator (cross-team ops) distinct from a per-team
 principal (`owner`).
 
-- Add token kind `operator` (extend the F-01 allowlist `token.go:134`;
-  add `requireOperator`). Operators are exempt from the W1 team gate.
-- Re-gate `/v1/admin/*` from `requireOwner` → `requireOperator`
-  (`handlers_admin*.go`). Keep `requireOwner` for per-team owner
-  actions (now also behind the W1 gate).
-- Bootstrap (`init.go`): mint an **operator** as the hub root (home
-  team `default`); **stop minting a `default` owner**. Reclassify the
-  existing bootstrap owner token as operator on migrated installs, and
-  rework `seed_demo_lifecycle.go` to not need a `default` owner.
-- **Tests:** owner blocked from `/v1/admin/*`; operator allowed;
-  operator bypasses the W1 team gate; owner issues tokens only for its
-  own team.
-- **Files:** `internal/auth/token.go`, `internal/server/handlers_admin*.go`,
-  `handlers_tokens.go`, `init.go`. **Risk:** touches every admin
-  handler + bootstrap; back-compat for the existing owner token.
+**Outcome.** Shipped. Deltas from the original sketch:
+
+- **`operator` ⊇ `owner` (the load-bearing decision).** `requireOwner`
+  now admits an operator too, so the bootstrap operator remains the
+  de-facto director of its home team `default` (issues `default`'s
+  tokens, decides its attention). `requireOperator` is operator-only.
+  This hierarchy is what kept the test impact small — `Init` now returns
+  an operator, and operator passes every gate an owner did.
+- **Re-gated 14 sites** across `handlers_admin*.go` + `handlers_hub_config.go`
+  to `requireOperator`; the 3 `handlers_tokens.go` sites stay
+  `requireOwner` (per-team token mgmt).
+- **One extra authz site found by tests:** `principalActor` (F-04,
+  attention decide/override) allowlisted `owner|user` — added
+  `operator`. (Swept all token-kind authz checks; this was the only
+  other one.)
+- **Migration `0047_owner_tokens_to_operator`** converts existing owner
+  tokens → operator (pre-split every owner was a hub root, so reach is
+  preserved). New per-team owners minted post-split stay `owner`.
+- **`seed_demo_lifecycle.go` needed NO rework** — verified it inserts
+  *data* principals, not auth tokens, so it never depended on a
+  `default` owner (the ADR's concern was speculative).
+- **CLI:** `hub init` prints "Operator token (the hub root)"; `tokens
+  issue --kind` accepts `operator`.
+- **Mobile:** no required change in W2 — the hub enforces operator at
+  `/v1/admin/*`; hiding fleet controls from non-operators in the Admin
+  pane is a UX follow-up.
+
+**Tests:** `handlers_operator_test.go` — bootstrap mints operator; owner
+refused at `/v1/admin/*` while operator passes; operator bypasses the W1
+gate end-to-end (upgrades W1's unit-level bypass test); owner issues
+own-team tokens. Full `go test ./...` green.
 
 ### W3 — Team provisioning
 

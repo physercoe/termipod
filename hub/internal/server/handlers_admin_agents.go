@@ -26,7 +26,7 @@ type AdminAgentRow struct {
 // live agents (status not in the terminal set) across every team;
 // ?all=1 includes terminated / crashed / failed / archived rows too.
 func (s *Server) handleAdminListAgents(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	q := `SELECT id, team_id, COALESCE(handle, ''), COALESCE(kind, ''),
@@ -65,7 +65,7 @@ func (s *Server) handleAdminListAgents(w http.ResponseWriter, r *http.Request) {
 // termination side-effects. Idempotent: an agent already in a terminal
 // state is reported as killed=false with its existing status.
 func (s *Server) handleAdminKillAgent(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	id := chi.URLParam(r, "agent")

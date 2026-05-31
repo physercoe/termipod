@@ -351,9 +351,11 @@ type attentionDecideOut struct {
 // decision. The recorded decider handle is always derived from the
 // token scope — never from the request body — so an agent cannot
 // attribute a decision to "@principal" (or anyone) by setting `by` in
-// the payload (F-04). `isPrincipal` is true only for the two human
-// token kinds (owner, user); agents and hosts can decide within policy
-// quorum but can never wield principal-tier override authority.
+// the payload (F-04). `isPrincipal` is true only for the human token
+// kinds — `owner`/`user`, plus `operator` (the hub root, which is
+// strictly more privileged than an owner; ADR-037 D2); agents and hosts
+// can decide within policy quorum but can never wield principal-tier
+// override authority.
 //
 // With no token in context (only reachable off the authed router — the
 // middleware rejects unauthenticated callers before this handler) it
@@ -363,7 +365,8 @@ func principalActor(ctx context.Context) (handle string, isPrincipal bool) {
 	if !ok || tok == nil {
 		return "", false
 	}
-	return principalFromScope(tok.ScopeJSON), tok.Kind == "owner" || tok.Kind == "user"
+	return principalFromScope(tok.ScopeJSON),
+		tok.Kind == "owner" || tok.Kind == "user" || tok.Kind == "operator"
 }
 
 func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
@@ -683,7 +686,7 @@ type attentionOverrideArgs struct {
 func (s *Server) handleAttentionOverride(w http.ResponseWriter, r *http.Request, a attentionOverrideArgs) {
 	if _, isPrincipal := principalActor(r.Context()); !isPrincipal {
 		writeErr(w, http.StatusForbidden,
-			"override requires a principal-tier caller (owner or user token); agents and hosts cannot override a resolved decision")
+			"override requires a principal-tier caller (operator, owner, or user token); agents and hosts cannot override a resolved decision")
 		return
 	}
 	if a.Status != "resolved" {

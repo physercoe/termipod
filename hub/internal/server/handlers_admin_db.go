@@ -41,7 +41,7 @@ func (s *Server) dbSizeBytes(ctx context.Context) int64 {
 // Runs VACUUM on the live database (a whole-database rebuild — sqlite
 // has no per-table form) and reports the bytes reclaimed.
 func (s *Server) handleAdminDBVacuum(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	before := s.dbSizeBytes(r.Context())

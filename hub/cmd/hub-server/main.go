@@ -2,7 +2,7 @@
 //
 // Subcommands:
 //
-//	init                Create a fresh data root and issue an owner token.
+//	init                Create a fresh data root and issue an operator token.
 //	serve               Run the HTTP API.
 //	tokens issue        Issue a new token for an agent or user.
 //	tokens list         List tokens (hash-only; plaintext is never stored).
@@ -109,7 +109,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `hub-server <command> [flags]
 
 Commands:
-  init              Create data root, run migrations, issue owner token.
+  init              Create data root, run migrations, issue operator token.
   serve             Run the HTTP API.
   tokens issue      Issue a token. Plaintext is printed once.
   tokens list       List token kinds and hashes.
@@ -152,7 +152,7 @@ func runInit(args []string, log *slog.Logger) {
 		os.Exit(1)
 	}
 	fmt.Printf("Hub initialized.\n  data root: %s\n  db:        %s\n\n", *dataRoot, *dbPath)
-	fmt.Printf("Owner token (shown once — store it in your TUI / mobile config):\n\n  %s\n\n", token)
+	fmt.Printf("Operator token (the hub root — shown once; store it in your TUI / mobile config):\n\n  %s\n\n", token)
 }
 
 // ---- serve ----
@@ -218,7 +218,7 @@ func runTokensIssue(args []string, log *slog.Logger) {
 	fs := flag.NewFlagSet("tokens issue", flag.ExitOnError)
 	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
 	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
-	kind := fs.String("kind", "agent", "token kind: owner|agent|host|user")
+	kind := fs.String("kind", "agent", "token kind: operator|owner|agent|host|user (operator = hub root, ADR-037)")
 	team := fs.String("team", "default", "team scope")
 	role := fs.String("role", "agent", "role within team")
 	agentID := fs.String("agent-id", "", "agent id to bind the token to (for kind=agent / MCP)")

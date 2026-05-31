@@ -149,8 +149,10 @@ func Middleware(db *sql.DB) func(http.Handler) http.Handler {
 			// (policy/template/spawn/admin). Allowlist the bearer kinds
 			// and fail closed for agent + any future kind.
 			switch tok.Kind {
-			case "owner", "user", "host":
-				// legitimate bearer kinds
+			case "operator", "owner", "user", "host":
+				// legitimate bearer kinds. `operator` is the hub root
+				// (ADR-037 D2) — team-transcendent, the only credential
+				// for /v1/admin/*; `owner` is the per-team principal.
 			default:
 				// agent (+ any unknown kind): rejected on the network,
 				// but the hub's own in-process authority dispatch

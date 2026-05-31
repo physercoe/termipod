@@ -22,7 +22,8 @@ const defaultTeamID = "default"
 
 // Init prepares a fresh hub data root: creates directory layout, opens DB,
 // runs migrations, ensures the default team, seeds built-in templates,
-// and issues a fresh owner token. Returns the owner token (one-time).
+// and issues a fresh operator token (the hub root — ADR-037 D2/D4).
+// Returns the operator token (one-time).
 func Init(dataRoot, dbPath string) (string, error) {
 	if err := os.MkdirAll(dataRoot, 0o700); err != nil {
 		return "", fmt.Errorf("mkdir data root: %w", err)
@@ -55,11 +56,14 @@ func Init(dataRoot, dbPath string) (string, error) {
 		return "", err
 	}
 
-	// Issue a fresh owner token. One-time display; only hash is stored.
+	// Issue a fresh operator token — the hub root (ADR-037 D2/D4). It is
+	// team-transcendent (the only credential for /v1/admin/*) and the
+	// de-facto director of its home team `default`; no separate `default`
+	// owner is minted. One-time display; only the hash is stored.
 	plaintext := auth.NewToken()
 	scope, _ := json.Marshal(map[string]any{"team": defaultTeamID, "role": "principal"})
-	if err := auth.InsertToken(ctx, db, "owner", string(scope), plaintext, NewID(), NowUTC()); err != nil {
-		return "", fmt.Errorf("insert owner token: %w", err)
+	if err := auth.InsertToken(ctx, db, "operator", string(scope), plaintext, NewID(), NowUTC()); err != nil {
+		return "", fmt.Errorf("insert operator token: %w", err)
 	}
 	return plaintext, nil
 }

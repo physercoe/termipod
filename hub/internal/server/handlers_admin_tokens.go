@@ -48,7 +48,7 @@ type AdminTokenRotateResponse struct {
 
 // handleAdminTokensRotate is POST /v1/admin/tokens/rotate — owner-scope.
 func (s *Server) handleAdminTokensRotate(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	var in AdminTokenRotateRequest

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.760
+> **Last verified vs code:** v1.0.761
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,49 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.761-alpha — 2026-05-31
+
+**Multi-team isolation W2 — the operator/principal split (ADR-037 D2,
+D4).** Splits the conflated `owner` credential into a hub-wide
+**operator** (the fleet root) and a per-team **owner** (principal /
+director). With W1's path-team gate, a tester's owner can now neither
+reach the fleet (`/v1/admin/*`) nor another team's data. W1+W2 are the
+MVP isolation bar, so **ADR-037 is now Accepted**. See
+[plans/multi-team-isolation-rollout.md](plans/multi-team-isolation-rollout.md).
+
+### Added
+- Token kind `operator` — the hub root, added to the F-01 bearer
+  allowlist (`internal/auth/token.go`). Team-transcendent (bypasses the
+  W1 team gate) and strictly more privileged than an owner.
+- `Server.requireOperator` gates `/v1/admin/*` and `/v1/hub/config/*`
+  (14 sites) to operator-only. `requireOwner` now also admits an
+  operator (operator ⊇ owner), so the bootstrap operator stays the
+  de-facto director of its home team `default`.
+- Migration `0047_owner_tokens_to_operator` reclassifies every existing
+  `owner` token to `operator` — pre-split, every owner was a hub root,
+  so this preserves exact prior reach on upgraded installs. New per-team
+  owners minted after the split stay `owner`.
+
+### Changed
+- `hub init` / `server.Init` now mint an **operator** token (the hub
+  root), not a `default` owner (ADR-037 D4). CLI messaging + `tokens
+  issue --kind` help updated; `operator` is a valid issue kind.
+- `principalActor` (F-04 attention-decision/override authority) now
+  counts `operator` as principal-tier alongside `owner`/`user`.
+
+### Security
+- A per-team `owner` is refused at `/v1/admin/*` (fleet shutdown/update,
+  cross-team audit, kill-any-agent) and at hub config — only an operator
+  passes. Combined with W1, a token can reach neither another team's
+  data nor the fleet controls.
+
+### Notes
+- The demo seed (`seed_demo_lifecycle.go`) needed no rework — it inserts
+  *data* principals, not auth tokens, so it never depended on a `default`
+  owner. Mobile gains no required change in W2; surfacing an
+  operator-vs-owner distinction in the Admin pane (hide fleet controls
+  for non-operators) is a UX follow-up — the hub already enforces it.
 
 ## v1.0.760-alpha — 2026-05-31
 

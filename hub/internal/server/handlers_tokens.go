@@ -44,12 +44,31 @@ type tokenIssueOut struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// requireOwner gates token management to owner-kind tokens. Returns true
-// if the caller passed the check; otherwise writes 403 and returns false.
+// requireOwner gates per-team principal actions (e.g. issuing a team's
+// tokens) to the team's owner. An `operator` (the hub root, ADR-037 D2)
+// is strictly more privileged than an owner — it is the de-facto
+// director of its home team and must still drive owner-level surfaces —
+// so it passes this gate too. Returns true if the caller passed;
+// otherwise writes 403 and returns false.
 func (s *Server) requireOwner(w http.ResponseWriter, r *http.Request) bool {
 	tok, ok := auth.FromContext(r.Context())
-	if !ok || tok == nil || tok.Kind != "owner" {
+	if !ok || tok == nil || (tok.Kind != "owner" && tok.Kind != "operator") {
 		writeErr(w, http.StatusForbidden, "owner token required")
+		return false
+	}
+	return true
+}
+
+// requireOperator gates hub-wide operator actions (/v1/admin/*, hub
+// config, team provisioning — ADR-037 D2) to operator-kind tokens only.
+// A per-team owner is deliberately rejected here: the whole point of the
+// operator/principal split is that a tester's owner cannot reach the
+// fleet or another team's data. Returns true if the caller passed;
+// otherwise writes 403 and returns false.
+func (s *Server) requireOperator(w http.ResponseWriter, r *http.Request) bool {
+	tok, ok := auth.FromContext(r.Context())
+	if !ok || tok == nil || tok.Kind != "operator" {
+		writeErr(w, http.StatusForbidden, "operator token required")
 		return false
 	}
 	return true

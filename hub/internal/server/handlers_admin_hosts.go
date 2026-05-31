@@ -94,7 +94,7 @@ func (s *Server) pingHost(ctx context.Context, hostID string) hostPingResult {
 // round-trips host.ping at each LIVE host to report the version it is
 // actually running right now (W14 --remote uses this).
 func (s *Server) handleAdminListHosts(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	rows, err := s.db.QueryContext(r.Context(), `
@@ -148,7 +148,7 @@ func (s *Server) handleAdminListHosts(w http.ResponseWriter, r *http.Request) {
 // Round-trips the host.ping verb at one host and returns its build
 // identity plus the measured latency.
 func (s *Server) handleAdminHostPing(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	host := chi.URLParam(r, "host")

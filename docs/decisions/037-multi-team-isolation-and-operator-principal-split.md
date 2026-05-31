@@ -1,11 +1,14 @@
 # 037. Multi-team isolation and the operator/principal split
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-31) — the four open questions are
-> **resolved** (§Resolved decisions); the design below is locked.
-> Promotes to Accepted once W1+W2 land in code.
+> **Status:** Accepted (2026-05-31) — the four open questions are
+> **resolved** (§Resolved decisions); **W1 (D1 path-team gate,
+> v1.0.760-alpha) and W2 (D2/D4 operator/principal split,
+> v1.0.761-alpha) have landed**, meeting the promotion bar. D3/D5/D6/D7
+> (provisioning, per-team templates, team-scoped workdir, sweep) remain
+> as tracked wedges W3–W6.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.754
+> **Last verified vs code:** v1.0.761
 
 **TL;DR.** External testers are being onboarded; each gets a `team_id`
 and different teams MUST isolate. The data layer is already

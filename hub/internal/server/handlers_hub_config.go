@@ -35,7 +35,7 @@ import (
 // the on-disk overlay first; falls back to the embedded default so
 // the editor always has something to show even on fresh installs.
 func (s *Server) handleGetRolesConfig(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	path := filepath.Join(s.cfg.DataRoot, "roles.yaml")
@@ -67,7 +67,7 @@ func (s *Server) handleGetRolesConfig(w http.ResponseWriter, r *http.Request) {
 // version (matches the YAML-on-PUT contract `handlers_templates.go`
 // uses for prompt/agent templates).
 func (s *Server) handlePutRolesConfig(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	body, err := io.ReadAll(r.Body)
@@ -146,7 +146,7 @@ func (s *Server) handlePutRolesConfig(w http.ResponseWriter, r *http.Request) {
 // chose to reset, and the embedded default is what the binary
 // shipped with anyway.
 func (s *Server) handleResetRolesConfig(w http.ResponseWriter, r *http.Request) {
-	if !s.requireOwner(w, r) {
+	if !s.requireOperator(w, r) {
 		return
 	}
 	dir := s.cfg.DataRoot

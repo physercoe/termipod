@@ -264,16 +264,18 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 	// authenticated bearer can read it.
 	r.Get("/v1/hub/stats", s.handleHubStats)
 
-	// /v1/hub/config — owner-only hub-wide governance files. MVP
-	// exposes the operation-scope manifest (roles.yaml); pattern
-	// extends to other hub-level configs as they appear. See
-	// handlers_hub_config.go for the validate-then-swap contract.
+	// /v1/hub/config — operator-only hub-wide governance files
+	// (ADR-037 D2). MVP exposes the operation-scope manifest
+	// (roles.yaml); pattern extends to other hub-level configs as they
+	// appear. See handlers_hub_config.go for the validate-then-swap
+	// contract.
 	r.Get("/v1/hub/config/roles", s.handleGetRolesConfig)
 	r.Put("/v1/hub/config/roles", s.handlePutRolesConfig)
 	r.Delete("/v1/hub/config/roles", s.handleResetRolesConfig)
 
-	// /v1/admin/* — hub-wide ops endpoints (ADR-028). Owner-scope is
-	// enforced inside each handler (requireOwner). Phases 1-3 wired the
+	// /v1/admin/* — hub-wide ops endpoints (ADR-028). Operator-scope is
+	// enforced inside each handler (requireOperator, ADR-037 D2) — a
+	// per-team owner cannot reach the fleet. Phases 1-3 wired the
 	// fleet control verbs; Phase 4 adds read-side host inspection;
 	// Phase 5 adds the per-host control verbs, db maintenance, and the
 	// cross-team audit query the mobile Admin pane consumes.

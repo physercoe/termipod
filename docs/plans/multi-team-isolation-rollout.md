@@ -1,8 +1,8 @@
 # Multi-team isolation — phased rollout
 
 > **Type:** plan
-> **Status:** Draft (2026-05-31) — blocked on ADR-037 open questions
-> Q1–Q4; W1+W2 are the security core and can start once Q1 is decided.
+> **Status:** Ready (2026-05-31) — ADR-037 open questions Q1–Q4 are
+> resolved; wedges below reflect the locked branches. Not started.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.754
 
@@ -53,14 +53,15 @@ bar. W3 unblocks onboarding. W4–W6 harden.
 **Goal.** A hub operator (cross-team ops) distinct from a per-team
 principal (`owner`).
 
-- Per **Q1 decision**: either add token kind `operator` (extend F-01
-  allowlist `token.go:134`; add `requireOperator`) or a scope flag on
-  `owner`.
+- Add token kind `operator` (extend the F-01 allowlist `token.go:134`;
+  add `requireOperator`). Operators are exempt from the W1 team gate.
 - Re-gate `/v1/admin/*` from `requireOwner` → `requireOperator`
   (`handlers_admin*.go`). Keep `requireOwner` for per-team owner
   actions (now also behind the W1 gate).
-- Bootstrap (`init.go`): mint an operator as the hub root (per **Q3**:
-  keep seeding `default` and decide its owner).
+- Bootstrap (`init.go`): mint an **operator** as the hub root (home
+  team `default`); **stop minting a `default` owner**. Reclassify the
+  existing bootstrap owner token as operator on migrated installs, and
+  rework `seed_demo_lifecycle.go` to not need a `default` owner.
 - **Tests:** owner blocked from `/v1/admin/*`; operator allowed;
   operator bypasses the W1 team gate; owner issues tokens only for its
   own team.
@@ -85,10 +86,9 @@ principal (`owner`).
 
 **Goal.** One team's template edits invisible to others.
 
-- Per **Q4 decision**: keep embedded built-ins global read-only; move
-  on-disk user overrides to `<dataRoot>/teams/<team_id>/templates/…`;
-  resolver checks team dir then embedded. (DB `project_templates`
-  already team-keyed.)
+- Keep embedded built-ins global read-only; move on-disk user overrides
+  to `<dataRoot>/teams/<team_id>/templates/…`; resolver checks the team
+  dir then embedded. (DB `project_templates` already team-keyed.)
 - **Files:** `init.go` (dir layout), `handlers_agent_families.go`,
   template resolver(s). **Risk:** medium; template path resolution is
   threaded through several read sites — grep `team/templates`.
@@ -97,18 +97,24 @@ principal (`owner`).
 
 **Goal.** No two teams share a mutable on-host path.
 
-- Per **Q2 decision**: thread `team_id` into `DeriveWorkdir`
-  (`spec.go`) and prefix the path with the team; update callers
-  (`launch_m1/m2/m4*.go`). If hosts are shared, add a policy guard
-  preventing an agent leaving its team subtree; if hosts are pinned,
-  add `hosts.team_id` enforcement at spawn.
+- Thread `team_id` into `DeriveWorkdir` (`spec.go`) and prefix the path
+  with the team (`~/hub-work/<team_id>/…`); update callers
+  (`launch_m1/m2/m4*.go`).
+- **Shared-host guard (the decided model):** the host-runner spawns a
+  team's agents under a **per-team OS user** (or restricted perms on
+  `~/hub-work/<team_id>/`), so the OS — not a shell `cd` block — denies
+  cross-team access. Add a host-runner capability check (can it
+  create/assume per-team users?); degrade or refuse cleanly if not.
 - In-flight agents keep their persisted `worktree_path`; only new
   spawns adopt the segment.
 - **Tests:** `DeriveWorkdir` table test gains the team segment; two
-  teams + same project-prefix/handle resolve to distinct paths.
-- **Files:** `internal/hostrunner/spec.go`, `launch_m*.go`, possibly a
-  migration if hosts pin to a team. **Risk:** medium; workdir is
-  load-bearing for context-file/MCP materialisation.
+  teams + same project-prefix/handle resolve to distinct paths; the
+  per-team-user mapping is unit-tested.
+- **Files:** `internal/hostrunner/spec.go`, `launch_m*.go`, host-runner
+  spawn path (OS-user mapping). **Risk:** medium-high; the OS-user
+  guard is new surface and load-bearing for isolation. Residual
+  shared-kernel risk is documented in ADR-037 D6 as a hardening
+  follow-up (sandbox/pinned hosts if testers become untrusted).
 
 ### W6 — Cross-cutting sweep
 
@@ -132,10 +138,11 @@ principal (`owner`).
   owner in the Admin pane, surfaced by W2) are CI-only (no local
   Flutter) — budget a watch-CI round-trip.
 
-## Open questions
+## Decisions
 
-Tracked in
-[ADR-037 §Open questions](../decisions/037-multi-team-isolation-and-operator-principal-split.md#open-questions-for-discussion--block-accepted)
-(Q1 operator mechanism, Q2 host-sharing model, Q3 `default` after the
-split, Q4 template inheritance). W1 can start before they resolve; W2
-needs Q1, W4 needs Q4, W5 needs Q2.
+The four design forks are resolved — see
+[ADR-037 §Resolved decisions](../decisions/037-multi-team-isolation-and-operator-principal-split.md#resolved-decisions-2026-05-31):
+Q1 new `operator` kind, Q2 shared host + per-team-OS-user guard, Q3
+`default` is the operator's home (no default owner), Q4 global built-ins
++ per-team overrides. No blockers remain; W1 is the recommended first
+PR.

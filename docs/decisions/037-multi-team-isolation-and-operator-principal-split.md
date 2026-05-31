@@ -1,9 +1,9 @@
 # 037. Multi-team isolation and the operator/principal split
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-31) — recommendations below are
-> provisional pending the four open questions in §Open questions;
-> promotes to Accepted once those are resolved and W1+W2 land.
+> **Status:** Proposed (2026-05-31) — the four open questions are
+> **resolved** (§Resolved decisions); the design below is locked.
+> Promotes to Accepted once W1+W2 land in code.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.754
 
@@ -75,12 +75,11 @@ is exactly what let G1 exist (one missed handler = one hole).
   that same team, the gate passes for legitimate calls and blocks a
   forged cross-team path. No special case.
 
-### D2 — Split `owner` into operator and principal (G2)
+### D2 — Split `owner` into operator and principal (G2) — *resolved Q1: new kind*
 
-> **PROPOSED mechanism (Open Q1):** a new token **kind** `operator`,
-> distinct from the per-team `owner`. Alternative under discussion: a
-> scope flag on `owner` (`scope.team == "*"`). The decision shapes the
-> F-01 allowlist and every `requireOwner` site.
+A new token **kind** `operator`, distinct from the per-team `owner`
+(chosen over a `scope.team == "*"` flag for a clean, auditable mental
+model — see §Resolved decisions Q1).
 
 - **operator** — the hub root. The only credential allowed at
   `/v1/admin/*` (fleet shutdown/update/restart, cross-team audit,
@@ -104,34 +103,55 @@ companion hub-server CLI subcommand (`team create <id>`) provides an
 out-of-band path that doesn't need a live operator token. Both reuse
 the existing `ensureTeam` (`init.go:87`) + `auth.InsertToken`.
 
-### D4 — Bootstrap and the `default` team (Open Q3)
+### D4 — Bootstrap; `default` is the operator's home (G3) — *resolved Q3*
 
-> **PROPOSED:** `init` mints **one operator** (the hub root, replacing
-> today's single owner) and keeps seeding the `default` team. Whether
-> `default` also gets a seeded `owner` at init, or is treated purely as
-> the operator's home, is **Open Q3**. Existing installs and the demo
-> seed (`seed_demo_lifecycle.go:220`) depend on `default` existing.
+`init` mints **one operator** token (the hub root) whose home team is
+`default`, and stops minting a separate `default` *owner*. `default`
+remains a seeded team row (the operator and the demo run inside it),
+but it has no dedicated per-team principal — the operator is its
+de-facto director and reaches it by bypassing the D1 gate. Existing
+single-user installs: the bootstrap token is now an **operator**, which
+keeps full access to `default` (and everything else). The demo seed
+(`seed_demo_lifecycle.go:220`) and any "`default` has a director"
+assumption are reworked to not depend on a `default` owner.
 
-### D5 — Per-team template overrides (G4, Open Q4)
+### D5 — Per-team template overrides (G4) — *resolved Q4: global + overrides*
 
-> **PROPOSED:** built-in templates stay **global and read-only** (they
-> ship embedded in the binary via `//go:embed`); only user-authored
-> on-disk overrides move under `<dataRoot>/teams/<team_id>/templates/…`.
-> The resolver checks the team's override dir first, then the embedded
-> built-ins. DB `project_templates` are already `team_id`-keyed
-> (`init.go:221-224`). Alternative under discussion: copy built-ins
-> per-team at provisioning (Open Q4).
+Built-in templates stay **global and read-only** (they ship embedded in
+the binary via `//go:embed`, so a new engine/prompt ships once for all
+teams); only user-authored on-disk overrides move under
+`<dataRoot>/teams/<team_id>/templates/…`. The resolver checks the
+team's override dir first, then the embedded built-ins. DB
+`project_templates` are already `team_id`-keyed (`init.go:221-224`).
+(Chosen over copy-per-team, which would drift built-ins across teams —
+§Resolved decisions Q4.)
 
-### D6 — Team-scoped workdir (G5, Open Q2)
+### D6 — Team-scoped workdir on a shared host (G5) — *resolved Q2: shared + guard*
 
-> **PROPOSED:** thread `team_id` into `DeriveWorkdir` and prefix the
-> derived path with the team —
-> `~/hub-work/<team_id>/<pid8>/<handle>` and
-> `~/hub-work/<team_id>/_team/<handle>`. Whether a host is **shared**
-> across teams (then this segment is mandatory *and* a policy guard
-> must stop an agent `cd`-ing outside its team subtree) or **pinned to
-> one team** (`hosts.team_id` + a spawn-time check, making the segment
-> belt-and-suspenders) is **Open Q2**.
+Hosts are **shared** across teams (testers do not each get a dedicated
+box). So `team_id` threads into `DeriveWorkdir` and the segment is
+**mandatory**:
+`~/hub-work/<team_id>/<pid8>/<handle>` and
+`~/hub-work/<team_id>/_team/<handle>`.
+
+Because the box is shared, path separation alone is not isolation — a
+stochastic agent can run arbitrary shell and `cd` out of its subtree.
+The guard:
+
+- **MVP (semi-trusted testers):** the host-runner spawns each team's
+  agents under a **per-team OS user** (or restricted filesystem
+  permissions on `~/hub-work/<team_id>/`), so the OS denies a
+  cross-team read/write regardless of where the agent `cd`s. This is
+  the concrete guard, not a shell-level `cd` block (which is
+  unenforceable).
+- **Residual risk (documented, not yet closed):** a determined
+  adversarial agent sharing a kernel is a weaker boundary than separate
+  hosts. If testers become untrusted, revisit with per-team sandboxing
+  (bwrap/container) or pinned hosts. Tracked as a hardening follow-up,
+  out of scope for the isolation MVP.
+
+In-flight agents keep their persisted `worktree_path`
+(`agents.worktree_path`); only new spawns adopt the segment.
 
 ### D7 — Cross-cutting sweep (G6)
 
@@ -159,32 +179,32 @@ other than its own. The shared on-disk template dir and the team-blind
 workdir are removed.
 
 **Migration.** Existing `default` installs: the single bootstrap owner
-becomes either the operator or the `default` principal (Open Q3) — the
-chosen path must keep the current owner token working or document the
-re-mint. `hub-work/` paths change shape; in-flight agents keep their
-already-resolved workdir (the value is persisted on the agent row,
-`agents.worktree_path`), so only new spawns adopt the team segment.
+token is reclassified as the **operator** (a one-row `kind` update, or
+a documented re-mint), so it keeps full access. New installs mint an
+operator at init. `hub-work/` paths change shape; in-flight agents keep
+their already-resolved workdir (`agents.worktree_path`), so only new
+spawns adopt the team segment. The per-team OS-user guard (D6) requires
+the host to be able to create/assume those users — a host-runner
+capability check at W5.
 
-## Open questions (for discussion — block Accepted)
+## Resolved decisions (2026-05-31)
 
-1. **Operator mechanism (D2).** New `operator` token *kind* (clean
-   mental model, auditable, but touches the F-01 allowlist and every
-   `requireOwner` site) vs a scope flag on `owner` (`team == "*"`)
-   (fewer code changes, but overloads one kind for two roles).
-   *Recommendation: new kind.*
-2. **Host-sharing model (D6).** Testers **share** a host (workdir team
-   segment is mandatory + needs a policy guard against cross-team `cd`)
-   vs each team gets a **pinned** host (`hosts.team_id` + spawn-time
-   check; cheaper, stronger isolation, but needs enough hosts).
-   *Recommendation: depends on tester logistics — see question.*
-3. **`default` after the split (D4).** Keep `default` as a real seeded
-   team with its own owner (back-compat, demo seed keeps working) vs
-   treat `default` as the operator's home only. *Recommendation: keep
-   it a real team.*
-4. **Template inheritance (D5).** Global read-only built-ins + per-team
-   on-disk overrides (no duplication, new engines ship once) vs copy
-   built-ins per team at provisioning (full per-team control, but drift
-   between teams). *Recommendation: global built-ins + overrides.*
+The four open questions were decided in discussion:
+
+1. **Operator mechanism (D2) → new `operator` token kind.** A distinct
+   kind is the cleanest, most auditable model and makes the D1 gate
+   unambiguous; the cost (F-01 allowlist + `requireOperator` sites) is
+   accepted.
+2. **Host model (D6) → shared host + workdir guard.** Testers share a
+   box; the workdir team segment is mandatory and the guard is per-team
+   OS-level isolation (users/permissions), with the shared-kernel
+   residual risk documented as a hardening follow-up.
+3. **`default` (D4) → operator's home only.** No separate `default`
+   owner; the bootstrap token becomes the operator. The demo seed is
+   reworked accordingly.
+4. **Templates (D5) → global built-ins + per-team overrides.** Embedded
+   built-ins stay global read-only; on-disk overrides go under
+   `teams/<team_id>/`.
 
 ## References
 

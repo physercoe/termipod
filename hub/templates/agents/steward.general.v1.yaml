@@ -83,9 +83,13 @@ default_capabilities:
   - schedules_update
   - schedules_delete
   - schedules_run
-  # Spawn (bootstrap → spawn the domain steward at end of phase 0).
+  # Spawn + worker lifecycle. stop = resumable (session paused),
+  # terminate = permanent (session archived), resume = bring a stopped
+  # worker back. See glossary "stop"/"terminate".
   - agents_spawn
+  - agents_stop
   - agents_terminate
+  - agents_resume
   # Reads — concierge mode answers cross-project questions.
   - projects_list
   - projects_get

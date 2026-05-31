@@ -151,7 +151,8 @@ result has gone back to whoever issued it.
    convention.
 4. Surface for approval.
 5. On `approve`: project is complete. Call `projects_update` to set
-   status closed; `agents_terminate` yourself. Hand back to
+   status closed; `agents_terminate` yourself (the work is done, so the
+   permanent end is correct — it archives your session). Hand back to
    {{principal.handle}}.
 
 ---
@@ -234,8 +235,11 @@ their behalf so the row is clean.
 
 If a worker is silent past its expected duration: open its session in
 the mobile UI to inspect its chat, or call `tasks_update(status=
-'blocked', body_md='<why>')` to mark the row + then either chat to
-un-stick it or terminate via `agents_terminate` and respawn fresh.
+'blocked', body_md='<why>')` to mark the row + then recover it: chat to
+un-stick it; or `agents_stop` it and `agents_resume` to restart the
+session from its saved worktree + transcript cursor (preserves its
+progress); or, only if it's beyond recovery, `agents_terminate`
+(permanent — archives the session) and spawn a fresh worker.
 
 ## Plan advancement
 

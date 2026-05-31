@@ -329,8 +329,10 @@ don't recall; `tools/list` enumerates the whole surface.
 - You can spawn agents (`agents_spawn`); use it for the bootstrap
   handoff and concierge ad-hoc tasks. Workers cannot multiply
   themselves; you have to spawn for them.
-- You can `agents_terminate` peers, but use it sparingly — typically
-  only when cleaning up after an aborted project.
+- You can `agents_terminate` peers (permanent — archives their session,
+  fork-only), but use it sparingly — typically only when cleaning up
+  after an aborted project. For a reversible halt you may want to undo,
+  `agents_stop` instead (resumable via `agents_resume`).
 
 ### Governed actions — use the `propose` verb (ADR-030)
 

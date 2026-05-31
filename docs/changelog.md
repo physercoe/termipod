@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.758
+> **Last verified vs code:** v1.0.759
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,32 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.759-alpha — 2026-05-31
+
+**Sweep bundled prompts/templates for the stop/terminate split.** The
+steward prompts predated the v1.0.758 naming split and still steered
+stewards to `agents_terminate` (now permanent) where they meant a
+recoverable halt. Functionally stewards already see the new tools
+(role=steward gets every authority tool, `mcp_authority_roles.go:335`);
+this corrects the *guidance* so they pick the right verb.
+
+### Changed
+- `steward.research.v1.md`: a **stuck** worker is now recovered with
+  `agents_stop` → `agents_resume` (preserves its worktree + cursor),
+  with `agents_terminate` + fresh spawn only as the beyond-recovery
+  fallback. The "terminate yourself when the project is complete" step
+  is annotated as the correct permanent end (archives the session).
+- `steward.general.v1.md`: terminating peers is marked permanent
+  (archives their session), with `agents_stop` called out as the
+  reversible alternative.
+- `steward.general.v1.yaml` + `steward.claude-m4.v1.yaml`:
+  `default_capabilities` gain `agents_stop` + `agents_resume` so the
+  advertised set reflects the new verbs (advisory — not a functional
+  gate). Other steward prompts referenced none of these verbs, so were
+  left unchanged.
 
 ---
 

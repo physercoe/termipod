@@ -114,7 +114,9 @@ default_capabilities:
   - schedules_delete
   - schedules_run
   - agents_spawn
+  - agents_stop
   - agents_terminate
+  - agents_resume
   - projects_list
   - projects_get
   - plans_list

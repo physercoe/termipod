@@ -54,6 +54,8 @@ next sequential number — don't reserve, don't skip.
 | [033](033-tool-catalog-naming-and-registration.md) | Tool catalog — one naming convention + single registration point | Accepted 2026-05-18 | — |
 | [034](034-orchestration-loop-closure.md) | Orchestration loop-closure runtime — closure invariant, per-hop deadlines, stall escalation, lifecycle hooks | Proposed 2026-05-19 | — |
 | [035](035-antigravity-engine-m4-locallogtail.md) | Antigravity CLI (`agy`) as the fifth engine, via M4 LocalLogTail; Gemini CLI sunset | Proposed 2026-05-22 | — |
+| [036](036-claude-code-statusline-telemetry.md) | claude-code statusLine as authoritative M4 telemetry channel | Proposed 2026-05-24 | — |
+| [037](037-multi-team-isolation-and-operator-principal-split.md) | Multi-team isolation + operator/principal split | Proposed 2026-05-31 | (single-team reading of [005](005-owner-authority-model.md)) |
 
 ---
 

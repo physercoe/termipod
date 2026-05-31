@@ -404,20 +404,26 @@ and tunneled peers. Today only the agent-card path is implemented.
 
 Task endpoints (send / get / cancel) are a follow-up wedge.
 
-### Enabling the trackio metric-digest poller (optional, blueprint §6.5)
+### The trackio metric-digest poller (on by default, blueprint §6.5)
 
 When workers on this host log training curves to [trackio](https://github.com/gradio-app/trackio),
-the host-runner can read each run's local SQLite file, downsample every
-scalar series, and push a compact digest to the hub so the mobile app
+the host-runner reads each run's local SQLite file, downsamples every
+scalar series, and pushes a compact digest to the hub so the mobile app
 can render sparklines (§6.5, P3.1).
 
-Enable by adding one flag (or env var in the systemd unit):
+This poller is **on by default** — you do not need any flag. When
+`--trackio-dir` is unset it resolves trackio's own default location
+(`$TRACKIO_DIR`, then `~/.cache/huggingface/trackio`), so a worker that
+runs `trackio.init(...)` in the standard place is picked up
+automatically. Reading a not-yet-created dir is a cheap no-op, so this
+costs nothing on hosts that never train.
 
-- `--trackio-dir /home/worker/.cache/huggingface/trackio` — trackio's
-  root dir. Falls back to `$TRACKIO_DIR` then `~/.cache/huggingface/trackio`
-  if unset; leave empty to disable the poller entirely. Must be the same
-  directory trackio itself uses; each project gets its own `{project}.db`
-  SQLite file under this root.
+Flags (only if you need to override):
+
+- `--trackio-dir /home/worker/.cache/huggingface/trackio` — point at a
+  non-default trackio root (must be the same directory trackio itself
+  uses; each project gets its own `{project}.db` SQLite file under it).
+- `--no-trackio` — disable the poller entirely.
 
 The poller ticks every 20 s:
 

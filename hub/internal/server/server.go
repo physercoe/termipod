@@ -493,6 +493,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Post("/", s.handleCreateRun)
 			r.Route("/{run}", func(r chi.Router) {
 				r.Get("/", s.handleGetRun)
+				r.Patch("/", s.handleUpdateRun)
 				r.Post("/complete", s.handleCompleteRun)
 				r.Post("/metric_uri", s.handleAttachMetricURI)
 				r.Put("/metrics", s.handlePutRunMetrics)

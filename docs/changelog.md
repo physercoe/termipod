@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.754
+> **Last verified vs code:** v1.0.755
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -23,7 +23,46 @@ binding). Seed entries prior to that are in
 
 ---
 
-## v1.0.754-alpha — 2026-05-31
+## v1.0.755-alpha — 2026-05-31
+
+**Fix: training-curve (trackio) metrics never reached mobile.** A
+tester logged experiment data to a local trackio SQLite DB but the
+mobile Runs tab showed nothing. Tracing producer→wire→consumer found
+the render path intact and two producer-side breaks, plus the
+agent-capability gaps the tester hit.
+
+### Fixed
+- **Trackio poller is now ON by default** (`cmd/host-runner/main.go`).
+  `--trackio-dir` previously defaulted to empty, which *disabled* the
+  poller — yet the flag help and `install-host-runner.md` both promised
+  a fallback to `$TRACKIO_DIR` / `~/.cache/huggingface/trackio`
+  (`trackio.DefaultDir()`) that the code never applied. Now an unset
+  `--trackio-dir` resolves that default; `--no-trackio` is the explicit
+  opt-out. wandb/TensorBoard stay opt-in (no universal default path).
+
+### Added
+- **`runs.update` MCP tool** + `PATCH /v1/teams/{team}/runs/{run}`
+  (`handleUpdateRun`). An agent can now fix a typo'd run or link/re-link
+  trackio metrics on an existing run instead of recreating it (the run
+  had no update tool — only create/get/list/attach_artifact). Registered
+  in both catalogs (`tools.go` + `toolspec.go`) per the cross-registry
+  invariant.
+- **Trackio host auto-derivation.** When a run links `trackio_run_uri`
+  without `trackio_host_id` but has an `agent_id`, the hub fills the host
+  from that agent's `host_id` — removing the most common footgun (the
+  agent knows its `trackio://<project>/<run_name>` but not the opaque
+  `hosts.id`). Applies to both `runs.create` and `runs.update`.
+
+### Changed
+- `runs.create` / `runs.update` tool descriptions now spell out the
+  `trackio://<project>/<run_name>` convention and what `<project>`,
+  `<run_name>`, and `trackio_host_id` mean, so agents can fill them
+  correctly.
+- New how-to [`surface-run-metrics.md`](how-to/surface-run-metrics.md)
+  — end-to-end wiring, the field semantics, and a test-seeding recipe
+  (trackio `log` or a direct SQLite insert into the `metrics` table).
+- `install-host-runner.md` trackio section corrected to "on by default
+  + `--no-trackio`".
 
 **Sweep of the remaining handle-only steward predicates (follow-up to
 v1.0.753).**

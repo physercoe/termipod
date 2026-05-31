@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -113,6 +114,14 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+	}
+
+	// Convenience: when the caller links a trackio URI but omits the
+	// host, derive it from the run's agent (the agent's host is where it
+	// logged). Removes the most common footgun — an agent that knows its
+	// trackio://<project>/<run> but not the opaque hosts.id.
+	if in.TrackioRunURI != "" && in.TrackioHostID == "" && in.AgentID != "" {
+		in.TrackioHostID = s.deriveTrackioHostFromAgent(r.Context(), in.AgentID, team)
 	}
 
 	id := NewID()
@@ -232,7 +241,13 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	runID := chi.URLParam(r, "run")
+	s.writeRunByID(w, r, team, runID)
+}
 
+// writeRunByID selects one team-scoped run and writes it as JSON, or a
+// 404/500. Shared by GET /runs/{run} and the PATCH response so the two
+// always serialise the row identically.
+func (s *Server) writeRunByID(w http.ResponseWriter, r *http.Request, team, runID string) {
 	var ro runOut
 	var seed sql.NullInt64
 	err := s.db.QueryRowContext(r.Context(), `
@@ -300,6 +315,129 @@ func (s *Server) handleCompleteRun(w http.ResponseWriter, r *http.Request) {
 	// dead workers silently degrade.
 	s.notifyRunOwner(r.Context(), team, runID, in.Status)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// runUpdateIn is a partial update — every field is a pointer so the
+// handler can distinguish "absent" (leave as-is) from "set to empty".
+// Mutable columns only; id/project_id/created_at are immutable.
+type runUpdateIn struct {
+	Status        *string          `json:"status,omitempty"`
+	ConfigJSON    *json.RawMessage `json:"config_json,omitempty"`
+	Seed          *int64           `json:"seed,omitempty"`
+	AgentID       *string          `json:"agent_id,omitempty"`
+	StartedAt     *string          `json:"started_at,omitempty"`
+	FinishedAt    *string          `json:"finished_at,omitempty"`
+	TrackioHostID *string          `json:"trackio_host_id,omitempty"`
+	TrackioRunURI *string          `json:"trackio_run_uri,omitempty"`
+	ParentRunID   *string          `json:"parent_run_id,omitempty"`
+}
+
+// handleUpdateRun is PATCH /v1/teams/{team}/runs/{run} — a partial
+// update for the mutable run columns. Lets an agent fix a typo'd
+// config/seed or (re)link trackio metadata without recreating the run.
+// Only the provided fields change. The /complete and /metric_uri
+// endpoints remain for their specific, audited side effects.
+func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	runID := chi.URLParam(r, "run")
+
+	var in runUpdateIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	if in.Status != nil {
+		if _, ok := validRunStatuses[*in.Status]; !ok {
+			writeErr(w, http.StatusBadRequest,
+				"status must be one of pending|running|completed|failed|cancelled")
+			return
+		}
+	}
+
+	// Derive the trackio host from the agent when a URI is being set
+	// without an explicit host (same convenience as create). Prefer an
+	// explicitly-supplied agent_id in this same patch, else the run's
+	// current agent.
+	if in.TrackioRunURI != nil && *in.TrackioRunURI != "" &&
+		(in.TrackioHostID == nil || *in.TrackioHostID == "") {
+		agentID := ""
+		if in.AgentID != nil {
+			agentID = *in.AgentID
+		}
+		if agentID == "" {
+			_ = s.db.QueryRowContext(r.Context(),
+				`SELECT COALESCE(agent_id, '') FROM runs
+				 WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
+				runID, team).Scan(&agentID)
+		}
+		if agentID != "" {
+			if h := s.deriveTrackioHostFromAgent(r.Context(), agentID, team); h != "" {
+				in.TrackioHostID = &h
+			}
+		}
+	}
+
+	sets := []string{}
+	vals := []any{}
+	add := func(col string, v any) { sets = append(sets, col+" = ?"); vals = append(vals, v) }
+	if in.Status != nil {
+		add("status", *in.Status)
+	}
+	if in.ConfigJSON != nil {
+		add("config_json", string(*in.ConfigJSON))
+	}
+	if in.Seed != nil {
+		add("seed", *in.Seed)
+	}
+	if in.AgentID != nil {
+		add("agent_id", nullIfEmpty(*in.AgentID))
+	}
+	if in.StartedAt != nil {
+		add("started_at", nullIfEmpty(*in.StartedAt))
+	}
+	if in.FinishedAt != nil {
+		add("finished_at", nullIfEmpty(*in.FinishedAt))
+	}
+	if in.TrackioHostID != nil {
+		add("trackio_host_id", nullIfEmpty(*in.TrackioHostID))
+	}
+	if in.TrackioRunURI != nil {
+		add("trackio_run_uri", nullIfEmpty(*in.TrackioRunURI))
+	}
+	if in.ParentRunID != nil {
+		add("parent_run_id", nullIfEmpty(*in.ParentRunID))
+	}
+	if len(sets) == 0 {
+		writeErr(w, http.StatusBadRequest, "no updatable fields supplied")
+		return
+	}
+
+	vals = append(vals, runID, team)
+	q := "UPDATE runs SET " + joinComma(sets) +
+		" WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)"
+	res, err := s.db.ExecContext(r.Context(), q, vals...)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	s.recordAudit(r.Context(), team, "run.update", "run", runID,
+		"update run", map[string]any{"fields": len(sets)})
+	s.writeRunByID(w, r, team, runID)
+}
+
+// deriveTrackioHostFromAgent returns the agent's host_id (the box where
+// it logs), or "" when the agent has no host or isn't in this team.
+func (s *Server) deriveTrackioHostFromAgent(ctx context.Context, agentID, team string) string {
+	var host string
+	_ = s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(host_id, '') FROM agents WHERE id = ? AND team_id = ?`,
+		agentID, team).Scan(&host)
+	return host
 }
 
 func (s *Server) handleAttachMetricURI(w http.ResponseWriter, r *http.Request) {

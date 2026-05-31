@@ -242,6 +242,29 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "runs.update",
+			Description: "Update mutable fields of an EXISTING run without recreating it — fix a typo, set status, or link/re-link training metrics. Required: `run`. Optional (only the fields you pass change; pass \"\" to clear a nullable one): `status` (pending|running|completed|failed|cancelled), `config_json` (object), `seed`, `agent_id`, `started_at`, `finished_at`, `parent_run_id`, `trackio_host_id`, `trackio_run_uri`.\n\n=== Make a run's training curves show on mobile ===\nSet `trackio_run_uri` (and usually nothing else):\n  - `trackio_run_uri` — canonical form `trackio://<project>/<run_name>`.\n      • `<project>` = the trackio project name. Trackio stores one SQLite file per project at `<TRACKIO_DIR>/<project>.db` (default TRACKIO_DIR is `~/.cache/huggingface/trackio`). It's the `project=` you pass to `trackio.init(...)`.\n      • `<run_name>` = the run's name within that project — the `name=` in `trackio.init(project=..., name=...)`, stored in the trackio `metrics` table's `run_name` column.\n      (wandb runs use `wandb://...`; TensorBoard uses `tb://<run-path>`.)\n  - `trackio_host_id` — the hub host id of the machine where the worker logged (its trackio DB is on that host's disk). OPTIONAL: if you omit it and the run has an `agent_id`, the hub auto-fills it from that agent's host. So an agent normally only needs `trackio_run_uri`.\nThe host-runner on that host then reads the trackio SQLite and pushes downsampled curves to the run; mobile renders inline sparklines. (See `runs.create` to set these at creation time instead.)",
+			InputSchema: schema(`{"type":"object","required":["run"],"properties":{"run":{"type":"string"},"status":{"type":"string"},"config_json":{"type":"object"},"seed":{"type":"integer"},"agent_id":{"type":"string"},"started_at":{"type":"string"},"finished_at":{"type":"string"},"parent_run_id":{"type":"string"},"trackio_host_id":{"type":"string"},"trackio_run_uri":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["run"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("run is required")
+				}
+				body := make(map[string]any, len(args))
+				for k, v := range args {
+					if k == "run" {
+						continue
+					}
+					body[k] = v
+				}
+				var out json.RawMessage
+				if err := c.do("PATCH", c.teamPath("/runs/"+url.PathEscape(id)), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
 			Name:        "documents.list",
 			Description: "List documents in the team. Optional `project` filters by project id. Returns rows with `id`, `project_id`, `kind`, `title`, `created_at`, etc — NOT the document body. Use `documents.get` to fetch a single doc's full body.\n\nNote: this is the documents-TABLE listing (rows authored via `documents.create`). It is NOT the same as `get_project_doc` which reads files from the project's filesystem `docs_root` (shared human-authored context). The two surfaces don't overlap.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),
@@ -333,7 +356,7 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "runs.create",
-			Description: "Create a new run row. Requires `project_id`. Optional: agent_id, config_json (object), seed, parent_run_id, trackio_host_id, trackio_run_uri.",
+			Description: "Create a new run row. Requires `project_id`. Optional: `agent_id`, `config_json` (object), `seed`, `parent_run_id`, `trackio_host_id`, `trackio_run_uri`.\n\nTo surface training curves on mobile, set `trackio_run_uri` to `trackio://<project>/<run_name>` (the `project=`/`name=` you pass to `trackio.init`; the project's SQLite is `<TRACKIO_DIR>/<project>.db`, default `~/.cache/huggingface/trackio`). `trackio_host_id` is the host where the worker logs — OPTIONAL when `agent_id` is set (the hub fills it from that agent's host). If you don't know the run name yet at creation, link it later with `runs.update`. Typos are fixable with `runs.update` — no need to recreate the run.",
 			InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"agent_id":{"type":"string"},"config_json":{"type":"object"},"seed":{"type":"integer"},"parent_run_id":{"type":"string"},"trackio_host_id":{"type":"string"},"trackio_run_uri":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				if p, _ := args["project_id"].(string); p == "" {

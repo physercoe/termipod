@@ -174,6 +174,10 @@ func toolRegistry() []ToolSpec {
 		spec("runs_create", "runs.create",
 			"Create a run under a project. Required: project_id.",
 			tierRoutine, true),
+		spec("runs_update", "runs.update",
+			"Update an existing run's mutable fields (status, config, or link "+
+				"trackio metrics). Required: run. Fixes typos without recreating.",
+			tierRoutine, true),
 		spec("runs_attach_artifact", "runs.attach_artifact",
 			"Attach an artifact to a run. Required: run, project_id, kind, name, uri.",
 			tierRoutine, true),
@@ -386,6 +390,7 @@ var toolMeta = map[string]toolMetaEntry{
 	"runs_list":                 {true, []string{"runs_get", "runs_create"}},
 	"runs_get":                  {true, []string{"runs_list", "artifacts_list"}},
 	"runs_create":               {false, []string{"runs_attach_artifact", "runs_list"}},
+	"runs_update":               {false, []string{"runs_get", "runs_create"}},
 	"runs_attach_artifact":      {false, []string{"runs_get", "artifacts_create"}},
 	"artifacts_list":            {true, []string{"artifacts_get", "artifacts_create"}},
 	"artifacts_get":             {true, []string{"artifacts_list", "runs_get"}},

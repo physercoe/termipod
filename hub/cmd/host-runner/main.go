@@ -51,6 +51,7 @@ import (
 	"github.com/termipod/hub/internal/buildinfo"
 	"github.com/termipod/hub/internal/hookfire"
 	"github.com/termipod/hub/internal/hostrunner"
+	"github.com/termipod/hub/internal/hostrunner/trackio"
 	"github.com/termipod/hub/internal/mcpbridge"
 	"github.com/termipod/hub/internal/mcpudsbridge"
 	"github.com/termipod/hub/internal/selfupdate"
@@ -243,10 +244,25 @@ func runDaemon(args []string) {
 		"bind address for the in-process reverse proxy that masks the hub URL from spawned agents; "+
 			"agents see http://<this addr>/ in their .mcp.json instead of --hub. "+
 			"Empty disables the proxy and .mcp.json carries the real hub URL.")
-	trackioDir := fs.String("trackio-dir", "", "trackio root dir (default: $TRACKIO_DIR or ~/.cache/huggingface/trackio); empty disables the metric-digest poller")
+	trackioDir := fs.String("trackio-dir", "", "trackio root dir; empty falls back to $TRACKIO_DIR then ~/.cache/huggingface/trackio (trackio's own default), so the metric-digest poller is ON by default. Pass --no-trackio to disable.")
+	noTrackio := fs.Bool("no-trackio", false, "disable the trackio metric-digest poller even when a default trackio dir resolves")
 	wandbDir := fs.String("wandb-dir", "", "wandb offline-run root dir (contains run-*/files/wandb-history.jsonl); empty disables the wandb metric-digest poller")
 	tbDir := fs.String("tb-dir", "", "TensorBoard root logdir; each run's tfevents files live under <tb-dir>/<run-path>. Empty disables the TensorBoard metric-digest poller")
 	_ = fs.Parse(args)
+
+	// Trackio poller is on by default: when --trackio-dir is unset, fall
+	// back to trackio's own default location (matching the documented
+	// behaviour and the flag help) instead of silently disabling the
+	// poller. Reading a non-existent default dir is a cheap no-op — the
+	// reader returns empty until a worker logs — so defaulting on costs
+	// nothing on hosts that never run training. --no-trackio is the
+	// explicit opt-out. (wandb/TensorBoard stay opt-in: they have no
+	// universal default location.)
+	if *noTrackio {
+		*trackioDir = ""
+	} else if *trackioDir == "" {
+		*trackioDir = trackio.DefaultDir()
+	}
 
 	// v1.0.665 — log level toggle. Default is Info (slog's default for
 	// nil opts); set HOSTRUNNER_LOG_LEVEL=debug to see every Debug

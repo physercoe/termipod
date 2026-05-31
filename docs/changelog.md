@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-30)
+> **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.765
+> **Last verified vs code:** v1.0.766
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,33 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.766-alpha — 2026-05-31
+
+**`get_project_doc` no longer masquerades as a missing file.** Tester
+feedback: stewards that called `get_project_doc` got `file does not
+exist` and went in circles. The cause was a diagnostic gap on the MCP
+path — `mcpGetProjectDoc` collapsed every failure into a bare
+`error.Error()`, so the common case (a project with no `docs_root`
+configured — the default for most projects) surfaced as a plain
+not-found, indistinguishable from "the file you named is missing." The
+REST surface already distinguished the two and emitted a recovery hint;
+the agent-facing tool did not.
+
+### Fixed
+- **`mcpGetProjectDoc` error parity (`mcp.go`).** A new `errNoDocsRoot`
+  sentinel (wrapping `os.ErrNotExist`, so REST callers keep their 404
+  mapping) lets the tool tell "this project serves no filesystem docs at
+  all" apart from "that file is missing." The no-`docs_root` case now
+  returns an explicit message naming the cause and steering to
+  `documents.get` with the document ULID; the missing-file case names the
+  path and the same sibling tool. `resolveDocsRoot`
+  (`handlers_project_docs.go`) returns `errNoDocsRoot` for both the unset
+  and the F-07 escape-backstop branches. Tests:
+  `TestMCPGetProjectDoc_NoDocsRoot_PointsAtDocumentsGet` +
+  `TestMCPGetProjectDoc_MissingFile_PointsAtDocumentsGet`.
 
 ---
 

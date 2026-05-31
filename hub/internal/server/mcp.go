@@ -675,10 +675,20 @@ func (s *Server) mcpGetProjectDoc(ctx context.Context, team string, raw json.Raw
 	}
 	root, err := s.resolveDocsRoot(ctx, team, a.ProjectID)
 	if err != nil {
+		if errors.Is(err, errNoDocsRoot) {
+			// The common miss: docs_root is unset (the default), so this
+			// project serves no filesystem docs. A bare ErrNotExist here
+			// reads like "your file is missing" and sends agents in
+			// circles — name the real cause and point at documents.get.
+			return nil, &jrpcError{Code: -32000, Message: "this project has no docs_root configured, so it serves no filesystem docs. get_project_doc only reads files under docs_root. To read a document created via documents.create, call documents.get with its ULID instead."}
+		}
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
 	body, err := readFileInRoot(root, a.Path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, &jrpcError{Code: -32000, Message: fmt.Sprintf("no file at %q under the project's docs_root. get_project_doc reads filesystem files only; for a documents.create row use documents.get with its ULID.", a.Path)}
+		}
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
 	return mcpResultText(body), nil

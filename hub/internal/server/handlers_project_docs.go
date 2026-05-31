@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 )
+
+// errNoDocsRoot signals that the project serves no filesystem docs at all
+// — either docs_root is unset (the default for most projects) or it fails
+// the F-07 containment check. It wraps os.ErrNotExist so the REST callers
+// keep mapping it to 404, while get_project_doc can tell this apart from
+// "the file you named is missing" and steer the agent to documents.get.
+var errNoDocsRoot = fmt.Errorf("project has no docs_root configured: %w", os.ErrNotExist)
 
 // Project docs are the shared, human-authored context for a project
 // (plan §10A "shared tier"). Agents pull them lazily via the MCP tool
@@ -36,7 +44,7 @@ func (s *Server) resolveDocsRoot(ctx context.Context, team, project string) (str
 		return "", err
 	}
 	if !docsRoot.Valid || docsRoot.String == "" {
-		return "", os.ErrNotExist
+		return "", errNoDocsRoot
 	}
 	root, ok := s.boundDocsRoot(docsRoot.String)
 	if !ok {
@@ -48,7 +56,7 @@ func (s *Server) resolveDocsRoot(ctx context.Context, team, project string) (str
 		// warning so the operator can spot the misconfiguration.
 		s.log.Warn("docs_root escapes hub data root; refusing to serve",
 			"team", team, "project", project, "docs_root", docsRoot.String)
-		return "", os.ErrNotExist
+		return "", errNoDocsRoot
 	}
 	return root, nil
 }

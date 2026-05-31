@@ -107,3 +107,51 @@ func TestErrorHint_RoleDenied_NamesEscalation(t *testing.T) {
 		}
 	}
 }
+
+// MCP-path parity with the REST hints: mcpGetProjectDoc is the tool agents
+// actually call. It used to collapse every failure into a bare error.Error()
+// — so a project with no docs_root (the default) returned "file does not
+// exist", reading like a missing file and sending stewards in circles
+// (tester feedback, 2026-05-31). Both failure modes must now name the real
+// cause and steer to documents.get.
+func TestMCPGetProjectDoc_NoDocsRoot_PointsAtDocumentsGet(t *testing.T) {
+	s, _ := newTestServer(t)
+	if _, err := s.db.Exec(`
+		INSERT INTO projects (id, team_id, name, created_at, kind)
+		VALUES (?, ?, ?, ?, 'goal')`,
+		"proj-nodocs", defaultTeamID, "No Docs", NowUTC()); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	raw := json.RawMessage(`{"project_id":"proj-nodocs","path":"plans/x.md"}`)
+	_, jerr := s.mcpGetProjectDoc(context.Background(), defaultTeamID, raw)
+	if jerr == nil {
+		t.Fatal("expected an error for a project with no docs_root")
+	}
+	for _, want := range []string{"docs_root", "documents.get"} {
+		if !strings.Contains(jerr.Message, want) {
+			t.Errorf("no-docs_root message missing %q: %s", want, jerr.Message)
+		}
+	}
+	if strings.Contains(jerr.Message, "file does not exist") {
+		t.Errorf("message still reads as a missing file: %s", jerr.Message)
+	}
+}
+
+func TestMCPGetProjectDoc_MissingFile_PointsAtDocumentsGet(t *testing.T) {
+	s, dir := newTestServer(t)
+	docsRoot := filepath.Join(dir, "docsroot")
+	if _, err := s.db.Exec(`
+		INSERT INTO projects (id, team_id, name, created_at, kind, docs_root)
+		VALUES (?, ?, ?, ?, 'goal', ?)`,
+		"proj-docs", defaultTeamID, "Has Docs", NowUTC(), docsRoot); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	raw := json.RawMessage(`{"project_id":"proj-docs","path":"nope.md"}`)
+	_, jerr := s.mcpGetProjectDoc(context.Background(), defaultTeamID, raw)
+	if jerr == nil {
+		t.Fatal("expected an error for a missing file under docs_root")
+	}
+	if !strings.Contains(jerr.Message, "documents.get") {
+		t.Errorf("missing-file message should steer to documents.get: %s", jerr.Message)
+	}
+}

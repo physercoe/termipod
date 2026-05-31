@@ -470,7 +470,7 @@ func TestMCP_TemplatesPropose_ApproveInstalls(t *testing.T) {
 	attnID := firstFieldFromMCPResult(t, out, "attention_id")
 
 	// Simulate the reviewer pressing "Approve" in the mobile UI.
-	installed, err := s.installProposedTemplate(mustPendingPayload(t, s, attnID))
+	installed, err := s.installProposedTemplate(defaultTeamID, mustPendingPayload(t, s, attnID))
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}

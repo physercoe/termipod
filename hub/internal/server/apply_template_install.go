@@ -121,7 +121,7 @@ func applyTemplateInstall(
 		"name":        p.Name,
 		"blob_sha256": p.BlobSHA256,
 	})
-	installed, err := s.installProposedTemplate(string(installerPayload))
+	installed, err := s.installProposedTemplate(team, string(installerPayload))
 	if err != nil {
 		return nil, fmt.Errorf("template.install: %w", err)
 	}

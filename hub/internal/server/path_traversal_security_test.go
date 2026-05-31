@@ -41,7 +41,7 @@ func TestInstallProposedTemplate_RejectsTraversal(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := s.installProposedTemplate(c.payload)
+			_, err := s.installProposedTemplate(defaultTeamID, c.payload)
 			if err == nil {
 				t.Fatalf("expected rejection, got nil error")
 			}

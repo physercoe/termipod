@@ -44,52 +44,67 @@ type templateOut struct {
 }
 
 func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
-	base := filepath.Join(s.cfg.DataRoot, "team", "templates")
-	cats := discoverTemplateCategories(base)
 	// Optional ?category= filter — the MCP tool wrappers
 	// (templates.agent.list, templates.prompt.list, …) use this to
-	// scope their response. Unknown / empty category falls through
-	// to the full union.
-	if want := r.URL.Query().Get("category"); want != "" {
-		filtered := cats[:0:0]
-		for _, c := range cats {
-			if c == want {
-				filtered = append(filtered, c)
-				break
+	// scope their response. Unknown / empty category falls through to
+	// the full union.
+	want := r.URL.Query().Get("category")
+
+	// The team sees the merge of the global operator baseline and its
+	// own per-team overrides (W4 / ADR-037 D5), keyed by category/name
+	// so a per-team override shadows the baseline of the same name.
+	team := chi.URLParam(r, "team")
+	merged := map[string]templateOut{}
+	collect := func(base string) error {
+		if base == "" {
+			return nil
+		}
+		for _, cat := range discoverTemplateCategories(base) {
+			if want != "" && cat != want {
+				continue
+			}
+			dir := filepath.Join(base, cat)
+			entries, err := os.ReadDir(dir)
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				info, err := e.Info()
+				if err != nil {
+					continue
+				}
+				// Parse `applicable_to.template_ids` once per template so
+				// the listing carries enough metadata for client-side
+				// filtering. Failure is silent: malformed YAML falls
+				// through with an empty list = team-shared (safe default).
+				applicable := readApplicableTemplateIDs(filepath.Join(dir, e.Name()))
+				merged[cat+"/"+e.Name()] = templateOut{
+					Category:              cat,
+					Name:                  e.Name(),
+					Path:                  filepath.Join(cat, e.Name()),
+					Size:                  info.Size(),
+					ModTime:               info.ModTime().UTC().Format("2006-01-02T15:04:05Z07:00"),
+					ApplicableTemplateIDs: applicable,
+				}
 			}
 		}
-		cats = filtered
+		return nil
 	}
-	out := []templateOut{}
-	for _, cat := range cats {
-		dir := filepath.Join(base, cat)
-		entries, err := os.ReadDir(dir)
-		if err != nil && !os.IsNotExist(err) {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			info, err := e.Info()
-			if err != nil {
-				continue
-			}
-			// Parse `applicable_to.template_ids` once per template so the
-			// listing carries enough metadata for client-side filtering.
-			// Failure is silent: malformed YAML falls through with an
-			// empty list = team-shared (the safe default).
-			applicable := readApplicableTemplateIDs(filepath.Join(dir, e.Name()))
-			out = append(out, templateOut{
-				Category:              cat,
-				Name:                  e.Name(),
-				Path:                  filepath.Join(cat, e.Name()),
-				Size:                  info.Size(),
-				ModTime:               info.ModTime().UTC().Format("2006-01-02T15:04:05Z07:00"),
-				ApplicableTemplateIDs: applicable,
-			})
-		}
+	// Baseline first, then the per-team overlay overwrites by key.
+	if err := collect(filepath.Join(s.cfg.DataRoot, "team", "templates")); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := collect(teamTemplatesDir(s.cfg.DataRoot, team)); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]templateOut, 0, len(merged))
+	for _, t := range merged {
+		out = append(out, t)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Category != out[j].Category {
@@ -139,6 +154,7 @@ func discoverTemplateCategories(base string) []string {
 }
 
 func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
 	cat := chi.URLParam(r, "category")
 	name := chi.URLParam(r, "name")
 	if !validCategory(cat) || !safeTemplateName(name) {
@@ -149,6 +165,14 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid path")
 		return
+	}
+	// Prefer the per-team override file when present (W4 / ADR-037 D5);
+	// otherwise `path` stays the global baseline, with the embedded
+	// built-in as the final fallback below.
+	if tp, tok := resolveTeamTemplatePath(s.cfg.DataRoot, team, cat, name); tok {
+		if _, e := os.Stat(tp); e == nil {
+			path = tp
+		}
 	}
 	body, err := os.ReadFile(path)
 	diskMissing := false
@@ -296,7 +320,7 @@ func (s *Server) handlePutTemplate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, denied)
 		return
 	}
-	path, ok := resolveTemplatePath(s.cfg.DataRoot, cat, name)
+	path, ok := resolveTeamTemplatePath(s.cfg.DataRoot, team, cat, name)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid path")
 		return
@@ -355,7 +379,10 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, denied)
 		return
 	}
-	path, ok := resolveTemplatePath(s.cfg.DataRoot, cat, name)
+	// Per-team override delete (W4): a team can remove only its own
+	// override; the global operator baseline + embedded built-ins are
+	// not deletable per-team (so resolution falls back to them).
+	path, ok := resolveTeamTemplatePath(s.cfg.DataRoot, team, cat, name)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid path")
 		return
@@ -406,12 +433,12 @@ func (s *Server) handleRenameTemplate(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	srcPath, ok := resolveTemplatePath(s.cfg.DataRoot, cat, name)
+	srcPath, ok := resolveTeamTemplatePath(s.cfg.DataRoot, team, cat, name)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid path")
 		return
 	}
-	dstPath, ok := resolveTemplatePath(s.cfg.DataRoot, cat, body.NewName)
+	dstPath, ok := resolveTeamTemplatePath(s.cfg.DataRoot, team, cat, body.NewName)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid path")
 		return
@@ -445,9 +472,26 @@ func (s *Server) handleRenameTemplate(w http.ResponseWriter, r *http.Request) {
 // resolveTemplatePath joins dataRoot + category + name and re-checks the
 // absolute path stays under team/templates so a name like "..%2Fpasswd"
 // can't escape even if validation upstream slips. Mirrors the defence-
-// in-depth check already in handleGetTemplate.
+// in-depth check already in handleGetTemplate. Targets the global
+// operator baseline (used for reads/fallback); writes go through the
+// per-team variant below.
 func resolveTemplatePath(dataRoot, cat, name string) (string, bool) {
-	base := filepath.Join(dataRoot, "team", "templates")
+	return resolveTemplatePathUnder(filepath.Join(dataRoot, "team", "templates"), cat, name)
+}
+
+// resolveTeamTemplatePath is the per-team write/override variant (W4 /
+// ADR-037 D5): it joins <dataRoot>/teams/<team>/templates + category +
+// name with the same traversal guard, so a team's edits land in — and
+// stay within — its own override dir.
+func resolveTeamTemplatePath(dataRoot, team, cat, name string) (string, bool) {
+	base := teamTemplatesDir(dataRoot, team)
+	if base == "" {
+		return "", false
+	}
+	return resolveTemplatePathUnder(base, cat, name)
+}
+
+func resolveTemplatePathUnder(base, cat, name string) (string, bool) {
 	path := filepath.Join(base, cat, name)
 	abs, err := filepath.Abs(path)
 	if err != nil || !strings.HasPrefix(abs, base+string(os.PathSeparator)) {

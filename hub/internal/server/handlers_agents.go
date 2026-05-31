@@ -1195,7 +1195,7 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	}
 
 	taskInstructions := buildTaskInstructions(ctx, s.db, in, projectID, inlineTaskID)
-	rendered, err = s.resolveContextFiles(rendered, vars, in.PersonaSeed, taskInstructions)
+	rendered, err = s.resolveContextFiles(team, rendered, vars, in.PersonaSeed, taskInstructions)
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
 	}

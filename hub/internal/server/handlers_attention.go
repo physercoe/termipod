@@ -834,7 +834,7 @@ func priorTerminalDecision(list []map[string]any) string {
 // installProposedTemplate reads the proposed blob and writes it to the
 // team's templates/<category>/<name> path. Returns the JSON-encoded result
 // so it can be surfaced to the reviewer.
-func (s *Server) installProposedTemplate(payload string) ([]byte, error) {
+func (s *Server) installProposedTemplate(team, payload string) ([]byte, error) {
 	var p struct {
 		Category   string `json:"category"`
 		Name       string `json:"name"`
@@ -865,7 +865,15 @@ func (s *Server) installProposedTemplate(payload string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read blob: %w", err)
 	}
-	dstDir := filepath.Join(s.cfg.DataRoot, "team", "templates", p.Category)
+	// Per-team override dir (W4 / ADR-037 D5): an agent-proposed
+	// template install lands in its own team's overlay, invisible to
+	// other teams. Falls back to the global baseline only when no team
+	// is supplied (defensive — applyTemplateInstall always passes one).
+	base := teamTemplatesDir(s.cfg.DataRoot, team)
+	if base == "" {
+		base = filepath.Join(s.cfg.DataRoot, "team", "templates")
+	}
+	dstDir := filepath.Join(base, p.Category)
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return nil, err
 	}

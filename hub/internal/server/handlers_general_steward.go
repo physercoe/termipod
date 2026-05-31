@@ -126,7 +126,7 @@ func (s *Server) handleEnsureGeneralSteward(w http.ResponseWriter, r *http.Reque
 	// general steward itself (ADR-016 D7); operator-side edits via
 	// the REST surface are still allowed because the director has
 	// god-mode in concierge mode (W3 mobile editor).
-	specBody, err := s.loadBuiltinAgentTemplate(generalStewardKind + ".yaml")
+	specBody, err := s.loadBuiltinAgentTemplate(team, generalStewardKind+".yaml")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError,
 			"load steward.general.v1 template: "+err.Error())
@@ -238,15 +238,23 @@ func (s *Server) pickFirstHost(ctx context.Context, team string) (string, error)
 // team's overlay path first; falls back to the embedded FS so
 // freshly-installed hubs that haven't run writeBuiltinTemplates
 // yet still resolve. Same precedence as handleGetTemplate.
-func (s *Server) loadBuiltinAgentTemplate(name string) ([]byte, error) {
+func (s *Server) loadBuiltinAgentTemplate(team, name string) ([]byte, error) {
 	if !safeTemplateName(name) {
 		return nil, fmt.Errorf("unsafe template name %q", name)
 	}
-	overlayPath := filepath.Join(s.cfg.DataRoot, "team", "templates", "agents", name)
-	if b, err := os.ReadFile(overlayPath); err == nil {
-		return b, nil
-	} else if !os.IsNotExist(err) {
-		return nil, err
+	// Per-team override first (W4 / ADR-037 D5), then the global operator
+	// baseline, then the embedded built-in.
+	paths := []string{}
+	if td := teamTemplatesDir(s.cfg.DataRoot, team); td != "" {
+		paths = append(paths, filepath.Join(td, "agents", name))
+	}
+	paths = append(paths, filepath.Join(s.cfg.DataRoot, "team", "templates", "agents", name))
+	for _, overlayPath := range paths {
+		if b, err := os.ReadFile(overlayPath); err == nil {
+			return b, nil
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
 	}
 	embedded, err := fs.ReadFile(hub.TemplatesFS, "templates/agents/"+name)
 	if err != nil {

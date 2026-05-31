@@ -452,7 +452,7 @@ func TestLifecycleSeed_BundledPlanTemplate(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
-	body, err := s.loadBuiltinAgentTemplate("steward.research.v1.yaml")
+	body, err := s.loadBuiltinAgentTemplate(defaultTeamID, "steward.research.v1.yaml")
 	if err != nil {
 		t.Fatalf("seed agent template missing: %v", err)
 	}

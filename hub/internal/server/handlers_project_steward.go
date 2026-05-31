@@ -127,7 +127,7 @@ func (s *Server) handleEnsureProjectSteward(w http.ResponseWriter, r *http.Reque
 	if kind == "" {
 		kind = projectStewardKindDefault
 	}
-	specBody, err := s.loadBuiltinAgentTemplate(kind + ".yaml")
+	specBody, err := s.loadBuiltinAgentTemplate(team, kind+".yaml")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError,
 			"load "+kind+" template: "+err.Error())

@@ -129,6 +129,16 @@ team's override dir first, then the embedded built-ins. DB
 (Chosen over copy-per-team, which would drift built-ins across teams —
 §Resolved decisions Q4.)
 
+*Implementation note (W4, v1.0.763):* shipped as a 3-tier resolver —
+**per-team override → global operator baseline (`team/templates/`) →
+embedded** — a superset of the above that keeps the existing global dir
+as a read-only operator fallback, so no FS migration of existing
+`default` edits was needed and new teams are still clean. Agent + prompt
+templates are per-team; project-template *disk YAML* hydration is a
+deferred follow-up (its `project_templates` rows are already team-keyed,
+so project data is isolated). Agent-families and the envelope config stay
+hub-global (system config, not per-team work templates).
+
 ### D6 — Team-scoped workdir on a shared host (G5) — *resolved Q2: shared + guard*
 
 Hosts are **shared** across teams (testers do not each get a dedicated

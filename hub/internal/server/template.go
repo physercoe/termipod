@@ -72,7 +72,7 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 	// embed backend.model inline keep working; renderSpawnSpec re-runs
 	// the same merge and surfaces any real error with full context.
 	specForVars := in.SpawnSpec
-	if merged, err := s.mergeTemplateReference(in.SpawnSpec); err == nil {
+	if merged, err := s.mergeTemplateReference(team, in.SpawnSpec); err == nil {
 		specForVars = merged
 	}
 	model, permFlag := backendVarsFromSpec(specForVars, in.PermissionMode)
@@ -207,7 +207,7 @@ func expandVars(s string, vars map[string]string) string {
 // (the v1.0.619 incident). See
 // docs/discussions/validate-at-every-boundary.md §1.
 func (s *Server) renderSpawnSpec(ctx context.Context, team string, in spawnIn, principal string) (string, error) {
-	spec, err := s.mergeTemplateReference(in.SpawnSpec)
+	spec, err := s.mergeTemplateReference(team, in.SpawnSpec)
 	if err != nil {
 		return "", err
 	}
@@ -227,7 +227,7 @@ func (s *Server) renderSpawnSpec(ctx context.Context, team string, in spawnIn, p
 // the steward can override e.g. backend.model while keeping the
 // template's backend.cmd. Missing template name is a 400. No
 // `template:` key → spec returned unchanged.
-func (s *Server) mergeTemplateReference(spec string) (string, error) {
+func (s *Server) mergeTemplateReference(team, spec string) (string, error) {
 	if spec == "" {
 		return spec, nil
 	}
@@ -242,7 +242,7 @@ func (s *Server) mergeTemplateReference(spec string) (string, error) {
 	if head.Template == "" {
 		return spec, nil
 	}
-	tmplBody, err := s.readAgentTemplate(head.Template)
+	tmplBody, err := s.readAgentTemplate(team, head.Template)
 	if err != nil {
 		return "", fmt.Errorf("template %q referenced by spawn spec not found: %w",
 			head.Template, err)
@@ -315,11 +315,18 @@ func deepMergeYAMLMaps(base, over map[string]any) map[string]any {
 // agents/ win over bundled ones at hub.TemplatesFS:templates/agents/.
 // Within each tier we scan all .yaml files and match on the internal
 // `template:` field.
-func (s *Server) readAgentTemplate(name string) (string, error) {
+func (s *Server) readAgentTemplate(team, name string) (string, error) {
 	if !safeAgentTemplateName(name) {
 		return "", fmt.Errorf("invalid template name %q", name)
 	}
-	// User overlay first.
+	// Per-team override first (W4 / ADR-037 D5) — a team's edits are
+	// invisible to other teams.
+	if td := teamTemplatesDir(s.cfg.DataRoot, team); td != "" {
+		if body, ok := scanOverlayForTemplate(filepath.Join(td, "agents"), name); ok {
+			return body, nil
+		}
+	}
+	// Global operator baseline overlay (built-in seed + legacy edits).
 	overlayDir := filepath.Join(s.cfg.DataRoot, "team", "templates", "agents")
 	if body, ok := scanOverlayForTemplate(overlayDir, name); ok {
 		return body, nil
@@ -329,6 +336,20 @@ func (s *Server) readAgentTemplate(name string) (string, error) {
 		return body, nil
 	}
 	return "", fmt.Errorf("template %q not found in overlay (%s) or bundled templates", name, overlayDir)
+}
+
+// teamTemplatesDir is the per-team on-disk override root (ADR-037 D5 /
+// W4): <dataRoot>/teams/<team>/templates. A team's template edits land
+// here, so one team's overrides are invisible to another. Resolution
+// prefers this dir, then the global operator baseline
+// (<dataRoot>/team/templates — built-in seed + any legacy edits), then
+// the embedded built-ins. An empty dataRoot or team yields "" so the
+// caller skips the per-team tier (e.g. system contexts with no team).
+func teamTemplatesDir(dataRoot, team string) string {
+	if dataRoot == "" || team == "" {
+		return ""
+	}
+	return filepath.Join(dataRoot, "teams", team, "templates")
 }
 
 func scanOverlayForTemplate(dir, name string) (string, bool) {
@@ -465,7 +486,7 @@ func contextFileNameForKind(kind string) string {
 //     task, and emit a context_files block keyed by the engine's
 //     memory filename.
 //   - Prompt file not found on disk overlay or embedded FS → error.
-func (s *Server) resolveContextFiles(rendered string, vars map[string]string, personaSeed, taskInstructions string) (string, error) {
+func (s *Server) resolveContextFiles(team, rendered string, vars map[string]string, personaSeed, taskInstructions string) (string, error) {
 	var head struct {
 		Prompt       string            `yaml:"prompt"`
 		ContextFiles map[string]string `yaml:"context_files"`
@@ -490,7 +511,7 @@ func (s *Server) resolveContextFiles(rendered string, vars map[string]string, pe
 
 	var body string
 	if head.Prompt != "" {
-		raw, err := s.readPromptTemplate(head.Prompt)
+		raw, err := s.readPromptTemplate(team, head.Prompt)
 		if err != nil {
 			return "", fmt.Errorf("read prompt %q: %w", head.Prompt, err)
 		}
@@ -564,19 +585,29 @@ func appendPersonaSeed(body, seed string) string {
 	return body + sep + header + "\n\n" + seed + "\n"
 }
 
-// readPromptTemplate prefers <dataRoot>/team/templates/prompts/<name> so
-// user edits win, then falls back to the embedded built-in.
-func (s *Server) readPromptTemplate(name string) (string, error) {
+// readPromptTemplate prefers the per-team override
+// (<dataRoot>/teams/<team>/templates/prompts/<name>, W4 / ADR-037 D5),
+// then the global operator baseline
+// (<dataRoot>/team/templates/prompts/<name>), then the embedded
+// built-in. A team's prompt edits are invisible to other teams.
+func (s *Server) readPromptTemplate(team, name string) (string, error) {
 	if !safePromptName(name) {
 		return "", fmt.Errorf("invalid prompt name %q", name)
 	}
-	path := filepath.Join(s.cfg.DataRoot, "team", "templates", "prompts", name)
-	data, err := os.ReadFile(path)
-	if err == nil {
-		return string(data), nil
+	candidates := []string{}
+	if td := teamTemplatesDir(s.cfg.DataRoot, team); td != "" {
+		candidates = append(candidates, filepath.Join(td, "prompts", name))
 	}
-	if !errors.Is(err, fs.ErrNotExist) && !os.IsNotExist(err) {
-		return "", err
+	candidates = append(candidates,
+		filepath.Join(s.cfg.DataRoot, "team", "templates", "prompts", name))
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return string(data), nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) && !os.IsNotExist(err) {
+			return "", err
+		}
 	}
 	embedded, err := fs.ReadFile(hub.TemplatesFS, "templates/prompts/"+name)
 	if err != nil {

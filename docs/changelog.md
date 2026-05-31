@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.762
+> **Last verified vs code:** v1.0.763
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,42 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.763-alpha — 2026-05-31
+
+**Multi-team isolation W4 — per-team template overrides (ADR-037 D5).**
+A team's on-disk template edits are now invisible to other teams.
+Built-ins stay global (embedded); user overrides move to a per-team
+dir. Fifth wedge of
+[plans/multi-team-isolation-rollout.md](plans/multi-team-isolation-rollout.md).
+
+### Changed
+- Agent + prompt template resolution is now per-team. `readAgentTemplate`,
+  `readPromptTemplate`, `loadBuiltinAgentTemplate` (and the render path
+  `mergeTemplateReference` → `resolveContextFiles`) take a `team` and
+  resolve in order: **per-team override
+  (`<dataRoot>/teams/<team>/templates/…`) → global operator baseline
+  (`<dataRoot>/team/templates/…`) → embedded built-in**.
+- Template writes are per-team: the REST `PUT`/`DELETE`/`PATCH` (rename)
+  handlers, the `GET`/`LIST` reads (per-team override shadows the
+  baseline of the same name), and the agent-proposed `template.install`
+  governed action all target `<dataRoot>/teams/<team>/templates/…`. A
+  team can delete/rename only its own overrides; the global baseline and
+  built-ins are not mutable per-team.
+
+### Notes
+- **Built-ins remain global** (embedded `//go:embed`), so a new
+  engine/prompt still ships once for all teams. The global
+  `team/templates/` dir is now a read-only operator baseline fallback.
+- **Out of scope (hub-global by design):** agent-families
+  (`<dataRoot>/agent_families`, engine frame profiles) and the envelope
+  prose config — these are system config, not per-team work templates.
+- **Deferred sub-item:** project-template *disk YAML* hydration
+  (`readProjectTemplateYAML`) still reads the global baseline — its
+  6-caller hydration cascade (phase tiles/widgets/criteria) is a deep
+  thread for low value, and the instantiated `project_templates` rows
+  are *already* team-keyed, so project data is isolated. Tracked as a
+  W4 follow-up in the plan.
 
 ## v1.0.762-alpha — 2026-05-31
 

@@ -2,12 +2,12 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-05-31) — ADR-037 open questions Q1–Q4
-> are resolved. **W1 (v1.0.760-alpha) + W2 (v1.0.761-alpha) met the MVP
-> isolation bar (ADR-037 Accepted); W3 provisioning shipped
-> (v1.0.762-alpha) — testers can now be onboarded.** W4/W5/W6 (hardening)
-> remain.
+> are resolved. **W1 (v1.0.760) + W2 (v1.0.761) met the MVP isolation
+> bar (ADR-037 Accepted); W3 provisioning (v1.0.762) onboards testers;
+> W4 per-team template overrides (v1.0.763) shipped.** W5/W6 (workdir +
+> sweep) remain.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.762
+> **Last verified vs code:** v1.0.763
 
 **TL;DR.** Turn termipod's already-team-scoped data layer into enforced
 multi-team isolation so external testers can each be handed a `team_id`
@@ -132,16 +132,49 @@ list. Full `go test ./...` green.
 **Files:** `internal/server/provision.go`, `handlers_admin_teams.go`,
 `server.go` (routes), `cmd/hub-server/main.go` (`team` subcommand).
 
-### W4 — Per-team template overrides
+### W4 — Per-team template overrides — **SHIPPED v1.0.763-alpha**
 
 **Goal.** One team's template edits invisible to others.
 
-- Keep embedded built-ins global read-only; move on-disk user overrides
-  to `<dataRoot>/teams/<team_id>/templates/…`; resolver checks the team
-  dir then embedded. (DB `project_templates` already team-keyed.)
-- **Files:** `init.go` (dir layout), `handlers_agent_families.go`,
-  template resolver(s). **Risk:** medium; template path resolution is
-  threaded through several read sites — grep `team/templates`.
+**Outcome.** Shipped for **agent + prompt templates** (the
+spawn-critical, commonly-edited path). New helper `teamTemplatesDir` +
+`resolveTeamTemplatePath`. Resolution order is **per-team override
+(`<dataRoot>/teams/<team>/templates/…`) → global operator baseline
+(`<dataRoot>/team/templates/…`) → embedded built-in** — a strict
+superset of the ADR's "team dir → embedded" (the global baseline is kept
+as a read-only operator fallback, so no FS migration of existing
+`default` edits was needed; new teams are clean).
+
+- **Threaded `team`** through `readAgentTemplate`, `readPromptTemplate`,
+  `loadBuiltinAgentTemplate`, `mergeTemplateReference`,
+  `resolveContextFiles` (+ `renderSpawnSpec`/`buildSpawnVars`/`DoSpawn`
+  callers and ~14 test call sites).
+- **Writes per-team:** REST `PUT`/`DELETE`/`PATCH`, `GET`/`LIST` (overlay
+  shadows baseline by name), and the `template.install` governed action
+  (`installProposedTemplate(team, …)`). Delete/rename touch only the
+  team's own overrides.
+- **Hub-global, left alone (by design):** agent-families
+  (`<dataRoot>/agent_families`) and the envelope config — engine/system
+  config, not per-team work templates.
+- **Deferred sub-item — project-template disk YAML.**
+  `readProjectTemplateYAML` (phase tile/widget/criteria hydration) still
+  reads the global baseline; its 6-caller cascade is a deep thread for
+  low value, and the instantiated `project_templates` rows are already
+  team-keyed (project *data* is isolated). Thread `team` through the
+  hydration cascade when a concrete per-team project-template need
+  appears.
+- **Files:** `template.go`, `handlers_templates.go`,
+  `handlers_general_steward.go`, `handlers_project_steward.go`,
+  `handlers_attention.go`, `apply_template_install.go`,
+  `handlers_agents.go`. **Risk realised:** medium — the resolver
+  threading touched the render path + many test sites, but the
+  3-tier-with-baseline design kept it additive (no behaviour change for
+  the global tier).
+
+**Tests:** `handlers_templates_isolation_test.go` — team-a's override
+lands only in its dir, team-b GET 404s, lists don't cross, and
+`readAgentTemplate` resolves per-team (team-b can't resolve team-a's
+override). Full `go test ./...` green.
 
 ### W5 — Team-scoped workdir
 

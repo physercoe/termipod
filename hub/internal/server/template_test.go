@@ -167,7 +167,7 @@ func TestResolveContextFiles_InlinesPromptFromEmbedded(t *testing.T) {
 	s, _ := newTestServer(t)
 	rendered := "kind: claude-code\nprompt: steward.v1.md\n"
 	vars := map[string]string{"principal.handle": "physercoe"}
-	got, err := s.resolveContextFiles(rendered, vars, "", "")
+	got, err := s.resolveContextFiles(defaultTeamID, rendered, vars, "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestResolveContextFiles_DiskOverlayWins(t *testing.T) {
 	}
 
 	rendered := "prompt: steward.v1.md\n"
-	got, err := s.resolveContextFiles(rendered,
+	got, err := s.resolveContextFiles(defaultTeamID, rendered,
 		map[string]string{"principal.handle": "alice"}, "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -230,7 +230,7 @@ func TestResolveContextFiles_AppendsPersonaSeed(t *testing.T) {
 	// template vs. the operator.
 	s, _ := newTestServer(t)
 	rendered := "prompt: steward.v1.md\n"
-	got, err := s.resolveContextFiles(rendered,
+	got, err := s.resolveContextFiles(defaultTeamID, rendered,
 		map[string]string{"principal.handle": "alice"},
 		"You are terse. Always cite line numbers.", "")
 	if err != nil {
@@ -266,7 +266,7 @@ func TestResolveContextFiles_AppendsTaskSection(t *testing.T) {
 	// any persona override (persona = who, task = what to do).
 	s, _ := newTestServer(t)
 	rendered := "prompt: steward.v1.md\n"
-	got, err := s.resolveContextFiles(rendered,
+	got, err := s.resolveContextFiles(defaultTeamID, rendered,
 		map[string]string{"principal.handle": "alice"},
 		"You are terse.",
 		"# Investigate 502 spike\n\nLook at the last hour of logs and report findings.")
@@ -300,7 +300,7 @@ func TestResolveContextFiles_TaskWithoutPromptOrSeed(t *testing.T) {
 	// worker boots into a blank workdir and the user's "spawn-for-task"
 	// gesture silently dies.
 	s, _ := newTestServer(t)
-	got, err := s.resolveContextFiles("kind: x\n", map[string]string{}, "",
+	got, err := s.resolveContextFiles(defaultTeamID, "kind: x\n", map[string]string{}, "",
 		"# Just the task title\n")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -402,7 +402,7 @@ func TestResolveContextFiles_PerEngineMemoryFilename(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _ := newTestServer(t)
 			spec := "backend:\n  kind: " + tc.backendKind + "\nprompt: steward.v1.md\n"
-			got, err := s.resolveContextFiles(spec,
+			got, err := s.resolveContextFiles(defaultTeamID, spec,
 				map[string]string{"principal.handle": "alice"},
 				"You are terse.", "")
 			if err != nil {
@@ -435,7 +435,7 @@ func TestResolveContextFiles_RespectsEngineSpecificOverride(t *testing.T) {
 	s, _ := newTestServer(t)
 	spec := "backend:\n  kind: codex\nprompt: steward.v1.md\n" +
 		"context_files:\n  AGENTS.md: |\n    hand-rolled body\n"
-	got, err := s.resolveContextFiles(spec, map[string]string{}, "ignored", "ignored task")
+	got, err := s.resolveContextFiles(defaultTeamID, spec, map[string]string{}, "ignored", "ignored task")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestResolveContextFiles_PersonaSeedWithoutPrompt(t *testing.T) {
 	// should still produce a CLAUDE.md so a hand-rolled spawn can
 	// author its persona inline.
 	s, _ := newTestServer(t)
-	got, err := s.resolveContextFiles("kind: x\n", map[string]string{}, "be terse", "")
+	got, err := s.resolveContextFiles(defaultTeamID, "kind: x\n", map[string]string{}, "be terse", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestResolveContextFiles_PersonaSeedWithoutPrompt(t *testing.T) {
 func TestResolveContextFiles_NoPromptFieldUnchanged(t *testing.T) {
 	s, _ := newTestServer(t)
 	in := "backend:\n  cmd: echo hi\n"
-	got, err := s.resolveContextFiles(in, map[string]string{}, "", "")
+	got, err := s.resolveContextFiles(defaultTeamID, in, map[string]string{}, "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -510,7 +510,7 @@ func TestResolveContextFiles_ExplicitOverrideWins(t *testing.T) {
 	// the templated body silently re-merged in.
 	s, _ := newTestServer(t)
 	in := "prompt: steward.v1.md\ncontext_files:\n  CLAUDE.md: \"my override\"\n"
-	got, err := s.resolveContextFiles(in, map[string]string{}, "", "")
+	got, err := s.resolveContextFiles(defaultTeamID, in, map[string]string{}, "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -524,7 +524,7 @@ func TestResolveContextFiles_MissingPromptErrors(t *testing.T) {
 	// surface it loudly rather than silently spawning a contextless agent.
 	s, _ := newTestServer(t)
 	in := "prompt: does-not-exist.md\n"
-	_, err := s.resolveContextFiles(in, map[string]string{}, "", "")
+	_, err := s.resolveContextFiles(defaultTeamID, in, map[string]string{}, "", "")
 	if err == nil {
 		t.Fatal("want error for missing prompt; got nil")
 	}

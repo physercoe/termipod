@@ -16,7 +16,7 @@ import (
 
 func TestMergeTemplateReference_LoadsBundledTemplate(t *testing.T) {
 	s, _ := newTestServer(t)
-	merged, err := s.mergeTemplateReference("template: agents.coder\n")
+	merged, err := s.mergeTemplateReference(defaultTeamID, "template: agents.coder\n")
 	if err != nil {
 		t.Fatalf("mergeTemplateReference: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestMergeTemplateReference_LoadsBundledTemplate(t *testing.T) {
 func TestMergeTemplateReference_NoTemplateKey_Passthrough(t *testing.T) {
 	s, _ := newTestServer(t)
 	in := "backend:\n  cmd: claude --print\n"
-	out, err := s.mergeTemplateReference(in)
+	out, err := s.mergeTemplateReference(defaultTeamID, in)
 	if err != nil {
 		t.Fatalf("mergeTemplateReference: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestMergeTemplateReference_NoTemplateKey_Passthrough(t *testing.T) {
 
 func TestMergeTemplateReference_MissingTemplate_Errors(t *testing.T) {
 	s, _ := newTestServer(t)
-	_, err := s.mergeTemplateReference("template: does-not-exist\n")
+	_, err := s.mergeTemplateReference(defaultTeamID, "template: does-not-exist\n")
 	if err == nil {
 		t.Fatal("expected error for missing template; got nil")
 	}
@@ -57,7 +57,7 @@ func TestMergeTemplateReference_SpecOverridesTemplate(t *testing.T) {
 	// only swaps the overridden one.
 	s, _ := newTestServer(t)
 	spec := "template: agents.coder\nbackend:\n  model: claude-haiku-4-5-20251001\n"
-	merged, err := s.mergeTemplateReference(spec)
+	merged, err := s.mergeTemplateReference(defaultTeamID, spec)
 	if err != nil {
 		t.Fatalf("mergeTemplateReference: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestMergeTemplateReference_RejectsPathTraversal(t *testing.T) {
 		"template: ../../secrets\n",
 		"template: .hidden\n",
 	} {
-		_, err := s.mergeTemplateReference(bad)
+		_, err := s.mergeTemplateReference(defaultTeamID, bad)
 		if err == nil {
 			t.Errorf("mergeTemplateReference(%q): expected error, got nil", bad)
 		}
@@ -108,7 +108,7 @@ func TestDoSpawn_TemplateOnlySpec_Succeeds(t *testing.T) {
 // dual-form lookup would fail loudly.
 func TestMergeTemplateReference_FileBasenameFormRejected(t *testing.T) {
 	s, _ := newTestServer(t)
-	_, err := s.mergeTemplateReference("template: coder.v1\n")
+	_, err := s.mergeTemplateReference(defaultTeamID, "template: coder.v1\n")
 	if err == nil {
 		t.Fatal("expected error for file-basename form `coder.v1`; canonical id is `agents.coder`")
 	}

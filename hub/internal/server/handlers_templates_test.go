@@ -51,7 +51,8 @@ func TestTemplates_PutCreatesAndAudits(t *testing.T) {
 	if status != 201 {
 		t.Fatalf("first PUT = %d body=%s", status, raw)
 	}
-	path := filepath.Join(c.dataRoot, "team", "templates", "agents", "test-worker.v1.yaml")
+	// W4 / ADR-037 D5: a team's PUT lands in its per-team override dir.
+	path := filepath.Join(c.dataRoot, "teams", c.teamID, "templates", "agents", "test-worker.v1.yaml")
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read written file: %v", err)
@@ -168,8 +169,8 @@ func TestTemplates_RenameMovesFile(t *testing.T) {
 	if status != 200 {
 		t.Fatalf("PATCH = %d body=%s", status, raw)
 	}
-	srcPath := filepath.Join(c.dataRoot, "team", "templates", "agents", "old-name.v1.yaml")
-	dstPath := filepath.Join(c.dataRoot, "team", "templates", "agents", "new-name.v1.yaml")
+	srcPath := filepath.Join(c.dataRoot, "teams", c.teamID, "templates", "agents", "old-name.v1.yaml")
+	dstPath := filepath.Join(c.dataRoot, "teams", c.teamID, "templates", "agents", "new-name.v1.yaml")
 	if _, err := os.Stat(srcPath); !os.IsNotExist(err) {
 		t.Errorf("source still exists: %v", err)
 	}

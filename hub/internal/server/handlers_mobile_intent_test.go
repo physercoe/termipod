@@ -44,7 +44,8 @@ func mobileIntentSetup(t *testing.T) (s *Server, token, team, agentID string) {
 	); err != nil {
 		t.Fatalf("seed steward: %v", err)
 	}
-	return srv, tok, testTeam, stewardAgent
+	_ = tok // Init token is scoped to `default`; use a testTeam-scoped one.
+	return srv, mintTeamToken(t, srv, "owner", testTeam), testTeam, stewardAgent
 }
 
 func postMobileIntent(t *testing.T, srv *Server, token, team string, body map[string]any) (int, string) {
@@ -188,7 +189,7 @@ func TestMobileIntent_RejectsBadScheme(t *testing.T) {
 // endpoint must 424 (failed dependency) rather than 500 — surfaces
 // the real reason so the steward MCP tool can retry after ensure.
 func TestMobileIntent_NoStewardRunning(t *testing.T) {
-	srv, tok, _, _ := mobileIntentSetup(t)
+	srv, _, _, _ := mobileIntentSetup(t)
 
 	// Different team that has no steward.
 	if _, err := srv.db.Exec(
@@ -197,7 +198,10 @@ func TestMobileIntent_NoStewardRunning(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed lonely team: %v", err)
 	}
-	status, body := postMobileIntent(t, srv, tok, "lonely",
+	// Token scoped to `lonely` so the request reaches the handler (the
+	// 424 below is the data-layer no-steward assertion, not the gate).
+	lonelyTok := mintTeamToken(t, srv, "owner", "lonely")
+	status, body := postMobileIntent(t, srv, lonelyTok, "lonely",
 		map[string]any{"uri": "termipod://project/abc"})
 	if status != http.StatusFailedDependency {
 		t.Errorf("status=%d, want 424 (body=%s)", status, body)

@@ -33,6 +33,8 @@ func TestPlanStep_HumanDecisionMaterializesTask(t *testing.T) {
 		team, team, now); err != nil {
 		t.Fatalf("seed team: %v", err)
 	}
+	// Token scoped to `team` to pass the ADR-037 D1 gate.
+	token = mintTeamToken(t, s, "owner", team)
 	const projectID = "proj-w2"
 	if _, err := s.db.Exec(
 		`INSERT INTO projects (id, team_id, name, created_at, kind, is_template)

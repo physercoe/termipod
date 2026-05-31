@@ -300,6 +300,11 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 	r.Get("/v1/insights", s.handleInsights)
 
 	r.Route("/v1/teams/{team}", func(r chi.Router) {
+		// ADR-037 D1 — path-team authorization gate. A token may only
+		// address the team in its scope_json; operators transcend it.
+		// Mounted here so every team-scoped route below inherits it from
+		// one chokepoint.
+		r.Use(s.teamGate)
 		r.Route("/hosts", func(r chi.Router) {
 			r.Post("/", s.handleRegisterHost)
 			r.Get("/", s.handleListHosts)

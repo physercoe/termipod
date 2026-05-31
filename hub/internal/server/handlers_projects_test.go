@@ -32,6 +32,8 @@ func TestListProjects_IsTemplateFilter(t *testing.T) {
 		testTeam, testTeam, now); err != nil {
 		t.Fatalf("seed team: %v", err)
 	}
+	// Token scoped to testTeam to pass the ADR-037 D1 gate.
+	token = mintTeamToken(t, s, "owner", testTeam)
 	if _, err := s.db.Exec(
 		`INSERT INTO projects (id, team_id, name, created_at, kind, is_template)
 		 VALUES (?, ?, ?, ?, 'goal', 0)`,
@@ -116,6 +118,8 @@ func TestCreateProject_SubProjectDepthCap(t *testing.T) {
 		team, team, now); err != nil {
 		t.Fatalf("seed team: %v", err)
 	}
+	// Token scoped to `team` to pass the ADR-037 D1 gate.
+	token = mintTeamToken(t, s, "owner", team)
 	// Seed a top-level parent.
 	if _, err := s.db.Exec(
 		`INSERT INTO projects (id, team_id, name, created_at, kind, is_template)

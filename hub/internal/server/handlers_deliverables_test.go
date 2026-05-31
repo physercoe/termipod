@@ -308,7 +308,7 @@ func createDeliverableForSendBack(
 	t *testing.T, s *Server, tok, team, project string,
 ) (string, string, []string) {
 	t.Helper()
-	docID := createTypedDocument(t, s, tok, project, "lit-review", "research-lit-review-v1",
+	docID := createTypedDocument(t, s, tok, team, project, "lit-review", "research-lit-review-v1",
 		[]map[string]any{
 			{"slug": "gaps", "title": "Gaps", "body": "draft", "status": "draft"},
 			{"slug": "prior-work", "title": "Prior work", "body": "ok", "status": "ratified"},
@@ -326,17 +326,17 @@ func createDeliverableForSendBack(
 	var d deliverableOut
 	_ = json.Unmarshal(rr.Body.Bytes(), &d)
 
-	a1 := mustCreateAnnotation(t, s, tok, docID, "gaps", "comment", "tighten this")
-	a2 := mustCreateAnnotation(t, s, tok, docID, "prior-work", "redline", "drop §2")
+	a1 := mustCreateAnnotation(t, s, tok, team, docID, "gaps", "comment", "tighten this")
+	a2 := mustCreateAnnotation(t, s, tok, team, docID, "prior-work", "redline", "drop §2")
 	return d.ID, docID, []string{a1, a2}
 }
 
 func mustCreateAnnotation(
-	t *testing.T, s *Server, tok, docID, section, kind, body string,
+	t *testing.T, s *Server, tok, team, docID, section, kind, body string,
 ) string {
 	t.Helper()
 	rr := authedJSON(t, s, http.MethodPost, tok,
-		"/v1/teams/"+defaultTeamID+"/documents/"+docID+"/annotations",
+		"/v1/teams/"+team+"/documents/"+docID+"/annotations",
 		map[string]any{"section_slug": section, "kind": kind, "body": body})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("seed annotation: %d %s", rr.Code, rr.Body.String())

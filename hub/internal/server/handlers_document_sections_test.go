@@ -13,7 +13,7 @@ import (
 // kinds emitted.
 
 func createTypedDocument(
-	t *testing.T, s *Server, token, projID string,
+	t *testing.T, s *Server, token, team, projID string,
 	kind, schemaID string, sections []map[string]any,
 ) string {
 	t.Helper()
@@ -23,7 +23,7 @@ func createTypedDocument(
 		"sections":       sections,
 	})
 	status, resp := doReq(t, s, token, http.MethodPost,
-		"/v1/teams/"+defaultTeamID+"/documents",
+		"/v1/teams/"+team+"/documents",
 		map[string]any{
 			"project_id":     projID,
 			"kind":           kind,
@@ -80,7 +80,7 @@ func TestDocumentSection_AllowsTypedKindsWhenSchemaIDSet(t *testing.T) {
 	}
 
 	// With schema_id, the typed kind is accepted.
-	docID := createTypedDocument(t, s, token, pid, "proposal", "proposal-v1",
+	docID := createTypedDocument(t, s, token, defaultTeamID, pid, "proposal", "proposal-v1",
 		[]map[string]any{{"slug": "motivation", "title": "Motivation",
 			"body": "", "status": "empty"}})
 	if docID == "" {
@@ -91,7 +91,7 @@ func TestDocumentSection_AllowsTypedKindsWhenSchemaIDSet(t *testing.T) {
 func TestDocumentSection_PatchEmptyToDraftAndAudits(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	pid := createProjectForDocs(t, s, token)
-	docID := createTypedDocument(t, s, token, pid, "proposal", "proposal-v1",
+	docID := createTypedDocument(t, s, token, defaultTeamID, pid, "proposal", "proposal-v1",
 		[]map[string]any{{
 			"slug": "motivation", "title": "Motivation",
 			"body": "", "status": "empty",
@@ -125,7 +125,7 @@ func TestDocumentSection_PatchEmptyToDraftAndAudits(t *testing.T) {
 func TestDocumentSection_RatifiedEditDowngradesToDraft(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	pid := createProjectForDocs(t, s, token)
-	docID := createTypedDocument(t, s, token, pid, "proposal", "proposal-v1",
+	docID := createTypedDocument(t, s, token, defaultTeamID, pid, "proposal", "proposal-v1",
 		[]map[string]any{{
 			"slug":             "motivation",
 			"title":            "Motivation",
@@ -158,7 +158,7 @@ func TestDocumentSection_RatifiedEditDowngradesToDraft(t *testing.T) {
 func TestDocumentSection_PatchReturns412OnStaleExpected(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	pid := createProjectForDocs(t, s, token)
-	docID := createTypedDocument(t, s, token, pid, "proposal", "proposal-v1",
+	docID := createTypedDocument(t, s, token, defaultTeamID, pid, "proposal", "proposal-v1",
 		[]map[string]any{{
 			"slug":             "motivation",
 			"title":            "Motivation",
@@ -184,7 +184,7 @@ func TestDocumentSection_PatchReturns412OnStaleExpected(t *testing.T) {
 func TestDocumentSection_StatusRatifyAndUnratify(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	pid := createProjectForDocs(t, s, token)
-	docID := createTypedDocument(t, s, token, pid, "proposal", "proposal-v1",
+	docID := createTypedDocument(t, s, token, defaultTeamID, pid, "proposal", "proposal-v1",
 		[]map[string]any{
 			{"slug": "motivation", "title": "Motivation",
 				"body": "Why this matters.", "status": "draft",

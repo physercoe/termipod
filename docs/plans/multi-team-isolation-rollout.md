@@ -1,10 +1,11 @@
 # Multi-team isolation — phased rollout
 
 > **Type:** plan
-> **Status:** Ready (2026-05-31) — ADR-037 open questions Q1–Q4 are
-> resolved; wedges below reflect the locked branches. Not started.
+> **Status:** In progress (2026-05-31) — ADR-037 open questions Q1–Q4
+> are resolved; wedges below reflect the locked branches. **W1 shipped
+> (v1.0.760-alpha).** W2 next.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.754
+> **Last verified vs code:** v1.0.760
 
 **TL;DR.** Turn termipod's already-team-scoped data layer into enforced
 multi-team isolation so external testers can each be handed a `team_id`
@@ -28,25 +29,41 @@ bar. W3 unblocks onboarding. W4–W6 harden.
 
 ## Wedge sequence
 
-### W1 — Path-team authorization gate *(the isolation gate)*
+### W1 — Path-team authorization gate *(the isolation gate)* — **SHIPPED v1.0.760-alpha**
 
 **Goal.** A token scoped to team T may only address `/v1/teams/T/…`.
 
-- Add a middleware on the team-scoped route group that reads
-  `chi.RouteContext(r.Context()).URLParam("team")`; when non-empty,
-  require `scope_json.team == team` or `Kind == "operator"`; else `403`.
-  No `{team}` param (admin/_info) → no-op.
-- Refactor `server.go` route registration so team-scoped routes share a
-  `r.Route("/v1/teams/{team}", …)` group the middleware mounts on
-  (today they are registered flat).
-- Confirm the in-process agent dispatch passes (agent token's
-  `scope.team` == the path it builds).
-- **Tests:** cross-team `403` for owner/user/host; same-team `200`;
-  operator bypass; agent in-process self-call still works; the existing
-  `default` owner keeps full access to `default`.
-- **Files:** `internal/auth/token.go` (or a new `internal/auth/team.go`),
-  `internal/server/server.go`. **Risk:** route-group refactor is broad
-  but mechanical; the gate logic is small.
+**Outcome.** Shipped as `Server.teamGate` (`internal/server/team_gate.go`),
+mounted via `r.Use(s.teamGate)` on the existing `/v1/teams/{team}`
+group. Notable deltas from the original sketch below:
+
+- **No route-group refactor was needed.** The routes were *already*
+  registered under a single `r.Route("/v1/teams/{team}", …)` group
+  (`server.go:302`) — the plan's "registered flat" note was stale. The
+  gate is one `r.Use` line.
+- **Scope-team helper landed in `auth`, not the gate.** Added
+  `auth.Token.ScopeTeam()` (parses `scope_json.team`) and
+  `auth.WithToken()` (the `FromContext` constructor, for unit tests).
+  The gate itself lives in `server` because it needs `chi.URLParam` +
+  `writeErr`.
+- **Operator bypass is wired but only unit-tested.** `operator` is not
+  yet a legitimate bearer (the F-01 allowlist admits it in W2), so the
+  end-to-end operator test joins the suite in W2. The branch is in
+  place so W2 is a pure allowlist change.
+- **In-process agent dispatch confirmed safe** — it builds the path
+  from the agent token's own `scope.Team` (`mcp.go:410,422`), so the
+  gate passes legitimate calls with no special case.
+- **Fail-closed on a teamless token** (empty `scope_json.team`) → `403`.
+- **Test-fixture sweep:** ~30 existing tests minted the `default`-scoped
+  bootstrap `Init` token but addressed another team; they now mint a
+  team-scoped token (`mintTeamToken`). One was a *real* latent
+  cross-team reference (a deliverable's document created in `default`
+  while the deliverable lived in the test team) — fixed by threading
+  the team through `createTypedDocument`/`mustCreateAnnotation`.
+
+**Tests:** `team_gate_test.go` — cross-team `403` for owner/user/host,
+same-team admitted, teamless fail-closed, operator bypass (unit).
+Full `go test ./...` green.
 
 ### W2 — Operator / principal split
 

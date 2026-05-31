@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -40,6 +41,23 @@ type Token struct {
 	ID        string
 	Kind      string
 	ScopeJSON string
+}
+
+// ScopeTeam returns the `team` field of the token's scope_json, or "" if
+// the scope is empty/unparseable/teamless. Every legitimate bearer kind
+// (owner, user, host, agent) carries a team in its scope at mint time
+// (handlers_tokens.go, handlers_agents.go, cmd/hub-server), so an empty
+// result means a malformed or pre-team-scope token — the team gate
+// (ADR-037 D1) treats that as "no team binding" and fails closed.
+func (t *Token) ScopeTeam() string {
+	if t == nil {
+		return ""
+	}
+	var sc struct {
+		Team string `json:"team"`
+	}
+	_ = json.Unmarshal([]byte(t.ScopeJSON), &sc)
+	return sc.Team
 }
 
 // NewToken returns a freshly-generated 32-byte token, base64url-encoded.
@@ -202,4 +220,13 @@ func lookup(ctx context.Context, db *sql.DB, raw string) (*Token, error) {
 func FromContext(ctx context.Context) (*Token, bool) {
 	t, ok := ctx.Value(tokenCtx).(*Token)
 	return t, ok
+}
+
+// WithToken attaches tok to ctx under the same key Middleware uses, so a
+// downstream handler sees it via FromContext. Production auth flows go
+// through Middleware; this is the explicit constructor (the counterpart
+// to FromContext) for tests and any future in-process caller that needs
+// to assemble an authenticated context without the HTTP layer.
+func WithToken(ctx context.Context, tok *Token) context.Context {
+	return context.WithValue(ctx, tokenCtx, tok)
 }

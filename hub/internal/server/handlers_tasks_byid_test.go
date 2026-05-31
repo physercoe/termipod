@@ -15,8 +15,7 @@ import (
 func TestGetTaskByID_TeamScoped(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "hub.db")
-	token, err := Init(dir, dbPath)
-	if err != nil {
+	if _, err := Init(dir, dbPath); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
 	s, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
@@ -39,7 +38,13 @@ func TestGetTaskByID_TeamScoped(t *testing.T) {
 		t.Fatalf("seed project: %v", err)
 	}
 
-	do := func(method, url string, body any) *httptest.ResponseRecorder {
+	// One owner token per team — the ADR-037 D1 gate binds each to its
+	// own team, so the cross-team probe below uses team-b's token to
+	// reach the team-b path and still exercise the data-layer 404.
+	tokenA := mintTeamToken(t, s, "owner", "team-a")
+	tokenB := mintTeamToken(t, s, "owner", "team-b")
+
+	do := func(token, method, url string, body any) *httptest.ResponseRecorder {
 		var r *http.Request
 		if body != nil {
 			buf, _ := json.Marshal(body)
@@ -54,7 +59,7 @@ func TestGetTaskByID_TeamScoped(t *testing.T) {
 		return rr
 	}
 
-	rr := do("POST", "/v1/teams/team-a/projects/proj-a/tasks", map[string]any{
+	rr := do(tokenA, "POST", "/v1/teams/team-a/projects/proj-a/tasks", map[string]any{
 		"project_id": "proj-a",
 		"title":      "review the memo",
 		"priority":   "high",
@@ -68,7 +73,7 @@ func TestGetTaskByID_TeamScoped(t *testing.T) {
 	}
 
 	// Resolve by id alone, team-scoped — the ADR-033 W5 path.
-	rr = do("GET", "/v1/teams/team-a/tasks/"+created.ID, nil)
+	rr = do(tokenA, "GET", "/v1/teams/team-a/tasks/"+created.ID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get task by id: %d %s", rr.Code, rr.Body.String())
 	}
@@ -80,12 +85,18 @@ func TestGetTaskByID_TeamScoped(t *testing.T) {
 		t.Errorf("got %+v, want id=%s title/priority preserved", got, created.ID)
 	}
 
-	// Cross-team isolation: team-b must not see team-a's task.
-	if rr := do("GET", "/v1/teams/team-b/tasks/"+created.ID, nil); rr.Code != http.StatusNotFound {
-		t.Errorf("cross-team get: %d, want 404", rr.Code)
+	// Cross-team isolation, data layer: team-b's own token addressing
+	// team-b must not see team-a's task → 404 (the by-id team join).
+	if rr := do(tokenB, "GET", "/v1/teams/team-b/tasks/"+created.ID, nil); rr.Code != http.StatusNotFound {
+		t.Errorf("cross-team get (team-b token): %d, want 404", rr.Code)
+	}
+	// Cross-team isolation, auth layer: team-a's token cannot even
+	// address the team-b path → 403 at the ADR-037 D1 gate.
+	if rr := do(tokenA, "GET", "/v1/teams/team-b/tasks/"+created.ID, nil); rr.Code != http.StatusForbidden {
+		t.Errorf("cross-team get (team-a token): %d, want 403", rr.Code)
 	}
 	// Unknown id is a 404.
-	if rr := do("GET", "/v1/teams/team-a/tasks/nonesuch", nil); rr.Code != http.StatusNotFound {
+	if rr := do(tokenA, "GET", "/v1/teams/team-a/tasks/nonesuch", nil); rr.Code != http.StatusNotFound {
 		t.Errorf("unknown-id get: %d, want 404", rr.Code)
 	}
 }

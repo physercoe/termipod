@@ -33,6 +33,9 @@ func TestTasks_PriorityEnumAndSort(t *testing.T) {
 		team, team, now); err != nil {
 		t.Fatalf("seed team: %v", err)
 	}
+	// Token scoped to `team` to pass the ADR-037 D1 gate (the bootstrap
+	// Init token is scoped to `default`).
+	token = mintTeamToken(t, s, "owner", team)
 	const projectID = "proj-w3"
 	if _, err := s.db.Exec(
 		`INSERT INTO projects (id, team_id, name, created_at, kind, is_template)

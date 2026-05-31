@@ -58,6 +58,8 @@ func phaseTestSetup(t *testing.T, phases []string) (s *Server, token, team, proj
 		testTeam, testTeam, now); err != nil {
 		t.Fatalf("seed team: %v", err)
 	}
+	// Token scoped to testTeam to pass the ADR-037 D1 gate.
+	tok = mintTeamToken(t, srv, "owner", testTeam)
 
 	body, _ := json.Marshal(map[string]any{
 		"name":        "phased-project",

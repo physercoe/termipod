@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.759
+> **Last verified vs code:** v1.0.760
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,49 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.760-alpha — 2026-05-31
+
+**Multi-team isolation W1 — the path-team authorization gate (ADR-037
+D1).** The data layer was already team-scoped (every query filters
+`WHERE team_id = ?` from the `/v1/teams/{team}/…` path), but nothing
+authorized that path team against the caller's token — any valid
+`owner`/`user`/`host` bearer could read or write *another* team by
+editing the URL (gap G1). This wedge closes that hole at a single
+chokepoint so external testers can each be handed an isolated
+`team_id`. First wedge of
+[plans/multi-team-isolation-rollout.md](plans/multi-team-isolation-rollout.md);
+decisions in
+[ADR-037](decisions/037-multi-team-isolation-and-operator-principal-split.md).
+
+### Added
+- `Server.teamGate` middleware (`hub/internal/server/team_gate.go`)
+  mounted on the `/v1/teams/{team}` route group: a token may address
+  only the team in its `scope_json.team`; a mismatch (or a token with
+  no scope team — fail-closed) is `403`. `operator`-kind tokens are
+  team-transcendent and bypass it (that kind becomes a legitimate
+  bearer in W2). The in-process agent dispatch is unaffected: it builds
+  the path from the agent token's own `scope.Team`, so the gate admits
+  legitimate calls with no special case.
+- `auth.Token.ScopeTeam()` and `auth.WithToken()` — the scope-team
+  accessor the gate reads, plus the context constructor that pairs with
+  `FromContext` (used by the gate's unit tests).
+
+### Security
+- Cross-team data access via URL editing is now refused for every
+  bearer kind. Routes outside the team group (`/v1/admin/*`,
+  `/v1/insights`, `/v1/hub/*`, `/v1/blobs`, `/v1/search`) are
+  unchanged — they are governed by the operator split in W2.
+
+### Tests
+- `team_gate_test.go`: cross-team `403` for owner/user/host, same-team
+  admitted, teamless-token fail-closed, operator bypass (unit-level
+  until W2 makes operator a bearer). A package-wide test-fixture sweep
+  aligned ~30 tests that minted the `default`-scoped bootstrap token
+  but addressed another team — they now mint a team-scoped token. One
+  was a *real* latent cross-team reference (a deliverable's document
+  lived in `default` while the deliverable lived in the test team);
+  `createTypedDocument`/`mustCreateAnnotation` now thread the team.
 
 ## v1.0.759-alpha — 2026-05-31
 

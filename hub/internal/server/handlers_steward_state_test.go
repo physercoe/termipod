@@ -51,7 +51,11 @@ func stewardStateSetup(t *testing.T) (
 		projectID, testTeam, now, stewardAgent); err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
-	return srv, tok, testTeam, projectID, stewardAgent
+	// The bootstrap token from Init is scoped to `default`; this test
+	// operates on testTeam, so mint a token scoped to it to pass the
+	// ADR-037 D1 team gate. (The Init token is unused now.)
+	_ = tok
+	return srv, mintTeamToken(t, srv, "owner", testTeam), testTeam, projectID, stewardAgent
 }
 
 func getStewardState(
@@ -79,8 +83,7 @@ func getStewardState(
 func TestStewardState_NotSpawnedWhenNoStewardAgent(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "hub.db")
-	tok, err := Init(dir, dbPath)
-	if err != nil {
+	if _, err := Init(dir, dbPath); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
 	srv, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
@@ -99,6 +102,8 @@ func TestStewardState_NotSpawnedWhenNoStewardAgent(t *testing.T) {
 		INSERT INTO projects (id, team_id, name, created_at, kind)
 		VALUES (?, ?, 'demo', ?, 'goal')`, projectID, testTeam, now)
 
+	// Token scoped to testTeam to pass the ADR-037 D1 team gate.
+	tok := mintTeamToken(t, srv, "owner", testTeam)
 	got := getStewardState(t, srv, tok, testTeam, projectID)
 	if got.State != "not-spawned" {
 		t.Errorf("state=%q want=not-spawned", got.State)

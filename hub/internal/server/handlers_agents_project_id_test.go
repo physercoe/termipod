@@ -35,7 +35,8 @@ func agentsProjectIDSetup(t *testing.T) (s *Server, token, team string) {
 		testTeam, testTeam, now); err != nil {
 		t.Fatalf("seed team: %v", err)
 	}
-	return srv, tok, testTeam
+	_ = tok // Init token is scoped to `default`; use a testTeam-scoped one.
+	return srv, mintTeamToken(t, srv, "owner", testTeam), testTeam
 }
 
 func seedProject(t *testing.T, s *Server, team string) string {

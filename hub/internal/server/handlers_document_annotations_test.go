@@ -13,7 +13,7 @@ import (
 // so the tests can attach annotations.
 func createAnnotationDoc(t *testing.T, s *Server, token, projID string) string {
 	t.Helper()
-	return createTypedDocument(t, s, token, projID, "proposal", "proposal-v1",
+	return createTypedDocument(t, s, token, defaultTeamID, projID, "proposal", "proposal-v1",
 		[]map[string]any{
 			{"slug": "motivation", "title": "Motivation", "body": "why", "status": "draft"},
 			{"slug": "approach", "title": "Approach", "body": "how", "status": "draft"},

@@ -87,6 +87,8 @@ func TestResearchTemplate_ProjectCreateHydratesIdeaCriterion(t *testing.T) {
 		team, team, now); err != nil {
 		t.Fatalf("seed team: %v", err)
 	}
+	// Token scoped to `team` to pass the ADR-037 D1 gate.
+	tok = mintTeamToken(t, srv, "owner", team)
 
 	// Create project against the research template.
 	body, _ := json.Marshal(map[string]any{
@@ -158,6 +160,8 @@ func TestResearchTemplate_LegacyTemplateUnaffected(t *testing.T) {
 	now := NowUTC()
 	_, _ = srv.db.Exec(`INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
 		team, team, now)
+	// Token scoped to `team` to pass the ADR-037 D1 gate.
+	tok = mintTeamToken(t, srv, "owner", team)
 
 	body, _ := json.Marshal(map[string]any{
 		"name": "memo-test", "kind": "goal", "template_id": "write-memo",
@@ -251,6 +255,8 @@ func TestProjectPatch_PhaseTileOverridesRoundTrip(t *testing.T) {
 	now := NowUTC()
 	_, _ = srv.db.Exec(`INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
 		team, team, now)
+	// Token scoped to `team` to pass the ADR-037 D1 gate.
+	tok = mintTeamToken(t, srv, "owner", team)
 
 	// Create a research project.
 	body, _ := json.Marshal(map[string]any{
@@ -332,6 +338,8 @@ func TestProjectPatch_OverviewWidgetOverridesRoundTrip(t *testing.T) {
 	now := NowUTC()
 	_, _ = srv.db.Exec(`INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
 		team, team, now)
+	// Token scoped to `team` to pass the ADR-037 D1 gate.
+	tok = mintTeamToken(t, srv, "owner", team)
 
 	// Create a research project (starts in 'idea' phase).
 	body, _ := json.Marshal(map[string]any{

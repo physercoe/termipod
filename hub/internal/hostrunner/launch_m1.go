@@ -45,6 +45,10 @@ type M1LaunchConfig struct {
 	Spawner  ProcSpawner
 	LogDir   string
 	HubURL   string
+	// Team is the host-runner's single team (`--team`), threaded into
+	// DeriveWorkdir so the derived workdir carries the `<team>` segment
+	// (ADR-037 D6). Empty falls back to the legacy team-less path.
+	Team string
 }
 
 // M1LaunchResult — same shape as M2LaunchResult so runner.go's mode
@@ -97,6 +101,7 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 	// invariants).
 	needsWorkdir := len(spec.ContextFiles) > 0 || cfg.Spawn.MCPToken != ""
 	rawWD := DeriveWorkdir(
+		cfg.Team,
 		spec.Backend.DefaultWorkdir,
 		cfg.Spawn.ProjectID,
 		cfg.Spawn.Handle,
@@ -105,6 +110,12 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 	)
 	expandedWorkdir := ""
 	if rawWD != "" {
+		// Establish the per-team root (0o700) before the full workdir so
+		// cross-team reads are denied at the FS layer (ADR-037 D6). No-op
+		// when the path is operator-pinned (default_workdir) or team-less.
+		if _, err := ensureTeamWorkRoot(cfg.Team); err != nil {
+			return M1LaunchResult{}, fmt.Errorf("ensure team work root: %w", err)
+		}
 		expanded, err := expandHome(rawWD)
 		if err != nil {
 			return M1LaunchResult{}, fmt.Errorf("expand default_workdir %q: %w", rawWD, err)

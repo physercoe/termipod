@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.763
+> **Last verified vs code:** v1.0.764
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,47 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.764-alpha — 2026-05-31
+
+**Multi-team isolation W5 — team-scoped agent workdir (ADR-037 D6).**
+No two teams share a mutable on-host path. The host-runner derives every
+agent workdir under a `<team>` segment, and reserves the per-team root
+with restrictive permissions. Sixth wedge of
+[plans/multi-team-isolation-rollout.md](plans/multi-team-isolation-rollout.md).
+
+### Changed
+- `DeriveWorkdir` (`internal/hostrunner/spec.go`) takes a leading `team`
+  and derives `~/hub-work/<team>/<pid8>/<handle>` (project-bound) and
+  `~/hub-work/<team>/_team/<handle>` (project-less steward). An
+  operator-pinned `backend.default_workdir` is still taken verbatim (no
+  segment injected); an **empty** team collapses to the legacy
+  `~/hub-work/…` path so pre-W5 callers and demo spawns are unchanged.
+- The **M4 launchers** (`launch_m4_locallogtail.go` for claude-code,
+  `launch_m4_antigravity.go`) inline their own derivation rather than
+  calling `DeriveWorkdir`; both now route through the shared
+  `teamWorkRoot(team)` helper, so the primary engine (claude-code) gets
+  the team segment too — not just M1/M2.
+- The host-runner is a single-team process (`--team`), so the team
+  threads in from `Client.Team` at the four launch call sites
+  (`runner.go`) via a new `Team` field on each `M{1,2,4}LaunchConfig`.
+
+### Security
+- `ensureTeamWorkRoot` creates `~/hub-work/<team>` with **0o700** before
+  the full workdir, so the OS denies cross-team reads at the filesystem
+  layer (ADR-037 D6 MVP guard). This is the concrete, OS-enforced
+  boundary **when teams run under distinct OS users**; under a single
+  shared uid it walls the fleet's work area off from other OS users and
+  lays the path a per-team-user spawn keys on.
+
+### Notes
+- **Residual risk (documented, deferred):** true cross-team isolation
+  under one shared uid (per-team OS users, or bwrap/container sandboxing)
+  is the hardening follow-up named in ADR-037 D6 — not built in W5
+  because it needs an on-host spawn mechanism that can't be validated on
+  the dev box. W5 delivers the path+permission separation the guard keys
+  on. In-flight agents keep their persisted `worktree_path`; only new
+  spawns adopt the segment.
 
 ## v1.0.763-alpha — 2026-05-31
 

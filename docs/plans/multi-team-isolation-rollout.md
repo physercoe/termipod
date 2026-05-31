@@ -4,10 +4,10 @@
 > **Status:** In progress (2026-05-31) — ADR-037 open questions Q1–Q4
 > are resolved. **W1 (v1.0.760) + W2 (v1.0.761) met the MVP isolation
 > bar (ADR-037 Accepted); W3 provisioning (v1.0.762) onboards testers;
-> W4 per-team template overrides (v1.0.763) shipped.** W5/W6 (workdir +
-> sweep) remain.
+> W4 per-team template overrides (v1.0.763) and W5 team-scoped workdir
+> (v1.0.764) shipped.** W6 (cross-cutting sweep) remains.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.763
+> **Last verified vs code:** v1.0.764
 
 **TL;DR.** Turn termipod's already-team-scoped data layer into enforced
 multi-team isolation so external testers can each be handed a `team_id`
@@ -176,28 +176,53 @@ lands only in its dir, team-b GET 404s, lists don't cross, and
 `readAgentTemplate` resolves per-team (team-b can't resolve team-a's
 override). Full `go test ./...` green.
 
-### W5 — Team-scoped workdir
+### W5 — Team-scoped workdir — SHIPPED (v1.0.764-alpha)
 
 **Goal.** No two teams share a mutable on-host path.
 
-- Thread `team_id` into `DeriveWorkdir` (`spec.go`) and prefix the path
-  with the team (`~/hub-work/<team_id>/…`); update callers
-  (`launch_m1/m2/m4*.go`).
-- **Shared-host guard (the decided model):** the host-runner spawns a
-  team's agents under a **per-team OS user** (or restricted perms on
-  `~/hub-work/<team_id>/`), so the OS — not a shell `cd` block — denies
-  cross-team access. Add a host-runner capability check (can it
-  create/assume per-team users?); degrade or refuse cleanly if not.
-- In-flight agents keep their persisted `worktree_path`; only new
-  spawns adopt the segment.
-- **Tests:** `DeriveWorkdir` table test gains the team segment; two
-  teams + same project-prefix/handle resolve to distinct paths; the
-  per-team-user mapping is unit-tested.
-- **Files:** `internal/hostrunner/spec.go`, `launch_m*.go`, host-runner
-  spawn path (OS-user mapping). **Risk:** medium-high; the OS-user
-  guard is new surface and load-bearing for isolation. Residual
-  shared-kernel risk is documented in ADR-037 D6 as a hardening
-  follow-up (sandbox/pinned hosts if testers become untrusted).
+**Outcome.** Every derived agent workdir now carries a `<team>` segment,
+and the per-team root is reserved 0o700. **The host-runner is a
+single-team process** (`--team`), so the team threads in from
+`Client.Team` at the launch call sites — no hub/JSON change was needed
+(the earlier note assuming the team had to be stamped into the spawn was
+overtaken by this: the runner already knows its team).
+
+- **`DeriveWorkdir(team, …)`** (`spec.go`) derives
+  `~/hub-work/<team>/<pid8>/<handle>` (project-bound) and
+  `~/hub-work/<team>/_team/<handle>` (project-less steward) via a new
+  `teamWorkRoot(team)` helper. An operator-pinned `default_workdir` is
+  taken verbatim (no segment); an **empty** team collapses to the legacy
+  `~/hub-work/…` path, keeping pre-W5 callers and demo spawns unchanged.
+- **The M4 launchers were the load-bearing catch.** `launch_m4_*` inline
+  their own derivation (they do *not* call `DeriveWorkdir`), so threading
+  only `DeriveWorkdir` would have missed **claude-code — the primary
+  engine**. Both M4 paths (claude-code locallogtail + antigravity) now
+  route through `teamWorkRoot`, so all four launch modes get the segment.
+- **Shared-host guard (FS-perms tier of the decided model):**
+  `ensureTeamWorkRoot(team)` creates `~/hub-work/<team>` 0o700 before the
+  full workdir, called by all four launchers. This is the OS-enforced
+  boundary **when teams run under distinct OS users**; under a single
+  shared uid it walls the fleet off from *other* OS users and lays the
+  path a per-team-user spawn keys on.
+- **Deferred (ADR-037 D6 residual risk):** the **per-team-OS-user spawn**
+  (true cross-team isolation under one uid) and its host-runner
+  capability check are *not* in W5 — they need an on-host spawn mechanism
+  (sudo/setuid + user provisioning) that can't be validated on the dev
+  box, and the natural seam is "run each team's single-team host-runner
+  as a per-team OS user." Tracked as the hardening follow-up alongside
+  bwrap/container sandboxing.
+- In-flight agents keep their persisted `worktree_path`; only new spawns
+  adopt the segment.
+- **Tests** (`spec_test.go`): the `DeriveWorkdir` table gains the team
+  segment + an empty-team back-compat row; `TestDeriveWorkdir_TeamsDoNotCollide`
+  asserts two teams with the same project-prefix/handle resolve to
+  distinct paths; `TestEnsureTeamWorkRoot` checks the 0o700 perm + the
+  empty-team no-op. Full `go test ./...` green.
+- **Files:** `internal/hostrunner/spec.go`, `launch_m1.go`,
+  `launch_m2.go`, `launch_m4_locallogtail.go`, `launch_m4_antigravity.go`,
+  `runner.go`. **Risk realised:** medium — the segment threading was
+  additive (empty team = legacy path), and the OS-user tier was
+  deliberately deferred rather than half-built.
 
 ### W6 — Cross-cutting sweep
 

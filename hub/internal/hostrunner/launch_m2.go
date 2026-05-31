@@ -150,6 +150,10 @@ type M2LaunchConfig struct {
 	// spawn carries no token) `.mcp.json` is not written and the agent
 	// runs without hub MCP access.
 	HubURL string
+	// Team is the host-runner's single team (`--team`), threaded into
+	// DeriveWorkdir so the derived workdir carries the `<team>` segment
+	// (ADR-037 D6). Empty falls back to the legacy team-less path.
+	Team string
 }
 
 // M2LaunchResult is what launchM2 hands back to runner.go so it can keep
@@ -204,6 +208,7 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	//      host-runner's cwd (legacy single-host demo path).
 	needsWorkdir := len(spec.ContextFiles) > 0 || cfg.Spawn.MCPToken != ""
 	wd := DeriveWorkdir(
+		cfg.Team,
 		spec.Backend.DefaultWorkdir,
 		cfg.Spawn.ProjectID,
 		cfg.Spawn.Handle,
@@ -212,6 +217,12 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	)
 	expandedWorkdir := ""
 	if wd != "" {
+		// Per-team root (0o700) before the full workdir so cross-team
+		// reads are denied at the FS layer (ADR-037 D6). No-op when the
+		// path is operator-pinned (default_workdir) or team-less.
+		if _, err := ensureTeamWorkRoot(cfg.Team); err != nil {
+			return M2LaunchResult{}, fmt.Errorf("ensure team work root: %w", err)
+		}
 		expanded, err := expandHome(wd)
 		if err != nil {
 			return M2LaunchResult{}, fmt.Errorf("expand workdir %q: %w", wd, err)

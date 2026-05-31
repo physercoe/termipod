@@ -562,6 +562,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				Launcher: a.Launcher,
 				Client:   a.agentPoster,
 				HubURL:   hubURLForAgent,
+				Team:     a.Client.Team,
 			})
 			if m2err != nil {
 				a.Log.Warn("M2 launch failed; trying next fallback",
@@ -584,6 +585,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				Launcher: a.Launcher,
 				Client:   a.agentPoster,
 				HubURL:   hubURLForAgent,
+				Team:     a.Client.Team,
 			})
 			if m1err != nil {
 				a.Log.Warn("M1 launch failed; trying next fallback",
@@ -629,6 +631,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				HubURL:           hubURLForAgent,
 				GatewayHubClient: a.Client,
 				Log:              a.Log,
+				Team:             a.Client.Team,
 			})
 			if lerr != nil {
 				// No PaneDriver fall-through (mirrors the antigravity arm
@@ -685,6 +688,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				// Mirrors the claude-code arm above.
 				GatewayHubClient: a.Client,
 				Log:              a.Log,
+				Team:             a.Client.Team,
 			})
 			if lerr != nil {
 				a.Log.Error("M4 antigravity launch failed; marking agent failed (no PaneDriver fallback)",

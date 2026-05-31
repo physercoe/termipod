@@ -52,10 +52,15 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 		if handle == "" {
 			handle = cfg.Spawn.ChildID
 		}
-		rawWD = filepath.Join("~", "hub-work", pid, handle)
+		// `<team>` segment (ADR-037 D6) isolates teams on a shared host;
+		// teamWorkRoot collapses to `~/hub-work` when team is empty.
+		rawWD = filepath.Join(teamWorkRoot(cfg.Team), pid, handle)
 	}
 	if rawWD == "" {
 		return nil, fmt.Errorf("antigravity M4: backend.default_workdir empty and no project_id to derive (it keys agy's conversation cache)")
+	}
+	if _, err := ensureTeamWorkRoot(cfg.Team); err != nil {
+		return nil, fmt.Errorf("antigravity M4: ensure team work root: %w", err)
 	}
 	workdir, err := expandHome(rawWD)
 	if err != nil {

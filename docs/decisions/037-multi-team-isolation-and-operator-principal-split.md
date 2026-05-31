@@ -3,12 +3,13 @@
 > **Type:** decision
 > **Status:** Accepted (2026-05-31) — the four open questions are
 > **resolved** (§Resolved decisions); **W1 (D1 path-team gate,
-> v1.0.760-alpha) and W2 (D2/D4 operator/principal split,
-> v1.0.761-alpha) have landed**, meeting the promotion bar. D3/D5/D6/D7
-> (provisioning, per-team templates, team-scoped workdir, sweep) remain
-> as tracked wedges W3–W6.
+> v1.0.760), W2 (D2/D4 operator/principal split, v1.0.761), W3 (D3
+> provisioning, v1.0.762), W4 (D5 per-team templates, v1.0.763), and W5
+> (D6 team-scoped workdir, v1.0.764) have landed.** D7 (cross-cutting
+> sweep) remains as tracked wedge W6; the D6 per-team-OS-user guard is a
+> documented hardening follow-up (see D6 impl note).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.761
+> **Last verified vs code:** v1.0.764
 
 **TL;DR.** External testers are being onboarded; each gets a `team_id`
 and different teams MUST isolate. The data layer is already
@@ -165,6 +166,27 @@ The guard:
 
 In-flight agents keep their persisted `worktree_path`
 (`agents.worktree_path`); only new spawns adopt the segment.
+
+*Implementation note (W5, v1.0.764):* the **workdir team segment** and
+the **0o700 FS-perms guard** shipped; the **per-team-OS-user spawn** did
+not (deferred, see below). `DeriveWorkdir(team, …)` and a shared
+`teamWorkRoot(team)` helper (`internal/hostrunner/spec.go`) prefix every
+*derived* workdir with `<team>`; an operator-pinned `default_workdir` is
+taken verbatim and an empty team collapses to the legacy `~/hub-work/…`
+path (back-compat). The host-runner is a **single-team process**
+(`--team`), so the team threads in from `Client.Team` at the four launch
+call sites — no spawn-JSON change was needed. The **M4 launchers**
+(`launch_m4_locallogtail.go` for claude-code, `launch_m4_antigravity.go`)
+inline their own derivation rather than calling `DeriveWorkdir`, so they
+were threaded through `teamWorkRoot` explicitly — without that, the
+primary engine (claude-code) would have missed the segment.
+`ensureTeamWorkRoot` creates `~/hub-work/<team>` 0o700 before the full
+workdir. **Deferred:** the per-team-OS-user spawn (true cross-team
+isolation under one shared uid) and its host-runner capability check
+need an on-host spawn mechanism (sudo/setuid + user provisioning) that
+can't be validated on the dev box; the natural seam is running each
+team's single-team host-runner under a per-team OS user. This is the
+hardening follow-up named in the residual-risk paragraph above.
 
 ### D7 — Cross-cutting sweep (G6)
 

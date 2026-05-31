@@ -1,6 +1,7 @@
 package hostrunner
 
 import (
+	"os"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
@@ -91,9 +92,53 @@ func ParseSpec(yamlText string) (SpawnSpec, error) {
 	return s, nil
 }
 
+// teamWorkRoot is the per-team root under which every *derived* agent
+// workdir lives: `~/hub-work/<team>`. The team segment is the on-host
+// isolation boundary (ADR-037 D6) — two teams sharing a host never
+// share a mutable workdir subtree. An empty team yields the legacy
+// `~/hub-work` root, preserved for back-compat with demo spawns and
+// any caller that doesn't carry a team. The host-runner is a
+// single-team process (`--team`), so the team threads in from
+// `Client.Team` at the launch call sites.
+func teamWorkRoot(team string) string {
+	if team == "" {
+		return filepath.Join("~", "hub-work")
+	}
+	return filepath.Join("~", "hub-work", team)
+}
+
+// ensureTeamWorkRoot creates `~/hub-work/<team>` with 0o700 so the OS
+// denies cross-team reads at the filesystem layer (ADR-037 D6 MVP
+// guard). It returns the expanded absolute team root. An empty team is
+// a no-op (legacy spawns) returning "".
+//
+// 0o700 is the concrete, OS-enforced guard *when teams run under
+// distinct OS users* (the per-team-user deployment); under a single
+// shared uid it still walls the fleet's work area off from other OS
+// users on the box, and lays the path a per-team-user spawn keys on.
+// True cross-team isolation under one uid (per-team OS users / sandbox)
+// is the documented hardening follow-up — ADR-037 D6 residual risk.
+//
+// Inner project/handle dirs are created 0o755 by the launchers; the
+// 0o700 team root above them is the traversal boundary, so the looser
+// inner perms don't widen access.
+func ensureTeamWorkRoot(team string) (string, error) {
+	if team == "" {
+		return "", nil
+	}
+	root, err := expandHome(teamWorkRoot(team))
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
 // DeriveWorkdir resolves the agent workdir from
-// (defaultWorkdir, projectID, handle, childID). The returned path is
-// tilde-prefixed when derived; callers expand `~` themselves via
+// (team, defaultWorkdir, projectID, handle, childID). The returned path
+// is tilde-prefixed when derived; callers expand `~` themselves via
 // expandHome. Empty result means the legacy "no workdir, run from
 // host-runner's cwd" path applies — preserved for back-compat with
 // demo templates that ship without context_files / mcp_token.
@@ -101,20 +146,23 @@ func ParseSpec(yamlText string) (SpawnSpec, error) {
 // Precedence:
 //
 //  1. defaultWorkdir non-empty
-//     The template's explicit `backend.default_workdir` wins.
+//     The template's explicit `backend.default_workdir` wins. This is
+//     an operator-pinned absolute path, so the team segment is NOT
+//     injected — the operator chose it deliberately.
 //
 //  2. projectID non-empty
-//     Project-bound derivation: `~/hub-work/<pid[:8]>/<handle>` —
-//     workers in the same project share a folder root, sibling
-//     handles don't collide across projects (ADR-025 W6). The
-//     8-char pid prefix matches how the hub prints project ids
-//     elsewhere.
+//     Project-bound derivation: `~/hub-work/<team>/<pid[:8]>/<handle>`
+//     — workers in the same project share a folder root, sibling
+//     handles don't collide across projects (ADR-025 W6), and the
+//     team segment (ADR-037 D6) keeps two teams off each other's
+//     subtree on a shared host. The 8-char pid prefix matches how the
+//     hub prints project ids elsewhere.
 //
 //  3. needsWorkdir is true (caller will materialise context_files
 //     or mcp_token)
-//     Project-less derivation: `~/hub-work/_team/<handle>` — gives
-//     team-scoped stewards (codex/general/etc spawned outside any
-//     project) a stable, per-handle workdir without forcing every
+//     Project-less derivation: `~/hub-work/<team>/_team/<handle>` —
+//     gives team-scoped stewards (codex/general/etc spawned outside
+//     any project) a stable, per-handle workdir without forcing every
 //     such template to ship an explicit `default_workdir`. The
 //     underscore-prefixed `_team` namespace avoids collision with
 //     real 8-char project ids (which are hex, never start with `_`).
@@ -128,11 +176,14 @@ func ParseSpec(yamlText string) (SpawnSpec, error) {
 //     host-runner's cwd; no `cd` is prefixed to the cmd.
 //
 // `handle` falls back to `childID` when empty so the derived path
-// always has a stable last segment.
-func DeriveWorkdir(defaultWorkdir, projectID, handle, childID string, needsWorkdir bool) string {
+// always has a stable last segment. An empty `team` collapses the
+// team segment (legacy `~/hub-work/…`), so pre-W5 callers and demo
+// spawns keep their old paths.
+func DeriveWorkdir(team, defaultWorkdir, projectID, handle, childID string, needsWorkdir bool) string {
 	if defaultWorkdir != "" {
 		return defaultWorkdir
 	}
+	root := teamWorkRoot(team)
 	h := handle
 	if h == "" {
 		h = childID
@@ -142,18 +193,18 @@ func DeriveWorkdir(defaultWorkdir, projectID, handle, childID string, needsWorkd
 		if len(pid) > 8 {
 			pid = pid[:8]
 		}
-		return filepath.Join("~", "hub-work", pid, h)
+		return filepath.Join(root, pid, h)
 	}
 	if needsWorkdir {
 		// Tolerate a missing handle/childID by leaving the workdir
 		// empty rather than collapsing every project-less spawn into
-		// the same `~/hub-work/_team` directory. The caller's
+		// the same `_team` directory. The caller's
 		// writeContextFiles/writeMCPConfig guard will then surface
 		// the misconfiguration cleanly.
 		if h == "" {
 			return ""
 		}
-		return filepath.Join("~", "hub-work", "_team", h)
+		return filepath.Join(root, "_team", h)
 	}
 	return ""
 }

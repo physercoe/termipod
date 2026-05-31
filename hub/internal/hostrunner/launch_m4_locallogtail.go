@@ -40,6 +40,11 @@ type M4LocalLogTailLaunchConfig struct {
 	// runner's own a.Client.
 	GatewayHubClient *Client
 	Log              *slog.Logger
+	// Team is the host-runner's single team (`--team`), used to derive
+	// the `<team>`-segmented workdir (ADR-037 D6). Shared by the
+	// claude-code (locallogtail) and antigravity M4 launchers. Empty
+	// falls back to the legacy team-less path.
+	Team string
 }
 
 // M4LocalLogTailLaunchResult — same shape as the M1/M2 results so
@@ -110,10 +115,17 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 		if handle == "" {
 			handle = cfg.Spawn.ChildID
 		}
-		rawWD = filepath.Join("~", "hub-work", pid, handle)
+		// `~/hub-work/<team>/<pid8>/<handle>` — the `<team>` segment
+		// (ADR-037 D6) keeps two teams off each other's subtree on a
+		// shared host; teamWorkRoot collapses to `~/hub-work` when team
+		// is empty (legacy spawns).
+		rawWD = filepath.Join(teamWorkRoot(cfg.Team), pid, handle)
 	}
 	if rawWD == "" {
 		return nil, fmt.Errorf("locallogtail M4: backend.default_workdir empty and no project_id to derive (JSONL path resolves under <workdir>)")
+	}
+	if _, err := ensureTeamWorkRoot(cfg.Team); err != nil {
+		return nil, fmt.Errorf("locallogtail M4: ensure team work root: %w", err)
 	}
 	workdir, err := expandHome(rawWD)
 	if err != nil {

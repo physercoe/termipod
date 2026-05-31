@@ -129,7 +129,7 @@ Cross-compile for a different target with e.g.
 
 ## Track A — LAN / Tailscale quick test
 
-### A.1 Initialize a data root and get the owner token
+### A.1 Initialize a data root and get the operator token
 
 ```bash
 /tmp/hub-server init -data ~/hub-test
@@ -138,13 +138,17 @@ Cross-compile for a different target with e.g.
 Output ends with:
 
 ```
-Owner token (shown once — store it in your TUI / mobile config):
+Operator token (the hub root — shown once; store it in your TUI / mobile config):
 
   <paste-me-into-the-app>
 ```
 
-The hub stores only the SHA-256 hash. If you lose it, issue a new token
-with `tokens issue` (§5).
+This is an **operator** token — the hub root (ADR-037). It is
+team-transcendent (the only credential for `/v1/admin/*`) and the
+de-facto director of the seeded `default` team. The hub stores only the
+SHA-256 hash. If you lose it, issue a new token with `tokens issue`
+(§3). To onboard a *separate, isolated* team for another tester, use
+`team create` (§3) rather than handing out the operator token.
 
 ### A.2 Serve on the LAN
 
@@ -198,7 +202,7 @@ sudo install -o root -g root -m 0755 hub-server /usr/local/bin/hub-server
 sudo useradd --system --home /var/lib/termipod-hub --shell /usr/sbin/nologin termipod-hub
 sudo install -o termipod-hub -g termipod-hub -m 0750 -d /var/lib/termipod-hub
 sudo -u termipod-hub /usr/local/bin/hub-server init -data /var/lib/termipod-hub
-# ↑ prints the owner token — copy it now, it's not recoverable.
+# ↑ prints the operator token (the hub root) — copy it now, it's not recoverable.
 ```
 
 ### B.2 Install the systemd unit
@@ -302,8 +306,9 @@ sync via `make bump`). `commit` / `build_time` / `modified` come from
 
 ## 3. Issue additional tokens
 
-The owner token is fine for the first phone. For additional devices,
-agents, or hosts, mint scoped tokens:
+The operator token is fine for your own first phone (it is the hub root
+and the de-facto director of `default`). For additional devices,
+agents, or hosts on `default`, mint scoped tokens:
 
 Run the issuer as the hub's service user so it can read the sqlite DB
 under `/var/lib/termipod-hub` (owned by `termipod-hub`, mode `0750`).
@@ -333,6 +338,30 @@ sudo -u termipod-hub /usr/local/bin/hub-server tokens list \
 Plaintext is printed once. Only SHA-256 hashes land in `auth_tokens`.
 (Track A / LAN test is simpler — if the data root is in your own
 `$HOME`, just run `hub-server tokens …` directly without sudo.)
+
+### Onboard a separate, isolated team (ADR-037)
+
+To hand a tester their own isolated workspace, provision a **team** —
+do **not** give out your operator token. Each team is fully isolated: a
+team's `owner` token can reach only that team's data and cannot touch
+the fleet (`/v1/admin/*`) or another team.
+
+```bash
+# Provision a team and mint its first owner token (the team's director).
+sudo -u termipod-hub /usr/local/bin/hub-server team create acme \
+     -data /var/lib/termipod-hub -name "Acme Corp" -handle alice
+
+# Lists the teams on this hub.
+sudo -u termipod-hub /usr/local/bin/hub-server team ls \
+     -data /var/lib/termipod-hub
+```
+
+`team create` prints the team's owner token once — hand *that* to the
+team's director (it goes in their mobile app's Hub config alongside
+`team_id = acme`). They then issue their own `user`/`agent`/`host`
+tokens for their team with `tokens issue -team acme …`. Equivalent over
+the wire (operator-authenticated): `POST /v1/admin/teams` with
+`{"team_id":"acme","name":"Acme Corp","handle":"alice"}`.
 
 ---
 

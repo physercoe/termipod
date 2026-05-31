@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.761
+> **Last verified vs code:** v1.0.762
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,36 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.762-alpha — 2026-05-31
+
+**Multi-team isolation W3 — team provisioning (ADR-037 D3).** Onboarding
+a tester is now "provision a team, hand over `(team_id, owner_token)`."
+Builds on W1+W2: the minted owner reaches only its team (W1) and not the
+fleet (W2). Fourth wedge of
+[plans/multi-team-isolation-rollout.md](plans/multi-team-isolation-rollout.md).
+
+### Added
+- `POST /v1/admin/teams` (operator-gated) — creates a team and mints its
+  first `owner` token, returned once as `{team_id, name, owner_token,
+  owner_token_id, created_at}`. `GET /v1/admin/teams` lists teams.
+- `hub-server team create <id> [--name --handle]` and `team ls` — the
+  out-of-band CLI path that doesn't need a live operator token.
+- `server.ProvisionTeam` — the shared core behind both: validates the
+  team id (DNS-label slug), refuses an existing team (409 /
+  `ErrTeamExists`), inserts the team, mints the owner. Templates are not
+  seeded per-team — built-ins are global (D5), so a fresh team can spawn
+  immediately.
+
+### Notes
+- A per-team owner cannot reach `/v1/admin/teams` (requireOperator), so a
+  tester cannot mint sibling teams.
+- **Known gap deferred to W6:** team-scope channels (`hub-meta`) are
+  still hub-wide — `handleListTeamChannels` filters `scope_kind='team'
+  AND project_id IS NULL` with no team column (the `channels` table has
+  no `team_id`). A provisioned team currently shares the global
+  `hub-meta`; closing this needs a schema migration and is part of the
+  W6 cross-cutting sweep (ADR-037 D7).
 
 ## v1.0.761-alpha — 2026-05-31
 

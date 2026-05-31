@@ -292,6 +292,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 	r.Post("/v1/admin/tokens/rotate", s.handleAdminTokensRotate)
 	r.Post("/v1/admin/db/vacuum", s.handleAdminDBVacuum)
 	r.Get("/v1/admin/audit", s.handleAdminListAudit)
+	// Team provisioning (ADR-037 D3 / W3). Operator-gated onboarding:
+	// create a team + mint its first owner token. List enumerates teams.
+	r.Post("/v1/admin/teams", s.handleAdminCreateTeam)
+	r.Get("/v1/admin/teams", s.handleAdminListTeams)
 
 	// /v1/insights — scope-parameterized aggregator (ADR-022 D3).
 	// Phase 1 W2 wires the project scope only:

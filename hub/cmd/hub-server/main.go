@@ -8,6 +8,8 @@
 //	tokens list         List tokens (hash-only; plaintext is never stored).
 //	tokens rotate       Issue a new host token, push it to every live host
 //	                    via host.token_rotate, then revoke the old ones.
+//	team create         Provision a team + mint its first owner token
+//	                    (ADR-037 D3). team ls lists teams.
 //	reconstruct-db      Rebuild events DB from event_log/ JSONL.
 //	backup              Snapshot DB + team/ + blobs/ into a tar.gz.
 //	restore             Extract a backup archive into a data root.
@@ -68,6 +70,8 @@ func main() {
 		runServe(os.Args[2:], log)
 	case "tokens":
 		runTokens(os.Args[2:], log)
+	case "team":
+		runTeam(os.Args[2:], log)
 	case "reconstruct-db":
 		runReconstructDB(os.Args[2:], log)
 	case "backup":
@@ -114,6 +118,8 @@ Commands:
   tokens issue      Issue a token. Plaintext is printed once.
   tokens list       List token kinds and hashes.
   tokens rotate     Issue a new host token, push it fleet-wide, revoke the old.
+  team create       Provision a team and mint its first owner token (ADR-037 D3).
+  team ls           List teams.
   reconstruct-db    Rebuild DB from event_log/ JSONL.
   backup            Snapshot the live DB + team/ + blobs/ into a tar.gz.
   restore           Rehydrate a fresh data root from a backup archive.
@@ -211,6 +217,99 @@ func runTokens(args []string, log *slog.Logger) {
 	default:
 		fmt.Fprintf(os.Stderr, "unknown tokens subcommand: %s\n", args[0])
 		os.Exit(2)
+	}
+}
+
+// ---- team ----
+
+// runTeam is the out-of-band team-provisioning CLI (ADR-037 D3): the
+// path an operator uses to onboard a tester without a live operator
+// token, mirroring what POST /v1/admin/teams does over the wire.
+func runTeam(args []string, log *slog.Logger) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: hub-server team <create|ls> [flags]")
+		os.Exit(2)
+	}
+	switch args[0] {
+	case "create":
+		runTeamCreate(args[1:], log)
+	case "ls", "list":
+		runTeamList(args[1:], log)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown team subcommand: %s\n", args[0])
+		os.Exit(2)
+	}
+}
+
+func runTeamCreate(args []string, log *slog.Logger) {
+	fs := flag.NewFlagSet("team create", flag.ExitOnError)
+	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
+	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
+	id := fs.String("id", "", "team id (URL-safe slug: ^[a-z0-9][a-z0-9-]{0,63}$)")
+	name := fs.String("name", "", "display name (defaults to the id)")
+	handle := fs.String("handle", "", "owner display handle (shown on the Members tab)")
+	_ = fs.Parse(args)
+
+	// Accept the id as a bare positional arg too: `team create acme`.
+	if *id == "" && fs.NArg() > 0 {
+		*id = fs.Arg(0)
+	}
+	if *id == "" {
+		fmt.Fprintln(os.Stderr, "team create: -id (or a positional team id) is required")
+		os.Exit(2)
+	}
+	if *dbPath == "" {
+		*dbPath = filepath.Join(*dataRoot, "hub.db")
+	}
+	if err := ensureDBDir(*dbPath); err != nil {
+		log.Error("prepare data dir", "err", err, "path", filepath.Dir(*dbPath))
+		os.Exit(1)
+	}
+	db, err := openDBWithHint(*dbPath, log)
+	if err != nil {
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	token, tokenID, _, err := server.ProvisionTeam(context.Background(), db, *id, *name, *handle)
+	if err != nil {
+		log.Error("provision team", "err", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Provisioned team %q (owner token id %s).\n", *id, tokenID)
+	fmt.Printf("Owner token for team %q (shown once — hand it to the team's director):\n\n  %s\n\n", *id, token)
+}
+
+func runTeamList(args []string, log *slog.Logger) {
+	fs := flag.NewFlagSet("team ls", flag.ExitOnError)
+	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
+	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
+	_ = fs.Parse(args)
+
+	if *dbPath == "" {
+		*dbPath = filepath.Join(*dataRoot, "hub.db")
+	}
+	db, err := openDBWithHint(*dbPath, log)
+	if err != nil {
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(context.Background(),
+		`SELECT id, name, created_at FROM teams ORDER BY created_at`)
+	if err != nil {
+		log.Error("list teams", "err", err)
+		os.Exit(1)
+	}
+	defer rows.Close()
+	fmt.Printf("%-24s %-24s %s\n", "id", "name", "created_at")
+	for rows.Next() {
+		var id, name, createdAt string
+		if err := rows.Scan(&id, &name, &createdAt); err != nil {
+			log.Error("scan team", "err", err)
+			os.Exit(1)
+		}
+		fmt.Printf("%-24s %-24s %s\n", id, name, createdAt)
 	}
 }
 

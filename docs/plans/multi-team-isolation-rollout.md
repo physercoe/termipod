@@ -2,11 +2,12 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-05-31) — ADR-037 open questions Q1–Q4
-> are resolved. **W1 shipped (v1.0.760-alpha); W2 shipped
-> (v1.0.761-alpha) — the W1+W2 MVP isolation bar is met and ADR-037 is
-> Accepted.** W3 (provisioning) next.
+> are resolved. **W1 (v1.0.760-alpha) + W2 (v1.0.761-alpha) met the MVP
+> isolation bar (ADR-037 Accepted); W3 provisioning shipped
+> (v1.0.762-alpha) — testers can now be onboarded.** W4/W5/W6 (hardening)
+> remain.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.761
+> **Last verified vs code:** v1.0.762
 
 **TL;DR.** Turn termipod's already-team-scoped data layer into enforced
 multi-team isolation so external testers can each be handed a `team_id`
@@ -103,18 +104,33 @@ refused at `/v1/admin/*` while operator passes; operator bypasses the W1
 gate end-to-end (upgrades W1's unit-level bypass test); owner issues
 own-team tokens. Full `go test ./...` green.
 
-### W3 — Team provisioning
+### W3 — Team provisioning — **SHIPPED v1.0.762-alpha**
 
 **Goal.** Onboard a tester as `(team_id, owner_token)`.
 
-- Operator-gated `POST /v1/admin/teams` → `ensureTeam` +
-  `auth.InsertToken` (owner scope for the new team) → return the
-  one-time owner token.
-- Hub-server CLI `team create <id>` for out-of-band bootstrap.
-- **Tests:** provision → the new owner can reach only its team (exercises
-  W1) and cannot reach `/v1/admin/*` (exercises W2).
-- **Files:** new `handlers_admin_teams.go`, a CLI subcommand under
-  `cmd/hub-server`. **Risk:** low; reuses existing primitives.
+**Outcome.** Shipped. `server.ProvisionTeam` is the shared core (validate
+slug → 409 if exists → insert team → mint owner), called by both the
+operator-gated `POST /v1/admin/teams` (+ `GET` list) and the
+`hub-server team create <id>` / `team ls` CLI. Notes:
+
+- **Team id is a DNS-label slug** (`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
+  — it lands in URL paths and (W5) on disk, so no leading/trailing
+  hyphen, no separators, lowercase only.
+- **No per-team template seeding** — built-ins are global (D5), so a
+  fresh team can spawn from them immediately; W4 adds overrides.
+- **Channel leak surfaced (deferred to W6):** team-scope channels
+  (`hub-meta`) are hub-wide — `handleListTeamChannels` filters
+  `scope_kind='team' AND project_id IS NULL` with no team column (the
+  `channels` table lacks `team_id`). A provisioned team shares the global
+  `hub-meta`; closing it needs a schema migration (W6 / D7).
+
+**Tests:** `handlers_admin_teams_test.go` — onboarding contract (new
+owner reaches only its team, not default, not `/v1/admin/*`, cannot
+provision siblings), duplicate→409, invalid-id→400, requires-operator,
+list. Full `go test ./...` green.
+
+**Files:** `internal/server/provision.go`, `handlers_admin_teams.go`,
+`server.go` (routes), `cmd/hub-server/main.go` (`team` subcommand).
 
 ### W4 — Per-team template overrides
 
@@ -157,6 +173,16 @@ own-team tokens. Full `go test ./...` green.
 - Grep + verify: A2A relay attribution (`handlers_a2a.go`), blob paths
   under `<dataRoot>/blobs/…`, any hub-wide `SELECT` missing `team_id`.
   Team-scope each or document why it is safe.
+- **Known finding (surfaced in W3): team-scope channels are hub-wide.**
+  The `channels` table has no `team_id`; a team-scope channel is keyed
+  only `(scope_kind='team', project_id IS NULL, name)`, and
+  `handleListTeamChannels` / `ensureTeamChannel` query without a team
+  filter. So every team shares one `hub-meta` (and the `UNIQUE`
+  constraint actually *prevents* a second team's `hub-meta`). Closing
+  this needs a schema migration adding `channels.team_id` (+ backfill to
+  `default`) and a team filter on the team-channel handlers + the
+  steward-bootstrap `ensureTeamChannel`. This is the highest-value W6
+  item — until it lands, two teams' general stewards share a room.
 - **Risk:** unknown until the grep; treat findings as their own
   micro-wedges.
 

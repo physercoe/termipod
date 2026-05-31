@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.766
+> **Last verified vs code:** v1.0.767
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,47 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.767-alpha — 2026-05-31
+
+**`attach` stops failing on line-wrapped base64, and gains a plaintext
+path.** Tester feedback: an agent base64-encoded a payload, `attach`
+errored, and the agent concluded the content was "too much for inline" —
+inventing a 32 KB ceiling that exists nowhere. The real cause was the
+strict decoder: `base64.StdEncoding.DecodeString` rejects the newlines
+that almost every encoder (`base64` CLI, openssl, many libraries) inserts
+when wrapping at 76 columns. The decode error read like a size problem,
+so the agent misdiagnosed it. `attach`'s only real cap is **25 MiB** of
+decoded bytes (`maxBlobBytes`) — there is no small-inline limit.
+
+### Fixed
+- **`attach` tolerates whitespace in `content_base64` (`mcp_more.go`).**
+  A new `stripBase64Whitespace` removes spaces/tabs/CR/LF before decoding,
+  so correctly-encoded-but-wrapped base64 lands. The decode-failure
+  message now says "not valid base64 (whitespace/newlines tolerated)" and
+  points at the `content` field for plain text, instead of a bare codec
+  error. The size-cap error now names the 25 MiB cap explicitly.
+
+### Added
+- **`attach` plaintext `content` field (`mcp_more.go`, `native_tools.go`).**
+  Agents can pass raw text/JSON via `content` with no base64 round-trip;
+  `content_base64` stays for true binary. Exactly one of the two is
+  required (both → error). The tool description now states there is no
+  32 KB/inline limit, documents the either/or, and warns that large
+  inline payloads inflate the transcript — and on M1 (ACP) / M2
+  (structured-stdio) engines can exceed the 1 MiB per-line stream buffer
+  (`streamJSONBufferSize`) — so large files should use the
+  `<<mcp:attach {"path": …}>>` marker instead. (claude-code's M4 tail and
+  the MCP gateway are unbounded, but the bytes still bloat context.)
+- **`artifacts.create` / `runs.attach_artifact` `uri` guidance
+  (`tools.go`).** The `uri` field doc now states it must reference bytes
+  **already uploaded via `attach`** (cite the `blob:sha256/<hex>` handle;
+  25 MiB cap) — these tools record a reference, they do not upload bytes.
+
+Tests: `TestMCP_Attach_ToleratesWrappedBase64`,
+`TestMCP_Attach_PlaintextContent`, `TestMCP_Attach_PayloadValidation`.
 
 ---
 

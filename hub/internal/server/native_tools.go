@@ -391,23 +391,36 @@ func buildNativeTools() []nativeTool {
 		{
 			Name:  "attach",
 			Short: "Upload a small file as a content-addressed blob.",
-			Description: "Upload a file (≤25 MiB) into the hub's content-addressed blob store. " +
-				"`content_base64` carries the bytes inline as base64; `filename` is a human-friendly " +
-				"label, NOT a server-side path (this tool does NOT read files from disk — base64-encode " +
-				"the bytes in the agent process before calling). Returns `{sha256, size, mime, filename}`.\n\n" +
+			Description: "Upload content (≤25 MiB) into the hub's content-addressed blob store. " +
+				"`filename` is a human-friendly label, NOT a server-side path (this tool does NOT " +
+				"read files from disk). Supply the bytes via EXACTLY ONE of:\n\n" +
+				"  - `content` — plain text/JSON, passed verbatim, NO encoding needed. Prefer this " +
+				"whenever the payload is text. This is the convenience path; reach for it unless the " +
+				"data is genuinely binary.\n" +
+				"  - `content_base64` — base64 for true binary (images, archives, checkpoints). " +
+				"Line-wrapped/whitespaced base64 is tolerated (the hub strips whitespace before " +
+				"decoding), but it must otherwise be valid base64 — if you pass raw un-encoded text " +
+				"here it will fail; use `content` for that.\n\n" +
+				"There is NO 32 KB or small-inline limit — the only cap is 25 MiB of decoded bytes. " +
+				"Returns `{sha256, size, mime, filename}`.\n\n" +
 				"The returned `sha256` is the content-addressed handle: cite it as `blob:sha256/<hex>` in " +
 				"artifact URIs, A2A messages, and document references. Same bytes = same sha (dedup'd).\n\n" +
-				"To read bytes back, call `blob_get` with the sha. For path-based attaching from " +
-				"inside a pane (no base64 round-trip) emit the marker `<<mcp:attach {\"path\": \"...\"}>>` " +
-				"on a line — the host-runner reads the file from your local disk and forwards it.",
+				"To read bytes back, call `blob_get` with the sha.\n\n" +
+				"LARGE PAYLOADS: inline `content`/`content_base64` travels through your agent transcript, " +
+				"inflating your context — and on M1 (ACP) / M2 (structured-stdio) engines a single " +
+				"transcript line is buffered at 1 MiB, so a multi-MB inline call can break the stream. " +
+				"For any sizeable file prefer the path marker: emit `<<mcp:attach {\"path\": \"...\"}>>` " +
+				"on a line — the host-runner reads the file from your local disk and forwards the bytes " +
+				"directly, with no base64 round-trip and nothing large in your transcript.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"filename":       map[string]any{"type": "string", "description": "human-friendly label (e.g. 'screenshot.png'); not a server-side path"},
-					"content_base64": map[string]any{"type": "string", "description": "bytes inline, base64-encoded (raw bytes after decode must be ≤25 MiB)"},
+					"content":        map[string]any{"type": "string", "description": "plain text/JSON, stored verbatim (no encoding). Use this for text; mutually exclusive with content_base64"},
+					"content_base64": map[string]any{"type": "string", "description": "base64-encoded bytes for binary (≤25 MiB decoded). Whitespace/newlines tolerated. Mutually exclusive with content"},
 					"mime":           map[string]any{"type": "string", "description": "optional; defaults to application/octet-stream"},
 				},
-				"required": []string{"filename", "content_base64"},
+				"required": []string{"filename"},
 			},
 			Tier: TierRoutine, WorkerEligible: true,
 			Handler: argsOnly((*Server).mcpAttach),

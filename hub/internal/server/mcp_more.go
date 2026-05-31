@@ -388,20 +388,52 @@ func (s *Server) mcpRequestProjectSteward(ctx context.Context, team, fromID stri
 type attachArgs struct {
 	Filename      string `json:"filename"`
 	ContentBase64 string `json:"content_base64"`
+	Content       string `json:"content"`
 	Mime          string `json:"mime"`
+}
+
+// stripBase64Whitespace removes ASCII whitespace (space, tab, CR, LF) from
+// a base64 string. Most encoders — the `base64` CLI, openssl, and many
+// language libraries — line-wrap at 76 columns, and Go's
+// base64.StdEncoding rejects the embedded newlines as "illegal base64
+// data". Stripping first means a correctly-encoded but wrapped payload
+// still decodes, instead of erroring in a way agents misread as a size
+// limit.
+func stripBase64Whitespace(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\t', '\n', '\r':
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func (s *Server) mcpAttach(ctx context.Context, raw json.RawMessage) (any, *jrpcError) {
 	var a attachArgs
-	if err := json.Unmarshal(raw, &a); err != nil || a.Filename == "" || a.ContentBase64 == "" {
-		return nil, &jrpcError{Code: -32602, Message: "filename and content_base64 required"}
+	if err := json.Unmarshal(raw, &a); err != nil || a.Filename == "" {
+		return nil, &jrpcError{Code: -32602, Message: "filename required"}
 	}
-	body, err := base64.StdEncoding.DecodeString(a.ContentBase64)
-	if err != nil {
-		return nil, &jrpcError{Code: -32602, Message: "content_base64: " + err.Error()}
+	var body []byte
+	switch {
+	case a.ContentBase64 != "" && a.Content != "":
+		return nil, &jrpcError{Code: -32602, Message: "provide exactly one of content_base64 or content, not both"}
+	case a.ContentBase64 != "":
+		decoded, err := base64.StdEncoding.DecodeString(stripBase64Whitespace(a.ContentBase64))
+		if err != nil {
+			return nil, &jrpcError{Code: -32602, Message: "content_base64 is not valid base64 (whitespace/newlines are tolerated): " + err.Error() + ". If this is plain text, pass it via `content` instead — that field needs no encoding."}
+		}
+		body = decoded
+	case a.Content != "":
+		// Plaintext convenience: the agent passes raw text/JSON and the
+		// hub stores the UTF-8 bytes verbatim. Use this for text; reserve
+		// content_base64 for true binary.
+		body = []byte(a.Content)
+	default:
+		return nil, &jrpcError{Code: -32602, Message: "one of content_base64 (binary) or content (plain text) is required"}
 	}
 	if len(body) > maxBlobBytes {
-		return nil, &jrpcError{Code: -32602, Message: fmt.Sprintf("blob exceeds %d bytes", maxBlobBytes)}
+		return nil, &jrpcError{Code: -32602, Message: fmt.Sprintf("blob exceeds the %d MiB cap (%d bytes)", maxBlobBytes/(1024*1024), maxBlobBytes)}
 	}
 	sum := sha256.Sum256(body)
 	sha := hex.EncodeToString(sum[:])
@@ -419,11 +451,10 @@ func (s *Server) mcpAttach(ctx context.Context, raw json.RawMessage) (any, *jrpc
 	if mime == "" {
 		mime = "application/octet-stream"
 	}
-	_, err = s.db.ExecContext(ctx, `
+	if _, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO blobs (sha256, scope_path, size, mime, created_at)
 		VALUES (?, ?, ?, ?, ?)`,
-		sha, path, len(body), mime, NowUTC())
-	if err != nil {
+		sha, path, len(body), mime, NowUTC()); err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
 	return mcpResultJSON(map[string]any{

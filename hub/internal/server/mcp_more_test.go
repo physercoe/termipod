@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -208,6 +211,87 @@ func TestMCP_Attach_StoresBlob(t *testing.T) {
 	}
 	if size != len(payload) || mime != "text/plain" {
 		t.Errorf("blob mismatch: size=%d mime=%s", size, mime)
+	}
+}
+
+// attach tolerates line-wrapped base64. Most encoders (the `base64` CLI,
+// openssl, many libraries) wrap at 76 columns; Go's StdEncoding rejects
+// the embedded newlines. The tester's agent hit this and misread the
+// decode error as a size limit ("too much for inline"). Wrapped base64
+// must now decode to the same bytes as unwrapped.
+func TestMCP_Attach_ToleratesWrappedBase64(t *testing.T) {
+	s, _ := newTestServer(t)
+	payload := bytes.Repeat([]byte("the quick brown fox jumps. "), 64) // > 76 b64 cols
+	// Wrap the base64 at 76 columns with newlines, as `base64` CLI does.
+	enc := base64.StdEncoding.EncodeToString(payload)
+	var wrapped strings.Builder
+	for i := 0; i < len(enc); i += 76 {
+		end := i + 76
+		if end > len(enc) {
+			end = len(enc)
+		}
+		wrapped.WriteString(enc[i:end])
+		wrapped.WriteByte('\n')
+	}
+	args, _ := json.Marshal(map[string]any{
+		"filename":       "wrapped.txt",
+		"content_base64": wrapped.String(),
+	})
+	out, jerr := s.mcpAttach(context.Background(), args)
+	if jerr != nil {
+		t.Fatalf("wrapped base64 should decode, got: %+v", jerr)
+	}
+	sha := firstFieldFromMCPResult(t, out, "sha256")
+	want := sha256.Sum256(payload)
+	if sha != hex.EncodeToString(want[:]) {
+		t.Errorf("wrapped attach produced wrong sha: got %s", sha)
+	}
+}
+
+// attach accepts plain text via `content` with no base64 round-trip — the
+// convenience path agents should pick for text/JSON.
+func TestMCP_Attach_PlaintextContent(t *testing.T) {
+	s, _ := newTestServer(t)
+	text := `{"note":"plain json, no base64"}`
+	args, _ := json.Marshal(map[string]any{
+		"filename": "note.json",
+		"content":  text,
+		"mime":     "application/json",
+	})
+	out, jerr := s.mcpAttach(context.Background(), args)
+	if jerr != nil {
+		t.Fatalf("plaintext content attach: %+v", jerr)
+	}
+	sha := firstFieldFromMCPResult(t, out, "sha256")
+	want := sha256.Sum256([]byte(text))
+	if sha != hex.EncodeToString(want[:]) {
+		t.Errorf("plaintext attach stored wrong bytes: got sha %s", sha)
+	}
+}
+
+// attach rejects ambiguous and empty payloads with actionable messages.
+func TestMCP_Attach_PayloadValidation(t *testing.T) {
+	s, _ := newTestServer(t)
+	both, _ := json.Marshal(map[string]any{
+		"filename": "x", "content": "hi", "content_base64": base64.StdEncoding.EncodeToString([]byte("hi")),
+	})
+	if _, jerr := s.mcpAttach(context.Background(), both); jerr == nil ||
+		!strings.Contains(jerr.Message, "exactly one") {
+		t.Errorf("both fields should be rejected with 'exactly one': %+v", jerr)
+	}
+	neither, _ := json.Marshal(map[string]any{"filename": "x"})
+	if _, jerr := s.mcpAttach(context.Background(), neither); jerr == nil ||
+		!strings.Contains(jerr.Message, "required") {
+		t.Errorf("no payload should be rejected as required: %+v", jerr)
+	}
+	// Raw un-encoded text in content_base64 still fails, but the error
+	// steers to `content` rather than looking like a size problem.
+	badB64, _ := json.Marshal(map[string]any{
+		"filename": "x", "content_base64": "this is not base64!!!",
+	})
+	if _, jerr := s.mcpAttach(context.Background(), badB64); jerr == nil ||
+		!strings.Contains(jerr.Message, "content") {
+		t.Errorf("invalid base64 error should mention the content alternative: %+v", jerr)
 	}
 }
 

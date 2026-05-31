@@ -2,14 +2,15 @@
 
 > **Type:** decision
 > **Status:** Accepted (2026-05-31) — the four open questions are
-> **resolved** (§Resolved decisions); **W1 (D1 path-team gate,
-> v1.0.760), W2 (D2/D4 operator/principal split, v1.0.761), W3 (D3
-> provisioning, v1.0.762), W4 (D5 per-team templates, v1.0.763), and W5
-> (D6 team-scoped workdir, v1.0.764) have landed.** D7 (cross-cutting
-> sweep) remains as tracked wedge W6; the D6 per-team-OS-user guard is a
-> documented hardening follow-up (see D6 impl note).
+> **resolved** (§Resolved decisions); **all wedges have landed: W1 (D1
+> path-team gate, v1.0.760), W2 (D2/D4 operator/principal split,
+> v1.0.761), W3 (D3 provisioning, v1.0.762), W4 (D5 per-team templates,
+> v1.0.763), W5 (D6 team-scoped workdir, v1.0.764), and W6 (D7
+> cross-cutting sweep, v1.0.765).** Remaining hardening — the D6
+> per-team-OS-user guard, blob ownership (D7 residual), and team
+> deletion — are documented follow-ups outside this ADR's scope.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.764
+> **Last verified vs code:** v1.0.765
 
 **TL;DR.** External testers are being onboarded; each gets a `team_id`
 and different teams MUST isolate. The data layer is already
@@ -195,6 +196,26 @@ team-scoped query layer (A2A relay attribution in `handlers_a2a.go`,
 blob paths under `<dataRoot>/blobs/…`, any hub-wide `SELECT` without
 `team_id`) and either team-scope it or document why it is safe. This is
 verify-don't-guess, not a fixed list.
+
+*Implementation note (W6, v1.0.765):* the sweep found three real leaks
+and two safe-by-design paths. **Channels** were hub-wide — team-scope
+channels (`#hub-meta`) had `project_id` NULL and no team binding, so
+every team shared one room; migration 0048 rebuilds `channels` with
+`team_id NOT NULL` (+ a partial unique index giving each team its own
+`#hub-meta`) and all five query sites + `ProvisionTeam` are team-scoped.
+The **channel event handlers** (`handlePostEvent` / `handleListEvents` /
+`handleStreamEvents`) take a bare `{channel}` id and never checked its
+team; a new `requireChannelTeam` guard 404s a foreign channel — the
+class-level fix, not a per-query patch. **`/v1/search`** ran an FTS
+match over `events` with no team filter (returning other teams' message
+text); it now joins `channels` and scopes by the caller's token team
+(the route is outside the team-path group). **A2A** is already
+team-scoped (`a2a_cards.team_id`; `a2a_notify` / `tunnel_a2a` resolve
+team from the agent). **Blobs** (`/v1/blobs`) are a content-addressed
+global dedup store (sha256 PK, no `team_id`); a cross-team read needs an
+exact unguessable hash, undiscoverable once the above leaks are closed —
+team-scoping needs a blob-ownership model (would break dedup), tracked
+as a hardening follow-up.
 
 ## Consequences
 

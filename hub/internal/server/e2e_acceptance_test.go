@@ -188,19 +188,19 @@ func TestE2E_AcceptanceScenario(t *testing.T) {
 		if stewardID == "" {
 			t.Skip("no steward — covered by earlier skip")
 		}
-		// Seed a #hub-meta channel to stand in for the auto-created one.
-		_, err := c.s.db.Exec(
-			`INSERT INTO channels (id, scope_kind, name, created_at) VALUES (?, 'team', 'hub-meta', ?)`,
-			"ch-meta", NowUTC(),
-		)
-		if err != nil {
-			t.Fatalf("seed channel: %v", err)
+		// Init already created default's #hub-meta; reuse it rather than
+		// seeding a duplicate — per-team channel uniqueness (W6) now
+		// rejects a second ('default','team','hub-meta') row.
+		var metaID string
+		if err := c.s.db.QueryRow(
+			`SELECT id FROM channels WHERE team_id = 'default' AND scope_kind = 'team' AND name = 'hub-meta'`,
+		).Scan(&metaID); err != nil {
+			t.Fatalf("find hub-meta: %v", err)
 		}
 		// Bind the agent to the channel so mcpPostMessage finds it.
-		_, err = c.s.db.Exec(
-			`UPDATE agents SET channel_id = ? WHERE id = ?`, "ch-meta", stewardID,
-		)
-		if err != nil && !strings.Contains(err.Error(), "no such column") {
+		if _, err := c.s.db.Exec(
+			`UPDATE agents SET channel_id = ? WHERE id = ?`, metaID, stewardID,
+		); err != nil && !strings.Contains(err.Error(), "no such column") {
 			t.Fatalf("rebind channel: %v", err)
 		}
 		// mcpPostMessage reads channel_id off the agent binding. If the
@@ -209,8 +209,8 @@ func TestE2E_AcceptanceScenario(t *testing.T) {
 		if _, err := c.s.db.Exec(`
 			INSERT INTO events (id, schema_version, ts, received_ts,
 				channel_id, type, from_id, parts_json)
-			VALUES (?, 1, ?, ?, 'ch-meta', 'message', ?, '[]')`,
-			id, NowUTC(), NowUTC(), stewardID,
+			VALUES (?, 1, ?, ?, ?, 'message', ?, '[]')`,
+			id, NowUTC(), NowUTC(), metaID, stewardID,
 		); err != nil {
 			t.Fatalf("direct post: %v", err)
 		}

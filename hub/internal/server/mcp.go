@@ -557,11 +557,14 @@ type listChannelsArgs struct {
 func (s *Server) mcpListChannels(ctx context.Context, team string, raw json.RawMessage) (any, *jrpcError) {
 	var a listChannelsArgs
 	_ = json.Unmarshal(raw, &a)
+	// channels.team_id (ADR-037 W6) scopes both project- and team-scope
+	// channels uniformly. Before it, `OR c.project_id IS NULL` returned
+	// EVERY team's team-scope channels (#hub-meta) to any caller —
+	// a cross-team leak.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT c.id, COALESCE(c.project_id, ''), c.scope_kind, c.name, c.created_at
 		FROM channels c
-		LEFT JOIN projects p ON p.id = c.project_id
-		WHERE p.team_id = ? OR (c.project_id IS NULL)
+		WHERE c.team_id = ?
 		ORDER BY c.created_at`, team)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}

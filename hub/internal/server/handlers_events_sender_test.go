@@ -17,7 +17,7 @@ import (
 func seedEventChannel(t *testing.T, s *Server, id string) {
 	t.Helper()
 	if _, err := s.db.Exec(
-		`INSERT INTO channels (id, scope_kind, name, created_at) VALUES (?, 'team', 'general', ?)`,
+		`INSERT INTO channels (id, team_id, scope_kind, name, created_at) VALUES (?, 'default', 'team', 'general', ?)`,
 		id, NowUTC()); err != nil {
 		t.Fatalf("seed channel %q: %v", id, err)
 	}

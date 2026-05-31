@@ -64,6 +64,14 @@ func ProvisionTeam(ctx context.Context, db *sql.DB, teamID, name, handle string)
 		return "", "", "", fmt.Errorf("insert team: %w", err)
 	}
 
+	// Each team needs its own #hub-meta (the principal ↔ steward room);
+	// it is team-scoped (ADR-037 W6), so a freshly provisioned team gets
+	// its own rather than sharing default's. Mirrors the bootstrap path
+	// in Init for the default team.
+	if err := ensureTeamChannel(ctx, db, teamID, "hub-meta"); err != nil {
+		return "", "", "", fmt.Errorf("ensure team hub-meta channel: %w", err)
+	}
+
 	plain := auth.NewToken()
 	tokenID = NewID()
 	scopeMap := map[string]any{"team": teamID, "role": "principal"}

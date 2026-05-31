@@ -122,8 +122,8 @@ func TestPostAgentEvent_CapturesEngineSessionID_GeminiCLI(t *testing.T) {
 	// extend seedChannelAndAgent's signature for this one test.
 	channelID := NewID()
 	if _, err := s.db.Exec(`
-		INSERT INTO channels (id, scope_kind, name, created_at)
-		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		INSERT INTO channels (id, team_id, scope_kind, name, created_at)
+		VALUES (?, 'default', 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 	agentID := NewID()
@@ -304,8 +304,8 @@ func TestSessions_ResumeThreadsACPCursor(t *testing.T) {
 	// through the wrong splice path).
 	channelID := NewID()
 	if _, err := s.db.Exec(`
-		INSERT INTO channels (id, scope_kind, name, created_at)
-		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		INSERT INTO channels (id, team_id, scope_kind, name, created_at)
+		VALUES (?, 'default', 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 	if _, err := s.db.Exec(`
@@ -406,8 +406,8 @@ func TestSessions_ResumeThreadsACPCursor_KimiCode(t *testing.T) {
 
 	channelID := NewID()
 	if _, err := s.db.Exec(`
-		INSERT INTO channels (id, scope_kind, name, created_at)
-		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		INSERT INTO channels (id, team_id, scope_kind, name, created_at)
+		VALUES (?, 'default', 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 	if _, err := s.db.Exec(`
@@ -505,8 +505,8 @@ func TestSessions_ResumeCarriesModeModelState(t *testing.T) {
 
 	channelID := NewID()
 	if _, err := s.db.Exec(`
-		INSERT INTO channels (id, scope_kind, name, created_at)
-		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		INSERT INTO channels (id, team_id, scope_kind, name, created_at)
+		VALUES (?, 'default', 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 	if _, err := s.db.Exec(`
@@ -624,8 +624,8 @@ func TestSessions_ResumeCarriesModeModelState_Fragmented(t *testing.T) {
 
 	channelID := NewID()
 	if _, err := s.db.Exec(`
-		INSERT INTO channels (id, scope_kind, name, created_at)
-		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		INSERT INTO channels (id, team_id, scope_kind, name, created_at)
+		VALUES (?, 'default', 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 	if _, err := s.db.Exec(`

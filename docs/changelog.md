@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.764
+> **Last verified vs code:** v1.0.765
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,53 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.765-alpha — 2026-05-31
+
+**Multi-team isolation W6 — cross-cutting sweep (ADR-037 D7).** Close the
+storage paths that bypassed the team boundary. The headline fix is
+`channels.team_id`: team-scope channels (#hub-meta, the principal ↔
+steward room) were hub-wide, so every team shared one room. Final wedge
+of [plans/multi-team-isolation-rollout.md](plans/multi-team-isolation-rollout.md).
+
+### Security
+- **`channels.team_id` (migration 0048).** Team-scope channels had
+  `project_id` NULL and NO team binding; `ensureTeamChannel` /
+  `handleListTeamChannels` / `mcpListChannels` filtered without a team,
+  so a second team's general steward landed in the first team's
+  #hub-meta. The `channels` table is rebuilt (SQLite can't drop the old
+  constraint) with `team_id NOT NULL`, project-scope rows backfilled from
+  `projects.team_id` and team-scope rows from `default`; a partial unique
+  index `(team_id, scope_kind, name) WHERE project_id IS NULL` gives each
+  team its own #hub-meta. The create/list/get team-channel handlers,
+  `ensureTeamChannel`, the project-channel create, and `mcpListChannels`
+  (which had `OR project_id IS NULL` — a return-everyone's-team-channels
+  leak) are all team-scoped. `ProvisionTeam` now seeds the new team's own
+  #hub-meta.
+- **Channel event handlers gain a class-level team guard.**
+  `handlePostEvent` / `handleListEvents` / `handleStreamEvents` take a
+  bare `{channel}` id and never checked its team; a new
+  `requireChannelTeam` resolves `channels.team_id` and 404s a foreign
+  (or missing) channel, so an agent authorized for its own team's path
+  (the W1 gate) can't read/write/stream another team's channel by id.
+- **`/v1/search` was team-blind.** The FTS5 match over `events` returned
+  every team's message text to any bearer. It now joins `channels` and
+  filters `c.team_id = <caller's token team>` (the route sits outside the
+  `/v1/teams/{team}` group, so it scopes by token, not path); a teamless
+  token fails closed (403).
+
+### Notes
+- **Verified already team-safe (no change):** the A2A relay —
+  `a2a_cards` carry `team_id`, and `a2a_notify` / `tunnel_a2a` resolve
+  the team from the agent and filter on it.
+- **Documented residual (follow-up):** the blob store (`/v1/blobs`) is a
+  content-addressed global dedup store (sha256 PK, no `team_id`). A
+  cross-team read requires knowing an exact, unguessable hash, which —
+  with the channel/event/search leaks now closed — is not discoverable
+  cross-team. Team-scoping it needs a blob-ownership/refs model (an
+  ADR-level change that would also break dedup); tracked as a hardening
+  follow-up if testers become untrusted, alongside ADR-037 D6's
+  shared-kernel residual.
 
 ## v1.0.764-alpha — 2026-05-31
 

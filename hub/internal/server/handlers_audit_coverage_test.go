@@ -66,10 +66,12 @@ func TestAuditCoverage_RunDocumentReview(t *testing.T) {
 		t.Fatalf("create channel: status=%d body=%s", status, body)
 	}
 
-	// channel.create (team-scope)
+	// channel.create (team-scope). Use a fresh name — the bootstrap
+	// already created default's #hub-meta and per-team uniqueness (W6)
+	// now rejects a duplicate of it.
 	status, body = doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/channels",
-		map[string]any{"name": "hub-meta"})
+		map[string]any{"name": "ops-room"})
 	if status != http.StatusCreated {
 		t.Fatalf("create team channel: status=%d body=%s", status, body)
 	}

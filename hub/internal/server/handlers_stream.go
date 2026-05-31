@@ -18,6 +18,9 @@ import (
 // disconnects mid-replay we just stop — they'll reconnect with a newer since.
 func (s *Server) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 	ch := chi.URLParam(r, "channel")
+	if !s.requireChannelTeam(w, r, ch) {
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeErr(w, http.StatusInternalServerError, "streaming unsupported")

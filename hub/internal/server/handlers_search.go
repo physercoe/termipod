@@ -4,11 +4,26 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/termipod/hub/internal/auth"
 )
 
 // handleSearch performs FTS5 match over event text parts (plan §15).
 // Returns matching events ordered by received_ts desc.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	// /v1/search sits outside the /v1/teams/{team} group, so there is no
+	// path team to gate on — it scopes to the caller's token team
+	// instead. Without this the FTS match ran over every team's events
+	// and returned other teams' message text to any bearer (ADR-037 G6 /
+	// W6). events have no team_id of their own; we reach it by joining
+	// channels.team_id (added in 0048). A teamless token fails closed.
+	tok, ok := auth.FromContext(r.Context())
+	if !ok || tok.ScopeTeam() == "" {
+		writeErr(w, http.StatusForbidden, "team-scoped token required")
+		return
+	}
+	team := tok.ScopeTeam()
+
 	q := r.URL.Query().Get("q")
 	if q == "" {
 		writeErr(w, http.StatusBadRequest, "q required")
@@ -25,9 +40,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(e.from_id, ''), e.parts_json
 		FROM events_fts f
 		JOIN events e ON e.id = f.event_id
-		WHERE events_fts MATCH ?
+		JOIN channels c ON c.id = e.channel_id
+		WHERE events_fts MATCH ? AND c.team_id = ?
 		ORDER BY e.received_ts DESC
-		LIMIT ?`, q, limit)
+		LIMIT ?`, q, team, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

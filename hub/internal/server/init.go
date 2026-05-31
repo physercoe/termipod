@@ -44,7 +44,7 @@ func Init(dataRoot, dbPath string) (string, error) {
 	if err := ensureTeam(ctx, db, defaultTeamID, "default"); err != nil {
 		return "", err
 	}
-	if err := ensureTeamChannel(ctx, db, "hub-meta"); err != nil {
+	if err := ensureTeamChannel(ctx, db, defaultTeamID, "hub-meta"); err != nil {
 		return "", err
 	}
 	// Copy embedded templates to disk first so user-authored YAMLs in
@@ -68,14 +68,16 @@ func Init(dataRoot, dbPath string) (string, error) {
 	return plaintext, nil
 }
 
-// ensureTeamChannel creates a team-scope (project_id NULL) channel if missing.
-// #hub-meta is the principal ↔ steward room; it must exist before the steward
-// can be spawned.
-func ensureTeamChannel(ctx context.Context, db *sql.DB, name string) error {
+// ensureTeamChannel creates a team-scope (project_id NULL) channel for the
+// given team if missing. #hub-meta is the principal ↔ steward room; it must
+// exist before the steward can be spawned. Team-scoped (ADR-037 W6): each
+// team has its own #hub-meta, so the lookup and insert both carry team_id —
+// a second team no longer adopts the first team's room.
+func ensureTeamChannel(ctx context.Context, db *sql.DB, team, name string) error {
 	var existing string
 	err := db.QueryRowContext(ctx,
-		`SELECT id FROM channels WHERE scope_kind = 'team' AND project_id IS NULL AND name = ?`,
-		name).Scan(&existing)
+		`SELECT id FROM channels WHERE scope_kind = 'team' AND project_id IS NULL AND team_id = ? AND name = ?`,
+		team, name).Scan(&existing)
 	if err == nil {
 		return nil
 	}
@@ -83,8 +85,8 @@ func ensureTeamChannel(ctx context.Context, db *sql.DB, name string) error {
 		return err
 	}
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO channels (id, project_id, scope_kind, name, created_at)
-		VALUES (?, NULL, 'team', ?, ?)`, NewID(), name, NowUTC())
+		INSERT INTO channels (id, team_id, project_id, scope_kind, name, created_at)
+		VALUES (?, ?, NULL, 'team', ?, ?)`, NewID(), team, name, NowUTC())
 	return err
 }
 

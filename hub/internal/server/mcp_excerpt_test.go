@@ -15,8 +15,8 @@ func seedChannelAndAgent(t *testing.T, s *Server, paneID, hostID string) (channe
 	ctx := context.Background()
 	channelID = NewID()
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO channels (id, scope_kind, name, created_at)
-		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		INSERT INTO channels (id, team_id, scope_kind, name, created_at)
+		VALUES (?, 'default', 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 	if hostID != "" {

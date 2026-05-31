@@ -32,8 +32,8 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 	id := NewID()
 	now := NowUTC()
 	_, err := s.db.ExecContext(r.Context(), `
-		INSERT INTO channels (id, project_id, scope_kind, name, created_at)
-		VALUES (?, ?, 'project', ?, ?)`, id, proj, in.Name, now)
+		INSERT INTO channels (id, team_id, project_id, scope_kind, name, created_at)
+		VALUES (?, ?, ?, 'project', ?, ?)`, id, team, proj, in.Name, now)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
@@ -87,6 +87,32 @@ func (s *Server) handleGetChannel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
+// requireChannelTeam enforces that channelID belongs to the path team
+// before any event read / write / stream touches it. The channel event
+// routes take a bare `{channel}` id (the post/list/stream handlers are
+// shared by the project- and team-scope groups and consume only that
+// param), so without this an agent authorized for its own team's path
+// (the W1 gate) could still address another team's channel id directly.
+// This is the class-level guard for the ADR-037 W6 channel leak, not a
+// per-query patch. Returns false (and writes 404, never distinguishing
+// "missing" from "foreign") when the channel is absent or owned by
+// another team.
+func (s *Server) requireChannelTeam(w http.ResponseWriter, r *http.Request, channelID string) bool {
+	team := chi.URLParam(r, "team")
+	var owner string
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT team_id FROM channels WHERE id = ?`, channelID).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && owner != team) {
+		writeErr(w, http.StatusNotFound, "channel not found")
+		return false
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return false
+	}
+	return true
+}
+
 // ---- team-scope channels ----
 //
 // Team-scope channels have project_id NULL and scope_kind='team'. They
@@ -104,8 +130,8 @@ func (s *Server) handleCreateTeamChannel(w http.ResponseWriter, r *http.Request)
 	id := NewID()
 	now := NowUTC()
 	_, err := s.db.ExecContext(r.Context(), `
-		INSERT INTO channels (id, project_id, scope_kind, name, created_at)
-		VALUES (?, NULL, 'team', ?, ?)`, id, in.Name, now)
+		INSERT INTO channels (id, team_id, project_id, scope_kind, name, created_at)
+		VALUES (?, ?, NULL, 'team', ?, ?)`, id, team, in.Name, now)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
@@ -119,10 +145,11 @@ func (s *Server) handleCreateTeamChannel(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleListTeamChannels(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
 	rows, err := s.db.QueryContext(r.Context(), `
 		SELECT id, COALESCE(project_id, ''), scope_kind, name, created_at
-		FROM channels WHERE scope_kind = 'team' AND project_id IS NULL
-		ORDER BY created_at`)
+		FROM channels WHERE scope_kind = 'team' AND project_id IS NULL AND team_id = ?
+		ORDER BY created_at`, team)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -141,12 +168,13 @@ func (s *Server) handleListTeamChannels(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleGetTeamChannel(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
 	ch := chi.URLParam(r, "channel")
 	var c channelOut
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT id, COALESCE(project_id, ''), scope_kind, name, created_at
-		FROM channels WHERE scope_kind = 'team' AND project_id IS NULL AND id = ?`,
-		ch).Scan(&c.ID, &c.ProjectID, &c.ScopeKind, &c.Name, &c.CreatedAt)
+		FROM channels WHERE scope_kind = 'team' AND project_id IS NULL AND team_id = ? AND id = ?`,
+		team, ch).Scan(&c.ID, &c.ProjectID, &c.ScopeKind, &c.Name, &c.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "channel not found")
 		return

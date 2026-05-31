@@ -67,6 +67,9 @@ type postEventIn struct {
 
 func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 	ch := chi.URLParam(r, "channel")
+	if !s.requireChannelTeam(w, r, ch) {
+		return
+	}
 
 	var in postEventIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -178,6 +181,9 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	ch := chi.URLParam(r, "channel")
+	if !s.requireChannelTeam(w, r, ch) {
+		return
+	}
 	since := r.URL.Query().Get("since") // received_ts exclusive
 	limit := 100
 	if q := r.URL.Query().Get("limit"); q != "" {

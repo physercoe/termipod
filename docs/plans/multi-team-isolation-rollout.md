@@ -1,13 +1,15 @@
 # Multi-team isolation — phased rollout
 
 > **Type:** plan
-> **Status:** In progress (2026-05-31) — ADR-037 open questions Q1–Q4
-> are resolved. **W1 (v1.0.760) + W2 (v1.0.761) met the MVP isolation
-> bar (ADR-037 Accepted); W3 provisioning (v1.0.762) onboards testers;
-> W4 per-team template overrides (v1.0.763) and W5 team-scoped workdir
-> (v1.0.764) shipped.** W6 (cross-cutting sweep) remains.
+> **Status:** Complete (2026-05-31) — ADR-037 open questions Q1–Q4
+> resolved; **all six wedges shipped: W1 path-team gate (v1.0.760), W2
+> operator/principal split (v1.0.761), W3 provisioning (v1.0.762), W4
+> per-team templates (v1.0.763), W5 team-scoped workdir (v1.0.764), W6
+> cross-cutting sweep (v1.0.765).** Remaining hardening
+> (per-team-OS-user spawn, blob ownership, team deletion) is tracked as
+> separate follow-ups.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.764
+> **Last verified vs code:** v1.0.765
 
 **TL;DR.** Turn termipod's already-team-scoped data layer into enforced
 multi-team isolation so external testers can each be handed a `team_id`
@@ -224,25 +226,66 @@ overtaken by this: the runner already knows its team).
   additive (empty team = legacy path), and the OS-user tier was
   deliberately deferred rather than half-built.
 
-### W6 — Cross-cutting sweep
+### W6 — Cross-cutting sweep — SHIPPED (v1.0.765-alpha)
 
 **Goal.** No storage path bypasses the team boundary.
 
-- Grep + verify: A2A relay attribution (`handlers_a2a.go`), blob paths
-  under `<dataRoot>/blobs/…`, any hub-wide `SELECT` missing `team_id`.
-  Team-scope each or document why it is safe.
-- **Known finding (surfaced in W3): team-scope channels are hub-wide.**
-  The `channels` table has no `team_id`; a team-scope channel is keyed
-  only `(scope_kind='team', project_id IS NULL, name)`, and
-  `handleListTeamChannels` / `ensureTeamChannel` query without a team
-  filter. So every team shares one `hub-meta` (and the `UNIQUE`
-  constraint actually *prevents* a second team's `hub-meta`). Closing
-  this needs a schema migration adding `channels.team_id` (+ backfill to
-  `default`) and a team filter on the team-channel handlers + the
-  steward-bootstrap `ensureTeamChannel`. This is the highest-value W6
-  item — until it lands, two teams' general stewards share a room.
-- **Risk:** unknown until the grep; treat findings as their own
-  micro-wedges.
+**Outcome.** The grep found three real leaks (channels, channel-event
+handlers, `/v1/search`) and two safe-by-design paths (A2A, blobs); all
+are now closed or documented.
+
+- **`channels.team_id` (the highest-value item, surfaced in W3) —
+  FIXED.** Team-scope channels (`scope_kind='team'`, `project_id` NULL)
+  had no team binding, and `ensureTeamChannel` /
+  `handleListTeamChannels` / `handleGetTeamChannel` / `mcpListChannels`
+  filtered without a team — so every team shared one `#hub-meta`. (The
+  earlier note that the `UNIQUE` *prevents* a second `hub-meta` was
+  imprecise: SQLite treats NULL `project_id` as distinct, so the real
+  effect was that `ensureTeamChannel` found the first team's row and
+  never created a second.) **Migration 0048** rebuilds `channels` with
+  `team_id NOT NULL` (project-scope backfilled from `projects.team_id`,
+  team-scope from `default`), adds a partial unique index
+  `(team_id, scope_kind, name) WHERE project_id IS NULL` so each team
+  gets its own `#hub-meta`, and the SQLite rebuild runs under the
+  migrations connection's `foreign_keys=OFF` so `DROP TABLE channels`
+  doesn't cascade-wipe `events` / `channel_members`. All five query
+  sites are team-scoped; `handleCreateChannel` (project-scope) and
+  `ProvisionTeam` (seeds the new team's `#hub-meta`) updated too.
+- **Channel event handlers — class-level guard added.**
+  `handlePostEvent` / `handleListEvents` / `handleStreamEvents` consume a
+  bare `{channel}` id and never verified its team; new
+  `requireChannelTeam` 404s a foreign/missing channel, closing the
+  read/write/stream-by-id hole rather than patching each query.
+- **`/v1/search` — FIXED.** The FTS5 match over `events` had no team
+  filter, returning every team's message text to any bearer. It now
+  joins `channels` and filters `c.team_id = <token team>` (the route is
+  outside the `/v1/teams/{team}` group, so it scopes by the caller's
+  token, not a path param); a teamless token 403s.
+- **A2A relay — verified safe (no change).** `a2a_cards` carry `team_id`;
+  `a2a_notify` and `tunnel_a2a` resolve the team from the agent and
+  filter on it.
+- **Blobs — documented residual.** `/v1/blobs` is a content-addressed
+  global dedup store (sha256 PK, no `team_id`); a cross-team read needs
+  an exact unguessable hash, undiscoverable once the channel/search
+  leaks are closed. Team-scoping needs a blob-ownership/refs model
+  (ADR-level, would break dedup) — tracked as a hardening follow-up.
+- **Tests:** `handlers_channels_isolation_test.go` — two teams don't
+  share `#hub-meta`; one team can't list/get/post/stream another team's
+  channel; `/v1/search` returns only the caller team's events. Plus the
+  fixture updates for the now-enforced per-team channel uniqueness. Full
+  `go test ./...` green.
+- **Files:** `migrations/0048_channels_team_id.{up,down}.sql`,
+  `handlers_channels.go`, `handlers_events.go`, `handlers_stream.go`,
+  `handlers_search.go`, `mcp.go`, `init.go`, `provision.go`.
+- **Risk realised:** medium — the migration is a table rebuild, but the
+  rebuild pattern (0023) and `foreign_keys=OFF` migration connection are
+  well-trodden; the per-team uniqueness surfaced two test fixtures that
+  leaned on the old NULL-distinct loophole (fixed).
+
+**Multi-team isolation rollout is complete (W1–W6).** Remaining
+hardening — per-team-OS-user spawn (D6), blob ownership, and team
+deletion/offboarding — are tracked as separate follow-ups, not part of
+this plan.
 
 ## Sequencing & gates
 

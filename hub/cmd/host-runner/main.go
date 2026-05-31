@@ -246,18 +246,26 @@ func runDaemon(args []string) {
 			"Empty disables the proxy and .mcp.json carries the real hub URL.")
 	trackioDir := fs.String("trackio-dir", "", "trackio root dir; empty falls back to $TRACKIO_DIR then ~/.cache/huggingface/trackio (trackio's own default), so the metric-digest poller is ON by default. Pass --no-trackio to disable.")
 	noTrackio := fs.Bool("no-trackio", false, "disable the trackio metric-digest poller even when a default trackio dir resolves")
-	wandbDir := fs.String("wandb-dir", "", "wandb offline-run root dir (contains run-*/files/wandb-history.jsonl); empty disables the wandb metric-digest poller")
-	tbDir := fs.String("tb-dir", "", "TensorBoard root logdir; each run's tfevents files live under <tb-dir>/<run-path>. Empty disables the TensorBoard metric-digest poller")
+	wandbDir := fs.String("wandb-dir", "", "wandb offline-run root dir (contains run-*/files/wandb-history.jsonl). REQUIRED to enable the wandb poller — empty disables it (wandb has no reliable default the host-runner daemon can resolve).")
+	tbDir := fs.String("tb-dir", "", "TensorBoard root logdir; each run's tfevents files live under <tb-dir>/<run-path>. REQUIRED to enable the TensorBoard poller — empty disables it (no published default).")
 	_ = fs.Parse(args)
 
-	// Trackio poller is on by default: when --trackio-dir is unset, fall
-	// back to trackio's own default location (matching the documented
-	// behaviour and the flag help) instead of silently disabling the
-	// poller. Reading a non-existent default dir is a cheap no-op — the
-	// reader returns empty until a worker logs — so defaulting on costs
-	// nothing on hosts that never run training. --no-trackio is the
-	// explicit opt-out. (wandb/TensorBoard stay opt-in: they have no
-	// universal default location.)
+	// Only trackio is on by default. It has a stable, HOME-relative
+	// default location (~/.cache/huggingface/trackio) that the host-runner
+	// can resolve regardless of the worker's environment, so falling back
+	// to it is safe and matches the documented behaviour. Reading a
+	// non-existent dir is a cheap no-op (the reader returns empty until a
+	// worker logs). --no-trackio is the explicit opt-out.
+	//
+	// wandb and TensorBoard stay OPT-IN (explicit --wandb-dir / --tb-dir).
+	// Their only "defaults" are the env vars $WANDB_DIR /
+	// $TENSORBOARD_LOGDIR, and those are unreliable here: the host-runner
+	// is a long-running daemon that usually does NOT inherit the worker's
+	// shell environment, so reading them in this process would silently
+	// resolve to "" (poller off) or, worse, to the daemon's own unrelated
+	// value. Better to require the operator to name the dir than to
+	// pretend these are on by default. wandb://wandb / tb:// runs still
+	// flow end-to-end once a dir is configured.
 	if *noTrackio {
 		*trackioDir = ""
 	} else if *trackioDir == "" {

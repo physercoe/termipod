@@ -50,6 +50,17 @@ trackio's own default dir (`$TRACKIO_DIR` → `~/.cache/huggingface/trackio`).
 Override with `--trackio-dir <path>` or disable with `--no-trackio`
 (see [install-host-runner.md](install-host-runner.md#the-trackio-metric-digest-poller-on-by-default-blueprint-65)).
 
+**wandb and TensorBoard are opt-in.** Unlike trackio they have no
+default location the host-runner can resolve reliably — their only
+"defaults" are `$WANDB_DIR` / `$TENSORBOARD_LOGDIR`, which the
+host-runner *daemon* usually does not inherit from the worker's shell.
+So you must name the dir explicitly: `--wandb-dir <path>` (a wandb
+offline-run root) or `--tb-dir <logdir>`. Once a dir is set, the rest of
+this guide applies unchanged — link the run with the matching URI
+scheme: `wandb://<run-dir>` or `tb://<run-path>` instead of
+`trackio://<project>/<run_name>` (the run column `trackio_run_uri` holds
+any of the three; the scheme picks the reader).
+
 ## Agent recipe (the normal path)
 
 1. **Create the run.** `runs.create({project_id})` — and, if you

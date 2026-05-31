@@ -22,6 +22,16 @@ type StopSessionOpts struct {
 	// in the activity feed so "who/why" is grep-able after the fact.
 	// Empty falls back to "stop".
 	Reason string
+
+	// Archive distinguishes the two operator verbs that both kill the
+	// agent (see docs/reference/glossary.md "stop" vs "terminate"):
+	//   - false (stop): the session flips to `paused` — RESUMABLE, a
+	//     fresh agent can respawn into it via resume.
+	//   - true (terminate): the session flips to `archived` — PERMANENT,
+	//     fork-only, not resumable.
+	// The agent itself is terminated either way; only the session's fate
+	// differs.
+	Archive bool
 }
 
 // stopSessionInternal is the load-bearing "stop one session" path. Side
@@ -89,12 +99,22 @@ func (s *Server) stopSessionInternal(ctx context.Context, team, sessionID string
 		}
 	}
 
-	// 2. Session → paused (idempotent via the active-only WHERE).
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE sessions
-		   SET status = 'paused', last_active_at = ?
-		 WHERE team_id = ? AND current_agent_id = ? AND status = 'active'`,
-		now, team, aid)
+	// 2. Session → paused (stop) or archived (terminate). Idempotent via
+	// the active-only WHERE. Archive also stamps closed_at; a stopped
+	// (paused) session has no close time because it can still be resumed.
+	if opts.Archive {
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE sessions
+			   SET status = 'archived', closed_at = ?, last_active_at = ?
+			 WHERE team_id = ? AND current_agent_id = ? AND status = 'active'`,
+			now, now, team, aid)
+	} else {
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE sessions
+			   SET status = 'paused', last_active_at = ?
+			 WHERE team_id = ? AND current_agent_id = ? AND status = 'active'`,
+			now, team, aid)
+	}
 	if err != nil {
 		return aid, err
 	}
@@ -112,15 +132,21 @@ func (s *Server) stopSessionInternal(ctx context.Context, team, sessionID string
 		_, _ = s.enqueueHostCommand(ctx, hostID.String, aid, "terminate", args)
 	}
 
-	// 5. Audit rows. session.stop is the new W2.5 row; agent.terminate
-	// keeps the existing wire so feeds that grep on it stay correct.
-	s.recordAudit(ctx, team, "session.stop", "session", sessionID,
+	// 5. Audit rows. session.stop / session.terminate records the
+	// operator verb; agent.terminate keeps the existing wire so feeds
+	// that grep on it stay correct.
+	sessionAction := "session.stop"
+	if opts.Archive {
+		sessionAction = "session.terminate"
+	}
+	s.recordAudit(ctx, team, sessionAction, "session", sessionID,
 		summaryStop(handle, opts.Reason),
 		map[string]any{
 			"agent_id":   aid,
 			"handle":     handle,
 			"reason":     opts.Reason,
 			"force_kill": opts.ForceKill,
+			"archived":   opts.Archive,
 		})
 	s.recordAudit(ctx, team, "agent.terminate", "agent", aid,
 		"terminate "+handle,

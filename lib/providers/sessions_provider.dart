@@ -191,7 +191,7 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     final failed = <String>[];
     for (final id in agentIds) {
       try {
-        await client.terminateAgent(id);
+        await client.stopAgent(id);
       } catch (_) {
         failed.add(id);
       }

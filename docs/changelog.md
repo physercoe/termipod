@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.757
+> **Last verified vs code:** v1.0.758
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,34 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.758-alpha — 2026-05-31
+
+**Naming: split `stop` (resumable) from `terminate` (permanent).** Per
+review — the principal resumes a *stopped* session, not a *terminated*
+one, and the steward had only `terminate`, which (confusingly) actually
+left the session **paused/resumable**, i.e. it was a *stop*. The mobile
+made the conflation obvious: four of five call sites were labelled
+**"Stop"** but called `terminateAgent`. Now the two verbs are real and
+distinct, matching the existing `paused` vs `archived` session states.
+
+### Changed
+- **`stop`** = kill the agent, session → **paused** (RESUMABLE; pair
+  with resume). **`terminate`** = kill the agent, session → **archived**
+  (PERMANENT, fork-only). `stopSessionInternal` gained an `Archive`
+  mode; new `POST /agents/{id}/stop` + `POST /agents/{id}/terminate`.
+- **Steward MCP:** added **`agents.stop`** (resumable); **`agents.terminate`**
+  repurposed to the permanent/archive path; **`agents.resume`** reworded
+  as the inverse of `stop`. `PATCH status=terminated` stays as `stop`
+  (back-compat / reconcile / admin-kill).
+- **Mobile:** the four "Stop" buttons (`bulkStop`, session stop actions)
+  now call the new `stopAgent` (→ resumable); the projects-screen
+  "Terminate" button + dialog now mean archive/permanent.
+- **Glossary:** new canonical `stop (a worker)` / `terminate (a worker)`
+  entries; `resume` clarified as the inverse of `stop`. Tests:
+  stop→paused→resumable, terminate→archived→409-on-resume, MCP routing.
 
 ---
 

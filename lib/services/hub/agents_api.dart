@@ -209,11 +209,21 @@ class AgentsApi {
 
   // ---- agent lifecycle ----
 
-  /// Terminates an agent by patching status=terminated. The host-runner
-  /// will pick up the kill on its next poll.
+  /// Stops a worker (the RESUMABLE kill): kills the agent but flips its
+  /// session to `paused`, so it can be brought back with a session
+  /// resume. Use for "stop this worker, I may want it back". See the
+  /// glossary "stop" vs "terminate".
+  Future<void> stopAgent(String agentId) async {
+    await _t.post('/v1/teams/${_t.cfg.teamId}/agents/$agentId/stop',
+        const <String, dynamic>{});
+  }
+
+  /// Terminates a worker PERMANENTLY: kills the agent and archives its
+  /// session (fork-only, not resumable). Use for "this work is done /
+  /// abandoned for good". For a recoverable halt use [stopAgent].
   Future<void> terminateAgent(String agentId) async {
-    await _t.patch('/v1/teams/${_t.cfg.teamId}/agents/$agentId',
-        {'status': 'terminated'});
+    await _t.post('/v1/teams/${_t.cfg.teamId}/agents/$agentId/terminate',
+        const <String, dynamic>{});
   }
 
   /// Renames an agent (handle field). Used by the multi-steward UX to

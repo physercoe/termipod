@@ -737,25 +737,38 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "agents.terminate",
-			Description: "Mark an agent as terminated. The host-runner reconciles by killing the underlying process on its next loop. Sets status=`terminated` and stamps `terminated_at`. Destructive — only stewards may call this. To also drop the row from the live list afterwards, archive via the REST surface (no MCP wrapper today; rare cleanup operation).",
+			Name:        "agents.stop",
+			Description: "STOP a worker: kill the agent but keep its session RESUMABLE (session → paused). Required: `agent`. This is the reversible halt — pair it with `agents.resume` to respawn a fresh process that continues from the worktree + transcript cursor. Use this to free a worker you intend to bring back. (Contrast `agents.terminate`, which ends the work permanently.) Same semantics as the principal's \"Stop session\".",
 			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				a, _ := args["agent"].(string)
 				if a == "" {
 					return nil, fmt.Errorf("agent is required")
 				}
-				body := map[string]any{"status": "terminated"}
-				var out json.RawMessage
-				if err := c.do("PATCH", c.teamPath("/agents/"+url.PathEscape(a)), nil, body, &out); err != nil {
+				if err := c.do("POST", c.teamPath("/agents/"+url.PathEscape(a)+"/stop"), nil, nil, nil); err != nil {
 					return nil, err
 				}
-				return out, nil
+				return map[string]any{"ok": true, "agent": a, "stopped": true}, nil
+			},
+		},
+		{
+			Name:        "agents.terminate",
+			Description: "TERMINATE a worker permanently: kill the agent and ARCHIVE its session (fork-only, NOT resumable). Required: `agent`. This is the irreversible end — use it when the work is finished or abandoned for good. If you might want the worker back, use `agents.stop` (resumable) instead. Same semantics as the principal's \"Archive\".",
+			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				a, _ := args["agent"].(string)
+				if a == "" {
+					return nil, fmt.Errorf("agent is required")
+				}
+				if err := c.do("POST", c.teamPath("/agents/"+url.PathEscape(a)+"/terminate"), nil, nil, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "agent": a, "terminated": true}, nil
 			},
 		},
 		{
 			Name:        "agents.resume",
-			Description: "The inverse of `agents.terminate`: bring a terminated worker's work back. Terminating an agent leaves its session PAUSED; this respawns that session — a FRESH process that continues from the preserved worktree + transcript cursor (it is NOT the same process, and not the same agent id). Required: `agent` (the terminated agent's id). Returns the new agent id. Returns 409 if the agent has no paused session to resume (it may still be live, or its session was archived). NOTE: this is a session respawn, distinct from un-pausing a still-alive process.",
+			Description: "The inverse of `agents.stop`: bring a STOPPED worker back. Stopping an agent leaves its session PAUSED; this respawns that session — a FRESH process that continues from the preserved worktree + transcript cursor (NOT the same process, not the same agent id). Required: `agent` (the stopped agent's id). Returns the new agent id. Returns 409 if the agent has no paused session to resume (it may still be live, or it was `agents.terminate`d — terminated work is archived and only fork-eligible, not resumable).",
 			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id of the terminated agent whose session to respawn"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				a, _ := args["agent"].(string)

@@ -6,20 +6,16 @@ import (
 	"testing"
 )
 
-// TestResumeByAgent_RespawnsTerminatedAgentSession exercises the
-// steward-facing inverse of agents.terminate: POST
-// /agents/{agent}/resume-session finds the paused session the terminate
-// left behind and respawns it as a fresh agent.
-func TestResumeByAgent_RespawnsTerminatedAgentSession(t *testing.T) {
-	s, token := newA2ATestServer(t)
-	_, oldAgentID := seedChannelAndAgent(t, s, "", "host-x")
-
+// openSessionForAgent opens a session backed by the agent with a
+// worktree + spawn spec so it can be stopped and resumed.
+func openSessionForAgent(t *testing.T, s *Server, token, agentID string) sessionOut {
+	t.Helper()
 	status, body := doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/sessions",
 		map[string]any{
-			"title":           "resume-by-agent",
-			"agent_id":        oldAgentID,
-			"worktree_path":   "/tmp/wt/rba",
+			"title":           "lifecycle",
+			"agent_id":        agentID,
+			"worktree_path":   "/tmp/wt/lc",
 			"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: claude\n",
 		})
 	if status != http.StatusCreated {
@@ -27,14 +23,29 @@ func TestResumeByAgent_RespawnsTerminatedAgentSession(t *testing.T) {
 	}
 	var ses sessionOut
 	_ = json.Unmarshal(body, &ses)
+	return ses
+}
 
-	// Terminate the agent (the steward's agents.terminate) — this leaves
-	// the session paused.
-	doReq(t, s, token, http.MethodPatch,
-		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID,
-		map[string]any{"status": "terminated"})
+// TestStopThenResumeByAgent: stop (resumable) leaves the session paused;
+// resume-by-agent respawns it as a fresh agent.
+func TestStopThenResumeByAgent(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, oldAgentID := seedChannelAndAgent(t, s, "", "host-x")
+	ses := openSessionForAgent(t, s, token, oldAgentID)
 
-	// Resume keyed by the *agent* id (parity with terminate).
+	// Stop (the resumable verb).
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/stop", nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("stop: %d %s", status, body)
+	}
+	var sesStatus string
+	_ = s.db.QueryRow(`SELECT status FROM sessions WHERE id = ?`, ses.ID).Scan(&sesStatus)
+	if sesStatus != "paused" {
+		t.Fatalf("after stop session status=%q; want paused", sesStatus)
+	}
+
+	// Resume keyed by the agent id.
 	status, body = doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/resume-session", nil)
 	if status != http.StatusOK {
@@ -42,18 +53,34 @@ func TestResumeByAgent_RespawnsTerminatedAgentSession(t *testing.T) {
 	}
 	var resp map[string]any
 	_ = json.Unmarshal(body, &resp)
-	newAgentID, _ := resp["new_agent_id"].(string)
-	if newAgentID == "" || newAgentID == oldAgentID {
-		t.Fatalf("want a fresh agent id, got %q (old=%q)", newAgentID, oldAgentID)
+	if newID, _ := resp["new_agent_id"].(string); newID == "" || newID == oldAgentID {
+		t.Fatalf("want a fresh agent id, got %q (old=%q)", newID, oldAgentID)
+	}
+}
+
+// TestTerminateArchivesNotResumable: terminate (permanent) archives the
+// session, so resume-by-agent finds nothing paused → 409.
+func TestTerminateArchivesNotResumable(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "host-x")
+	ses := openSessionForAgent(t, s, token, agentID)
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/terminate", nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("terminate: %d %s", status, body)
+	}
+	var sesStatus string
+	_ = s.db.QueryRow(`SELECT status FROM sessions WHERE id = ?`, ses.ID).Scan(&sesStatus)
+	if sesStatus != "archived" {
+		t.Fatalf("after terminate session status=%q; want archived", sesStatus)
 	}
 
-	var sesStatus, sesAgentID string
-	_ = s.db.QueryRow(
-		`SELECT status, COALESCE(current_agent_id, '')
-		   FROM sessions WHERE id = ?`, ses.ID).Scan(&sesStatus, &sesAgentID)
-	if sesStatus != "active" || sesAgentID != newAgentID {
-		t.Errorf("session after resume: status=%q agent=%q; want active/%s",
-			sesStatus, sesAgentID, newAgentID)
+	// Resume must refuse — terminated work is fork-only, not resumable.
+	status, _ = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/resume-session", nil)
+	if status != http.StatusConflict {
+		t.Fatalf("resume after terminate: want 409, got %d", status)
 	}
 }
 
@@ -63,7 +90,6 @@ func TestResumeByAgent_NoPausedSession(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	_, agentID := seedChannelAndAgent(t, s, "", "host-x")
 
-	// Agent is live with no paused session.
 	status, _ := doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/resume-session", nil)
 	if status != http.StatusConflict {

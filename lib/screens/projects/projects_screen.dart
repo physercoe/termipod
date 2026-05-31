@@ -1862,8 +1862,10 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
       builder: (ctx) => AlertDialog(
         title: Text('Terminate "$_handle"?'),
         content: const Text(
-            'Marks status=terminated. The host-runner kills the pane and '
-            'cleans up any clean worktree; dirty worktrees are preserved.'),
+            'Permanently ends this worker: the host-runner kills the pane '
+            '(dirty worktrees are preserved) and the session is ARCHIVED — '
+            'not resumable, only fork-eligible. To halt a worker you may '
+            'want back, use Stop instead.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),

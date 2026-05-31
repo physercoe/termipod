@@ -102,7 +102,9 @@ func (s *Server) handleAdminKillAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.applyAgentTerminationEffects(r.Context(), team, id, "agent killed via admin CLI")
+	// archive=false: an admin kill is an emergency stop — the session
+	// stays paused/resumable, matching its pre-split behaviour.
+	s.applyAgentTerminationEffects(r.Context(), team, id, "agent killed via admin CLI", false)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"agent_id": id, "team_id": team, "handle": handle, "killed": true,
 	})

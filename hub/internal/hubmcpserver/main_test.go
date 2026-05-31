@@ -541,32 +541,48 @@ func TestToolsCall_AgentsGet(t *testing.T) {
 	}
 }
 
-// TestToolsCall_AgentsTerminate: agents.terminate must PATCH the agent
-// URL with {"status":"terminated"}.
+// TestToolsCall_AgentsTerminate: agents.terminate (the PERMANENT verb)
+// must POST the dedicated /terminate endpoint (which archives the
+// session), not PATCH status=terminated (now the `stop` path).
 func TestToolsCall_AgentsTerminate(t *testing.T) {
-	var sawMethod, sawPath, sawBody string
+	var sawMethod, sawPath string
 	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
 		sawMethod = r.Method
 		sawPath = r.URL.Path
-		b := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(b)
-		sawBody = string(b)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"a1","status":"terminated"}`))
+		w.WriteHeader(http.StatusNoContent)
 	})
 	tools := buildTools()
 	line := []byte(`{"jsonrpc":"2.0","id":54,"method":"tools/call","params":{"name":"agents.terminate","arguments":{"agent":"a1"}}}` + "\n")
 	if _, ok := handleLine(c, tools, line); !ok {
 		t.Fatalf("expected a response")
 	}
-	if sawMethod != "PATCH" {
-		t.Errorf("method = %q, want PATCH", sawMethod)
+	if sawMethod != "POST" {
+		t.Errorf("method = %q, want POST", sawMethod)
 	}
-	if sawPath != "/v1/teams/team-alpha/agents/a1" {
-		t.Errorf("path = %q", sawPath)
+	if sawPath != "/v1/teams/team-alpha/agents/a1/terminate" {
+		t.Errorf("path = %q, want .../agents/a1/terminate", sawPath)
 	}
-	if !strings.Contains(sawBody, `"status":"terminated"`) {
-		t.Errorf("body missing terminated status: %q", sawBody)
+}
+
+// TestToolsCall_AgentsStop: agents.stop (the RESUMABLE verb) must POST
+// the /stop endpoint.
+func TestToolsCall_AgentsStop(t *testing.T) {
+	var sawMethod, sawPath string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":55,"method":"tools/call","params":{"name":"agents.stop","arguments":{"agent":"a1"}}}` + "\n")
+	if _, ok := handleLine(c, tools, line); !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "POST" {
+		t.Errorf("method = %q, want POST", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/agents/a1/stop" {
+		t.Errorf("path = %q, want .../agents/a1/stop", sawPath)
 	}
 }
 

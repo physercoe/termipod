@@ -346,6 +346,8 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/pause", s.handlePauseAgent)
 				r.Post("/resume", s.handleResumeAgent)
 				r.Post("/resume-session", s.handleResumeAgentSession)
+				r.Post("/stop", s.handleStopAgent)
+				r.Post("/terminate", s.handleTerminateAgent)
 				r.Get("/pane", s.handleGetAgentPane)
 				r.Post("/events", s.handlePostAgentEvent)
 				r.Get("/events", s.handleListAgentEvents)

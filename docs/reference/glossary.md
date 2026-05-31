@@ -146,12 +146,33 @@ engine has a native fork primitive.
 
 ### resume
 Two distinct resumes — context disambiguates which:
-1. **Hub-session resume.** `POST /sessions/{id}/resume`. Spawns a
-   fresh agent into a paused hub session.
+1. **Hub-session resume.** `POST /sessions/{id}/resume` (or, keyed by
+   the worker, `POST /agents/{id}/resume-session`). Spawns a fresh
+   agent into a **paused** hub session. The inverse of **stop**.
 2. **Engine resume.** `claude --resume <id>` (or
    `gemini --resume <UUID>`, `thread/resume` on codex). The CLI
    flag the hub-session resume threads under the hood.
 - *Canonical:* ADR-014.
+
+### stop (a worker)
+The **reversible** halt. Kills the agent process but flips its hub
+session to **`paused`** — RESUMABLE: a fresh agent can respawn into it
+via **resume**. Surfaces: principal "Stop session" / steward
+`agents.stop` / `POST /agents/{id}/stop`. The agent's process is gone;
+the *session* survives so the work can continue.
+- *Distinguish from:* **terminate** (permanent), **pause** (SIGSTOP a
+  still-alive process — see `pause_state`).
+
+### terminate (a worker)
+The **permanent** end. Kills the agent process and **archives** its
+hub session (`status='archived'`, fork-only, NOT resumable). Surfaces:
+principal "Archive" / steward `agents.terminate` /
+`POST /agents/{id}/terminate`. Use when the work is finished or
+abandoned for good.
+- *Distinguish from:* **stop** (resumable). The historical
+  `agents.terminate` was a *stop* (left the session paused/resumable) —
+  renamed/split so the verb matches its effect.
+- *Canonical:* `archived session`, ADR-009 D4.
 
 ---
 

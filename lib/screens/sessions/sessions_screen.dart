@@ -1192,7 +1192,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      await client.terminateAgent(id);
+      await client.stopAgent(id);
       await ref.read(hubProvider.notifier).refreshAll();
       await ref.read(sessionsProvider.notifier).refresh();
     } catch (e) {
@@ -1796,7 +1796,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      await client.terminateAgent(agentId);
+      await client.stopAgent(agentId);
       await ref.read(hubProvider.notifier).refreshAll();
       await ref.read(sessionsProvider.notifier).refresh();
     } catch (e) {
@@ -2338,7 +2338,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      await client.terminateAgent(widget.agentId);
+      await client.stopAgent(widget.agentId);
       // Refresh state so the Sessions list reflects the pause and
       // the home/projects screens drop the dead steward chip.
       await ref.read(hubProvider.notifier).refreshAll();

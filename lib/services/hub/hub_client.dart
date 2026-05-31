@@ -748,6 +748,8 @@ class HubClient {
 
   // ---- agent lifecycle → AgentsApi (W9) ----
 
+  Future<void> stopAgent(String agentId) => agents.stopAgent(agentId);
+
   Future<void> terminateAgent(String agentId) =>
       agents.terminateAgent(agentId);
 

@@ -39,18 +39,18 @@ type agentOut struct {
 	// pre-ADR (v1.0.563-) rows that predate the column. Mobile uses
 	// this to populate the project detail Agents tab; the W9 spawn
 	// gate (v1.0.565) authorizes against it.
-	ProjectID    string          `json:"project_id,omitempty"`
-	Status       string          `json:"status"`
-	PaneID       string          `json:"pane_id,omitempty"`
-	WorktreePath string          `json:"worktree_path,omitempty"`
-	JournalPath  string          `json:"journal_path,omitempty"`
-	BudgetCents  *int            `json:"budget_cents,omitempty"`
-	SpentCents   int             `json:"spent_cents"`
-	PauseState   string          `json:"pause_state"`
-	IdleSince    *string         `json:"idle_since,omitempty"`
-	CreatedAt    string          `json:"created_at"`
-	TerminatedAt *string         `json:"terminated_at,omitempty"`
-	ArchivedAt   *string         `json:"archived_at,omitempty"`
+	ProjectID    string  `json:"project_id,omitempty"`
+	Status       string  `json:"status"`
+	PaneID       string  `json:"pane_id,omitempty"`
+	WorktreePath string  `json:"worktree_path,omitempty"`
+	JournalPath  string  `json:"journal_path,omitempty"`
+	BudgetCents  *int    `json:"budget_cents,omitempty"`
+	SpentCents   int     `json:"spent_cents"`
+	PauseState   string  `json:"pause_state"`
+	IdleSince    *string `json:"idle_since,omitempty"`
+	CreatedAt    string  `json:"created_at"`
+	TerminatedAt *string `json:"terminated_at,omitempty"`
+	ArchivedAt   *string `json:"archived_at,omitempty"`
 	// LastEventAt is the ts of the most recent agent_events row for this
 	// agent, or nil if no events have been recorded yet. Mobile uses this
 	// to classify a `running` agent as healthy / stale / stuck — a wedged
@@ -62,8 +62,8 @@ type agentOut struct {
 	Mode string `json:"mode,omitempty"`
 	// Populated on the single-agent GET by joining agent_spawns; omitted
 	// from list-agents to keep that payload small.
-	SpawnSpecYaml   string          `json:"spawn_spec_yaml,omitempty"`
-	SpawnAuthority  json.RawMessage `json:"spawn_authority,omitempty"`
+	SpawnSpecYaml  string          `json:"spawn_spec_yaml,omitempty"`
+	SpawnAuthority json.RawMessage `json:"spawn_authority,omitempty"`
 }
 
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
@@ -319,7 +319,11 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 	// outcomes (no host command, no agent.terminate audit) so the
 	// session-paused + token-revoke logic stays inline.
 	if in.Status != nil && *in.Status == "terminated" {
-		s.applyAgentTerminationEffects(r.Context(), team, id, "agent terminated via PATCH")
+		// PATCH status=terminated is the resumable STOP (session → paused),
+		// preserved for back-compat + the mobile path. The permanent
+		// TERMINATE (session → archived) is the dedicated
+		// POST /agents/{id}/terminate verb. See glossary "stop"/"terminate".
+		s.applyAgentTerminationEffects(r.Context(), team, id, "agent stopped via PATCH", false)
 	} else if in.Status != nil &&
 		(*in.Status == "crashed" || *in.Status == "failed") {
 		_, _ = s.db.ExecContext(r.Context(), `
@@ -357,14 +361,15 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 // `agents kill` endpoint (ADR-028 plan W17) so both produce an
 // identical lifecycle + audit trail. reason is threaded into the
 // session-stop audit.
-func (s *Server) applyAgentTerminationEffects(ctx context.Context, team, id, reason string) {
+func (s *Server) applyAgentTerminationEffects(ctx context.Context, team, id, reason string, archive bool) {
 	var sessionID string
 	_ = s.db.QueryRowContext(ctx,
 		`SELECT id FROM sessions
 		  WHERE team_id = ? AND current_agent_id = ? AND status = 'active'
 		  LIMIT 1`, team, id).Scan(&sessionID)
 	if sessionID != "" {
-		_, _ = s.stopSessionInternal(ctx, team, sessionID, StopSessionOpts{Reason: reason})
+		_, _ = s.stopSessionInternal(ctx, team, sessionID,
+			StopSessionOpts{Reason: reason, Archive: archive})
 		return
 	}
 	_, _ = auth.RevokeAgentTokens(ctx, s.db, id, NowUTC())
@@ -381,6 +386,58 @@ func (s *Server) applyAgentTerminationEffects(ctx context.Context, team, id, rea
 		"terminate "+handle, map[string]any{"handle": handle})
 }
 
+// handleStopAgent is POST /v1/teams/{team}/agents/{agent}/stop — the
+// RESUMABLE kill. Kills the agent and flips its session to `paused`, so
+// `agents.resume` can respawn it. The principal's "Stop session" does
+// the same. See glossary "stop" (vs "terminate").
+func (s *Server) handleStopAgent(w http.ResponseWriter, r *http.Request) {
+	s.stopOrTerminateAgent(w, r, false)
+}
+
+// handleTerminateAgent is POST /v1/teams/{team}/agents/{agent}/terminate
+// — the PERMANENT end. Kills the agent and ARCHIVES its session
+// (fork-only, not resumable), the inverse of `stop`. See glossary
+// "terminate".
+func (s *Server) handleTerminateAgent(w http.ResponseWriter, r *http.Request) {
+	s.stopOrTerminateAgent(w, r, true)
+}
+
+// stopOrTerminateAgent flips the agent terminal and applies the stop
+// (archive=false → session paused, resumable) or terminate
+// (archive=true → session archived, permanent) side effects.
+func (s *Server) stopOrTerminateAgent(w http.ResponseWriter, r *http.Request, archive bool) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "agent")
+
+	var cur string
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT status FROM agents WHERE team_id = ? AND id = ?`, team, id).Scan(&cur)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Flip to terminated unless already in a terminal agent state — the
+	// session-fate side effect still runs so a re-issued verb is idempotent.
+	if cur != "terminated" && cur != "crashed" && cur != "failed" {
+		if _, err := s.db.ExecContext(r.Context(),
+			`UPDATE agents SET status = 'terminated', terminated_at = ?
+			  WHERE team_id = ? AND id = ?`, NowUTC(), team, id); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	reason := "agent stopped"
+	if archive {
+		reason = "agent terminated"
+	}
+	s.applyAgentTerminationEffects(r.Context(), team, id, reason, archive)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // deriveTaskStatusFromAgent implements ADR-029 D-3 auto-derive. Called
 // from any code path that flips an agent's status; safe to call with
 // non-terminal statuses (returns nil without touching the task). Looks
@@ -388,12 +445,12 @@ func (s *Server) applyAgentTerminationEffects(ctx context.Context, team, id, rea
 //
 //   - 'terminated' AND result_summary populated  → task.status='done'
 //   - 'terminated' AND result_summary empty      → task.status='cancelled'
-//                                                  (worker never called
-//                                                  tasks.complete — task
-//                                                  was abandoned, not
-//                                                  finished; recording it
-//                                                  as 'done' would be a
-//                                                  lie. v1.0.619 rule.)
+//     (worker never called
+//     tasks.complete — task
+//     was abandoned, not
+//     finished; recording it
+//     as 'done' would be a
+//     lie. v1.0.619 rule.)
 //   - 'crashed' / 'failed'                       → task.status='blocked'
 //   - other agent statuses                       → no-op
 //
@@ -549,18 +606,18 @@ func (s *Server) handleArchiveAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 type spawnIn struct {
-	ParentID     string          `json:"parent_agent_id,omitempty"`
-	ChildHandle  string          `json:"child_handle"`
-	Kind         string          `json:"kind"`
-	HostID       string          `json:"host_id,omitempty"`
+	ParentID    string `json:"parent_agent_id,omitempty"`
+	ChildHandle string `json:"child_handle"`
+	Kind        string `json:"kind"`
+	HostID      string `json:"host_id,omitempty"`
 	// ProjectID binds the spawned agent to a project per ADR-025 W2.
 	// Precedence: `project_id:` inside SpawnSpec YAML wins (the
 	// canonical site every template + mobile sheet writes to). This
 	// body field is a precedence-low fallback for callers that build
 	// the YAML elsewhere and want to pass the binding out-of-band.
-	ProjectID    string          `json:"project_id,omitempty"`
-	SpawnSpec    string          `json:"spawn_spec_yaml"`
-	Authority    json.RawMessage `json:"spawn_authority,omitempty"`
+	ProjectID string          `json:"project_id,omitempty"`
+	SpawnSpec string          `json:"spawn_spec_yaml"`
+	Authority json.RawMessage `json:"spawn_authority,omitempty"`
 	// LegacyTaskJSON is the pre-ADR-029 orchestrator-worker handoff blob
 	// that lands in `agent_spawns.task_json`. No caller populates it today
 	// (mcp_orchestrate uses its own DoSpawn shape). Kept on the struct so
@@ -580,9 +637,9 @@ type spawnIn struct {
 	// new agent; created_by_id is parent_agent_id (NULL when the caller
 	// is principal-direct — i.e., no parent_agent_id on the request).
 	// Mutually exclusive with TaskID.
-	Task *spawnTaskInline `json:"task,omitempty"`
-	WorktreePath string          `json:"worktree_path,omitempty"`
-	BudgetCents  *int            `json:"budget_cents,omitempty"`
+	Task         *spawnTaskInline `json:"task,omitempty"`
+	WorktreePath string           `json:"worktree_path,omitempty"`
+	BudgetCents  *int             `json:"budget_cents,omitempty"`
 	// Mode is an optional override of the template's driving_mode.
 	// When set it's strict — the resolver tries only this candidate,
 	// no fallback. Empty means "use template + fallbacks".
@@ -1216,8 +1273,8 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	// inside the existing session, transcript intact, instead of
 	// orphaning the prior session and minting a fresh one.
 	var (
-		swapSessionID  string
-		priorAgentID   string
+		swapSessionID string
+		priorAgentID  string
 	)
 	if in.SessionID != "" {
 		var status, current sql.NullString

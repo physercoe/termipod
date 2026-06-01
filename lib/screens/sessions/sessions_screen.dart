@@ -12,7 +12,11 @@ import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_config_sheet.dart';
 import '../../widgets/agent_feed.dart';
+import '../../widgets/agent_journal_view.dart';
+import '../../widgets/agent_pane_view.dart';
+import '../../widgets/insights_panel.dart';
 import '../../widgets/session_details_sheet.dart';
+import '../../widgets/session_header.dart';
 import '../insights/insights_screen.dart';
 import '../projects/projects_screen.dart' show confirmAndRecreateSteward;
 import '../team/spawn_steward_sheet.dart';
@@ -2194,6 +2198,10 @@ class SessionChatScreen extends ConsumerStatefulWidget {
 
 class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   late String _title = widget.title;
+  // P2 — selected view in the shared SessionHeader's `View ▾` switcher.
+  // Brings Pane/Journal/Insights parity with the project-agent sheet
+  // (the session-detail surface was Feed-only before). Feed is index 0.
+  int _view = 0;
   // Latest session.init payload reported up by AgentFeed. Drives the
   // AppBar's compact session chip (model + perm + tool/mcp counts);
   // tap → details sheet. Lifted out of the transcript so the chat
@@ -2555,168 +2563,176 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
       }
     }
     final agentKindForPill = _agentKind() ?? '';
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _effectiveTitle(),
-              style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+    // P2 — the session-actions overflow (agent config / rename / stop /
+    // fork). Hung off the shared SessionHeader's ⋮ slot, same as the
+    // project-agent sheet hangs _ActionsMenu there.
+    final sessionActionsMenu = PopupMenuButton<String>(
+      tooltip: 'Session actions',
+      onSelected: (v) {
+        switch (v) {
+          case 'agent_config':
+            final aid = (sessionRow?['current_agent_id'] ?? '').toString();
+            if (aid.isNotEmpty) {
+              showAgentConfigSheet(context, agentId: aid);
+            }
+          case 'rename':
+            _rename();
+          case 'stop':
+            _stopSession();
+          case 'fork':
+            _forkSession();
+        }
+      },
+      itemBuilder: (_) => [
+        if ((sessionRow?['current_agent_id'] ?? '').toString().isNotEmpty)
+          const PopupMenuItem(
+            value: 'agent_config',
+            child: ListTile(
+              leading: Icon(Icons.account_tree_outlined),
+              title: Text('View agent config'),
+              subtitle: Text('Kind, role, mode, spawn spec'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
             ),
-            // Host the steward's process is running on. Surfaces the
-            // box+login-user the agent is bound to so users running
-            // multiple host-runners can tell at a glance which one is
-            // doing the work. Silent when no host record is loaded.
-            if (hostName != null)
-              Text(
-                '@$hostName',
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? DesignColors.textMuted
-                      : DesignColors.textMutedLight,
+          ),
+        const PopupMenuItem(
+          value: 'rename',
+          child: ListTile(
+            leading: Icon(Icons.edit_outlined),
+            title: Text('Rename session'),
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+          ),
+        ),
+        if (canStop)
+          PopupMenuItem(
+            value: 'stop',
+            child: ListTile(
+              leading: Icon(Icons.power_settings_new,
+                  color: Theme.of(context).colorScheme.error),
+              title: Text('Stop session',
+                  style:
+                      TextStyle(color: Theme.of(context).colorScheme.error)),
+              subtitle: const Text('Kills the agent process; session pauses'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+        if (canFork)
+          PopupMenuItem(
+            value: 'fork',
+            child: ListTile(
+              leading: Icon(Icons.fork_right,
+                  color: Theme.of(context).colorScheme.primary),
+              title: const Text('Fork from archive'),
+              subtitle: const Text(
+                  'New active session, same scope, fresh transcript'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+      ],
+    );
+    return Scaffold(
+      // P2 (docs/plans/agent-transcript-debug-and-header-parity.md) — the
+      // session-detail surface now shares SessionHeader with the project-
+      // agent sheet (one header, can't drift) and reaches Pane / Journal /
+      // Insights via the `View ▾` switcher, closing the feed-only
+      // non-parity the tester flagged. No Material AppBar — SafeArea
+      // supplies the status-bar inset the bar used to.
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            SessionHeader(
+              leading: const BackButton(),
+              title: _effectiveTitle(),
+              subtitle: hostName != null ? '@$hostName' : null,
+              chip: _sessionInit != null
+                  ? SessionInitChip(
+                      payload: _sessionInit!,
+                      agentKind: _agentKind(),
+                      // Folds the mode/model picker into the chip's tap
+                      // drawer (one entry, not two); the live status_line
+                      // surfaces the mutable session state there too.
+                      modeModel: (_modeModel != null && _modeModel!.hasAny)
+                          ? _modeModel
+                          : null,
+                      statusLine: _latestStatusLine,
+                      dense: true,
+                    )
+                  : null,
+              views: const [
+                SessionView(label: 'Feed', icon: Icons.forum_outlined),
+                SessionView(label: 'Pane', icon: Icons.terminal),
+                SessionView(label: 'Journal', icon: Icons.menu_book_outlined),
+                SessionView(label: 'Insights', icon: Icons.insights_outlined),
+              ],
+              currentView: _view,
+              onSelectView: (i) => setState(() => _view = i),
+              leadingActions: [
+                // ADR-030 W19 — steward-side propose inbox pill; self-gates
+                // (hidden unless this is a project-steward with open propose
+                // rows), so it's safe to keep in the header always.
+                StewardProposeInboxPill(
+                  agentKind: agentKindForPill,
+                  projectId: agentProjectId,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                if (scopeChip != null) scopeChip,
+                // Standalone mode/model picker fallback for when there's no
+                // session.init chip yet to fold it into.
+                if (_sessionInit == null &&
+                    _modeModel != null &&
+                    _modeModel!.hasAny)
+                  IconButton(
+                    tooltip: () {
+                      final parts = <String>[];
+                      final mode = _modeModel!.currentModeLabel;
+                      final model = _modeModel!.currentModelLabel;
+                      if (mode != null) parts.add('mode: $mode');
+                      if (model != null) parts.add('model: $model');
+                      return parts.isEmpty ? 'Mode & model' : parts.join(' · ');
+                    }(),
+                    icon: const Icon(Icons.tune),
+                    onPressed: () =>
+                        showModeModelPickerSheet(context, _modeModel!),
+                  ),
+              ],
+              menu: sessionActionsMenu,
+            ),
+            const Divider(height: 1),
+            Expanded(
+              // IndexedStack keeps each view's scroll + state across
+              // `View ▾` switches. Feed carries the rich callbacks that
+              // drive the header chip; the other three are the shared
+              // widgets (same as the project-agent sheet).
+              child: IndexedStack(
+                index: _view,
+                children: [
+                  AgentFeed(
+                    agentId: widget.agentId,
+                    sessionId: widget.sessionId,
+                    initialSeq: widget.initialSeq,
+                    onSessionInit: (p) => setState(() => _sessionInit = p),
+                    onModeModelChanged: (d) => setState(() => _modeModel = d),
+                    onSessionNameHint: (n) =>
+                        setState(() => _sessionNameHint = n),
+                    onStatusLineChanged: (p) =>
+                        setState(() => _latestStatusLine = p),
+                  ),
+                  AgentPaneView(agentId: widget.agentId),
+                  AgentJournalView(agentId: widget.agentId),
+                  ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    children: [
+                      InsightsPanel(scope: InsightsScope.agent(widget.agentId)),
+                    ],
+                  ),
+                ],
               ),
+            ),
           ],
         ),
-        actions: [
-          // ADR-030 W19 — steward-side propose inbox pill. Self-gates
-          // (hidden unless agentKind starts with 'steward.' AND there
-          // are open propose rows addressed to project-steward for
-          // this agent's project), so it's safe to drop in at the
-          // top of every session AppBar.
-          StewardProposeInboxPill(
-            agentKind: agentKindForPill,
-            projectId: agentProjectId,
-          ),
-          if (scopeChip != null) scopeChip,
-          if (_sessionInit != null)
-            SessionInitChip(
-              payload: _sessionInit!,
-              agentKind: _agentKind(),
-              // Folds the mode/model picker into the engine chip's
-              // details sheet so the AppBar carries one entry instead
-              // of two — and the sheet itself stays scrollable for
-              // long model lists. Falls back to the standalone tune
-              // icon below when there's no session.init payload yet.
-              modeModel:
-                  (_modeModel != null && _modeModel!.hasAny) ? _modeModel : null,
-              // v1.0.706 polish — pass the latest status_line payload
-              // through so the sheet can surface live mutable state
-              // (effort / output_style / thinking / fast_mode) that
-              // session.init only captures at spawn time.
-              statusLine: _latestStatusLine,
-            ),
-          if (_sessionInit == null && _modeModel != null && _modeModel!.hasAny)
-            IconButton(
-              tooltip: () {
-                final parts = <String>[];
-                final mode = _modeModel!.currentModeLabel;
-                final model = _modeModel!.currentModelLabel;
-                if (mode != null) parts.add('mode: $mode');
-                if (model != null) parts.add('model: $model');
-                return parts.isEmpty
-                    ? 'Mode & model'
-                    : parts.join(' · ');
-              }(),
-              icon: const Icon(Icons.tune),
-              onPressed: () =>
-                  showModeModelPickerSheet(context, _modeModel!),
-            ),
-          // Single overflow that carries everything except the
-          // engine-state chip and scope chip. Rename moved off the bar
-          // (was its own icon) to make room for the agent-config entry
-          // without the AppBar growing wider. Reset/Replace live on the
-          // steward-row kebab, not here, because they affect the
-          // steward identity (not just this session).
-          PopupMenuButton<String>(
-            tooltip: 'Session actions',
-            onSelected: (v) {
-              switch (v) {
-                case 'agent_config':
-                  final aid = (sessionRow?['current_agent_id'] ?? '')
-                      .toString();
-                  if (aid.isNotEmpty) {
-                    showAgentConfigSheet(context, agentId: aid);
-                  }
-                case 'rename':
-                  _rename();
-                case 'stop':
-                  _stopSession();
-                case 'fork':
-                  _forkSession();
-              }
-            },
-            itemBuilder: (_) => [
-              if ((sessionRow?['current_agent_id'] ?? '')
-                  .toString()
-                  .isNotEmpty)
-                const PopupMenuItem(
-                  value: 'agent_config',
-                  child: ListTile(
-                    leading: Icon(Icons.account_tree_outlined),
-                    title: Text('View agent config'),
-                    subtitle: Text(
-                        'Kind, role, mode, spawn spec'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
-                ),
-              const PopupMenuItem(
-                value: 'rename',
-                child: ListTile(
-                  leading: Icon(Icons.edit_outlined),
-                  title: Text('Rename session'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                ),
-              ),
-              if (canStop)
-                PopupMenuItem(
-                  value: 'stop',
-                  child: ListTile(
-                    leading: Icon(Icons.power_settings_new,
-                        color: Theme.of(context).colorScheme.error),
-                    title: Text('Stop session',
-                        style: TextStyle(
-                            color: Theme.of(context).colorScheme.error)),
-                    subtitle: const Text(
-                        'Kills the agent process; session pauses'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
-                ),
-              if (canFork)
-                PopupMenuItem(
-                  value: 'fork',
-                  child: ListTile(
-                    leading: Icon(Icons.fork_right,
-                        color: Theme.of(context).colorScheme.primary),
-                    title: const Text('Fork from archive'),
-                    subtitle: const Text(
-                        'New active session, same scope, fresh transcript'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-      body: AgentFeed(
-        agentId: widget.agentId,
-        sessionId: widget.sessionId,
-        initialSeq: widget.initialSeq,
-        onSessionInit: (p) => setState(() => _sessionInit = p),
-        onModeModelChanged: (d) => setState(() => _modeModel = d),
-        onSessionNameHint: (n) => setState(() => _sessionNameHint = n),
-        onStatusLineChanged: (p) => setState(() => _latestStatusLine = p),
       ),
     );
   }

@@ -1,11 +1,14 @@
 # Agent transcript — debugging affordances & session-header parity
 
 > **Type:** plan
-> **Status:** In progress (2026-06-01) — **P1 shipped** in v1.0.770-alpha
-> (lens + combined filter/jump pill + seq-anchored seek). P2 (header
-> parity) and P3 (full-screen route) remain.
+> **Status:** In progress (2026-06-01) — **P1 shipped** (v1.0.770-alpha:
+> lens + filter/jump pill + seq-anchored seek) and **P2 shipped**
+> (v1.0.771–773: shared `SessionHeader` + dense chip + `View ▾`, adopted
+> on both the project-agent sheet and `SessionChatScreen`; Pane/Journal
+> views extracted). P3 (dedicated full-screen route + lens bar + minimap)
+> remains.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.770
+> **Last verified vs code:** v1.0.773
 
 **TL;DR.** From a testing pass: the agent transcript is hard to debug
 (no way to filter to errors, no way to jump to a turn), and the same
@@ -165,11 +168,16 @@ NARROW (chip drops to row 2; title ellipsizes; controls fixed)
   lenses (All/Text/Tools/Errors) wired. No header or surface changes;
   rides the existing float-over-Stack pattern. The full-screen lens *bar*
   + minimap deferred to P3 (this ships the constrained-host chrome only).
-- **P2 — header parity.** Extract `SessionHeader` (title + slim chip +
-  `View ▾` + `⋮` + `×`); add the `dense` `SessionInitChip` variant and
-  hybrid `LayoutBuilder` placement; replace the project sheet's
-  `TabBar` with an `IndexedStack` driven by `View ▾`; adopt
-  `SessionHeader` in `SessionChatScreen` so it gains the other views.
+- **P2 — header parity. ✅ Shipped v1.0.771–773.** Extracted
+  `SessionHeader` (title + subtitle + slim chip + `View ▾` + `⋮` +
+  `×`/back) with hybrid `LayoutBuilder` chip placement; added the
+  `dense` `SessionInitChip` variant (perm-mode → shield glyph, counts →
+  drawer); replaced the project sheet's `TabBar` with a `View ▾`-driven
+  `IndexedStack` (771); extracted `AgentPaneView` / `AgentJournalView`
+  so the views are shareable, no fork (772); adopted `SessionHeader` +
+  the four views in `SessionChatScreen` (773), so the session-detail
+  surface gained Pane/Journal/Insights and the two surfaces are now
+  structurally identical headers.
 - **P3 — full-screen transcript route.** An "expand" affordance pushes
   a dedicated full-screen `AgentFeed` (also the missing full-screen
   surface); unlock the lens *bar* and the right-edge minimap with turn

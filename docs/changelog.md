@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.772
+> **Last verified vs code:** v1.0.773
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,29 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.773-alpha — 2026-06-01
+
+**Session-detail reaches header parity — and gains Pane/Journal/Insights
+(transcript plan P2 complete).** Closes tester feedback #3: the session-
+detail surface was a feed-only full screen while the project-agent sheet
+had four tabs. Both now render the same `SessionHeader` and reach the
+same four views through the `View ▾` switcher.
+
+### Changed
+- **`SessionChatScreen` adopts `SessionHeader`.** The Material `AppBar`
+  (title + chip + actions) becomes a shared `SessionHeader` with a back
+  button, the engine `@host` as subtitle, the dense session chip, the
+  `View ▾` switcher, the propose-inbox / scope / mode-model pills, and
+  the session-actions ⋮ — the same structure as the project-agent sheet,
+  so the two can't drift.
+- **Session-detail now has Feed / Pane / Journal / Insights.** An
+  `IndexedStack` behind `View ▾` hosts the rich `AgentFeed` (Feed) plus
+  the shared `AgentPaneView` / `AgentJournalView` / `InsightsPanel` — the
+  views the surface previously lacked. `SafeArea` supplies the status-bar
+  inset the removed AppBar used to.
+- **`SessionHeader` gains an optional `leading` slot** for the
+  full-screen back button (the sheet keeps using the × on the right).
 
 ## v1.0.772-alpha — 2026-06-01
 

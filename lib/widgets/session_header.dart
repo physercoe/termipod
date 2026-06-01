@@ -37,6 +37,10 @@ class SessionHeader extends StatelessWidget {
   final List<SessionView> views;
   final int currentView;
   final ValueChanged<int> onSelectView;
+  // Optional widget at the very start of the row — a back button on the
+  // full-screen surface. The project sheet leaves it null and uses the
+  // [onClose] × on the right instead.
+  final Widget? leading;
   // Trailing status/scope pills shown before the menu. Caller-owned
   // because the action sets genuinely differ between surfaces.
   final List<Widget> leadingActions;
@@ -53,6 +57,7 @@ class SessionHeader extends StatelessWidget {
     this.views = const [],
     this.currentView = 0,
     required this.onSelectView,
+    this.leading,
     this.leadingActions = const [],
     this.menu,
     this.onClose,
@@ -118,6 +123,7 @@ class SessionHeader extends StatelessWidget {
             children: [
               Row(
                 children: [
+                  if (leading != null) leading!,
                   // Title yields first under pressure (ellipsizes); the
                   // chip collapses second (to row 2); the controls are
                   // fixed.

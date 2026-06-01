@@ -413,3 +413,63 @@ asked for.
   ship the exporter before a backend is chosen, or behind a flag).
 - Whether the watermark digest is recomputed wholesale on idle or maintained
   incrementally (cheaper, but write-path bookkeeping on a hot table).
+
+## 14. The MVP case: per-run insight is already inaccurate (2026-06-01)
+
+The director pushed back on "digest is post-MVP" with a concrete claim:
+**MVP needs per-run insight, and the current per-run insight is not enough
+/ not accurate.** An audit confirms it — and the root cause is exactly the
+absence of a canonical digest.
+
+**Today there is no single per-run summary.** Each surface recomputes its
+own metrics, with its own definitions, over different data:
+
+1. **"Error" means two disjoint things.**
+   - Transcript **Errors lens** — `agentEventIsError`
+     (`lib/widgets/agent_feed/feed_reducer.dart:1000`): `kind=='error'` ∪
+     `tool_result.is_error==true` ∪ a `tool_call` whose resolved
+     result/update failed.
+   - **`/v1/insights` errors** — `readInsightsErrors`
+     (`hub/internal/server/handlers_insights.go:546`): `turn.result.status
+     != 'success'` (failed turns) ∪ open attention items ∪
+     `DriverDisconnects` (**hardcoded 0**).
+   These sets are **disjoint**: tool failures and explicit `error` events
+   never reach the insights number; failed turns and open-attention never
+   reach the transcript lens. The same run reports different error counts on
+   the two surfaces the director compares.
+2. **Per-run telemetry counts only the *loaded window*.** The inline
+   TelemetryStrip's `turnCount` / `modelTotals` are summed in
+   `for (e in _events)` (`lib/widgets/agent_feed.dart:1238`), and `_events`
+   is the lazily-loaded slice — so on a long, partially-loaded run, turns and
+   per-model tokens **undercount**. (Cost is partly rescued by a separate
+   polled session-cost endpoint; turns/tokens are not.)
+3. **Engine-dependent / placeholder fields.** Failed-turns, latency
+   (p50/p95), and token rollups depend on `turn.result.status` /
+   `duration_ms` / `by_model`, which non-claude engines may not emit →
+   silent zeros for codex/gemini/kimi/antigravity. `DriverDisconnects` is a
+   Phase-1 hardcoded 0 (crashes uncounted).
+
+**Completeness gaps for a per-run view:** tool *failure* rate per run is not
+surfaced (insights counts `tool_calls` / `tools_per_turn`, never failures);
+no error detail/taxonomy; no outcome/task linkage; no clean wall-clock /
+idle breakdown.
+
+**Conclusion — a *light* per-run digest is MVP.** Every defect above shares
+one cause: insight is recomputed ad hoc, per surface, over inconsistent
+scopes. A canonical per-run digest removes all of them at once — **one error
+definition** read by both surfaces (they stop disagreeing), **full-run
+scope** computed at the idle/seal watermark (counts stop undercounting), and
+**tool success/fail + outcome + duration** (fills the gaps). This *refines*
+§12/§13: the full sealing/export/Phoenix stack stays post-MVP, but the
+**light digest is pulled into MVP** because the insight the director relies
+on is currently wrong.
+
+**MVP slice (first concrete spec, the MVP cut of ADR-A):** a per-run summary
+row — canonical error count, full-run turn count, cost, tool success/fail,
+status/outcome — computed at `onPreAgentIdle` and on terminal, read by *both*
+the TelemetryStrip and `/v1/insights`.
+
+**Decision needed — the canonical "error" definition.** Recommendation: the
+**transcript-lens union** (`error` events ∪ tool failures ∪ failed turns) is
+canonical — it is what the director actually sees in the log and is the
+superset; `/v1/insights` adopts it so the numbers reconcile.

@@ -26,6 +26,7 @@ import '../../widgets/session_header.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../insights/insights_screen.dart';
+import '../sessions/transcript_screen.dart';
 import '../terminal/terminal_screen.dart';
 import '../team/host_edit_sheet.dart';
 import '../hub/hub_bootstrap_screen.dart';
@@ -1939,8 +1940,18 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
               child: IndexedStack(
                 index: _view,
                 children: [
-                  // --- Feed: live agent_events from P1.1 drivers.
-                  AgentFeed(agentId: _id),
+                  // --- Feed: live agent_events from P1.1 drivers. The
+                  // sheet is constrained (dense), so it offers an expand
+                  // affordance to the full-screen transcript (P3).
+                  AgentFeed(
+                    agentId: _id,
+                    onExpand: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            TranscriptScreen(agentId: _id, title: _handle),
+                      ),
+                    ),
+                  ),
                   // --- Pane capture + spawn spec (shared AgentPaneView).
                   AgentPaneView(agentId: _id),
                   // --- Journal (shared AgentJournalView).

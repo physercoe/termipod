@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.773
+> **Last verified vs code:** v1.0.774
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,30 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.774-alpha — 2026-06-01
+
+**Full-screen transcript: lens bar + minimap + expand route (transcript
+plan P3 — plan complete).** The final phase unlocks the richest debugging
+surface for a long run: when `AgentFeed` runs full-screen it unfolds the
+lens into a horizontal bar and grows a right-edge minimap; constrained
+hosts gain an expand affordance to reach it.
+
+### Added
+- **`AgentFeed` responsive `dense` flag.** Default `true` keeps the P1
+  constrained chrome (floating funnel → combined filter/jump pill).
+  `false` (full-screen) unfolds a **`FeedLensBar`** — every lens with its
+  live count, all visible at once — and a **right-edge `FeedMinimap`**: a
+  faint tick per tool call and a red tick per error over the whole loaded
+  transcript, tap-to-jump (seq-anchored, prefers the nearest error).
+- **`TranscriptScreen` — dedicated full-screen transcript route.** Hosts
+  `AgentFeed(dense: false)`. `SessionChatScreen`'s Feed now runs
+  `dense: false` inline (it's already full-screen); the constrained
+  project-agent sheet gets an **expand button** (`ExpandFeedButton`) that
+  pushes `TranscriptScreen`.
+
+This completes `docs/plans/agent-transcript-debug-and-header-parity.md`
+(P1 debug affordances · P2 header parity · P3 full-screen route).
 
 ## v1.0.773-alpha — 2026-06-01
 

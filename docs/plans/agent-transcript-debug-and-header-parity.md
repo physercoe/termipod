@@ -1,14 +1,14 @@
 # Agent transcript — debugging affordances & session-header parity
 
 > **Type:** plan
-> **Status:** In progress (2026-06-01) — **P1 shipped** (v1.0.770-alpha:
-> lens + filter/jump pill + seq-anchored seek) and **P2 shipped**
-> (v1.0.771–773: shared `SessionHeader` + dense chip + `View ▾`, adopted
-> on both the project-agent sheet and `SessionChatScreen`; Pane/Journal
-> views extracted). P3 (dedicated full-screen route + lens bar + minimap)
-> remains.
+> **Status:** Done (2026-06-01) — all three phases shipped. **P1**
+> (v1.0.770: lens + filter/jump pill + seq-anchored seek), **P2**
+> (v1.0.771–773: shared `SessionHeader` + dense chip + `View ▾`, both
+> surfaces converged, Pane/Journal extracted), **P3** (v1.0.774:
+> `dense` flag → full-screen lens bar + right-edge minimap +
+> `TranscriptScreen` expand route).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.773
+> **Last verified vs code:** v1.0.774
 
 **TL;DR.** From a testing pass: the agent transcript is hard to debug
 (no way to filter to errors, no way to jump to a turn), and the same
@@ -178,10 +178,15 @@ NARROW (chip drops to row 2; title ellipsizes; controls fixed)
   the four views in `SessionChatScreen` (773), so the session-detail
   surface gained Pane/Journal/Insights and the two surfaces are now
   structurally identical headers.
-- **P3 — full-screen transcript route.** An "expand" affordance pushes
-  a dedicated full-screen `AgentFeed` (also the missing full-screen
-  surface); unlock the lens *bar* and the right-edge minimap with turn
-  and error ticks via the `dense=false` path.
+- **P3 — full-screen transcript route. ✅ Shipped v1.0.774.** Added the
+  `dense` flag to `AgentFeed` (`true` = P1 funnel/pill; `false` = full-
+  screen). The `dense=false` path unfolds `FeedLensBar` (every lens +
+  live count) and a right-edge `FeedMinimap` (faint tool-call ticks + red
+  error ticks, tap-to-jump via `_seekToSeq`, prefers nearest error). New
+  `TranscriptScreen` hosts `AgentFeed(dense:false)`; `SessionChatScreen`'s
+  Feed runs `dense:false` inline, the project-agent sheet gets an
+  `ExpandFeedButton` that pushes `TranscriptScreen`. The archived-agent
+  surface (still a 3-tab) can wire `onExpand` opportunistically later.
 
 ## 6. Constraints & risks
 

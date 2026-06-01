@@ -408,3 +408,247 @@ class _StepButton extends StatelessWidget {
     );
   }
 }
+
+/// Floating "expand to full screen" button (P3). Shown by a constrained
+/// `AgentFeed` (dense) whose host wired `onExpand`; tapping pushes the
+/// caller's dedicated full-screen transcript route. Styled to match the
+/// verbose chip it sits beside.
+class ExpandFeedButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const ExpandFeedButton({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    return Tooltip(
+      message: 'Open full-screen transcript',
+      child: Material(
+        color: bg.withValues(alpha: 0.92),
+        elevation: 1,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: border),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Icon(Icons.open_in_full, size: 14, color: muted),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen-only lens *bar* (P3 — docs/plans/agent-transcript-debug-
+/// and-header-parity.md). When a full-screen host runs `AgentFeed(dense:
+/// false)`, the floating funnel unfolds into this horizontal selector
+/// showing every lens with its live count, so the whole filter surface
+/// is visible at once instead of behind a tap. Horizontally scrollable
+/// so it never overflows a narrow device.
+class FeedLensBar extends StatelessWidget {
+  final FeedLens lens;
+  final Map<FeedLens, int> counts;
+  final ValueChanged<FeedLens> onSelectLens;
+  const FeedLensBar({
+    required this.lens,
+    required this.counts,
+    required this.onSelectLens,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: border)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final l in FeedLens.values) ...[
+              _chip(context, l, muted),
+              const SizedBox(width: 6),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(BuildContext context, FeedLens l, Color muted) {
+    final selected = l == lens;
+    final count = counts[l] ?? 0;
+    final isErr = l == FeedLens.errors;
+    final accent = isErr ? DesignColors.error : DesignColors.primary;
+    final fg = selected ? accent : muted;
+    return InkWell(
+      onTap: () => onSelectLens(l),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: selected ? accent.withValues(alpha: 0.14) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? accent.withValues(alpha: 0.5) : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(FeedFilterControl.iconFor(l), size: 13, color: fg),
+            const SizedBox(width: 5),
+            Text(
+              FeedFilterControl.labelFor(l),
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: fg,
+              ),
+            ),
+            // The error count rides every state so "3 errors" is visible
+            // without selecting the Errors lens first.
+            if (l != FeedLens.all && count > 0) ...[
+              const SizedBox(width: 5),
+              Text(
+                '$count',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: isErr ? DesignColors.error : muted,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One tick on the [FeedMinimap]: a normalized vertical position, the
+/// seq to jump to, and whether it marks an error turn.
+class FeedMinimapMark {
+  final double frac; // 0..1 down the transcript
+  final int seq;
+  final bool isError;
+  const FeedMinimapMark({
+    required this.frac,
+    required this.seq,
+    required this.isError,
+  });
+}
+
+/// Right-edge minimap (P3, full-screen only). A thin vertical strip with
+/// a faint tick per tool call and a prominent red tick per error, laid
+/// out by each event's position in the loaded transcript. Tapping jumps
+/// (seq-anchored) to the nearest error — or the nearest tick when there
+/// are no errors — so a failed call deep in a long run is one tap away.
+class FeedMinimap extends StatelessWidget {
+  final List<FeedMinimapMark> marks;
+  final ValueChanged<int> onJump;
+  const FeedMinimap({required this.marks, required this.onJump});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tick =
+        (isDark ? DesignColors.textMuted : DesignColors.textMutedLight)
+            .withValues(alpha: 0.55);
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapUp: (d) {
+            final h = constraints.maxHeight;
+            if (h <= 0 || marks.isEmpty) return;
+            final frac = (d.localPosition.dy / h).clamp(0.0, 1.0);
+            FeedMinimapMark? best;
+            var bestD = double.infinity;
+            // Prefer the nearest error tick (the debugging target).
+            for (final m in marks) {
+              if (!m.isError) continue;
+              final dd = (m.frac - frac).abs();
+              if (dd < bestD) {
+                bestD = dd;
+                best = m;
+              }
+            }
+            if (best == null) {
+              for (final m in marks) {
+                final dd = (m.frac - frac).abs();
+                if (dd < bestD) {
+                  bestD = dd;
+                  best = m;
+                }
+              }
+            }
+            if (best != null) onJump(best.seq);
+          },
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: _MinimapPainter(
+              marks: marks,
+              tickColor: tick,
+              errorColor: DesignColors.error,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MinimapPainter extends CustomPainter {
+  final List<FeedMinimapMark> marks;
+  final Color tickColor;
+  final Color errorColor;
+  _MinimapPainter({
+    required this.marks,
+    required this.tickColor,
+    required this.errorColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final tickPaint = Paint()
+      ..color = tickColor
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    final errPaint = Paint()
+      ..color = errorColor
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round;
+    for (final m in marks) {
+      final y = m.frac.clamp(0.0, 1.0) * size.height;
+      if (m.isError) {
+        // Full-width red tick — reads as an alarm against the strip.
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), errPaint);
+      } else {
+        // Faint half-width tick — structure without noise.
+        canvas.drawLine(Offset(size.width * 0.5, y), Offset(size.width, y),
+            tickPaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MinimapPainter old) =>
+      old.marks != marks ||
+      old.tickColor != tickColor ||
+      old.errorColor != errorColor;
+}

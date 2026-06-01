@@ -85,6 +85,17 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// table preserves the full series; this callback just forwards
   /// the most recent snapshot. Null = no frame yet.
   final void Function(Map<String, dynamic>? payload)? onStatusLineChanged;
+  /// P3 (docs/plans/agent-transcript-debug-and-header-parity.md) —
+  /// responsive disclosure by container. `true` (default) is the
+  /// constrained host: the lens lives in a floating funnel → combined
+  /// filter/jump pill, no minimap. `false` is a full-screen host: the
+  /// lens unfolds to a horizontal *bar* with per-lens counts and a
+  /// right-edge minimap (turn ticks + red error ticks, tap to jump).
+  final bool dense;
+  /// When set (and [dense]), a floating expand affordance pushes the
+  /// caller's dedicated full-screen transcript route. Null hides it —
+  /// hosts that are already full-screen pass `dense: false` instead.
+  final VoidCallback? onExpand;
   const AgentFeed({
     super.key,
     required this.agentId,
@@ -95,6 +106,8 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.initialSeq,
     this.onSessionNameHint,
     this.onStatusLineChanged,
+    this.dense = true,
+    this.onExpand,
   });
 
   @override
@@ -1306,6 +1319,34 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       if (idx < 0) idx = matchSeqs.length - 1;
       matchIndex = idx + 1;
     }
+    // P3 — full-screen-only chrome (dense=false): per-lens counts for the
+    // lens bar + minimap marks (a faint tick per tool_call, a red tick
+    // per error) over the WHOLE loaded transcript. Skipped in the dense
+    // path so a constrained host pays nothing for it.
+    Map<FeedLens, int> lensCounts = const {};
+    final minimapMarks = <FeedMinimapMark>[];
+    if (!widget.dense) {
+      lensCounts = {
+        for (final l in FeedLens.values)
+          l: l == FeedLens.all
+              ? visible.length
+              : visible
+                  .where((e) =>
+                      agentEventMatchesLens(e, l, toolResults, toolUpdates))
+                  .length,
+      };
+      final denom = (visible.length - 1) <= 0 ? 1 : visible.length - 1;
+      for (var i = 0; i < visible.length; i++) {
+        final e = visible[i];
+        final isErr = agentEventIsError(e, toolResults, toolUpdates);
+        if (!isErr && (e['kind'] ?? '').toString() != 'tool_call') continue;
+        minimapMarks.add(FeedMinimapMark(
+          frac: i / denom,
+          seq: (e['seq'] as num?)?.toInt() ?? 0,
+          isError: isErr,
+        ));
+      }
+    }
     // Count the verbose-gated events so the toggle can advertise its
     // value — "Show debug (12)" carries more signal than a bare button.
     int hiddenForVerbose = 0;
@@ -1352,6 +1393,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             exceeds200kAlarm: exceeds200k == true,
           ),
         if (_staleSince != null) OfflineBanner(staleSince: _staleSince!),
+        // P3 full-screen lens bar — replaces the floating funnel/pill
+        // when the host has the width to show every lens at once.
+        if (!widget.dense)
+          FeedLensBar(
+            lens: _lens,
+            counts: lensCounts,
+            onSelectLens: _setLens,
+          ),
         if (_loadingOlder)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
@@ -1478,29 +1527,53 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // Transcript filter: funnel (rest) / combined filter+jump
               // pill (active) floating in the top-left corner — the
               // mirror of the verbose chip opposite. Floats over the
-              // Stack; never eats a transcript row (P1).
-              Positioned(
-                top: 6,
-                left: 6,
-                child: FeedFilterControl(
-                  lens: _lens,
-                  matchCount: matchSeqs.length,
-                  matchIndex: matchIndex,
-                  canPrev: matchIndex > 1,
-                  canNext: matchIndex >= 1 && matchIndex < matchSeqs.length,
-                  onSelectLens: _setLens,
-                  // Prev = older (one step up the lensed list); next =
-                  // newer (one step down). matchIndex is 1-based.
-                  onPrev: () {
-                    if (matchIndex > 1) _seekToSeq(matchSeqs[matchIndex - 2]);
-                  },
-                  onNext: () {
-                    if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
-                      _seekToSeq(matchSeqs[matchIndex]);
-                    }
-                  },
+              // Stack; never eats a transcript row (P1). Dense-only: a
+              // full-screen host shows the lens BAR + minimap instead.
+              if (widget.dense)
+                Positioned(
+                  top: 6,
+                  left: 6,
+                  child: FeedFilterControl(
+                    lens: _lens,
+                    matchCount: matchSeqs.length,
+                    matchIndex: matchIndex,
+                    canPrev: matchIndex > 1,
+                    canNext: matchIndex >= 1 && matchIndex < matchSeqs.length,
+                    onSelectLens: _setLens,
+                    // Prev = older (one step up the lensed list); next =
+                    // newer (one step down). matchIndex is 1-based.
+                    onPrev: () {
+                      if (matchIndex > 1) {
+                        _seekToSeq(matchSeqs[matchIndex - 2]);
+                      }
+                    },
+                    onNext: () {
+                      if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
+                        _seekToSeq(matchSeqs[matchIndex]);
+                      }
+                    },
+                  ),
                 ),
-              ),
+              // P3 right-edge minimap (full-screen only): turn ticks +
+              // red error ticks over the whole loaded transcript, tap to
+              // jump. Starts below the verbose chip so they don't collide.
+              if (!widget.dense && minimapMarks.isNotEmpty)
+                Positioned(
+                  top: 44,
+                  right: 2,
+                  bottom: 12,
+                  width: 14,
+                  child: FeedMinimap(marks: minimapMarks, onJump: _seekToSeq),
+                ),
+              // P3 expand affordance: a constrained (dense) host that
+              // wired [onExpand] gets a button to push the dedicated
+              // full-screen transcript. Sits left of the verbose chip.
+              if (widget.dense && widget.onExpand != null)
+                Positioned(
+                  top: 6,
+                  right: (_verbose || hiddenForVerbose > 0) ? 44 : 6,
+                  child: ExpandFeedButton(onTap: widget.onExpand!),
+                ),
               // Verbose toggle: tiny floating chip in the top-right.
               // Replaces the previous full-row strip — the row was
               // mostly whitespace + a long descriptive label, eating

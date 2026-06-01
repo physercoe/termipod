@@ -2713,6 +2713,9 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
                     agentId: widget.agentId,
                     sessionId: widget.sessionId,
                     initialSeq: widget.initialSeq,
+                    // Full-screen surface — unfold the lens bar + minimap
+                    // (P3) rather than the constrained funnel/pill.
+                    dense: false,
                     onSessionInit: (p) => setState(() => _sessionInit = p),
                     onModeModelChanged: (d) => setState(() => _modeModel = d),
                     onSessionNameHint: (n) =>

@@ -8,7 +8,7 @@
 > `dense` flag → full-screen lens bar + right-edge minimap +
 > `TranscriptScreen` expand route).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.774
+> **Last verified vs code:** v1.0.776
 
 **TL;DR.** From a testing pass: the agent transcript is hard to debug
 (no way to filter to errors, no way to jump to a turn), and the same
@@ -209,3 +209,38 @@ NARROW (chip drops to row 2; title ellipsizes; controls fixed)
   `SessionHeader` opportunistically once P2 lands.
 - In-feed text search (there is already a separate `search_screen.dart`)
   is a complement, not part of this plan.
+
+## 8. Follow-up — long-log navigation (v1.0.775–776)
+
+Post-ship testing surfaced two issues and one design question.
+
+**Fixes (v1.0.775).** The right-edge minimap was effectively un-tappable
+(14px strip flush to the edge, fighting the device edge-swipe) and a tap
+on a far tick silently no-op'd because the seq-anchored `ensureVisible`
+needs an already-built `ListView` row. Widened + pulled off the edge, and
+added `_seekToFrac` (proportional pre-scroll, then fine-tune) so any tick
+jumps. Also added the `Turns` lens (inbound prompts + a2a + system).
+
+**Design question — "why not numbered pages?"** A tester proposed prev/
+next *pages* with a page number + direct jump. Rejected as the primitive,
+kept as the *intent*:
+
+- The transcript is an **append-only live tail** — page indices defined
+  against a fixed boundary drift on every SSE event.
+- There is **no total count** (the server runs `LIMIT`, never `COUNT`),
+  and a long agent is 10k–100k+ rows; counting on every open is costly and
+  immediately stale.
+- A resumed **session spans multiple agents**, and `seq` is per-agent —
+  there's no dense global index to map to a page; only `ts` totally
+  orders, and you can't derive "page 7" from a `ts` without an `OFFSET`
+  scan.
+- **`OFFSET` paging is O(offset)** in SQLite — it would regress exactly
+  the deep/long logs the feature is meant to serve, versus the current
+  O(log n) keyset cursor (`before` / `before_ts`).
+
+**Shipped instead (v1.0.776).** The *turn* is the stable, meaningful unit:
+`TranscriptNavBar` (full-screen) steps prev/next turn over inbound-prompt
+anchors with a `turn N/M` position and `⤒`/`⤓` endpoints, and the minimap
+became a draggable scrubber with a viewport thumb. Keyset infinite-scroll
+stays underneath; "oldest" means top-of-loaded and pages older on demand
+rather than breaking the contiguous tail-anchored window.

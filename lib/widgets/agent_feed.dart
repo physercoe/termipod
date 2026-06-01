@@ -459,6 +459,34 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     });
   }
 
+  /// Jump to the oldest *loaded* row (top of the list). The transcript is
+  /// a contiguous tail-anchored window — there's no "page 1" to fetch
+  /// directly without breaking that contiguity — so "oldest" means the top
+  /// of what's loaded, and we kick the load-older pager when more remains
+  /// above so repeated presses (or a prev-turn at the boundary) walk back
+  /// toward the true start.
+  void _jumpToOldestLoaded() {
+    if (_scroll.hasClients) {
+      setState(() => _followTail = false);
+      _scroll.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+    if (!_atHead) _maybeLoadOlder();
+  }
+
+  /// Continuous scrub from the right-edge minimap drag. jumpTo (not
+  /// animateTo) so the viewport tracks the finger; the scroll listener
+  /// keeps `_scrollPercent` — and thus the minimap thumb — in step.
+  void _scrubTo(double frac) {
+    if (!_scroll.hasClients) return;
+    if (_followTail) setState(() => _followTail = false);
+    final pos = _scroll.position;
+    _scroll.jumpTo(frac.clamp(0.0, 1.0) * pos.maxScrollExtent);
+  }
+
   // Replace _events with [snapshot] (server-DESC, displayed ASC) and
   // refresh the bookkeeping (_ids, _maxSeq, _minSeq, _oldestTs).
   // Used by both the cache-paint and network-refresh halves of
@@ -1368,6 +1396,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // path so a constrained host pays nothing for it.
     Map<FeedLens, int> lensCounts = const {};
     final minimapMarks = <FeedMinimapMark>[];
+    // Turn-nav state (full-screen only). Anchors are the inbound prompts
+    // in the rendered list; the nav bar steps between them. See
+    // [turnAnchorIndices] / [currentTurnOrdinal].
+    List<int> turnAnchorIdx = const [];
+    var turnCount = 0;
+    var currentTurn = 0;
+    final viewportFrac = _scrollPercent / 100.0;
     if (!widget.dense) {
       lensCounts = {
         for (final l in FeedLens.values)
@@ -1378,22 +1413,26 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                       agentEventMatchesLens(e, l, toolResults, toolUpdates))
                   .length,
       };
+      final lensedDenom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
       // Ticks track the list actually on screen (`lensed`), so a tick's
       // vertical fraction maps straight to the scroll offset — letting the
       // tap proportionally pre-scroll to the target (see [_seekToFrac]).
       // When no lens is active `lensed == visible`, so this is the whole
       // loaded transcript as before.
-      final denom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
       for (var i = 0; i < lensed.length; i++) {
         final e = lensed[i];
         final isErr = agentEventIsError(e, toolResults, toolUpdates);
         if (!isErr && (e['kind'] ?? '').toString() != 'tool_call') continue;
         minimapMarks.add(FeedMinimapMark(
-          frac: i / denom,
+          frac: i / lensedDenom,
           seq: (e['seq'] as num?)?.toInt() ?? 0,
           isError: isErr,
         ));
       }
+      turnAnchorIdx = turnAnchorIndices(lensed);
+      turnCount = turnAnchorIdx.length;
+      currentTurn =
+          currentTurnOrdinal(turnAnchorIdx, lensed.length, viewportFrac);
     }
     // Count the verbose-gated events so the toggle can advertise its
     // value — "Show debug (12)" carries more signal than a bare button.
@@ -1615,7 +1654,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   right: 4,
                   bottom: 12,
                   width: 20,
-                  child: FeedMinimap(marks: minimapMarks, onJump: _seekToFrac),
+                  child: FeedMinimap(
+                    marks: minimapMarks,
+                    onJump: _seekToFrac,
+                    onScrub: _scrubTo,
+                    viewportFrac: viewportFrac,
+                  ),
                 ),
               // P3 expand affordance: a constrained (dense) host that
               // wired [onExpand] gets a button to push the dedicated
@@ -1648,9 +1692,41 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             ],
           ),
         ),
+        // Full-screen turn navigator: first/last endpoints + prev/next
+        // turn stepper. A real footer row (not floating) — the full-screen
+        // host has the room, and long-log navigation is the whole point of
+        // this surface. Constrained (dense) hosts keep the floating funnel.
+        if (!widget.dense)
+          TranscriptNavBar(
+            currentTurn: currentTurn,
+            turnCount: turnCount,
+            moreAbove: !_atHead,
+            onOldest: _jumpToOldestLoaded,
+            onLatest: _jumpToLatest,
+            // Prev = the turn anchor before the current one; at the first
+            // loaded turn, page older instead so the walk can continue up.
+            onPrevTurn: currentTurn > 1
+                ? () => _seekToLensedIndex(
+                    turnAnchorIdx[currentTurn - 2], lensed)
+                : (!_atHead ? () { _maybeLoadOlder(); } : null),
+            onNextTurn: currentTurn < turnCount
+                ? () =>
+                    _seekToLensedIndex(turnAnchorIdx[currentTurn], lensed)
+                : null,
+          ),
         compose,
       ],
     );
+  }
+
+  /// Seek to the row at [idx] in the rendered [lensed] list — used by the
+  /// turn-nav stepper. Routes through [_seekToFrac] (fraction = position in
+  /// the list) so a target that isn't a built ListView row still lands.
+  void _seekToLensedIndex(int idx, List<Map<String, dynamic>> lensed) {
+    if (idx < 0 || idx >= lensed.length) return;
+    final denom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
+    final seq = (lensed[idx]['seq'] as num?)?.toInt() ?? 0;
+    _seekToFrac(idx / denom, seq);
   }
 
   /// ADR-021 W2.5 — find the latest mode + model state advertised by

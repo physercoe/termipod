@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.775
+> **Last verified vs code:** v1.0.776
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,38 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.776-alpha — 2026-06-01
+
+**Transcript navigation for long logs — turn stepper + draggable
+scrubber.** Tester asked for "prev/next + a position/overview" instead of
+scrolling a 5k-event feed. We keep the keyset-cursor infinite-scroll
+underneath (the only model that stays correct under a live append-only
+tail over per-agent `seq` with no total count) and add bounded, *stable*
+navigation on top rather than literal numbered pages (which would drift on
+every event and force O(offset) jumps on exactly the long logs they'd
+serve).
+
+### Added
+- **`TranscriptNavBar`** (full-screen only): a footer with `⤒` oldest-
+  loaded / `⤓` latest endpoints flanking a `‹ turn N/M ›` prev/next
+  stepper. Turns anchor on inbound prompts (`input.text`, incl. A2A) —
+  always-rendered rows, so a seek always lands. `N/M` is loaded-scoped;
+  a trailing `+` signals older turns not yet paged in.
+- **Draggable minimap scrubber.** `FeedMinimap` gains vertical-drag
+  scrubbing (continuous proportional scroll) and a viewport **thumb**, so
+  the right edge reads as a scrollbar/overview, not just tick marks. Tap-
+  to-jump (nearest error) is unchanged.
+- New pure helpers `turnAnchorIndices` / `currentTurnOrdinal` in the
+  reducer (tested) so the nav ordinal math is widget-tree-free.
+
+### Changed
+- `_jumpToOldestLoaded` (scroll to top + page older when more remains
+  above) and `_scrubTo` (finger-tracking `jumpTo`) added to `AgentFeed`;
+  the minimap now reports its viewport position so the thumb stays in
+  step.
 
 ---
 

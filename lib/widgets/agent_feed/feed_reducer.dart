@@ -1005,6 +1005,48 @@ bool agentEventIsError(
   return false;
 }
 
+/// Kinds that anchor a *turn* for the full-screen turn-stepper
+/// (docs/plans/agent-transcript-debug-and-header-parity.md — turn-nav
+/// follow-up). A turn starts at an inbound prompt: the user's own
+/// `input.text` or an A2A peer message (which also arrives as an
+/// `input.text` envelope). Deliberately narrower than the [FeedLens.turns]
+/// *filter*: the stepper jumps between exchange starts, and `input.text`
+/// is always rendered (never folded/hidden), so a seek to its seq always
+/// has a card to land on — whereas `turn.result` (the agent-side turn
+/// count) is usually folded away and wouldn't be seekable.
+const kFeedTurnAnchorKinds = <String>{'input.text'};
+
+/// Indices into [rendered] (the on-screen, post-fold list) that start a
+/// turn — see [kFeedTurnAnchorKinds]. Pure so the nav-bar's ordinal math
+/// is testable without spinning the widget tree.
+List<int> turnAnchorIndices(List<Map<String, dynamic>> rendered) {
+  final out = <int>[];
+  for (var i = 0; i < rendered.length; i++) {
+    if (kFeedTurnAnchorKinds.contains((rendered[i]['kind'] ?? '').toString())) {
+      out.add(i);
+    }
+  }
+  return out;
+}
+
+/// 1-based ordinal of the turn at or above the viewport, given the turn
+/// [anchorIdx] (from [turnAnchorIndices]), the rendered-list [length], and
+/// the viewport-top fraction [topFrac] (0..1). 0 when there are no turns
+/// or the viewport sits above the first one. Pure + testable.
+int currentTurnOrdinal(List<int> anchorIdx, int length, double topFrac) {
+  if (anchorIdx.isEmpty || length <= 0) return 0;
+  final approx = topFrac.clamp(0.0, 1.0) * (length - 1);
+  var ordinal = 0;
+  for (var k = 0; k < anchorIdx.length; k++) {
+    if (anchorIdx[k] <= approx) {
+      ordinal = k + 1;
+    } else {
+      break;
+    }
+  }
+  return ordinal;
+}
+
 /// True when event [e] passes the active [lens]. Operates on the
 /// post-fold visible list (see [agentEventIsError] for why the
 /// [toolResults] / [toolUpdates] maps are threaded through). `all`

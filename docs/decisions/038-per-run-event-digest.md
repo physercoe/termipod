@@ -72,8 +72,11 @@ Keyed by `agent_id`, carrying `team_id` (ADR-037 isolation). Columns:
 - `error_count`, `errors_json` — taxonomy `class → {count, sample_seqs[]}`;
 - `tool_total`, `tool_failed`, `tools_json` — `name → {calls, failed,
   sample_seqs[]}`;
-- `latency_hist_json` — a **fixed-bucket turn-latency histogram** (so
-  percentiles *merge* across agents; see §5);
+- `latency_hist_json` — a **fixed log-scale (exponential) turn-latency
+  histogram** (OTel exponential-histogram aligned, pure-Go, mergeable by
+  summing bucket counts; see §5), fed from the **computed wall-clock turn
+  duration** (`agent_turns.end_ts − start_ts`) so it exists for *every*
+  engine — not the engine-reported `turn.result.duration_ms` (claude-only);
 - `outcome` — the assigned **task's** state when the agent has one
   (`tasks.assignee_id = agent_id` → done / cancelled / blocked), else the
   terminal / last `turn.result` status.
@@ -115,11 +118,14 @@ Make a **turn** an explicit, correlated span of the log:
 
 - **Event contract.** A turn is bracketed by `turn.start {turn_id, ts}` and
   `turn.result {turn_id, ts, status, cost_usd, by_model, duration_ms}`
-  (`turn.result` gains `turn_id`). Drivers emit `turn.start` natively as they
-  adopt it; until then the hub **synthesizes** a turn (boundary = the first
-  event after the prior `turn.result`; `turn_id` synthetic) so the index
-  exists for every engine. Tool/assistant events belong to the turn whose
-  `[start, result]` ts-window encloses them (or by carried `turn_id`).
+  (`turn.result` gains `turn_id`). The **driver emits `turn.start` at the
+  input/prompt-dispatch boundary it already controls** — uniform, not
+  per-protocol work (the ACP driver stamps it at `session/prompt`;
+  claude M4/M2 at input-send) — and **stamps the active `turn_id` on tool
+  events** so OTLP parenting is exact. Until a driver adopts it, the hub
+  **synthesizes** a turn (boundary = the first event after the prior
+  `turn.result`; `turn_id` synthetic) and groups tools by the `[start, result]`
+  ts-window, so the index exists for every engine.
 - **`agent_turns` child table — the turn index.** One row per turn:
   `(agent_id, turn_id)` PK, `team_id`, `idx` (0-based per agent),
   `start_seq`, `start_ts`, `end_seq`, `end_ts`, `duration_ms`, `status`,
@@ -154,8 +160,11 @@ storage). It is a direct projection, no synthesis guesswork:
   timing `[tool_call.ts, tool_result.ts]`; status from `is_error`; name = tool.
 - **Errors** → span events (exception) on the enclosing turn/tool span.
 - **Deterministic IDs** → re-export is idempotent (backends dedupe by id).
-- Export a run at terminal (and optionally per-turn for live operator
-  tracing). The operator points `--otlp-endpoint` at Phoenix / Jaeger / etc.
+- **Cadence: batch export at idle *and* terminal** (both watermark points).
+  Idempotent IDs mean re-exporting the grown prefix at each idle just updates
+  the trace, so a long-running agent that never terminates still exports —
+  without a streaming exporter. (Per-turn live streaming is post-MVP.) The
+  operator points `--otlp-endpoint` at Phoenix / Jaeger / etc.
 
 ### 5. Reads, sessions, and insights
 
@@ -227,17 +236,18 @@ storage). It is a direct projection, no synthesis guesswork:
 
 ## Open questions
 
-- **Latency histogram shape** — fixed log-scale buckets vs. a t-digest sketch
-  (both merge; buckets are simpler, t-digest is more accurate at the tails).
-- **`turn.start` rollout order** across engines (claude-code M4 first; others
-  follow) and whether to record it in `docs/spine/protocols.md` §event-vocab.
-- **OTLP export cadence** — terminal-only vs. per-turn live operator tracing
-  (the latter wants a streaming exporter).
-- **Tool→turn association** when `turn_id` isn't carried on tool events
-  (ts-window grouping is the fallback; carrying `turn_id` is cleaner).
+- **Exact bucket boundaries** for the latency histogram (base / range) — a
+  tuning detail; the *shape* is settled (fixed log-scale, §1/§5).
+- **`turn.start` rollout order** across engines — claude-code first, then the
+  ACP engines together (one driver change at `session/prompt`); a tracking
+  detail, not a design fork.
 
-*(Resolved in the body after review: B2 reconcile cadence — there is no
-periodic recompute, so no gating (§2); B3 cost authority —
-`turn.result.cost_usd` else `sessionCostUsdImputed` (§1); B4 outcome —
-folds the assigned task's state (§1); B7 engine coverage — verified and
-documented as a known limitation, not open (Consequences).)*
+*(Resolved after discussion — folded into the body: **latency histogram** =
+fixed log-scale buckets fed from the computed wall-clock turn duration, so
+it's universal (§1/§5); **`turn.start` + tool `turn_id`** are emitted by the
+driver at the dispatch boundary it controls, uniform across engines, recorded
+in `protocols.md` (§3); **OTLP cadence** = idempotent batch export at idle +
+terminal, live streaming deferred (§4); **tool→turn** = driver stamps
+`turn_id`, ts-window fallback (§3). Earlier review also resolved B2 no-gating
+(§2), B3 cost fallback (§1), B4 task-linked outcome (§1), B7 engine coverage
+as a documented limitation (Consequences).)*

@@ -344,6 +344,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   bool get _programmaticScroll => _programmaticScrollDepth > 0;
   int _programmaticScrollDepth = 0;
 
+  // The realized (built) row-index window of the ListView, refreshed every
+  // layout from the itemBuilder. A jump-to-known-row seek uses this as
+  // feedback to binary-search the scroll offset onto a target index without
+  // assuming uniform row heights (see [_seekToLoadedIndex]). Reset at the
+  // top of the build that owns the list; -1 / length are empty sentinels.
+  int _minBuiltIdx = 0;
+  int _maxBuiltIdx = -1;
+
   // Mark a synchronous scroll (jumpTo) as programmatic; clear after the
   // frame it lands on.
   void _jumpProgrammatic(void Function() body) {
@@ -921,6 +929,95 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     });
   }
 
+  /// Seek precisely onto the loaded row at [idx] (in the current lensed
+  /// list) identified by [seq]. Unlike [_seekToFrac] — which maps the
+  /// item-index fraction straight onto a pixel offset and so misses badly
+  /// when rows have very different heights (a one-line text card vs. a tall
+  /// tool dump) — this binary-searches the scroll offset using the actual
+  /// realized-row window ([_minBuiltIdx]/[_maxBuiltIdx]) as feedback, so it
+  /// lands exactly on the target regardless of height variance. Used by the
+  /// "view in full transcript" jump and the turn-nav stepper, which both
+  /// target a *known* row and need to be exact.
+  void _seekToLoadedIndex(int idx, int seq) {
+    if (!_scroll.hasClients) {
+      // No viewport yet — fall back to the ensureVisible-only seek.
+      _seekToSeq(seq);
+      return;
+    }
+    setState(() {
+      _activeSeekSeq = seq;
+      _followTail = false;
+      _seekHighlight = true;
+    });
+    // One guard increment held across the WHOLE convergence (many frames of
+    // jumpTo + a final ensureVisible), released once in [_releaseProgrammatic]
+    // — so no mid-seek frame flips tail-follow (the "jump to end" bug).
+    _programmaticScrollDepth++;
+    // Start after this setState's rebuild has attached _seekKey to the new
+    // target, so the realized-window read reflects the right frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) {
+        _releaseProgrammatic();
+        return;
+      }
+      _convergeToIndex(idx, 0.0, _scroll.position.maxScrollExtent, 0);
+    });
+    _seekHighlightTimer?.cancel();
+    _seekHighlightTimer = Timer(const Duration(milliseconds: 1600), () {
+      if (!mounted) return;
+      setState(() => _seekHighlight = false);
+    });
+  }
+
+  // Binary-search the scroll offset in [lo, hi] until row [idx] is realized,
+  // then ease it into a comfortable position. Offset rises monotonically with
+  // index in this (non-reversed) list, so the realized window brackets the
+  // target: idx below it → scroll up (hi=mid), above it → scroll down
+  // (lo=mid). Each step is one frame; the cap bounds the worst case.
+  void _convergeToIndex(int idx, double lo, double hi, int iter) {
+    if (!mounted || !_scroll.hasClients) {
+      _releaseProgrammatic();
+      return;
+    }
+    final realized =
+        idx >= _minBuiltIdx && idx <= _maxBuiltIdx && _seekKey.currentContext != null;
+    if (realized || iter >= 14) {
+      final ctx = _seekKey.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.3,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        ).whenComplete(_releaseProgrammatic);
+      } else {
+        _releaseProgrammatic();
+      }
+      return;
+    }
+    final max = _scroll.position.maxScrollExtent;
+    final mid = ((lo + hi) / 2).clamp(0.0, max);
+    _scroll.jumpTo(mid);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) {
+        _releaseProgrammatic();
+        return;
+      }
+      var nlo = lo;
+      var nhi = hi;
+      if (idx < _minBuiltIdx) {
+        nhi = mid; // target is above the realized window — scroll up
+      } else if (idx > _maxBuiltIdx) {
+        nlo = mid; // target is below — scroll down
+      }
+      _convergeToIndex(idx, nlo, nhi, iter + 1);
+    });
+  }
+
+  void _releaseProgrammatic() {
+    if (_programmaticScrollDepth > 0) _programmaticScrollDepth--;
+  }
+
   /// Switch the active lens. Resets the seek anchor; for a non-`all`
   /// lens, pins to the tail so the user lands on the most recent match
   /// (the newest error is usually what you're debugging).
@@ -1433,20 +1530,23 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               if (agentEventMatchesLens(e, _lens, toolResults, toolUpdates))
                 e,
           ];
+    // Reset the realized-row window for this frame's list; the itemBuilder
+    // repopulates it during layout, and a convergent seek reads it back.
+    _minBuiltIdx = lensed.length;
+    _maxBuiltIdx = -1;
     // Consume a pending "view in context" request: now that the lens is
     // back to All (so [lensed] == [visible]), find the row's index in the
-    // unfiltered list and seek to it once this frame lays out. Index-based
-    // (via _seekToFrac) so it lands even if the row isn't yet realised.
+    // unfiltered list and seek to it once this frame lays out. Convergent
+    // index seek (height-agnostic) so it lands exactly on the row even when
+    // it isn't currently realised.
     if (_pendingContextSeq != null && _lens == FeedLens.all) {
       final target = _pendingContextSeq!;
       _pendingContextSeq = null;
       final idx =
           lensed.indexWhere((e) => (e['seq'] as num?)?.toInt() == target);
       if (idx >= 0) {
-        final denom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
-        final frac = idx / denom;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _seekToFrac(frac, target);
+          if (mounted) _seekToLoadedIndex(idx, target);
         });
       }
     }
@@ -1619,6 +1719,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 itemCount: lensed.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
+                  // Record the realized-row window for convergent seeks.
+                  if (i < _minBuiltIdx) _minBuiltIdx = i;
+                  if (i > _maxBuiltIdx) _maxBuiltIdx = i;
                   final ev = lensed[i];
                   final isTarget = _activeSeekSeq != null &&
                       (ev['seq'] as num?)?.toInt() == _activeSeekSeq;
@@ -1850,13 +1953,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   }
 
   /// Seek to the row at [idx] in the rendered [lensed] list — used by the
-  /// turn-nav stepper. Routes through [_seekToFrac] (fraction = position in
-  /// the list) so a target that isn't a built ListView row still lands.
+  /// turn-nav stepper. Routes through the convergent index seek so it lands
+  /// exactly on the target row regardless of row-height variance (the old
+  /// proportional [_seekToFrac] overshot on non-uniform transcripts).
   void _seekToLensedIndex(int idx, List<Map<String, dynamic>> lensed) {
     if (idx < 0 || idx >= lensed.length) return;
-    final denom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
     final seq = (lensed[idx]['seq'] as num?)?.toInt() ?? 0;
-    _seekToFrac(idx / denom, seq);
+    _seekToLoadedIndex(idx, seq);
   }
 
   /// ADR-021 W2.5 — find the latest mode + model state advertised by

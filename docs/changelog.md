@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.781
+> **Last verified vs code:** v1.0.782
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,33 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.782-alpha — 2026-06-01
+
+**Fix: "view in full transcript" (and the turn stepper) landed on the
+wrong row.** Both jumps computed the scroll target as
+`(itemIndex / itemCount) × maxScrollExtent` — mapping item-index fraction
+straight onto a pixel offset, which is only correct when every row is the
+same height. Transcript cards vary enormously (a one-line text card vs. a
+tall tool dump), so the proportional scroll overshot, and the fine-tune
+`ensureVisible` fired one frame into a 300 ms animation (target not yet
+realised) so it couldn't correct — leaving the viewport stranded.
+
+### Fixed
+- **Convergent index seek (`_seekToLoadedIndex`).** Replaces the
+  proportional guess with a binary search over the scroll offset that uses
+  the ListView's actual realised-row index window (`_minBuiltIdx` /
+  `_maxBuiltIdx`, recorded each layout from the itemBuilder) as feedback:
+  it brackets the target index — below the window → scroll up, above →
+  scroll down — until the row is built, then eases it into view exactly.
+  Height-agnostic, so it lands precisely on any loaded row. Both the
+  filtered-card "view in full transcript" jump and the bottom-left turn
+  stepper now route through it; the minimap keeps the proportional
+  `_seekToFrac` (a direct-manipulation scrub where approximate is fine).
+  The whole convergence runs under one programmatic-scroll guard so no
+  mid-seek frame re-enables tail-follow.
 
 ---
 

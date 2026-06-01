@@ -56,6 +56,7 @@ next sequential number — don't reserve, don't skip.
 | [035](035-antigravity-engine-m4-locallogtail.md) | Antigravity CLI (`agy`) as the fifth engine, via M4 LocalLogTail; Gemini CLI sunset | Proposed 2026-05-22 | — |
 | [036](036-claude-code-statusline-telemetry.md) | claude-code statusLine as authoritative M4 telemetry channel | Proposed 2026-05-24 | — |
 | [037](037-multi-team-isolation-and-operator-principal-split.md) | Multi-team isolation + operator/principal split | Proposed 2026-05-31 | (single-team reading of [005](005-owner-authority-model.md)) |
+| [038](038-per-run-event-digest.md) | Per-run event digest — canonical run summary + navigation index (analysis-mode substrate) | Proposed 2026-06-01 | — |
 
 ---
 

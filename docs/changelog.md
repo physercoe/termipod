@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.768
+> **Last verified vs code:** v1.0.769
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,33 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.769-alpha — 2026-06-01
+
+**Active-session cards on Me now mark agent kind at a glance.** Tester
+feedback: the cards looked identical for a team-level steward, a project
+steward, and a worker. Added a category accent — a colored left stripe +
+a tinted icon — so the kind reads across the strip without extra text.
+
+### Added
+- **Shared `agentCategory` classifier (`services/steward_handle.dart`).**
+  One `AgentCategory` enum (`teamSteward` / `projectSteward` /
+  `domainSteward` / `worker`) + `agentCategory(agent, session:)`, keyed on
+  the existing steward predicates plus the session's project binding, so
+  the taxonomy lives in one place instead of forking per surface.
+- **`AgentCategoryStyle` (`widgets/agent_category_style.dart`).** Maps each
+  category to a color + icon + label: team steward = cyan `support_agent`,
+  project steward = blue `account_tree`, domain steward = violet `hub`,
+  worker = amber `bolt`. Color *and* icon shape both encode the category
+  (colour-blind-safe).
+
+### Changed
+- **Me active-session card (`screens/me/me_screen.dart`).** Each card gets
+  a 4px category-colored left stripe and a tinted category icon beside the
+  title; the scope / steward / engine lines are unchanged (≈zero added
+  vertical cost).
 
 ---
 

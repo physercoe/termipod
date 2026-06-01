@@ -65,6 +65,36 @@ bool isStewardAgent(Map<String, dynamic> agent) {
       isStewardKind(kind);
 }
 
+/// Coarse classification of an agent for UI that needs to tell the steward
+/// tiers and workers apart at a glance — the active-session card's accent
+/// treatment, the sessions-screen grouping, etc. One classifier so the
+/// taxonomy never forks across surfaces.
+enum AgentCategory { teamSteward, projectSteward, domainSteward, worker }
+
+/// Classify an [agent] (optionally with its [session]) into an
+/// [AgentCategory]. Order is load-bearing: the team-scoped general
+/// concierge wins over the generic steward predicates; a steward bound to
+/// a project is a project steward, an unbound one a domain steward; a
+/// non-steward agent is a worker. A null/unknown agent falls back to
+/// worker (the neutral executor tier).
+AgentCategory agentCategory(
+  Map<String, dynamic>? agent, {
+  Map<String, dynamic>? session,
+}) {
+  if (agent == null) return AgentCategory.worker;
+  final handle = (agent['handle'] ?? '').toString();
+  if (isGeneralStewardHandle(handle)) return AgentCategory.teamSteward;
+  if (isStewardAgent(agent)) {
+    final scopeKind = (session?['scope_kind'] ?? '').toString();
+    final projectBound = scopeKind == 'project' ||
+        (agent['project_id'] ?? '').toString().isNotEmpty;
+    return projectBound
+        ? AgentCategory.projectSteward
+        : AgentCategory.domainSteward;
+  }
+  return AgentCategory.worker;
+}
+
 /// Human label for a steward handle. Trims the `-steward` suffix on
 /// domain handles so AppBars and chips read `research` / `infra`
 /// instead of `research-steward` / `infra-steward`. Plain `steward`

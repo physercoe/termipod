@@ -17,6 +17,7 @@ import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_digest_card.dart';
+import '../../widgets/agent_category_style.dart';
 import '../../widgets/home/persistent_steward_card.dart';
 import '../../widgets/me_stats_card.dart';
 import '../../widgets/steward_badge.dart';
@@ -968,19 +969,22 @@ class _ActiveSessionsStrip extends StatelessWidget {
     return '';
   }
 
-  /// Resolve `engine · host` for the strip's third line. The session
-  /// row only carries `current_agent_id`; engine + host live on the
-  /// agents row. Returns empty when the agent isn't loaded yet so the
-  /// caller can omit the line.
-  String _engineHost(String agentId) {
-    if (agentId.isEmpty) return '';
-    Map<String, dynamic>? agent;
+  /// The agent row for a session's `current_agent_id`, or null when it
+  /// isn't loaded yet. Drives the engine/host line and the category accent.
+  Map<String, dynamic>? _agentFor(String agentId) {
+    if (agentId.isEmpty) return null;
     for (final a in agents) {
-      if ((a['id'] ?? '').toString() == agentId) {
-        agent = a;
-        break;
-      }
+      if ((a['id'] ?? '').toString() == agentId) return a;
     }
+    return null;
+  }
+
+  /// Resolve `engine · host` for the strip's third line. The session row
+  /// only carries `current_agent_id`; engine + host live on the agents
+  /// row. Returns empty when the agent isn't loaded yet so the caller can
+  /// omit the line.
+  String _engineHost(String agentId) {
+    final agent = _agentFor(agentId);
     if (agent == null) return '';
     final engine = (agent['kind'] ?? '').toString();
     final hostId = (agent['host_id'] ?? '').toString();
@@ -1022,6 +1026,12 @@ class _ActiveSessionsStrip extends StatelessWidget {
               final scope = _scopeLabel(s);
               final steward = _stewardName(agentId);
               final engineHost = _engineHost(agentId);
+              // Category accent (ADR-/IA): color + icon distinguish team
+              // steward · project steward · domain steward · worker at a
+              // glance across the strip. Classifier is shared
+              // (agentCategory) so the taxonomy never forks.
+              final style =
+                  agentCategoryStyle(agentCategory(_agentFor(agentId), session: s));
               return InkWell(
                 onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
                   builder: (_) => SessionChatScreen(
@@ -1033,59 +1043,94 @@ class _ActiveSessionsStrip extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
                   width: 200,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: bg,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: border),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.spaceGrotesk(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
+                      // Category accent stripe — full-height, rounded to
+                      // match the card's left edge.
+                      Container(
+                        width: 4,
+                        decoration: BoxDecoration(
+                          color: style.color,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(10),
+                            bottomLeft: Radius.circular(10),
+                          ),
                         ),
                       ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            scope,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.jetBrainsMono(
-                              fontSize: 10,
-                              color: muted,
-                            ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 1),
+                                    child: Icon(style.icon,
+                                        size: 14, color: style.color),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.spaceGrotesk(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    scope,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.jetBrainsMono(
+                                      fontSize: 10,
+                                      color: muted,
+                                    ),
+                                  ),
+                                  if (steward.isNotEmpty)
+                                    Text(
+                                      '· $steward',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.jetBrainsMono(
+                                        fontSize: 10,
+                                        color: muted,
+                                      ),
+                                    ),
+                                  if (engineHost.isNotEmpty)
+                                    Text(
+                                      engineHost,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.jetBrainsMono(
+                                        fontSize: 10,
+                                        color: muted,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
                           ),
-                          if (steward.isNotEmpty)
-                            Text(
-                              '· $steward',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.jetBrainsMono(
-                                fontSize: 10,
-                                color: muted,
-                              ),
-                            ),
-                          if (engineHost.isNotEmpty)
-                            Text(
-                              engineHost,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.jetBrainsMono(
-                                fontSize: 10,
-                                color: muted,
-                              ),
-                            ),
-                        ],
+                        ),
                       ),
                     ],
                   ),

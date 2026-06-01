@@ -121,19 +121,19 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 // docs/plans/insights-phase-1.md §3 W2. Mobile renders one tile per
 // top-level group; by_engine / by_model are the drilldown lists.
 type insightsResponse struct {
-	Scope       insightsScope          `json:"scope"`
-	Spend       insightsSpend          `json:"spend"`
-	Latency     insightsLatency        `json:"latency"`
-	Errors      insightsErrors         `json:"errors"`
-	Concurrency insightsConcurrency    `json:"concurrency"`
-	Tools       insightsTools          `json:"tools"`
+	Scope       insightsScope       `json:"scope"`
+	Spend       insightsSpend       `json:"spend"`
+	Latency     insightsLatency     `json:"latency"`
+	Errors      insightsErrors      `json:"errors"`
+	Concurrency insightsConcurrency `json:"concurrency"`
+	Tools       insightsTools       `json:"tools"`
 	// Lifecycle is populated only for project scope (W5d
 	// insights-phase-2). The other scopes have no project to
 	// resolve `phase_history` / `deliverables` / `acceptance_criteria`
 	// against, so the field is omitted via the pointer-+-omitempty.
 	Lifecycle *insightsLifecycle     `json:"lifecycle,omitempty"`
-	ByEngine    map[string]insightsAgg `json:"by_engine"`
-	ByModel     map[string]insightsAgg `json:"by_model"`
+	ByEngine  map[string]insightsAgg `json:"by_engine"`
+	ByModel   map[string]insightsAgg `json:"by_model"`
 	// ByAgent is populated whenever the scope can plausibly hold more
 	// than one agent — project / team / team_stewards / engine / host.
 	// Skipped (nil → JSON `null` via omitempty) on agent scope, where
@@ -174,9 +174,9 @@ type insightsResponse struct {
 // `last_activity` is the latest `agent_events.created_at` for the
 // project. Empty string when the project has no events yet.
 type insightsProjectAgg struct {
-	ProjectID     string  `json:"project_id"`
-	Name          string  `json:"name"`
-	CurrentPhase  string  `json:"current_phase"`
+	ProjectID    string `json:"project_id"`
+	Name         string `json:"name"`
+	CurrentPhase string `json:"current_phase"`
 	// 1-based index of CurrentPhase inside the template's phase_specs
 	// list, and the total number of phases. 0 / 0 when unknown
 	// (template missing, unparseable YAML, or current_phase not in
@@ -267,6 +267,11 @@ type insightsLatency struct {
 }
 
 type insightsErrors struct {
+	// TotalErrors is the canonical-union error count over the window
+	// (ADR-038 §1) — what the transcript Errors lens shows and what the
+	// per-run digest folds, so insights and the transcript now reconcile.
+	// FailedTurns remains the failed-turn sub-count for back-compat.
+	TotalErrors       int64 `json:"total_errors"`
 	FailedTurns       int64 `json:"failed_turns"`
 	DriverDisconnects int64 `json:"driver_disconnects"`
 	OpenAttention     int64 `json:"open_attention"`
@@ -488,17 +493,17 @@ func readInsightsSpendAndLatency(
 			agg.Handle = handle
 			agg.Status = status
 		}
-		// Failed-turn errors per agent — single grouped query rather than
-		// per-row roundtrip. Filter clause mirrors the spend window so the
-		// counts are aligned to the same scope/range.
+		// Per-agent errors — the canonical union (ADR-038 §1), matching the
+		// total above and the transcript lens, in one grouped query. Filter
+		// clause mirrors the spend window so the counts align to the same
+		// scope/range.
 		errArgs := append([]any{}, scope.EventsArgs...)
 		errArgs = append(errArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
 		errRows, err := db.QueryContext(ctx, `
 			SELECT agent_id, count(*) FROM agent_events
 			 WHERE `+scope.EventsClause+`
 			   AND ts >= ? AND ts < ?
-			   AND kind = 'turn.result'
-			   AND COALESCE(json_extract(payload_json, '$.status'), 'success') <> 'success'
+			   AND `+canonicalErrorSQLPredicate+`
 			 GROUP BY agent_id`,
 			errArgs...,
 		)
@@ -559,6 +564,21 @@ func readInsightsErrors(
 		   AND COALESCE(json_extract(payload_json, '$.status'), 'success') <> 'success'`,
 		failedArgs...,
 	).Scan(&out.Errors.FailedTurns); err != nil {
+		return err
+	}
+
+	// Total errors: the canonical union (ADR-038 §1) over the same window,
+	// so /v1/insights reconciles with the transcript Errors lens and the
+	// per-run digest. Reuses the windowed scope+range args.
+	totalArgs := append([]any{}, scope.EventsArgs...)
+	totalArgs = append(totalArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*) FROM agent_events
+		 WHERE `+scope.EventsClause+`
+		   AND ts >= ? AND ts < ?
+		   AND `+canonicalErrorSQLPredicate,
+		totalArgs...,
+	).Scan(&out.Errors.TotalErrors); err != nil {
 		return err
 	}
 

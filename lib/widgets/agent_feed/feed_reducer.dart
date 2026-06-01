@@ -1025,6 +1025,53 @@ bool agentEventIsError(
   return false;
 }
 
+/// Canonical run-scoped error classification (ADR-038 §1) over the **raw**
+/// event stream — the per-run digest's union: `kind=='error'` ∪
+/// `tool_result.is_error` ∪ a failed `tool_call_update` ∪
+/// `turn.result.status != 'success'`. Each matching event counts once (no
+/// cross-event dedup). This MIRRORS the hub's `canonicalErrorClass` /
+/// `canonicalErrorSQLPredicate` (Go) and is pinned to the shared vector
+/// `hub/internal/server/testdata/digest_canonical_vector.json` by
+/// `test/widgets/digest_canonical_vector_test.dart`.
+///
+/// Distinct from [agentEventIsError], which classifies the POST-FOLD visible
+/// *card* (a tool_call card carrying its merged result) for the live-tail
+/// lens — a subset that does not include failed turns. Use this raw-stream
+/// form when reconciling with the digest / insights `total_errors`.
+String? agentEventCanonicalErrorClass(Map<String, dynamic> e) {
+  final kind = (e['kind'] ?? '').toString();
+  final p = e['payload'];
+  switch (kind) {
+    case 'error':
+      final t = (p is Map ? (p['type'] ?? '') : '').toString();
+      return t.isNotEmpty ? 'error:$t' : 'error';
+    case 'tool_result':
+      if (p is Map && p['is_error'] == true) return 'tool_error';
+      return null;
+    case 'tool_call_update':
+      if (p is Map) {
+        final st = (p['status'] ?? '').toString();
+        if (st == 'failed' || st == 'error') return 'tool_error';
+      }
+      return null;
+    case 'turn.result':
+      final st =
+          (p is Map ? (p['status'] ?? 'success') : 'success').toString();
+      if (st != 'success') return 'failed_turn';
+      return null;
+  }
+  return null;
+}
+
+/// Total canonical errors across a raw event list (ADR-038 §1).
+int agentRunCanonicalErrorCount(List<Map<String, dynamic>> events) {
+  var n = 0;
+  for (final e in events) {
+    if (agentEventCanonicalErrorClass(e) != null) n++;
+  }
+  return n;
+}
+
 /// Kinds that anchor a *turn* for the full-screen turn-stepper
 /// (docs/plans/agent-transcript-debug-and-header-parity.md — turn-nav
 /// follow-up). A turn starts at an inbound prompt: the user's own

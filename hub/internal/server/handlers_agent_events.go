@@ -117,6 +117,13 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// ADR-038 §2: fold the freshly-inserted event into the per-agent digest
+	// + turn index. Best-effort and in its own transaction immediately after
+	// the insert (which already committed) so a digest-fold bug can never
+	// block event ingestion — the digest is a derived read model, as-of
+	// watermark_seq, and the read path repairs any lag (see digestIsStale).
+	s.foldEventIntoDigest(r.Context(), team, agent, seq, in.Kind, ts, in.Producer, payload)
+
 	s.touchSession(r.Context(), sessionID)
 	s.captureEngineSessionID(r.Context(), sessionID, in.Kind, in.Producer, payload)
 	s.captureSessionNameHint(r.Context(), sessionID, in.Kind, in.Producer, payload)
@@ -210,12 +217,30 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	// agents — the cold-open page of a resumed session is the canonical
 	// case.
 	beforeTS := strings.TrimSpace(r.URL.Query().Get("before_ts"))
+	// after_ts=<iso> is the session-scoped FORWARD window — the complement
+	// of before_ts (ADR-038 §5). The analysis-mode random-access loader
+	// fetches the block *after* a target ts when it relocates the window
+	// around a jump anchor. The (session_id, ts) index already supports
+	// `ts > ? ASC`; this just wires it. Agent scope keeps using `since`.
+	afterTS := strings.TrimSpace(r.URL.Query().Get("after_ts"))
 	// tail=true returns the newest N events in seq DESC. Without this
 	// the cold-open path used `since=0 ORDER BY seq ASC LIMIT N` which
 	// silently truncated long sessions to their oldest N events; the
 	// chat surface needs newest-first to be useful. SSE backfill keeps
 	// using `since` (ASC) because it really does want incremental tail.
 	tail := r.URL.Query().Get("tail") == "true"
+	// kind=<a,b,c> filters to a set of event kinds (ADR-038 §5) — a keyset
+	// listing of just the matches, so a filtered analysis view (Tools, Text)
+	// is full-run server-side rather than a client filter of the loaded
+	// window. Applies to every cursor branch; the index covers it.
+	var kindList []string
+	if v := strings.TrimSpace(r.URL.Query().Get("kind")); v != "" {
+		for _, k := range strings.Split(v, ",") {
+			if k = strings.TrimSpace(k); k != "" {
+				kindList = append(kindList, k)
+			}
+		}
+	}
 	limit := 200
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -226,60 +251,60 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 		limit = 1000
 	}
 
+	// Build the cursor clause per branch, then append the optional kind
+	// filter and the limit uniformly.
+	const cols = `id, agent_id, seq, ts, kind, producer, payload_json`
 	var (
-		q    string
-		args []any
+		where string
+		order string
+		args  []any
 	)
 	switch {
+	case sessionFilter != "" && afterTS != "":
+		// Session-scoped forward window (the load-newer / jump-forward path).
+		where = `session_id = ? AND ts > ?`
+		order = `ts ASC, agent_id, seq ASC`
+		args = []any{sessionFilter, afterTS}
 	case sessionFilter != "" && beforeTS != "":
 		// Session-scoped load-older. Use ts because seq is per-agent
 		// and a session can span multiple agents (resume).
-		q = `
-			SELECT id, agent_id, seq, ts, kind, producer, payload_json
-			  FROM agent_events
-			 WHERE session_id = ? AND ts < ?
-			 ORDER BY ts DESC, agent_id, seq DESC LIMIT ?`
-		args = []any{sessionFilter, beforeTS, limit}
+		where = `session_id = ? AND ts < ?`
+		order = `ts DESC, agent_id, seq DESC`
+		args = []any{sessionFilter, beforeTS}
 	case sessionFilter != "" && tail:
-		q = `
-			SELECT id, agent_id, seq, ts, kind, producer, payload_json
-			  FROM agent_events
-			 WHERE session_id = ?
-			 ORDER BY ts DESC, agent_id, seq DESC LIMIT ?`
-		args = []any{sessionFilter, limit}
+		where = `session_id = ?`
+		order = `ts DESC, agent_id, seq DESC`
+		args = []any{sessionFilter}
 	case sessionFilter != "":
 		// Session-scoped incremental ("since" makes no sense across
 		// agents because seq is per-agent; treat as "tail-equivalent
 		// in ASC order"). Used by SSE backfill paths that pass since=0
 		// or by callers that just want the oldest page.
-		q = `
-			SELECT id, agent_id, seq, ts, kind, producer, payload_json
-			  FROM agent_events
-			 WHERE session_id = ?
-			 ORDER BY ts ASC, agent_id, seq ASC LIMIT ?`
-		args = []any{sessionFilter, limit}
+		where = `session_id = ?`
+		order = `ts ASC, agent_id, seq ASC`
+		args = []any{sessionFilter}
 	case before > 0:
-		q = `
-			SELECT id, agent_id, seq, ts, kind, producer, payload_json
-			  FROM agent_events
-			 WHERE agent_id = ? AND seq < ?
-			 ORDER BY seq DESC LIMIT ?`
-		args = []any{agent, before, limit}
+		where = `agent_id = ? AND seq < ?`
+		order = `seq DESC`
+		args = []any{agent, before}
 	case tail:
-		q = `
-			SELECT id, agent_id, seq, ts, kind, producer, payload_json
-			  FROM agent_events
-			 WHERE agent_id = ?
-			 ORDER BY seq DESC LIMIT ?`
-		args = []any{agent, limit}
+		where = `agent_id = ?`
+		order = `seq DESC`
+		args = []any{agent}
 	default:
-		q = `
-			SELECT id, agent_id, seq, ts, kind, producer, payload_json
-			  FROM agent_events
-			 WHERE agent_id = ? AND seq > ?
-			 ORDER BY seq ASC LIMIT ?`
-		args = []any{agent, since, limit}
+		where = `agent_id = ? AND seq > ?`
+		order = `seq ASC`
+		args = []any{agent, since}
 	}
+	if len(kindList) > 0 {
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(kindList)), ",")
+		where += ` AND kind IN (` + ph + `)`
+		for _, k := range kindList {
+			args = append(args, k)
+		}
+	}
+	args = append(args, limit)
+	q := `SELECT ` + cols + ` FROM agent_events WHERE ` + where + ` ORDER BY ` + order + ` LIMIT ?`
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {

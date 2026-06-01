@@ -156,6 +156,11 @@ func (s *Server) stopSessionInternal(ctx context.Context, team, sessionID string
 	// so the linked task (if any) moves to done.
 	_ = s.deriveTaskStatusFromAgent(ctx, team, aid, "terminated")
 
+	// 7. ADR-038 §2 terminal hook: stamp the run digest's outcome (O(1)).
+	// Runs after the task auto-derive so the assigned task's terminal state
+	// is visible to deriveDigestOutcome.
+	s.finalizeDigestOutcome(ctx, team, aid)
+
 	return aid, nil
 }
 

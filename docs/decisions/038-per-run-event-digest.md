@@ -91,15 +91,31 @@ and Dart implementations together.
 
 ### 2. Incremental maintenance (primary), watermark reconcile (checkpoint)
 
-Fold each event into its agent's digest **in the same transaction as the
-`agent_events` insert** (`handlers_agent_events.go` POST). All hot fields are
-O(1): `event_count++`; on `turn.result` → `turn_count++`, `cost +=`, merge
-`by_model`, add `duration_ms` to `latency_hist`; on a union-matching event →
-`error_count++` (+ sample seq); on `tool_call` → `tool_total++`; on
-`tool_result.is_error` → `tool_failed++`, attributed to the tool via the
-`tool_call` id pairing. A `tool_call`'s failure is known only when its
-`tool_result` arrives, so `error_count` is **eventually consistent within the
-run** (correct by turn end) — the same resolution the mobile lens uses.
+Fold each event into its agent's digest + turn index **immediately after the
+`agent_events` insert** (`handlers_agent_events.go` POST), in its **own
+transaction**. *(Implementation refinement vs. the original "same transaction":
+the fold is one transaction adjacent to the insert rather than literally inside
+it, and it is **best-effort** — a fold error is logged and swallowed so a
+digest bug can never block event ingestion. The digest is a derived read model,
+as-of `watermark_seq`; the read path detects a digest that has fallen behind
+the log — `digestIsStale`: `watermark_seq < MAX(seq)` — and re-backfills.
+SQLite's single writer serializes the two transactions, so consistency is
+equivalent.)* All hot fields are O(1): `event_count++`; on `turn.result` →
+`turn_count++`, `cost +=`, merge `by_model` (the authoritative per-model +
+per-turn token totals — so per-model tokens come from `turn.result.by_model`,
+**never** double-counted against the `usage` events, which only feed the
+*open* turn's running estimate), add the computed wall-clock turn duration to
+`latency_hist`; on a union-matching event → `error_count++` (+ sample seq, +
+per-turn tally); on `tool_call` → `tool_total++`; on `tool_result.is_error`
+(or a failed `tool_call_update`) → `tool_failed++`, attributed to the tool by
+an id→name lookup (the brute-force backfill pairs in memory; the incremental
+path does a bounded DB lookup, only on a failure). The fold helper is shared
+by the brute-force backfill and the incremental path (one `digestFolder.step`),
+so the incremental digest equals a brute-force scan **by construction**, pinned
+by a shared Go/Dart test vector. `error_count` is the per-event union with
+**no cross-event dedup** (an engine emits either a failed `tool_result` or a
+failed `tool_call_update` for a call, not both) — exactly what the director's
+transcript shows.
 
 There is **no periodic full recompute, so no debounce question**: a turn's
 totals close once when its `turn.result` folds in, and cost/tokens also fold
@@ -186,11 +202,23 @@ storage). It is a direct projection, no synthesis guesswork:
   it is just not wired). The minimap scrubber maps an arbitrary position to the
   *nearest anchor* seq, so no raw cross-agent ordinal lookup (which would be an
   O(N) `OFFSET`) is ever needed — which is why the dense ordinal stays deferred.
-- **`/v1/insights` sums digests.** Non-agent scopes (team/project/fleet/
-  engine/host) become a **sum/merge of the in-scope per-agent digests**
-  instead of an event scan — O(#agents) not O(#events), and the error number
-  is now the canonical union (so insights and the transcript reconcile).
-  Percentiles come from merging the per-agent **latency histograms** (§1).
+- **`/v1/insights` reconciles to the canonical union.** *(Implementation
+  refinement: `/v1/insights` is **time-windowed** (default 24h) while the
+  digest is **run-lifetime** — so a naive "sum the in-scope digests" would
+  regress the window axis for a long-lived agent that straddles the window
+  boundary. The reconciliation the discussion §14 audit actually demanded is
+  the **error definition**, which we fix directly: `readInsightsErrors` now
+  counts the **canonical union** (`canonicalErrorSQLPredicate` — the SQL twin
+  of the Go `canonicalErrorClass`, pinned to it) over the window, exposed as
+  `errors.total_errors` (with `failed_turns` kept as a sub-count), and the
+  per-agent breakdown uses the same union. So insights, the transcript lens,
+  and the per-run digest now agree by construction over any window that covers
+  the run. The O(#agents) digest-sum is realized by the **run-scoped digest
+  endpoints** (§5 reads); a windowed cross-scope digest-sum needs per-window
+  digest slices and is deferred post-MVP. Percentiles still come from the
+  windowed `turn.result.duration_ms` samples; merging the per-agent latency
+  **histograms** is the digest-read path's job (the histogram is universal,
+  fed from computed wall-clock duration — §1).)*
 
 ## Consequences
 

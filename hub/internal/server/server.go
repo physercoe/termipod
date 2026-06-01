@@ -363,6 +363,9 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/events", s.handlePostAgentEvent)
 				r.Get("/events", s.handleListAgentEvents)
 				r.Get("/stream", s.handleStreamAgentEvents)
+				// ADR-038 §5: the per-agent run digest (canonical summary +
+				// navigation anchors). Lazily (re)computed on read.
+				r.Get("/digest", s.handleGetAgentDigest)
 				r.Post("/input", s.handlePostAgentInput)
 			})
 		})
@@ -400,6 +403,9 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				// inlined on the parent GET as session_cost_usd_imputed
 				// to avoid an extra round-trip on first paint.
 				r.Get("/cost", s.handleGetSessionCost)
+				// ADR-038 §5: the session-scoped run digest — the
+				// ts-ordered rollup of the session's agents' digests.
+				r.Get("/digest", s.handleGetSessionDigest)
 			})
 		})
 		r.Route("/templates", func(r chi.Router) {

@@ -1,12 +1,13 @@
 # Agent-run analysis mode — overview dashboard + accurate log navigation
 
 > **Type:** plan
-> **Status:** Proposed (2026-06-01) — spec for upgrading the **Insights**
-> surface *into* the analysis mode (a foldable overview dashboard over a
-> navigable run log — insight *is* analysis, so there is no separate page),
-> plus an operator-facing **OTLP trace** export, both backed by the per-run
-> digest + turn index ([ADR-038](../decisions/038-per-run-event-digest.md)).
-> Not yet started.
+> **Status:** In progress (2026-06-01) — **P0 shipped** (digest + turn index,
+> incremental fold, canonical-error reconciliation, digest read endpoints,
+> `after_ts`/`kind` params). Spec for upgrading the **Insights** surface *into*
+> the analysis mode (a foldable overview dashboard over a navigable run log —
+> insight *is* analysis, so there is no separate page), plus an operator-facing
+> **OTLP trace** export, both backed by the per-run digest + turn index
+> ([ADR-038](../decisions/038-per-run-event-digest.md)). P0b–P3 not yet started.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.783
 
@@ -104,7 +105,23 @@ Two windowed models, neither loading the full log:
 
 ## Phases
 
-### P0 — Hub: digest + turn index, maintained incrementally (ADR-038)
+### P0 — Hub: digest + turn index, maintained incrementally (ADR-038) — ✅ SHIPPED
+**Done (v1.0.783 tree):** migrations `0049_agent_event_digests` +
+`0050_agent_turns`; the shared `digestFolder` (`digest_fold.go`) used by both
+the brute-force backfill and the incremental POST fold (`digest_store.go`),
+pinned to a shared Go/Dart vector (`testdata/digest_canonical_vector.json`);
+the fold runs best-effort in its own transaction after the insert with
+read-path staleness repair (`digestIsStale`); the canonical-error union as both
+Go (`canonicalErrorClass`) and SQL (`canonicalErrorSQLPredicate`); digest read
+endpoints `GET …/agents/{agent}/digest` + `…/sessions/{session}/digest`
+(rollup); `after_ts` + `kind` params on the events list; the terminal-hook
+`outcome` finalization; and `/v1/insights` adopting the canonical-union
+`total_errors` so insights, the transcript lens, and the digest reconcile
+(rather than a whole-run digest-sum, which would regress the windowed axis —
+see ADR-038 §5). Tests: brute==incremental, lazy backfill, endpoint backfill,
+session rollup, kind/after_ts params, insights↔digest reconciliation. The
+original spec follows.
+
 The data substrate. New `agent_event_digests` (per-agent scalar rollups +
 canonical-error count + a mergeable latency histogram) **and** `agent_turns`
 (the turn index — one row per turn). **Maintained incrementally** by folding

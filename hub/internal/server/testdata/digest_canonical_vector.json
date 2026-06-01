@@ -1,0 +1,49 @@
+{
+  "_comment": "ADR-038 shared canonical-error / digest test vector. Read by BOTH the Go test (hub/internal/server/digest_fold_test.go) and the Dart test (test/widget/digest_canonical_vector_test.dart) so the hub and the mobile transcript lens agree on what counts as an error and how a run is summarized. Keep the two implementations pinned to this file; do not edit one side without the other.",
+  "agent_id": "agent-vec",
+  "team_id": "default",
+  "events": [
+    {"seq": 1,  "kind": "turn.start",  "ts": "2026-06-01T00:00:00Z", "producer": "agent", "payload": {"turn_id": "t1"}},
+    {"seq": 2,  "kind": "text",        "ts": "2026-06-01T00:00:00Z", "producer": "agent", "payload": {"text": "working"}},
+    {"seq": 3,  "kind": "tool_call",   "ts": "2026-06-01T00:00:01Z", "producer": "agent", "payload": {"id": "c1", "name": "bash", "input": {}}},
+    {"seq": 4,  "kind": "tool_result", "ts": "2026-06-01T00:00:01Z", "producer": "agent", "payload": {"tool_use_id": "c1", "is_error": false}},
+    {"seq": 5,  "kind": "usage",       "ts": "2026-06-01T00:00:01Z", "producer": "agent", "payload": {"input_tokens": 100, "output_tokens": 50, "model": "claude-x"}},
+    {"seq": 6,  "kind": "turn.result", "ts": "2026-06-01T00:00:02Z", "producer": "agent", "payload": {"turn_id": "t1", "status": "success", "cost_usd": 0.01, "duration_ms": 2000, "by_model": {"claude-x": {"input": 100, "output": 50}}}},
+    {"seq": 7,  "kind": "turn.start",  "ts": "2026-06-01T00:00:10Z", "producer": "agent", "payload": {"turn_id": "t2"}},
+    {"seq": 8,  "kind": "tool_call",   "ts": "2026-06-01T00:00:11Z", "producer": "agent", "payload": {"id": "c2", "name": "edit", "input": {}}},
+    {"seq": 9,  "kind": "tool_result", "ts": "2026-06-01T00:00:12Z", "producer": "agent", "payload": {"tool_use_id": "c2", "is_error": true}},
+    {"seq": 10, "kind": "error",       "ts": "2026-06-01T00:00:13Z", "producer": "agent", "payload": {"type": "timeout", "message": "tool timed out"}},
+    {"seq": 11, "kind": "turn.result", "ts": "2026-06-01T00:00:15Z", "producer": "agent", "payload": {"turn_id": "t2", "status": "error", "cost_usd": 0.02}}
+  ],
+  "expected": {
+    "event_count": 11,
+    "turn_count": 2,
+    "watermark_seq": 11,
+    "duration_ms": 15000,
+    "cost_usd": 0.03,
+    "error_count": 3,
+    "tool_total": 2,
+    "tool_failed": 1,
+    "errors": {
+      "tool_error": 1,
+      "error:timeout": 1,
+      "failed_turn": 1
+    },
+    "error_sample_seqs": {
+      "tool_error": [9],
+      "error:timeout": [10],
+      "failed_turn": [11]
+    },
+    "tools": {
+      "bash": {"calls": 1, "failed": 0},
+      "edit": {"calls": 1, "failed": 1}
+    },
+    "by_model": {
+      "claude-x": {"in": 100, "out": 50}
+    },
+    "turns": [
+      {"turn_id": "t1", "idx": 0, "start_seq": 1, "end_seq": 6,  "duration_ms": 2000, "status": "success", "cost_usd": 0.01, "in_tokens": 100, "out_tokens": 50, "tool_count": 1, "tool_failed": 0, "error_count": 0},
+      {"turn_id": "t2", "idx": 1, "start_seq": 7, "end_seq": 11, "duration_ms": 5000, "status": "error",   "cost_usd": 0.02, "in_tokens": 0,   "out_tokens": 0,  "tool_count": 1, "tool_failed": 1, "error_count": 3}
+    ]
+  }
+}

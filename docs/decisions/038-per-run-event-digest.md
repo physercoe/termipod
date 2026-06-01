@@ -177,6 +177,15 @@ storage). It is a direct projection, no synthesis guesswork:
 - **Read endpoints.** `GET /v1/teams/{team}/agents/{agent}/digest` and
   `…/sessions/{session}/digest` (the rollup). A later MCP `transcript.summary`
   wraps the same data.
+- **Random-access navigation (Insight mode).** Jumping to a digest/`agent_turns`
+  anchor (turn `start_seq`, error/tool seq) is an **index range scan** around
+  that seq/ts — O(limit + log n), no `OFFSET`, no walk-from-tail. Agent scope
+  already supports a centered window (`before` + `since`,
+  `handlers_agent_events.go:200,275`); **session scope needs an `after_ts`
+  forward param** (the `(session_id, ts)` index supports `ts > ? ASC` already —
+  it is just not wired). The minimap scrubber maps an arbitrary position to the
+  *nearest anchor* seq, so no raw cross-agent ordinal lookup (which would be an
+  O(N) `OFFSET`) is ever needed — which is why the dense ordinal stays deferred.
 - **`/v1/insights` sums digests.** Non-agent scopes (team/project/fleet/
   engine/host) become a **sum/merge of the in-scope per-agent digests**
   instead of an event scan — O(#agents) not O(#events), and the error number

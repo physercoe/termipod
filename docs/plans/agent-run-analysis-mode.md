@@ -90,7 +90,10 @@ duration_ms` (claude-only). Reads: `GET …/agents/{agent}/digest` and
 Refactor `/v1/insights` to **sum the in-scope digests** (percentiles from
 merging the histograms). *Tests: incremental digest == a brute-force scan at
 every watermark; error union matches a shared Go/Dart vector; session rollup
-== sum of agents; insights-sum == legacy scan.*
+== sum of agents; insights-sum == legacy scan.* Also add an **`after_ts` forward-window param**
+to the events list endpoint for **session scope** (the `(session_id, ts)`
+index already supports `ts > ? ASC`; agent scope already has `since`), so
+Insight-mode jumps (P2) can page forward from a mid-session anchor.
 
 ### P0b — `turn.start` event + emission (ADR-038 §3)
 Add the `turn.start {turn_id, ts}` boundary event and `turn_id` on
@@ -113,11 +116,17 @@ Available for **any run**, with the live/"as of <ts>" label. This replaces the
 sparse Insights content directly — insight *is* analysis, so the numbers now
 match the transcript (the view reads the digest).
 
-### P2 — Structure index → jump
+### P2 — Structure index → jump (random-access nav)
 Render the error taxonomy / tool list / **turn index (`agent_turns`)** as
 tappable sections in the dashboard; each entry seeks the log to its
-`start_seq` (reuse the convergent seek). This is the "navigate accurately"
-payoff — overview and log bound together, at session granularity.
+`start_seq`. Insight mode uses a **random-access window loader** — fetch a
+window *around* the anchor seq/ts and page locally in either direction —
+distinct from Feed's tail + scroll-up, so you **land anywhere without walking
+from the tail**. The DB already supports this efficiently (index range scan,
+no `OFFSET`): agent scope via `before` + `since`; **session scope needs the
+`after_ts` forward param added in P0**. The minimap scrubber maps an arbitrary
+position to the nearest anchor seq (no raw ordinal lookup). This is the
+"navigate accurately" payoff — overview and log bound together.
 
 ### P3 — Operator OTLP export (ADR-038 §4)
 The hub's optional OTLP exporter (`--otlp-endpoint`, off by default) projects
@@ -149,9 +158,14 @@ points it at Phoenix / Jaeger.
   resolved in ADR-038 (fixed log buckets from computed duration; driver-emitted
   `turn.start` + tool `turn_id` stamping; idle+terminal batch export).
 
+- **Feed vs. Insights are distinct access patterns, not redundant.** **Feed**
+  = live SSE follow (tail + scroll-up lazy-load, newest-anchored). **Insight**
+  = static **random-access** — land at any anchor and page locally either way,
+  no walk-from-tail. The DB supports any-jump efficiently (index range scans on
+  `(agent_id, seq)` / `(session_id, ts)`, no `OFFSET`); the only addition is
+  the `after_ts` session param (P0) + the window-around-anchor loader (P2).
+
 ## Open questions
 
-- **Feed vs. Insights overlap.** With the dashboard folded, the Insights view
-  is essentially the Feed view; whether `Feed` and `Insights` eventually merge
-  into one log surface (dashboard folded = Feed) is an IA detail to settle at
-  P1.
+- *(none blocking P0)* — exact histogram bucket boundaries and `turn.start`
+  rollout order are tracked in ADR-038; both are tuning/sequencing, not forks.

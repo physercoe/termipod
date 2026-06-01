@@ -1,0 +1,442 @@
+import 'package:flutter/material.dart';
+
+import '../theme/design_colors.dart';
+
+/// Foldable run-report dashboard (ADR-038 / agent-run-analysis-mode plan
+/// P1). Renders the per-run **digest** as an overview card over the
+/// navigable transcript: outcome, turns, duration, cost, errors, tool
+/// success, model breakdown, latency. Collapses to a one-line summary so
+/// the log below gets full height — insight *is* analysis, one surface.
+///
+/// Driven by the digest map (the `sessions/{id}/digest` shape), so it has
+/// no network concern of its own and is trivially widget-testable. Tapping
+/// the errors stat invokes [onJumpToSeq] with the first error anchor when a
+/// host wires navigation (the random-access seek lands in P2; the callback
+/// is optional so P1 renders standalone).
+class RunReportCard extends StatefulWidget {
+  final Map<String, dynamic> digest;
+
+  /// Snapshot age when served from the offline cache; null ⇒ live/current.
+  final DateTime? staleSince;
+
+  /// True while the run is still live/idle (not terminated) — drives the
+  /// "as of <ts> · live" affordance vs. a static report.
+  final bool live;
+
+  /// Optional: tapping a navigation anchor (an error/tool/turn seq) asks
+  /// the host to seek the transcript there. Wired in P2.
+  final void Function(int seq)? onJumpToSeq;
+
+  final bool initiallyExpanded;
+
+  const RunReportCard({
+    super.key,
+    required this.digest,
+    this.staleSince,
+    this.live = false,
+    this.onJumpToSeq,
+    this.initiallyExpanded = true,
+  });
+
+  @override
+  State<RunReportCard> createState() => _RunReportCardState();
+}
+
+class _RunReportCardState extends State<RunReportCard> {
+  late bool _expanded = widget.initiallyExpanded;
+
+  int _int(String key) {
+    final v = widget.digest[key];
+    if (v is int) return v;
+    if (v is double) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  double _double(String key) {
+    final v = widget.digest[key];
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final cardBg =
+        isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+
+    final events = _int('event_count');
+    final turns = _int('turn_count');
+    final errors = _int('error_count');
+    final toolTotal = _int('tool_total');
+    final toolFailed = _int('tool_failed');
+    final cost = _double('cost_usd');
+    final durationMs = _int('duration_ms');
+    final outcome = (widget.digest['outcome'] ?? '').toString();
+
+    final summary = _summaryLine(
+      outcome: outcome,
+      turns: turns,
+      durationMs: durationMs,
+      cost: cost,
+      events: events,
+    );
+    final (outcomeIcon, outcomeColor) = _outcomeBadge(outcome, errors);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header — always visible; the one-line summary when collapsed.
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 11, 10, 11),
+              child: Row(
+                children: [
+                  Icon(outcomeIcon, size: 18, color: outcomeColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      summary,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isDark
+                            ? DesignColors.textPrimary
+                            : DesignColors.textPrimaryLight,
+                      ),
+                    ),
+                  ),
+                  if (errors > 0) ...[
+                    _ErrorPill(count: errors),
+                    const SizedBox(width: 6),
+                  ],
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 20,
+                    color: muted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded) ...[
+            Divider(height: 1, color: border),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              child: _body(context, muted, isDark, events: events,
+                  turns: turns, errors: errors, toolTotal: toolTotal,
+                  toolFailed: toolFailed, cost: cost, durationMs: durationMs),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _body(
+    BuildContext context,
+    Color muted,
+    bool isDark, {
+    required int events,
+    required int turns,
+    required int errors,
+    required int toolTotal,
+    required int toolFailed,
+    required double cost,
+    required int durationMs,
+  }) {
+    final latency = widget.digest['latency'];
+    final p50 = latency is Map ? _numAsInt(latency['p50_ms']) : 0;
+    final p95 = latency is Map ? _numAsInt(latency['p95_ms']) : 0;
+    final byModel = widget.digest['by_model'];
+    final firstErrorSeq = _firstErrorSeq();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 18,
+          runSpacing: 12,
+          children: [
+            _Stat(label: 'Events', value: '$events', muted: muted),
+            _Stat(label: 'Turns', value: '$turns', muted: muted),
+            _Stat(
+                label: 'Duration',
+                value: _fmtDuration(durationMs),
+                muted: muted),
+            _Stat(
+                label: 'Cost',
+                value: cost > 0 ? '\$${cost.toStringAsFixed(2)}' : '—',
+                muted: muted),
+            _Stat(
+              label: 'Tools',
+              value: toolTotal > 0
+                  ? '${toolTotal - toolFailed}/$toolTotal'
+                  : '—',
+              muted: muted,
+              valueColor: toolFailed > 0 ? DesignColors.warning : null,
+            ),
+            _Stat(
+              label: 'Errors',
+              value: '$errors',
+              muted: muted,
+              valueColor: errors > 0 ? DesignColors.error : null,
+              onTap: (errors > 0 && firstErrorSeq != null &&
+                      widget.onJumpToSeq != null)
+                  ? () => widget.onJumpToSeq!(firstErrorSeq!)
+                  : null,
+            ),
+            if (p50 > 0 || p95 > 0)
+              _Stat(
+                  label: 'Latency p50/p95',
+                  value: '${_fmtDuration(p50)} / ${_fmtDuration(p95)}',
+                  muted: muted),
+          ],
+        ),
+        if (byModel is Map && byModel.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Text('Models',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.4,
+                  color: muted)),
+          const SizedBox(height: 6),
+          ...byModel.entries.map((e) => _modelRow(e.key.toString(),
+              e.value is Map ? (e.value as Map).cast<String, dynamic>() : const {},
+              muted, isDark)),
+        ],
+        const SizedBox(height: 12),
+        _footer(muted),
+      ],
+    );
+  }
+
+  Widget _modelRow(
+      String model, Map<String, dynamic> m, Color muted, bool isDark) {
+    final inTok = _numAsInt(m['in']);
+    final outTok = _numAsInt(m['out']);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(model,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: isDark
+                        ? DesignColors.textPrimary
+                        : DesignColors.textPrimaryLight)),
+          ),
+          Text('${_fmtTokens(inTok)} in · ${_fmtTokens(outTok)} out',
+              style: TextStyle(fontSize: 11, color: muted)),
+        ],
+      ),
+    );
+  }
+
+  Widget _footer(Color muted) {
+    final lastTs = (widget.digest['last_ts'] ?? '').toString();
+    final parts = <String>[];
+    if (widget.live) {
+      parts.add('live');
+    }
+    if (widget.staleSince != null) {
+      parts.add('cached');
+    }
+    final when = _fmtClock(lastTs);
+    final label = [
+      if (when.isNotEmpty) 'as of $when',
+      ...parts,
+    ].join(' · ');
+    if (label.isEmpty) return const SizedBox.shrink();
+    return Row(
+      children: [
+        Icon(widget.live ? Icons.sync : Icons.history,
+            size: 12, color: muted),
+        const SizedBox(width: 5),
+        Text(label, style: TextStyle(fontSize: 11, color: muted)),
+      ],
+    );
+  }
+
+  int? _firstErrorSeq() {
+    final errs = widget.digest['errors'];
+    if (errs is! Map) return null;
+    int? best;
+    for (final v in errs.values) {
+      if (v is Map) {
+        final seqs = v['sample_seqs'];
+        if (seqs is List && seqs.isNotEmpty) {
+          final s = _numAsInt(seqs.first);
+          if (best == null || s < best!) best = s;
+        }
+      }
+    }
+    return best;
+  }
+
+  String _summaryLine({
+    required String outcome,
+    required int turns,
+    required int durationMs,
+    required double cost,
+    required int events,
+  }) {
+    if (events == 0) return 'No activity yet';
+    final bits = <String>[
+      if (outcome.isNotEmpty) outcome,
+      '$turns ${turns == 1 ? 'turn' : 'turns'}',
+      _fmtDuration(durationMs),
+      if (cost > 0) '\$${cost.toStringAsFixed(2)}',
+    ];
+    return bits.join(' · ');
+  }
+
+  (IconData, Color) _outcomeBadge(String outcome, int errors) {
+    switch (outcome) {
+      case 'done':
+        return (Icons.check_circle_outline, DesignColors.success);
+      case 'cancelled':
+        return (Icons.cancel_outlined, DesignColors.textMuted);
+      case 'blocked':
+        return (Icons.block, DesignColors.warning);
+      case 'error':
+        return (Icons.error_outline, DesignColors.error);
+    }
+    if (errors > 0) {
+      return (Icons.warning_amber_rounded, DesignColors.warning);
+    }
+    return (Icons.assessment_outlined, DesignColors.primary);
+  }
+}
+
+int _numAsInt(dynamic v) {
+  if (v is int) return v;
+  if (v is double) return v.toInt();
+  if (v is String) return int.tryParse(v) ?? 0;
+  return 0;
+}
+
+String _fmtDuration(int ms) {
+  if (ms <= 0) return '—';
+  final s = ms ~/ 1000;
+  if (s < 60) return '${s}s';
+  final m = s ~/ 60;
+  final rem = s % 60;
+  if (m < 60) return rem == 0 ? '${m}m' : '${m}m${rem}s';
+  final h = m ~/ 60;
+  final mm = m % 60;
+  return mm == 0 ? '${h}h' : '${h}h${mm}m';
+}
+
+String _fmtTokens(int n) {
+  if (n < 1000) return '$n';
+  if (n < 1000000) return '${(n / 1000).toStringAsFixed(n < 10000 ? 1 : 0)}k';
+  return '${(n / 1000000).toStringAsFixed(1)}M';
+}
+
+/// HH:MM from an ISO timestamp; empty if unparseable.
+String _fmtClock(String iso) {
+  if (iso.isEmpty) return '';
+  final t = DateTime.tryParse(iso);
+  if (t == null) return '';
+  final l = t.toLocal();
+  final h = l.hour.toString().padLeft(2, '0');
+  final m = l.minute.toString().padLeft(2, '0');
+  return '$h:$m';
+}
+
+class _Stat extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color muted;
+  final Color? valueColor;
+  final VoidCallback? onTap;
+
+  const _Stat({
+    required this.label,
+    required this.value,
+    required this.muted,
+    this.valueColor,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final body = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: valueColor ??
+                  (isDark
+                      ? DesignColors.textPrimary
+                      : DesignColors.textPrimaryLight),
+            )),
+        const SizedBox(height: 2),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    fontSize: 10.5, letterSpacing: 0.3, color: muted)),
+            if (onTap != null) ...[
+              const SizedBox(width: 3),
+              Icon(Icons.my_location, size: 11, color: muted),
+            ],
+          ],
+        ),
+      ],
+    );
+    if (onTap == null) return body;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(padding: const EdgeInsets.all(2), child: body),
+    );
+  }
+}
+
+class _ErrorPill extends StatelessWidget {
+  final int count;
+  const _ErrorPill({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: DesignColors.error.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text('⚠ $count',
+          style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: DesignColors.error)),
+    );
+  }
+}

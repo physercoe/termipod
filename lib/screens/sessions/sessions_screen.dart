@@ -14,7 +14,7 @@ import '../../widgets/agent_config_sheet.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/agent_journal_view.dart';
 import '../../widgets/agent_pane_view.dart';
-import '../../widgets/insights_panel.dart';
+import '../../widgets/session_analysis_view.dart';
 import '../../widgets/session_details_sheet.dart';
 import '../../widgets/session_header.dart';
 import '../insights/insights_screen.dart';
@@ -2725,11 +2725,13 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
                   ),
                   AgentPaneView(agentId: widget.agentId),
                   AgentJournalView(agentId: widget.agentId),
-                  ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                    children: [
-                      InsightsPanel(scope: InsightsScope.agent(widget.agentId)),
-                    ],
+                  // Insight *is* analysis (ADR-038 / analysis-mode plan P1):
+                  // a foldable run-report dashboard from the session digest
+                  // over the navigable transcript, replacing the sparse
+                  // per-agent InsightsPanel.
+                  SessionAnalysisView(
+                    agentId: widget.agentId,
+                    sessionId: widget.sessionId,
                   ),
                 ],
               ),

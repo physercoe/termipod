@@ -287,6 +287,13 @@ class HubClient {
   Future<Map<String, dynamic>?> getSessionCost(String id) =>
       sessions.getSessionCost(id);
 
+  Future<Map<String, dynamic>?> getSessionDigest(String id) =>
+      sessions.getSessionDigest(id);
+
+  Future<CachedResponse<Map<String, dynamic>>> getSessionDigestCached(
+          String id) =>
+      sessions.getSessionDigestCached(id);
+
   Future<Map<String, dynamic>> openSession({
     String? title,
     String? scopeKind,

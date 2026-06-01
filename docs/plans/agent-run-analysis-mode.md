@@ -160,14 +160,23 @@ the contract is recorded in `docs/spine/protocols.md` §5. **Remaining:** the
 claude M2/M4 drivers emit at input-send (synthesis covers them meanwhile —
 accurate for claude, which emits one `turn.result` per prompt).
 
-### P1 — Mobile: upgrade the Insights view into the analysis surface
+### P1 — Mobile: upgrade the Insights view into the analysis surface — 🟡 session surface shipped
 The `View ▾ → Insights` view *becomes* the analysis surface (no new route): a
 **foldable overview dashboard** (report card from the **session** digest) over
-the full-screen `AgentFeed`. Wire the session `event_count` so the position
-reads "N of M" (ts-rank across agents) and the minimap thumb is monotonic.
-Available for **any run**, with the live/"as of <ts>" label. This replaces the
-sparse Insights content directly — insight *is* analysis, so the numbers now
-match the transcript (the view reads the digest).
+the full-screen `AgentFeed`. Available for **any run**, with the live/"as of
+<ts>" label. This replaces the sparse Insights content directly — insight *is*
+analysis, so the numbers now match the transcript (the view reads the digest).
+**Done:** `getSessionDigest`(+cached) hub client + `sessionDigestProvider`;
+`RunReportCard` (foldable digest dashboard — outcome / turns / duration / cost /
+errors / tool success / models / latency, error-stat → `onJumpToSeq`);
+`SessionAnalysisView` (card over `AgentFeed(dense:false)` + pull-to-refresh),
+wired into `SessionChatScreen`'s Insights tab; widget tests
+(`run_report_card_test.dart`). **Remaining:** the project-agent sheet's Insights
+tab is agent-scoped (no session) and still uses the sparse `InsightsPanel` — an
+agent-digest `RunReportCard` variant gives it parity (follow-up; `GET
+agents/{agent}/digest` already exists). Wiring the digest `event_count` into the
+`AgentFeed` position ("N of M") + monotonic minimap is folded into **P2** with
+the random-access loader (the position bar and the loader share the count).
 
 ### P2 — Structure index + filtered views → jump (random-access nav)
 Implement the two-model loading (see *Loading model* above). **All view** = the

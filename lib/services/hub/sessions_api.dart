@@ -61,6 +61,45 @@ class SessionsApi {
     }
   }
 
+  /// Per-session run digest — the canonical summary the analysis surface
+  /// reads (ADR-038 §5): the ts-ordered rollup of the session's agents'
+  /// digests. Shape: `{session_id, agent_ids, event_count, turn_count,
+  /// duration_ms, cost_usd, error_count, errors, tool_total, tool_failed,
+  /// tools, by_model, latency:{p50_ms,p95_ms,samples,...}, outcome,
+  /// watermark_seq, first_ts, last_ts}`. The hub lazily (re)computes it on
+  /// read, so it is current for live runs too (label it "as of last_ts").
+  ///
+  /// Returns null on any error so the report card self-gates blank rather
+  /// than stalling the analysis view.
+  Future<Map<String, dynamic>?> getSessionDigest(String id) async {
+    try {
+      final out =
+          await _t.get('/v1/teams/${_t.cfg.teamId}/sessions/$id/digest');
+      if (out is Map) return out.cast<String, dynamic>();
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Read-through variant of [getSessionDigest] — keeps the last digest
+  /// visible offline (the analysis surface is read-mostly; a stale report
+  /// card beats a blank one). Mirrors [listSessionsCached].
+  Future<CachedResponse<Map<String, dynamic>>> getSessionDigestCached(
+      String id) {
+    return readThrough<Map<String, dynamic>>(
+      cache: _t.snapshotCache,
+      hubKey: _t.cacheHubKey,
+      endpoint: '/v1/teams/${_t.cfg.teamId}/sessions/$id/digest',
+      fetch: () async {
+        final out =
+            await _t.get('/v1/teams/${_t.cfg.teamId}/sessions/$id/digest');
+        return (out as Map).cast<String, dynamic>();
+      },
+      decode: (raw) => (raw as Map).cast<String, dynamic>(),
+    );
+  }
+
   /// Opens a new session. Most callers will pass `agentId` to attach
   /// the session to an existing steward; `worktreePath` and
   /// `spawnSpecYaml` are needed when the resume flow (W2-S3) wants to

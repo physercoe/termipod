@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.776
+> **Last verified vs code:** v1.0.777
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,44 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.777-alpha — 2026-06-01
+
+**Transcript nav, round 2 — testing feedback on v1.0.776.** Six issues,
+mostly the bottom-nav chrome.
+
+### Changed
+- **Turn anchors exclude system-injected prompts.** `isTurnAnchorEvent`
+  now skips `input.text` with `producer == 'system'` or `from.role ==
+  'system'` (the "system agent" cards), so the stepper only lands on real
+  human/peer prompts.
+- **Turn stepper redesigned: floating, not a footer row.** The full-width
+  `TranscriptNavBar` ate vertical space, its `turn N/M` ordinal disagreed
+  with the cost/turn chip (prompts vs agent turns), and prev/next derived
+  the current turn from scroll-percent under variable row heights — so it
+  mis-stepped and could appear to wrap. Replaced with a compact floating
+  `TurnStepperPill` (bottom-left): `⤒` top-of-loaded, `‹`/`›` prev/next
+  prompt. **Relative + explicitly clamped** (buttons disable at the ends —
+  no wrap-around), stepping anchored on the last jump, **no ordinal** to
+  mismatch the chip.
+- **Minimap shows in every full-screen view.** Ticks now include turn
+  anchors (not just tool/error rows), and the strip always renders in
+  full-screen, so Text/Turns views get a scrubber too.
+
+### Fixed
+- **Jump-pill percent was non-monotonic.** Removed the `X%` from
+  `NewEventsPill` — over a lazily-loaded transcript with no known total,
+  loading an older page above your row re-scales the percent, so it jumped
+  around. The pill is now a clean `N new` / `Latest` jump-to-tail.
+- **Minimap thumb jittered on lazy-load.** Removed the viewport thumb (same
+  root cause as the percent — a position bar can't be both normalized to
+  the loaded window and jump-free when that window grows at the top).
+  Ticks + tap-jump + drag-scrub remain.
+- **Expand button overlapped the verbose toggle.** They now share one
+  top-right `Row`, so they can't collide regardless of the verbose chip's
+  width.
 
 ---
 

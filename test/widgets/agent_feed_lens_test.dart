@@ -155,36 +155,51 @@ void main() {
   });
 
   group('turn-nav anchors', () {
-    // A small rendered list: prompt, reply, tool, prompt, reply.
+    // A rendered list: user prompt, reply, tool, a2a prompt, reply.
     final rendered = [
-      _ev('input.text'), // 0 — turn 1
+      _ev('input.text'), // 0 — user prompt
       _ev('text'), // 1
       _ev('tool_call'), // 2
-      _ev('input.text'), // 3 — turn 2
+      {
+        'kind': 'input.text', // 3 — a2a peer prompt
+        'payload': {
+          'text': 'hi',
+          'from': {'role': 'peer_worker', 'handle': 'w1'},
+        },
+      },
       _ev('text'), // 4
     ];
 
-    test('turnAnchorIndices picks only inbound prompts', () {
+    test('turnAnchorIndices picks user + peer prompts', () {
       expect(turnAnchorIndices(rendered), [0, 3]);
     });
 
-    test('a2a/system are filtered, agent output never anchors', () {
+    test('agent output never anchors', () {
       expect(turnAnchorIndices([_ev('text'), _ev('tool_call')]), isEmpty);
     });
 
-    test('currentTurnOrdinal maps viewport fraction to the turn above it',
-        () {
-      final anchors = turnAnchorIndices(rendered); // [0, 3]
-      // Top of the list → first turn.
-      expect(currentTurnOrdinal(anchors, rendered.length, 0.0), 1);
-      // Just past the second anchor (idx 3 of 4 → 0.75) → second turn.
-      expect(currentTurnOrdinal(anchors, rendered.length, 0.8), 2);
-      // Mid-list, before the second prompt → still first turn.
-      expect(currentTurnOrdinal(anchors, rendered.length, 0.5), 1);
+    test('system-injected prompts are NOT turn anchors', () {
+      // from.role == system → framing the hub injected, not a turn.
+      final fromSystem = {
+        'kind': 'input.text',
+        'payload': {
+          'text': 'context',
+          'from': {'role': 'system'},
+        },
+      };
+      // producer == system → same.
+      final producerSystem = {
+        'kind': 'input.text',
+        'producer': 'system',
+        'payload': {'text': 'context'},
+      };
+      expect(isTurnAnchorEvent(fromSystem), isFalse);
+      expect(isTurnAnchorEvent(producerSystem), isFalse);
+      expect(turnAnchorIndices([fromSystem, producerSystem]), isEmpty);
     });
 
-    test('currentTurnOrdinal is 0 when there are no turns', () {
-      expect(currentTurnOrdinal(const [], 10, 0.5), 0);
+    test('a plain user input.text IS a turn anchor', () {
+      expect(isTurnAnchorEvent(_ev('input.text')), isTrue);
     });
   });
 }

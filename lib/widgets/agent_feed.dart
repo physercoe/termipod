@@ -299,28 +299,21 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // pager — _maybeLoadOlder dedupes against in-flight fetches and the
   // _atHead flag, so the listener can fire as often as the gesture
   // wants without piling up requests.
-  // Latest scroll progress in 0..100. Refreshed on every scroll tick;
-  // the jump-to-tail pill renders this so users have a sense of where
-  // they are in long sessions ("3% — top of the loaded transcript",
-  // "82% — almost back at tail").
-  int _scrollPercent = 100;
-
   void _onScroll() {
     if (!_scroll.hasClients) return;
     final atBottom = _scroll.position.pixels >=
         _scroll.position.maxScrollExtent - 40;
-    final maxExt = _scroll.position.maxScrollExtent;
-    final pct = maxExt <= 0
-        ? 100
-        : ((_scroll.position.pixels / maxExt) * 100).clamp(0, 100).round();
-    final percentChanged = pct != _scrollPercent;
-    if (_followTail != atBottom || percentChanged) {
+    if (_followTail != atBottom) {
       setState(() {
         _followTail = atBottom;
-        _scrollPercent = pct;
         // Returning to the tail clears the pending-event counter; the
         // pill disappears on the same frame.
-        if (atBottom) _newWhileAway = 0;
+        if (atBottom) {
+          _newWhileAway = 0;
+          // Reset the turn-stepper anchor so the next `‹` starts from the
+          // newest prompt rather than wherever we last jumped.
+          _activeSeekSeq = null;
+        }
       });
     }
     if (_scroll.position.pixels <= 120) _maybeLoadOlder();
@@ -478,8 +471,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   }
 
   /// Continuous scrub from the right-edge minimap drag. jumpTo (not
-  /// animateTo) so the viewport tracks the finger; the scroll listener
-  /// keeps `_scrollPercent` — and thus the minimap thumb — in step.
+  /// animateTo) so the viewport tracks the finger directly.
   void _scrubTo(double frac) {
     if (!_scroll.hasClients) return;
     if (_followTail) setState(() => _followTail = false);
@@ -1397,12 +1389,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     Map<FeedLens, int> lensCounts = const {};
     final minimapMarks = <FeedMinimapMark>[];
     // Turn-nav state (full-screen only). Anchors are the inbound prompts
-    // in the rendered list; the nav bar steps between them. See
-    // [turnAnchorIndices] / [currentTurnOrdinal].
+    // in the rendered list; the stepper walks between them. See
+    // [turnAnchorIndices] / [isTurnAnchorEvent].
     List<int> turnAnchorIdx = const [];
-    var navTurns = 0;
-    var currentTurn = 0;
-    final viewportFrac = _scrollPercent / 100.0;
+    final lensedDenom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
     if (!widget.dense) {
       lensCounts = {
         for (final l in FeedLens.values)
@@ -1413,26 +1403,39 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                       agentEventMatchesLens(e, l, toolResults, toolUpdates))
                   .length,
       };
-      final lensedDenom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
-      // Ticks track the list actually on screen (`lensed`), so a tick's
-      // vertical fraction maps straight to the scroll offset — letting the
-      // tap proportionally pre-scroll to the target (see [_seekToFrac]).
-      // When no lens is active `lensed == visible`, so this is the whole
-      // loaded transcript as before.
+      turnAnchorIdx = turnAnchorIndices(lensed);
+      final turnIdxSet = turnAnchorIdx.toSet();
+      // Ticks track the list actually on screen (`lensed`) so the minimap
+      // is populated in EVERY view (item: "no minimap for turn/text view"),
+      // not only where tool/error rows exist: a faint tick per tool call OR
+      // turn anchor, a red tick per error. A tick's fraction maps straight
+      // to scroll offset for the tap-jump pre-scroll (see [_seekToFrac]).
       for (var i = 0; i < lensed.length; i++) {
         final e = lensed[i];
         final isErr = agentEventIsError(e, toolResults, toolUpdates);
-        if (!isErr && (e['kind'] ?? '').toString() != 'tool_call') continue;
+        final isTool = (e['kind'] ?? '').toString() == 'tool_call';
+        if (!isErr && !isTool && !turnIdxSet.contains(i)) continue;
         minimapMarks.add(FeedMinimapMark(
           frac: i / lensedDenom,
           seq: (e['seq'] as num?)?.toInt() ?? 0,
           isError: isErr,
         ));
       }
-      turnAnchorIdx = turnAnchorIndices(lensed);
-      navTurns = turnAnchorIdx.length;
-      currentTurn =
-          currentTurnOrdinal(turnAnchorIdx, lensed.length, viewportFrac);
+    }
+    // Turn seqs (ascending) for the stepper's clamped prev/next.
+    final turnSeqs = [
+      for (final i in turnAnchorIdx) (lensed[i]['seq'] as num?)?.toInt() ?? 0,
+    ];
+    // Step relative to the last seek anchor (set by every jump). prevK =
+    // last anchor strictly older than the anchor; nextK = first strictly
+    // newer. Null at the ends → the button disables (no wrap-around). With
+    // no anchor yet, `ref` is open-ended so prev lands on the newest turn.
+    final ref = _activeSeekSeq;
+    int? prevTurnK;
+    int? nextTurnK;
+    for (var k = 0; k < turnSeqs.length; k++) {
+      if (ref == null || turnSeqs[k] < ref) prevTurnK = k;
+      if (nextTurnK == null && ref != null && turnSeqs[k] > ref) nextTurnK = k;
     }
     // Count the verbose-gated events so the toggle can advertise its
     // value — "Show debug (12)" carries more signal than a bare button.
@@ -1458,6 +1461,16 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // SessionChatScreen so the session-details sheet can show live
     // mutable state (effort, thinking, fast_mode, output_style).
     _maybeFireStatusLineChanged(latestStatusLinePayload(_events));
+    // Verbose toggle chip, shared between the dense (top-right, beside the
+    // expand button) and full-screen (shifted to clear the minimap) hosts.
+    // Built once so both placements stay identical.
+    final verboseChip = (_verbose || hiddenForVerbose > 0)
+        ? VerboseToggleChip(
+            verbose: _verbose,
+            hiddenCount: hiddenForVerbose,
+            onToggle: () => setState(() => _verbose = !_verbose),
+          )
+        : null;
     return Column(
       children: [
         // session.init is rendered in the parent AppBar via the
@@ -1584,7 +1597,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   child: Center(
                     child: NewEventsPill(
                       count: _newWhileAway,
-                      scrollPercent: _scrollPercent,
                       onTap: _jumpToLatest,
                     ),
                   ),
@@ -1641,14 +1653,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     },
                   ),
                 ),
-              // P3 right-edge minimap (full-screen only): turn ticks +
-              // red error ticks over the whole loaded transcript, tap to
-              // jump. A 14px strip flush to the edge was effectively
-              // un-tappable (too thin + fought the device edge-swipe);
-              // widened to a 20px column pulled off the edge, and the
-              // verbose chip is shifted left (below) so the minimap owns a
-              // clear full-height lane instead of starting under the chip.
-              if (!widget.dense && minimapMarks.isNotEmpty)
+              // Right-edge minimap (full-screen only): a faint tick per
+              // tool call / turn anchor + a red tick per error over the
+              // loaded transcript; tap jumps to the nearest error, drag
+              // scrubs. Always rendered in full-screen (every view, incl.
+              // text/turns) so the strip is a consistent scrubber, not just
+              // present where tool/error rows happen to exist.
+              if (!widget.dense)
                 Positioned(
                   top: 8,
                   right: 4,
@@ -1658,62 +1669,56 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     marks: minimapMarks,
                     onJump: _seekToFrac,
                     onScrub: _scrubTo,
-                    viewportFrac: viewportFrac,
                   ),
                 ),
-              // P3 expand affordance: a constrained (dense) host that
-              // wired [onExpand] gets a button to push the dedicated
-              // full-screen transcript. Sits left of the verbose chip.
-              if (widget.dense && widget.onExpand != null)
+              // Full-screen turn stepper: floats bottom-left (was a full-
+              // width footer row that ate vertical space). ⤒ top-of-loaded,
+              // ‹/› previous/next prompt — relative, clamped, no ordinal.
+              if (!widget.dense)
                 Positioned(
-                  top: 6,
-                  right: (_verbose || hiddenForVerbose > 0) ? 44 : 6,
-                  child: ExpandFeedButton(onTap: widget.onExpand!),
+                  left: 6,
+                  bottom: 12,
+                  child: TurnStepperPill(
+                    onOldest: _jumpToOldestLoaded,
+                    onPrevTurn: prevTurnK != null
+                        ? () => _seekToLensedIndex(
+                            turnAnchorIdx[prevTurnK!], lensed)
+                        : (!_atHead ? () { _maybeLoadOlder(); } : null),
+                    onNextTurn: nextTurnK != null
+                        ? () => _seekToLensedIndex(
+                            turnAnchorIdx[nextTurnK!], lensed)
+                        : null,
+                  ),
                 ),
-              // Verbose toggle: tiny floating chip in the top-right.
-              // Replaces the previous full-row strip — the row was
-              // mostly whitespace + a long descriptive label, eating
-              // a transcript line on every steward chat. Only renders
-              // when there's actually something to toggle (events
-              // hidden, or already in verbose mode).
-              if (_verbose || hiddenForVerbose > 0)
+              // Top-right floating controls: expand (dense only) + verbose
+              // toggle, in ONE row so they can't overlap (the previous
+              // fixed-offset stacking collided once the verbose chip widened
+              // with its hidden-count). Full-screen has no expand and shifts
+              // right to clear the minimap lane (20px col at right:4 → left
+              // edge ~right:24).
+              if (verboseChip != null ||
+                  (widget.dense && widget.onExpand != null))
                 Positioned(
                   top: 6,
-                  // Clear the full-screen minimap's lane (20px col at
-                  // right:4 → its left edge sits at right:24) so the chip
-                  // doesn't cap the strip; otherwise hug the corner.
-                  right: (!widget.dense && minimapMarks.isNotEmpty) ? 30 : 6,
-                  child: VerboseToggleChip(
-                    verbose: _verbose,
-                    hiddenCount: hiddenForVerbose,
-                    onToggle: () => setState(() => _verbose = !_verbose),
+                  right: widget.dense ? 6 : 30,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.dense && widget.onExpand != null)
+                        ExpandFeedButton(onTap: widget.onExpand!),
+                      if (widget.dense &&
+                          widget.onExpand != null &&
+                          verboseChip != null)
+                        const SizedBox(width: 6),
+                      if (verboseChip != null) verboseChip,
+                    ],
                   ),
                 ),
             ],
           ),
         ),
-        // Full-screen turn navigator: first/last endpoints + prev/next
-        // turn stepper. A real footer row (not floating) — the full-screen
-        // host has the room, and long-log navigation is the whole point of
-        // this surface. Constrained (dense) hosts keep the floating funnel.
-        if (!widget.dense)
-          TranscriptNavBar(
-            currentTurn: currentTurn,
-            turnCount: navTurns,
-            moreAbove: !_atHead,
-            onOldest: _jumpToOldestLoaded,
-            onLatest: _jumpToLatest,
-            // Prev = the turn anchor before the current one; at the first
-            // loaded turn, page older instead so the walk can continue up.
-            onPrevTurn: currentTurn > 1
-                ? () => _seekToLensedIndex(
-                    turnAnchorIdx[currentTurn - 2], lensed)
-                : (!_atHead ? () { _maybeLoadOlder(); } : null),
-            onNextTurn: currentTurn < navTurns
-                ? () =>
-                    _seekToLensedIndex(turnAnchorIdx[currentTurn], lensed)
-                : null,
-          ),
+        // (Turn stepper now floats bottom-left inside the Stack above,
+        // replacing the old full-width footer row.)
         compose,
       ],
     );

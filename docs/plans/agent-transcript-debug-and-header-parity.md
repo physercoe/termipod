@@ -8,7 +8,7 @@
 > `dense` flag → full-screen lens bar + right-edge minimap +
 > `TranscriptScreen` expand route).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.776
+> **Last verified vs code:** v1.0.777
 
 **TL;DR.** From a testing pass: the agent transcript is hard to debug
 (no way to filter to errors, no way to jump to a turn), and the same
@@ -238,9 +238,27 @@ kept as the *intent*:
   the deep/long logs the feature is meant to serve, versus the current
   O(log n) keyset cursor (`before` / `before_ts`).
 
-**Shipped instead (v1.0.776).** The *turn* is the stable, meaningful unit:
-`TranscriptNavBar` (full-screen) steps prev/next turn over inbound-prompt
-anchors with a `turn N/M` position and `⤒`/`⤓` endpoints, and the minimap
-became a draggable scrubber with a viewport thumb. Keyset infinite-scroll
-stays underneath; "oldest" means top-of-loaded and pages older on demand
-rather than breaking the contiguous tail-anchored window.
+**Shipped instead (v1.0.776, revised v1.0.777).** The *turn* is the stable
+unit: a stepper walks inbound-prompt anchors, `⤒` jumps to top-of-loaded
+(paging older on demand, never breaking the contiguous tail-anchored
+window), and the minimap is a tick-overview + tap-jump + drag-scrubber.
+Keyset infinite-scroll stays underneath.
+
+**v1.0.777 corrections (testing).** The first cut had real flaws:
+
+- The full-width footer **`TranscriptNavBar` ate vertical space**, and its
+  `turn N/M` **ordinal disagreed with the cost/turn chip** (it counted
+  prompts; the chip counts agent `turn.result`s) and was derived from
+  scroll-percent under variable row heights, so prev/next **mis-stepped /
+  appeared to wrap**. Replaced with a compact floating **`TurnStepperPill`**
+  (`⤒ ‹ ›`): relative, explicitly clamped (disables at the ends), no
+  ordinal to mismatch.
+- A **position indicator over lazily-loaded content with no total is
+  inherently non-monotonic** — loading an older page above your row
+  re-scales any normalized %/thumb. So the jump-pill **percent and the
+  minimap thumb were removed** (they jittered on every load). The minimap
+  keeps ticks + tap-jump + drag-scrub; position sense is qualitative.
+- Turn anchors now **exclude system-injected prompts** (`isTurnAnchorEvent`
+  skips `producer==system` / `from.role==system`), the minimap renders in
+  **every** full-screen view (ticks include turn anchors), and the expand +
+  verbose chips share one row so they can't collide.

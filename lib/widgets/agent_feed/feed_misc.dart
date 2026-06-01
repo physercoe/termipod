@@ -146,20 +146,19 @@ class NewEventsPill extends StatelessWidget {
   // pill still renders as a plain jump-to-tail control so they can
   // snap back without scrolling manually.
   final int count;
-  // Current scroll position as a 0..100 percent so the pill doubles
-  // as a position indicator. Helpful in long sessions where "where am
-  // I?" is non-obvious from row count alone.
-  final int scrollPercent;
   final VoidCallback onTap;
   const NewEventsPill({
     required this.count,
-    required this.scrollPercent,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final label = count > 0 ? '$count new · $scrollPercent%' : '$scrollPercent%';
+    // No scroll-percent: over a lazily-loaded transcript with no known
+    // total it isn't monotonic (loading an older page above your row
+    // re-scales the percent), so it read as buggy. The pill is now a
+    // clean jump-to-latest with the unread count.
+    final label = count > 0 ? '$count new' : 'Latest';
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -571,14 +570,10 @@ class FeedMinimap extends StatelessWidget {
   // Continuous drag-scrub: the host scrolls to [frac] as the finger moves
   // down the strip (no highlight, no seq anchor — pure position scrubbing).
   final ValueChanged<double>? onScrub;
-  // Current viewport-top position (0..1) drawn as a thumb so the strip
-  // doubles as a "where am I" overview.
-  final double viewportFrac;
   const FeedMinimap({
     required this.marks,
     required this.onJump,
     this.onScrub,
-    this.viewportFrac = 0,
   });
 
   void _scrub(double dy, double h) {
@@ -634,7 +629,6 @@ class FeedMinimap extends StatelessWidget {
               marks: marks,
               tickColor: tick,
               errorColor: DesignColors.error,
-              viewportFrac: viewportFrac,
             ),
           ),
         );
@@ -647,12 +641,10 @@ class _MinimapPainter extends CustomPainter {
   final List<FeedMinimapMark> marks;
   final Color tickColor;
   final Color errorColor;
-  final double viewportFrac;
   _MinimapPainter({
     required this.marks,
     required this.tickColor,
     required this.errorColor,
-    required this.viewportFrac,
   });
 
   @override
@@ -685,53 +677,32 @@ class _MinimapPainter extends CustomPainter {
             tickPaint);
       }
     }
-    // Viewport thumb — a rounded bar at the current scroll position so the
-    // strip reads as a scrollbar/overview, not just a tick column.
-    final ty = viewportFrac.clamp(0.0, 1.0) * size.height;
-    final thumbPaint = Paint()..color = tickColor.withValues(alpha: 0.85);
-    final thumb = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, (ty - 4).clamp(0.0, size.height - 8), size.width, 8),
-      const Radius.circular(4),
-    );
-    canvas.drawRRect(thumb, thumbPaint);
   }
 
   @override
   bool shouldRepaint(covariant _MinimapPainter old) =>
       old.marks != marks ||
       old.tickColor != tickColor ||
-      old.errorColor != errorColor ||
-      old.viewportFrac != viewportFrac;
+      old.errorColor != errorColor;
 }
 
-/// Full-screen turn navigator (docs/plans/agent-transcript-debug-and-
-/// header-parity.md — turn-nav follow-up). A bottom bar with first/last
-/// endpoints (⤒ oldest-loaded / ⤓ latest) flanking a prev/next *turn*
-/// stepper and a `turn N/M` position. The discrete complement to the
-/// right-edge scrubber: the minimap is for free positioning, this walks
-/// the meaningful unit (an inbound prompt = the start of an exchange).
-///
-/// Chosen over literal numbered pages because the transcript is an
-/// append-only live tail over per-agent `seq` with no total count — page
-/// indices would drift on every event and OFFSET jumps would regress the
-/// long logs this exists to serve. Turns are stable seq anchors.
-class TranscriptNavBar extends StatelessWidget {
-  // 1-based ordinal of the turn at/above the viewport; 0 = above the first.
-  final int currentTurn;
-  // Turns loaded so far (grows as older pages load — hence [moreAbove]).
-  final int turnCount;
-  // True when older pages remain unloaded, so [turnCount] is a lower bound.
-  final bool moreAbove;
+/// Compact floating turn stepper (docs/plans/agent-transcript-debug-and-
+/// header-parity.md — turn-nav follow-up). Replaces the earlier full-width
+/// `TranscriptNavBar` row, which ate vertical space and whose `turn N/M`
+/// number both disagreed with the cost/turn chip (it counted prompts, the
+/// chip counts agent turns) and confused users. This is purely *relative*
+/// navigation — `⤒` top-of-loaded, `‹` previous prompt, `›` next prompt —
+/// with no ordinal to mismatch and explicit clamping (the buttons disable
+/// at the ends, so stepping can't wrap around). Floats bottom-left over the
+/// transcript like the verbose/funnel chips; the minimap stays the free-
+/// position scrubber. Endpoints anchor on inbound *human/peer* prompts
+/// (see `isTurnAnchorEvent`) — the meaningful exchange starts.
+class TurnStepperPill extends StatelessWidget {
   final VoidCallback? onOldest;
-  final VoidCallback? onLatest;
   final VoidCallback? onPrevTurn;
   final VoidCallback? onNextTurn;
-  const TranscriptNavBar({
-    required this.currentTurn,
-    required this.turnCount,
-    required this.moreAbove,
+  const TurnStepperPill({
     required this.onOldest,
-    required this.onLatest,
     required this.onPrevTurn,
     required this.onNextTurn,
   });
@@ -744,34 +715,23 @@ class TranscriptNavBar extends StatelessWidget {
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
-    final label = turnCount <= 0
-        ? 'no turns'
-        : 'turn $currentTurn/$turnCount${moreAbove ? '+' : ''}';
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        border: Border(top: BorderSide(color: border)),
+    return Material(
+      color: bg.withValues(alpha: 0.92),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: border),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      child: Row(
-        children: [
-          _btn(Icons.vertical_align_top, 'Oldest loaded', onOldest, muted),
-          _btn(Icons.chevron_left, 'Previous turn', onPrevTurn, muted),
-          Expanded(
-            child: Center(
-              child: Text(
-                label,
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: muted,
-                ),
-              ),
-            ),
-          ),
-          _btn(Icons.chevron_right, 'Next turn', onNextTurn, muted),
-          _btn(Icons.vertical_align_bottom, 'Latest', onLatest, muted),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _btn(Icons.vertical_align_top, 'Top of loaded', onOldest, muted),
+            _btn(Icons.expand_less, 'Previous prompt', onPrevTurn, muted),
+            _btn(Icons.expand_more, 'Next prompt', onNextTurn, muted),
+          ],
+        ),
       ),
     );
   }
@@ -783,12 +743,12 @@ class TranscriptNavBar extends StatelessWidget {
       message: tip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(14),
         child: Padding(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
           child: Icon(
             icon,
-            size: 20,
+            size: 18,
             color: color.withValues(alpha: enabled ? 1.0 : 0.3),
           ),
         ),

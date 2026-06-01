@@ -1016,35 +1016,36 @@ bool agentEventIsError(
 /// count) is usually folded away and wouldn't be seekable.
 const kFeedTurnAnchorKinds = <String>{'input.text'};
 
+/// True when [e] starts a turn the stepper should land on: an inbound
+/// prompt ([kFeedTurnAnchorKinds]) that a *human or peer* sent — NOT a
+/// system-injected one. System envelopes (`producer == 'system'`, or an
+/// `input.text` whose `from.role == 'system'`) are framing/context the
+/// hub adds, not a turn the user wants to jump between (the "system agent"
+/// cards a tester flagged). Pure + testable.
+bool isTurnAnchorEvent(Map<String, dynamic> e) {
+  if (!kFeedTurnAnchorKinds.contains((e['kind'] ?? '').toString())) {
+    return false;
+  }
+  if ((e['producer'] ?? '').toString() == 'system') return false;
+  final p = e['payload'];
+  if (p is Map) {
+    final from = p['from'];
+    if (from is Map && (from['role'] ?? '').toString() == 'system') {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// Indices into [rendered] (the on-screen, post-fold list) that start a
-/// turn — see [kFeedTurnAnchorKinds]. Pure so the nav-bar's ordinal math
-/// is testable without spinning the widget tree.
+/// turn — see [isTurnAnchorEvent]. Pure so the nav math is testable
+/// without spinning the widget tree.
 List<int> turnAnchorIndices(List<Map<String, dynamic>> rendered) {
   final out = <int>[];
   for (var i = 0; i < rendered.length; i++) {
-    if (kFeedTurnAnchorKinds.contains((rendered[i]['kind'] ?? '').toString())) {
-      out.add(i);
-    }
+    if (isTurnAnchorEvent(rendered[i])) out.add(i);
   }
   return out;
-}
-
-/// 1-based ordinal of the turn at or above the viewport, given the turn
-/// [anchorIdx] (from [turnAnchorIndices]), the rendered-list [length], and
-/// the viewport-top fraction [topFrac] (0..1). 0 when there are no turns
-/// or the viewport sits above the first one. Pure + testable.
-int currentTurnOrdinal(List<int> anchorIdx, int length, double topFrac) {
-  if (anchorIdx.isEmpty || length <= 0) return 0;
-  final approx = topFrac.clamp(0.0, 1.0) * (length - 1);
-  var ordinal = 0;
-  for (var k = 0; k < anchorIdx.length; k++) {
-    if (anchorIdx[k] <= approx) {
-      ordinal = k + 1;
-    } else {
-      break;
-    }
-  }
-  return ordinal;
 }
 
 /// True when event [e] passes the active [lens]. Operates on the

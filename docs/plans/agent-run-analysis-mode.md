@@ -80,6 +80,28 @@ View ▾ → Insights   (the analysis surface; available for any run)
   shows the same surface with a subtle "as of <ts> · live" label that
   refreshes. Frozen-ness is a label, not a gate.
 
+### Loading model (Insight never loads the whole run)
+
+Two windowed models, neither loading the full log:
+
+- **All view — a bounded sliding window.** The `ListView` renders only the
+  currently-loaded window (a few hundred events). **Position comes from the
+  digest** (`event N of M`, minimap) — *not* the list extent. Scrolling an
+  edge pages the adjacent block (keyset `before` / `after_ts`); **a jump
+  *resets* the window** to a fresh block fetched *around* the target seq/ts
+  (random-access), rather than growing the list by walking from the tail
+  (which is Feed's prepend-only model). Memory stays bounded; a jump relocates
+  the window in O(log n).
+- **Filtered view — a server/digest-backed keyset *listing* of just the
+  matches**, *not* a client filter of the loaded window (which only sees
+  loaded events and can't be full-run). By lens: **Turns** paginate
+  `agent_turns`; **Errors** read the digest's complete (sparse) error list;
+  **Tools / Text** use a **`kind`-filtered keyset listing** on the events
+  endpoint (a *new* filter param — none exists today; the index supports it).
+  Each filtered row taps "view in full" → switches to All and resets its
+  window around that `seq` for context. This makes filters **full-run
+  complete** (matching the digest), fixing today's loaded-window-only filter.
+
 ## Phases
 
 ### P0 — Hub: digest + turn index, maintained incrementally (ADR-038)
@@ -98,10 +120,13 @@ duration_ms` (claude-only). Reads: `GET …/agents/{agent}/digest` and
 Refactor `/v1/insights` to **sum the in-scope digests** (percentiles from
 merging the histograms). *Tests: incremental digest == a brute-force scan at
 every watermark; error union matches a shared Go/Dart vector; session rollup
-== sum of agents; insights-sum == legacy scan.* Also add an **`after_ts` forward-window param**
-to the events list endpoint for **session scope** (the `(session_id, ts)`
-index already supports `ts > ? ASC`; agent scope already has `since`), so
-Insight-mode jumps (P2) can page forward from a mid-session anchor.
+== sum of agents; insights-sum == legacy scan.* Two small events-endpoint additions for the
+loading model: an **`after_ts` forward-window param** (session scope — the
+`(session_id, ts)` index already supports `ts > ? ASC`; agent scope already
+has `since`), and a **`kind`/lens filter param** (keyset-paged) so a filtered
+Insight view is a full-run server-side listing, not a client filter of the
+loaded window. (No `kind` filter exists today — verified; the index supports
+it.)
 
 ### P0b — `turn.start` event + emission (ADR-038 §3)
 Add the `turn.start {turn_id, ts}` boundary event and `turn_id` on
@@ -124,17 +149,16 @@ Available for **any run**, with the live/"as of <ts>" label. This replaces the
 sparse Insights content directly — insight *is* analysis, so the numbers now
 match the transcript (the view reads the digest).
 
-### P2 — Structure index → jump (random-access nav)
-Render the error taxonomy / tool list / **turn index (`agent_turns`)** as
-tappable sections in the dashboard; each entry seeks the log to its
-`start_seq`. Insight mode uses a **random-access window loader** — fetch a
-window *around* the anchor seq/ts and page locally in either direction —
-distinct from Feed's tail + scroll-up, so you **land anywhere without walking
-from the tail**. The DB already supports this efficiently (index range scan,
-no `OFFSET`): agent scope via `before` + `since`; **session scope needs the
-`after_ts` forward param added in P0**. The minimap scrubber maps an arbitrary
-position to the nearest anchor seq (no raw ordinal lookup). This is the
-"navigate accurately" payoff — overview and log bound together.
+### P2 — Structure index + filtered views → jump (random-access nav)
+Implement the two-model loading (see *Loading model* above). **All view** = the
+bounded sliding window with the **random-access loader** (reset-around-anchor
+via `before` + `since` / `after_ts`); the minimap scrubber maps a position to
+the nearest anchor seq (no raw ordinal lookup). **Filtered views** = keyset
+listings of just the matches (Turns ← `agent_turns`; Errors ← digest; Tools /
+Text ← the `kind`-filtered endpoint), each row "view in full" → reset the All
+window around its `seq`. Render the digest's error taxonomy / tool list / turn
+index as the tappable dashboard sections. This is the "navigate accurately"
+payoff — overview and log bound together, full-run complete.
 
 ### P3 — Operator OTLP export (ADR-038 §4)
 The hub's optional OTLP exporter (`--otlp-endpoint`, off by default) projects

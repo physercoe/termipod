@@ -20,7 +20,7 @@ class RunReportCard extends StatefulWidget {
   final DateTime? staleSince;
 
   /// True while the run is still live/idle (not terminated) — drives the
-  /// "as of <ts> · live" affordance vs. a static report.
+  /// "as of `<ts>` · live" affordance vs. a static report.
   final bool live;
 
   /// Optional: tapping a navigation anchor (an error/tool/turn seq) asks
@@ -199,7 +199,7 @@ class _RunReportCardState extends State<RunReportCard> {
               valueColor: errors > 0 ? DesignColors.error : null,
               onTap: (errors > 0 && firstErrorSeq != null &&
                       widget.onJumpToSeq != null)
-                  ? () => widget.onJumpToSeq!(firstErrorSeq!)
+                  ? () => widget.onJumpToSeq!(firstErrorSeq)
                   : null,
             ),
             if (p50 > 0 || p95 > 0)
@@ -287,7 +287,7 @@ class _RunReportCardState extends State<RunReportCard> {
         final seqs = v['sample_seqs'];
         if (seqs is List && seqs.isNotEmpty) {
           final s = _numAsInt(seqs.first);
-          if (best == null || s < best!) best = s;
+          if (best == null || s < best) best = s;
         }
       }
     }

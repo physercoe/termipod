@@ -6,7 +6,7 @@ import 'hub_provider.dart';
 /// summary the analysis surface renders. [body] is the digest map;
 /// [staleSince] carries the snapshot fetch time when we fell back to the
 /// offline cache (cache-first per ADR-006), so the report card can label
-/// itself "as of <ts>" rather than implying live freshness.
+/// itself "as of `<ts>`" rather than implying live freshness.
 class SessionDigestState {
   final Map<String, dynamic>? body;
   final DateTime? staleSince;

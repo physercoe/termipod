@@ -1,10 +1,11 @@
 # Agent transcript — debugging affordances & session-header parity
 
 > **Type:** plan
-> **Status:** Proposed (2026-06-01) — design ratified across review;
-> no code yet. Three phases; P1 is self-contained.
+> **Status:** In progress (2026-06-01) — **P1 shipped** in v1.0.770-alpha
+> (lens + combined filter/jump pill + seq-anchored seek). P2 (header
+> parity) and P3 (full-screen route) remain.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.767
+> **Last verified vs code:** v1.0.770
 
 **TL;DR.** From a testing pass: the agent transcript is hard to debug
 (no way to filter to errors, no way to jump to a turn), and the same
@@ -156,11 +157,14 @@ NARROW (chip drops to row 2; title ellipsizes; controls fixed)
 
 ## 5. Phases
 
-- **P1 — debug affordances (self-contained, highest value).**
-  Generalize `_trySeekInitialSeq` → `_seekToSeq(seq)`; add the lens
-  predicate to the `filtered` pass; add the funnel + combined
-  filter/jump pill; wire Errors first, then Text/Tools. No header or
-  surface changes. Ships behind the existing float-over-Stack pattern.
+- **P1 — debug affordances (self-contained, highest value). ✅ Shipped
+  v1.0.770-alpha.** Generalized `_trySeekInitialSeq` → `_seekToSeq(seq)`
+  (cold-open deep-link + lens stepper share it); added `FeedLens` +
+  `agentEventMatchesLens` to the reducer; added the funnel + combined
+  filter/jump pill (`FeedFilterControl`) and an empty-lens hint. All four
+  lenses (All/Text/Tools/Errors) wired. No header or surface changes;
+  rides the existing float-over-Stack pattern. The full-screen lens *bar*
+  + minimap deferred to P3 (this ships the constrained-host chrome only).
 - **P2 — header parity.** Extract `SessionHeader` (title + slim chip +
   `View ▾` + `⋮` + `×`); add the `dense` `SessionInitChip` variant and
   hybrid `LayoutBuilder` placement; replace the project sheet's

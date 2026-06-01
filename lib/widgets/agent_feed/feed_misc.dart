@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
+import 'feed_reducer.dart' show FeedLens;
 
 /// "Offline · last updated 2m ago" strip shown above the transcript
 /// when the bootstrap fetch fell back to the snapshot cache. Cleared
@@ -193,6 +194,214 @@ class NewEventsPill extends StatelessWidget {
               const Icon(Icons.arrow_downward,
                   size: 14, color: Colors.white),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Float-over-Stack transcript filter (docs/plans/agent-transcript-
+/// debug-and-header-parity.md, P1). Two states, never a Column row:
+///
+///   rest  (lens == all)  → a funnel icon; tap opens the lens menu.
+///   active(lens != all)  → one combined pill `⚠ Errors · 1/3 ▲▼ ✕`
+///                          that both shows the filter and steps through
+///                          matches (steppers drive the parent's seek).
+///
+/// Stepping is seq-anchored upstream — this widget only reports intent
+/// (prev = older, next = newer, clear = back to All) and renders the
+/// 1-based [matchIndex] / [matchCount] position. Styled to match
+/// [VerboseToggleChip] (its mirror in the opposite top corner).
+class FeedFilterControl extends StatelessWidget {
+  final FeedLens lens;
+  // Matches currently in the loaded+lensed list. Older matches beyond
+  // the loaded pages aren't counted until scrolled into range.
+  final int matchCount;
+  // 1-based position of the active match (0 when none/empty).
+  final int matchIndex;
+  final bool canPrev;
+  final bool canNext;
+  final ValueChanged<FeedLens> onSelectLens;
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
+  const FeedFilterControl({
+    required this.lens,
+    required this.matchCount,
+    required this.matchIndex,
+    required this.canPrev,
+    required this.canNext,
+    required this.onSelectLens,
+    required this.onPrev,
+    required this.onNext,
+  });
+
+  static IconData iconFor(FeedLens l) {
+    switch (l) {
+      case FeedLens.all:
+        return Icons.filter_list;
+      case FeedLens.text:
+        return Icons.chat_bubble_outline;
+      case FeedLens.tools:
+        return Icons.build_outlined;
+      case FeedLens.errors:
+        return Icons.error_outline;
+    }
+  }
+
+  static String labelFor(FeedLens l) {
+    switch (l) {
+      case FeedLens.all:
+        return 'All';
+      case FeedLens.text:
+        return 'Text';
+      case FeedLens.tools:
+        return 'Tools';
+      case FeedLens.errors:
+        return 'Errors';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    // Errors get the alarm tint so an active error filter reads as
+    // urgent; the other lenses borrow the brand accent.
+    final accent =
+        lens == FeedLens.errors ? DesignColors.error : DesignColors.primary;
+
+    final menu = PopupMenuButton<FeedLens>(
+      tooltip: 'Filter transcript',
+      padding: EdgeInsets.zero,
+      onSelected: onSelectLens,
+      itemBuilder: (_) => [
+        for (final l in FeedLens.values)
+          PopupMenuItem<FeedLens>(
+            value: l,
+            child: Row(
+              children: [
+                Icon(iconFor(l),
+                    size: 16,
+                    color: l == lens ? accent : muted),
+                const SizedBox(width: 8),
+                Text(labelFor(l),
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 13,
+                      fontWeight:
+                          l == lens ? FontWeight.w700 : FontWeight.w500,
+                    )),
+              ],
+            ),
+          ),
+      ],
+      child: lens == FeedLens.all
+          ? Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Icon(Icons.filter_list, size: 16, color: muted),
+            )
+          : Padding(
+              padding:
+                  const EdgeInsets.fromLTRB(8, 4, 6, 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(iconFor(lens), size: 14, color: accent),
+                  const SizedBox(width: 4),
+                  Text(
+                    labelFor(lens),
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: accent,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+    );
+
+    return Material(
+      color: bg.withValues(alpha: 0.92),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+            color: lens == FeedLens.all
+                ? border
+                : accent.withValues(alpha: 0.5)),
+      ),
+      child: lens == FeedLens.all
+          ? menu
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                menu,
+                Text(
+                  matchCount == 0 ? '0' : '$matchIndex/$matchCount',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: muted,
+                  ),
+                ),
+                _StepButton(
+                  icon: Icons.keyboard_arrow_up,
+                  tooltip: 'Older match',
+                  color: muted,
+                  onTap: canPrev ? onPrev : null,
+                ),
+                _StepButton(
+                  icon: Icons.keyboard_arrow_down,
+                  tooltip: 'Newer match',
+                  color: muted,
+                  onTap: canNext ? onNext : null,
+                ),
+                _StepButton(
+                  icon: Icons.close,
+                  tooltip: 'Clear filter',
+                  color: muted,
+                  onTap: () => onSelectLens(FeedLens.all),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class _StepButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  // Null disables the button (rendered dimmed) — used at the first /
+  // last match so the user can see they've hit a boundary.
+  final VoidCallback? onTap;
+  const _StepButton({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
+          child: Icon(
+            icon,
+            size: 16,
+            color: color.withValues(alpha: enabled ? 1.0 : 0.35),
           ),
         ),
       ),

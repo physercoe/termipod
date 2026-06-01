@@ -934,6 +934,85 @@ bool isHiddenInFeed(
   return false;
 }
 
+/// Single-select transcript lens (docs/plans/agent-transcript-debug-
+/// and-header-parity.md, P1). Narrows the visible feed to one family so
+/// a long run can be debugged without scrolling every row. `all` is the
+/// default (no filtering). Orthogonal to the verbose toggle, which
+/// controls debug *depth* rather than which family is shown.
+enum FeedLens { all, text, tools, errors }
+
+/// Kinds the [FeedLens.text] lens keeps — the readable conversation:
+/// assistant prose, reasoning blocks, and the user's own messages.
+const _kFeedLensTextKinds = <String>{'text', 'thought', 'input.text'};
+
+/// Kinds the [FeedLens.tools] lens keeps — every tool-related card that
+/// survives folding (a standalone `tool_result`/`tool_call_update` shows
+/// when its parent call is out of scope, e.g. a gated tool).
+const _kFeedLensToolKinds = <String>{
+  'tool_call',
+  'tool_result',
+  'tool_call_update',
+};
+
+/// True when [e] is an error-signal event for the [FeedLens.errors]
+/// lens. Aligned with how [AgentEventCard] paints failure: a bare
+/// `kind == 'error'` event, a `tool_result` carrying `is_error == true`,
+/// or a `tool_call` whose paired result/update resolved to a failure.
+///
+/// Runs over the post-fold visible list, where a tool_call's result and
+/// updates have been merged into the parent card — so the parent's
+/// resolved status is recovered from [toolResults] / [toolUpdates]
+/// (the same maps the card itself reads), keyed by tool_use id.
+bool agentEventIsError(
+  Map<String, dynamic> e,
+  Map<String, Map<String, dynamic>> toolResults,
+  Map<String, Map<String, dynamic>> toolUpdates,
+) {
+  final kind = (e['kind'] ?? '').toString();
+  if (kind == 'error') return true;
+  final p = e['payload'];
+  if (kind == 'tool_result') {
+    return p is Map && p['is_error'] == true;
+  }
+  if (kind == 'tool_call') {
+    final id = p is Map ? (p['id'] ?? p['toolCallId'] ?? '').toString() : '';
+    if (id.isEmpty) return false;
+    final res = toolResults[id];
+    if (res != null) {
+      final rp = res['payload'];
+      if (rp is Map && rp['is_error'] == true) return true;
+    }
+    final upd = toolUpdates[id];
+    if (upd != null) {
+      final st = (upd['status'] ?? '').toString();
+      if (st == 'failed' || st == 'error') return true;
+    }
+  }
+  return false;
+}
+
+/// True when event [e] passes the active [lens]. Operates on the
+/// post-fold visible list (see [agentEventIsError] for why the
+/// [toolResults] / [toolUpdates] maps are threaded through). `all`
+/// passes everything; the others narrow to one family.
+bool agentEventMatchesLens(
+  Map<String, dynamic> e,
+  FeedLens lens,
+  Map<String, Map<String, dynamic>> toolResults,
+  Map<String, Map<String, dynamic>> toolUpdates,
+) {
+  switch (lens) {
+    case FeedLens.all:
+      return true;
+    case FeedLens.text:
+      return _kFeedLensTextKinds.contains((e['kind'] ?? '').toString());
+    case FeedLens.tools:
+      return _kFeedLensToolKinds.contains((e['kind'] ?? '').toString());
+    case FeedLens.errors:
+      return agentEventIsError(e, toolResults, toolUpdates);
+  }
+}
+
 /// True when a `usage` payload carries cumulative session totals
 /// (codex's thread/tokenUsage/updated). Accepts a real bool or the
 /// string "true" — the frame-profile evaluator only emits strings.

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.769
+> **Last verified vs code:** v1.0.770
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,43 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.770-alpha — 2026-06-01
+
+**The agent transcript can now be filtered and stepped through.** Tester
+feedback: a long run had no "show only errors" view and no jump-to-turn,
+so debugging meant scrolling a multi-thousand-event feed by hand. Phase 1
+of the agent-transcript plan (`docs/plans/agent-transcript-debug-and-
+header-parity.md`) adds a single-select lens + a combined filter/jump
+pill, floating over the transcript so no vertical row is consumed.
+
+### Added
+- **Transcript lens (`AgentFeed`).** A funnel in the feed's top-left
+  corner (mirroring the verbose chip opposite) opens a single-select
+  lens — **All · Text · Tools · Errors**. `Text` keeps the readable
+  conversation (assistant prose, reasoning, user messages); `Tools`
+  keeps every tool-related card; `Errors` keeps `error` events and
+  failed tool calls. Orthogonal to the verbose toggle (which controls
+  depth, not family). Lens state is ephemeral per feed instance.
+- **Combined filter + jump pill.** When a lens is active the funnel
+  becomes a pill — `⚠ Errors · 1/3 ▲▼ ✕` — that both shows the filter
+  and steps through matches (▲ older, ▼ newer, ✕ clears). Activating a
+  lens lands on the newest match; the steppers walk backward into
+  history. An empty-lens hint replaces the blank list when a filter
+  matches nothing in the loaded transcript.
+- **Lens classifier (`agent_feed/feed_reducer.dart`).** `FeedLens` enum
+  + `agentEventMatchesLens` / `agentEventIsError` — pure predicates
+  pinned by `test/widgets/agent_feed_lens_test.dart`. The Errors
+  predicate reads a tool_call's resolved status from the same
+  `toolResults` / `toolUpdates` maps the card paints from, so the lens
+  and the card never disagree about what failed.
+
+### Changed
+- **Generalized seq-anchored seek.** The cold-open `initialSeq` deep-link
+  machinery (`_trySeekInitialSeq`) now routes through a shared
+  `_seekToSeq(seq)` that both it and the lens stepper drive. Jumps anchor
+  on event seq (never list index) so they survive the feed's lazy
+  load-older prepends.
 
 ## v1.0.769-alpha — 2026-06-01
 

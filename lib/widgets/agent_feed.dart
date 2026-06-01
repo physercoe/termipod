@@ -175,14 +175,25 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // from the tail. Powers the "N new ↓" pill so users know the feed is
   // alive without being yanked back to the bottom.
   int _newWhileAway = 0;
-  // Anchor for the "scroll to specific seq" feature (initialSeq).
-  // Attached to whichever AgentEventCard matches the target during
-  // build; ensureVisible needs a real BuildContext, hence the key.
-  final GlobalKey _initialSeqKey = GlobalKey();
-  // True for ~1.2s after a successful jump-to-seq so the matched event
-  // renders with a tinted border, telling the user where they landed.
-  // Cleared by a delayed setState; never re-fires within a session.
-  bool _initialSeqHighlight = false;
+  // Anchor for the "scroll to specific seq" feature. Attached to
+  // whichever AgentEventCard matches [_activeSeekSeq] during build;
+  // ensureVisible needs a real BuildContext, hence the key. Drives both
+  // the cold-open initialSeq deep-link and the lens match-stepper.
+  final GlobalKey _seekKey = GlobalKey();
+  // The seq the feed is currently anchored to (cold-open initialSeq, or
+  // the active lens match). Null = no anchor (tail-follow). The matching
+  // card gets [_seekKey] + a tinted border while [_seekHighlight] holds.
+  int? _activeSeekSeq;
+  // True for ~1.2s after a successful seek so the matched event renders
+  // with a tinted border, telling the user where they landed. Cleared
+  // by [_seekHighlightTimer].
+  bool _seekHighlight = false;
+  Timer? _seekHighlightTimer;
+  // Single-select transcript lens (P1 — docs/plans/agent-transcript-
+  // debug-and-header-parity.md). Ephemeral per-AgentFeed instance: resets
+  // when the surface closes so a stale filter never surprises a returning
+  // user. Orthogonal to [_verbose] (depth, not family).
+  FeedLens _lens = FeedLens.all;
 
   // ADR-036 W4-c — periodic poll of GET /sessions/{id}/cost for the
   // session-cost chip and its per-model-breakdown tooltip. Set on the
@@ -223,6 +234,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     _reconnectTimer?.cancel();
     _bannerGraceTimer?.cancel();
     _sessionCostTimer?.cancel();
+    _seekHighlightTimer?.cancel();
     _sub?.cancel();
     _scroll.dispose();
     super.dispose();
@@ -739,36 +751,68 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     _scroll.jumpTo(_scroll.position.maxScrollExtent);
   }
 
-  /// Tries to scroll the matched-seq event into view + highlight it.
-  /// Returns true if the target was reachable; false when the seq
-  /// isn't in the loaded page or the keyed widget hasn't built yet
-  /// (caller falls back to _scrollToTail). Uses Scrollable.ensureVisible
-  /// which handles non-uniform row heights without a positioned-list
-  /// dependency.
+  /// Cold-open deep-link: if [widget.initialSeq] is loaded, anchor the
+  /// feed on it. Returns true when the seq is present (caller skips the
+  /// default tail-scroll); false when it isn't in the loaded page (caller
+  /// falls back to _scrollToTail).
   bool _trySeekInitialSeq() {
     final target = widget.initialSeq;
     if (target == null) return false;
     final hit = _events.any((e) => (e['seq'] as num?)?.toInt() == target);
     if (!hit) return false;
-    final ctx = _initialSeqKey.currentContext;
-    if (ctx == null) return false;
-    Scrollable.ensureVisible(
-      ctx,
-      alignment: 0.3,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
-    // We landed on a specific row, so the user is anchored — disable
-    // tail-follow until they scroll back near the bottom themselves.
-    setState(() {
-      _followTail = false;
-      _initialSeqHighlight = true;
-    });
-    Timer(const Duration(milliseconds: 1200), () {
-      if (!mounted) return;
-      setState(() => _initialSeqHighlight = false);
-    });
+    _seekToSeq(target);
     return true;
+  }
+
+  /// Anchor the feed on [seq]: scroll the matching card into view and
+  /// highlight it for ~1.2s. Used by both the cold-open initialSeq
+  /// deep-link and the lens match-stepper. Jumps on seq (never list
+  /// index) because the feed pages older events lazily — the seq is the
+  /// stable identity across prepends. The target must already be loaded
+  /// (the stepper only offers seqs from the loaded+lensed list); the
+  /// post-frame read of [_seekKey] no-ops gracefully if it isn't.
+  /// Uses Scrollable.ensureVisible, which handles non-uniform row
+  /// heights without a positioned-list dependency.
+  void _seekToSeq(int seq) {
+    setState(() {
+      _activeSeekSeq = seq;
+      // Anchored on a specific row — stop tail-follow until the user
+      // scrolls back near the bottom themselves.
+      _followTail = false;
+      _seekHighlight = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _seekKey.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.3,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    });
+    _seekHighlightTimer?.cancel();
+    _seekHighlightTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      setState(() => _seekHighlight = false);
+    });
+  }
+
+  /// Switch the active lens. Resets the seek anchor; for a non-`all`
+  /// lens, pins to the tail so the user lands on the most recent match
+  /// (the newest error is usually what you're debugging).
+  void _setLens(FeedLens lens) {
+    setState(() {
+      _lens = lens;
+      _activeSeekSeq = null;
+      if (lens != FeedLens.all) _followTail = true;
+    });
+    if (lens != FeedLens.all) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollToTail();
+      });
+    }
   }
 
   @override
@@ -1236,6 +1280,32 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (!isHiddenInFeed(e, toolNames, verbose: _verbose)) e,
     ];
     final visible = collapseStreamingPartials(filtered);
+    // P1 lens (docs/plans/agent-transcript-debug-and-header-parity.md):
+    // narrow the visible feed to one family so a long run can be
+    // debugged. Runs AFTER folding so the Errors lens reads a tool_call's
+    // resolved status from the same toolResults/toolUpdates maps the card
+    // does. Match-stepping is seq-anchored over this loaded+lensed list;
+    // older matches join as the user scrolls up and the list grows.
+    final lensed = _lens == FeedLens.all
+        ? visible
+        : [
+            for (final e in visible)
+              if (agentEventMatchesLens(e, _lens, toolResults, toolUpdates))
+                e,
+          ];
+    final matchSeqs = _lens == FeedLens.all
+        ? const <int>[]
+        : [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
+    // 1-based position of the active match. Default to the newest when
+    // there's no explicit anchor (fresh lens activation) so the pill
+    // reads N/N and the steppers walk backward into history.
+    int matchIndex = 0;
+    if (matchSeqs.isNotEmpty) {
+      var idx =
+          _activeSeekSeq == null ? -1 : matchSeqs.indexOf(_activeSeekSeq!);
+      if (idx < 0) idx = matchSeqs.length - 1;
+      matchIndex = idx + 1;
+    }
     // Count the verbose-gated events so the toggle can advertise its
     // value — "Show debug (12)" carries more signal than a bare button.
     int hiddenForVerbose = 0;
@@ -1299,14 +1369,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               ListView.separated(
                 controller: _scroll,
                 padding: widget.padding,
-                itemCount: visible.length,
+                itemCount: lensed.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
-                  final ev = visible[i];
-                  final isTarget = widget.initialSeq != null &&
-                      (ev['seq'] as num?)?.toInt() == widget.initialSeq;
+                  final ev = lensed[i];
+                  final isTarget = _activeSeekSeq != null &&
+                      (ev['seq'] as num?)?.toInt() == _activeSeekSeq;
                   final card = AgentEventCard(
-                    key: isTarget ? _initialSeqKey : null,
+                    key: isTarget ? _seekKey : null,
                     event: ev,
                     toolNames: toolNames,
                     toolUpdates: toolUpdates,
@@ -1314,7 +1384,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     resolvedApprovals: resolvedApprovals,
                     agentId: widget.agentId,
                   );
-                  if (isTarget && _initialSeqHighlight) {
+                  if (isTarget && _seekHighlight) {
                     return AnimatedContainer(
                       duration: const Duration(milliseconds: 400),
                       decoration: BoxDecoration(
@@ -1383,6 +1453,54 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     ),
                   ),
                 ),
+              // When a lens filters out every loaded event, the empty
+              // ListView would read as "no transcript". Tell the user
+              // it's the filter — and that older matches may exist
+              // above — so they can scroll up or clear it.
+              if (_lens != FeedLens.all && lensed.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
+                    child: Text(
+                      'No ${FeedFilterControl.labelFor(_lens)} events in the '
+                      'loaded transcript — scroll up to load older, or clear '
+                      'the filter.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 12,
+                        color: isDark
+                            ? DesignColors.textMuted
+                            : DesignColors.textMutedLight,
+                      ),
+                    ),
+                  ),
+                ),
+              // Transcript filter: funnel (rest) / combined filter+jump
+              // pill (active) floating in the top-left corner — the
+              // mirror of the verbose chip opposite. Floats over the
+              // Stack; never eats a transcript row (P1).
+              Positioned(
+                top: 6,
+                left: 6,
+                child: FeedFilterControl(
+                  lens: _lens,
+                  matchCount: matchSeqs.length,
+                  matchIndex: matchIndex,
+                  canPrev: matchIndex > 1,
+                  canNext: matchIndex >= 1 && matchIndex < matchSeqs.length,
+                  onSelectLens: _setLens,
+                  // Prev = older (one step up the lensed list); next =
+                  // newer (one step down). matchIndex is 1-based.
+                  onPrev: () {
+                    if (matchIndex > 1) _seekToSeq(matchSeqs[matchIndex - 2]);
+                  },
+                  onNext: () {
+                    if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
+                      _seekToSeq(matchSeqs[matchIndex]);
+                    }
+                  },
+                ),
+              ),
               // Verbose toggle: tiny floating chip in the top-right.
               // Replaces the previous full-row strip — the row was
               // mostly whitespace + a long descriptive label, eating

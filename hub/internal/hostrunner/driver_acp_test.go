@@ -23,9 +23,9 @@ type fakeACPAgent struct {
 
 	// W1.2 toggles. Defaults preserve the W1.1-era handshake shape so
 	// existing tests don't have to opt in.
-	advertiseLoadSession bool                     // initialize → agentCapabilities.loadSession=true
-	failSessionLoad      bool                     // session/load → JSON-RPC error
-	loadReplayFrames     []map[string]any         // streamed BEFORE session/load reply
+	advertiseLoadSession bool             // initialize → agentCapabilities.loadSession=true
+	failSessionLoad      bool             // session/load → JSON-RPC error
+	loadReplayFrames     []map[string]any // streamed BEFORE session/load reply
 
 	// W1.4 toggles. Defaults preserve "no auth required" so all
 	// pre-W1.4 tests remain unaffected.
@@ -679,6 +679,71 @@ func containsIgnoreCase(s, substr string) bool {
 
 // TestACPDriver_InputCancelSendsNotification verifies cancel emits a
 // session/cancel message without an id (notification semantics).
+// TestACPDriver_EmitsTurnStartAndStampsTurnID — ADR-038 §3 (P0b): a prompt
+// dispatch mints a turn_id, emits turn.start before the session/prompt, and
+// stamps the same turn_id on the closing turn.result, so the digest's turn
+// index is explicit rather than synthesized.
+func TestACPDriver_EmitsTurnStartAndStampsTurnID(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-turn-1")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-turn",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hello agent"}); err != nil {
+		t.Fatalf("Input text: %v", err)
+	}
+
+	// Input("text") blocks until session/prompt returns, so by now both
+	// turn.start and the closing turn.result have been posted.
+	var startID, resultID string
+	var sawStart, sawResult bool
+	startBeforeResult := false
+	for _, e := range poster.snapshot() {
+		switch e.Kind {
+		case "turn.start":
+			sawStart = true
+			startID, _ = e.Payload["turn_id"].(string)
+		case "turn.result":
+			sawResult = true
+			resultID, _ = e.Payload["turn_id"].(string)
+			if sawStart {
+				startBeforeResult = true
+			}
+		}
+	}
+	if !sawStart {
+		t.Fatalf("no turn.start emitted; events=%+v", poster.snapshot())
+	}
+	if startID == "" {
+		t.Errorf("turn.start carried no turn_id")
+	}
+	if !sawResult {
+		t.Fatalf("no turn.result emitted")
+	}
+	if resultID != startID {
+		t.Errorf("turn.result turn_id=%q != turn.start turn_id=%q", resultID, startID)
+	}
+	if !startBeforeResult {
+		t.Errorf("turn.start must precede turn.result")
+	}
+}
+
 func TestACPDriver_InputCancelSendsNotification(t *testing.T) {
 	hostInR, hostInW := io.Pipe()
 	hostOutR, hostOutW := io.Pipe()
@@ -2028,7 +2093,7 @@ func TestACPDriver_CapabilityNotificationsAreSystemKind(t *testing.T) {
 	fake.notify("session/update", map[string]any{
 		"sessionId": "sess-caps",
 		"update": map[string]any{
-			"sessionUpdate": "current_model_update",
+			"sessionUpdate":  "current_model_update",
 			"currentModelId": "auto-gemini-3",
 		},
 	})

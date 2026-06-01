@@ -227,6 +227,17 @@ type ACPDriver struct {
 	turnThoughtBuf   []byte
 	turnThoughtMsgID string
 
+	// currentTurnID is the turn_id the driver mints at each prompt-dispatch
+	// boundary (ADR-038 §3). turn.start carries it; the tool events and the
+	// turn.result of that turn are stamped with it so the digest's turn index
+	// is explicit (not synthesized) and the OTLP projection parents tool
+	// spans to the right turn. Reset on every Input(text/attach); cleared on
+	// turn.result. turnSeq makes the id per-agent unique (the agent_turns PK
+	// is (agent_id, turn_id), so a monotonic counter is enough).
+	turnIDMu      sync.Mutex
+	currentTurnID string
+	turnSeq       atomic.Int64
+
 	// seenToolCallIDs tracks toolCallIds that have already been
 	// surfaced via a `tool_call` agent_event. gemini-cli@0.41 omits
 	// the leading tool_call notification for MCP tools — only a
@@ -412,8 +423,8 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	// failure → fall through to session/new so the operator still gets
 	// a session even if the cursor is stale on the agent's disk.
 	var (
-		sres        json.RawMessage
-		usedLoad    bool
+		sres     json.RawMessage
+		usedLoad bool
 	)
 	if d.ResumeSessionID != "" && canLoad {
 		// Set replayActive BEFORE issuing the call so any session/update
@@ -865,10 +876,10 @@ func (d *ACPDriver) emitAuthAttention(
 	}
 	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "attention_request", "agent",
 		map[string]any{
-			"kind":               "auth_required",
-			"reason":             reason,
-			"configured_method":  d.AuthMethod,
-			"available_methods":  options,
+			"kind":              "auth_required",
+			"reason":            reason,
+			"configured_method": d.AuthMethod,
+			"available_methods": options,
 			// Hint surfaces the most common operator fix verbatim so
 			// mobile doesn't need its own copy of the playbook.
 			"remediation": "Run `gemini auth` on the host (oauth-personal) " +
@@ -976,17 +987,61 @@ func (d *ACPDriver) resetTurn() {
 	d.turnMu.Unlock()
 }
 
+// beginTurn mints a fresh turn_id and emits the turn.start boundary event
+// (ADR-038 §3) at the prompt-dispatch boundary. Subsequent tool events and
+// the turn.result are stamped with this id via stampTurnID until endTurn.
+func (d *ACPDriver) beginTurn(ctx context.Context) {
+	id := fmt.Sprintf("t-%d", d.turnSeq.Add(1))
+	d.turnIDMu.Lock()
+	d.currentTurnID = id
+	d.turnIDMu.Unlock()
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.start", "agent",
+		map[string]any{
+			"turn_id": id,
+			"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+		})
+}
+
+// getTurnID returns the active turn_id (empty between turns, or during a
+// session/load replay where the hub synthesizes turns instead).
+func (d *ACPDriver) getTurnID() string {
+	d.turnIDMu.Lock()
+	defer d.turnIDMu.Unlock()
+	return d.currentTurnID
+}
+
+// endTurn clears the active turn_id after its turn.result is emitted.
+func (d *ACPDriver) endTurn() {
+	d.turnIDMu.Lock()
+	d.currentTurnID = ""
+	d.turnIDMu.Unlock()
+}
+
+// stampTurnID annotates a payload with the active turn_id when one is set.
+// No-op during replay / between turns so the hub-synthesis fallback owns
+// those events.
+func (d *ACPDriver) stampTurnID(payload map[string]any) map[string]any {
+	if payload == nil {
+		return payload
+	}
+	if id := d.getTurnID(); id != "" {
+		payload["turn_id"] = id
+	}
+	return payload
+}
+
 // postTurnResult emits a turn.result agent_event on session/prompt
 // success. Two things ride on this:
-//   (a) Mobile's _isAgentBusy() returns false on turn.result, which
-//       clears the cancel-button overlay so the user can send the next
-//       prompt. Without it the composer sticks in cancel-state forever
-//       (the streaming text events are agent-produced and tip the
-//       busy walker the wrong way).
-//   (b) The mobile telemetry strip reads turnCount + by_model + tokens
-//       from this event — same canonical hub shape the other drivers
-//       (StdioDriver, AppServerDriver, ExecResumeDriver) emit so one
-//       renderer code path lights up for every engine.
+//
+//	(a) Mobile's _isAgentBusy() returns false on turn.result, which
+//	    clears the cancel-button overlay so the user can send the next
+//	    prompt. Without it the composer sticks in cancel-state forever
+//	    (the streaming text events are agent-produced and tip the
+//	    busy walker the wrong way).
+//	(b) The mobile telemetry strip reads turnCount + by_model + tokens
+//	    from this event — same canonical hub shape the other drivers
+//	    (StdioDriver, AppServerDriver, ExecResumeDriver) emit so one
+//	    renderer code path lights up for every engine.
 //
 // gemini-cli@0.41 surfaces token usage on the session/prompt result's
 // `_meta.quota` block: token_count for whole-turn totals plus a
@@ -998,14 +1053,15 @@ func (d *ACPDriver) resetTurn() {
 // turn.result with stop_reason — still load-bearing for (a).
 func (d *ACPDriver) postTurnResult(ctx context.Context, raw json.RawMessage) {
 	var r struct {
-		StopReason string                 `json:"stopReason"`
-		Meta       map[string]any         `json:"_meta"`
+		StopReason string         `json:"stopReason"`
+		Meta       map[string]any `json:"_meta"`
 	}
 	if err := json.Unmarshal(raw, &r); err != nil {
 		// Even if parsing fails we still want a turn.result so the
 		// busy walker sees a terminal kind. Empty payload is fine.
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent",
-			map[string]any{"status": "success"})
+			d.stampTurnID(map[string]any{"status": "success"}))
+		d.endTurn()
 		return
 	}
 	payload := map[string]any{
@@ -1056,7 +1112,8 @@ func (d *ACPDriver) postTurnResult(ctx context.Context, raw json.RawMessage) {
 			}
 		}
 	}
-	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent", payload)
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent", d.stampTurnID(payload))
+	d.endTurn()
 }
 
 // logRPCFrame appends a JSONL trace line to d.RPCLog if configured.
@@ -1349,13 +1406,13 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 			d.seenToolMu.Unlock()
 		}
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call", "agent",
-			d.tagIfReplay(map[string]any{
+			d.tagIfReplay(d.stampTurnID(map[string]any{
 				"id":     u["toolCallId"],
 				"name":   u["title"],
 				"kind":   u["kind"],
 				"status": u["status"],
 				"input":  u["rawInput"],
-			}))
+			})))
 	case "tool_call_update":
 		// gemini-cli@0.41 emits only tool_call_update for MCP tools —
 		// no preceding tool_call. Mobile folds tool_call_update into a
@@ -1373,16 +1430,16 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 			d.seenToolMu.Unlock()
 			if !seen {
 				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call", "agent",
-					d.tagIfReplay(map[string]any{
+					d.tagIfReplay(d.stampTurnID(map[string]any{
 						"id":     u["toolCallId"],
 						"name":   u["title"],
 						"kind":   u["kind"],
 						"status": u["status"],
 						"input":  u["rawInput"],
-					}))
+					})))
 			}
 		}
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call_update", "agent", d.tagIfReplay(u))
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call_update", "agent", d.tagIfReplay(d.stampTurnID(u)))
 	case "plan":
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "plan", "agent", d.tagIfReplay(u))
 	case "diff":
@@ -1414,18 +1471,18 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 //   - text:             session/prompt with a text content block against d.sessionID.
 //   - cancel:           session/cancel notification against d.sessionID.
 //   - approval:         resolves a pending session/request_permission call that
-//                       the agent initiated; request_id must match the one the
-//                       driver emitted in its approval_request event. decision
-//                       of "cancel" maps to ACP's "cancelled" outcome, any other
-//                       value to "selected" with optionId taken from payload
-//                       (defaults to the decision string itself).
+//     the agent initiated; request_id must match the one the
+//     driver emitted in its approval_request event. decision
+//     of "cancel" maps to ACP's "cancelled" outcome, any other
+//     value to "selected" with optionId taken from payload
+//     (defaults to the decision string itself).
 //   - attention_reply:  turn-based wake-up for vendor-neutral attentions
-//                       (approval_request / select / help_request raised by the
-//                       request_* MCP tools). The principal's /decide is
-//                       rendered into a fresh session/prompt user turn —
-//                       same shape as the stdio + exec-resume drivers.
+//     (approval_request / select / help_request raised by the
+//     request_* MCP tools). The principal's /decide is
+//     rendered into a fresh session/prompt user turn —
+//     same shape as the stdio + exec-resume drivers.
 //   - attach:           surfaced as a text prompt with a document_id marker; the
-//                       agent has no fs capability from this client yet.
+//     agent has no fs capability from this client yet.
 //
 // Missing sessionID means Start never succeeded; treat as a config error.
 func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]any) error {
@@ -1518,6 +1575,7 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 			prompt = append(prompt, map[string]any{"type": "text", "text": body})
 		}
 		d.resetTurn()
+		d.beginTurn(ctx)
 		// call() applies its own permission-aware PromptTimeout for
 		// session/prompt — passing the raw ctx avoids a hard 2m cap
 		// firing during a parked request_permission round trip.
@@ -1559,10 +1617,11 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		// transition can't wait for the agent's stopReason=cancelled
 		// response to come back.
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent",
-			map[string]any{
+			d.stampTurnID(map[string]any{
 				"status":      "cancelled",
 				"stop_reason": "cancelled",
-			})
+			}))
+		d.endTurn()
 		return err
 	case "attach":
 		docID, _ := payload["document_id"].(string)
@@ -1570,6 +1629,7 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 			return fmt.Errorf("acp driver: attach missing document_id")
 		}
 		d.resetTurn()
+		d.beginTurn(ctx)
 		// call() applies its own permission-aware PromptTimeout for
 		// session/prompt — see the "text" branch for rationale.
 		res, err := d.call(ctx, "session/prompt", map[string]any{

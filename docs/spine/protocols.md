@@ -141,6 +141,25 @@ approval events even in M4, and augments M1/M2 with events the
 structured protocol doesn't carry. Hooks are an additive event
 source, not a mode.
 
+**Turn-boundary events (`turn.start` / `turn.result`).** A *turn* is
+one prompt→completion exchange, bracketed in the `agent_events` stream
+by a `turn.start {turn_id, ts}` and a `turn.result {turn_id, ts,
+status, …}` carrying the same `turn_id` ([ADR-038](../decisions/038-per-run-event-digest.md)
+§3). The **driver emits `turn.start` at the prompt-dispatch boundary it
+already controls** and **stamps the active `turn_id` on the tool events**
+(`tool_call` / `tool_result` / `tool_call_update`) it emits between the
+brackets, so the turn index and the OTLP span tree parent tools to the
+right turn exactly. `turn_id` is per-agent unique (the `agent_turns` PK
+is `(agent_id, turn_id)`); a monotonic counter suffices. **Adoption is
+staged:** the ACP driver (M1) emits it today at `session/prompt`
+(covering codex / gemini / kimi in one place); the claude M2/M4 drivers
+will emit at input-send next. Until a driver adopts `turn.start`, the
+**hub synthesizes** a turn (boundary = the first event after the prior
+`turn.result`; a synthetic `turn_id`) and groups tools by the
+`[start, result]` ts-window — so the turn index and traces exist for
+every engine regardless. Replay frames from `session/load` are *not*
+stamped (no live turn) — synthesis owns the historical stream.
+
 ---
 
 ## 6. Mode resolution and host capability discovery

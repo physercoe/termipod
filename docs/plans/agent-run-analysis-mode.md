@@ -145,17 +145,20 @@ Insight view is a full-run server-side listing, not a client filter of the
 loaded window. (No `kind` filter exists today — verified; the index supports
 it.)
 
-### P0b — `turn.start` event + emission (ADR-038 §3)
-Add the `turn.start {turn_id, ts}` boundary event and `turn_id` on
-`turn.result`, **emitted in the driver at the input/prompt-dispatch boundary
-it already controls** — uniform, not per-protocol work (the ACP driver stamps
-it at `session/prompt` for codex/gemini/kimi in one place; claude M4/M2 at
-input-send). The driver also **stamps the active `turn_id` on tool events**
-(exact OTLP parenting; ts-window grouping is the fallback). The hub
+### P0b — `turn.start` event + emission (ADR-038 §3) — 🟡 ACP shipped
+The `turn.start {turn_id, ts}` boundary event + `turn_id` on `turn.result`,
+**emitted in the driver at the input/prompt-dispatch boundary it already
+controls**, with the active `turn_id` **stamped on tool events** (exact OTLP
+parenting; ts-window grouping is the synthesis fallback). The hub
 **synthesizes** turns for engines not yet emitting `turn.start`, so the index
-and OTLP work everywhere from day one. Record `turn.start` + `turn_id` in
-`docs/spine/protocols.md` event vocabulary. *(Drivers/protocols — sequence
-with P0.)*
+and OTLP work everywhere from day one. **Done:** the ACP driver (M1) emits it
+at `session/prompt` — the single clean injection point covering codex / gemini
+/ kimi — and stamps `turn_id` on its `tool_call` / `tool_result` /
+`tool_call_update` and `turn.result` events (`driver_acp.go` `beginTurn` /
+`stampTurnID` / `endTurn`; test `TestACPDriver_EmitsTurnStartAndStampsTurnID`);
+the contract is recorded in `docs/spine/protocols.md` §5. **Remaining:** the
+claude M2/M4 drivers emit at input-send (synthesis covers them meanwhile —
+accurate for claude, which emits one `turn.result` per prompt).
 
 ### P1 — Mobile: upgrade the Insights view into the analysis surface
 The `View ▾ → Insights` view *becomes* the analysis surface (no new route): a

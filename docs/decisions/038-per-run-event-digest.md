@@ -275,9 +275,11 @@ storage). It is a direct projection, no synthesis guesswork:
 
 - **Exact bucket boundaries** for the latency histogram (base / range) — a
   tuning detail; the *shape* is settled (fixed log-scale, §1/§5).
-- **`turn.start` rollout order** across engines — claude-code first, then the
-  ACP engines together (one driver change at `session/prompt`); a tracking
-  detail, not a design fork.
+- **`turn.start` rollout order** across engines — *(in progress: the ACP
+  driver (M1) shipped first, since `session/prompt` is the single clean
+  injection point covering codex / gemini / kimi; the claude M2/M4 drivers
+  emit at input-send next. Synthesis covers the unadopted drivers meanwhile —
+  the order is a tracking detail, not a design fork.)*
 
 *(Resolved after discussion — folded into the body: **latency histogram** =
 fixed log-scale buckets fed from the computed wall-clock turn duration, so

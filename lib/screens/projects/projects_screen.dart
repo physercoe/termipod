@@ -20,6 +20,7 @@ import '../../widgets/agent_feed.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/insights_panel.dart';
 import '../../widgets/session_details_sheet.dart';
+import '../../widgets/session_header.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../insights/insights_screen.dart';
@@ -1612,6 +1613,10 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
   String? _paneCapturedAt;
   String? _journal;
   bool _journalLoaded = false;
+  // P2 — selected view in the shared SessionHeader's `View ▾` switcher.
+  // Replaces the old visible TabBar; the bodies hang off an IndexedStack
+  // so each view keeps its scroll + state (as TabBarView did).
+  int _view = 0;
   final _noteCtl = TextEditingController();
   // Full agent row (fetched via GET /agents/{id}) includes the
   // spawn_spec_yaml join; the list payload omits it to stay small.
@@ -1906,86 +1911,68 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(_handle,
-                        style: GoogleFonts.spaceGrotesk(
-                            fontSize: 18, fontWeight: FontWeight.w700)),
-                  ),
-                  if (_mode.isNotEmpty) ...[
-                    _Chip(text: _mode, color: DesignColors.primary),
-                    const SizedBox(width: 6),
-                  ],
-                  _Chip(text: _status, color: _agentStatusColor(_status)),
-                  if (_isPaused) ...[
-                    const SizedBox(width: 6),
-                    const _Chip(text: 'paused', color: Colors.orange),
-                  ],
-                  // Single overflow menu carrying the lifecycle actions
-                  // (pause/resume, terminate or delete, respawn) plus the
-                  // "View agent config" entry. Previously these were a
-                  // Wrap below the header that always claimed a full row;
-                  // the overflow keeps the sheet header compact and
-                  // mirrors the SessionChatScreen action-popup pattern.
-                  _ActionsMenu(
-                    busy: _busy,
-                    isPaused: _isPaused,
-                    isDead: _isDead,
-                    hasPane: _hasPane,
-                    canRespawn: _specYaml.isNotEmpty,
-                    onConfig: () =>
-                        showAgentConfigSheet(context, agentId: _id),
-                    onPauseResume: _pauseOrResume,
-                    onTerminate: _terminate,
-                    onArchive: _archive,
-                    onRespawn: _respawn,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
+            // P2 (docs/plans/agent-transcript-debug-and-header-parity.md)
+            // — shared SessionHeader: title + dense session chip + the
+            // `View ▾` switcher (replaces the old visible TabBar) + the
+            // lifecycle ⋮ menu + ×. The engine·host line is the subtitle;
+            // the dense chip carries engine/model/perm (tap → full
+            // drawer). The same widget renders SessionChatScreen so the
+            // two surfaces can't drift.
+            SessionHeader(
+              title: _handle,
+              subtitle: () {
+                final kind = (widget.agent['kind'] ?? '').toString();
+                final hostId = (widget.agent['host_id'] ?? '').toString();
+                final hubHosts =
+                    ref.read(hubProvider).value?.hosts ?? const [];
+                final hostName = hostLabel(hubHosts, hostId);
+                // Prefer friendly name; fall back to raw id for an
+                // operator debugging a deleted-host situation.
+                final hostFragment = hostName != null
+                    ? ' · @$hostName'
+                    : (hostId.isEmpty ? '' : ' · host $hostId');
+                return '$kind$hostFragment';
+              }(),
+              chip: _sessionInit != null
+                  ? SessionInitChip(
+                      payload: _sessionInit!,
+                      agentKind: (widget.agent['kind'] ?? '').toString(),
+                      dense: true,
+                    )
+                  : null,
+              views: const [
+                SessionView(label: 'Feed', icon: Icons.forum_outlined),
+                SessionView(label: 'Pane', icon: Icons.terminal),
+                SessionView(label: 'Journal', icon: Icons.menu_book_outlined),
+                SessionView(label: 'Insights', icon: Icons.insights_outlined),
+              ],
+              currentView: _view,
+              onSelectView: (i) => setState(() => _view = i),
+              leadingActions: [
+                if (_mode.isNotEmpty) ...[
+                  _Chip(text: _mode, color: DesignColors.primary),
+                  const SizedBox(width: 6),
                 ],
+                _Chip(text: _status, color: _agentStatusColor(_status)),
+                if (_isPaused) ...[
+                  const SizedBox(width: 6),
+                  const _Chip(text: 'paused', color: Colors.orange),
+                ],
+                const SizedBox(width: 4),
+              ],
+              menu: _ActionsMenu(
+                busy: _busy,
+                isPaused: _isPaused,
+                isDead: _isDead,
+                hasPane: _hasPane,
+                canRespawn: _specYaml.isNotEmpty,
+                onConfig: () => showAgentConfigSheet(context, agentId: _id),
+                onPauseResume: _pauseOrResume,
+                onTerminate: _terminate,
+                onArchive: _archive,
+                onRespawn: _respawn,
               ),
-            ),
-            // SessionInitChip mirrors what the team session AppBar shows:
-            // engine kind + model + permission mode + tools/mcp counts,
-            // sourced from the agent's most recent session.init event.
-            // Tap opens the same details sheet the team session uses.
-            // Hidden until session.init has been fetched (best-effort —
-            // an agent that never emitted session.init just has no chip).
-            if (_sessionInit != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 16, 4),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: SessionInitChip(
-                    payload: _sessionInit!,
-                    agentKind: (widget.agent['kind'] ?? '').toString(),
-                  ),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                () {
-                  final kind = (widget.agent['kind'] ?? '').toString();
-                  final hostId = (widget.agent['host_id'] ?? '').toString();
-                  final hubHosts =
-                      ref.read(hubProvider).value?.hosts ?? const [];
-                  final hostName = hostLabel(hubHosts, hostId);
-                  // Prefer friendly name; fall back to raw id for an
-                  // operator who's debugging a deleted-host situation.
-                  final hostFragment = hostName != null
-                      ? ' · @$hostName'
-                      : (hostId.isEmpty ? '' : ' · host $hostId');
-                  return '$kind$hostFragment';
-                }(),
-                style: GoogleFonts.jetBrainsMono(
-                    fontSize: 11, color: mutedColor),
-              ),
+              onClose: () => Navigator.pop(context),
             ),
             if (_error != null)
               Padding(
@@ -1995,24 +1982,14 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
               ),
             const SizedBox(height: 8),
             Expanded(
-              child: DefaultTabController(
-                length: 4,
-                child: Column(
-                  children: [
-                    TabBar(
-                      isScrollable: true,
-                      tabs: const [
-                        Tab(text: 'Feed'),
-                        Tab(text: 'Pane'),
-                        Tab(text: 'Journal'),
-                        Tab(text: 'Insights'),
-                      ],
-                    ),
-                    Expanded(
-                      child: TabBarView(
-                        children: [
-                          // --- Feed: live agent_events from P1.1 drivers.
-                          AgentFeed(agentId: _id),
+              // IndexedStack keeps all four views built so each keeps its
+              // scroll + state across `View ▾` switches (as TabBarView
+              // did). Indexed by [_view] from the SessionHeader switcher.
+              child: IndexedStack(
+                index: _view,
+                children: [
+                  // --- Feed: live agent_events from P1.1 drivers.
+                  AgentFeed(agentId: _id),
                           // --- Pane capture (legacy M4 view).
                           ListView(
                             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -2162,10 +2139,6 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
           ],
         ),
       ),

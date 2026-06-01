@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.770
+> **Last verified vs code:** v1.0.771
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,35 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.771-alpha — 2026-06-01
+
+**Shared `SessionHeader` lands on the project-agent sheet (transcript
+plan P2, step 1).** Tester feedback #3 was that the same agent transcript
+wears different faces across surfaces. P2 introduces one header widget
+both the project-agent sheet and (next step) `SessionChatScreen` render,
+so they can't drift. This step adopts it on the project-agent sheet and
+swaps its visible 4-tab `TabBar` for a compact `View ▾` switcher.
+
+### Added
+- **`SessionHeader` (`widgets/session_header.dart`).** One header owning
+  title + subtitle + an optional session chip + a dedicated `View ▾`
+  switcher + caller-supplied actions/⋮ + an optional ×. Hybrid chip
+  placement: a `LayoutBuilder` keeps the chip inline when it fits and
+  drops it to its own slim row 2 when the row is tight, so the title
+  ellipsizes first and the fixed controls never shrink.
+- **Dense `SessionInitChip` variant.** `dense: true` slims the chip for
+  the header's tight budget — the long `permission_mode` word becomes a
+  colored shield glyph (full label on tooltip + tap drawer) and the
+  `{n}t` / `{n}mcp` counts drop to the drawer, roughly halving width.
+
+### Changed
+- **Project-agent sheet uses `SessionHeader` + `IndexedStack`.** The
+  hand-rolled header Row + the separate chip row + the engine·host line
+  collapse into one `SessionHeader` (engine·host is now the subtitle);
+  the visible `TabBar`/`TabBarView` becomes a `View ▾`-driven
+  `IndexedStack` (Feed/Pane/Journal/Insights), which keeps each view's
+  scroll + state exactly as the tab view did. Reclaims a header row.
 
 ## v1.0.770-alpha — 2026-06-01
 

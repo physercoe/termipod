@@ -138,12 +138,20 @@ class SessionInitChip extends StatelessWidget {
   // SESSION STATE section can show live effort / output_style /
   // thinking / fast_mode.
   final Map<String, dynamic>? statusLine;
+  // P2 (docs/plans/agent-transcript-debug-and-header-parity.md) — slim
+  // variant for the shared SessionHeader's tight horizontal budget.
+  // Drops the long permission_mode word to a colored shield glyph and
+  // the {n}t / {n}mcp counts entirely (both still live in the tap
+  // drawer), roughly halving the chip's width so it fits inline beside
+  // the title + View ▾ + ⋮ + × on a phone.
+  final bool dense;
   const SessionInitChip({
     super.key,
     required this.payload,
     this.agentKind,
     this.modeModel,
     this.statusLine,
+    this.dense = false,
   });
 
   @override
@@ -156,6 +164,40 @@ class SessionInitChip extends StatelessWidget {
     final permMode = payload['permission_mode']?.toString() ?? '';
     final tools = _payloadToList(payload['tools']);
     final mcpServers = _payloadToMapList(payload['mcp_servers']);
+    if (dense) {
+      return InkWell(
+        onTap: () => showSessionDetailsSheet(context, payload,
+            agentKind: agentKind, modeModel: modeModel, statusLine: statusLine),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (agentKind != null && agentKind!.isNotEmpty) ...[
+                _Pill(label: _shortKind(agentKind!), color: DesignColors.primary),
+                const SizedBox(width: 4),
+              ],
+              if (model.isNotEmpty)
+                _Pill(label: _shortModel(model), color: DesignColors.secondary),
+              if (permMode.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                // The long word ("bypassPermissions") is replaced by a
+                // colored shield; the full label rides the tooltip and
+                // the tap drawer.
+                Tooltip(
+                  message: 'permission: $permMode',
+                  child: Icon(Icons.shield_outlined,
+                      size: 14, color: _permModeColor(permMode)),
+                ),
+              ],
+              const SizedBox(width: 2),
+              Icon(Icons.expand_more, size: 14, color: mutedColor),
+            ],
+          ),
+        ),
+      );
+    }
     return InkWell(
       onTap: () => showSessionDetailsSheet(context, payload,
           agentKind: agentKind, modeModel: modeModel,

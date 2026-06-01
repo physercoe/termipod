@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.771
+> **Last verified vs code:** v1.0.772
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,25 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.772-alpha — 2026-06-01
+
+**Pane + Journal views extracted into reusable widgets (transcript plan
+P2, step 2).** Refactor that de-forks the agent Pane and Journal bodies
+out of the project-agent sheet so the next step can render the same
+views behind `SessionChatScreen`'s `View ▾` — one copy, not two.
+
+### Changed
+- **New `AgentPaneView` / `AgentJournalView` (`widgets/`).** Self-
+  contained `ConsumerStatefulWidget`s keyed only on `agentId`:
+  `AgentPaneView` derives pane attachment from cached hub state and
+  fetches the spawn spec itself; `AgentJournalView` owns its load /
+  append state. Each shows its own inline error in-view.
+- **Project-agent sheet uses them.** The sheet's inline pane/journal
+  `ListView`s + their `_loadPane` / `_loadJournal` / `_appendJournal`
+  state move into the shared widgets; the `IndexedStack` now hosts
+  `AgentPaneView` / `AgentJournalView` directly. No behavior change —
+  the Pane still auto-loads on open, the Journal stays load-on-demand.
 
 ## v1.0.771-alpha — 2026-06-01
 

@@ -17,6 +17,8 @@ import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_config_sheet.dart';
 import '../../widgets/agent_feed.dart';
+import '../../widgets/agent_journal_view.dart';
+import '../../widgets/agent_pane_view.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/insights_panel.dart';
 import '../../widgets/session_details_sheet.dart';
@@ -1609,15 +1611,12 @@ class _AgentDetailSheet extends ConsumerStatefulWidget {
 class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
   bool _busy = false;
   String? _error;
-  String? _paneText;
-  String? _paneCapturedAt;
-  String? _journal;
-  bool _journalLoaded = false;
   // P2 — selected view in the shared SessionHeader's `View ▾` switcher.
   // Replaces the old visible TabBar; the bodies hang off an IndexedStack
-  // so each view keeps its scroll + state (as TabBarView did).
+  // so each view keeps its scroll + state (as TabBarView did). Pane +
+  // Journal moved to AgentPaneView / AgentJournalView (shared with
+  // SessionChatScreen), so their load/append state lives there now.
   int _view = 0;
-  final _noteCtl = TextEditingController();
   // Full agent row (fetched via GET /agents/{id}) includes the
   // spawn_spec_yaml join; the list payload omits it to stay small.
   Map<String, dynamic>? _full;
@@ -1649,7 +1648,6 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
   @override
   void initState() {
     super.initState();
-    _loadPane();
     _loadFull();
     _loadSessionInit();
   }
@@ -1753,12 +1751,6 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     }
   }
 
-  @override
-  void dispose() {
-    _noteCtl.dispose();
-    super.dispose();
-  }
-
   Future<T?> _guard<T>(Future<T> Function() op) async {
     setState(() {
       _busy = true;
@@ -1772,43 +1764,6 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-  }
-
-  Future<void> _loadPane({bool refresh = false}) async {
-    if (!_hasPane) return;
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    final out = await _guard(() => client.getAgentPane(_id, refresh: refresh));
-    if (out == null || !mounted) return;
-    setState(() {
-      _paneText = out['text']?.toString();
-      _paneCapturedAt = out['captured_at']?.toString();
-    });
-  }
-
-  Future<void> _loadJournal() async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    final out = await _guard(() => client.readAgentJournal(_id));
-    if (!mounted) return;
-    setState(() {
-      _journal = out ?? '';
-      _journalLoaded = true;
-    });
-  }
-
-  Future<void> _appendJournal() async {
-    final entry = _noteCtl.text.trim();
-    if (entry.isEmpty) return;
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    final ok = await _guard(() async {
-      await client.appendAgentJournal(_id, entry);
-      return true;
-    });
-    if (!mounted || ok != true) return;
-    _noteCtl.clear();
-    await _loadJournal();
   }
 
   Future<void> _pauseOrResume() async {
@@ -1899,10 +1854,6 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final mutedColor = isDark
-        ? DesignColors.textMuted
-        : DesignColors.textMutedLight;
     return Padding(
       padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom),
@@ -1990,152 +1941,20 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                 children: [
                   // --- Feed: live agent_events from P1.1 drivers.
                   AgentFeed(agentId: _id),
-                          // --- Pane capture (legacy M4 view).
-                          ListView(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                            children: [
-                              _SectionHeader(
-                                title: 'Pane capture',
-                                trailing: _hasPane
-                                    ? TextButton.icon(
-                                        onPressed: _busy
-                                            ? null
-                                            : () => _loadPane(refresh: true),
-                                        icon: const Icon(Icons.refresh, size: 18),
-                                        label: const Text('Refresh'),
-                                      )
-                                    : null,
-                              ),
-                              if (!_hasPane)
-                                Text('No pane attached yet.',
-                                    style: TextStyle(color: mutedColor))
-                              else
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? DesignColors.surfaceDark
-                                        : DesignColors.surfaceLight,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: isDark
-                                          ? DesignColors.borderDark
-                                          : DesignColors.borderLight,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _paneCapturedAt == null
-                                            ? '(no capture yet)'
-                                            : 'captured ${_shortTs(_paneCapturedAt!)} ago',
-                                        style: GoogleFonts.jetBrainsMono(
-                                            fontSize: 10, color: mutedColor),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      SelectableText(
-                                        _paneText == null || _paneText!.isEmpty
-                                            ? '(empty — hit Refresh to request a fresh capture)'
-                                            : _paneText!,
-                                        style: GoogleFonts.jetBrainsMono(
-                                            fontSize: 11),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              if (_specYaml.isNotEmpty) ...[
-                                const SizedBox(height: 16),
-                                const _SectionHeader(title: 'Spawn spec'),
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? DesignColors.surfaceDark
-                                        : DesignColors.surfaceLight,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: isDark
-                                          ? DesignColors.borderDark
-                                          : DesignColors.borderLight,
-                                    ),
-                                  ),
-                                  child: SelectableText(
-                                    _specYaml,
-                                    style: GoogleFonts.jetBrainsMono(
-                                        fontSize: 11),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          // --- Journal.
-                          ListView(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                            children: [
-                              _SectionHeader(
-                                title: 'Journal',
-                                trailing: TextButton.icon(
-                                  onPressed: _busy ? null : _loadJournal,
-                                  icon: Icon(
-                                      _journalLoaded
-                                          ? Icons.refresh
-                                          : Icons.download,
-                                      size: 18),
-                                  label: Text(
-                                      _journalLoaded ? 'Refresh' : 'Load'),
-                                ),
-                              ),
-                              if (_journalLoaded)
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? DesignColors.surfaceDark
-                                        : DesignColors.surfaceLight,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: isDark
-                                          ? DesignColors.borderDark
-                                          : DesignColors.borderLight,
-                                    ),
-                                  ),
-                                  child: SelectableText(
-                                    (_journal ?? '').isEmpty
-                                        ? '(empty — the agent hasn\'t written a journal yet)'
-                                        : _journal!,
-                                    style: GoogleFonts.jetBrainsMono(
-                                        fontSize: 11),
-                                  ),
-                                ),
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: _noteCtl,
-                                maxLines: 3,
-                                decoration: InputDecoration(
-                                  hintText: 'Append a note to the journal…',
-                                  border: const OutlineInputBorder(),
-                                  suffixIcon: IconButton(
-                                    icon: const Icon(Icons.send),
-                                    tooltip: 'Append',
-                                    onPressed:
-                                        _busy ? null : _appendJournal,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          // --- Insights (Phase 2 W4): per-agent Tier-1
-                          // tiles. Embed the panel rather than pushing
-                          // the fullscreen view so the user keeps the
-                          // sheet's lifecycle controls one tab away.
-                          ListView(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                            children: [
-                              InsightsPanel(scope: InsightsScope.agent(_id)),
-                            ],
-                          ),
+                  // --- Pane capture + spawn spec (shared AgentPaneView).
+                  AgentPaneView(agentId: _id),
+                  // --- Journal (shared AgentJournalView).
+                  AgentJournalView(agentId: _id),
+                  // --- Insights (Phase 2 W4): per-agent Tier-1 tiles.
+                  // Embed the panel rather than pushing the fullscreen
+                  // view so the user keeps the lifecycle controls one
+                  // switch away.
+                  ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    children: [
+                      InsightsPanel(scope: InsightsScope.agent(_id)),
+                    ],
+                  ),
                         ],
                       ),
                     ),
@@ -2890,27 +2709,6 @@ class _ConnectionPickerSheet extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final Widget? trailing;
-  const _SectionHeader({required this.title, this.trailing});
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6, top: 4),
-      child: Row(
-        children: [
-          Text(title,
-              style: GoogleFonts.spaceGrotesk(
-                  fontSize: 13, fontWeight: FontWeight.w700)),
-          const Spacer(),
-          if (trailing != null) trailing!,
-        ],
       ),
     );
   }

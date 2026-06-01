@@ -2,9 +2,10 @@
 
 > **Type:** plan
 > **Status:** Proposed (2026-06-01) — spec for a dedicated **Analyze**
-> screen: a foldable overview dashboard over a navigable run log. Backed by
-> the per-run event digest ([ADR-038](../decisions/038-per-run-event-digest.md)).
-> Replaces today's sparse per-agent Insights view. Not yet started.
+> screen (foldable overview dashboard over a navigable run log) plus an
+> operator-facing **OTLP trace** export, both backed by the per-run digest +
+> turn index ([ADR-038](../decisions/038-per-run-event-digest.md)). Replaces
+> today's sparse per-agent Insights view. Not yet started.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.783
 
@@ -18,7 +19,10 @@ navigable transcript below — driven by one canonical [per-run event
 digest](../decisions/038-per-run-event-digest.md). The digest supplies the
 overview stats *and* the navigation anchors (error/tool/turn `seq`s + total
 count), so tapping a stat jumps to that moment in the log and the log shows a
-true "event N of M" position.
+true "event N of M" position. The same first-class turn index also projects
+directly to **OTLP** (trace = session, span = turn, child span = tool call),
+so an operator can point the hub at a trace backend (Phoenix / Jaeger) and
+get waterfalls, latency, and failure analysis for free.
 
 ## Why now
 
@@ -62,38 +66,59 @@ true "event N of M" position.
 
 ## Phases
 
-### P0 — Hub: per-run event digest (ADR-038)
-The data substrate. New `agent_event_digests` table; one-pass compute at the
-idle (`onPreAgentIdle`) and terminal (`stopSessionInternal`) watermarks;
-canonical error = the transcript-lens union (Go is source of truth);
-`GET /v1/teams/{team}/agents/{agent}/digest`. Refactor `/v1/insights?agent_id`
-to read the digest. *Tests: digest counts == a brute-force scan; error union
-matches a shared vector; idle/terminal recompute.*
+### P0 — Hub: digest + turn index, maintained incrementally (ADR-038)
+The data substrate. New `agent_event_digests` (per-agent scalar rollups +
+canonical-error count + a mergeable latency histogram) **and** `agent_turns`
+(the turn index — one row per turn). **Maintained incrementally** by folding
+each event into the digest + open/close turn rows in the same transaction as
+the `agent_events` insert; the idle (`onPreAgentIdle`) / terminal
+(`stopSessionInternal`) hooks reconcile + finalize outcome. Canonical error =
+the transcript-lens union (Go = source of truth). Reads:
+`GET …/agents/{agent}/digest` and `…/sessions/{session}/digest` (the
+ts-ordered rollup of the session's agents). Refactor `/v1/insights` to **sum
+the in-scope digests** (percentiles from merging the latency histograms).
+*Tests: incremental digest == a brute-force scan at every watermark; error
+union matches a shared Go/Dart vector; session rollup == sum of agents;
+insights-sum == legacy scan.*
 
-### P1 — Mobile: Analyze screen shell
+### P0b — `turn.start` event + emission (ADR-038 §3)
+Add the `turn.start {turn_id, ts}` boundary event and `turn_id` on
+`turn.result`; emit it from the claude-code M4 driver first (others follow).
+The hub **synthesizes** turns for engines not yet emitting it, so the index
+and OTLP work everywhere from day one; native `turn.start` refines the log
+anchor + tool grouping. *(Drivers/protocols change — sequence with P0.)*
+
+### P1 — Mobile: Analyze screen shell (session-scoped)
 New full-screen route (`screens/.../analyze_screen.dart`) = foldable overview
-dashboard (report card from the digest) above the full-screen `AgentFeed`.
-Wire `event_count` into the feed so the position reads "N of M" and the
-minimap thumb is monotonic. Reachable from the per-agent Insights entry, the
-run/session card, and the transcript overflow.
+dashboard (report card from the **session** digest) above the full-screen
+`AgentFeed`. Wire the session `event_count` so the position reads "N of M"
+(ts-rank across agents) and the minimap thumb is monotonic. Reachable from
+the per-agent/session Insights entry, the run/session card, and the
+transcript overflow.
 
 ### P2 — Structure index → jump
-Render the digest's error taxonomy / tool list / turn list as tappable
-sections; each entry seeks the log to its `seq` (reuse the convergent seek).
-This is the "navigate accurately" payoff — overview and log bound together.
+Render the error taxonomy / tool list / **turn index (`agent_turns`)** as
+tappable sections; each entry seeks the log to its `start_seq` (reuse the
+convergent seek). This is the "navigate accurately" payoff — overview and log
+bound together, at session granularity.
 
 ### P3 — Replace the sparse Insights view
-Fold the per-agent Insights surface into (or redirect it to) the Analyze
-screen, so "Insights" for one run *is* the rich dashboard. Reconcile the
-numbers (insights now reads the digest, so they match the transcript).
+Fold the per-agent/session Insights surface into (or redirect it to) the
+Analyze screen, so "Insights" for one run *is* the rich dashboard. The
+numbers now match the transcript (insights reads the digest).
+
+### P4 — Operator OTLP export (ADR-038 §4)
+The hub's optional OTLP exporter (`--otlp-endpoint`, off by default) projects
+`agent_turns` → spans: **trace = session, span = turn, child span = tool
+call**, OTel GenAI attributes, deterministic span IDs. Operator points it at
+Phoenix / Jaeger. Direct projection — built on the same turn index P2 uses.
 
 ### Later (post-MVP)
-- Per-session rollup + dense cross-agent ordinal (multi-agent resumed
-  sessions) — ADR-038 open question.
-- Incremental digest maintenance (vs. wholesale recompute).
-- Tier-2 export: Parquet (DuckDB OLAP) + OTLP trace (OTel GenAI conventions)
-  + MCP `transcript.summary` / `transcript.query` — see the discussion doc
-  Part II and a future ADR-B.
+- Per-session **dense ordinal** materialized (vs. the ts-rank used here) if a
+  stored ordinal becomes necessary.
+- Tier-2 OLAP: Parquet export → DuckDB (see discussion doc Part II) + MCP
+  `transcript.summary` / `transcript.query` — a future ADR-B.
+- Per-turn **live** OTLP streaming (vs. terminal-only export).
 
 ## Open questions
 
@@ -105,3 +130,5 @@ numbers (insights now reads the digest, so they match the transcript).
 - **Live runs**: do we offer a read-only "snapshot now" analyze for a running
   agent (watermark = current max seq), or gate Analyze to idle/terminal only
   for v1? (Leaning: idle/terminal only for v1.)
+- **Latency histogram shape** (fixed buckets vs. t-digest) and **`turn.start`
+  rollout order** — tracked in ADR-038's open questions.

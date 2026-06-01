@@ -997,6 +997,16 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
     final max = _scroll.position.maxScrollExtent;
     final mid = ((lo + hi) / 2).clamp(0.0, max);
+    // Reset the realized-window sentinels so the post-jump layout reports
+    // ONLY the new viewport. Critical: jumpTo re-runs the itemBuilder (which
+    // grows the window) but NOT build() (where the reset otherwise lives), so
+    // without this the window accumulates the UNION of every viewport visited
+    // during the search — the bound test then finds idx already "inside" the
+    // union, never narrows, and the seek stalls or lands on the wrong row.
+    // The failure is intermittent and worse after lazy-loading, when the
+    // longer, height-varied list makes the union span the target more often.
+    _minBuiltIdx = 1 << 30;
+    _maxBuiltIdx = -1;
     _scroll.jumpTo(mid);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) {

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.782
+> **Last verified vs code:** v1.0.783
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,27 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.783-alpha — 2026-06-01
+
+**Fix: convergent seek still landed wrong after lazy-loading.** The
+realized-row window (`_minBuiltIdx` / `_maxBuiltIdx`) that the binary search
+uses as feedback was reset only in `build()` — but `_scroll.jumpTo()`
+re-runs the ListView's `itemBuilder` (which grows the window) *without*
+re-running `build()`. So across the search's iterations the window
+accumulated the **union** of every viewport visited; the bound test then
+found the target index already "inside" the union, never narrowed, and the
+seek stalled or landed on the wrong row. Intermittent, and worse after
+lazy-loading (a longer, height-varied list makes the union span the target
+more often).
+
+### Fixed
+- Reset the realized-window sentinels immediately before each `jumpTo` in
+  `_convergeToIndex`, so the post-jump layout reports only the *current*
+  viewport. The bound test now narrows correctly every iteration and the
+  seek converges to the exact row.
 
 ---
 

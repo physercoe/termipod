@@ -39,7 +39,9 @@ void main() {
       await _pump(t, RunReportCard(digest: _digest()));
       expect(find.textContaining('done'), findsWidgets);
       expect(find.textContaining('2 turns'), findsOneWidget);
-      expect(find.textContaining('6m12s'), findsOneWidget);
+      // "6m12s" appears in both the summary line and the Duration stat;
+      // "$0.12" in the summary and the Cost stat — both legitimately twice.
+      expect(find.textContaining('6m12s'), findsWidgets);
       expect(find.textContaining(r'$0.12'), findsWidgets);
     });
 

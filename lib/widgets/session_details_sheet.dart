@@ -170,7 +170,10 @@ class SessionInitChip extends StatelessWidget {
             agentKind: agentKind, modeModel: modeModel, statusLine: statusLine),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          // Tight vertical padding so the chip sits flush with the 10px
+          // identity subtitle it shares row 2 with — at vertical:4 the chip
+          // made the row visibly taller than the bare "steward @host" line.
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [

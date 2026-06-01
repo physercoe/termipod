@@ -1641,9 +1641,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                       card = Stack(
                         children: [
                           card,
+                          // Top-LEFT, not right: the right edge sits under
+                          // the minimap column, where the two overlapped.
                           Positioned(
                             top: 2,
-                            right: 2,
+                            left: 2,
                             child: ContextJumpButton(
                                 onTap: () => _jumpToContext(seq)),
                           ),

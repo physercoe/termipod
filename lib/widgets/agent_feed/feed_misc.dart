@@ -331,8 +331,10 @@ class FeedFilterControl extends StatelessWidget {
               child: Icon(Icons.filter_list, size: 20, color: muted),
             )
           : Padding(
+              // Taller active-filter label so the whole pill (and the
+              // step buttons beside it) is comfortably tappable.
               padding:
-                  const EdgeInsets.fromLTRB(8, 4, 6, 4),
+                  const EdgeInsets.fromLTRB(8, 8, 6, 8),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -422,10 +424,12 @@ class _StepButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
+          // Roomier hit target — the 3/4 padding made prev/next an awkward
+          // tap once a filter was active (tester feedback).
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 9),
           child: Icon(
             icon,
-            size: 16,
+            size: 18,
             color: color.withValues(alpha: enabled ? 1.0 : 0.35),
           ),
         ),
@@ -708,7 +712,7 @@ class TurnStepperPill extends StatelessWidget {
         side: BorderSide(color: border),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -730,10 +734,12 @@ class TurnStepperPill extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+          // Larger hit area per arrow — the stepper buttons were a tight
+          // tap at 6/5 (tester feedback).
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
           child: Icon(
             icon,
-            size: 18,
+            size: 20,
             color: color.withValues(alpha: enabled ? 1.0 : 0.3),
           ),
         ),

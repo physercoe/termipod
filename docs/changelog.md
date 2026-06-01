@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.780
+> **Last verified vs code:** v1.0.781
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,28 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.781-alpha — 2026-06-01
+
+**Transcript chrome density + tap-target polish.** Four testing items
+on the v1.0.780 round.
+
+### Changed
+- **Session-init chip is vertically tighter on header row 2.** The dense
+  chip's vertical padding dropped from 4 to 1 so it sits flush with the
+  10px "steward @host" identity subtitle it shares the row with, instead
+  of making row 2 visibly taller than the bare text it replaced.
+- **"View in full transcript" button moved to the card's top-LEFT.** On a
+  filtered card the corner `ContextJumpButton` was at top-right, where it
+  overlapped the right-edge minimap column; it now sits top-left, clear of
+  the minimap lane.
+- **Roomier tap targets on both steppers.** The active filter pill's
+  prev/next/clear buttons (`_StepButton`, 3/4 → 6/9 padding, icon 16 → 18)
+  and the bottom-left turn stepper's arrows (`_btn`, 6/5 → 9/9 padding,
+  icon 18 → 20) were awkward taps; both enlarged. The active-filter label
+  padding grew (4 → 8 vertical) to match.
 
 ---
 

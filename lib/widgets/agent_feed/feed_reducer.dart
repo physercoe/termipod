@@ -62,6 +62,11 @@ bool agentEventIsReplay(Map<String, dynamic> evt) {
 ///   periodic snapshot, chip-source only, not a lifecycle event.
 ///   ~10s cadence; rendering as bubbles would also spam the
 ///   transcript with cold-open frames (~360 frames/hour).
+/// - `turn.start` — the turn-boundary marker (ADR-038 §3). A
+///   structural anchor the hub's turn index + analysis-mode position
+///   bar consume; it carries no body, so it's never a transcript
+///   bubble (its sibling `turn.result` is likewise non-bubble, handled
+///   by the terminal short-circuit in `_isAgentBusy`).
 ///
 /// Public so widget tests can assert membership without spinning the
 /// full `_AgentFeedState` widget tree.
@@ -70,6 +75,7 @@ const kAgentFeedAlwaysHiddenKinds = <String>{
   'usage',
   'rate_limit',
   'status_line',
+  'turn.start',
 };
 
 /// Event kinds that DECISIVELY signal an in-flight turn.

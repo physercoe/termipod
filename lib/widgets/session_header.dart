@@ -63,39 +63,11 @@ class SessionHeader extends StatelessWidget {
     this.onClose,
   });
 
-  // Below this width the chip can't share row 1 with the title and the
-  // fixed controls, so it drops to its own row 2. The chip is slim
-  // (dense), so a modest breakpoint is enough on phones.
-  static const double _inlineChipBreakpoint = 420;
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-    final border =
-        isDark ? DesignColors.borderDark : DesignColors.borderLight;
-
-    final titleBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          title,
-          style: GoogleFonts.spaceGrotesk(
-              fontSize: 16, fontWeight: FontWeight.w700),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        if (subtitle != null && subtitle!.isNotEmpty)
-          Text(
-            subtitle!,
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-      ],
-    );
 
     // Fixed controls (never shrink): leading actions, View ▾, ⋮, ×.
     final controls = Row(
@@ -113,43 +85,55 @@ class SessionHeader extends StatelessWidget {
       ],
     );
 
+    final hasSubtitle = subtitle != null && subtitle!.isNotEmpty;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 8, 6),
-      child: LayoutBuilder(
-        builder: (ctx, constraints) {
-          final inlineChip =
-              chip != null && constraints.maxWidth >= _inlineChipBreakpoint;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Row 1: title (ellipsizes) + the fixed controls. The chip no
+          // longer shares this row — it moved to row 2 beside the identity
+          // subtitle, which removes the old chip↔status-pill collision and
+          // the divider that tried to patch it.
+          Row(
             children: [
-              Row(
+              if (leading != null) leading!,
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 16, fontWeight: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              controls,
+            ],
+          ),
+          // Row 2: identity (e.g. "steward.v1 @host") + the session chip.
+          // Subtitle ellipsizes first; the slim chip keeps its size.
+          if (hasSubtitle || chip != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
                 children: [
-                  if (leading != null) leading!,
-                  // Title yields first under pressure (ellipsizes); the
-                  // chip collapses second (to row 2); the controls are
-                  // fixed.
-                  Expanded(child: titleBlock),
-                  if (inlineChip) ...[
-                    Flexible(child: chip!),
-                    // Separate the chip's trailing ▾ from the first
-                    // leading action (e.g. the "M2 · running" status
-                    // pills) — a 4px gap let the glyph and the pill touch.
-                    const SizedBox(width: 8),
-                    Container(width: 1, height: 16, color: border),
-                    const SizedBox(width: 8),
-                  ],
-                  controls,
+                  if (hasSubtitle)
+                    Flexible(
+                      child: Text(
+                        subtitle!,
+                        style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10, color: muted),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  if (hasSubtitle && chip != null) const SizedBox(width: 8),
+                  if (chip != null) chip!,
                 ],
               ),
-              if (chip != null && !inlineChip)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Align(alignment: Alignment.centerLeft, child: chip!),
-                ),
-            ],
-          );
-        },
+            ),
+        ],
       ),
     );
   }

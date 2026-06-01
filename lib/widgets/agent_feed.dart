@@ -937,6 +937,24 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
   }
 
+  // A seq the user asked to view "in context": tapped from a filtered card,
+  // it switches to the All lens and (in build, once the unfiltered list is
+  // back) seeks to that row so the surrounding turns are visible.
+  int? _pendingContextSeq;
+
+  /// Clear the active filter and land on [seq] in the full transcript, so a
+  /// match found in a filtered view can be read with its surrounding
+  /// context. The seek itself runs in build once `_lens == all` has put the
+  /// row back in the list (we know its index there, so it works even if the
+  /// row isn't currently realised).
+  void _jumpToContext(int seq) {
+    setState(() {
+      _lens = FeedLens.all;
+      _followTail = false;
+      _pendingContextSeq = seq;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -1415,6 +1433,23 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               if (agentEventMatchesLens(e, _lens, toolResults, toolUpdates))
                 e,
           ];
+    // Consume a pending "view in context" request: now that the lens is
+    // back to All (so [lensed] == [visible]), find the row's index in the
+    // unfiltered list and seek to it once this frame lays out. Index-based
+    // (via _seekToFrac) so it lands even if the row isn't yet realised.
+    if (_pendingContextSeq != null && _lens == FeedLens.all) {
+      final target = _pendingContextSeq!;
+      _pendingContextSeq = null;
+      final idx =
+          lensed.indexWhere((e) => (e['seq'] as num?)?.toInt() == target);
+      if (idx >= 0) {
+        final denom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
+        final frac = idx / denom;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _seekToFrac(frac, target);
+        });
+      }
+    }
     final matchSeqs = _lens == FeedLens.all
         ? const <int>[]
         : [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
@@ -1474,20 +1509,36 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         ));
       }
     }
-    // Turn seqs (ascending) for the stepper's clamped prev/next.
-    final turnSeqs = [
-      for (final i in turnAnchorIdx) (lensed[i]['seq'] as num?)?.toInt() ?? 0,
+    // The bottom-left stepper steps a DIFFERENT unit per view, so `‹/›`
+    // always mean something here:
+    //   All view      → inbound prompts (turn anchors)
+    //   filtered view → the matches shown (every lensed row) — so in the
+    //                   Errors view it's prev/next error, in Text prev/next
+    //                   message, etc.
+    final stepAnchorIdx = _lens == FeedLens.all
+        ? turnAnchorIdx
+        : [for (var i = 0; i < lensed.length; i++) i];
+    final stepSeqs = [
+      for (final i in stepAnchorIdx) (lensed[i]['seq'] as num?)?.toInt() ?? 0,
     ];
+    // Human label for the stepped unit (drives the button tooltips).
+    final stepUnit = _lens == FeedLens.all
+        ? 'prompt'
+        : (_lens == FeedLens.errors
+            ? 'error'
+            : (_lens == FeedLens.text
+                ? 'message'
+                : (_lens == FeedLens.turns ? 'turn' : 'tool')));
     // Step relative to the last seek anchor (set by every jump). prevK =
     // last anchor strictly older than the anchor; nextK = first strictly
-    // newer. Null at the ends → the button disables (no wrap-around). With
-    // no anchor yet, `ref` is open-ended so prev lands on the newest turn.
+    // newer. Null at the ends → fall back (no wrap-around). With no anchor
+    // yet, `ref` is open-ended so prev lands on the newest.
     final ref = _activeSeekSeq;
-    int? prevTurnK;
-    int? nextTurnK;
-    for (var k = 0; k < turnSeqs.length; k++) {
-      if (ref == null || turnSeqs[k] < ref) prevTurnK = k;
-      if (nextTurnK == null && ref != null && turnSeqs[k] > ref) nextTurnK = k;
+    int? prevStepK;
+    int? nextStepK;
+    for (var k = 0; k < stepSeqs.length; k++) {
+      if (ref == null || stepSeqs[k] < ref) prevStepK = k;
+      if (nextStepK == null && ref != null && stepSeqs[k] > ref) nextStepK = k;
     }
     // Count the verbose-gated events so the toggle can advertise its
     // value — "Show debug (12)" carries more signal than a bare button.
@@ -1571,7 +1622,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   final ev = lensed[i];
                   final isTarget = _activeSeekSeq != null &&
                       (ev['seq'] as num?)?.toInt() == _activeSeekSeq;
-                  final card = AgentEventCard(
+                  Widget card = AgentEventCard(
                     key: isTarget ? _seekKey : null,
                     event: ev,
                     toolNames: toolNames,
@@ -1580,6 +1631,26 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     resolvedApprovals: resolvedApprovals,
                     agentId: widget.agentId,
                   );
+                  // In a filtered view, give each card a "view in context"
+                  // affordance: tap it to clear the filter and land on this
+                  // row in the full transcript so the surrounding turns are
+                  // visible.
+                  if (_lens != FeedLens.all) {
+                    final seq = (ev['seq'] as num?)?.toInt();
+                    if (seq != null) {
+                      card = Stack(
+                        children: [
+                          card,
+                          Positioned(
+                            top: 2,
+                            right: 2,
+                            child: ContextJumpButton(
+                                onTap: () => _jumpToContext(seq)),
+                          ),
+                        ],
+                      );
+                    }
+                  }
                   if (isTarget && _seekHighlight) {
                     return AnimatedContainer(
                       duration: const Duration(milliseconds: 400),
@@ -1718,29 +1789,27 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     viewportFrac: _viewFrac,
                   ),
                 ),
-              // Full-screen turn stepper: floats bottom-left (was a full-
-              // width footer row that ate vertical space). ⤒ top-of-loaded,
-              // ‹/› previous/next prompt. Always actionable so a tester
-              // doesn't hit a dead grey button: prev falls back to paging
-              // older (then top); next falls back to jumping to the tail.
-              // This is why "next greyed out after one prev" no longer
-              // happens — a session with one prompt still lets `›` reach the
-              // latest output.
+              // Full-screen stepper: floats bottom-left. ⤒ top-of-loaded,
+              // ‹/› previous/next of the current view's unit ([stepUnit] —
+              // prompt in All, error in Errors, message in Text, …). Always
+              // actionable: prev falls back to paging older (then top), next
+              // to jumping to the tail — so it never dead-ends.
               if (!widget.dense)
                 Positioned(
                   left: 6,
                   bottom: 12,
                   child: TurnStepperPill(
+                    unit: stepUnit,
                     onOldest: _jumpToOldestLoaded,
-                    onPrevTurn: prevTurnK != null
+                    onPrevTurn: prevStepK != null
                         ? () => _seekToLensedIndex(
-                            turnAnchorIdx[prevTurnK!], lensed)
+                            stepAnchorIdx[prevStepK!], lensed)
                         : (!_atHead
                             ? () { _maybeLoadOlder(); }
                             : _jumpToOldestLoaded),
-                    onNextTurn: nextTurnK != null
+                    onNextTurn: nextStepK != null
                         ? () => _seekToLensedIndex(
-                            turnAnchorIdx[nextTurnK!], lensed)
+                            stepAnchorIdx[nextStepK!], lensed)
                         : _jumpToLatest,
                   ),
                 ),

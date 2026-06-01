@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.779
+> **Last verified vs code:** v1.0.780
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,32 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.780-alpha — 2026-06-01
+
+**Transcript header + filtered-view navigation.** Three testing items
+(the paging-vs-forum question is deferred to a follow-up).
+
+### Changed
+- **`SessionHeader` chip moved to row 2 beside the identity subtitle.** The
+  session-init chip now sits on the second line next to "steward.v1 @host"
+  instead of sharing row 1 with the title and status pills — which lets us
+  delete the `|` divider (and the hybrid inline/stacked `LayoutBuilder`) that
+  was only there to keep the chip's `▾` off the "M2 · running" pills.
+- **Bottom-left stepper is now view-aware.** `‹/›` step the current view's
+  unit and say so in the tooltip: *prompt* in All, *error* in Errors,
+  *message* in Text, *turn* in Turns, *tool* in Tools — so prev/next mean
+  something concrete in a filtered view (previously they stepped prompts,
+  which a filtered view has none of).
+
+### Added
+- **"View in full transcript" on filtered cards.** In any non-All lens,
+  each card gets a corner `ContextJumpButton`; tapping it clears the filter
+  and seeks to that row in the All view so the match can be read with its
+  surrounding turns. Index-based seek (`_seekToFrac`) so it lands even if
+  the row isn't currently realised.
 
 ---
 

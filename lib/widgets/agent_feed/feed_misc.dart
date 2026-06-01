@@ -628,6 +628,44 @@ class _MinimapPainter extends CustomPainter {
       old.viewportFrac != viewportFrac;
 }
 
+/// Tiny "view in context" affordance shown on the corner of each card in a
+/// filtered (non-All) lens. Tapping clears the filter and seeks to this row
+/// in the full transcript, so a match can be read with its surrounding
+/// turns (a tester asked to jump from a filtered card back to its place in
+/// the All view).
+class ContextJumpButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const ContextJumpButton({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    return Tooltip(
+      message: 'View in full transcript',
+      child: Material(
+        color: bg.withValues(alpha: 0.85),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: border),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(Icons.center_focus_strong, size: 15, color: muted),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Compact floating turn stepper (docs/plans/agent-transcript-debug-and-
 /// header-parity.md — turn-nav follow-up). Replaces the earlier full-width
 /// `TranscriptNavBar` row, which ate vertical space and whose `turn N/M`
@@ -643,10 +681,15 @@ class TurnStepperPill extends StatelessWidget {
   final VoidCallback? onOldest;
   final VoidCallback? onPrevTurn;
   final VoidCallback? onNextTurn;
+  // The unit the ‹/› step through in the current view ("prompt", "error",
+  // "message", …) — drives the tooltips so prev/next read meaningfully in
+  // a filtered view.
+  final String unit;
   const TurnStepperPill({
     required this.onOldest,
     required this.onPrevTurn,
     required this.onNextTurn,
+    this.unit = 'prompt',
   });
 
   @override
@@ -670,8 +713,8 @@ class TurnStepperPill extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             _btn(Icons.vertical_align_top, 'Top of loaded', onOldest, muted),
-            _btn(Icons.expand_less, 'Previous prompt', onPrevTurn, muted),
-            _btn(Icons.expand_more, 'Next prompt', onNextTurn, muted),
+            _btn(Icons.expand_less, 'Previous $unit', onPrevTurn, muted),
+            _btn(Icons.expand_more, 'Next $unit', onNextTurn, muted),
           ],
         ),
       ),

@@ -66,13 +66,17 @@ Keyed by `agent_id`, carrying `team_id` (ADR-037 isolation). Columns:
 - `agent_id` (PK), `team_id`, `schema_version`, `updated_at`;
 - `watermark_seq` — max `seq` folded so far (the consistent cut);
 - `event_count`, `turn_count`, `first_ts`, `last_ts`, `duration_ms`;
-- `cost_usd`, `by_model_json` (per-model tokens + cost);
+- `cost_usd` — summed `turn.result.cost_usd` when the engine emits it,
+  else the polled session cost (`sessionCostUsdImputed`); `by_model_json`
+  (per-model tokens + cost);
 - `error_count`, `errors_json` — taxonomy `class → {count, sample_seqs[]}`;
 - `tool_total`, `tool_failed`, `tools_json` — `name → {calls, failed,
   sample_seqs[]}`;
 - `latency_hist_json` — a **fixed-bucket turn-latency histogram** (so
   percentiles *merge* across agents; see §5);
-- `outcome` — terminal status / last `turn.result` status (best-effort).
+- `outcome` — the assigned **task's** state when the agent has one
+  (`tasks.assignee_id = agent_id` → done / cancelled / blocked), else the
+  terminal / last `turn.result` status.
 
 **Canonical "error" (the reconciliation).** The error set is the **union**:
 `kind=='error'` ∪ `tool_result.is_error==true` ∪ a `tool_call` whose resolved
@@ -94,11 +98,16 @@ O(1): `event_count++`; on `turn.result` → `turn_count++`, `cost +=`, merge
 `tool_result` arrives, so `error_count` is **eventually consistent within the
 run** (correct by turn end) — the same resolution the mobile lens uses.
 
-The watermark hooks — `onPreAgentIdle` (`loop_hooks.go:105`) and terminal
-(`stopSessionInternal`, `stop_session.go:55`) — become a **reconcile +
-finalize-outcome** checkpoint (a full O(n) recompute that corrects any drift
-and seals the outcome), not the primary path. Historical agents with no
-digest are backfilled lazily on first read.
+There is **no periodic full recompute, so no debounce question**: a turn's
+totals close once when its `turn.result` folds in, and cost/tokens also fold
+from the incremental `usage` events claude emits per assistant message
+(`agent_families.yaml:187`). So even a long single-turn "goal mode" run keeps
+a current overview — event / tool / error counts advance per event and
+cost / tokens per `usage` — rather than waiting for a turn boundary; its
+`turn_count` simply reflects the one (still-open) turn. The terminal hook
+(`stopSessionInternal`, `stop_session.go:55`) only **finalizes `outcome`**
+(O(1)). The single O(n) pass is the **one-time lazy backfill** of a
+pre-existing agent that has no digest yet (computed on first read).
 
 ### 3. First-class turns — `turn.start` + the `agent_turns` index
 
@@ -133,9 +142,11 @@ storage). It is a direct projection, no synthesis guesswork:
 - **Trace = session.** `trace_id = sha256(session_id)[:16]` (one trace per
   session; spans from every agent of a resumed session share it).
 - **Turn span.** `span_id = sha256(session_id|turn_id)[:8]`; name `turn {idx}`;
-  **timing `[end_ts − duration_ms, end_ts]`** (accurate from `turn.result`
-  even before native `turn.start`; `turn.start.ts` refines the log anchor and
-  the tool-grouping window); status from `turn.result.status`; attributes
+  **timing = `turn.start.ts` → `turn.result.ts`**; where `turn.start` isn't
+  emitted yet, fall back to `[end_ts − duration_ms, end_ts]` for engines that
+  carry `duration_ms` (claude-code does; the ACP engines do not — see Open
+  questions) or, failing that, the first→last enclosed event ts; status from
+  `turn.result.status`; attributes
   follow **OTel GenAI conventions** — `gen_ai.system = agent.kind`,
   `gen_ai.request.model`, `gen_ai.usage.input_tokens` / `output_tokens`,
   `cost_usd`.
@@ -179,11 +190,23 @@ storage). It is a direct projection, no synthesis guesswork:
 **Negative / costs.**
 - New tables (`agent_event_digests`, `agent_turns`) + an extra in-tx
   `UPDATE`/turn-row write per event (fine at these volumes; SQLite single
-  writer). A reconcile recompute at idle/terminal.
+  writer). No periodic recompute — only a one-time lazy backfill.
 - **Canonical-error duplication** across Go and Dart — mitigated by the
   digest being source of truth + a shared test vector.
-- **`turn.start` adoption is per-driver work**; synthesis covers the gap, and
-  span timing is accurate from `duration_ms` regardless.
+- **`turn.start` adoption is per-driver work**; synthesis covers the gap.
+- **Engine field coverage is uneven (verified, not a digest bug).** The
+  fields each engine puts on `turn.result` differ: claude-code maps
+  `cost_usd` + `duration_ms` + `by_model` declaratively
+  (`agent_families.yaml:228-237`); the ACP engines build `turn.result` in
+  `driver_acp.go:999` and emit **`status` always** (so failed-turn errors
+  work everywhere) but **no `cost_usd` and no `duration_ms`**, and token /
+  `by_model` only for gemini's `_meta.quota` shape
+  (`driver_acp.go:1017-1057`; comment at :997 — "engines that don't ship
+  tokens … get an empty `turn.result` with stop_reason"). So for codex /
+  gemini / kimi the digest's cost falls back to the session-cost poll, turn
+  latency is unavailable, and per-model tokens are sparse — until each
+  engine's driver/profile (editable YAML/Go) emits the fields. This is a
+  coverage limitation, not a digest defect.
 - **Staleness**: a live run's digest is as-of `watermark_seq`; the UI labels
   it and analysis mode is offered for idle/terminal runs.
 
@@ -212,22 +235,9 @@ storage). It is a direct projection, no synthesis guesswork:
   (the latter wants a streaming exporter).
 - **Tool→turn association** when `turn_id` isn't carried on tool events
   (ts-window grouping is the fallback; carrying `turn_id` is cleaner).
-- **Reconcile cadence / debounce.** Incremental is the primary path, but the
-  idle/terminal reconcile is a full O(n) recompute and `onPreAgentIdle` can
-  fire on every idle. Gate it — run the reconcile only when `watermark_seq`
-  advanced by ≥N events, or rate-limit — so a chatty agent doesn't trigger
-  constant full scans.
-- **Cost authority.** The digest sums `turn.result.cost_usd`; the live
-  TelemetryStrip prefers a separately polled session-cost
-  (`sessionCostUsdImputed`). Decide which is authoritative and whether the
-  two must reconcile (or the digest becomes the single source the strip also
-  reads).
-- **Outcome from task linkage.** `outcome` currently defaults to the terminal
-  / last `turn.result` status. A richer, more director-meaningful outcome is
-  the assigned **task's** done/cancelled state — decide whether to fold task
-  linkage into the digest's `outcome`.
-- **Engine coverage / known limitation.** Non-claude engines may not emit
-  `turn.result` / `by_model` / `duration_ms` consistently, so their digests
-  can show zeros for turns / cost / latency. The digest surfaces only what the
-  events carry; this is a known limitation until each engine's adapter emits
-  the fields, not a digest bug — document it as such.
+
+*(Resolved in the body after review: B2 reconcile cadence — there is no
+periodic recompute, so no gating (§2); B3 cost authority —
+`turn.result.cost_usd` else `sessionCostUsdImputed` (§1); B4 outcome —
+folds the assigned task's state (§1); B7 engine coverage — verified and
+documented as a known limitation, not open (Consequences).)*

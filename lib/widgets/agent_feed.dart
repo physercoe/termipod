@@ -1400,7 +1400,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // in the rendered list; the nav bar steps between them. See
     // [turnAnchorIndices] / [currentTurnOrdinal].
     List<int> turnAnchorIdx = const [];
-    var turnCount = 0;
+    var navTurns = 0;
     var currentTurn = 0;
     final viewportFrac = _scrollPercent / 100.0;
     if (!widget.dense) {
@@ -1430,7 +1430,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         ));
       }
       turnAnchorIdx = turnAnchorIndices(lensed);
-      turnCount = turnAnchorIdx.length;
+      navTurns = turnAnchorIdx.length;
       currentTurn =
           currentTurnOrdinal(turnAnchorIdx, lensed.length, viewportFrac);
     }
@@ -1699,7 +1699,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (!widget.dense)
           TranscriptNavBar(
             currentTurn: currentTurn,
-            turnCount: turnCount,
+            turnCount: navTurns,
             moreAbove: !_atHead,
             onOldest: _jumpToOldestLoaded,
             onLatest: _jumpToLatest,
@@ -1709,7 +1709,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 ? () => _seekToLensedIndex(
                     turnAnchorIdx[currentTurn - 2], lensed)
                 : (!_atHead ? () { _maybeLoadOlder(); } : null),
-            onNextTurn: currentTurn < turnCount
+            onNextTurn: currentTurn < navTurns
                 ? () =>
                     _seekToLensedIndex(turnAnchorIdx[currentTurn], lensed)
                 : null,

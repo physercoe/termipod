@@ -65,6 +65,14 @@ View ▾ → Insights   (the analysis surface; available for any run)
 - **Navigable log**: the same full-screen `AgentFeed` (`dense: false`), now
   with a **monotonic** position ("event N of M" from `event_count`) and a true
   minimap position indicator.
+- **Inherits Feed's lenses + context-jump, completed by the digest.** Insight
+  carries the same lens filters (All / Text / Turns / Tools / Errors), stepper,
+  and "view in full transcript" context-jump. The difference is *data scope*:
+  Feed filters the loaded window (fine for live follow); **Insight's filters /
+  structure index are digest-backed (full-run, complete)** — "Errors" lists
+  *every* error in the run (not just loaded ones), and each jumps via the
+  random-access loader. So the filters and the context-jump aren't just
+  supported — the digest makes them complete and accurate across the whole run.
 - **Jump-to-context**: every dashboard entry (an error class, a tool, a turn)
   taps to seek the log to that `seq` via the convergent index seek.
 - **Availability — any run.** Because the digest is maintained incrementally

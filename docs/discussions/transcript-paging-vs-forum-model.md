@@ -49,11 +49,21 @@ The classic phpBB/Discourse-era thread model:
   O(1); it is the authority for "how many pages" (`ceil(count / pageSize)`)
   and for "post #X is on page ⌈X / pageSize⌉".
 - **Pagination is offset *or* keyset:**
-  - Numbered pages use `LIMIT pageSize OFFSET (page-1)*pageSize` — fine
-    because threads are bounded (hundreds, not 100k) and pages are loaded
-    one at a time, so deep offsets are rare.
+  - Numbered pages use `LIMIT pageSize OFFSET (page-1)*pageSize` — **O(offset)**
+    (the DB scans and skips the rows). Fine only because threads are bounded
+    (hundreds, not 100k) and deep offsets are rare.
   - "Jump to post #X" / permalinks use a **keyset seek** on the post
-    number or id (`WHERE post_no >= X`), not offset.
+    number or id (`WHERE post_no >= X`), not offset — a B-tree descent,
+    **O(log n)**.
+- **Complexity, stated plainly.** There is **no O(1) data navigation** in a
+  forum: only the denormalized *count* and the page-number *arithmetic*
+  (`⌈X/pageSize⌉`) are O(1); every actual page/post fetch pays a B-tree
+  descent — **O(log n)** via keyset, or **O(offset)** if paged with `OFFSET`.
+  Our transcript's keyset cursor is the *same* O(log n) index range scan and
+  **never uses `OFFSET`**, so we match the forum's keyset case and beat its
+  offset case at depth. We do not concede a complexity class — the forum's
+  only edge is the O(1) count + dense ordinal that lets it *express* "page N
+  of M", which the digest (§Part II) gives us without the offset penalty.
 - **Request/response, not a followed tail.** You load page 3; it's static
   until you refresh. New posts append at the end; you are not watching the
   thread auto-scroll as others type. Page boundaries *do* drift when posts

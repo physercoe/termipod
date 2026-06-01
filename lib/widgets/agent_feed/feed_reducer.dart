@@ -1016,6 +1016,40 @@ bool agentEventIsError(
 /// count) is usually folded away and wouldn't be seekable.
 const kFeedTurnAnchorKinds = <String>{'input.text'};
 
+/// Accent colour for an event of [kind] from [producer] — the SAME
+/// mapping the transcript card paints with, so the minimap ticks line up
+/// with the cards' colours (a tester asked for this). Single source of
+/// truth: `AgentEventCard._accentFor` delegates here.
+Color agentEventAccent(String kind, String producer) {
+  switch (kind) {
+    case 'text':
+    case 'thought':
+      return DesignColors.primary;
+    case 'tool_call':
+      return DesignColors.terminalBlue;
+    case 'tool_result':
+      return DesignColors.terminalCyan;
+    case 'completion':
+      return DesignColors.success;
+    case 'error':
+      return DesignColors.error;
+    case 'lifecycle':
+      return DesignColors.warning;
+    case 'session.init':
+      return DesignColors.secondary;
+    case 'approval_request':
+      return DesignColors.warning;
+    case 'plan':
+      return DesignColors.secondary;
+    case 'diff':
+      return DesignColors.terminalCyan;
+    default:
+      return producer == 'user'
+          ? DesignColors.terminalYellow
+          : DesignColors.textMuted;
+  }
+}
+
 /// True when [e] starts a turn the stepper should land on: an inbound
 /// prompt ([kFeedTurnAnchorKinds]) that a *human or peer* sent — NOT a
 /// system-injected one. System envelopes (`producer == 'system'`, or an

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.777
+> **Last verified vs code:** v1.0.778
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,39 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.778-alpha — 2026-06-01
+
+**Transcript nav, round 3 — testing feedback on v1.0.777.** Six items.
+
+### Fixed
+- **Stepper "jump to end" bug (root cause).** Seeking to a prompt near the
+  bottom of the loaded window momentarily put the viewport at the tail, and
+  `_onScroll` re-enabled tail-follow — so the next live event yanked to the
+  end. Programmatic scrolls (seek / scrub / jump) are now flagged (a depth
+  counter spanning the whole animation) and `_onScroll` ignores tail-follow
+  during them. Only a *user* scroll to the bottom re-follows.
+- **Stepper prev/next greying out.** With few prompts, `›` had no newer
+  prompt and went dead. Both buttons are now always actionable: `‹` falls
+  back to paging older (then top-of-loaded), `›` falls back to jumping to
+  the latest.
+- **`⤒` top-of-loaded flicker/bounce.** It no longer kicks the load pager
+  mid-animation (the load's anchor-jump fought the scroll); it animates to
+  the top and the natural top-of-scroll trigger pages more once settled.
+- **Funnel tap target enlarged** on the constrained host (icon 16→20,
+  bigger padding).
+
+### Changed
+- **Minimap gets a position indicator back + card-matching colours.** Each
+  tick is painted in its transcript card's accent (`agentEventAccent`, now
+  the single source of truth shared with `AgentEventCard`), and a viewport
+  bar shows scroll position. (Position over a no-known-total lazy feed still
+  re-scales when older pages load — an honest "where in the loaded window".)
+- **Full-screen drops the lens-bar row; uses the funnel.** Saves a vertical
+  row — the floating funnel now carries per-lens counts in its menu, and
+  renders on both the dense and full-screen hosts. `FeedLensBar` removed.
 
 ---
 

@@ -224,6 +224,10 @@ class FeedFilterControl extends StatelessWidget {
   final ValueChanged<FeedLens> onSelectLens;
   final VoidCallback onPrev;
   final VoidCallback onNext;
+  // Per-lens counts shown next to each menu item (full-screen passes these
+  // so the funnel replaces the old always-on lens BAR — same information,
+  // no vertical row). Null in the dense host.
+  final Map<FeedLens, int>? counts;
   const FeedFilterControl({
     required this.lens,
     required this.matchCount,
@@ -233,6 +237,7 @@ class FeedFilterControl extends StatelessWidget {
     required this.onSelectLens,
     required this.onPrev,
     required this.onNext,
+    this.counts,
   });
 
   static IconData iconFor(FeedLens l) {
@@ -298,15 +303,32 @@ class FeedFilterControl extends StatelessWidget {
                       fontWeight:
                           l == lens ? FontWeight.w700 : FontWeight.w500,
                     )),
+                // Live count per lens (full-screen): the funnel menu now
+                // carries what the old lens bar did. No Spacer — a
+                // PopupMenuItem sizes to intrinsic width, where a flex child
+                // would throw; a fixed gap keeps it safe.
+                if (counts != null && l != FeedLens.all) ...[
+                  const SizedBox(width: 14),
+                  Text('${counts![l] ?? 0}',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: l == FeedLens.errors && (counts![l] ?? 0) > 0
+                            ? DesignColors.error
+                            : muted,
+                      )),
+                ],
               ],
             ),
           ),
       ],
       child: lens == FeedLens.all
           ? Padding(
+              // Bigger hit target — the 16px icon + 8/4 padding was an
+              // awkward tap on the constrained host (tester feedback).
               padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Icon(Icons.filter_list, size: 16, color: muted),
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Icon(Icons.filter_list, size: 20, color: muted),
             )
           : Padding(
               padding:
@@ -450,109 +472,19 @@ class ExpandFeedButton extends StatelessWidget {
   }
 }
 
-/// Full-screen-only lens *bar* (P3 — docs/plans/agent-transcript-debug-
-/// and-header-parity.md). When a full-screen host runs `AgentFeed(dense:
-/// false)`, the floating funnel unfolds into this horizontal selector
-/// showing every lens with its live count, so the whole filter surface
-/// is visible at once instead of behind a tap. Horizontally scrollable
-/// so it never overflows a narrow device.
-class FeedLensBar extends StatelessWidget {
-  final FeedLens lens;
-  final Map<FeedLens, int> counts;
-  final ValueChanged<FeedLens> onSelectLens;
-  const FeedLensBar({
-    required this.lens,
-    required this.counts,
-    required this.onSelectLens,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final muted =
-        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-    final border =
-        isDark ? DesignColors.borderDark : DesignColors.borderLight;
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: border)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            for (final l in FeedLens.values) ...[
-              _chip(context, l, muted),
-              const SizedBox(width: 6),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _chip(BuildContext context, FeedLens l, Color muted) {
-    final selected = l == lens;
-    final count = counts[l] ?? 0;
-    final isErr = l == FeedLens.errors;
-    final accent = isErr ? DesignColors.error : DesignColors.primary;
-    final fg = selected ? accent : muted;
-    return InkWell(
-      onTap: () => onSelectLens(l),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: selected ? accent.withValues(alpha: 0.14) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected ? accent.withValues(alpha: 0.5) : Colors.transparent,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(FeedFilterControl.iconFor(l), size: 13, color: fg),
-            const SizedBox(width: 5),
-            Text(
-              FeedFilterControl.labelFor(l),
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: fg,
-              ),
-            ),
-            // The error count rides every state so "3 errors" is visible
-            // without selecting the Errors lens first.
-            if (l != FeedLens.all && count > 0) ...[
-              const SizedBox(width: 5),
-              Text(
-                '$count',
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: isErr ? DesignColors.error : muted,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// One tick on the [FeedMinimap]: a normalized vertical position, the
-/// seq to jump to, and whether it marks an error turn.
+/// seq to jump to, whether it marks an error, and the card-matching colour
+/// (see `agentEventAccent`).
 class FeedMinimapMark {
   final double frac; // 0..1 down the transcript
   final int seq;
   final bool isError;
+  final Color color;
   const FeedMinimapMark({
     required this.frac,
     required this.seq,
     required this.isError,
+    required this.color,
   });
 }
 
@@ -570,10 +502,17 @@ class FeedMinimap extends StatelessWidget {
   // Continuous drag-scrub: the host scrolls to [frac] as the finger moves
   // down the strip (no highlight, no seq anchor — pure position scrubbing).
   final ValueChanged<double>? onScrub;
+  // Current viewport-top position (0..1) drawn as a position indicator so
+  // the strip reads as a scrollbar. NB: over a lazily-loaded transcript
+  // with no known total this isn't perfectly monotonic — loading an older
+  // page above the viewport re-scales it — but a tester wanted the
+  // position cue back, so it's an honest "where in the loaded window".
+  final double viewportFrac;
   const FeedMinimap({
     required this.marks,
     required this.onJump,
     this.onScrub,
+    this.viewportFrac = 0,
   });
 
   void _scrub(double dy, double h) {
@@ -627,8 +566,8 @@ class FeedMinimap extends StatelessWidget {
             size: Size.infinite,
             painter: _MinimapPainter(
               marks: marks,
-              tickColor: tick,
-              errorColor: DesignColors.error,
+              trackColor: tick,
+              viewportFrac: viewportFrac,
             ),
           ),
         );
@@ -639,51 +578,54 @@ class FeedMinimap extends StatelessWidget {
 
 class _MinimapPainter extends CustomPainter {
   final List<FeedMinimapMark> marks;
-  final Color tickColor;
-  final Color errorColor;
+  final Color trackColor;
+  final double viewportFrac;
   _MinimapPainter({
     required this.marks,
-    required this.tickColor,
-    required this.errorColor,
+    required this.trackColor,
+    required this.viewportFrac,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     // Faint rounded track so the strip reads as a tappable control rather
-    // than stray ticks floating at the edge (the v1.0.774 minimap looked
-    // inert and testers didn't realize it could be tapped to jump).
-    final trackPaint = Paint()..color = tickColor.withValues(alpha: 0.10);
+    // than stray ticks floating at the edge.
+    final trackPaint = Paint()..color = trackColor.withValues(alpha: 0.10);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
           Offset.zero & size, const Radius.circular(4)),
       trackPaint,
     );
-    final tickPaint = Paint()
-      ..color = tickColor
-      ..strokeWidth = 1.5
-      ..strokeCap = StrokeCap.round;
-    final errPaint = Paint()
-      ..color = errorColor
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round;
     for (final m in marks) {
       final y = m.frac.clamp(0.0, 1.0) * size.height;
-      if (m.isError) {
-        // Full-width red tick — reads as an alarm against the strip.
-        canvas.drawLine(Offset(0, y), Offset(size.width, y), errPaint);
-      } else {
-        // Faint half-width tick — structure without noise.
-        canvas.drawLine(Offset(size.width * 0.5, y), Offset(size.width, y),
-            tickPaint);
-      }
+      // Each tick is painted in its card's accent colour so the minimap
+      // reads like a colour-coded shrink of the transcript. Errors get a
+      // full-width, thicker stroke so they still pop as alarms.
+      final p = Paint()
+        ..color = m.color
+        ..strokeWidth = m.isError ? 2.5 : 1.5
+        ..strokeCap = StrokeCap.round;
+      final x0 = m.isError ? 0.0 : size.width * 0.4;
+      canvas.drawLine(Offset(x0, y), Offset(size.width, y), p);
     }
+    // Viewport position indicator — a rounded bar at the current scroll
+    // position so the strip works as a scrollbar.
+    final ty = viewportFrac.clamp(0.0, 1.0) * size.height;
+    final thumbPaint = Paint()..color = trackColor.withValues(alpha: 0.9);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, (ty - 4).clamp(0.0, size.height - 8), size.width, 8),
+        const Radius.circular(4),
+      ),
+      thumbPaint,
+    );
   }
 
   @override
   bool shouldRepaint(covariant _MinimapPainter old) =>
       old.marks != marks ||
-      old.tickColor != tickColor ||
-      old.errorColor != errorColor;
+      old.trackColor != trackColor ||
+      old.viewportFrac != viewportFrac;
 }
 
 /// Compact floating turn stepper (docs/plans/agent-transcript-debug-and-

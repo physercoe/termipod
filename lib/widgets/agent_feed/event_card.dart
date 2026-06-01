@@ -824,35 +824,10 @@ class AgentEventCard extends StatefulWidget {
     );
   }
 
-  static Color _accentFor(String kind, String producer) {
-    switch (kind) {
-      case 'text':
-      case 'thought':
-        return DesignColors.primary;
-      case 'tool_call':
-        return DesignColors.terminalBlue;
-      case 'tool_result':
-        return DesignColors.terminalCyan;
-      case 'completion':
-        return DesignColors.success;
-      case 'error':
-        return DesignColors.error;
-      case 'lifecycle':
-        return DesignColors.warning;
-      case 'session.init':
-        return DesignColors.secondary;
-      case 'approval_request':
-        return DesignColors.warning;
-      case 'plan':
-        return DesignColors.secondary;
-      case 'diff':
-        return DesignColors.terminalCyan;
-      default:
-        return producer == 'user'
-            ? DesignColors.terminalYellow
-            : DesignColors.textMuted;
-    }
-  }
+  // Single source of truth lives in feed_reducer.dart so the right-edge
+  // minimap can paint ticks in the same colour as the card.
+  static Color _accentFor(String kind, String producer) =>
+      agentEventAccent(kind, producer);
 }
 
 class _AgentEventCardState extends State<AgentEventCard> {

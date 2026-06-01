@@ -301,8 +301,23 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // wants without piling up requests.
   void _onScroll() {
     if (!_scroll.hasClients) return;
-    final atBottom = _scroll.position.pixels >=
-        _scroll.position.maxScrollExtent - 40;
+    final maxExt = _scroll.position.maxScrollExtent;
+    final atBottom = _scroll.position.pixels >= maxExt - 40;
+    final frac = maxExt <= 0
+        ? 1.0
+        : (_scroll.position.pixels / maxExt).clamp(0.0, 1.0);
+    // Update the minimap position indicator. Coarse threshold (~1%) so a
+    // scroll doesn't rebuild the feed on every pixel — matches the cadence
+    // of the old integer scroll-percent.
+    if ((frac - _viewFrac).abs() > 0.01) {
+      setState(() => _viewFrac = frac);
+    }
+    // CRITICAL: only let a *user* scroll flip tail-follow. A programmatic
+    // scroll (a seek/scrub/jump) can momentarily land near the bottom — if
+    // that re-enabled _followTail, the next live event would yank the user
+    // to the end (the "jump to end" tester bug). During programmatic
+    // motion we touch neither _followTail nor the load pager.
+    if (_programmaticScroll) return;
     if (_followTail != atBottom) {
       setState(() {
         _followTail = atBottom;
@@ -317,6 +332,37 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       });
     }
     if (_scroll.position.pixels <= 120) _maybeLoadOlder();
+  }
+
+  // Viewport-top position (0..1) for the minimap indicator.
+  double _viewFrac = 1.0;
+  // >0 while a seek/scrub/jump drives the scroll, so [_onScroll] doesn't
+  // mistake the programmatic motion for the user reaching the tail. A depth
+  // counter (not a bool) so overlapping programmatic scrolls — a seek's
+  // animateTo followed by its ensureVisible — keep the guard up until ALL
+  // of them finish.
+  bool get _programmaticScroll => _programmaticScrollDepth > 0;
+  int _programmaticScrollDepth = 0;
+
+  // Mark a synchronous scroll (jumpTo) as programmatic; clear after the
+  // frame it lands on.
+  void _jumpProgrammatic(void Function() body) {
+    _programmaticScrollDepth++;
+    body();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_programmaticScrollDepth > 0) _programmaticScrollDepth--;
+    });
+  }
+
+  // Mark an animated scroll as programmatic for its whole duration —
+  // animateTo spans many frames, each firing [_onScroll], so the flag must
+  // hold until the animation future completes (a one-frame guard would let
+  // mid-animation ticks flip tail-follow).
+  void _animateProgrammatic(Future<void> Function() run) {
+    _programmaticScrollDepth++;
+    run().whenComplete(() {
+      if (_programmaticScrollDepth > 0) _programmaticScrollDepth--;
+    });
   }
 
   // Pull the latest session.init for this agent regardless of which
@@ -455,19 +501,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   /// Jump to the oldest *loaded* row (top of the list). The transcript is
   /// a contiguous tail-anchored window — there's no "page 1" to fetch
   /// directly without breaking that contiguity — so "oldest" means the top
-  /// of what's loaded, and we kick the load-older pager when more remains
-  /// above so repeated presses (or a prev-turn at the boundary) walk back
-  /// toward the true start.
+  /// of what's loaded. We deliberately do NOT kick the pager here: letting
+  /// the load-older anchor-jump fire mid-animation was what made ⤒ flicker
+  /// and bounce. The natural top-of-scroll trigger pages more once the
+  /// animation settles at 0.
   void _jumpToOldestLoaded() {
-    if (_scroll.hasClients) {
-      setState(() => _followTail = false);
-      _scroll.animateTo(
-        0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    }
-    if (!_atHead) _maybeLoadOlder();
+    if (!_scroll.hasClients) return;
+    setState(() => _followTail = false);
+    _animateProgrammatic(() => _scroll.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        ));
   }
 
   /// Continuous scrub from the right-edge minimap drag. jumpTo (not
@@ -476,7 +521,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (!_scroll.hasClients) return;
     if (_followTail) setState(() => _followTail = false);
     final pos = _scroll.position;
-    _scroll.jumpTo(frac.clamp(0.0, 1.0) * pos.maxScrollExtent);
+    _jumpProgrammatic(
+        () => _scroll.jumpTo(frac.clamp(0.0, 1.0) * pos.maxScrollExtent));
   }
 
   // Replace _events with [snapshot] (server-DESC, displayed ASC) and
@@ -818,12 +864,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       if (!mounted) return;
       final ctx = _seekKey.currentContext;
       if (ctx == null) return;
-      Scrollable.ensureVisible(
-        ctx,
-        alignment: 0.3,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+      _animateProgrammatic(() => Scrollable.ensureVisible(
+            ctx,
+            alignment: 0.3,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          ));
     });
     _seekHighlightTimer?.cancel();
     _seekHighlightTimer = Timer(const Duration(milliseconds: 1200), () {
@@ -848,11 +894,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (_scroll.hasClients) {
       final pos = _scroll.position;
       final target = frac.clamp(0.0, 1.0) * pos.maxScrollExtent;
-      _scroll.animateTo(
-        target,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+      _animateProgrammatic(() => _scroll.animateTo(
+            target,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          ));
       // Once the proportional scroll has realized the target row, nudge
       // it into a comfortable position. No-ops harmlessly if still
       // off-screen (the proportional landing already put it close).
@@ -860,12 +906,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (!mounted) return;
         final ctx = _seekKey.currentContext;
         if (ctx == null) return;
-        Scrollable.ensureVisible(
-          ctx,
-          alignment: 0.3,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
+        _animateProgrammatic(() => Scrollable.ensureVisible(
+              ctx,
+              alignment: 0.3,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            ));
       });
     }
     _seekHighlightTimer?.cancel();
@@ -1419,6 +1465,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
           frac: i / lensedDenom,
           seq: (e['seq'] as num?)?.toInt() ?? 0,
           isError: isErr,
+          // Tick colour matches the transcript card (agentEventAccent),
+          // so the strip reads as a colour-coded shrink of the feed.
+          color: isErr
+              ? DesignColors.error
+              : agentEventAccent((e['kind'] ?? '').toString(),
+                  (e['producer'] ?? 'agent').toString()),
         ));
       }
     }
@@ -1493,14 +1545,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             exceeds200kAlarm: exceeds200k == true,
           ),
         if (_staleSince != null) OfflineBanner(staleSince: _staleSince!),
-        // P3 full-screen lens bar — replaces the floating funnel/pill
-        // when the host has the width to show every lens at once.
-        if (!widget.dense)
-          FeedLensBar(
-            lens: _lens,
-            counts: lensCounts,
-            onSelectLens: _setLens,
-          ),
+        // (The full-screen lens *bar* row was removed — it ate a vertical
+        // row; full-screen now uses the same floating funnel as the dense
+        // host, with per-lens counts in its menu. See the funnel below.)
         if (_loadingOlder)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
@@ -1624,41 +1671,40 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   ),
                 ),
               // Transcript filter: funnel (rest) / combined filter+jump
-              // pill (active) floating in the top-left corner — the
-              // mirror of the verbose chip opposite. Floats over the
-              // Stack; never eats a transcript row (P1). Dense-only: a
-              // full-screen host shows the lens BAR + minimap instead.
-              if (widget.dense)
-                Positioned(
-                  top: 6,
-                  left: 6,
-                  child: FeedFilterControl(
-                    lens: _lens,
-                    matchCount: matchSeqs.length,
-                    matchIndex: matchIndex,
-                    canPrev: matchIndex > 1,
-                    canNext: matchIndex >= 1 && matchIndex < matchSeqs.length,
-                    onSelectLens: _setLens,
-                    // Prev = older (one step up the lensed list); next =
-                    // newer (one step down). matchIndex is 1-based.
-                    onPrev: () {
-                      if (matchIndex > 1) {
-                        _seekToSeq(matchSeqs[matchIndex - 2]);
-                      }
-                    },
-                    onNext: () {
-                      if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
-                        _seekToSeq(matchSeqs[matchIndex]);
-                      }
-                    },
-                  ),
+              // pill (active) floating top-left — the mirror of the verbose
+              // chip opposite. Floats over the Stack; never eats a row. Now
+              // in BOTH hosts: full-screen dropped its lens-bar row and uses
+              // this funnel too, carrying per-lens counts in its menu.
+              Positioned(
+                top: 6,
+                left: 6,
+                child: FeedFilterControl(
+                  lens: _lens,
+                  matchCount: matchSeqs.length,
+                  matchIndex: matchIndex,
+                  canPrev: matchIndex > 1,
+                  canNext: matchIndex >= 1 && matchIndex < matchSeqs.length,
+                  onSelectLens: _setLens,
+                  counts: widget.dense ? null : lensCounts,
+                  // Prev = older (one step up the lensed list); next =
+                  // newer (one step down). matchIndex is 1-based.
+                  onPrev: () {
+                    if (matchIndex > 1) {
+                      _seekToSeq(matchSeqs[matchIndex - 2]);
+                    }
+                  },
+                  onNext: () {
+                    if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
+                      _seekToSeq(matchSeqs[matchIndex]);
+                    }
+                  },
                 ),
-              // Right-edge minimap (full-screen only): a faint tick per
-              // tool call / turn anchor + a red tick per error over the
-              // loaded transcript; tap jumps to the nearest error, drag
-              // scrubs. Always rendered in full-screen (every view, incl.
-              // text/turns) so the strip is a consistent scrubber, not just
-              // present where tool/error rows happen to exist.
+              ),
+              // Right-edge minimap (full-screen only): a tick per tool call
+              // / turn anchor (card-coloured) + a red tick per error, plus a
+              // viewport indicator. Tap jumps to the nearest error, drag
+              // scrubs. Always rendered in full-screen (every view) so the
+              // strip is a consistent scrubber.
               if (!widget.dense)
                 Positioned(
                   top: 8,
@@ -1669,11 +1715,17 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     marks: minimapMarks,
                     onJump: _seekToFrac,
                     onScrub: _scrubTo,
+                    viewportFrac: _viewFrac,
                   ),
                 ),
               // Full-screen turn stepper: floats bottom-left (was a full-
               // width footer row that ate vertical space). ⤒ top-of-loaded,
-              // ‹/› previous/next prompt — relative, clamped, no ordinal.
+              // ‹/› previous/next prompt. Always actionable so a tester
+              // doesn't hit a dead grey button: prev falls back to paging
+              // older (then top); next falls back to jumping to the tail.
+              // This is why "next greyed out after one prev" no longer
+              // happens — a session with one prompt still lets `›` reach the
+              // latest output.
               if (!widget.dense)
                 Positioned(
                   left: 6,
@@ -1683,11 +1735,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     onPrevTurn: prevTurnK != null
                         ? () => _seekToLensedIndex(
                             turnAnchorIdx[prevTurnK!], lensed)
-                        : (!_atHead ? () { _maybeLoadOlder(); } : null),
+                        : (!_atHead
+                            ? () { _maybeLoadOlder(); }
+                            : _jumpToOldestLoaded),
                     onNextTurn: nextTurnK != null
                         ? () => _seekToLensedIndex(
                             turnAnchorIdx[nextTurnK!], lensed)
-                        : null,
+                        : _jumpToLatest,
                   ),
                 ),
               // Top-right floating controls: expand (dense only) + verbose

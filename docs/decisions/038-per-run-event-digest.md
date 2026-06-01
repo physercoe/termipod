@@ -212,3 +212,22 @@ storage). It is a direct projection, no synthesis guesswork:
   (the latter wants a streaming exporter).
 - **Tool→turn association** when `turn_id` isn't carried on tool events
   (ts-window grouping is the fallback; carrying `turn_id` is cleaner).
+- **Reconcile cadence / debounce.** Incremental is the primary path, but the
+  idle/terminal reconcile is a full O(n) recompute and `onPreAgentIdle` can
+  fire on every idle. Gate it — run the reconcile only when `watermark_seq`
+  advanced by ≥N events, or rate-limit — so a chatty agent doesn't trigger
+  constant full scans.
+- **Cost authority.** The digest sums `turn.result.cost_usd`; the live
+  TelemetryStrip prefers a separately polled session-cost
+  (`sessionCostUsdImputed`). Decide which is authoritative and whether the
+  two must reconcile (or the digest becomes the single source the strip also
+  reads).
+- **Outcome from task linkage.** `outcome` currently defaults to the terminal
+  / last `turn.result` status. A richer, more director-meaningful outcome is
+  the assigned **task's** done/cancelled state — decide whether to fold task
+  linkage into the digest's `outcome`.
+- **Engine coverage / known limitation.** Non-claude engines may not emit
+  `turn.result` / `by_model` / `duration_ms` consistently, so their digests
+  can show zeros for turns / cost / latency. The digest surfaces only what the
+  events carry; this is a known limitation until each engine's adapter emits
+  the fields, not a digest bug — document it as such.

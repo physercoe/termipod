@@ -11,12 +11,7 @@ import '../../services/id_format.dart';
 import '../sessions/sessions_screen.dart' show SessionChatScreen;
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
-import '../../widgets/activity_snippet.dart'
-    show
-        activityIconForAction,
-        activityColorForAction,
-        activityActionLabel,
-        shortRelativeTs;
+import '../../widgets/activity_feed.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/insights_panel.dart';
 import '../../widgets/phase_badge.dart';
@@ -309,7 +304,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
                     setState(() => _project = updated);
                   },
                 ),
-                _ActivityView(projectId: projectId),
+                ActivityFeed(projectId: projectId),
                 _AgentsView(projectId: projectId),
                 _TasksView(projectId: projectId),
                 DocsSection(projectId: projectId),
@@ -405,172 +400,12 @@ class _Pill extends StatelessWidget {
   }
 }
 
-// W2 (IA §6.2): Activity is a first-class pill again, this time wired
-// to `audit_events` instead of channel feeds. The hub's `project_id`
-// query filter pulls both target_kind='project' rows (W1's phase audit
-// kinds, project.create/update/archive) and any meta_json carrying this
+// Activity is a first-class pill (IA §6.2): the project detail tab renders
+// the shared `ActivityFeed` scoped to this project, so filters / search /
+// tappable detail rows live in one place. The hub's `project_id` query
+// pulls both target_kind='project' rows and any meta_json carrying this
 // project_id (agent.spawn / run.create / document.create / review.* /
-// attention.decide / artifact.create / session.*). Channel posts are
-// reachable via the Discussion tile (TileSlug.discussion) — add it to
-// the current phase via the per-project tile editor (v1.0.484 W6).
-class _ActivityView extends ConsumerStatefulWidget {
-  final String projectId;
-  const _ActivityView({required this.projectId});
-
-  @override
-  ConsumerState<_ActivityView> createState() => _ActivityViewState();
-}
-
-class _ActivityViewState extends ConsumerState<_ActivityView> {
-  bool _loading = true;
-  String? _error;
-  List<Map<String, dynamic>> _events = const [];
-  DateTime? _staleSince;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final cached = await client.listAuditEventsCached(
-        projectId: widget.projectId,
-        limit: 100,
-      );
-      if (!mounted) return;
-      setState(() {
-        _events = cached.body;
-        _staleSince = cached.staleSince;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = '$e';
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(_error!,
-              style: GoogleFonts.jetBrainsMono(
-                  fontSize: 11, color: DesignColors.error)),
-        ),
-      );
-    }
-    return Column(
-      children: [
-        HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
-        Expanded(
-          child: _events.isEmpty
-              ? const _Placeholder(text: 'No activity yet')
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                    itemCount: _events.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (_, i) => _ActivityRow(evt: _events[i]),
-                  ),
-                ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ActivityRow extends StatelessWidget {
-  final Map<String, dynamic> evt;
-  const _ActivityRow({required this.evt});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final action = (evt['action'] ?? '').toString();
-    final summary = (evt['summary'] ?? '').toString();
-    final ts = (evt['ts'] ?? '').toString();
-    final actorHandle = (evt['actor_handle'] ?? '').toString();
-    final actorKind = (evt['actor_kind'] ?? '').toString();
-    final actor = actorHandle.isNotEmpty
-        ? '@$actorHandle'
-        : (actorKind.isNotEmpty ? actorKind : 'system');
-    final icon = activityIconForAction(action);
-    final color = activityColorForAction(action);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color:
-            isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isDark
-              ? DesignColors.borderDark
-              : DesignColors.borderLight,
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: Icon(icon, size: 16, color: color),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  summary.isEmpty ? action : summary,
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 13,
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '$actor · ${activityActionLabel(action)}',
-                  style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
-                    color: isDark
-                        ? DesignColors.textMuted
-                        : DesignColors.textMutedLight,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            shortRelativeTs(ts),
-            style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
-              color: isDark
-                  ? DesignColors.textMuted
-                  : DesignColors.textMutedLight,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// attention.decide / artifact.create / session.*).
 
 
 // ---- Tasks ----

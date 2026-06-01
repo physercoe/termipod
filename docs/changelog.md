@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.767
+> **Last verified vs code:** v1.0.768
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,36 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.768-alpha — 2026-06-01
+
+**Project Activity tab gains tappable rows + filters + search (shared
+`ActivityFeed`).** Tester feedback: the project detail Activity tab had
+untappable rows and no way to filter or search — a stripped
+reimplementation of the team-wide Activity feed, which already had all
+of it. Fixed the class, not the symptom: extract the rich feed into one
+shared widget both surfaces render.
+
+### Changed
+- **New `lib/widgets/activity_feed.dart` — shared `ActivityFeed`.**
+  Consolidates the `audit_events` feed: data-driven filter chips (action
+  prefix · actor · project), free-text search, and **tappable rows** that
+  open a detail sheet (action / actor / target / time / metadata, with
+  the target's full ULID copyable). Takes an optional `projectId`; when
+  set it loads only that project's events (server-side `project_id`
+  filter) and the project filter axis collapses on its own. Carries a
+  compact inline toolbar (search · clear · insights · refresh) so it
+  drops into a `TabBarView` with no AppBar of its own.
+- **`AuditScreen` (team Activity tab) is now a thin wrapper** around
+  `ActivityFeed`; its filter/search/row logic moved into the shared
+  widget. No behavior lost — search/clear/insights/refresh moved from the
+  AppBar into the feed's inline toolbar; the team switcher stays in the
+  AppBar.
+- **Project detail Activity tab** renders `ActivityFeed(projectId: …)`,
+  replacing the bare `_ActivityView`/`_ActivityRow` (untappable `Container`
+  rows, no filters, no search), which are removed.
 
 ---
 

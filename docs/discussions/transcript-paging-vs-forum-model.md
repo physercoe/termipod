@@ -321,9 +321,95 @@ lessons → template/policy changes → better runs.
   summary/query tools + Parquet/OTLP exporters). (A) is a prerequisite for
   (B) and subsumes §5's "maintained total" proposal.
 
-**Open questions for the next pass:** where the digest lives (a new
-`agent_event_digests` table vs. extending the `runs` digest the trackio work
-already added); whether to seal incrementally (roll a segment every N events
-for very long-running agents) rather than only at terminal state; and how
-much of the OTLP mapping to standardize now vs. defer until a concrete trace
-backend is in play.
+## 13. Clarifications — the open questions, resolved (2026-06-01)
+
+The director pressed on the §12 open questions. Grounding them in the code
+sharpened the model; the resolutions below supersede the loose ends.
+
+### 13.1 Is there a "run digest" already? Yes — but a *different axis*.
+`run_metrics` (migration `0014_run_metrics.up.sql`) is a **numeric
+time-series digest** — one row per metric, `[step,value]` downsampled to
+~100 points, ≤64 KiB — built because the *host* owns bulk metric bytes and
+the hub must not (data-ownership law §4). It digests **scalar curves**
+(loss/reward), not the **event log** (turns/tools/errors). So the transcript
+digest is **a new table (`agent_event_digests`), not an extension of
+`run_metrics`** — different axis (structural vs numeric), different owner
+(`agent_events` already lives *in the hub*, so the transcript digest is
+hub-side derived with no host round-trip). The *pattern* — "store the small
+derived thing, not the bulk" — is reused.
+
+### 13.2 "Seal incrementally" + what Claude Code does.
+Incremental sealing = **roll the hot log into immutable segments** every N
+events / T minutes (Kafka active-vs-rolled segment), so a long-running
+*live* agent gets count/ordinal/index for everything but its small live
+tail (`total = Σ sealed-segment counts + live-tail`). Without it the §9
+benefits only ever reach *dead* agents — useless for long-lived stewards.
+
+Claude Code is the worked example of the hot/cold split, and it keeps **two
+distinct artifacts**:
+- **Durable log** — the on-disk session **JSONL**, append-only and
+  *unbounded*, never truncated. (Our analogue: `agent_events`, tailed by M4
+  `LocalLogTailDriver`.)
+- **Working set** — the **context window** the model reasons over, kept
+  bounded by **compaction** (summarize-earlier-and-continue).
+
+Compaction shrinks *what the model sees*, **not what's on disk** — a heavily
+compacted session still has its full JSONL for recovery. So Claude Code
+already separates *the record* from *the working memory*, and compaction is
+itself an "analyze-the-frozen-prefix-then-summarize" at an idle watermark
+(see 13.4). Lesson: **analyze the full sealed/segmented log; drive the agent
+from the compacted tail.**
+
+### 13.3 Trace backend — one load-bearing decision, pluggable rest.
+Do **not** hardwire a heavy store into the single pure-Go daemon. The only
+hard-to-reverse choice: **make the hub an OTLP *producer* following
+OpenTelemetry GenAI semantic conventions** (`gen_ai.*`) — vendor-neutral,
+the industry's converging standard. Trace model: **run/session → trace, turn
+→ span, tool_call → child span, error → span event + error status.**
+
+Field practice: LLM-native observability is consolidating on OTel GenAI
+conventions — **Langfuse** (OSS, self-host, Postgres+ClickHouse),
+**Arize Phoenix** (OSS, OTLP-native, evals), **LangSmith** (SaaS),
+W&B Weave, Braintrust; generic storage is **ClickHouse** (Langfuse/SigNoz),
+**Jaeger**, **Grafana Tempo**.
+
+Recommendation for this repo: (1) emit OTLP w/ GenAI conventions now;
+(2) reference self-host backend = **Arize Phoenix** (single container,
+LLM/agent-aware waterfalls + evals, low ops); (3) generic alt = **Jaeger +
+Badger** (single Go binary, embedded storage, zero deps); (4) at fleet scale
+= **ClickHouse-backed (Langfuse/SigNoz)**. Crucially the hub *already* stores
+raw events in SQLite, so a backend buys **query/visualization UX**, not
+storage — keep the OTLP exporter **optional/pluggable**: the hub's own
+digest + Parquet path serves the no-extra-infra case; a backend is opt-in.
+
+### 13.4 Analyze idle agents, not just stopped ones — and it generalizes.
+The immutability we need is **not "terminated" — it's "events ≤ watermark
+never change," which is always true of an append-only log.** So:
+- **Snapshot at a watermark** is the *read* primitive: treat `[base,
+  watermark]` (watermark = a chosen `seq`, default current `max(seq)`) as a
+  consistent immutable dataset — MVCC-style, like DuckDB reading a Parquet
+  file while data streams elsewhere. Works on **live, idle, or terminated**.
+- **"Seal"** is only the *persist-the-digest* event — convenient at terminal
+  state and at incremental rolls, but **not required to analyze**.
+
+The hooks already exist: `idle_since` + status set `('running','idle',
+'paused')` (`handlers_agents.go:150`), `lifecycleIsIdle` (`phase ∈
+{idle,stopped}`, `loop_hooks.go:92`), and the **`onPreAgentIdle` hook**
+(`loop_hooks.go:105`) that fires on the idle transition — the natural
+trigger to **refresh the digest at the idle watermark** (tail is stable,
+snapshot is cheap and consistent; the agent may resume and re-snapshot
+later). This is Claude Code's compaction cadence, promoted to a first-class
+analyze mode.
+
+**Net model change:** replace "seal at terminal state" with **"snapshot at
+any watermark; persist a digest on idle and on terminal (and on incremental
+roll)."** Idle agents become offline datasets on demand — what the director
+asked for.
+
+### 13.5 Remaining open questions
+- Segment-roll cadence (every N events? T minutes? only on idle?) and how a
+  rolled segment's footer is stored vs. the per-agent/session digest.
+- The exact OTLP/GenAI attribute mapping for our event kinds (and whether to
+  ship the exporter before a backend is chosen, or behind a flag).
+- Whether the watermark digest is recomputed wholesale on idle or maintained
+  incrementally (cheaper, but write-path bookkeeping on a hot table).

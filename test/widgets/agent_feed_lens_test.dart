@@ -75,6 +75,45 @@ void main() {
     });
   });
 
+  group('FeedLens.turns excludes background-task system events', () {
+    test('a task_started system card is not a turn', () {
+      final taskStarted = {
+        'kind': 'system',
+        'payload': {
+          'subtype': 'task_started',
+          'task_id': 'bnkawg5jb',
+          'task_type': 'local_bash',
+        },
+      };
+      expect(isBackgroundTaskSystemEvent(taskStarted), isTrue);
+      expect(
+        agentEventMatchesLens(
+            taskStarted, FeedLens.turns, noResults, noUpdates),
+        isFalse,
+      );
+    });
+
+    test('a genuine system notice is still a turn', () {
+      final notice = {
+        'kind': 'system',
+        'payload': {'text': 'session resumed'},
+      };
+      expect(isBackgroundTaskSystemEvent(notice), isFalse);
+      expect(
+        agentEventMatchesLens(notice, FeedLens.turns, noResults, noUpdates),
+        isTrue,
+      );
+    });
+
+    test('user input.text is still a turn', () {
+      expect(
+        agentEventMatchesLens(
+            _ev('input.text'), FeedLens.turns, noResults, noUpdates),
+        isTrue,
+      );
+    });
+  });
+
   group('FeedLens.tools', () {
     test('keeps every tool-related card', () {
       for (final k in ['tool_call', 'tool_result', 'tool_call_update']) {

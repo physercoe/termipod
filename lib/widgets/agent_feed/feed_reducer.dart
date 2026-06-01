@@ -949,8 +949,9 @@ const _kFeedLensTextKinds = <String>{'text', 'thought', 'input.text'};
 /// that *drive* the agent rather than its replies: the user's own input,
 /// A2A messages from peers (which arrive as `input.text` envelopes with a
 /// peer `from`), the control turns (cancel / approval / attention reply),
-/// and `system` notices. Lets a long run be navigated turn-by-turn — jump
-/// between "what was asked of the agent" instead of scrolling its output.
+/// and genuine `system` notices. Lets a long run be navigated turn-by-turn.
+/// NB: background-task lifecycle `system` events are excluded — see
+/// [isBackgroundTaskSystemEvent].
 const _kFeedLensTurnKinds = <String>{
   'input.text',
   'input.cancel',
@@ -958,6 +959,25 @@ const _kFeedLensTurnKinds = <String>{
   'input.attention_reply',
   'system',
 };
+
+/// True for a `system` event that is background-task lifecycle telemetry
+/// rather than a conversational notice — claude-code emits these to track
+/// Task / background-`bash` runs:
+///
+///     {"type":"system","subtype":"task_started","task_id":"…",
+///      "task_type":"local_bash", …}
+///
+/// They carry a `task_id` and a `task_*` subtype. They are NOT turns (a
+/// tester saw a `task_started` card appear in the Turns lens), so the
+/// Turns lens filters them out. Pure + testable.
+bool isBackgroundTaskSystemEvent(Map<String, dynamic> e) {
+  if ((e['kind'] ?? '').toString() != 'system') return false;
+  final p = e['payload'];
+  if (p is! Map) return false;
+  if (p['task_id'] != null) return true;
+  final sub = (p['subtype'] ?? '').toString();
+  return sub.startsWith('task_');
+}
 
 /// Kinds the [FeedLens.tools] lens keeps — every tool-related card that
 /// survives folding (a standalone `tool_result`/`tool_call_update` shows
@@ -1098,7 +1118,11 @@ bool agentEventMatchesLens(
     case FeedLens.text:
       return _kFeedLensTextKinds.contains((e['kind'] ?? '').toString());
     case FeedLens.turns:
-      return _kFeedLensTurnKinds.contains((e['kind'] ?? '').toString());
+      final tk = (e['kind'] ?? '').toString();
+      if (!_kFeedLensTurnKinds.contains(tk)) return false;
+      // Background-task lifecycle system events are telemetry, not turns.
+      if (tk == 'system' && isBackgroundTaskSystemEvent(e)) return false;
+      return true;
     case FeedLens.tools:
       return _kFeedLensToolKinds.contains((e['kind'] ?? '').toString());
     case FeedLens.errors:

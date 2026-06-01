@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.778
+> **Last verified vs code:** v1.0.779
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,26 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.779-alpha — 2026-06-01
+
+### Fixed
+- **Background-task `system` cards no longer appear in the Turns lens.**
+  claude-code emits `{"type":"system","subtype":"task_started",
+  "task_id":…}` lifecycle frames for Task / background-`bash` runs; these
+  are telemetry, not turns. New `isBackgroundTaskSystemEvent` (a `system`
+  event with a `task_id` or a `task_*` subtype) is filtered out of
+  `FeedLens.turns` (genuine system notices still show).
+
+### Docs
+- New discussion `transcript-paging-vs-forum-model.md` — answers a tester's
+  "forums page an append-only thread, why not our transcript?": forums rely
+  on a maintained post count + dense ordinal + static page loads; our
+  transcript is a live SSE tail over per-agent `seq` with no count. Notes
+  that the one worthwhile borrow is a maintained total (to make the position
+  indicator monotonic), not page numbers.
 
 ---
 

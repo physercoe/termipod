@@ -73,6 +73,8 @@ class SessionHeader extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
 
     final titleBlock = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -130,7 +132,12 @@ class SessionHeader extends StatelessWidget {
                   Expanded(child: titleBlock),
                   if (inlineChip) ...[
                     Flexible(child: chip!),
-                    const SizedBox(width: 4),
+                    // Separate the chip's trailing ▾ from the first
+                    // leading action (e.g. the "M2 · running" status
+                    // pills) — a 4px gap let the glyph and the pill touch.
+                    const SizedBox(width: 8),
+                    Container(width: 1, height: 16, color: border),
+                    const SizedBox(width: 8),
                   ],
                   controls,
                 ],

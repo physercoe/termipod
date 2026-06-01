@@ -242,6 +242,8 @@ class FeedFilterControl extends StatelessWidget {
         return Icons.filter_list;
       case FeedLens.text:
         return Icons.chat_bubble_outline;
+      case FeedLens.turns:
+        return Icons.call_received;
       case FeedLens.tools:
         return Icons.build_outlined;
       case FeedLens.errors:
@@ -255,6 +257,8 @@ class FeedFilterControl extends StatelessWidget {
         return 'All';
       case FeedLens.text:
         return 'Text';
+      case FeedLens.turns:
+        return 'Turns';
       case FeedLens.tools:
         return 'Tools';
       case FeedLens.errors:
@@ -560,7 +564,10 @@ class FeedMinimapMark {
 /// are no errors — so a failed call deep in a long run is one tap away.
 class FeedMinimap extends StatelessWidget {
   final List<FeedMinimapMark> marks;
-  final ValueChanged<int> onJump;
+  // (fraction down the transcript, seq) of the tapped target — the host
+  // proportionally pre-scrolls to [frac] (reliable for not-yet-built rows)
+  // and uses [seq] for the landing highlight.
+  final void Function(double frac, int seq) onJump;
   const FeedMinimap({required this.marks, required this.onJump});
 
   @override
@@ -597,7 +604,7 @@ class FeedMinimap extends StatelessWidget {
                 }
               }
             }
-            if (best != null) onJump(best.seq);
+            if (best != null) onJump(best.frac, best.seq);
           },
           child: CustomPaint(
             size: Size.infinite,
@@ -625,6 +632,15 @@ class _MinimapPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Faint rounded track so the strip reads as a tappable control rather
+    // than stray ticks floating at the edge (the v1.0.774 minimap looked
+    // inert and testers didn't realize it could be tapped to jump).
+    final trackPaint = Paint()..color = tickColor.withValues(alpha: 0.10);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Offset.zero & size, const Radius.circular(4)),
+      trackPaint,
+    );
     final tickPaint = Paint()
       ..color = tickColor
       ..strokeWidth = 1.5

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-31)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.774
+> **Last verified vs code:** v1.0.775
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,42 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.775-alpha — 2026-06-01
+
+**Transcript debug polish — testing-feedback fixes on the P1–P3 work.**
+Four issues from a hands-on pass over the full-screen transcript and the
+shared session header.
+
+### Added
+- **`Turns` lens.** A fifth lens (`All · Text · Turns · Tools · Errors`)
+  narrows the feed to the inbound turn boundaries that *drive* the agent
+  — the user's own `input.text`, A2A messages (which arrive as `input.text`
+  envelopes from a peer), the control turns (`input.cancel` /
+  `input.approval` / `input.attention_reply`), and `system` notices — so a
+  long run can be navigated turn-by-turn instead of line-by-line. (Tester:
+  "the funnel doesn't contain turns.") Shows in both the dense funnel menu
+  and the full-screen lens bar.
+
+### Fixed
+- **Minimap was effectively un-tappable / wouldn't jump.** Three causes:
+  the 14px strip flush to the screen edge was too thin to hit (and fought
+  the device edge-swipe) → widened to a 20px column pulled off the edge,
+  with a faint rounded track so it reads as a control; and tapping a tick
+  for a far row silently no-op'd because the seq-anchored `ensureVisible`
+  needs an already-built `ListView` row → new `_seekToFrac` proportionally
+  scrolls to the tick's fraction first (reliable for not-yet-realized
+  rows), then fine-tunes onto the row. Minimap ticks now track the
+  on-screen (`lensed`) list so a tick's fraction maps straight to scroll.
+- **Full-screen verbose chip overlapped the minimap lane.** Shifted the
+  verbose toggle left (`right: 30`) when the minimap is shown so the strip
+  owns a clear full-height lane.
+- **Session-header chip `▾` touched the status pills.** The dense
+  `SessionInitChip`'s trailing expand glyph butted against the first
+  leading action (the "M2 · running" pills) with only a 4px gap → added a
+  thin vertical divider + 8px on each side in `SessionHeader`.
 
 ---
 

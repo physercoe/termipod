@@ -812,6 +812,49 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     });
   }
 
+  /// Jump from the right-edge minimap. Unlike [_seekToSeq] (which relies
+  /// on `ensureVisible` over a built row and silently no-ops when the
+  /// target is a lazy ListView child that isn't currently realized — the
+  /// exact far-away ticks the minimap exists to reach), this scrolls the
+  /// controller *proportionally* to the tick's vertical fraction so every
+  /// tap visibly moves the viewport, then best-effort fine-tunes onto the
+  /// row once it's built. [seq] still drives the landing highlight.
+  void _seekToFrac(double frac, int seq) {
+    setState(() {
+      _activeSeekSeq = seq;
+      _followTail = false;
+      _seekHighlight = true;
+    });
+    if (_scroll.hasClients) {
+      final pos = _scroll.position;
+      final target = frac.clamp(0.0, 1.0) * pos.maxScrollExtent;
+      _scroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+      // Once the proportional scroll has realized the target row, nudge
+      // it into a comfortable position. No-ops harmlessly if still
+      // off-screen (the proportional landing already put it close).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final ctx = _seekKey.currentContext;
+        if (ctx == null) return;
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.3,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+    _seekHighlightTimer?.cancel();
+    _seekHighlightTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (!mounted) return;
+      setState(() => _seekHighlight = false);
+    });
+  }
+
   /// Switch the active lens. Resets the seek anchor; for a non-`all`
   /// lens, pins to the tail so the user lands on the most recent match
   /// (the newest error is usually what you're debugging).
@@ -1335,9 +1378,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                       agentEventMatchesLens(e, l, toolResults, toolUpdates))
                   .length,
       };
-      final denom = (visible.length - 1) <= 0 ? 1 : visible.length - 1;
-      for (var i = 0; i < visible.length; i++) {
-        final e = visible[i];
+      // Ticks track the list actually on screen (`lensed`), so a tick's
+      // vertical fraction maps straight to the scroll offset — letting the
+      // tap proportionally pre-scroll to the target (see [_seekToFrac]).
+      // When no lens is active `lensed == visible`, so this is the whole
+      // loaded transcript as before.
+      final denom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
+      for (var i = 0; i < lensed.length; i++) {
+        final e = lensed[i];
         final isErr = agentEventIsError(e, toolResults, toolUpdates);
         if (!isErr && (e['kind'] ?? '').toString() != 'tool_call') continue;
         minimapMarks.add(FeedMinimapMark(
@@ -1556,14 +1604,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 ),
               // P3 right-edge minimap (full-screen only): turn ticks +
               // red error ticks over the whole loaded transcript, tap to
-              // jump. Starts below the verbose chip so they don't collide.
+              // jump. A 14px strip flush to the edge was effectively
+              // un-tappable (too thin + fought the device edge-swipe);
+              // widened to a 20px column pulled off the edge, and the
+              // verbose chip is shifted left (below) so the minimap owns a
+              // clear full-height lane instead of starting under the chip.
               if (!widget.dense && minimapMarks.isNotEmpty)
                 Positioned(
-                  top: 44,
-                  right: 2,
+                  top: 8,
+                  right: 4,
                   bottom: 12,
-                  width: 14,
-                  child: FeedMinimap(marks: minimapMarks, onJump: _seekToSeq),
+                  width: 20,
+                  child: FeedMinimap(marks: minimapMarks, onJump: _seekToFrac),
                 ),
               // P3 expand affordance: a constrained (dense) host that
               // wired [onExpand] gets a button to push the dedicated
@@ -1583,7 +1635,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               if (_verbose || hiddenForVerbose > 0)
                 Positioned(
                   top: 6,
-                  right: 6,
+                  // Clear the full-screen minimap's lane (20px col at
+                  // right:4 → its left edge sits at right:24) so the chip
+                  // doesn't cap the strip; otherwise hug the corner.
+                  right: (!widget.dense && minimapMarks.isNotEmpty) ? 30 : 6,
                   child: VerboseToggleChip(
                     verbose: _verbose,
                     hiddenCount: hiddenForVerbose,

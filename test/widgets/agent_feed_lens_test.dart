@@ -1,6 +1,6 @@
 // Transcript lens classifier (docs/plans/agent-transcript-debug-and-
 // header-parity.md, P1). Pins the pure predicate that narrows the
-// visible feed to one family — All / Text / Tools / Errors — so the
+// visible feed to one family — All / Text / Turns / Tools / Errors — so the
 // debug-affordance behavior is locked without spinning the widget tree.
 //
 // Symbols are imported through agent_feed.dart, which re-exports the
@@ -43,6 +43,32 @@ void main() {
       for (final k in ['tool_call', 'tool_result', 'error']) {
         expect(
           agentEventMatchesLens(_ev(k), FeedLens.text, noResults, noUpdates),
+          isFalse,
+        );
+      }
+    });
+  });
+
+  group('FeedLens.turns', () {
+    test('keeps inbound turns: user/a2a input, control turns, system', () {
+      for (final k in [
+        'input.text',
+        'input.cancel',
+        'input.approval',
+        'input.attention_reply',
+        'system',
+      ]) {
+        expect(
+          agentEventMatchesLens(_ev(k), FeedLens.turns, noResults, noUpdates),
+          isTrue,
+          reason: '$k belongs to the turns lens',
+        );
+      }
+    });
+    test('drops the agent\'s own output and tool activity', () {
+      for (final k in ['text', 'thought', 'tool_call', 'tool_result']) {
+        expect(
+          agentEventMatchesLens(_ev(k), FeedLens.turns, noResults, noUpdates),
           isFalse,
         );
       }

@@ -939,11 +939,25 @@ bool isHiddenInFeed(
 /// a long run can be debugged without scrolling every row. `all` is the
 /// default (no filtering). Orthogonal to the verbose toggle, which
 /// controls debug *depth* rather than which family is shown.
-enum FeedLens { all, text, tools, errors }
+enum FeedLens { all, text, turns, tools, errors }
 
 /// Kinds the [FeedLens.text] lens keeps — the readable conversation:
 /// assistant prose, reasoning blocks, and the user's own messages.
 const _kFeedLensTextKinds = <String>{'text', 'thought', 'input.text'};
+
+/// Kinds the [FeedLens.turns] lens keeps — the inbound turn boundaries
+/// that *drive* the agent rather than its replies: the user's own input,
+/// A2A messages from peers (which arrive as `input.text` envelopes with a
+/// peer `from`), the control turns (cancel / approval / attention reply),
+/// and `system` notices. Lets a long run be navigated turn-by-turn — jump
+/// between "what was asked of the agent" instead of scrolling its output.
+const _kFeedLensTurnKinds = <String>{
+  'input.text',
+  'input.cancel',
+  'input.approval',
+  'input.attention_reply',
+  'system',
+};
 
 /// Kinds the [FeedLens.tools] lens keeps — every tool-related card that
 /// survives folding (a standalone `tool_result`/`tool_call_update` shows
@@ -1006,6 +1020,8 @@ bool agentEventMatchesLens(
       return true;
     case FeedLens.text:
       return _kFeedLensTextKinds.contains((e['kind'] ?? '').toString());
+    case FeedLens.turns:
+      return _kFeedLensTurnKinds.contains((e['kind'] ?? '').toString());
     case FeedLens.tools:
       return _kFeedLensToolKinds.contains((e['kind'] ?? '').toString());
     case FeedLens.errors:

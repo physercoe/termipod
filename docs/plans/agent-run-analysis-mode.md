@@ -178,7 +178,7 @@ agents/{agent}/digest` already exists). Wiring the digest `event_count` into the
 `AgentFeed` position ("N of M") + monotonic minimap is folded into **P2** with
 the random-access loader (the position bar and the loader share the count).
 
-### P2 — Structure index + filtered views → jump (random-access nav) — 🟢 core shipped
+### P2 — Structure index + filtered views → jump (random-access nav) — 🟢 shipped
 **Done (hub):** the turn index as a keyset listing — `GET …/agents/{agent}/turns`
 (cursor `after=<idx>`) + `…/sessions/{session}/turns` (ts-ordered union of the
 session's agents' turns, cursor `after_ts`), both lazily backfilled on read
@@ -217,29 +217,34 @@ borrows the Feed's backward-only pager and *walks* older pages from the tail
 until the anchor appears: correct, bounded (~2400 events), but up to ~12
 sequential fetches for a deep jump.
 
-The architectural coupling and the missing O(log n) reset are therefore **one
-problem, not two**: there is no loader owned by the analysis layer. The fix is
-to give Insight its **own** window loader (bounded sliding window, **bidirectional**
-paging, a jump *resets* the window around the anchor rather than walking from
-the tail — see *Loading model* above) and to move the seek/loading logic
-(`_handleExternalSeek` and friends) **out of the shared `AgentFeed`** into that
-analysis-owned loader. Doing so both (a) separates the two modes cleanly — the
-Feed page keeps its live-tail loader, the analysis page gets random access — and
-(b) makes the reset fall out naturally. (The cosmetic overlays — the N-of-M pill
-and the full-run minimap — only *read* scroll/loaded state; they can stay gated
-or move with the loader, they're not the blocker.)
+The architectural coupling and the missing O(log n) reset were **one problem,
+not two**: there was no loader owned by the analysis layer. **SHIPPED** — the
+analysis view now has its own random-access loader, gated behind
+`AgentFeed.randomAccess` (set only by `SessionAnalysisView`, so every path is
+inert in the live-tail Feed — no regression). The pieces:
+- **`(ts, seq)` compound keyset** on the session events query (hub) — the
+  secondary `after_seq`/`before_seq` tiebreak so a window-around-anchor fetch
+  loses no same-ts siblings (the anchor-inclusion tie that ts-only cursors
+  couldn't express). New branches; the plain ts branches (Feed's load-older)
+  are untouched.
+- **`_resetWindowAround(seq, ts)`** — a jump to an off-window anchor fetches one
+  block before + one after the anchor key (anchor-inclusive) and replaces the
+  window: O(log n), reachable at any depth, decoupled from the tail.
+- **`_maybeLoadNewer`** — the forward pager (the missing `load-newer`), armed
+  only when a reset left the window short of the tail (`_windowHasTail` false);
+  a short page re-joins the tail.
+- **SSE gating** — live frames are dropped while `_windowHasTail` is false (a
+  mid-run window must not graft a non-contiguous tail event); `_jumpToLatest`
+  re-bootstraps the tail.
+- The anchor's **ts** is threaded through `AgentFeedSeekController.seekTo`
+  (Turns-index rows carry `start_ts` → random access; a seq-only Errors-stat
+  jump keeps the bounded page-walk as a graceful fallback).
 
-Why it's deferred (needs a local Flutter runner to validate): (1) the
-session-scoped feed has only **ts** cursors (`before_ts`/`after_ts`) — seq is
-per-agent, not a session total order — and the Dart client doesn't yet expose
-`after_ts`; ts windowing also has an **anchor-inclusion tie** (strict `<`/`>`
-drops the anchor and same-ts siblings). Agent-scope `before`/`since` (dense seq,
-no ties) can't be used because an agent's events span *other* sessions, so
-dropping the session filter breaks scoping. (2) a reset-to-middle window needs a
-**forward pager** (`load-newer`) — none exists; only load-older + the SSE tail.
-(3) SSE append + `_jumpToLatest` must be **gated** on a "window-includes-tail"
-flag so a mid-run window doesn't append a non-contiguous live event. The bounded
-page-walk stands until a runner is available.
+The seek/loading logic still physically lives in `AgentFeed` (gated), rather
+than a separate widget — the gating gives the behavioural independence (the
+point: no Feed regression); a later physical extraction is cosmetic. **The hub
+keyset is Go-tested; the mobile loader is gated + CI-analyzed and
+device-validated by the director.**
 
 Implement the two-model loading (see *Loading model* above). **All view** = the
 bounded sliding window with the **random-access loader** (reset-around-anchor
@@ -288,11 +293,11 @@ points it at Phoenix / Jaeger.
   *renderer* but are an **independent page/feature**, and the access patterns are
   opposite enough that Insight needs its **own loader**, not the Feed's live-tail
   one (see the deferral under P2). The DB supports any-jump efficiently (index
-  range scans on `(agent_id, seq)` / `(session_id, ts)`, no `OFFSET`); the only
-  additions are the `after_ts` session param (P0, on the hub; not yet on the
-  Dart client) + the analysis-owned window-around-anchor loader (P2, deferred).
-  Until that loader exists, Insight borrows Feed's backward pager (the bounded
-  page-walk) — correct, but the coupling the dedicated loader is meant to remove.
+  range scans on `(agent_id, seq)` / `(session_id, ts)`, no `OFFSET`); the
+  additions — the `(ts, seq)` compound keyset (hub) + the analysis-owned
+  window-around-anchor loader with a forward pager (mobile, gated on
+  `randomAccess`) — **shipped** in P2. Insight no longer borrows Feed's backward
+  pager except as a graceful fallback for a seq-only (ts-less) jump.
 
 ## Open questions
 

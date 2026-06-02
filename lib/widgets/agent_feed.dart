@@ -150,6 +150,13 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// minimap (the plain full-screen feed, which has no digest).
   final List<int>? runErrorSeqs;
   final List<int>? runTurnSeqs;
+  /// Plan P2 — `seq → ts` for the run anchors that carry a timestamp (the turn
+  /// index's `start_ts`). A minimap tap only has the anchor's seq; with the ts
+  /// the jump can take the O(log n) `(ts, seq)` window reset instead of the
+  /// bounded page-walk. Error anchors have no ts (the digest's sample seqs are
+  /// ts-less), so they're absent here and fall back to the page-walk. Null =
+  /// loaded-window minimap (no digest).
+  final Map<int, String>? runAnchorTs;
   /// Plan P2 — enables the analysis-owned **random-access loader**: a jump to
   /// an off-window anchor *resets* the window around it (`(ts, seq)` keyset)
   /// instead of walking from the tail, and the feed gains a forward pager. Set
@@ -172,6 +179,7 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.totalEventCount,
     this.runErrorSeqs,
     this.runTurnSeqs,
+    this.runAnchorTs,
     this.randomAccess = false,
   });
 
@@ -368,7 +376,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   ///     far/unreachable anchor can't load forever.
   Future<void> _handleExternalSeek(int seq, [String? ts]) async {
     if (_seqIsLoaded(seq)) {
-      _seekToSeq(seq);
+      // Robust landing: after a lazy prepend the row is usually off-screen, so
+      // route through the convergent index seek (build resolves the row's index
+      // and binary-searches the offset onto it) rather than the ensureVisible-
+      // only [_seekToSeq], which no-ops on an unrealised row.
+      _landOnSeq(seq);
       return;
     }
     final sessionScoped = (widget.sessionId ?? '').isNotEmpty;
@@ -389,11 +401,22 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
     if (!mounted) return;
     if (_seqIsLoaded(seq)) {
-      _seekToSeq(seq);
+      _landOnSeq(seq);
     } else {
       _jumpToOldestLoaded();
     }
   }
+
+  /// Land on [seq] robustly even when its row isn't currently realised. Defers
+  /// to the convergent index seek via the pending-context mechanism: a rebuild
+  /// finds the row's index in the laid-out (lensed) list and binary-searches
+  /// the scroll offset onto it ([_seekToLoadedIndex]/[_convergeToIndex]), which
+  /// — unlike [_seekToSeq]'s lone `ensureVisible` — works on an off-screen,
+  /// lazily-built row. The anchor may be a hidden marker (an ACP `turn.start`
+  /// isn't rendered), so the consumer lands on the nearest visible row at or
+  /// after it. Resets the lens to All so the landing row has its surrounding
+  /// context. This is the shared landing for every external/random-access jump.
+  void _landOnSeq(int seq) => _jumpToContext(seq);
 
   bool _seqIsLoaded(int seq) =>
       _events.any((e) => (e['seq'] as num?)?.toInt() == seq);
@@ -448,19 +471,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         _loading = false;
         _error = null;
       });
-      // Land on the anchor once the new window lays out. The anchor seq may be
-      // a hidden marker (an ACP `turn.start` isn't rendered), so target the
-      // nearest loaded seq >= the anchor — the turn's first visible event.
-      int landSeq = seq;
-      int? best;
-      for (final e in _events) {
-        final s = (e['seq'] as num?)?.toInt() ?? 0;
-        if (s >= seq && (best == null || s < best)) best = s;
-      }
-      if (best != null) landSeq = best;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _seekToSeq(landSeq);
-      });
+      // Land on the anchor once the new window lays out. The window was just
+      // swapped wholesale, so the anchor's row sits mid-list and isn't
+      // realised — route through the convergent index seek (which resolves the
+      // nearest-visible row >= the anchor and binary-searches onto it) rather
+      // than the ensureVisible-only [_seekToSeq], which would silently no-op
+      // here. This was the "turn jump lands wrong / does nothing" bug.
+      _landOnSeq(seq);
     } catch (_) {
       // Network blip — leave the existing window; the caller can retry.
     }
@@ -1482,6 +1499,111 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     });
   }
 
+  /// Plan P2 — "jump to any event" scrubber. The position pill (event N / M) is
+  /// tappable on the random-access surface: it opens a slider over the whole
+  /// run [1, M] and, on confirm, random-access-windows onto the chosen ordinal.
+  /// This is the answer to "how do I jump to an arbitrary event" — the minimap
+  /// only reaches anchors (turns/errors), this reaches any position.
+  void _openJumpSheet() {
+    final pos = _logPosition();
+    if (pos == null || pos.m <= 1) return;
+    final m = pos.m;
+    double val = pos.n.toDouble().clamp(1.0, m.toDouble()).toDouble();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor:
+          isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (sheetCtx, setSheet) {
+          final fg = isDark
+              ? DesignColors.textPrimary
+              : DesignColors.textPrimaryLight;
+          final muted = isDark
+              ? DesignColors.textMuted
+              : DesignColors.textMutedLight;
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Jump to event ${val.round()} of $m',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: fg),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Scrub anywhere in the run, then jump.',
+                    style: TextStyle(fontSize: 11, color: muted),
+                  ),
+                  Slider(
+                    min: 1,
+                    max: m.toDouble(),
+                    value: val.clamp(1.0, m.toDouble()).toDouble(),
+                    label: '${val.round()}',
+                    divisions: m > 1 ? math.min(m - 1, 1000) : null,
+                    onChanged: (v) => setSheet(() => val = v),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.of(sheetCtx).pop();
+                        _jumpToOrdinal(val.round());
+                      },
+                      child: const Text('Jump'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Random-access jump to an arbitrary run ordinal [n] (1-based). Per-agent
+  /// seq is the dense run ordinal, so ordinal n is the event at seq == n; we
+  /// fetch that one event (agent-scoped seq lookup) to recover its ts, then
+  /// drive the `(ts, seq)` window reset. Honest for single-agent runs — the
+  /// same assumption the N / M pill makes (a resumed multi-agent session has
+  /// non-dense per-agent seqs, so the landing is approximate there).
+  Future<void> _jumpToOrdinal(int n) async {
+    if (_seqIsLoaded(n)) {
+      _landOnSeq(n);
+      return;
+    }
+    final sid = widget.sessionId;
+    final client = ref.read(hubProvider.notifier).client;
+    if (sid == null || sid.isEmpty || client == null) return;
+    try {
+      // `before: n + 1` (agent-scoped) → newest row with seq <= n, i.e. the
+      // event at ordinal n. One row; cheap.
+      final rows = await client.listAgentEvents(
+        widget.agentId,
+        before: n + 1,
+        limit: 1,
+      );
+      if (!mounted || rows.isEmpty) return;
+      final e = rows.first;
+      final seq = (e['seq'] as num?)?.toInt() ?? n;
+      final ts = (e['ts'] ?? '').toString();
+      if (ts.isEmpty) {
+        await _handleExternalSeek(seq);
+        return;
+      }
+      await _resetWindowAround(seq, ts);
+    } catch (_) {
+      // Network blip — leave the window in place; the user can retry.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -1972,11 +2094,25 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (_pendingContextSeq != null && _lens == FeedLens.all) {
       final target = _pendingContextSeq!;
       _pendingContextSeq = null;
-      final idx =
+      var idx =
           lensed.indexWhere((e) => (e['seq'] as num?)?.toInt() == target);
+      if (idx < 0) {
+        // No exact row — the anchor may be a hidden marker (e.g. an ACP
+        // `turn.start`, which isn't rendered) or filtered out. Land on the
+        // nearest visible row at or after it: the turn's first shown event.
+        var bestSeq = 1 << 30;
+        for (var i = 0; i < lensed.length; i++) {
+          final s = (lensed[i]['seq'] as num?)?.toInt() ?? 0;
+          if (s >= target && s < bestSeq) {
+            bestSeq = s;
+            idx = i;
+          }
+        }
+      }
       if (idx >= 0) {
+        final landSeq = (lensed[idx]['seq'] as num?)?.toInt() ?? target;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _seekToLoadedIndex(idx, target);
+          if (mounted) _seekToLoadedIndex(idx, landSeq);
         });
       }
     }
@@ -2331,8 +2467,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // whole run, not just the loaded window. Gated on a supplied
               // total (the analysis surface) so the plain full-screen feed,
               // which has no digest, doesn't show a loaded-max denominator that
-              // would imply older unloaded events don't exist. IgnorePointer so
-              // it never steals a tap from the funnel/minimap.
+              // would imply older unloaded events don't exist. On the random-
+              // access surface it's a control (tap → "jump to any event"
+              // scrubber); otherwise it self-wraps in an IgnorePointer so it
+              // never steals a tap from the funnel/minimap.
               if (!widget.dense &&
                   widget.totalEventCount != null &&
                   _logPosition() != null)
@@ -2340,8 +2478,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   top: 8,
                   left: 0,
                   right: 0,
-                  child: IgnorePointer(
-                    child: Center(child: FeedPositionPill(pos: _logPosition()!)),
+                  child: Center(
+                    child: FeedPositionPill(
+                      pos: _logPosition()!,
+                      onTap: widget.randomAccess ? _openJumpSheet : null,
+                    ),
                   ),
                 ),
               // Right-edge minimap (full-screen only): a tick per tool call
@@ -2356,12 +2497,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   top: 8,
                   right: 4,
                   bottom: 12,
-                  width: 20,
+                  // 28px (was 20) — a 20px strip at the screen edge was a
+                  // near-unhittable tap target (and brushed the system edge-
+                  // swipe zone); 28px gives the tap room without crowding.
+                  width: 28,
                   child: FeedMinimap(
                     marks: minimapMarks,
                     onJump: _runAnchorMode
                         ? (frac, seq) {
-                            _handleExternalSeek(seq);
+                            // Turn anchors carry a ts (→ O(log n) window reset);
+                            // error anchors don't and fall back to the page-walk.
+                            _handleExternalSeek(
+                                seq, widget.runAnchorTs?[seq]);
                           }
                         : _seekToFrac,
                     onScrub: _runAnchorMode ? null : _scrubTo,

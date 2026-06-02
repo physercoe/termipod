@@ -89,6 +89,20 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
           .toList(),
       orElse: () => <int>[],
     );
+    // seq → ts for the turn anchors, so a minimap turn-tick tap can take the
+    // (ts, seq) window reset (O(log n)) instead of the bounded page-walk. The
+    // turn rows already pass their own start_ts through onJump; this gives the
+    // minimap the same fast path. Errors are absent (their sample seqs are
+    // ts-less) and fall back to the page-walk.
+    final runAnchorTs = turns.maybeWhen(
+      data: (rows) => <int, String>{
+        for (final r in rows)
+          if (((r['start_seq'] as num?)?.toInt() ?? 0) > 0 &&
+              (r['start_ts'] ?? '').toString().isNotEmpty)
+            (r['start_seq'] as num).toInt(): (r['start_ts']).toString(),
+      },
+      orElse: () => <int, String>{},
+    );
 
     final card = digest.when(
       loading: () => const SizedBox.shrink(),
@@ -144,6 +158,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               totalEventCount: totalEvents,
               runErrorSeqs: runErrorSeqs,
               runTurnSeqs: runTurnSeqs,
+              runAnchorTs: runAnchorTs,
               // The analysis surface owns the random-access loader; the Feed
               // tab leaves this false and keeps its live-tail loader.
               randomAccess: true,

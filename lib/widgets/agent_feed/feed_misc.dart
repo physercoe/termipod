@@ -561,11 +561,18 @@ class FeedMinimap extends StatelessWidget {
             }
             if (best != null) onJump(best.frac, best.seq);
           },
-          // Vertical drag = scrub the viewport continuously.
-          onVerticalDragStart: (d) =>
-              _scrub(d.localPosition.dy, constraints.maxHeight),
-          onVerticalDragUpdate: (d) =>
-              _scrub(d.localPosition.dy, constraints.maxHeight),
+          // Vertical drag = scrub the viewport continuously. Only attach the
+          // drag recognizers when scrubbing is actually wired (onScrub != null
+          // — the loaded-window minimap). In run-anchor mode onScrub is null:
+          // attaching a no-op drag recognizer there would join the gesture
+          // arena and swallow taps that move even a pixel, so the minimap read
+          // as "untappable". Leaving them off makes the tap unambiguous.
+          onVerticalDragStart: onScrub == null
+              ? null
+              : (d) => _scrub(d.localPosition.dy, constraints.maxHeight),
+          onVerticalDragUpdate: onScrub == null
+              ? null
+              : (d) => _scrub(d.localPosition.dy, constraints.maxHeight),
           child: CustomPaint(
             size: Size.infinite,
             painter: _MinimapPainter(
@@ -749,14 +756,17 @@ class TurnStepperPill extends StatelessWidget {
 }
 
 /// Plan P2 (agent-run-analysis-mode) — the monotonic "event N / M" position
-/// chip floating over the full-screen analysis log. Low-emphasis (it's an
-/// indicator, not a control) and wrapped in an IgnorePointer by the caller, so
-/// it never competes with the funnel/minimap for a tap. Analysis-only chrome:
-/// AgentFeed renders it solely when a digest total was supplied (the Insights
-/// surface); the live-tail Feed never does.
+/// chip floating over the full-screen analysis log. When [onTap] is null it's a
+/// pure indicator (wrapped in an IgnorePointer so it never competes with the
+/// funnel/minimap for a tap); when [onTap] is supplied (the random-access
+/// Insights surface) it becomes a control — tap to open the "jump to any event"
+/// scrubber, with a faint underline cueing that it's interactive. Analysis-only
+/// chrome: AgentFeed renders it solely when a digest total was supplied (the
+/// Insights surface); the live-tail Feed never does.
 class FeedPositionPill extends StatelessWidget {
   final ({int n, int m}) pos;
-  const FeedPositionPill({super.key, required this.pos});
+  final VoidCallback? onTap;
+  const FeedPositionPill({super.key, required this.pos, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -766,19 +776,33 @@ class FeedPositionPill extends StatelessWidget {
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
-    return Material(
+    final pill = Material(
       color: bg.withValues(alpha: 0.88),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: border),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        child: Text(
-          'event ${pos.n} / ${pos.m}',
-          style: GoogleFonts.robotoMono(fontSize: 10, color: muted),
+      child: InkWell(
+        // No-op InkWell when onTap is null keeps the radius for the ripple
+        // shape; the IgnorePointer below makes the whole pill inert anyway.
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          child: Text(
+            'event ${pos.n} / ${pos.m}',
+            style: GoogleFonts.robotoMono(
+              fontSize: 10,
+              color: muted,
+              decoration:
+                  onTap == null ? null : TextDecoration.underline,
+              decorationColor: muted,
+            ),
+          ),
         ),
       ),
     );
+    // Inert indicator unless a tap handler was supplied.
+    return onTap == null ? IgnorePointer(child: pill) : pill;
   }
 }

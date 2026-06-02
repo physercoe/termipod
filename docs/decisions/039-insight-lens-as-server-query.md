@@ -152,6 +152,52 @@ All view of a *live* agent still tails; **switching to a lens snapshots**.
 - **Cost.** A new mobile per-lens keyset loader + per-lens fetch state; the
   All view keeps the existing buffer.
 
+## Open questions
+
+1. **Errors list fidelity (MVP cap).** Until the P3 server `error=true` keyset
+   lands, the Errors lens *list* is bounded by the digest's error **sample**
+   completeness (`runErrorSeqs`); the *count* stays whole-run (`error_count`).
+   Acceptable for MVP; P3 closes it.
+2. **Whole-run `M` for Text (and tool-results).** The digest carries
+   `turn_count`, `error_count`, `tool_total`, `tool_failed`
+   (`digest_store.go:37–39`) — so Turns / Errors / Tools get a stable,
+   monotonic `N/M` denominator — but **no text/message count**. The Text lens
+   therefore cannot show a whole-run `M` from the digest. Options: (a) add a
+   per-kind count (e.g. `text_count`) to the digest fold; (b) accept a
+   loaded-lens-window `M` for Text (non-monotonic as you page — the very
+   complaint we're removing elsewhere); (c) a cheap server `COUNT` for the
+   sealed range only (immutable → cacheable). **Decision needed before P1
+   ships the Text lens.**
+3. **Multi-agent `(ts, seq)` keyset stability.** The session-scoped keyset
+   branches order by `ts ASC|DESC, seq` with **no `agent_id` tiebreak**
+   (`handlers_agent_events.go:296,300`), whereas the non-keyset session
+   branches include `agent_id` (`:306,311`). `seq` is per-agent, so two events
+   from different agents in a resumed session can share `(ts, seq)` and be
+   dropped/duplicated at a page boundary. Low probability (identical ts to the
+   nanosecond *and* equal per-agent seq), but every lens page is now a keyset
+   query, so the exposure rises. **Verify; harden by adding `agent_id` to the
+   cursor + order, or consciously accept the edge.**
+4. **"View in context" handoff between buffers.** A filtered card's
+   `ContextJumpButton → _jumpToContext(seq)` clears the filter and lands the
+   row in the **All** view, which renders from the live-tail `_events` buffer —
+   now decoupled from the per-lens buffer. If the target seq isn't in
+   `_events`, the jump must trigger an All-buffer `_resetWindowAround(seq)`
+   (the anchor-near-top reset) rather than silently no-op. **Integration point
+   to design in P1.**
+5. **Live-agent lens refresh.** A still-running agent's lens is a snapshot
+   (SSE does not append into a frozen lens). How does the user pull newer
+   matches — snapshot-on-entry with a manual "load newer", or a "N new" pill
+   like the Feed's? Default proposal: snapshot on entry; the All view keeps
+   tailing. **UX decision.**
+6. **Lens buffer windowing.** Keep the per-lens buffer **bounded** (window both
+   directions like `RandomAccessLoader`) rather than ever-growing, so a
+   10k-tool run's Tools lens stays memory-flat. Confirm in P1.
+7. **Caching sealed-lens queries (opportunity, not a blocker).** A sealed
+   range is immutable, yet lens keyset queries always hit the network (the
+   offline snapshot cache covers only `tail` / `since`). Caching by
+   `(session, kind, ts, seq)` would make lens navigation instant on revisit
+   and offline-capable. Tie-in for a later round.
+
 ## Alternatives considered
 
 - **A — targeted patches (rejected).** Auto-jump to the newest match on lens

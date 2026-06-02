@@ -178,16 +178,25 @@ agents/{agent}/digest` already exists). Wiring the digest `event_count` into the
 `AgentFeed` position ("N of M") + monotonic minimap is folded into **P2** with
 the random-access loader (the position bar and the loader share the count).
 
-### P2 — Structure index + filtered views → jump (random-access nav) — 🟡 turns endpoint shipped
-**Done:** the turn index as a keyset listing — `GET …/agents/{agent}/turns`
+### P2 — Structure index + filtered views → jump (random-access nav) — 🟡 nav + position shipped
+**Done (hub):** the turn index as a keyset listing — `GET …/agents/{agent}/turns`
 (cursor `after=<idx>`) + `…/sessions/{session}/turns` (ts-ordered union of the
 session's agents' turns, cursor `after_ts`), both lazily backfilled on read
-(`handlers_agent_turns.go`; tests `handlers_agent_turns_test.go`). This is the
-last missing backend primitive for the filtered views (Turns ← this endpoint;
-Errors ← the digest's `errors_json` sample seqs; Tools / Text ← the P0 `kind`
-param). **Remaining (mobile):** the random-access window loader, the digest
-`event_count` → "N of M" position + minimap, and wiring the structure-index
-rows / `RunReportCard.onJumpToSeq` to the convergent seek.
+(`handlers_agent_turns.go`; tests `handlers_agent_turns_test.go`) — the backend
+primitive for the filtered Turns view (Errors ← the digest's `errors_json`
+sample seqs; Tools / Text ← the P0 `kind` param).
+**Done (mobile):** the dashboard→feed **jump channel** — `AgentFeedSeekController`
+routes `RunReportCard.onJumpToSeq` (the Errors stat) into the feed, which pages
+toward an older anchor (bounded) and highlights it (`agent_feed.dart` /
+`session_analysis_view.dart`); and the monotonic **"event N of M" position**
+over the analysis log — `feedLogPosition` (pure, `feed_reducer.dart`) feeds a
+low-emphasis pill, N = viewport-top run ordinal, M = the digest total (tests
+`agent_feed_seek_controller_test.dart`, `feed_log_position_test.dart`).
+**Remaining:** the digest-backed **filtered Turns view** (list `agent_turns`
+via the new endpoint, each row "view in full" → reset window around `start_seq`),
+the minimap anchor mapping, and the O(log n) random-access window-reset (the
+current jump reuses the tail-anchored page-walk rather than resetting the window
+around the anchor).
 
 Implement the two-model loading (see *Loading model* above). **All view** = the
 bounded sliding window with the **random-access loader** (reset-around-anchor

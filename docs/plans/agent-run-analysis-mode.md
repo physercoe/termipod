@@ -199,11 +199,30 @@ session's agents' turns, cursor `after_ts`), both lazily backfilled on read
 - Tests: `agent_feed_seek_controller_test.dart`, `feed_log_position_test.dart`,
   `handlers_agent_turns_test.go`, `session_turns_provider_test.dart`.
 
-**Remaining (optimisations, not blocking):** the minimap anchor mapping (map a
-position to the nearest digest anchor seq), and the O(log n) random-access
-window-reset (the current jump reuses the tail-anchored page-walk rather than
-resetting the window *around* the anchor — correct, but loads more for a deep
-jump).
+**Done (minimap anchor mapping):** the full-screen minimap, in the analysis
+view, renders **whole-run** anchors — every error (digest `errors_json` sample
+seqs) + every turn start (turn index) — positioned by run ordinal (`seq /
+total`), with the thumb on the run position and a tap routed through the seek
+(`feedRunAnchorMarks` + `AgentFeed.runErrorSeqs`/`runTurnSeqs`). So a failure
+anywhere in the run shows on the strip, not just the loaded slice.
+
+**Deferred — O(log n) random-access window-reset (needs a local Flutter
+runner).** The current external jump reuses the tail-anchored page-walk (load
+older until the anchor is in the window): correct, bounded (~2400 events), but
+up to ~12 sequential fetches for a deep jump. A true reset (fetch one block
+*around* the anchor, replace the window) is blocked on three coupled changes
+that can't be validated without a local analyzer/run: (1) the session-scoped
+feed only has **ts** cursors (`before_ts`/`after_ts`) — seq is per-agent and
+not a session total order — and the Dart client doesn't yet expose `after_ts`;
+windowing on ts also has an **anchor-inclusion tie** problem (strict `<`/`>`
+drops the anchor and same-ts siblings). Agent-scope `before`/`since` (dense seq,
+no ties) can't be used because an agent's events span *other* sessions, so
+dropping the session filter breaks scoping. (2) a reset-to-middle window needs a
+**forward pager** (`load-newer`) — none exists; only load-older + the SSE tail.
+(3) the SSE append + `_jumpToLatest` must be **gated** on a "window includes the
+tail" flag so a mid-run window doesn't append a non-contiguous live event. Each
+is small but the stack is untestable here; the page-walk stands until a runner
+is available.
 
 Implement the two-model loading (see *Loading model* above). **All view** = the
 bounded sliding window with the **random-access loader** (reset-around-anchor

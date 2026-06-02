@@ -60,13 +60,32 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     final digest = ref.watch(sessionDigestProvider(widget.sessionId));
+    final turns = ref.watch(sessionTurnsProvider(widget.sessionId));
 
     // The run-lifetime total drives the feed's "event N of M" position; null
     // until the digest resolves (the feed falls back to the loaded max).
-    final totalEvents = digest.maybeWhen(
-      data: (state) => (state.body?['event_count'] as num?)?.toInt(),
-      orElse: () => null,
-    );
+    final digestBody = digest.valueOrNull?.body;
+    final totalEvents = (digestBody?['event_count'] as num?)?.toInt();
+
+    // Full-run minimap anchors: every error in the run (the digest's per-class
+    // sample seqs) + every turn start (the turn index). The minimap renders
+    // these whole-run, and a tap jumps to a seq that may not be loaded yet.
+    final runErrorSeqs = <int>[];
+    final errs = digestBody?['errors'];
+    if (errs is Map) {
+      for (final v in errs.values) {
+        if (v is Map && v['sample_seqs'] is List) {
+          for (final s in (v['sample_seqs'] as List)) {
+            if (s is num) runErrorSeqs.add(s.toInt());
+          }
+        }
+      }
+    }
+    final runTurnSeqs = turns.valueOrNull
+            ?.map((r) => (r['start_seq'] as num?)?.toInt() ?? 0)
+            .where((s) => s > 0)
+            .toList() ??
+        const <int>[];
 
     final card = digest.when(
       loading: () => const SizedBox.shrink(),
@@ -89,7 +108,6 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
     // the whole run — each row jumps the transcript to the turn's start_seq
     // via the shared seek controller. Full-run complete (the materialized
     // agent_turns rows), not a filter of the loaded window.
-    final turns = ref.watch(sessionTurnsProvider(widget.sessionId));
     final turnsSection = turns.maybeWhen(
       data: (rows) => rows.isEmpty
           ? const SizedBox.shrink()
@@ -116,6 +134,8 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               dense: false,
               seekController: _seek,
               totalEventCount: totalEvents,
+              runErrorSeqs: runErrorSeqs,
+              runTurnSeqs: runTurnSeqs,
             ),
           ),
         ),

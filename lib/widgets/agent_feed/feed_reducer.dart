@@ -1285,3 +1285,22 @@ List<Map<String, dynamic>> collapseStreamingPartials(
   final n = raw.clamp(1, m).toInt();
   return (n: n, m: m);
 }
+
+/// Plan P2 — full-run minimap anchors as `(frac, seq, isError)` tuples, where
+/// `frac = seq / total` positions each anchor by its run ordinal (so the strip
+/// is a whole-run overview, not a shrink of the loaded slice). Turn anchors
+/// come first and error anchors last, so error ticks paint on top. `total <= 0`
+/// (digest not resolved) yields no anchors. The caller maps these to coloured
+/// minimap marks; keeping the math here makes it directly testable.
+List<({double frac, int seq, bool isError})> feedRunAnchorMarks({
+  required List<int> errorSeqs,
+  required List<int> turnSeqs,
+  required int total,
+}) {
+  if (total <= 0) return const [];
+  double f(int seq) => (seq / total).clamp(0.0, 1.0);
+  return [
+    for (final s in turnSeqs) (frac: f(s), seq: s, isError: false),
+    for (final s in errorSeqs) (frac: f(s), seq: s, isError: true),
+  ];
+}

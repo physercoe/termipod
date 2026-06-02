@@ -133,6 +133,15 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// is the dense 1-based run ordinal, so N (≈ the viewport-top seq) is the
   /// honest position for a single-agent run. Null / full-screen-only.
   final int? totalEventCount;
+  /// Plan P2 — full-run minimap anchors (from the digest's `errors_json`
+  /// sample seqs + the turn index's `start_seq`s). When supplied (with
+  /// [totalEventCount]), the right-edge minimap switches from loaded-window
+  /// ticks to *whole-run* anchors positioned by `seq / total`, and a tap
+  /// routes through the random-access seek — so a failure or turn anywhere in
+  /// the run is one tap away, not just the loaded slice. Null = loaded-window
+  /// minimap (the plain full-screen feed, which has no digest).
+  final List<int>? runErrorSeqs;
+  final List<int>? runTurnSeqs;
   const AgentFeed({
     super.key,
     required this.agentId,
@@ -147,6 +156,8 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.onExpand,
     this.seekController,
     this.totalEventCount,
+    this.runErrorSeqs,
+    this.runTurnSeqs,
   });
 
   @override
@@ -450,6 +461,25 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         viewFrac: _viewFrac,
         totalEventCount: widget.totalEventCount,
       );
+
+  /// True when the full-screen minimap should render whole-run anchors (from
+  /// the digest + turn index) rather than loaded-window ticks — i.e. the
+  /// analysis surface supplied both a run total and at least one anchor.
+  bool get _runAnchorMode =>
+      widget.totalEventCount != null &&
+      ((widget.runErrorSeqs?.isNotEmpty ?? false) ||
+          (widget.runTurnSeqs?.isNotEmpty ?? false));
+
+  /// The minimap's position indicator. In full-run anchor mode it tracks the
+  /// run ordinal (N/M) so the thumb sits where the viewport is *in the whole
+  /// run*; otherwise it tracks the within-loaded-window fraction.
+  double _minimapViewportFrac() {
+    if (_runAnchorMode) {
+      final p = _logPosition();
+      if (p != null && p.m > 0) return (p.n / p.m).clamp(0.0, 1.0);
+    }
+    return _viewFrac;
+  }
   // >0 while a seek/scrub/jump drives the scroll, so [_onScroll] doesn't
   // mistake the programmatic motion for the user reaching the tail. A depth
   // counter (not a bool) so overlapping programmatic scrolls — a seek's
@@ -1710,27 +1740,47 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       };
       turnAnchorIdx = turnAnchorIndices(lensed);
       final turnIdxSet = turnAnchorIdx.toSet();
-      // Ticks track the list actually on screen (`lensed`) so the minimap
-      // is populated in EVERY view (item: "no minimap for turn/text view"),
-      // not only where tool/error rows exist: a faint tick per tool call OR
-      // turn anchor, a red tick per error. A tick's fraction maps straight
-      // to scroll offset for the tap-jump pre-scroll (see [_seekToFrac]).
-      for (var i = 0; i < lensed.length; i++) {
-        final e = lensed[i];
-        final isErr = agentEventIsError(e, toolResults, toolUpdates);
-        final isTool = (e['kind'] ?? '').toString() == 'tool_call';
-        if (!isErr && !isTool && !turnIdxSet.contains(i)) continue;
-        minimapMarks.add(FeedMinimapMark(
-          frac: i / lensedDenom,
-          seq: (e['seq'] as num?)?.toInt() ?? 0,
-          isError: isErr,
-          // Tick colour matches the transcript card (agentEventAccent),
-          // so the strip reads as a colour-coded shrink of the feed.
-          color: isErr
-              ? DesignColors.error
-              : agentEventAccent((e['kind'] ?? '').toString(),
-                  (e['producer'] ?? 'agent').toString()),
-        ));
+      if (_runAnchorMode) {
+        // Full-run minimap: anchors come from the digest (every error in the
+        // run) + the turn index (every turn start), positioned by their run
+        // ordinal (`seq / total`) rather than their index in the loaded slice.
+        // So the strip is a true whole-run overview, and a tap jumps to a seq
+        // that may not be loaded yet (routed through the random-access seek).
+        for (final a in feedRunAnchorMarks(
+          errorSeqs: widget.runErrorSeqs ?? const <int>[],
+          turnSeqs: widget.runTurnSeqs ?? const <int>[],
+          total: widget.totalEventCount!,
+        )) {
+          minimapMarks.add(FeedMinimapMark(
+            frac: a.frac,
+            seq: a.seq,
+            isError: a.isError,
+            color: a.isError ? DesignColors.error : DesignColors.textSecondary,
+          ));
+        }
+      } else {
+        // Ticks track the list actually on screen (`lensed`) so the minimap
+        // is populated in EVERY view (item: "no minimap for turn/text view"),
+        // not only where tool/error rows exist: a faint tick per tool call OR
+        // turn anchor, a red tick per error. A tick's fraction maps straight
+        // to scroll offset for the tap-jump pre-scroll (see [_seekToFrac]).
+        for (var i = 0; i < lensed.length; i++) {
+          final e = lensed[i];
+          final isErr = agentEventIsError(e, toolResults, toolUpdates);
+          final isTool = (e['kind'] ?? '').toString() == 'tool_call';
+          if (!isErr && !isTool && !turnIdxSet.contains(i)) continue;
+          minimapMarks.add(FeedMinimapMark(
+            frac: i / lensedDenom,
+            seq: (e['seq'] as num?)?.toInt() ?? 0,
+            isError: isErr,
+            // Tick colour matches the transcript card (agentEventAccent),
+            // so the strip reads as a colour-coded shrink of the feed.
+            color: isErr
+                ? DesignColors.error
+                : agentEventAccent((e['kind'] ?? '').toString(),
+                    (e['producer'] ?? 'agent').toString()),
+          ));
+        }
       }
     }
     // The bottom-left stepper steps a DIFFERENT unit per view, so `‹/›`
@@ -2022,7 +2072,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // / turn anchor (card-coloured) + a red tick per error, plus a
               // viewport indicator. Tap jumps to the nearest error, drag
               // scrubs. Always rendered in full-screen (every view) so the
-              // strip is a consistent scrubber.
+              // strip is a consistent scrubber. In full-run anchor mode the
+              // ticks are whole-run (digest + turn index) and a tap routes
+              // through the random-access seek (the target may not be loaded).
               if (!widget.dense)
                 Positioned(
                   top: 8,
@@ -2031,9 +2083,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   width: 20,
                   child: FeedMinimap(
                     marks: minimapMarks,
-                    onJump: _seekToFrac,
-                    onScrub: _scrubTo,
-                    viewportFrac: _viewFrac,
+                    onJump: _runAnchorMode
+                        ? (frac, seq) {
+                            _handleExternalSeek(seq);
+                          }
+                        : _seekToFrac,
+                    onScrub: _runAnchorMode ? null : _scrubTo,
+                    viewportFrac: _minimapViewportFrac(),
                   ),
                 ),
               // Full-screen stepper: floats bottom-left. ⤒ top-of-loaded,

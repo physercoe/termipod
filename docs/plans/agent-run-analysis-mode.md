@@ -246,6 +246,37 @@ point: no Feed regression); a later physical extraction is cosmetic. **The hub
 keyset is Go-tested; the mobile loader is gated + CI-analyzed and
 device-validated by the director.**
 
+**Device-test pass 1 (2026-06-02) — four navigation bugs, all fixed.** First
+on-device run of the random-access loader on a *stopped* session exposed: (1)
+turn jumps landed at the wrong position or did nothing; (2) the foldable Turns
+rows appeared dead; (3) the minimap couldn't be tapped; (4) the `event N / M`
+pill looked tappable but wasn't. Two root causes:
+- **Landing relied on `ensureVisible`, which no-ops on an unrealised row.**
+  Every external jump ended in `_seekToSeq` (lone `Scrollable.ensureVisible`),
+  which silently does nothing when the target card isn't built — the norm right
+  after a window swap (anchor sits mid-list) or a lazy prepend. Fix: route all
+  external/random-access landings through the **convergent index seek**
+  (`_seekToLoadedIndex`/`_convergeToIndex`, already used by "view in context")
+  via `_landOnSeq → _jumpToContext`; the build consumer also lands on the
+  nearest visible row `>=` the anchor, so a hidden marker (ACP `turn.start`)
+  lands on the turn's first shown event. Fixes (1), (2), and the minimap-tap
+  landing.
+- **The minimap's tap was swallowed by an idle drag recognizer.** In run-anchor
+  mode `onScrub` is null, but the vertical-drag recognizers were still attached
+  and won the gesture arena for any tap that moved a pixel. Fix: attach the drag
+  recognizers only when `onScrub != null`; widen the strip 20→28px (a 20px edge
+  target brushed the system edge-swipe zone). Turn-tick taps now also thread
+  `seq → ts` (`AgentFeed.runAnchorTs`) so they take the O(log n) reset; error
+  ticks stay ts-less → page-walk (the v1 edge). Fixes (3).
+- **New: "jump to any event".** The `event N / M` pill is now a control on the
+  analysis surface — tap → a scrubber over `[1, M]` that random-access-windows
+  onto the chosen ordinal (per-agent seq ≈ run ordinal, so ordinal `n` is the
+  event at `seq n`; one row fetched to recover its ts for the keyset reset). The
+  minimap reaches only anchors; this reaches any position. Fixes (4).
+
+All gated behind `randomAccess` / run-anchor mode → the live-tail Feed is byte-
+identical (no regression). Shipped `4c06b51`.
+
 Implement the two-model loading (see *Loading model* above). **All view** = the
 bounded sliding window with the **random-access loader** (reset-around-anchor
 via `before` + `since` / `after_ts`); the minimap scrubber maps a position to

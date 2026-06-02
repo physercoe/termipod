@@ -206,23 +206,40 @@ total`), with the thumb on the run position and a tap routed through the seek
 (`feedRunAnchorMarks` + `AgentFeed.runErrorSeqs`/`runTurnSeqs`). So a failure
 anywhere in the run shows on the strip, not just the loaded slice.
 
-**Deferred — O(log n) random-access window-reset (needs a local Flutter
-runner).** The current external jump reuses the tail-anchored page-walk (load
-older until the anchor is in the window): correct, bounded (~2400 events), but
-up to ~12 sequential fetches for a deep jump. A true reset (fetch one block
-*around* the anchor, replace the window) is blocked on three coupled changes
-that can't be validated without a local analyzer/run: (1) the session-scoped
-feed only has **ts** cursors (`before_ts`/`after_ts`) — seq is per-agent and
-not a session total order — and the Dart client doesn't yet expose `after_ts`;
-windowing on ts also has an **anchor-inclusion tie** problem (strict `<`/`>`
+**Deferred — a dedicated analysis loader (decouple Insights from Feed).**
+Insight is an **independent page/feature**, but its log currently *rides the
+Feed's loading infrastructure*: the live-tail loader (newest-anchored,
+**prepend-only** scroll-up, SSE appends at the tail, session cursors are **ts**).
+That loader is built for one access pattern — live tail-follow — and the
+analysis view needs the opposite: **random access** (land anywhere, page *both*
+directions, window-around-anchor). The current external jump (`_handleExternalSeek`)
+borrows the Feed's backward-only pager and *walks* older pages from the tail
+until the anchor appears: correct, bounded (~2400 events), but up to ~12
+sequential fetches for a deep jump.
+
+The architectural coupling and the missing O(log n) reset are therefore **one
+problem, not two**: there is no loader owned by the analysis layer. The fix is
+to give Insight its **own** window loader (bounded sliding window, **bidirectional**
+paging, a jump *resets* the window around the anchor rather than walking from
+the tail — see *Loading model* above) and to move the seek/loading logic
+(`_handleExternalSeek` and friends) **out of the shared `AgentFeed`** into that
+analysis-owned loader. Doing so both (a) separates the two modes cleanly — the
+Feed page keeps its live-tail loader, the analysis page gets random access — and
+(b) makes the reset fall out naturally. (The cosmetic overlays — the N-of-M pill
+and the full-run minimap — only *read* scroll/loaded state; they can stay gated
+or move with the loader, they're not the blocker.)
+
+Why it's deferred (needs a local Flutter runner to validate): (1) the
+session-scoped feed has only **ts** cursors (`before_ts`/`after_ts`) — seq is
+per-agent, not a session total order — and the Dart client doesn't yet expose
+`after_ts`; ts windowing also has an **anchor-inclusion tie** (strict `<`/`>`
 drops the anchor and same-ts siblings). Agent-scope `before`/`since` (dense seq,
 no ties) can't be used because an agent's events span *other* sessions, so
 dropping the session filter breaks scoping. (2) a reset-to-middle window needs a
 **forward pager** (`load-newer`) — none exists; only load-older + the SSE tail.
-(3) the SSE append + `_jumpToLatest` must be **gated** on a "window includes the
-tail" flag so a mid-run window doesn't append a non-contiguous live event. Each
-is small but the stack is untestable here; the page-walk stands until a runner
-is available.
+(3) SSE append + `_jumpToLatest` must be **gated** on a "window-includes-tail"
+flag so a mid-run window doesn't append a non-contiguous live event. The bounded
+page-walk stands until a runner is available.
 
 Implement the two-model loading (see *Loading model* above). **All view** = the
 bounded sliding window with the **random-access loader** (reset-around-anchor
@@ -264,12 +281,18 @@ points it at Phoenix / Jaeger.
   resolved in ADR-038 (fixed log buckets from computed duration; driver-emitted
   `turn.start` + tool `turn_id` stamping; idle+terminal batch export).
 
-- **Feed vs. Insights are distinct access patterns, not redundant.** **Feed**
-  = live SSE follow (tail + scroll-up lazy-load, newest-anchored). **Insight**
-  = static **random-access** — land at any anchor and page locally either way,
-  no walk-from-tail. The DB supports any-jump efficiently (index range scans on
-  `(agent_id, seq)` / `(session_id, ts)`, no `OFFSET`); the only addition is
-  the `after_ts` session param (P0) + the window-around-anchor loader (P2).
+- **Feed vs. Insights are distinct access patterns → distinct loaders, not
+  redundant.** **Feed** = live SSE follow (tail + scroll-up lazy-load,
+  newest-anchored). **Insight** = static **random-access** — land at any anchor
+  and page locally either way, no walk-from-tail. They share the same `AgentFeed`
+  *renderer* but are an **independent page/feature**, and the access patterns are
+  opposite enough that Insight needs its **own loader**, not the Feed's live-tail
+  one (see the deferral under P2). The DB supports any-jump efficiently (index
+  range scans on `(agent_id, seq)` / `(session_id, ts)`, no `OFFSET`); the only
+  additions are the `after_ts` session param (P0, on the hub; not yet on the
+  Dart client) + the analysis-owned window-around-anchor loader (P2, deferred).
+  Until that loader exists, Insight borrows Feed's backward pager (the bounded
+  page-walk) — correct, but the coupling the dedicated loader is meant to remove.
 
 ## Open questions
 

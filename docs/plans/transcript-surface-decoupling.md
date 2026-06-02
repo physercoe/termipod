@@ -70,15 +70,31 @@ Per ADR-040 open-question B, the `build()` aggregation splits by ownership:
 
 ### P2 — `TranscriptSeek` (the scroll/converge machine)
 
-- Lift the seek cluster (the converge/jump/funnel methods + their index
-  sentinels — audit §3) into `transcript/transcript_seek.dart` as a controller
-  bound to a `ScrollController` + a realized-window feedback callback. The
-  itemBuilder reports its realized rows through that callback instead of writing
-  State fields directly.
-- Keep the existing comments (programmatic-scroll depth, window reset, tail-
-  follow re-arm) intact — load-bearing.
-- **Gate:** all jumps (funnel, stepper, minimap, deep-link, jump-to-ordinal)
-  land as before on device.
+- **P2a — DONE (`f9677c2`, CI green).** The *landing engine* — the realized-row
+  window sentinels, the programmatic-scroll guard, the seek `GlobalKey`, and the
+  `convergeToIndex` algorithm — lifted verbatim into
+  `transcript/transcript_seek.dart`. The host drives it (`beginFrame` /
+  `recordBuiltRow` each layout) and reads back `isProgrammatic` /
+  `lastTopBuiltSeq`; `_seekToLoadedIndex` delegates to `_seek.landOnIndex`. Pure
+  sentinel bookkeeping unit-tested.
+- **P2b — DEFERRED into P4 (director's call, 2026-06-02).** Folding the seek
+  *orchestration* — the `_activeSeekSeq` anchor (the State's most cross-cutting
+  field, ~13 read/write sites incl. the build matchIndex/isTarget logic, the
+  lens stepper, and `_onScroll`'s tail-return clear), the funnel-run jumps, and
+  the pending-context mechanism — is a ~20-site rewiring of fragile state. It is
+  **Insight-specific** navigation, so rather than rewire it in-place on the
+  monolith (stacking a second unverified seek change before any device-test), it
+  moves into `InsightTranscript` at P4, where it's device-tested in context.
+- **Gate (P2a):** all jumps (funnel, stepper, minimap, deep-link,
+  jump-to-ordinal) land as before on device.
+
+### Sequencing note (2026-06-02)
+
+P3 (transport) runs **before** the P2b orchestration fold. P3 is behaviourally
+independent of the seek changes (loading ≠ landing), so a device-test can
+isolate a regression to one phase; stacking P2b on the not-yet-device-tested
+P2a would entangle the two. The seek orchestration lands in P4 with the mode
+split.
 
 ### P3 — `FeedTransport` (live-tail loader)
 

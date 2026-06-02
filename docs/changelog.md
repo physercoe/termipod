@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-02)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.789
+> **Last verified vs code:** v1.0.790
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,44 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.790-alpha — 2026-06-02
+
+**Insight lens as a server-side query: the Errors lens is now the run's
+complete error list; structural jumps land; the two steppers share one
+cursor.** Decision: [ADR-039](decisions/039-insight-lens-as-server-query.md)
+(implemented by [`plans/insight-lens-as-query.md`](plans/insight-lens-as-query.md)).
+
+### Fixed
+- **The Errors lens is no longer blank when its matches aren't in the loaded
+  window.** It was a client-side filter over the live-tail window, so it
+  rendered empty whenever no error sat in that window — and an empty list has
+  no scroll extent, so "scroll up to load older" could never fire. It now
+  renders the **whole-run error list** straight from the digest (one row per
+  error: class · time · ordinal), exact and never empty; a tap jumps to that
+  error in full context. Run-anchor lenses also land on their newest match on
+  entry (`f9219fe`, `17e0437`).
+- **Structural jumps to unloaded context now land the card in the viewport.**
+  A jump reset a window *centered* on the anchor, so the target sat mid-list
+  and off-screen and the offset search couldn't reliably reach it. The reset
+  is now *asymmetric* — a small lead before the anchor + the rest after — so
+  the card renders near the top of the fresh window and lands directly
+  (`fdf380a`).
+- **The funnel pill and the bottom stepper now share one cursor.** They tracked
+  different positions over different index spaces, so stepping one didn't move
+  the other's `N/M` and they counted different sets. A single `_funnelStep`
+  drives both (`c32d40c`).
+
+### Added
+- **Server `error=true` keyset** on `GET …/events` — the scope's canonical
+  error events, keyset-paged, filtered with the same `canonicalErrorClass` the
+  digest fold uses (no SQL/Go divergence). A complete error list at any depth
+  (`a5a5425`).
+- **`kind=` filter + `(ts,seq)` `fetchOlder`** substrate for paging a lens as
+  its own server query (`c819d17`).
+- **Whole-run error seqs in the digest** (per-class cap raised 25→200 for
+  errors; `schema_version` 1→2 with a refold gate) so the Errors lens lists the
+  complete run, not a 25-sample (`476535a`).
 
 ## v1.0.789-alpha — 2026-06-02
 

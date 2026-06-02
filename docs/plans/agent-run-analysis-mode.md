@@ -277,6 +277,38 @@ pill looked tappable but wasn't. Two root causes:
 All gated behind `randomAccess` / run-anchor mode → the live-tail Feed is byte-
 identical (no regression). Shipped `4c06b51`.
 
+**Device-test pass 2 (`804aa56`).** (1) Minimap turn-ticks painted flat grey →
+now the prompt-card accent (`agentEventAccent('input.text','user')`); errors
+stay red, so the strip reads as a colour-coded shrink of the feed. (2) The
+`event N / M` pill + minimap thumb lurched non-monotonically when a load grew
+the window (N interpolated from the viewport fraction across a shifting
+`[minSeq,maxSeq]`) → N now reads the **top-built row's seq** (the dense run
+ordinal): exact, monotonic, and stable across window growth. (3) The dashboard's
+"Duration" was the full first→last span (idle included) → added **`active_ms`**
+= Σ turn durations (`sumTurnActiveMs`, read-time from `agent_turns`, no
+migration); the card shows "Active" (run time) + "Elapsed" (span).
+
+**Project-agent + archived parity (`acec688`, `c837abc`).** The project-agent
+detail sheet and the archived-agent history screen showed only the sparse Tier-1
+`InsightsPanel` / no Insights at all. Both now resolve the agent's hub session id
+(newest event's `session_id`) and render the full `SessionAnalysisView` —
+closing #1043 for live project agents *and* terminated agents in history.
+Alongside: the project-agent sheet gained **Stop** (resumable) + **Resume
+session** wired to the hub's `agents.stop` / `resume-session`.
+
+**Error-ts edge closed + #1039 (`940d20a`).** Errors now carry `sample_ts`
+(aligned with `sample_seqs`) through the digest, so an Errors-stat / minimap-tick
+jump takes the `(ts, seq)` reset like turns — no more page-walk-to-top on a
+distant error. And the claude M2/M4 drivers now emit native `turn.start` (stable
+`t-N`), after a **latent fold fix**: `turn.start` *adopts* the synthetic turn the
+hub's `input.text` opened instead of close+reopening into a spurious empty turn
+(this had been mis-folding ACP turns too).
+
+**Device-test pass 3 (`c837abc`).** (1) The composer's busy overlay lit up after
+a jump because `agentIsBusy` read a mid-run window's tail → trusted only when the
+window reaches the live tail. (2) A ts-less anchor beyond the page-walk cap
+yanked the viewport to the top → both fallbacks now leave it put.
+
 Implement the two-model loading (see *Loading model* above). **All view** = the
 bounded sliding window with the **random-access loader** (reset-around-anchor
 via `before` + `since` / `after_ts`); the minimap scrubber maps a position to

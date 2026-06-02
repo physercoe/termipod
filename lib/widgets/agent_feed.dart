@@ -688,12 +688,25 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   /// newest loaded seq before the digest resolves). Returns null until there's
   /// a window to position within. N is clamped into [1, M] so a multi-agent
   /// session (per-agent seq isn't a run-wide ordinal) still reads sanely.
-  ({int n, int m})? _logPosition() => feedLogPosition(
-        minSeq: _minSeq,
-        maxSeq: _maxSeq,
-        viewFrac: _viewFrac,
-        totalEventCount: widget.totalEventCount,
-      );
+  ({int n, int m})? _logPosition() {
+    final total = widget.totalEventCount;
+    // Insight/random-access: read N straight from the top-built row's run
+    // ordinal (the seq). It's exact and monotonic and — crucially — doesn't
+    // lurch when the window grows by a load-older/newer page (the viewFrac
+    // interpolation does, because both the fraction and the [_minSeq, _maxSeq]
+    // span shift under it). Falls back to the interpolation until the first
+    // layout records a top seq.
+    if (widget.randomAccess && total != null && total > 0 && _lastTopBuiltSeq > 0) {
+      final n = _lastTopBuiltSeq.clamp(1, total);
+      return (n: n, m: total);
+    }
+    return feedLogPosition(
+      minSeq: _minSeq,
+      maxSeq: _maxSeq,
+      viewFrac: _viewFrac,
+      totalEventCount: total,
+    );
+  }
 
   /// True when the full-screen minimap should render whole-run anchors (from
   /// the digest + turn index) rather than loaded-window ticks — i.e. the
@@ -728,6 +741,16 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // top of the build that owns the list; -1 / length are empty sentinels.
   int _minBuiltIdx = 0;
   int _maxBuiltIdx = -1;
+  // Plan P2 (accurate Insight position) — the smallest seq among the rows
+  // realised in the current build (the topmost on-screen card ≈ the viewport
+  // top). [_topBuiltSeq] accumulates during a frame's layout; [_lastTopBuiltSeq]
+  // snapshots it at the next build, so [_logPosition] can read a stable value.
+  // Per-agent seq is the dense run ordinal, so this is the honest "event N":
+  // a *seq* (not a pixel fraction), it stays put when load-older/newer grows
+  // the window (the same event keeps the same seq) and moves monotonically with
+  // scroll — fixing the non-monotonic jump the viewFrac interpolation showed.
+  int _topBuiltSeq = 0;
+  int _lastTopBuiltSeq = 0;
 
   // Mark a synchronous scroll (jumpTo) as programmatic; clear after the
   // frame it lands on.
@@ -2084,6 +2107,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
           ];
     // Reset the realized-row window for this frame's list; the itemBuilder
     // repopulates it during layout, and a convergent seek reads it back.
+    // Snapshot the last frame's top-built seq first (for the Insight position
+    // readout) before clearing the accumulator for this frame.
+    if (_topBuiltSeq > 0) _lastTopBuiltSeq = _topBuiltSeq;
+    _topBuiltSeq = 0;
     _minBuiltIdx = lensed.length;
     _maxBuiltIdx = -1;
     // Consume a pending "view in context" request: now that the lens is
@@ -2167,7 +2194,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             frac: a.frac,
             seq: a.seq,
             isError: a.isError,
-            color: a.isError ? DesignColors.error : DesignColors.textSecondary,
+            // Match the transcript card: a turn anchor is the turn's start
+            // event — an `input.text` user prompt — so colour it with the same
+            // accent the prompt card paints (terminalYellow), not a flat grey.
+            // Errors stay red. So the strip reads as a colour-coded shrink of
+            // the feed, like the loaded-window minimap.
+            color: a.isError
+                ? DesignColors.error
+                : agentEventAccent('input.text', 'user'),
           ));
         }
       } else {
@@ -2305,10 +2339,17 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 itemCount: lensed.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
-                  // Record the realized-row window for convergent seeks.
+                  // Record the realized-row window for convergent seeks, and
+                  // the smallest realised seq (topmost card) for the Insight
+                  // position readout.
                   if (i < _minBuiltIdx) _minBuiltIdx = i;
                   if (i > _maxBuiltIdx) _maxBuiltIdx = i;
                   final ev = lensed[i];
+                  final builtSeq = (ev['seq'] as num?)?.toInt() ?? 0;
+                  if (builtSeq > 0 &&
+                      (_topBuiltSeq == 0 || builtSeq < _topBuiltSeq)) {
+                    _topBuiltSeq = builtSeq;
+                  }
                   final isTarget = _activeSeekSeq != null &&
                       (ev['seq'] as num?)?.toInt() == _activeSeekSeq;
                   Widget card = AgentEventCard(

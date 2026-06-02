@@ -77,12 +77,17 @@ class _RunReportCardState extends State<RunReportCard> {
     final toolFailed = _int('tool_failed');
     final cost = _double('cost_usd');
     final durationMs = _int('duration_ms');
+    // active_ms = real running time (sum of turn durations); duration_ms = the
+    // full first→last span including idle waits between turns. Prefer active in
+    // the headline — it's the "time actually spent running" the operator cares
+    // about. Falls back to the span when the hub didn't supply it (older hub).
+    final activeMs = _int('active_ms');
     final outcome = (widget.digest['outcome'] ?? '').toString();
 
     final summary = _summaryLine(
       outcome: outcome,
       turns: turns,
-      durationMs: durationMs,
+      durationMs: activeMs > 0 ? activeMs : durationMs,
       cost: cost,
       events: events,
     );
@@ -141,7 +146,8 @@ class _RunReportCardState extends State<RunReportCard> {
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
               child: _body(context, muted, isDark, events: events,
                   turns: turns, errors: errors, toolTotal: toolTotal,
-                  toolFailed: toolFailed, cost: cost, durationMs: durationMs),
+                  toolFailed: toolFailed, cost: cost, durationMs: durationMs,
+                  activeMs: activeMs),
             ),
           ],
         ],
@@ -160,6 +166,7 @@ class _RunReportCardState extends State<RunReportCard> {
     required int toolFailed,
     required double cost,
     required int durationMs,
+    required int activeMs,
   }) {
     final latency = widget.digest['latency'];
     final p50 = latency is Map ? _numAsInt(latency['p50_ms']) : 0;
@@ -176,8 +183,16 @@ class _RunReportCardState extends State<RunReportCard> {
           children: [
             _Stat(label: 'Events', value: '$events', muted: muted),
             _Stat(label: 'Turns', value: '$turns', muted: muted),
+            // Real running time (sum of turn durations) — what the operator
+            // means by "time spent". Shown when the hub supplies it.
+            if (activeMs > 0)
+              _Stat(
+                  label: 'Active',
+                  value: _fmtDuration(activeMs),
+                  muted: muted),
+            // Full wall-clock span (first→last event, idle gaps included).
             _Stat(
-                label: 'Duration',
+                label: activeMs > 0 ? 'Elapsed' : 'Duration',
                 value: _fmtDuration(durationMs),
                 muted: muted),
             _Stat(

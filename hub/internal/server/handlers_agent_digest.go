@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -29,7 +30,15 @@ func (s *Server) handleGetAgentDigest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, digestJSON(d))
+	out := digestJSON(d)
+	// active_ms = the run's *real running time* (the sum of per-turn
+	// durations), as distinct from duration_ms = the full first→last wall-clock
+	// span (which includes the idle gaps between turns while the agent waits on
+	// the user). Summed from the materialised agent_turns rows at read time, so
+	// it needs no extra digest column.
+	active, _ := s.sumTurnActiveMs(r.Context(), []string{agent})
+	out["active_ms"] = active
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleGetSessionDigest(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +73,33 @@ func (s *Server) handleGetSessionDigest(w http.ResponseWriter, r *http.Request) 
 	delete(out, "agent_id")
 	out["session_id"] = session
 	out["agent_ids"] = agentIDs
+	// Real running time across the session's agents (sum of per-turn
+	// durations) — see handleGetAgentDigest. The session span (duration_ms) is
+	// already the ts-widened first→last across agents from the rollup.
+	active, _ := s.sumTurnActiveMs(r.Context(), agentIDs)
+	out["active_ms"] = active
 	writeJSON(w, http.StatusOK, out)
+}
+
+// sumTurnActiveMs sums duration_ms over the closed turns of the given agents —
+// the run's active running time. Open/in-progress turns have no final duration
+// yet (duration_ms <= 0) and are excluded, so a live run reports the time spent
+// on completed turns. Empty input → 0.
+func (s *Server) sumTurnActiveMs(ctx context.Context, agentIDs []string) (int64, error) {
+	if len(agentIDs) == 0 {
+		return 0, nil
+	}
+	placeholders := make([]string, len(agentIDs))
+	args := make([]any, len(agentIDs))
+	for i, id := range agentIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	q := `SELECT COALESCE(SUM(duration_ms), 0) FROM agent_turns
+	       WHERE duration_ms > 0 AND agent_id IN (` + strings.Join(placeholders, ",") + `)`
+	var ms int64
+	err := s.db.QueryRowContext(ctx, q, args...).Scan(&ms)
+	return ms, err
 }
 
 // sessionAgentIDs returns the agents that produced events in a session,

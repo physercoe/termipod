@@ -22,16 +22,22 @@ monolith. Open/closed by file thereafter: a new mode is a new file
 lib/widgets/transcript/            (rename of agent_feed/)
   event_card.dart  feed_misc.dart  feed_reducer.dart  …   ← render primitives (exist)
   random_access_loader.dart                               ← sealed-mode loader (exists)
-  feed_aggregates.dart   ← NEW: pure telemetry/cost/fold over an event list
-  transcript_seek.dart   ← NEW: the scroll/converge/seek machine (controller)
-  feed_transport.dart    ← NEW: live load / SSE / reconnect / load-older (controller)
-lib/widgets/live_feed.dart          ← NEW: LiveFeed (stream + composer + telemetry)
-lib/widgets/insight_transcript.dart ← NEW: InsightTranscript (sealed, random-access, lens-as-query)
-lib/widgets/agent_feed.dart         ← deleted at the end (or a thin re-export during migration)
+  fold_maps.dart         ← NEW: pure per-event fold (tool names/results/updates/approvals) — SHARED
+  feed_telemetry.dart    ← NEW: pure telemetry/cost/context rollup — LiveFeed-only
+  transcript_seek.dart   ← NEW: the scroll/converge/seek machine (controller) — Insight-only
+  feed_transport.dart    ← NEW: live load / SSE / reconnect / load-older (controller) — LiveFeed
+  feed_lens.dart (or in feed_reducer): FeedLens predicate + funnel widget — SHARED (filter only)
+lib/widgets/live_feed.dart          ← NEW: LiveFeed (stream + composer + telemetry + declutter funnel)
+lib/widgets/insight_transcript.dart ← NEW: InsightTranscript (sealed, random-access, lens-as-query, minimap)
+lib/widgets/agent_feed.dart         ← deleted in P5 (coexists during migration; never a flag-delegating shim)
 ```
 
 Substrate units take data + callbacks, never a `mode`/`randomAccess` flag.
-`dense` is a layout parameter each mode may accept, not a mode.
+`dense` is a layout parameter each mode may accept, not a mode. Per ADR-040 the
+**lens-as-query engine, minimap, summary lists, and random-access seek are
+Insight-only**; the **`FeedLens` predicate + funnel widget are shared** so
+`LiveFeed` can client-side filter its loaded window (declutter), with no jump /
+minimap / summary list.
 
 ## Phases
 
@@ -45,14 +51,22 @@ reshape only after the seam is proven.
   `refactor:` commit, no logic change. (`agent_feed.dart` stays put this phase.)
 - Confirm the five consumers still build (CI analyze).
 
-### P1 — `FeedAggregates` (pure; biggest `build()` shrink)
+### P1 — `FoldMaps` (shared) + `FeedTelemetry` (LiveFeed-only) (pure; biggest `build()` shrink)
 
-- Move the telemetry/cost/context/fold-map computation out of `build()`
-  (`agent_feed.dart` ~`:1945`–`:2300`) into `transcript/feed_aggregates.dart` as
-  a pure function returning a struct consumed by `build()`.
-- Unit-test it (mirrors `agent_feed_random_access_loader_test.dart`) — no widget
+Per ADR-040 open-question B, the `build()` aggregation splits by ownership:
+
+- **`fold_maps.dart` (substrate, shared).** The per-event fold —
+  `toolNames`/`toolResults`/`toolUpdates`/`resolvedApprovals` (`agent_feed.dart`
+  ~`:1945`–`:2050`) — pure over an event list, returning a struct. Both modes
+  render cards and evaluate lens predicates from it.
+- **`feed_telemetry.dart` (LiveFeed-only).** The telemetry/cost/context rollup
+  (`modelTotals`, context-window capacity/used — ~`:2100`–`:2300`), pure,
+  returning a struct. Insight does **not** import it (its dashboard is the
+  digest `RunReportCard`).
+- Unit-test both (mirror `agent_feed_random_access_loader_test.dart`) — no widget
   needed.
-- **Gate:** Feed + Insight render byte-identical telemetry on device.
+- **Gate:** Feed renders byte-identical telemetry + cards; Insight renders
+  byte-identical cards (it never showed the telemetry) on device.
 
 ### P2 — `TranscriptSeek` (the scroll/converge machine)
 
@@ -75,13 +89,16 @@ reshape only after the seam is proven.
 
 ### P4 — split into mode files
 
-- `live_feed.dart` (`LiveFeed`): composes `FeedTransport` + `FeedAggregates` +
-  cards + composer + telemetry strip. No random access, no lens-as-query table.
+- `live_feed.dart` (`LiveFeed`): composes `FeedTransport` + `FoldMaps` +
+  `FeedTelemetry` + cards + composer + telemetry strip + the shared declutter
+  funnel (client-side filter over the loaded window). No random access, no
+  lens-as-query, no minimap, no summary lists.
 - `insight_transcript.dart` (`InsightTranscript`): composes
-  `RandomAccessLoader` + `TranscriptSeek` + `FeedAggregates` + cards + the lens
-  system (Errors/Turns summary lists, minimap); no composer/telemetry.
-- During migration `agent_feed.dart` may become a thin re-export so consumers
-  move one at a time.
+  `RandomAccessLoader` + `TranscriptSeek` + `FoldMaps` + cards + the lens-as-query
+  engine (Errors/Turns summary lists, minimap, N/M + stepper). No composer, no
+  telemetry strip.
+- `agent_feed.dart` **coexists** during migration — it is NOT rewritten to
+  delegate by `randomAccess` (open-question C). Consumers move per-mode in P5.
 - **Gate:** both surfaces render through the new files; device-test parity.
 
 ### P5 — migrate consumers + delete the monolith
@@ -89,7 +106,7 @@ reshape only after the seam is proven.
 - Insight host (`session_analysis_view.dart`) → `InsightTranscript`; the live
   hosts (`sessions_screen`, `transcript_screen`, `projects_screen`,
   `archived_agents_screen`) → `LiveFeed`.
-- Delete `agent_feed.dart` (and the re-export) once nothing imports it.
+- Delete `agent_feed.dart` once nothing imports it.
 - **Gate:** full device-test of every surface; CI + CodeQL green.
 
 ### P6 — land the deferred features ON the new structure (open/closed)
@@ -108,8 +125,9 @@ reshape only after the seam is proven.
   through P0–P3.
 - **The seek machine is subtle** (programmatic-scroll depth, realized-window
   reset). Extract with comments intact; device-gate P2 hard.
-- **Migration window** — the thin re-export keeps the tree green while consumers
-  move; don't delete `agent_feed.dart` until grep shows no importers.
+- **Migration window** — `agent_feed.dart` coexists with the two mode files
+  while consumers move per-mode; don't delete it until grep shows no importers.
+  It is never turned into a `randomAccess`-delegating shim (open-question C).
 
 ## Related
 

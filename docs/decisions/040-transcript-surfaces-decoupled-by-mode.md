@@ -44,11 +44,13 @@ preference.
    No `randomAccess`-style flag selects mode-behaviour inside a shared State.
 2. **A shared, mode-agnostic substrate.** Everything both modes need lives in
    reusable, mode-ignorant units under `lib/widgets/transcript/` (the rename of
-   `agent_feed/`): the render primitives (already extracted) plus pure
-   controllers — `FeedAggregates` (telemetry/cost/fold, pure over an event
-   list), `TranscriptSeek` (the scroll/converge machine), `FeedTransport` (live
-   load/SSE/reconnect/paging), and the existing `RandomAccessLoader` (the sealed
-   loader). Substrate units know nothing about which mode hosts them.
+   `agent_feed/`): the render primitives (already extracted) plus pure units —
+   `FoldMaps` (the per-event fold: tool names / results / updates / resolved
+   approvals, needed to render cards *and* evaluate lens predicates),
+   `TranscriptSeek` (the scroll/converge machine), `FeedTransport` (live
+   load/SSE/reconnect/paging), the existing `RandomAccessLoader` (the sealed
+   loader), and the `FeedLens` predicate + funnel widget (a *pure* filter
+   control — see §6). Substrate units know nothing about which mode hosts them.
 3. **Open/closed by file.** Adding a mode (e.g. a search view, a diff view) or a
    mode-specific feature means **a new file** that composes substrate units —
    not a branch, flag, or `if (mode == …)` inside an existing mode file. Shared
@@ -60,6 +62,34 @@ preference.
 5. **The name follows the role.** "Feed" names the live stream only; the sealed
    surface is a transcript. The directory and shared types use *transcript* as
    the umbrella term; `LiveFeed` keeps "feed" for the streaming mode.
+6. **"Filter what's shown" is shared; "navigate the run by lens" is
+   Insight-only.** The boundary of the clean cut is the *navigation machinery*,
+   not filtering as such. The pure `FeedLens` predicate + funnel widget are
+   substrate, so `LiveFeed` may client-side filter its loaded window to declutter
+   the chat (the original v1.0.770 behaviour). What is Insight-only is the
+   lens-**as-query** engine: server-keyset lens pages, the Errors/Turns summary
+   lists, the whole-run minimap, the random-access seek, and the N/M ordinal +
+   stepper-as-cursor. `LiveFeed`'s filter neither jumps to unloaded matches nor
+   shows a minimap or summary list.
+
+## Open questions — resolved 2026-06-02 (director)
+
+- **A — lenses/minimap placement.** Clean cut: the lens-as-query engine, minimap,
+  summary lists, and random-access seek are **Insight-only**. `LiveFeed` keeps a
+  lightweight visible-window filter funnel (decision §6).
+- **B — aggregation ownership.** Split: `FoldMaps` is substrate (both modes
+  render cards from it); the telemetry/cost/context rollup is **LiveFeed-only**
+  (`FeedTelemetry`), since Insight's dashboard comes from the digest
+  (`RunReportCard`) and Insight hides the telemetry strip.
+- **C — migration bridge.** **No flag-shim.** Build both mode widgets (P4), then
+  migrate the one Insight consumer → `InsightTranscript` and the four live
+  consumers → `LiveFeed` (P5), then delete `agent_feed.dart`. The transient is
+  "old file coexists," never "old file delegates by `randomAccess`."
+- **D — sharing granularity.** Primitives + controllers only for now; promote a
+  shared composite `TranscriptBody` later only if the two bodies converge.
+- **E — live-agent Insight.** `InsightTranscript` handles a running agent as a
+  snapshot-on-entry + manual refresh (not pure-static); the All-view tailing
+  affordance is the live feed's job.
 
 ## Consequences
 

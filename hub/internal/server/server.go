@@ -366,6 +366,9 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				// ADR-038 §5: the per-agent run digest (canonical summary +
 				// navigation anchors). Lazily (re)computed on read.
 				r.Get("/digest", s.handleGetAgentDigest)
+				// ADR-038 §3 / plan P2: the turn index as a keyset listing —
+				// the "Turns" filtered view + jump-to-turn anchors.
+				r.Get("/turns", s.handleListAgentTurns)
 				r.Post("/input", s.handlePostAgentInput)
 			})
 		})
@@ -406,6 +409,9 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				// ADR-038 §5: the session-scoped run digest — the
 				// ts-ordered rollup of the session's agents' digests.
 				r.Get("/digest", s.handleGetSessionDigest)
+				// ADR-038 §3 / plan P2: the session's turn index — the
+				// ts-ordered union of its agents' turns.
+				r.Get("/turns", s.handleListSessionTurns)
 			})
 		})
 		r.Route("/templates", func(r chi.Router) {

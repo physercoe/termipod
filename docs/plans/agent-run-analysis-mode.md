@@ -178,7 +178,17 @@ agents/{agent}/digest` already exists). Wiring the digest `event_count` into the
 `AgentFeed` position ("N of M") + monotonic minimap is folded into **P2** with
 the random-access loader (the position bar and the loader share the count).
 
-### P2 — Structure index + filtered views → jump (random-access nav)
+### P2 — Structure index + filtered views → jump (random-access nav) — 🟡 turns endpoint shipped
+**Done:** the turn index as a keyset listing — `GET …/agents/{agent}/turns`
+(cursor `after=<idx>`) + `…/sessions/{session}/turns` (ts-ordered union of the
+session's agents' turns, cursor `after_ts`), both lazily backfilled on read
+(`handlers_agent_turns.go`; tests `handlers_agent_turns_test.go`). This is the
+last missing backend primitive for the filtered views (Turns ← this endpoint;
+Errors ← the digest's `errors_json` sample seqs; Tools / Text ← the P0 `kind`
+param). **Remaining (mobile):** the random-access window loader, the digest
+`event_count` → "N of M" position + minimap, and wiring the structure-index
+rows / `RunReportCard.onJumpToSeq` to the convergent seek.
+
 Implement the two-model loading (see *Loading model* above). **All view** = the
 bounded sliding window with the **random-access loader** (reset-around-anchor
 via `before` + `since` / `after_ts`); the minimap scrubber maps a position to

@@ -62,6 +62,10 @@ type StdioDriver struct {
 	stopped bool
 	wg      sync.WaitGroup
 	inputMu sync.Mutex // serializes concurrent Input calls
+	// turnSeq mints stable turn ids for the turn.start boundary (ADR-038 §3),
+	// guarded by inputMu (only Input touches it). claude M2 has no native
+	// turn marker, so the driver emits one at prompt dispatch.
+	turnSeq int64
 }
 
 // Start emits lifecycle.started and launches the reader goroutine. Returns
@@ -509,6 +513,19 @@ func (d *StdioDriver) Input(ctx context.Context, kind string, payload map[string
 	}
 	d.inputMu.Lock()
 	defer d.inputMu.Unlock()
+	// A user prompt ("text") starts a turn — emit the turn.start boundary
+	// (ADR-038 §3) with a stable id so the digest folds an explicit turn
+	// (adopted onto the hub-inserted input.text) instead of synthesizing one.
+	// Control inputs (approval/answer) continue the in-flight turn, so they
+	// don't open one. Posted before the write so it precedes the agent's reply.
+	if kind == "text" && d.Poster != nil {
+		d.turnSeq++
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.start", "agent",
+			map[string]any{
+				"turn_id": fmt.Sprintf("t-%d", d.turnSeq),
+				"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			})
+	}
 	// Context cancellation doesn't preempt the Write; a wedged child is
 	// the operator's problem to kill via Stop. The lock keeps two
 	// concurrent Input calls from interleaving bytes on stdin.

@@ -1005,3 +1005,41 @@ func TestFormatAttentionReplyText(t *testing.T) {
 		})
 	}
 }
+
+// TestStdioDriver_InputEmitsTurnStartOnText pins the ADR-038 turn.start
+// boundary for claude M2: a "text" prompt emits a turn.start with a stable
+// turn_id; control inputs (approval) continue the turn and emit none.
+func TestStdioDriver_InputEmitsTurnStartOnText(t *testing.T) {
+	poster := &fakePoster{}
+	var stdin bytes.Buffer
+	drv := &StdioDriver{AgentID: "agent-ts", Poster: poster, Stdin: &stdin}
+	ctx := context.Background()
+
+	if err := drv.Input(ctx, "text", map[string]any{"body": "first"}); err != nil {
+		t.Fatalf("Input text: %v", err)
+	}
+	if err := drv.Input(ctx, "approval",
+		map[string]any{"request_id": "r1", "decision": "allow"}); err != nil {
+		t.Fatalf("Input approval: %v", err)
+	}
+	if err := drv.Input(ctx, "text", map[string]any{"body": "second"}); err != nil {
+		t.Fatalf("Input text 2: %v", err)
+	}
+
+	var starts []postedEvent
+	for _, e := range poster.snapshot() {
+		if e.Kind == "turn.start" {
+			starts = append(starts, e)
+		}
+	}
+	if len(starts) != 2 {
+		t.Fatalf("turn.start count = %d, want 2 (only text inputs)", len(starts))
+	}
+	if starts[0].Producer != "agent" {
+		t.Errorf("turn.start producer = %q, want agent", starts[0].Producer)
+	}
+	if starts[0].Payload["turn_id"] != "t-1" || starts[1].Payload["turn_id"] != "t-2" {
+		t.Errorf("turn ids = %v, %v; want t-1, t-2",
+			starts[0].Payload["turn_id"], starts[1].Payload["turn_id"])
+	}
+}

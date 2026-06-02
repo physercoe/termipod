@@ -163,8 +163,12 @@ func mergeDigest(dst, src *agentDigest) {
 			dst.Errors[class] = d
 		}
 		d.Count += c.Count
-		for _, seq := range c.SampleSeqs {
-			addSample(&d.SampleSeqs, seq)
+		for i, seq := range c.SampleSeqs {
+			var ts string
+			if i < len(c.SampleTSs) {
+				ts = c.SampleTSs[i]
+			}
+			addSampleTS(&d.SampleSeqs, &d.SampleTSs, seq, ts)
 		}
 	}
 	for name, tgt := range src.Tools {

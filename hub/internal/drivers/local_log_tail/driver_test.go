@@ -185,3 +185,46 @@ func TestDriverStartRejectsMissingDeps(t *testing.T) {
 		}
 	})
 }
+
+// TestDriverInputEmitsTurnStartOnText pins the ADR-038 turn.start boundary:
+// a user prompt ("text") emits a turn.start with a stable turn_id; control
+// inputs (approval/answer/interrupt) continue the in-flight turn and emit none.
+func TestDriverInputEmitsTurnStartOnText(t *testing.T) {
+	p := &recordingPoster{}
+	a := &fakeAdapter{}
+	d := &Driver{Config: Config{AgentID: "agent-1", Poster: p}, Adapter: a}
+
+	turnStarts := func() []postedEvent {
+		var out []postedEvent
+		for _, e := range p.snapshot() {
+			if e.kind == "turn.start" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+
+	if err := d.Input(context.Background(), "text", map[string]any{"body": "hi"}); err != nil {
+		t.Fatalf("Input text: %v", err)
+	}
+	if err := d.Input(context.Background(), "approval", map[string]any{"request_id": "r1", "decision": "allow"}); err != nil {
+		t.Fatalf("Input approval: %v", err)
+	}
+	if err := d.Input(context.Background(), "text", map[string]any{"body": "again"}); err != nil {
+		t.Fatalf("Input text 2: %v", err)
+	}
+
+	ts := turnStarts()
+	if len(ts) != 2 {
+		t.Fatalf("turn.start count = %d, want 2 (only the two text inputs)", len(ts))
+	}
+	id0 := ts[0].payload.(map[string]any)["turn_id"]
+	id1 := ts[1].payload.(map[string]any)["turn_id"]
+	if id0 != "t-1" || id1 != "t-2" {
+		t.Errorf("turn ids = %v, %v; want t-1, t-2", id0, id1)
+	}
+	// All three inputs still reached the adapter.
+	if len(a.inputs) != 3 {
+		t.Errorf("adapter inputs = %v, want 3", a.inputs)
+	}
+}

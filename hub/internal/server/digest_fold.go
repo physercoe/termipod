@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -53,8 +54,14 @@ type byModelAgg struct {
 }
 
 type errorClassAgg struct {
-	Count      int64   `json:"count"`
-	SampleSeqs []int64 `json:"sample_seqs"`
+	Count      int64    `json:"count"`
+	SampleSeqs []int64  `json:"sample_seqs"`
+	// SampleTSs is aligned 1:1 with SampleSeqs — the timestamp of each sampled
+	// error event. Lets the mobile analysis surface jump to an error via the
+	// (ts, seq) random-access reset instead of the bounded page-walk (turns
+	// already carry start_ts; this closes the same gap for errors). Older
+	// digests folded before this field stay seq-only and degrade to page-walk.
+	SampleTSs []string `json:"sample_ts,omitempty"`
 }
 
 type toolAgg struct {
@@ -204,6 +211,20 @@ func (f *digestFolder) step(e foldEvent) {
 	// turn.start — ADR-038 §3). turn.result closes the open turn.
 	if e.Kind == "turn.start" {
 		if f.open != nil {
+			// The hub inserts the user's input.text (which opens a *synthetic*
+			// turn) before the input router dispatches the prompt and the
+			// driver emits turn.start — so the open turn here is normally the
+			// synthetic one this turn.start belongs to. Adopt it (assign the
+			// real turn_id, keep start_seq at the prompt) rather than
+			// close+reopen, which would leave a spurious empty 1-event turn in
+			// the index. Only a *real* already-open turn (a turn.start with no
+			// intervening turn.result — genuinely unusual) is closed first.
+			if isSyntheticTurnID(f.open.TurnID) {
+				if id := turnIDOf(e); id != "" {
+					f.open.TurnID = id
+				}
+				return
+			}
 			f.closeTurn("", e.TS) // unusual: a start with no prior result
 		}
 		f.openTurn(turnIDOf(e), e.Seq, e.TS)
@@ -276,7 +297,7 @@ func (f *digestFolder) step(e foldEvent) {
 		}
 		// Canonical error: a failed turn counts once.
 		if class, ok := canonicalErrorClass(e); ok {
-			f.recordError(class, e.Seq)
+			f.recordError(class, e.Seq, e.TS)
 		}
 		f.closeTurn(status, e.TS)
 		return
@@ -285,7 +306,7 @@ func (f *digestFolder) step(e foldEvent) {
 	// Canonical-error classification for non-turn events (the open turn is
 	// guaranteed non-nil here because we opened one above).
 	if class, ok := canonicalErrorClass(e); ok {
-		f.recordError(class, e.Seq)
+		f.recordError(class, e.Seq, e.TS)
 		if isToolFailure(e) {
 			d.ToolFailed++
 			if f.open != nil {
@@ -358,7 +379,7 @@ func (f *digestFolder) tool(name string) *toolAgg {
 	return t
 }
 
-func (f *digestFolder) recordError(class string, seq int64) {
+func (f *digestFolder) recordError(class string, seq int64, ts string) {
 	f.digest.ErrorCount++
 	if f.open != nil {
 		// Every canonical error during the turn (including its failed-turn
@@ -372,7 +393,7 @@ func (f *digestFolder) recordError(class string, seq int64) {
 		f.digest.Errors[class] = c
 	}
 	c.Count++
-	addSample(&c.SampleSeqs, seq)
+	addSampleTS(&c.SampleSeqs, &c.SampleTSs, seq, ts)
 }
 
 // --- shared classification predicates -------------------------------------
@@ -482,6 +503,14 @@ func turnIDOf(e foldEvent) string {
 	return ""
 }
 
+// isSyntheticTurnID reports whether a turn id was minted by openTurn's fallback
+// (no engine-supplied turn_id) rather than carried by an explicit turn.start.
+// Used so a later turn.start can adopt the synthetic turn the hub-injected
+// input.text opened. Kept in lockstep with openTurn's "syn-%d" format.
+func isSyntheticTurnID(id string) bool {
+	return strings.HasPrefix(id, "syn-")
+}
+
 // --- small value helpers ---------------------------------------------------
 
 func stringOf(v any) string {
@@ -513,6 +542,17 @@ func addSample(dst *[]int64, seq int64) {
 		return
 	}
 	*dst = append(*dst, seq)
+}
+
+// addSampleTS appends a (seq, ts) sample keeping the two slices aligned 1:1.
+// Capped at maxDigestSampleSeqs like addSample; a missing ts is appended as ""
+// so the indices never drift.
+func addSampleTS(seqs *[]int64, tss *[]string, seq int64, ts string) {
+	if len(*seqs) >= maxDigestSampleSeqs {
+		return
+	}
+	*seqs = append(*seqs, seq)
+	*tss = append(*tss, ts)
 }
 
 // tsDeltaMs returns end-start in milliseconds for two RFC3339 timestamps, or

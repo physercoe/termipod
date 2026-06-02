@@ -71,38 +71,44 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
     // Full-run minimap anchors: every error in the run (the digest's per-class
     // sample seqs) + every turn start (the turn index). The minimap renders
     // these whole-run, and a tap jumps to a seq that may not be loaded yet.
+    // seq → ts for every anchor that carries a timestamp, so a minimap tick or
+    // the Errors stat can jump via the (ts, seq) window reset (O(log n)) rather
+    // than the bounded page-walk. Turn starts carry start_ts; errors now carry
+    // sample_ts aligned 1:1 with sample_seqs (older digests are seq-only → those
+    // anchors fall back to the page-walk).
+    final runAnchorTs = <int, String>{};
     final runErrorSeqs = <int>[];
     final errs = digestBody?['errors'];
     if (errs is Map) {
       for (final v in errs.values) {
-        if (v is Map && v['sample_seqs'] is List) {
-          for (final s in (v['sample_seqs'] as List)) {
-            if (s is num) runErrorSeqs.add(s.toInt());
+        if (v is! Map) continue;
+        final seqs = v['sample_seqs'];
+        if (seqs is! List) continue;
+        final tss = v['sample_ts'];
+        for (var i = 0; i < seqs.length; i++) {
+          final s = seqs[i];
+          if (s is! num) continue;
+          final seq = s.toInt();
+          runErrorSeqs.add(seq);
+          if (tss is List && i < tss.length) {
+            final ts = (tss[i] ?? '').toString();
+            if (ts.isNotEmpty) runAnchorTs[seq] = ts;
           }
         }
       }
     }
-    final runTurnSeqs = turns.maybeWhen(
-      data: (rows) => rows
-          .map((r) => (r['start_seq'] as num?)?.toInt() ?? 0)
-          .where((s) => s > 0)
-          .toList(),
-      orElse: () => <int>[],
+    final turnRows = turns.maybeWhen(
+      data: (rows) => rows,
+      orElse: () => const <Map<String, dynamic>>[],
     );
-    // seq → ts for the turn anchors, so a minimap turn-tick tap can take the
-    // (ts, seq) window reset (O(log n)) instead of the bounded page-walk. The
-    // turn rows already pass their own start_ts through onJump; this gives the
-    // minimap the same fast path. Errors are absent (their sample seqs are
-    // ts-less) and fall back to the page-walk.
-    final runAnchorTs = turns.maybeWhen(
-      data: (rows) => <int, String>{
-        for (final r in rows)
-          if (((r['start_seq'] as num?)?.toInt() ?? 0) > 0 &&
-              (r['start_ts'] ?? '').toString().isNotEmpty)
-            (r['start_seq'] as num).toInt(): (r['start_ts']).toString(),
-      },
-      orElse: () => <int, String>{},
-    );
+    final runTurnSeqs = <int>[];
+    for (final r in turnRows) {
+      final seq = (r['start_seq'] as num?)?.toInt() ?? 0;
+      if (seq <= 0) continue;
+      runTurnSeqs.add(seq);
+      final ts = (r['start_ts'] ?? '').toString();
+      if (ts.isNotEmpty) runAnchorTs[seq] = ts;
+    }
 
     final card = digest.when(
       loading: () => const SizedBox.shrink(),
@@ -114,9 +120,10 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
           digest: body,
           staleSince: state.staleSince,
           live: widget.live,
-          // Tapping the Errors stat jumps the transcript below to the
-          // first error anchor (plan P2).
-          onJumpToSeq: _seek.seekTo,
+          // Tapping the Errors stat jumps the transcript below to the first
+          // error anchor — now with the error's ts (sample_ts) so it takes the
+          // random-access reset, not the page-walk.
+          onJumpToSeq: (seq) => _seek.seekTo(seq, ts: runAnchorTs[seq]),
         );
       },
     );

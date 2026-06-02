@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -87,6 +88,10 @@ type Driver struct {
 	mu      sync.Mutex
 	started bool
 	stopped bool
+	// turnSeq mints stable turn ids for the turn.start boundary (ADR-038 §3).
+	// claude-code has no native turn marker on the wire, so the driver emits
+	// one at prompt dispatch; the digest adopts it onto the hub's input.text.
+	turnSeq atomic.Int64
 }
 
 // Start emits lifecycle.started and starts the adapter. On adapter
@@ -166,6 +171,17 @@ func (d *Driver) Stop() {
 func (d *Driver) Input(ctx context.Context, kind string, payload map[string]any) error {
 	if d.Adapter == nil {
 		return fmt.Errorf("local_log_tail: nil Adapter")
+	}
+	// A user prompt ("text") starts a turn — emit the turn.start boundary
+	// (ADR-038 §3) with a stable id so the digest folds an explicit turn
+	// (adopted onto the hub-inserted input.text) instead of synthesizing one.
+	// Control inputs (approval/answer/interrupt) continue the in-flight turn.
+	if kind == "text" && d.Poster != nil {
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.start", "agent",
+			map[string]any{
+				"turn_id": fmt.Sprintf("t-%d", d.turnSeq.Add(1)),
+				"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			})
 	}
 	return d.Adapter.HandleInput(ctx, kind, payload)
 }

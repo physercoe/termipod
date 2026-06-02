@@ -166,3 +166,77 @@ func equalInt64Slice(a, b []int64) bool {
 	}
 	return true
 }
+
+// TestDigestErrorSampleTS verifies recordError captures each sampled error's
+// timestamp aligned 1:1 with its seq — the data the mobile analysis surface
+// needs to jump to an error via the (ts, seq) random-access reset rather than
+// the bounded page-walk.
+func TestDigestErrorSampleTS(t *testing.T) {
+	events := []foldEvent{
+		{Seq: 1, Kind: "input.text", TS: "2026-06-02T00:00:00Z", Producer: "user",
+			Payload: map[string]any{"text": "hi"}},
+		{Seq: 2, Kind: "error", TS: "2026-06-02T00:00:05Z", Producer: "agent",
+			Payload: map[string]any{"message": "boom"}},
+		{Seq: 3, Kind: "turn.result", TS: "2026-06-02T00:00:06Z", Producer: "agent",
+			Payload: map[string]any{"status": "error"}},
+	}
+	d, _ := computeAgentDigest("a", "t", events)
+
+	// Every error class keeps its sample timestamps aligned with its seqs.
+	for class, agg := range d.Errors {
+		if len(agg.SampleTSs) != len(agg.SampleSeqs) {
+			t.Errorf("errors[%q]: sample_ts len %d != sample_seqs len %d",
+				class, len(agg.SampleTSs), len(agg.SampleSeqs))
+		}
+	}
+
+	// The bare error event (seq 2) → class "error" with its exact ts.
+	got := d.Errors["error"]
+	if got == nil {
+		t.Fatalf("missing error class; classes=%v", d.Errors)
+	}
+	if !equalInt64Slice(got.SampleSeqs, []int64{2}) {
+		t.Errorf("errors[error].sample_seqs = %v, want [2]", got.SampleSeqs)
+	}
+	if len(got.SampleTSs) != 1 || got.SampleTSs[0] != "2026-06-02T00:00:05Z" {
+		t.Errorf("errors[error].sample_ts = %v, want [2026-06-02T00:00:05Z]",
+			got.SampleTSs)
+	}
+}
+
+// TestDigestTurnStartAdoptsSyntheticTurn pins the fold's turn.start adoption:
+// the hub inserts the user's input.text (opening a synthetic turn) before the
+// driver emits turn.start, so turn.start must ADOPT that synthetic turn — one
+// turn with the real id and start_seq at the prompt — not close+reopen into a
+// spurious empty turn. (Guards the claude M2/M4 turn.start emission + the
+// latent ACP case.)
+func TestDigestTurnStartAdoptsSyntheticTurn(t *testing.T) {
+	events := []foldEvent{
+		{Seq: 1, Kind: "input.text", TS: "2026-06-02T00:00:00Z", Producer: "user",
+			Payload: map[string]any{"text": "do it"}},
+		{Seq: 2, Kind: "turn.start", TS: "2026-06-02T00:00:01Z", Producer: "agent",
+			Payload: map[string]any{"turn_id": "t1"}},
+		{Seq: 3, Kind: "text", TS: "2026-06-02T00:00:02Z", Producer: "agent",
+			Payload: map[string]any{"text": "ok"}},
+		{Seq: 4, Kind: "turn.result", TS: "2026-06-02T00:00:03Z", Producer: "agent",
+			Payload: map[string]any{"turn_id": "t1", "status": "success"}},
+	}
+	d, turns := computeAgentDigest("a", "t", events)
+	if d.TurnCount != 1 {
+		t.Errorf("turn_count = %d, want 1", d.TurnCount)
+	}
+	if len(turns) != 1 {
+		t.Fatalf("len(turns) = %d, want 1 (no spurious synthetic turn); got %+v",
+			len(turns), turns)
+	}
+	got := turns[0]
+	if got.TurnID != "t1" {
+		t.Errorf("turn id = %q, want t1 (adopted real id)", got.TurnID)
+	}
+	if got.StartSeq != 1 {
+		t.Errorf("start_seq = %d, want 1 (the prompt, kept on adoption)", got.StartSeq)
+	}
+	if got.EndSeq != 4 || got.Status != "success" {
+		t.Errorf("end_seq/status = %d/%q, want 4/success", got.EndSeq, got.Status)
+	}
+}

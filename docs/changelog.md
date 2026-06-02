@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-02)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.787
+> **Last verified vs code:** v1.0.788
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,48 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.788-alpha — 2026-06-02
+
+**Operator OTLP trace export (P3) + more Insights device-test fixes.**
+
+### Added
+- **Operator OTLP export (ADR-038 §4, P3).** The hub can project every
+  agent run into OpenTelemetry traces — **trace = session, span = turn,
+  child span = tool call** — with OTel GenAI attributes (engine, tokens,
+  cost) and errors as `exception` span events, and ship them to a trace
+  backend. Off by default; enable with
+  `hub-server serve --otlp-endpoint http://localhost:4318` (point it at
+  Jaeger / an OpenTelemetry Collector / Phoenix). Deterministic
+  sha256-derived IDs make re-export idempotent; an idle/terminal 30 s
+  batch sweep ships each session whose newest closed turn advanced, so a
+  long-running agent exports without live streaming. New dependency-free
+  `hub/internal/otlptrace` OTLP/HTTP **JSON** exporter (avoids the OTel
+  SDK + protobuf tree; gets the hex-id / decimal-string-timestamp
+  OTLP/JSON rules right) + `hub/internal/server/otlp_export.go`
+  projection + loop. Operator guide:
+  [`how-to/export-traces-to-otlp.md`](how-to/export-traces-to-otlp.md).
+  (`ad25808`)
+
+### Fixed
+- **Insight funnel: turns/errors count + jump now whole-run.** The funnel
+  was driven by the loaded window, so the turn count didn't match the
+  digest (and changed as events paged in) and the ▲▼ stepper walked
+  loaded rows — landing on the wrong turn. Turns/errors now drive off the
+  whole-run anchor lists (digest turn index + error samples): the count
+  equals the insight data and is stable, and a step random-access-seeks
+  to the exact anchor (reachable even when unloaded) while keeping the
+  active lens. Text/Tools stay loaded-window (no whole-run index; their
+  convergent seek already lands accurately). (`43804e5`)
+
+### Changed
+- **Archived/terminated-agent detail: tabs → header `View ▾` switcher.**
+  Feed / Summary / Journal / Insights moved off a `TabBar` into the
+  `SessionHeader` overflow + `IndexedStack`, reclaiming the vertical
+  space the second bar ate — parity with the session-detail surface.
+  (`43804e5`)
 
 ---
 

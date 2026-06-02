@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-06-02)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.787
+> **Last verified vs code:** v1.0.788
 
 **TL;DR.** The hub can project every agent run into **OpenTelemetry
 traces** and ship them to a trace backend you run, so you get the

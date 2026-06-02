@@ -10,7 +10,11 @@ description: The director flagged that lib/widgets/agent_feed.dart "seems not we
 > Insight device-test: "the point 6 just defer since agent_feed.dart needs
 > review/audit, now it seems not well designed for the current codebase … also
 > the file name is misleading somewhat." This audit grounds both observations in
-> the code and proposes a decomposition. No code has moved yet.
+> the code and proposes a decomposition. **Resolved by
+> [ADR-040](../decisions/040-transcript-surfaces-decoupled-by-mode.md)** — the
+> director chose full mode-decoupling (one file per mode, open/closed by file)
+> over the audit's "extract-then-maybe-split" Option A; executed by
+> [`plans/transcript-surface-decoupling.md`](../plans/transcript-surface-decoupling.md).
 > **Audience:** contributors
 > **Last verified vs code:** post-`8e2e6cb` (HEAD on `main`).
 

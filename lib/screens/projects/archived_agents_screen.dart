@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
+import '../../widgets/insights_panel.dart';
 import '../../widgets/session_analysis_view.dart';
 
 /// Read-only list of historical agents. Two modes:
@@ -344,9 +345,15 @@ class _ArchivedAgentDetailScreenState
     // closes the debugging gap where the archive screen only showed
     // metadata + journal — operators investigating a failed run had
     // to bounce to Me → Sessions to read the transcript.
-    final hasInsights = _sessionId.isNotEmpty;
+    // Insights is always offered — a finished run's analysis is exactly what
+    // an operator opening a terminated agent wants. The tab is unconditional
+    // so the affordance never silently vanishes; it degrades to agent-scoped
+    // tiles ([InsightsPanel]) until the hub session id resolves (or if the
+    // run never stamped one). Matches the project-agent sheet
+    // (projects_screen.dart:2043).
+    final hasSession = _sessionId.isNotEmpty;
     return DefaultTabController(
-      length: hasInsights ? 4 : 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
@@ -362,8 +369,9 @@ class _ArchivedAgentDetailScreenState
               const Tab(text: 'Journal'),
               // Insights = the run-report dashboard + navigable transcript over
               // the finished run — the analysis surface a terminated agent most
-              // wants. Only when we resolved a session id.
-              if (hasInsights) const Tab(text: 'Insights'),
+              // wants. Always present (degrades to tiles until the session id
+              // resolves).
+              const Tab(text: 'Insights'),
             ],
           ),
         ),
@@ -388,12 +396,20 @@ class _ArchivedAgentDetailScreenState
                       AgentFeed(agentId: _id),
                       _summaryTab(),
                       _journalTab(),
-                      if (hasInsights)
-                        SessionAnalysisView(
-                          agentId: _id,
-                          sessionId: _sessionId,
-                          live: false,
-                        ),
+                      hasSession
+                          ? SessionAnalysisView(
+                              agentId: _id,
+                              sessionId: _sessionId,
+                              live: false,
+                            )
+                          : ListView(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                              children: [
+                                InsightsPanel(
+                                    scope: InsightsScope.agent(_id)),
+                              ],
+                            ),
                     ],
                   ),
       ),

@@ -14,20 +14,20 @@ import '../providers/hub_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
 import 'agent_compose.dart';
-import 'agent_feed/event_card.dart';
-import 'agent_feed/feed_misc.dart';
-import 'agent_feed/feed_reducer.dart';
-import 'agent_feed/feed_render.dart';
-import 'agent_feed/random_access_loader.dart';
-import 'agent_feed/interaction_cards.dart';
-import 'agent_feed/telemetry_strip.dart';
+import 'transcript/event_card.dart';
+import 'transcript/feed_misc.dart';
+import 'transcript/feed_reducer.dart';
+import 'transcript/feed_render.dart';
+import 'transcript/random_access_loader.dart';
+import 'transcript/interaction_cards.dart';
+import 'transcript/telemetry_strip.dart';
 import 'session_details_sheet.dart';
 
 // W0 (docs/plans/agent-feed-split.md): the reducer/formatter layer now
-// lives in agent_feed/feed_reducer.dart. Re-export it so the ten
-// agent_feed_* reducer tests (which import this file) resolve unchanged
-// and external callers keep their single import surface.
-export 'agent_feed/feed_reducer.dart';
+// lives in transcript/feed_reducer.dart (ADR-040 substrate rename). Re-export
+// it so the ten agent_feed_* reducer tests (which import this file) resolve
+// unchanged and external callers keep their single import surface.
+export 'transcript/feed_reducer.dart';
 
 /// Drives an external jump-to-seq into an [AgentFeed] from a sibling — the
 /// analysis-mode payoff (plan P2): the run-report dashboard and the

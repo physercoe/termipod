@@ -15,7 +15,7 @@ import 'package:termipod/widgets/agent_feed.dart';
 //                                       80% → amber, 95% → red, else green
 //
 // These are the pure-data pieces that build up the new chip pair in
-// TelemetryStrip (lib/widgets/agent_feed/telemetry_strip.dart). The
+// TelemetryStrip (lib/widgets/transcript/telemetry_strip.dart). The
 // widget-tree composition is exercised by manual smoke once it ships.
 
 void main() {

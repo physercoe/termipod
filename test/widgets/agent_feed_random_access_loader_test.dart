@@ -6,7 +6,7 @@
 // only through a widget.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed/random_access_loader.dart';
+import 'package:termipod/widgets/transcript/random_access_loader.dart';
 
 /// One recorded call to the fetcher.
 class _Call {

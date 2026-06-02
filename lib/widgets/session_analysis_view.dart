@@ -114,7 +114,12 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
     final turnsSection = turns.maybeWhen(
       data: (rows) => rows.isEmpty
           ? const SizedBox.shrink()
-          : _TurnsDisclosure(rows: rows, onJump: _seek.seekTo),
+          // Carry start_ts so the feed's random-access loader can window
+          // around the turn via the (ts, seq) keyset instead of the page-walk.
+          : _TurnsDisclosure(
+              rows: rows,
+              onJump: (seq, ts) => _seek.seekTo(seq, ts: ts),
+            ),
       orElse: () => const SizedBox.shrink(),
     );
 
@@ -139,6 +144,9 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               totalEventCount: totalEvents,
               runErrorSeqs: runErrorSeqs,
               runTurnSeqs: runTurnSeqs,
+              // The analysis surface owns the random-access loader; the Feed
+              // tab leaves this false and keeps its live-tail loader.
+              randomAccess: true,
             ),
           ),
         ),
@@ -153,7 +161,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
 /// bounded-height with its own scroll so a long run can't push the feed away.
 class _TurnsDisclosure extends StatefulWidget {
   final List<Map<String, dynamic>> rows;
-  final void Function(int seq) onJump;
+  final void Function(int seq, String? ts) onJump;
   const _TurnsDisclosure({required this.rows, required this.onJump});
 
   @override
@@ -213,7 +221,7 @@ class _TurnsDisclosureState extends State<_TurnsDisclosure> {
 
 class _TurnRow extends StatelessWidget {
   final Map<String, dynamic> row;
-  final void Function(int seq) onJump;
+  final void Function(int seq, String? ts) onJump;
   const _TurnRow({required this.row, required this.onJump});
 
   static int _asInt(Object? v) => (v is num) ? v.toInt() : 0;
@@ -237,6 +245,7 @@ class _TurnRow extends StatelessWidget {
 
     final idx = _asInt(row['idx']);
     final startSeq = _asInt(row['start_seq']);
+    final startTs = (row['start_ts'] ?? '').toString();
     final status = (row['status'] ?? '').toString();
     final open = row['open'] == true;
     final durMs = _asInt(row['duration_ms']);
@@ -256,7 +265,7 @@ class _TurnRow extends StatelessWidget {
     if (open) parts.add('live');
 
     return InkWell(
-      onTap: () => onJump(startSeq),
+      onTap: () => onJump(startSeq, startTs.isEmpty ? null : startTs),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         child: Row(

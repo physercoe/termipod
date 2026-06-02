@@ -402,6 +402,8 @@ class AgentsApi {
     int? before,
     String? beforeTs,
     String? afterTs,
+    int? beforeSeq,
+    int? afterSeq,
     bool tail = false,
     int? limit,
     String? sessionId,
@@ -414,10 +416,16 @@ class AgentsApi {
     // is the forward window (ADR-038 §5): the analysis-mode random-access
     // loader uses it to page *newer* events when it relocates a window around
     // a jump anchor (the live-tail feed only ever pages older + SSE-tails).
+    //
+    // after_seq / before_seq are the `(ts, seq)` compound-keyset tiebreak,
+    // sent alongside after_ts / before_ts so a window-around-anchor fetch
+    // doesn't drop same-ts siblings at the page boundary (plan P2).
     if (afterTs != null && afterTs.isNotEmpty) {
       q['after_ts'] = afterTs;
+      if (afterSeq != null) q['after_seq'] = '$afterSeq';
     } else if (beforeTs != null && beforeTs.isNotEmpty) {
       q['before_ts'] = beforeTs;
+      if (beforeSeq != null) q['before_seq'] = '$beforeSeq';
     } else if (before != null) {
       q['before'] = '$before';
     } else if (tail) {

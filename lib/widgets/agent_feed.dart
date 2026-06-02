@@ -38,17 +38,25 @@ export 'agent_feed/feed_reducer.dart';
 /// what's loaded (bounded), then anchors+highlights the row.
 class AgentFeedSeekController extends ChangeNotifier {
   int? _seq;
+  String? _ts;
   int _generation = 0;
 
   /// The most recently requested seq, or null before any request.
   int? get seq => _seq;
 
+  /// The anchor's timestamp, when the caller knows it (the Turns index carries
+  /// `start_ts`). The session-scoped random-access loader needs it to window
+  /// around the anchor via the `(ts, seq)` keyset; a seq-only request (the
+  /// Errors stat) falls back to the bounded page-walk.
+  String? get ts => _ts;
+
   /// Increments on every [seekTo]; lets the feed distinguish a fresh
   /// request for the same seq from a no-op rebuild.
   int get generation => _generation;
 
-  void seekTo(int seq) {
+  void seekTo(int seq, {String? ts}) {
     _seq = seq;
+    _ts = ts;
     _generation++;
     notifyListeners();
   }
@@ -142,6 +150,12 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// minimap (the plain full-screen feed, which has no digest).
   final List<int>? runErrorSeqs;
   final List<int>? runTurnSeqs;
+  /// Plan P2 — enables the analysis-owned **random-access loader**: a jump to
+  /// an off-window anchor *resets* the window around it (`(ts, seq)` keyset)
+  /// instead of walking from the tail, and the feed gains a forward pager. Set
+  /// only by the Insights surface; the live-tail Feed leaves it false, so every
+  /// random-access code path is inert there (no regression).
+  final bool randomAccess;
   const AgentFeed({
     super.key,
     required this.agentId,
@@ -158,6 +172,7 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.totalEventCount,
     this.runErrorSeqs,
     this.runTurnSeqs,
+    this.randomAccess = false,
   });
 
   @override
@@ -204,6 +219,22 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // True once a load-older fetch returns fewer than _pageSize rows —
   // we've reached the start of the session, no more pages exist.
   bool _atHead = false;
+  // Plan P2 (random-access loader) — whether the loaded window reaches the
+  // live tail. True for the normal tail-anchored window (and ALWAYS true in
+  // the live-tail Feed, which never resets). A random-access reset to a
+  // mid-run anchor sets it false, which (a) arms the forward pager
+  // [_maybeLoadNewer] and (b) silences the SSE tail-append so a non-contiguous
+  // live event can't graft onto a mid-run window. Re-armed true when the
+  // forward pager reaches the tail or a jump-to-latest re-bootstraps it.
+  bool _windowHasTail = true;
+  // True while a forward (load-newer) fetch is in flight; the random-access
+  // complement of _loadingOlder.
+  bool _loadingNewer = false;
+  // Newest loaded (ts, seq) — the forward pager's cursor. Only maintained on
+  // the random-access path (the live-tail loader pages backward + SSE-tails,
+  // so it never needs a forward cursor).
+  String _newestTs = '';
+  int _newestSeq = 0;
   // When the bootstrap fetch falls back to the offline cache (server
   // unreachable, 5xx, etc.), we keep the cached transcript visible and
   // surface a banner with the snapshot timestamp. Cleared the moment a
@@ -323,24 +354,28 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (c.generation == _lastSeekGeneration) return;
     _lastSeekGeneration = c.generation;
     final seq = c.seq;
-    if (seq != null) _handleExternalSeek(seq);
+    if (seq != null) _handleExternalSeek(seq, c.ts);
   }
 
-  /// Jump the feed to [seq] on behalf of an external caller (the analysis
-  /// dashboard / structure index). If the seq is in the loaded window we
-  /// anchor it directly; otherwise we page older toward it — the transcript
-  /// is a tail-anchored contiguous window, so an older anchor is reachable
-  /// by paging up — bounded so a far/unreachable anchor can't load forever.
-  /// Falls back to the oldest loaded row when the anchor can't be located
-  /// (out of range, or a per-agent seq that's ambiguous across a multi-agent
-  /// session). The random-access window-reset optimisation (fetch a block
-  /// *around* the anchor in O(log n) instead of walking) is a follow-up.
-  Future<void> _handleExternalSeek(int seq) async {
+  /// Jump the feed to [seq] (the analysis dashboard / structure index). If the
+  /// seq is already loaded we anchor it directly. Otherwise:
+  ///   - In [AgentFeed.randomAccess] mode with a known [ts] (the Insights
+  ///     surface, which carries the anchor's timestamp), we **reset the window
+  ///     around the anchor** — one block before + one after via the `(ts, seq)`
+  ///     keyset — O(log n), reachable at any depth, decoupled from the tail.
+  ///   - Otherwise we fall back to the bounded page-walk: page older toward the
+  ///     anchor (the live-tail window is contiguous from the tail), capped so a
+  ///     far/unreachable anchor can't load forever.
+  Future<void> _handleExternalSeek(int seq, [String? ts]) async {
     if (_seqIsLoaded(seq)) {
       _seekToSeq(seq);
       return;
     }
     final sessionScoped = (widget.sessionId ?? '').isNotEmpty;
+    if (widget.randomAccess && sessionScoped && ts != null && ts.isNotEmpty) {
+      await _resetWindowAround(seq, ts);
+      return;
+    }
     const maxPages = 12; // _pageSize(200) × 12 = 2400 events of headroom.
     for (var i = 0; i < maxPages; i++) {
       if (_atHead) break;
@@ -362,6 +397,176 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
 
   bool _seqIsLoaded(int seq) =>
       _events.any((e) => (e['seq'] as num?)?.toInt() == seq);
+
+  /// Random-access window reset (plan P2): replace the loaded window with one
+  /// block fetched *around* the anchor `(ts, seq)` — the backward half (events
+  /// before the anchor key, DESC) and the forward half (the anchor and after,
+  /// ASC) via the session `(ts, seq)` compound keyset. Decoupled from the
+  /// live-tail loader: after a reset the window may not reach the tail, so
+  /// [_windowHasTail] goes false, which arms the forward pager and silences
+  /// the SSE tail-append (a mid-run window must not grow a non-contiguous live
+  /// event). Only ever runs in [AgentFeed.randomAccess] mode, so the Feed view
+  /// never enters this path.
+  Future<void> _resetWindowAround(int seq, String ts) async {
+    final sid = widget.sessionId;
+    final client = ref.read(hubProvider.notifier).client;
+    if (sid == null || client == null) return;
+    final half = _pageSize ~/ 2;
+    try {
+      final older = await client.listAgentEvents(
+        widget.agentId,
+        sessionId: sid,
+        beforeTs: ts,
+        beforeSeq: seq,
+        limit: half,
+      );
+      final newer = await client.listAgentEvents(
+        widget.agentId,
+        sessionId: sid,
+        afterTs: ts,
+        // anchor-inclusive: events strictly after (ts, seq-1) = the anchor
+        // and everything past it, so the target row is in the window.
+        afterSeq: seq - 1,
+        limit: half,
+      );
+      if (!mounted) return;
+      // older is DESC, newer is ASC → contiguous ascending window.
+      final ascending = <Map<String, dynamic>>[
+        ...older.reversed,
+        ...newer,
+      ];
+      if (ascending.isEmpty) {
+        // Nothing came back (anchor out of range) — fall back gracefully.
+        _jumpToOldestLoaded();
+        return;
+      }
+      _ingestWindow(ascending);
+      setState(() {
+        _atHead = older.length < half; // reached the start
+        _windowHasTail = newer.length < half; // reached the live tail
+        _followTail = false;
+        _loading = false;
+        _error = null;
+      });
+      // Land on the anchor once the new window lays out. The anchor seq may be
+      // a hidden marker (an ACP `turn.start` isn't rendered), so target the
+      // nearest loaded seq >= the anchor — the turn's first visible event.
+      int landSeq = seq;
+      int? best;
+      for (final e in _events) {
+        final s = (e['seq'] as num?)?.toInt() ?? 0;
+        if (s >= seq && (best == null || s < best)) best = s;
+      }
+      if (best != null) landSeq = best;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _seekToSeq(landSeq);
+      });
+    } catch (_) {
+      // Network blip — leave the existing window; the caller can retry.
+    }
+  }
+
+  /// Replace [_events] with a fresh, contiguous [ascending] window (used by the
+  /// random-access reset). Distinct from [_ingestSnapshot] (the live-tail cold
+  /// open) because it also tracks the *newest* loaded `(ts, seq)` — the forward
+  /// pager's cursor, which the tail-anchored loader never needs.
+  void _ingestWindow(List<Map<String, dynamic>> ascending) {
+    final filtered = <Map<String, dynamic>>[];
+    for (final e in ascending) {
+      if (agentEventIsReplay(e)) {
+        final kind = (e['kind'] ?? '').toString();
+        if (kind == 'text' || kind == 'thought') continue;
+      }
+      filtered.add(e);
+    }
+    setState(() {
+      _events
+        ..clear()
+        ..addAll(filtered);
+      _ids.clear();
+      _replayKeys.clear();
+      _maxSeq = 0;
+      _minSeq = 0;
+      _oldestTs = '';
+      _newestTs = '';
+      _newestSeq = 0;
+      for (final e in _events) {
+        final id = (e['id'] ?? '').toString();
+        if (id.isNotEmpty) _ids.add(id);
+        final replayKey = agentEventReplayKey(e);
+        if (replayKey != null) _replayKeys.add(replayKey);
+        final s = (e['seq'] as num?)?.toInt() ?? 0;
+        if (s > _maxSeq) _maxSeq = s;
+        if (_minSeq == 0 || s < _minSeq) _minSeq = s;
+        final t = (e['ts'] ?? '').toString();
+        if (t.isNotEmpty && (_oldestTs.isEmpty || t.compareTo(_oldestTs) < 0)) {
+          _oldestTs = t;
+        }
+        // Newest by (ts, seq) — the forward cursor.
+        if (t.compareTo(_newestTs) > 0 ||
+            (t == _newestTs && s > _newestSeq)) {
+          _newestTs = t;
+          _newestSeq = s;
+        }
+      }
+    });
+  }
+
+  /// Forward pager (plan P2) — the complement of [_maybeLoadOlder], armed only
+  /// after a random-access reset has left the window short of the tail. Pages
+  /// the next block *newer* than the loaded edge via the `(ts, seq)` keyset and
+  /// appends it. When a short page comes back we've reached the live tail, so
+  /// [_windowHasTail] flips true (re-enabling SSE append). Inert outside
+  /// [AgentFeed.randomAccess] (the Feed view never sets [_windowHasTail] false).
+  Future<void> _maybeLoadNewer() async {
+    if (_loadingNewer || _windowHasTail) return;
+    final sid = widget.sessionId;
+    final client = ref.read(hubProvider.notifier).client;
+    if (sid == null || client == null || _newestTs.isEmpty) return;
+    setState(() => _loadingNewer = true);
+    try {
+      final newer = await client.listAgentEvents(
+        widget.agentId,
+        sessionId: sid,
+        afterTs: _newestTs,
+        afterSeq: _newestSeq,
+        limit: _pageSize,
+      );
+      if (!mounted) return;
+      final added = <Map<String, dynamic>>[];
+      for (final e in newer) {
+        final id = (e['id'] ?? '').toString();
+        if (id.isNotEmpty && !_ids.add(id)) continue;
+        if (agentEventIsReplay(e)) {
+          final kind = (e['kind'] ?? '').toString();
+          if (kind == 'text' || kind == 'thought') continue;
+        }
+        added.add(e);
+      }
+      setState(() {
+        _events.addAll(added);
+        for (final e in added) {
+          final s = (e['seq'] as num?)?.toInt() ?? 0;
+          if (s > _maxSeq) _maxSeq = s;
+          final t = (e['ts'] ?? '').toString();
+          if (t.compareTo(_newestTs) > 0 ||
+              (t == _newestTs && s > _newestSeq)) {
+            _newestTs = t;
+            _newestSeq = s;
+          }
+          final replayKey = agentEventReplayKey(e);
+          if (replayKey != null) _replayKeys.add(replayKey);
+        }
+        // A short page means there's nothing newer left — we've rejoined the
+        // live tail, so live SSE frames may append again.
+        if (newer.length < _pageSize) _windowHasTail = true;
+      });
+    } catch (_) {
+      // Silent: the next scroll re-triggers.
+    } finally {
+      if (mounted) setState(() => _loadingNewer = false);
+    }
+  }
 
   /// (Re)start the periodic session-cost poll. No-ops when there is no
   /// sessionId scope — the chip suppresses itself in that case anyway
@@ -428,12 +633,23 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // to the end (the "jump to end" tester bug). During programmatic
     // motion we touch neither _followTail nor the load pager.
     if (_programmaticScroll) return;
-    if (_followTail != atBottom) {
+    // Random-access window short of the tail (plan P2): the bottom edge pages
+    // *newer* — the forward complement of load-older at the top. We're not at
+    // the live tail yet, so this is NOT a tail-follow point. For the Feed
+    // (randomAccess false, _windowHasTail always true) atTrueTail == atBottom,
+    // so the live-tail behaviour below is unchanged.
+    final atTrueTail = atBottom && (_windowHasTail || !widget.randomAccess);
+    if (widget.randomAccess &&
+        !_windowHasTail &&
+        _scroll.position.pixels >= maxExt - 120) {
+      _maybeLoadNewer();
+    }
+    if (_followTail != atTrueTail) {
       setState(() {
-        _followTail = atBottom;
+        _followTail = atTrueTail;
         // Returning to the tail clears the pending-event counter; the
         // pill disappears on the same frame.
-        if (atBottom) {
+        if (atTrueTail) {
           _newWhileAway = 0;
           // Reset the turn-stepper anchor so the next `‹` starts from the
           // newest prompt rather than wherever we last jumped.
@@ -591,6 +807,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         widget.agentId,
         before: sessionScoped ? null : priorMinSeq,
         beforeTs: sessionScoped ? priorOldestTs : null,
+        // In random-access mode, pair the load-older ts cursor with the
+        // seq tiebreak so same-ts events at the window floor aren't dropped
+        // (the (ts, seq) keyset). Gated → the Feed's load-older is untouched.
+        beforeSeq:
+            (widget.randomAccess && sessionScoped) ? _minSeq : null,
         limit: _pageSize,
         sessionId: widget.sessionId,
       );
@@ -643,11 +864,48 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   }
 
   void _jumpToLatest() {
+    // Plan P2: if a random-access reset left the window short of the live tail,
+    // the tail isn't loaded — scrolling to the loaded bottom wouldn't reach it.
+    // Re-bootstrap the tail window first, then follow it.
+    if (widget.randomAccess && !_windowHasTail) {
+      _rebootstrapTail();
+      return;
+    }
     _scrollToTail();
     setState(() {
       _followTail = true;
       _newWhileAway = 0;
     });
+  }
+
+  /// Re-fetch the live-tail window after a random-access reset, restoring the
+  /// normal tail-anchored, SSE-followed state. The inverse of
+  /// [_resetWindowAround]: it puts the window back on the tail so live frames
+  /// append again ([_windowHasTail] = true).
+  Future<void> _rebootstrapTail() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final tail = await client.listAgentEvents(
+        widget.agentId,
+        tail: true,
+        limit: _pageSize,
+        sessionId: widget.sessionId,
+      );
+      if (!mounted) return;
+      _ingestWindow(tail.reversed.toList());
+      setState(() {
+        _atHead = tail.length < _pageSize;
+        _windowHasTail = true;
+        _followTail = true;
+        _newWhileAway = 0;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollToTail();
+      });
+    } catch (_) {
+      // Leave the current window in place on a network blip.
+    }
   }
 
   /// Jump to the oldest *loaded* row (top of the list). The transcript is
@@ -893,6 +1151,24 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (replayKey != null && _replayKeys.contains(replayKey)) return;
       }
       if (replayKey != null) _replayKeys.add(replayKey);
+      // Plan P2: a random-access window that hasn't paged back to the live
+      // tail must NOT append live frames — they belong at the tail (not
+      // loaded), so grafting them here would break contiguity and the
+      // position math. Drop the frame; the forward pager / jump-to-latest
+      // re-joins the tail when the user heads back down. Still note the
+      // stream is alive. Inert for the Feed (randomAccess false → always tail).
+      if (widget.randomAccess && !_windowHasTail) {
+        _reconnectAttempt = 0;
+        _bannerGraceTimer?.cancel();
+        _bannerGraceTimer = null;
+        if (_staleSince != null || _error != null) {
+          setState(() {
+            _staleSince = null;
+            _error = null;
+          });
+        }
+        return;
+      }
       final seq = (evt['seq'] as num?)?.toInt() ?? 0;
       // First successful delivery after a drop clears the banner, the
       // backoff counter, and any "Offline · last updated" pill — the

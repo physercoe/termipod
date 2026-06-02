@@ -34,5 +34,19 @@ void main() {
       expect(c.generation, greaterThan(g1));
       expect(c.seq, 7);
     });
+
+    test('carries the optional ts for the random-access window reset', () {
+      final c = AgentFeedSeekController();
+
+      // A Turns-index jump supplies the anchor's timestamp.
+      c.seekTo(12, ts: '2026-06-01T00:00:01Z');
+      expect(c.seq, 12);
+      expect(c.ts, '2026-06-01T00:00:01Z');
+
+      // A seq-only jump (the Errors stat) clears it → page-walk fallback.
+      c.seekTo(20);
+      expect(c.seq, 20);
+      expect(c.ts, isNull);
+    });
   });
 }

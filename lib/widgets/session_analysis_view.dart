@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/session_digest_provider.dart';
+import '../providers/session_turns_provider.dart';
 import '../theme/design_colors.dart';
 import 'agent_feed.dart';
 import 'run_report_card.dart';
@@ -84,15 +85,29 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
       },
     );
 
+    // The digest-backed turn index (plan P2): a foldable structure index over
+    // the whole run — each row jumps the transcript to the turn's start_seq
+    // via the shared seek controller. Full-run complete (the materialized
+    // agent_turns rows), not a filter of the loaded window.
+    final turns = ref.watch(sessionTurnsProvider(widget.sessionId));
+    final turnsSection = turns.maybeWhen(
+      data: (rows) => rows.isEmpty
+          ? const SizedBox.shrink()
+          : _TurnsDisclosure(rows: rows, onJump: _seek.seekTo),
+      orElse: () => const SizedBox.shrink(),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         card,
+        turnsSection,
         Divider(height: 1, color: border),
         Expanded(
           child: RefreshIndicator(
             onRefresh: () async {
               ref.invalidate(sessionDigestProvider(widget.sessionId));
+              ref.invalidate(sessionTurnsProvider(widget.sessionId));
               await ref.read(sessionDigestProvider(widget.sessionId).future);
             },
             child: AgentFeed(
@@ -105,6 +120,150 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Plan P2 — the digest-backed "Turns" structure index: a collapsed-by-default
+/// disclosure (so the log keeps its height) whose rows list every turn in the
+/// run and jump the transcript to the turn's `start_seq` on tap. The list is
+/// bounded-height with its own scroll so a long run can't push the feed away.
+class _TurnsDisclosure extends StatefulWidget {
+  final List<Map<String, dynamic>> rows;
+  final void Function(int seq) onJump;
+  const _TurnsDisclosure({required this.rows, required this.onJump});
+
+  @override
+  State<_TurnsDisclosure> createState() => _TurnsDisclosureState();
+}
+
+class _TurnsDisclosureState extends State<_TurnsDisclosure> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final fg =
+        isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
+
+    final header = InkWell(
+      onTap: () => setState(() => _open = !_open),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Icon(_open ? Icons.expand_less : Icons.expand_more,
+                size: 18, color: muted),
+            const SizedBox(width: 6),
+            Text('Turns (${widget.rows.length})',
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
+          ],
+        ),
+      ),
+    );
+
+    if (!_open) return header;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        header,
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 220),
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            itemCount: widget.rows.length,
+            itemBuilder: (context, i) => _TurnRow(
+              row: widget.rows[i],
+              onJump: widget.onJump,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TurnRow extends StatelessWidget {
+  final Map<String, dynamic> row;
+  final void Function(int seq) onJump;
+  const _TurnRow({required this.row, required this.onJump});
+
+  static int _asInt(Object? v) => (v is num) ? v.toInt() : 0;
+
+  String _fmtDuration(int ms) {
+    if (ms <= 0) return '';
+    if (ms < 1000) return '${ms}ms';
+    final s = ms / 1000.0;
+    if (s < 60) return '${s.toStringAsFixed(s < 10 ? 1 : 0)}s';
+    final m = (s / 60).floor();
+    return '${m}m${(s % 60).round()}s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final fg =
+        isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
+
+    final idx = _asInt(row['idx']);
+    final startSeq = _asInt(row['start_seq']);
+    final status = (row['status'] ?? '').toString();
+    final open = row['open'] == true;
+    final durMs = _asInt(row['duration_ms']);
+    final toolCount = _asInt(row['tool_count']);
+    final toolFailed = _asInt(row['tool_failed']);
+    final errorCount = _asInt(row['error_count']);
+
+    final bad = status == 'error' || status == 'failed' || errorCount > 0;
+    final dot = open
+        ? muted
+        : (bad ? DesignColors.error : DesignColors.success);
+
+    final parts = <String>[];
+    final dur = _fmtDuration(durMs);
+    if (dur.isNotEmpty) parts.add(dur);
+    if (toolCount > 0) parts.add('tools ${toolCount - toolFailed}/$toolCount');
+    if (open) parts.add('live');
+
+    return InkWell(
+      onTap: () => onJump(startSeq),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+            ),
+            Text('Turn ${idx + 1}',
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w500, color: fg)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                parts.join(' · '),
+                style: TextStyle(fontSize: 11, color: muted),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (errorCount > 0) ...[
+              const SizedBox(width: 6),
+              Text('⚠$errorCount',
+                  style: const TextStyle(
+                      fontSize: 11, color: DesignColors.error)),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

@@ -294,6 +294,9 @@ class HubClient {
           String id) =>
       sessions.getSessionDigestCached(id);
 
+  Future<List<Map<String, dynamic>>> getSessionTurns(String id) =>
+      sessions.getSessionTurns(id);
+
   Future<Map<String, dynamic>> openSession({
     String? title,
     String? scopeKind,

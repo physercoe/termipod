@@ -100,6 +100,30 @@ class SessionsApi {
     );
   }
 
+  /// Per-session turn index (ADR-038 §3 / plan P2) — the ts-ordered union of
+  /// the session's agents' turns, the digest-backed "Turns" structure index
+  /// the analysis surface lists and jumps from. Each row:
+  /// `{agent_id, turn_id, idx, start_seq, start_ts, end_seq, end_ts,
+  /// duration_ms, status, open, cost_usd, in_tokens, out_tokens, tool_count,
+  /// tool_failed, error_count}`. `start_seq` is the jump anchor. The hub lazily
+  /// backfills the index on read. Returns an empty list on any error so the
+  /// section self-gates rather than stalling the view.
+  Future<List<Map<String, dynamic>>> getSessionTurns(String id) async {
+    try {
+      final out =
+          await _t.get('/v1/teams/${_t.cfg.teamId}/sessions/$id/turns');
+      if (out is Map && out['turns'] is List) {
+        return (out['turns'] as List)
+            .whereType<Map>()
+            .map((e) => e.cast<String, dynamic>())
+            .toList();
+      }
+      return const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Opens a new session. Most callers will pass `agentId` to attach
   /// the session to an existing steward; `worktreePath` and
   /// `spawnSpecYaml` are needed when the resume flow (W2-S3) wants to

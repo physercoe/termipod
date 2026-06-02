@@ -60,6 +60,13 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     final digest = ref.watch(sessionDigestProvider(widget.sessionId));
 
+    // The run-lifetime total drives the feed's "event N of M" position; null
+    // until the digest resolves (the feed falls back to the loaded max).
+    final totalEvents = digest.maybeWhen(
+      data: (state) => (state.body?['event_count'] as num?)?.toInt(),
+      orElse: () => null,
+    );
+
     final card = digest.when(
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
@@ -93,6 +100,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               sessionId: widget.sessionId,
               dense: false,
               seekController: _seek,
+              totalEventCount: totalEvents,
             ),
           ),
         ),

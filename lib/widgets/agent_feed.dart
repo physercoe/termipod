@@ -127,6 +127,12 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// anchor if it's older than the loaded window (bounded), then anchors +
   /// highlights it. Null = no external seek channel.
   final AgentFeedSeekController? seekController;
+  /// Plan P2 — the run-lifetime total event count (from the digest), used to
+  /// render a monotonic "event N of M" position over the full-screen log:
+  /// the loaded window is only a slice, so M is the true total. Per-agent seq
+  /// is the dense 1-based run ordinal, so N (≈ the viewport-top seq) is the
+  /// honest position for a single-agent run. Null / full-screen-only.
+  final int? totalEventCount;
   const AgentFeed({
     super.key,
     required this.agentId,
@@ -140,6 +146,7 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.dense = true,
     this.onExpand,
     this.seekController,
+    this.totalEventCount,
   });
 
   @override
@@ -428,6 +435,21 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
 
   // Viewport-top position (0..1) for the minimap indicator.
   double _viewFrac = 1.0;
+
+  /// Plan P2 — the monotonic "event N of M" position for the full-screen log.
+  /// The loaded window is a contiguous tail slice spanning seqs
+  /// [_minSeq, _maxSeq]; the viewport-top fraction [_viewFrac] interpolates
+  /// linearly across it, and per-agent seq is the dense run ordinal, so N is
+  /// the viewport-top seq. M is the digest's run-lifetime total (fallback: the
+  /// newest loaded seq before the digest resolves). Returns null until there's
+  /// a window to position within. N is clamped into [1, M] so a multi-agent
+  /// session (per-agent seq isn't a run-wide ordinal) still reads sanely.
+  ({int n, int m})? _logPosition() => feedLogPosition(
+        minSeq: _minSeq,
+        maxSeq: _maxSeq,
+        viewFrac: _viewFrac,
+        totalEventCount: widget.totalEventCount,
+      );
   // >0 while a seek/scrub/jump drives the scroll, so [_onScroll] doesn't
   // mistake the programmatic motion for the user reaching the tail. A depth
   // counter (not a bool) so overlapping programmatic scrolls — a seek's
@@ -1978,6 +2000,24 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   },
                 ),
               ),
+              // Monotonic "event N of M" position. N is the viewport-top run
+              // ordinal, M the digest's run total — so the readout reflects the
+              // whole run, not just the loaded window. Gated on a supplied
+              // total (the analysis surface) so the plain full-screen feed,
+              // which has no digest, doesn't show a loaded-max denominator that
+              // would imply older unloaded events don't exist. IgnorePointer so
+              // it never steals a tap from the funnel/minimap.
+              if (!widget.dense &&
+                  widget.totalEventCount != null &&
+                  _logPosition() != null)
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: Center(child: _FeedPositionPill(pos: _logPosition()!)),
+                  ),
+                ),
               // Right-edge minimap (full-screen only): a tick per tool call
               // / turn anchor (card-coloured) + a red tick per error, plus a
               // viewport indicator. Tap jumps to the nearest error, drag
@@ -2222,5 +2262,38 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
   }
 
+}
+
+/// Plan P2 — the monotonic "event N / M" position chip floating over the
+/// full-screen log. Low-emphasis (it's an indicator, not a control) and
+/// wrapped in an IgnorePointer by the caller, so it never competes with the
+/// funnel/minimap for a tap.
+class _FeedPositionPill extends StatelessWidget {
+  final ({int n, int m}) pos;
+  const _FeedPositionPill({required this.pos});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    return Material(
+      color: bg.withValues(alpha: 0.88),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        child: Text(
+          'event ${pos.n} / ${pos.m}',
+          style: GoogleFonts.robotoMono(fontSize: 10, color: muted),
+        ),
+      ),
+    );
+  }
 }
 

@@ -1259,3 +1259,29 @@ List<Map<String, dynamic>> collapseStreamingPartials(
   }
   return out;
 }
+
+/// Plan P2 (agent-run-analysis-mode) — the monotonic "event N of M" log
+/// position. The loaded transcript is a contiguous tail slice spanning seqs
+/// [minSeq, maxSeq]; [viewFrac] (0 = top / oldest loaded, 1 = tail) maps
+/// linearly across it, and per-agent seq is the dense 1-based run ordinal, so
+/// N is the viewport-top seq. M is the run-lifetime total ([totalEventCount]
+/// from the digest) — or the newest loaded seq before the digest resolves, so
+/// the readout is never blank. Returns null when there is no window to
+/// position within (nothing loaded). N is clamped into [1, M] so a multi-agent
+/// session (where per-agent seq isn't a run-wide ordinal) still reads sanely.
+({int n, int m})? feedLogPosition({
+  required int minSeq,
+  required int maxSeq,
+  required double viewFrac,
+  int? totalEventCount,
+}) {
+  if (maxSeq <= 0) return null;
+  final m = (totalEventCount != null && totalEventCount > 0)
+      ? totalEventCount
+      : maxSeq;
+  final lo = minSeq > 0 ? minSeq : 1;
+  final span = maxSeq - lo;
+  final raw = span <= 0 ? maxSeq : (lo + viewFrac * span).round();
+  final n = raw.clamp(1, m).toInt();
+  return (n: n, m: m);
+}

@@ -432,7 +432,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   /// the SSE tail-append (a mid-run window must not grow a non-contiguous live
   /// event). Only ever runs in [AgentFeed.randomAccess] mode, so the Feed view
   /// never enters this path.
-  Future<void> _resetWindowAround(int seq, String ts) async {
+  Future<void> _resetWindowAround(int seq, String ts,
+      {bool keepLens = false}) async {
     final sid = widget.sessionId;
     final client = ref.read(hubProvider.notifier).client;
     if (sid == null || client == null) return;
@@ -479,7 +480,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // nearest-visible row >= the anchor and binary-searches onto it) rather
       // than the ensureVisible-only [_seekToSeq], which would silently no-op
       // here. This was the "turn jump lands wrong / does nothing" bug.
-      _landOnSeq(seq);
+      if (keepLens) {
+        _landOnSeqKeepLens(seq);
+      } else {
+        _landOnSeq(seq);
+      }
     } catch (_) {
       // Network blip — leave the existing window; the caller can retry.
     }
@@ -1497,6 +1502,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     setState(() {
       _lens = lens;
       _activeSeekSeq = null;
+      // Reset the run-anchor funnel position so a fresh lens starts at its
+      // newest match rather than wherever a prior lens left the stepper.
+      _funnelRunIdx = null;
       if (lens != FeedLens.all) _followTail = true;
     });
     if (lens != FeedLens.all) {
@@ -1510,18 +1518,60 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // it switches to the All lens and (in build, once the unfiltered list is
   // back) seeks to that row so the surrounding turns are visible.
   int? _pendingContextSeq;
+  // When true, the pending context jump keeps the active lens instead of
+  // resetting to All — used by the run-anchor funnel stepper, which steps
+  // within the turns/errors lens (see [_funnelRunJump]).
+  bool _pendingContextKeepLens = false;
+  // The funnel stepper's position within the full-run anchor list (turns /
+  // errors) when driving from the digest in Insight mode. Decoupled from
+  // [_activeSeekSeq] because the landing row (nearest visible >= anchor) may
+  // differ from the anchor seq (e.g. a hidden turn.start), which would break
+  // an indexOf-based position. Null = default to the newest match.
+  int? _funnelRunIdx;
 
   /// Clear the active filter and land on [seq] in the full transcript, so a
   /// match found in a filtered view can be read with its surrounding
   /// context. The seek itself runs in build once `_lens == all` has put the
   /// row back in the list (we know its index there, so it works even if the
-  /// row isn't currently realised).
-  void _jumpToContext(int seq) {
+  /// row isn't currently realised). With [keepLens] the active lens is
+  /// preserved (the run-anchor funnel stepper stays in turns/errors).
+  void _jumpToContext(int seq, {bool keepLens = false}) {
     setState(() {
-      _lens = FeedLens.all;
+      if (!keepLens) _lens = FeedLens.all;
       _followTail = false;
       _pendingContextSeq = seq;
+      _pendingContextKeepLens = keepLens;
     });
+  }
+
+  /// Land on [seq] but keep the active lens (run-anchor funnel stepping).
+  void _landOnSeqKeepLens(int seq) => _jumpToContext(seq, keepLens: true);
+
+  /// Funnel stepper jump in Insight mode, driven by the full-run anchor list
+  /// (turns / errors). Records the run-list position, then lands on the
+  /// anchor: a clean window reset around its `(ts, seq)` if it isn't loaded
+  /// (reachable at any depth), else a convergent seek — both keeping the lens.
+  void _funnelRunJump(int idx, int seq) {
+    setState(() {
+      _funnelRunIdx = idx;
+      _activeSeekSeq = seq;
+      _followTail = false;
+    });
+    if (_seqIsLoaded(seq)) {
+      _landOnSeqKeepLens(seq);
+      return;
+    }
+    final ts = widget.runAnchorTs?[seq];
+    if (widget.randomAccess &&
+        (widget.sessionId ?? '').isNotEmpty &&
+        ts != null &&
+        ts.isNotEmpty) {
+      // Fire-and-forget: resets the window then lands (keeping the lens).
+      _resetWindowAround(seq, ts, keepLens: true);
+      return;
+    }
+    // No ts (older digest) — best-effort within the loaded window.
+    _landOnSeqKeepLens(seq);
   }
 
   /// Plan P2 — "jump to any event" scrubber. The position pill (event N / M) is
@@ -2128,9 +2178,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // unfiltered list and seek to it once this frame lays out. Convergent
     // index seek (height-agnostic) so it lands exactly on the row even when
     // it isn't currently realised.
-    if (_pendingContextSeq != null && _lens == FeedLens.all) {
+    if (_pendingContextSeq != null &&
+        (_pendingContextKeepLens || _lens == FeedLens.all)) {
       final target = _pendingContextSeq!;
       _pendingContextSeq = null;
+      _pendingContextKeepLens = false;
       var idx =
           lensed.indexWhere((e) => (e['seq'] as num?)?.toInt() == target);
       if (idx < 0) {
@@ -2153,18 +2205,48 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         });
       }
     }
-    final matchSeqs = _lens == FeedLens.all
-        ? const <int>[]
-        : [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
+    // In Insight mode the turns/errors funnel is driven by the *whole-run*
+    // anchor lists (the digest's turn index + error samples), not the loaded
+    // window: so the count equals the insight data and is stable as more
+    // events page in, and a jump random-access-seeks to the exact anchor even
+    // when it isn't loaded. Text/Tools have no whole-run index, so they stay
+    // loaded-window (the convergent seek lands them accurately).
+    final bool funnelUsesRunList = _runAnchorMode &&
+        (_lens == FeedLens.turns || _lens == FeedLens.errors);
+    List<int> matchSeqs;
+    if (_lens == FeedLens.all) {
+      matchSeqs = const <int>[];
+    } else if (funnelUsesRunList) {
+      final runList = (_lens == FeedLens.turns
+              ? widget.runTurnSeqs
+              : widget.runErrorSeqs) ??
+          const <int>[];
+      // Error samples arrive grouped by class — sort to run order so the
+      // stepper walks the transcript monotonically. (Turn starts are already
+      // ascending.) Copy before sorting; never mutate the widget's list.
+      matchSeqs = [...runList]..sort();
+    } else {
+      matchSeqs = [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
+    }
     // 1-based position of the active match. Default to the newest when
     // there's no explicit anchor (fresh lens activation) so the pill
     // reads N/N and the steppers walk backward into history.
     int matchIndex = 0;
     if (matchSeqs.isNotEmpty) {
-      var idx =
-          _activeSeekSeq == null ? -1 : matchSeqs.indexOf(_activeSeekSeq!);
-      if (idx < 0) idx = matchSeqs.length - 1;
-      matchIndex = idx + 1;
+      if (funnelUsesRunList) {
+        // The run-anchor stepper tracks its own position (decoupled from the
+        // landed row, which may be a nearest-visible substitute).
+        matchIndex = (_funnelRunIdx != null &&
+                _funnelRunIdx! >= 0 &&
+                _funnelRunIdx! < matchSeqs.length)
+            ? _funnelRunIdx! + 1
+            : matchSeqs.length;
+      } else {
+        var idx =
+            _activeSeekSeq == null ? -1 : matchSeqs.indexOf(_activeSeekSeq!);
+        if (idx < 0) idx = matchSeqs.length - 1;
+        matchIndex = idx + 1;
+      }
     }
     // P3 — full-screen-only chrome (dense=false): per-lens counts for the
     // lens bar + minimap marks (a faint tick per tool_call, a red tick
@@ -2182,10 +2264,17 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         for (final l in FeedLens.values)
           l: l == FeedLens.all
               ? visible.length
-              : visible
-                  .where((e) =>
-                      agentEventMatchesLens(e, l, toolResults, toolUpdates))
-                  .length,
+              // In Insight mode, turns/errors report their whole-run totals
+              // (the digest) so the dropdown count matches the funnel pill and
+              // the insight data — not the loaded-window slice.
+              : (_runAnchorMode && l == FeedLens.turns)
+                  ? (widget.runTurnSeqs?.length ?? 0)
+                  : (_runAnchorMode && l == FeedLens.errors)
+                      ? (widget.runErrorSeqs?.length ?? 0)
+                      : visible
+                          .where((e) => agentEventMatchesLens(
+                              e, l, toolResults, toolUpdates))
+                          .length,
       };
       turnAnchorIdx = turnAnchorIndices(lensed);
       final turnIdxSet = turnAnchorIdx.toSet();
@@ -2510,13 +2599,21 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   onPrev: () {
                     if (matchIndex > 1) {
                       final i = matchIndex - 2;
-                      _seekToLoadedIndex(i, matchSeqs[i]);
+                      if (funnelUsesRunList) {
+                        _funnelRunJump(i, matchSeqs[i]);
+                      } else {
+                        _seekToLoadedIndex(i, matchSeqs[i]);
+                      }
                     }
                   },
                   onNext: () {
                     if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
                       final i = matchIndex;
-                      _seekToLoadedIndex(i, matchSeqs[i]);
+                      if (funnelUsesRunList) {
+                        _funnelRunJump(i, matchSeqs[i]);
+                      } else {
+                        _seekToLoadedIndex(i, matchSeqs[i]);
+                      }
                     }
                   },
                 ),

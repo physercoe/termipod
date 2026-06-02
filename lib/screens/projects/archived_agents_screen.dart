@@ -7,6 +7,7 @@ import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/insights_panel.dart';
 import '../../widgets/session_analysis_view.dart';
+import '../../widgets/session_header.dart';
 
 /// Read-only list of historical agents. Two modes:
 /// - Global (default; projectId null): shows agents with
@@ -289,6 +290,10 @@ class _ArchivedAgentDetailScreenState
   // top-level session_id so the Insights tab can render the full analysis
   // surface (digest + turns) over the finished run.
   String _sessionId = '';
+  // Active view in the `View ▾` switcher: 0 Feed · 1 Summary · 2 Journal ·
+  // 3 Insights. Replaces the old TabBar to reclaim vertical space (parity
+  // with the session-detail surface, sessions_screen.dart:2647).
+  int _view = 0;
 
   String get _id => (widget.summary['id'] ?? '').toString();
 
@@ -339,79 +344,83 @@ class _ArchivedAgentDetailScreenState
   @override
   Widget build(BuildContext context) {
     final handle = (widget.summary['handle'] ?? _id).toString();
-    // Tabs are wrapped in DefaultTabController so terminated agents
-    // get the same Feed / Summary / Journal split as live agents do
-    // in `_AgentDetailSheet` (projects_screen.dart:1985). v1.0.629
-    // closes the debugging gap where the archive screen only showed
-    // metadata + journal — operators investigating a failed run had
-    // to bounce to Me → Sessions to read the transcript.
+    final row = _full ?? widget.summary;
+    final kind = (row['kind'] ?? '').toString();
+    final status = (row['status'] ?? '').toString();
+    // Feed / Summary / Journal / Insights now reach via the header's
+    // `View ▾` switcher instead of a TabBar — no second bar eating vertical
+    // space, matching the session-detail surface (sessions_screen.dart:2647).
     // Insights is always offered — a finished run's analysis is exactly what
-    // an operator opening a terminated agent wants. The tab is unconditional
-    // so the affordance never silently vanishes; it degrades to agent-scoped
-    // tiles ([InsightsPanel]) until the hub session id resolves (or if the
-    // run never stamped one). Matches the project-agent sheet
+    // an operator opening a terminated agent wants — degrading to agent-scoped
+    // tiles ([InsightsPanel]) until the hub session id resolves (or if the run
+    // never stamped one). Matches the project-agent sheet
     // (projects_screen.dart:2043).
     final hasSession = _sessionId.isNotEmpty;
-    return DefaultTabController(
-      length: 4,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            '@$handle',
-            style: GoogleFonts.spaceGrotesk(
-                fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          bottom: TabBar(
-            isScrollable: true,
-            tabs: [
-              const Tab(text: 'Feed'),
-              const Tab(text: 'Summary'),
-              const Tab(text: 'Journal'),
-              // Insights = the run-report dashboard + navigable transcript over
-              // the finished run — the analysis surface a terminated agent most
-              // wants. Always present (degrades to tiles until the session id
-              // resolves).
-              const Tab(text: 'Insights'),
-            ],
-          ),
-        ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(_error!,
-                          style: GoogleFonts.jetBrainsMono(
-                              color: DesignColors.error, fontSize: 12)),
+    final subtitle = [
+      if (kind.isNotEmpty) kind,
+      if (status.isNotEmpty) status,
+    ].join(' · ');
+    return Scaffold(
+      // No Material AppBar — SessionHeader carries the title + close + the
+      // `View ▾` switcher; SafeArea supplies the status-bar inset.
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            SessionHeader(
+              leading: const BackButton(),
+              title: '@$handle',
+              subtitle: subtitle.isEmpty ? null : subtitle,
+              views: const [
+                SessionView(label: 'Feed', icon: Icons.forum_outlined),
+                SessionView(label: 'Summary', icon: Icons.info_outline),
+                SessionView(label: 'Journal', icon: Icons.menu_book_outlined),
+                SessionView(label: 'Insights', icon: Icons.insights_outlined),
+              ],
+              currentView: _view,
+              onSelectView: (i) => setState(() => _view = i),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Text(_error!,
+                    style: GoogleFonts.jetBrainsMono(
+                        color: DesignColors.error, fontSize: 12)),
+              ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  // IndexedStack keeps each view's scroll + state across
+                  // `View ▾` switches (as TabBarView did). Indexed by [_view].
+                  : IndexedStack(
+                      index: _view,
+                      children: [
+                        // Feed = the agent_events stream the agent emitted in
+                        // its lifetime. Static for terminated agents but
+                        // historical events render identically to live ones —
+                        // the same widget Me → Sessions uses.
+                        AgentFeed(agentId: _id),
+                        _summaryTab(),
+                        _journalTab(),
+                        hasSession
+                            ? SessionAnalysisView(
+                                agentId: _id,
+                                sessionId: _sessionId,
+                                live: false,
+                              )
+                            : ListView(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                                children: [
+                                  InsightsPanel(
+                                      scope: InsightsScope.agent(_id)),
+                                ],
+                              ),
+                      ],
                     ),
-                  )
-                : TabBarView(
-                    children: [
-                      // Feed = agent_events stream the agent emitted in
-                      // its lifetime. Static for terminated agents (no
-                      // new rows arrive) but historical events render
-                      // identically to live ones. Same widget Me →
-                      // Sessions uses, so transcript parity is automatic.
-                      AgentFeed(agentId: _id),
-                      _summaryTab(),
-                      _journalTab(),
-                      hasSession
-                          ? SessionAnalysisView(
-                              agentId: _id,
-                              sessionId: _sessionId,
-                              live: false,
-                            )
-                          : ListView(
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                              children: [
-                                InsightsPanel(
-                                    scope: InsightsScope.agent(_id)),
-                              ],
-                            ),
-                    ],
-                  ),
+            ),
+          ],
+        ),
       ),
     );
   }

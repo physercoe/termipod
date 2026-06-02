@@ -1626,6 +1626,25 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     _landOnSeqKeepLens(seq);
   }
 
+  /// Step the funnel cursor to match [i] of [matchSeqs]. The SINGLE entry point
+  /// shared by the top-left funnel pill (`FeedFilterControl`) AND the
+  /// bottom-left full-screen stepper (`TurnStepperPill`) so the two can never
+  /// drift onto different cursors — the "tap the stepper, the funnel N/M
+  /// doesn't move / they step different units" bug. A whole-run lens
+  /// (turns/errors) routes through [_funnelRunJump] (the cursor is
+  /// [_funnelRunIdx], reachable at any depth); text/tools route through the
+  /// loaded-window convergent seek (the cursor is [_activeSeekSeq]). Either
+  /// way the position the funnel reads back ([matchIndex]) is the one this
+  /// moved.
+  void _funnelStep(int i, List<int> matchSeqs, {required bool usesRunList}) {
+    if (i < 0 || i >= matchSeqs.length) return;
+    if (usesRunList) {
+      _funnelRunJump(i, matchSeqs[i]);
+    } else {
+      _seekToLoadedIndex(i, matchSeqs[i]);
+    }
+  }
+
   /// Plan P2 — "jump to any event" scrubber. The position pill (event N / M) is
   /// tappable on the random-access surface: it opens a slider over the whole
   /// run [1, M] and, on confirm, random-access-windows onto the chosen ordinal.
@@ -2651,22 +2670,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   // case for a far jump in the full-screen transcript).
                   onPrev: () {
                     if (matchIndex > 1) {
-                      final i = matchIndex - 2;
-                      if (funnelUsesRunList) {
-                        _funnelRunJump(i, matchSeqs[i]);
-                      } else {
-                        _seekToLoadedIndex(i, matchSeqs[i]);
-                      }
+                      _funnelStep(matchIndex - 2, matchSeqs,
+                          usesRunList: funnelUsesRunList);
                     }
                   },
                   onNext: () {
                     if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
-                      final i = matchIndex;
-                      if (funnelUsesRunList) {
-                        _funnelRunJump(i, matchSeqs[i]);
-                      } else {
-                        _seekToLoadedIndex(i, matchSeqs[i]);
-                      }
+                      _funnelStep(matchIndex, matchSeqs,
+                          usesRunList: funnelUsesRunList);
                     }
                   },
                 ),
@@ -2736,16 +2747,35 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   child: TurnStepperPill(
                     unit: stepUnit,
                     onOldest: _jumpToOldestLoaded,
-                    onPrevTurn: prevStepK != null
-                        ? () => _seekToLensedIndex(
-                            stepAnchorIdx[prevStepK!], lensed)
-                        : (!_atHead
-                            ? () { _maybeLoadOlder(); }
-                            : _jumpToOldestLoaded),
-                    onNextTurn: nextStepK != null
-                        ? () => _seekToLensedIndex(
-                            stepAnchorIdx[nextStepK!], lensed)
-                        : _jumpToLatest,
+                    // In a filtered lens the bottom stepper IS the funnel
+                    // stepper — same matchSeqs + cursor via [_funnelStep] — so
+                    // tapping it moves the funnel's N/M and they never disagree
+                    // (the "stepper and funnel don't align" bug). Only the All
+                    // view keeps its own turn-anchor stepping (the funnel is
+                    // inactive there). At the ends it still falls back to
+                    // page-older / jump-to-tail so it never dead-ends.
+                    onPrevTurn: (_lens != FeedLens.all && matchSeqs.isNotEmpty)
+                        ? (matchIndex > 1
+                            ? () => _funnelStep(matchIndex - 2, matchSeqs,
+                                usesRunList: funnelUsesRunList)
+                            : (!_atHead
+                                ? () { _maybeLoadOlder(); }
+                                : _jumpToOldestLoaded))
+                        : (prevStepK != null
+                            ? () => _seekToLensedIndex(
+                                stepAnchorIdx[prevStepK!], lensed)
+                            : (!_atHead
+                                ? () { _maybeLoadOlder(); }
+                                : _jumpToOldestLoaded)),
+                    onNextTurn: (_lens != FeedLens.all && matchSeqs.isNotEmpty)
+                        ? (matchIndex < matchSeqs.length
+                            ? () => _funnelStep(matchIndex, matchSeqs,
+                                usesRunList: funnelUsesRunList)
+                            : _jumpToLatest)
+                        : (nextStepK != null
+                            ? () => _seekToLensedIndex(
+                                stepAnchorIdx[nextStepK!], lensed)
+                            : _jumpToLatest),
                   ),
                 ),
               // Top-right floating controls: expand (dense only) + verbose

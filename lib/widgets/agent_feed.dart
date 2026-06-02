@@ -18,6 +18,7 @@ import 'agent_feed/event_card.dart';
 import 'agent_feed/feed_misc.dart';
 import 'agent_feed/feed_reducer.dart';
 import 'agent_feed/feed_render.dart';
+import 'agent_feed/random_access_loader.dart';
 import 'agent_feed/interaction_cards.dart';
 import 'agent_feed/telemetry_strip.dart';
 import 'session_details_sheet.dart';
@@ -423,6 +424,31 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   bool _seqIsLoaded(int seq) =>
       _events.any((e) => (e['seq'] as num?)?.toInt() == seq);
 
+  /// Bind a [RandomAccessLoader] to this feed's `agentId` + session scope. The
+  /// loader owns the `(ts, seq)` keyset fetch shapes (around-anchor / page-
+  /// newer); the State keeps the buffer + setState. Cheap to build per call —
+  /// it holds no state, just the bound fetch closure.
+  RandomAccessLoader _randomAccessLoader(HubClient client, String sid) =>
+      RandomAccessLoader(
+        pageSize: _pageSize,
+        fetch: ({
+          String? beforeTs,
+          int? beforeSeq,
+          String? afterTs,
+          int? afterSeq,
+          required int limit,
+        }) =>
+            client.listAgentEvents(
+              widget.agentId,
+              sessionId: sid,
+              beforeTs: beforeTs,
+              beforeSeq: beforeSeq,
+              afterTs: afterTs,
+              afterSeq: afterSeq,
+              limit: limit,
+            ),
+      );
+
   /// Random-access window reset (plan P2): replace the loaded window with one
   /// block fetched *around* the anchor `(ts, seq)` — the backward half (events
   /// before the anchor key, DESC) and the forward half (the anchor and after,
@@ -437,39 +463,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     final sid = widget.sessionId;
     final client = ref.read(hubProvider.notifier).client;
     if (sid == null || client == null) return;
-    final half = _pageSize ~/ 2;
     try {
-      final older = await client.listAgentEvents(
-        widget.agentId,
-        sessionId: sid,
-        beforeTs: ts,
-        beforeSeq: seq,
-        limit: half,
-      );
-      final newer = await client.listAgentEvents(
-        widget.agentId,
-        sessionId: sid,
-        afterTs: ts,
-        // anchor-inclusive: events strictly after (ts, seq-1) = the anchor
-        // and everything past it, so the target row is in the window.
-        afterSeq: seq - 1,
-        limit: half,
-      );
+      final window = await _randomAccessLoader(client, sid).fetchAround(seq, ts);
       if (!mounted) return;
-      // older is DESC, newer is ASC → contiguous ascending window.
-      final ascending = <Map<String, dynamic>>[
-        ...older.reversed,
-        ...newer,
-      ];
-      if (ascending.isEmpty) {
+      if (window.isEmpty) {
         // Nothing came back (anchor out of range) — leave the current window
         // untouched rather than yanking the viewport to the top.
         return;
       }
-      _ingestWindow(ascending);
+      _ingestWindow(window.ascending);
       setState(() {
-        _atHead = older.length < half; // reached the start
-        _windowHasTail = newer.length < half; // reached the live tail
+        _atHead = window.reachedHead; // reached the start
+        _windowHasTail = window.reachedTail; // reached the live tail
         _followTail = false;
         _loading = false;
         _error = null;
@@ -549,16 +554,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (sid == null || client == null || _newestTs.isEmpty) return;
     setState(() => _loadingNewer = true);
     try {
-      final newer = await client.listAgentEvents(
-        widget.agentId,
-        sessionId: sid,
-        afterTs: _newestTs,
-        afterSeq: _newestSeq,
-        limit: _pageSize,
-      );
+      final page = await _randomAccessLoader(client, sid)
+          .fetchNewer(_newestTs, _newestSeq);
       if (!mounted) return;
       final added = <Map<String, dynamic>>[];
-      for (final e in newer) {
+      for (final e in page.events) {
         final id = (e['id'] ?? '').toString();
         if (id.isNotEmpty && !_ids.add(id)) continue;
         if (agentEventIsReplay(e)) {
@@ -583,7 +583,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         }
         // A short page means there's nothing newer left — we've rejoined the
         // live tail, so live SSE frames may append again.
-        if (newer.length < _pageSize) _windowHasTail = true;
+        if (page.reachedTail) _windowHasTail = true;
       });
     } catch (_) {
       // Silent: the next scroll re-triggers.

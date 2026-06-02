@@ -6,7 +6,7 @@ import '../theme/design_colors.dart';
 import 'agent_feed.dart';
 import 'run_report_card.dart';
 
-/// The analysis surface (agent-run-analysis-mode plan P1): a foldable
+/// The analysis surface (agent-run-analysis-mode plan P1/P2): a foldable
 /// run-report dashboard (from the session **digest** — ADR-038 §5) over the
 /// full-screen navigable transcript. Insight *is* analysis, so this is the
 /// `View ▾ → Insights` body — no separate route. Available for any run; the
@@ -14,9 +14,14 @@ import 'run_report_card.dart';
 ///
 /// The dashboard is foldable so the log reclaims height; the log is the same
 /// `AgentFeed(dense: false)` the Feed tab renders, here driven by the digest
-/// (true event count, full-run errors) rather than the loaded window. The
-/// random-access loader + filtered views land in P2.
-class SessionAnalysisView extends ConsumerWidget {
+/// (true event count, full-run errors) rather than the loaded window.
+///
+/// P2 — the dashboard and the feed are siblings, so a tapped dashboard stat
+/// (the Errors stat → the first error's seq) drives the transcript through an
+/// [AgentFeedSeekController]: the card requests a jump, the feed pages toward
+/// the anchor and highlights it. The random-access loader + filtered views
+/// land alongside.
+class SessionAnalysisView extends ConsumerStatefulWidget {
   final String agentId;
   final String sessionId;
 
@@ -32,11 +37,28 @@ class SessionAnalysisView extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SessionAnalysisView> createState() =>
+      _SessionAnalysisViewState();
+}
+
+class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
+  // The jump channel from the dashboard down into the feed. Owned here so
+  // both the RunReportCard (requester) and the AgentFeed (responder) share
+  // one instance for the view's lifetime.
+  final AgentFeedSeekController _seek = AgentFeedSeekController();
+
+  @override
+  void dispose() {
+    _seek.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
-    final digest = ref.watch(sessionDigestProvider(sessionId));
+    final digest = ref.watch(sessionDigestProvider(widget.sessionId));
 
     final card = digest.when(
       loading: () => const SizedBox.shrink(),
@@ -47,7 +69,10 @@ class SessionAnalysisView extends ConsumerWidget {
         return RunReportCard(
           digest: body,
           staleSince: state.staleSince,
-          live: live,
+          live: widget.live,
+          // Tapping the Errors stat jumps the transcript below to the
+          // first error anchor (plan P2).
+          onJumpToSeq: _seek.seekTo,
         );
       },
     );
@@ -60,13 +85,14 @@ class SessionAnalysisView extends ConsumerWidget {
         Expanded(
           child: RefreshIndicator(
             onRefresh: () async {
-              ref.invalidate(sessionDigestProvider(sessionId));
-              await ref.read(sessionDigestProvider(sessionId).future);
+              ref.invalidate(sessionDigestProvider(widget.sessionId));
+              await ref.read(sessionDigestProvider(widget.sessionId).future);
             },
             child: AgentFeed(
-              agentId: agentId,
-              sessionId: sessionId,
+              agentId: widget.agentId,
+              sessionId: widget.sessionId,
               dense: false,
+              seekController: _seek,
             ),
           ),
         ),

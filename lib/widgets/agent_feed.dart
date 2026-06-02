@@ -28,6 +28,32 @@ import 'session_details_sheet.dart';
 // and external callers keep their single import surface.
 export 'agent_feed/feed_reducer.dart';
 
+/// Drives an external jump-to-seq into an [AgentFeed] from a sibling — the
+/// analysis-mode payoff (plan P2): the run-report dashboard and the
+/// structure-index rows live *above* the feed, so a tapped error/turn/tool
+/// needs a channel down into the feed's seek. The feed listens; [seekTo]
+/// bumps a generation counter so re-requesting the *same* seq still re-fires
+/// (a second tap on the same error jumps again). The feed resolves the seq
+/// against its loaded window, paging toward it if the anchor is older than
+/// what's loaded (bounded), then anchors+highlights the row.
+class AgentFeedSeekController extends ChangeNotifier {
+  int? _seq;
+  int _generation = 0;
+
+  /// The most recently requested seq, or null before any request.
+  int? get seq => _seq;
+
+  /// Increments on every [seekTo]; lets the feed distinguish a fresh
+  /// request for the same seq from a no-op rebuild.
+  int get generation => _generation;
+
+  void seekTo(int seq) {
+    _seq = seq;
+    _generation++;
+    notifyListeners();
+  }
+}
+
 /// Renders a live, scrollable feed of agent_events for [agentId]. Keeps
 /// its own seq cursor so reconnects don't replay the whole history. The
 /// first frame is the in-DB backfill fetched via listAgentEvents; after
@@ -96,6 +122,11 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// caller's dedicated full-screen transcript route. Null hides it —
   /// hosts that are already full-screen pass `dense: false` instead.
   final VoidCallback? onExpand;
+  /// Plan P2 — lets a sibling (the analysis-mode run-report dashboard /
+  /// structure index) jump the feed to a seq. The feed pages toward the
+  /// anchor if it's older than the loaded window (bounded), then anchors +
+  /// highlights it. Null = no external seek channel.
+  final AgentFeedSeekController? seekController;
   const AgentFeed({
     super.key,
     required this.agentId,
@@ -108,6 +139,7 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.onStatusLineChanged,
     this.dense = true,
     this.onExpand,
+    this.seekController,
   });
 
   @override
@@ -222,11 +254,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // hub side, so 15s is comfortable headroom.
   static const Duration _sessionCostPollInterval = Duration(seconds: 15);
 
+  // Generation of the last external seek we serviced — so a controller
+  // notification for a seq we already jumped to (e.g. a parent rebuild
+  // re-attaching the listener) doesn't re-fire, but a fresh seekTo (which
+  // bumps the generation) does.
+  int _lastSeekGeneration = 0;
+
   @override
   void initState() {
     super.initState();
     _bootstrap();
     _scroll.addListener(_onScroll);
+    widget.seekController?.addListener(_onSeekRequest);
     _startSessionCostPolling();
   }
 
@@ -240,6 +279,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       _sessionCost = null;
       _startSessionCostPolling();
     }
+    if (oldWidget.seekController != widget.seekController) {
+      oldWidget.seekController?.removeListener(_onSeekRequest);
+      widget.seekController?.addListener(_onSeekRequest);
+    }
   }
 
   @override
@@ -248,10 +291,59 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     _bannerGraceTimer?.cancel();
     _sessionCostTimer?.cancel();
     _seekHighlightTimer?.cancel();
+    widget.seekController?.removeListener(_onSeekRequest);
     _sub?.cancel();
     _scroll.dispose();
     super.dispose();
   }
+
+  // Controller fired a jump request. Dedup on generation so only a genuine
+  // new seekTo triggers a seek.
+  void _onSeekRequest() {
+    final c = widget.seekController;
+    if (c == null) return;
+    if (c.generation == _lastSeekGeneration) return;
+    _lastSeekGeneration = c.generation;
+    final seq = c.seq;
+    if (seq != null) _handleExternalSeek(seq);
+  }
+
+  /// Jump the feed to [seq] on behalf of an external caller (the analysis
+  /// dashboard / structure index). If the seq is in the loaded window we
+  /// anchor it directly; otherwise we page older toward it — the transcript
+  /// is a tail-anchored contiguous window, so an older anchor is reachable
+  /// by paging up — bounded so a far/unreachable anchor can't load forever.
+  /// Falls back to the oldest loaded row when the anchor can't be located
+  /// (out of range, or a per-agent seq that's ambiguous across a multi-agent
+  /// session). The random-access window-reset optimisation (fetch a block
+  /// *around* the anchor in O(log n) instead of walking) is a follow-up.
+  Future<void> _handleExternalSeek(int seq) async {
+    if (_seqIsLoaded(seq)) {
+      _seekToSeq(seq);
+      return;
+    }
+    final sessionScoped = (widget.sessionId ?? '').isNotEmpty;
+    const maxPages = 12; // _pageSize(200) × 12 = 2400 events of headroom.
+    for (var i = 0; i < maxPages; i++) {
+      if (_atHead) break;
+      // Agent scope: once the window's floor has passed the target, paging
+      // further up can't reveal it (it's newer than the loaded floor, i.e.
+      // we jumped away from the tail) — stop and fall back.
+      if (!sessionScoped && _minSeq > 0 && _minSeq <= seq) break;
+      await _maybeLoadOlder();
+      if (!mounted) return;
+      if (_seqIsLoaded(seq)) break;
+    }
+    if (!mounted) return;
+    if (_seqIsLoaded(seq)) {
+      _seekToSeq(seq);
+    } else {
+      _jumpToOldestLoaded();
+    }
+  }
+
+  bool _seqIsLoaded(int seq) =>
+      _events.any((e) => (e['seq'] as num?)?.toInt() == seq);
 
   /// (Re)start the periodic session-cost poll. No-ops when there is no
   /// sessionId scope — the chip suppresses itself in that case anyway

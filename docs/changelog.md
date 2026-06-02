@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-02)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.790
+> **Last verified vs code:** v1.0.791
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,42 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.791-alpha — 2026-06-02
+
+**Insight-surface polish + the start of the transcript decoupling refactor
+([ADR-040](decisions/040-transcript-surfaces-decoupled-by-mode.md),
+[`plans/transcript-surface-decoupling.md`](plans/transcript-surface-decoupling.md)).**
+A test build for the v1.0.790 device-test fixes and the behaviour-preserving
+substrate extractions (P0–P2a). The live Feed and Insight paths are unchanged in
+behaviour — this release exists to device-test that parity.
+
+### Fixed
+- **Errors-lens rows now headline the failing tool** (e.g. "Bash") instead of
+  the generic class for every row. The digest carries a per-error
+  `sample_labels` (schema v3, refolds sealed digests): the resolved tool name,
+  the error type, or "" for a failed turn, aligned 1:1 with the seqs/timestamps;
+  resolved via the shared tool-name resolver so the incremental fold still
+  equals a brute scan. The row shows the tool as the headline and the class as
+  the subtitle (`8e2e6cb`).
+
+### Changed
+- **The Insight surface is read-only:** it no longer renders the composer or the
+  telemetry strip (gated on `randomAccess`) — the run-report card already shows
+  cost/turns/context, so the reclaimed rows go to the transcript (`8e2e6cb`).
+- **`agent_feed/` → `transcript/`** (the substrate dir rename, P0 — `b8d45cc`).
+- **`build()`'s aggregation extracted to the shared substrate** as pure,
+  unit-tested units: `FoldMaps` (per-event fold — P1a `74ffabc`) and
+  `FeedTelemetry` (LiveFeed-only telemetry rollup — P1b `c8aebb6`).
+- **The seek landing engine extracted to `TranscriptSeek`** (the realized-window
+  sentinels, the programmatic-scroll guard, and the `convergeToIndex` algorithm
+  — P2a `f9677c2`). Behaviour-preserving; `agent_feed.dart` is 3108 → 2600 lines.
+
+Refactor is mid-flight: the seek *orchestration*, the mode split into
+`InsightTranscript` / `LiveFeed`, and the deferred lens features (point 6
+selector, point 3 paged Text/Tools) are the next phases (P3–P5 in the plan).
 
 ---
 

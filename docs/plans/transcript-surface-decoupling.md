@@ -22,15 +22,18 @@ monolith. Open/closed by file thereafter: a new mode is a new file
 lib/widgets/transcript/            (rename of agent_feed/)
   event_card.dart  feed_misc.dart  feed_reducer.dart  …   ← render primitives (exist)
   random_access_loader.dart                               ← sealed-mode loader (exists)
-  fold_maps.dart         ← NEW: pure per-event fold (tool names/results/updates/approvals) — SHARED
-  feed_telemetry.dart    ← NEW: pure telemetry/cost/context rollup — LiveFeed-only
-  transcript_seek.dart   ← NEW: the scroll/converge/seek machine (controller) — Insight-only
-  feed_transport.dart    ← NEW: live load / SSE / reconnect / load-older (controller) — LiveFeed
+  fold_maps.dart         ← DONE (P1a): pure per-event fold — SHARED
+  feed_telemetry.dart    ← DONE (P1b): pure telemetry/cost/context rollup — LiveFeed-only
+  transcript_seek.dart   ← DONE (P2a): the landing engine (converge + sentinels + guard) — SHARED
   feed_lens.dart (or in feed_reducer): FeedLens predicate + funnel widget — SHARED (filter only)
-lib/widgets/live_feed.dart          ← NEW: LiveFeed (stream + composer + telemetry + declutter funnel)
-lib/widgets/insight_transcript.dart ← NEW: InsightTranscript (sealed, random-access, lens-as-query, minimap)
-lib/widgets/agent_feed.dart         ← deleted in P5 (coexists during migration; never a flag-delegating shim)
+lib/widgets/insight_transcript.dart ← P3: InsightTranscript (own buffer via RandomAccessLoader,
+                                            seek orchestration, lens-as-query, minimap)
+lib/widgets/live_feed.dart          ← P4: rename of agent_feed.dart (live-tail loader in its own
+                                            State, composer, telemetry, declutter funnel)
 ```
+
+There is **no shared `feed_transport.dart`** — the buffer + loaders bifurcate by
+mode and live inside each mode's State (see the scoping correction below).
 
 Substrate units take data + callbacks, never a `mode`/`randomAccess` flag.
 `dense` is a layout parameter each mode may accept, not a mode. Per ADR-040 the
@@ -88,44 +91,59 @@ Per ADR-040 open-question B, the `build()` aggregation splits by ownership:
 - **Gate (P2a):** all jumps (funnel, stepper, minimap, deep-link,
   jump-to-ordinal) land as before on device.
 
-### Sequencing note (2026-06-02)
+### Scoping correction — no shared `FeedTransport` (2026-06-02)
 
-P3 (transport) runs **before** the P2b orchestration fold. P3 is behaviourally
-independent of the seek changes (loading ≠ landing), so a device-test can
-isolate a regression to one phase; stacking P2b on the not-yet-device-tested
-P2a would entangle the two. The seek orchestration lands in P4 with the mode
-split.
+The original P3 (a shared `FeedTransport` controller) was scoped and **dropped.**
+The data layer is the State's core mass and bifurcates by mode: `_events` alone
+has ~30 references (FoldMaps, FeedTelemetry, the build filter, the seek's
+`_seqIsLoaded`, …), plus `_followTail` (19), `_error` (16),
+`_windowHasTail`/`_minSeq` (15 each), and a dozen more cursors/flags. And the two
+modes don't share a loader — `LiveFeed` loads via tail-page + SSE + reconnect;
+`InsightTranscript` loads via the `(ts,seq)` random-access keyset
+(`RandomAccessLoader`, already extracted). A shared `FeedTransport` would be a
+thin shell over two divergent flows that P4 would partly undo. So the buffer +
+loaders **stay with each mode** and get their decoupled home in the mode split
+below — that *is* the transport decoupling.
 
-### P3 — `FeedTransport` (live-tail loader)
+### P3 — build `InsightTranscript` (the sealed / random-access mode)
 
-- Lift bootstrap/SSE/reconnect/banner/load-older/ingest/dedup into
-  `transcript/feed_transport.dart`. `random_access_loader.dart` already owns the
-  sealed loader; this completes the pair.
-- **Gate:** live tail-follow, reconnect, offline banner, load-older unchanged.
+Extract the Insight mode first — it has a single consumer
+(`session_analysis_view.dart`) and is where Insight's loader + the deferred P2b
+seek orchestration + the lens-as-query engine all get their decoupled home.
 
-### P4 — split into mode files
+- New `lib/widgets/insight_transcript.dart` (`InsightTranscript`): its own State
+  owning a random-access event buffer fed by `RandomAccessLoader`, composing
+  `FoldMaps` (cards) + `TranscriptSeek` (landing) + the **seek orchestration**
+  lifted from the monolith (the deferred P2b: the `_activeSeekSeq` anchor, the
+  funnel-run jumps, the pending-context "view in context", `_resetWindowAround`/
+  the forward pager) + the lens-as-query engine (Errors/Turns summary lists, the
+  whole-run minimap, the N/M ordinal + stepper-as-cursor). **No** composer, **no**
+  telemetry strip, **no** live SSE tail (snapshot-on-entry + manual refresh —
+  ADR-040 §E).
+- Migrate `session_analysis_view.dart` → `InsightTranscript`. `agent_feed.dart`
+  keeps serving the four live consumers unchanged during the migration (it is
+  never turned into a `randomAccess`-delegating shim — open-question C).
+- **Gate:** the Insight surface (digest dashboard + transcript + every lens /
+  funnel / stepper / minimap jump) is parity-or-better vs. the live
+  `agent_feed.dart` Insight path, on device.
 
-- `live_feed.dart` (`LiveFeed`): composes `FeedTransport` + `FoldMaps` +
-  `FeedTelemetry` + cards + composer + telemetry strip + the shared declutter
-  funnel (client-side filter over the loaded window). No random access, no
-  lens-as-query, no minimap, no summary lists.
-- `insight_transcript.dart` (`InsightTranscript`): composes
-  `RandomAccessLoader` + `TranscriptSeek` + `FoldMaps` + cards + the lens-as-query
-  engine (Errors/Turns summary lists, minimap, N/M + stepper). No composer, no
-  telemetry strip.
-- `agent_feed.dart` **coexists** during migration — it is NOT rewritten to
-  delegate by `randomAccess` (open-question C). Consumers move per-mode in P5.
-- **Gate:** both surfaces render through the new files; device-test parity.
+### P4 — strip + rename the remainder to `LiveFeed`
 
-### P5 — migrate consumers + delete the monolith
+- With Insight gone, delete `agent_feed.dart`'s now-dead random-access /
+  lens-as-query / minimap / seek-orchestration paths (the `randomAccess`,
+  `runErrorSeqs`/`runTurnSeqs`/… params, the Errors/Turns summary lists, the
+  funnel *jump* machinery).
+- Rename `agent_feed.dart` → `live_feed.dart`, `AgentFeed` → `LiveFeed`. It keeps
+  `FeedTransport`-style live-tail loading (in its own State), `FoldMaps`,
+  `FeedTelemetry`, the composer, the telemetry strip, and the **shared declutter
+  funnel** (the pure `FeedLens` predicate filtering the loaded window — no jump,
+  no minimap, no summary list; ADR-040 §6).
+- Migrate the four live consumers (`sessions_screen`, `transcript_screen`,
+  `projects_screen`, `archived_agents_screen`) → `LiveFeed`.
+- **Gate:** every live surface renders + tails + loads-older + composes as
+  before; CI + CodeQL green; no importer of `agent_feed.dart` remains.
 
-- Insight host (`session_analysis_view.dart`) → `InsightTranscript`; the live
-  hosts (`sessions_screen`, `transcript_screen`, `projects_screen`,
-  `archived_agents_screen`) → `LiveFeed`.
-- Delete `agent_feed.dart` once nothing imports it.
-- **Gate:** full device-test of every surface; CI + CodeQL green.
-
-### P6 — land the deferred features ON the new structure (open/closed)
+### P5 — land the deferred features ON the new structure (open/closed)
 
 - **Point 6 — unified lens selector** inside `InsightTranscript`: fold the
   `_TurnsDisclosure` + funnel into one foldable selector; Turns renders as a
@@ -136,14 +154,15 @@ split.
 
 ## Risks
 
-- **Live-feed regression** — every extraction lifts behaviour verbatim; reshape
-  later. The live path protected the v1.0.785–790 arc; keep it byte-identical
-  through P0–P3.
+- **Live-feed regression** — the substrate extractions (P1, P2a) lifted
+  behaviour verbatim; the P3/P4 mode split must keep each surface's loading +
+  rendering parity. The live path protected the v1.0.785–790 arc.
 - **The seek machine is subtle** (programmatic-scroll depth, realized-window
-  reset). Extract with comments intact; device-gate P2 hard.
-- **Migration window** — `agent_feed.dart` coexists with the two mode files
-  while consumers move per-mode; don't delete it until grep shows no importers.
-  It is never turned into a `randomAccess`-delegating shim (open-question C).
+  reset) — P2a isolated it; the orchestration moving in P3 must preserve the
+  anchor/tail-follow interplay. Device-gate the Insight surface hard.
+- **Migration window** — `agent_feed.dart` keeps serving the four live consumers
+  through P3 (Insight extracted first); it is renamed to `LiveFeed` in P4, never
+  turned into a `randomAccess`-delegating shim (open-question C).
 
 ## Related
 
@@ -153,4 +172,4 @@ split.
   — the audit.
 - [ADR-039](../decisions/039-insight-lens-as-server-query.md) /
   [`plans/insight-lens-as-query.md`](../plans/insight-lens-as-query.md) — P1b,
-  landed in P6.
+  landed in P5.

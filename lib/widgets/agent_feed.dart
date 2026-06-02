@@ -20,6 +20,7 @@ import 'transcript/feed_telemetry.dart';
 import 'transcript/fold_maps.dart';
 import 'transcript/feed_reducer.dart';
 import 'transcript/random_access_loader.dart';
+import 'transcript/transcript_seek.dart';
 import 'transcript/interaction_cards.dart';
 import 'transcript/telemetry_strip.dart';
 import 'session_details_sheet.dart';
@@ -292,14 +293,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // from the tail. Powers the "N new ↓" pill so users know the feed is
   // alive without being yanked back to the bottom.
   int _newWhileAway = 0;
-  // Anchor for the "scroll to specific seq" feature. Attached to
-  // whichever AgentEventCard matches [_activeSeekSeq] during build;
-  // ensureVisible needs a real BuildContext, hence the key. Drives both
-  // the cold-open initialSeq deep-link and the lens match-stepper.
-  final GlobalKey _seekKey = GlobalKey();
+  // The landing engine (ADR-040 P2a): owns the seek GlobalKey (attached to the
+  // card matching [_activeSeekSeq] during build), the realized-row window
+  // sentinels, and the programmatic-scroll guard. Bound in initState. Drives
+  // the cold-open initialSeq deep-link and the lens match-stepper landings.
+  late final TranscriptSeek _seek;
   // The seq the feed is currently anchored to (cold-open initialSeq, or
   // the active lens match). Null = no anchor (tail-follow). The matching
-  // card gets [_seekKey] + a tinted border while [_seekHighlight] holds.
+  // card gets [_seek.seekKey] + a tinted border while [_seekHighlight] holds.
   int? _activeSeekSeq;
   // True for ~1.2s after a successful seek so the matched event renders
   // with a tinted border, telling the user where they landed. Cleared
@@ -335,6 +336,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   @override
   void initState() {
     super.initState();
+    // The landing engine (ADR-040 P2a) owns the realized-window sentinels, the
+    // programmatic-scroll guard, and the seek GlobalKey; it's bound to this
+    // feed's scroll controller + mounted state.
+    _seek = TranscriptSeek(scroll: _scroll, isActive: () => mounted);
     _bootstrap();
     _scroll.addListener(_onScroll);
     widget.seekController?.addListener(_onSeekRequest);
@@ -427,7 +432,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   /// Land on [seq] robustly even when its row isn't currently realised. Defers
   /// to the convergent index seek via the pending-context mechanism: a rebuild
   /// finds the row's index in the laid-out (lensed) list and binary-searches
-  /// the scroll offset onto it ([_seekToLoadedIndex]/[_convergeToIndex]), which
+  /// the scroll offset onto it ([_seekToLoadedIndex] → the [TranscriptSeek]
+  /// landing engine), which
   /// — unlike [_seekToSeq]'s lone `ensureVisible` — works on an off-screen,
   /// lazily-built row. The anchor may be a hidden marker (an ACP `turn.start`
   /// isn't rendered), so the consumer lands on the nearest visible row at or
@@ -670,7 +676,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // that re-enabled _followTail, the next live event would yank the user
     // to the end (the "jump to end" tester bug). During programmatic
     // motion we touch neither _followTail nor the load pager.
-    if (_programmaticScroll) return;
+    if (_seek.isProgrammatic) return;
     // ADR-039 P2 — the Errors summary list is a digest-only list with no
     // _events paging; scrolling it must not trigger load-older/newer or
     // tail-follow on the (unrelated) _events window.
@@ -721,8 +727,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // interpolation does, because both the fraction and the [_minSeq, _maxSeq]
     // span shift under it). Falls back to the interpolation until the first
     // layout records a top seq.
-    if (widget.randomAccess && total != null && total > 0 && _lastTopBuiltSeq > 0) {
-      final n = _lastTopBuiltSeq.clamp(1, total);
+    if (widget.randomAccess && total != null && total > 0 && _seek.lastTopBuiltSeq > 0) {
+      final n = _seek.lastTopBuiltSeq.clamp(1, total);
       return (n: n, m: total);
     }
     return feedLogPosition(
@@ -765,59 +771,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
     return _viewFrac;
   }
-  // >0 while a seek/scrub/jump drives the scroll, so [_onScroll] doesn't
-  // mistake the programmatic motion for the user reaching the tail. A depth
-  // counter (not a bool) so overlapping programmatic scrolls — a seek's
-  // animateTo followed by its ensureVisible — keep the guard up until ALL
-  // of them finish.
-  bool get _programmaticScroll => _programmaticScrollDepth > 0;
-  int _programmaticScrollDepth = 0;
 
-  // The realized (built) row-index window of the ListView, refreshed every
-  // layout from the itemBuilder. A jump-to-known-row seek uses this as
-  // feedback to binary-search the scroll offset onto a target index without
-  // assuming uniform row heights (see [_seekToLoadedIndex]). Reset at the
-  // top of the build that owns the list; -1 / length are empty sentinels.
-  int _minBuiltIdx = 0;
-  int _maxBuiltIdx = -1;
-  // Length of the current lensed (rendered) list, snapshotted each build. The
-  // convergent index seek reads it to seed its first probe *proportionally*
-  // (idx / count → offset) so a structural jump lands within a screen of the
-  // target on the first frame — and to land the card by a final proportional
-  // jump if the realized-window feedback can't fully converge, so a jump never
-  // leaves the card off-screen ("card not in viewport").
-  int _lensedCount = 0;
-  // Plan P2 (accurate Insight position) — the smallest seq among the rows
-  // realised in the current build (the topmost on-screen card ≈ the viewport
-  // top). [_topBuiltSeq] accumulates during a frame's layout; [_lastTopBuiltSeq]
-  // snapshots it at the next build, so [_logPosition] can read a stable value.
-  // Per-agent seq is the dense run ordinal, so this is the honest "event N":
-  // a *seq* (not a pixel fraction), it stays put when load-older/newer grows
-  // the window (the same event keeps the same seq) and moves monotonically with
-  // scroll — fixing the non-monotonic jump the viewFrac interpolation showed.
-  int _topBuiltSeq = 0;
-  int _lastTopBuiltSeq = 0;
-
-  // Mark a synchronous scroll (jumpTo) as programmatic; clear after the
-  // frame it lands on.
-  void _jumpProgrammatic(void Function() body) {
-    _programmaticScrollDepth++;
-    body();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_programmaticScrollDepth > 0) _programmaticScrollDepth--;
-    });
-  }
-
-  // Mark an animated scroll as programmatic for its whole duration —
-  // animateTo spans many frames, each firing [_onScroll], so the flag must
-  // hold until the animation future completes (a one-frame guard would let
-  // mid-animation ticks flip tail-follow).
-  void _animateProgrammatic(Future<void> Function() run) {
-    _programmaticScrollDepth++;
-    run().whenComplete(() {
-      if (_programmaticScrollDepth > 0) _programmaticScrollDepth--;
-    });
-  }
+  // The programmatic-scroll guard, the realized-row-window sentinels, and the
+  // jump/animate helpers all moved to [TranscriptSeek] (`_seek`) — ADR-040 P2a.
 
   // Pull the latest session.init for this agent regardless of which
   // session it was emitted into. Used to keep the AppBar chip alive
@@ -1004,7 +960,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   void _jumpToOldestLoaded() {
     if (!_scroll.hasClients) return;
     setState(() => _followTail = false);
-    _animateProgrammatic(() => _scroll.animateTo(
+    _seek.animateProgrammatic(() => _scroll.animateTo(
           0,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOut,
@@ -1017,7 +973,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (!_scroll.hasClients) return;
     if (_followTail) setState(() => _followTail = false);
     final pos = _scroll.position;
-    _jumpProgrammatic(
+    _seek.jumpProgrammatic(
         () => _scroll.jumpTo(frac.clamp(0.0, 1.0) * pos.maxScrollExtent));
   }
 
@@ -1363,7 +1319,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   /// index) because the feed pages older events lazily — the seq is the
   /// stable identity across prepends. The target must already be loaded
   /// (the stepper only offers seqs from the loaded+lensed list); the
-  /// post-frame read of [_seekKey] no-ops gracefully if it isn't.
+  /// post-frame read of the seek key no-ops gracefully if it isn't.
   /// Uses Scrollable.ensureVisible, which handles non-uniform row
   /// heights without a positioned-list dependency.
   void _seekToSeq(int seq) {
@@ -1376,9 +1332,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final ctx = _seekKey.currentContext;
+      final ctx = _seek.seekKey.currentContext;
       if (ctx == null) return;
-      _animateProgrammatic(() => Scrollable.ensureVisible(
+      _seek.animateProgrammatic(() => Scrollable.ensureVisible(
             ctx,
             alignment: 0.3,
             duration: const Duration(milliseconds: 300),
@@ -1408,7 +1364,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (_scroll.hasClients) {
       final pos = _scroll.position;
       final target = frac.clamp(0.0, 1.0) * pos.maxScrollExtent;
-      _animateProgrammatic(() => _scroll.animateTo(
+      _seek.animateProgrammatic(() => _scroll.animateTo(
             target,
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOut,
@@ -1418,9 +1374,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // off-screen (the proportional landing already put it close).
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final ctx = _seekKey.currentContext;
+        final ctx = _seek.seekKey.currentContext;
         if (ctx == null) return;
-        _animateProgrammatic(() => Scrollable.ensureVisible(
+        _seek.animateProgrammatic(() => Scrollable.ensureVisible(
               ctx,
               alignment: 0.3,
               duration: const Duration(milliseconds: 200),
@@ -1440,7 +1396,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   /// item-index fraction straight onto a pixel offset and so misses badly
   /// when rows have very different heights (a one-line text card vs. a tall
   /// tool dump) — this binary-searches the scroll offset using the actual
-  /// realized-row window ([_minBuiltIdx]/[_maxBuiltIdx]) as feedback, so it
+  /// realized-row window (the [TranscriptSeek] landing engine) as feedback, so it
   /// lands exactly on the target regardless of height variance. Used by the
   /// "view in full transcript" jump and the turn-nav stepper, which both
   /// target a *known* row and need to be exact.
@@ -1455,128 +1411,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       _followTail = false;
       _seekHighlight = true;
     });
-    // One guard increment held across the WHOLE convergence (many frames of
-    // jumpTo + a final ensureVisible), released once in [_releaseProgrammatic]
-    // — so no mid-seek frame flips tail-follow (the "jump to end" bug).
-    _programmaticScrollDepth++;
-    // Start after this setState's rebuild has attached _seekKey to the new
-    // target, so the realized-window read reflects the right frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scroll.hasClients) {
-        _releaseProgrammatic();
-        return;
-      }
-      _convergeToIndex(idx, 0.0, _scroll.position.maxScrollExtent, 0);
-    });
+    // The landing engine (ADR-040 P2a) holds the programmatic-scroll guard
+    // across the whole convergence and runs it after this setState's rebuild
+    // has attached the seek key to the new target.
+    _seek.landOnIndex(idx);
     _seekHighlightTimer?.cancel();
     _seekHighlightTimer = Timer(const Duration(milliseconds: 1600), () {
       if (!mounted) return;
       setState(() => _seekHighlight = false);
     });
-  }
-
-  // Land row [idx] in the viewport by index (option 1+2,
-  // docs/discussions/insight-navigation-fixed-pages.md §10). Offset rises
-  // monotonically with index in this (non-reversed) list, so the realized
-  // window brackets the target: idx below it → scroll up (hi=mid), above it →
-  // scroll down (lo=mid). Two refinements over a plain [lo,hi] bisection make
-  // this land the card RELIABLY rather than approximately:
-  //   1. The first probe is *proportional* (idx / count → offset), not the
-  //      [0,max] midpoint, so the target usually realizes on the first frame —
-  //      a far jump no longer needs the full log₂(extent) bisection budget.
-  //   2. On the iteration cap it NEVER bails to nothing: it does a final
-  //      proportional jump + best-effort ensureVisible, so the card is brought
-  //      into view even when the realized-window feedback can't fully converge
-  //      (the "card not in viewport" bug was this branch releasing with a null
-  //      seek context and no scroll).
-  void _convergeToIndex(int idx, double lo, double hi, int iter) {
-    if (!mounted || !_scroll.hasClients) {
-      _releaseProgrammatic();
-      return;
-    }
-    final max = _scroll.position.maxScrollExtent;
-    final ctx = _seekKey.currentContext;
-    // ctx != null inline in the `if` so flow analysis promotes it (no `!`).
-    if (idx >= _minBuiltIdx && idx <= _maxBuiltIdx && ctx != null) {
-      Scrollable.ensureVisible(
-        ctx,
-        alignment: 0.3,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-      ).whenComplete(_releaseProgrammatic);
-      return;
-    }
-    if (iter >= 14) {
-      // Converged as far as the realized-window feedback allows. Guarantee the
-      // card lands rather than leaving the viewport off-target.
-      if (ctx != null) {
-        Scrollable.ensureVisible(
-          ctx,
-          alignment: 0.3,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        ).whenComplete(_releaseProgrammatic);
-        return;
-      }
-      if (_lensedCount > 1) {
-        _scroll.jumpTo(((idx / (_lensedCount - 1)) * max).clamp(0.0, max));
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) {
-          _releaseProgrammatic();
-          return;
-        }
-        final c2 = _seekKey.currentContext;
-        if (c2 != null) {
-          Scrollable.ensureVisible(
-            c2,
-            alignment: 0.3,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-          ).whenComplete(_releaseProgrammatic);
-        } else {
-          _releaseProgrammatic();
-        }
-      });
-      return;
-    }
-    // First probe proportional (lands within ~a screen so the target usually
-    // realizes immediately); thereafter bisect using the realized window.
-    final double mid;
-    if (iter == 0 && _lensedCount > 1) {
-      mid = ((idx / (_lensedCount - 1)) * max).clamp(0.0, max);
-    } else {
-      mid = ((lo + hi) / 2).clamp(0.0, max);
-    }
-    // Reset the realized-window sentinels so the post-jump layout reports
-    // ONLY the new viewport. Critical: jumpTo re-runs the itemBuilder (which
-    // grows the window) but NOT build() (where the reset otherwise lives), so
-    // without this the window accumulates the UNION of every viewport visited
-    // during the search — the bound test then finds idx already "inside" the
-    // union, never narrows, and the seek stalls or lands on the wrong row.
-    // The failure is intermittent and worse after lazy-loading, when the
-    // longer, height-varied list makes the union span the target more often.
-    _minBuiltIdx = 1 << 30;
-    _maxBuiltIdx = -1;
-    _scroll.jumpTo(mid);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scroll.hasClients) {
-        _releaseProgrammatic();
-        return;
-      }
-      var nlo = lo;
-      var nhi = hi;
-      if (idx < _minBuiltIdx) {
-        nhi = mid; // target is above the realized window — scroll up
-      } else if (idx > _maxBuiltIdx) {
-        nlo = mid; // target is below — scroll down
-      }
-      _convergeToIndex(idx, nlo, nhi, iter + 1);
-    });
-  }
-
-  void _releaseProgrammatic() {
-    if (_programmaticScrollDepth > 0) _programmaticScrollDepth--;
   }
 
   /// The whole-run anchor list backing a lens's funnel in Insight mode — the
@@ -2012,15 +1855,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               if (agentEventMatchesLens(e, _lens, toolResults, toolUpdates))
                 e,
           ];
-    // Reset the realized-row window for this frame's list; the itemBuilder
-    // repopulates it during layout, and a convergent seek reads it back.
-    // Snapshot the last frame's top-built seq first (for the Insight position
-    // readout) before clearing the accumulator for this frame.
-    if (_topBuiltSeq > 0) _lastTopBuiltSeq = _topBuiltSeq;
-    _topBuiltSeq = 0;
-    _minBuiltIdx = lensed.length;
-    _maxBuiltIdx = -1;
-    _lensedCount = lensed.length;
+    // Reset the landing engine's realized-row window for this frame's list;
+    // the itemBuilder repopulates it during layout (via [_seek.recordBuiltRow])
+    // and a convergent seek reads it back. Also snapshots the last frame's
+    // top-built seq for the Insight position readout.
+    _seek.beginFrame(lensed.length);
     // Consume a pending "view in context" request: now that the lens is
     // back to All (so [lensed] == [visible]), find the row's index in the
     // unfiltered list and seek to it once this frame lays out. Convergent
@@ -2288,21 +2127,16 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 itemCount: lensed.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
+                  final ev = lensed[i];
+                  final builtSeq = (ev['seq'] as num?)?.toInt() ?? 0;
                   // Record the realized-row window for convergent seeks, and
                   // the smallest realised seq (topmost card) for the Insight
                   // position readout.
-                  if (i < _minBuiltIdx) _minBuiltIdx = i;
-                  if (i > _maxBuiltIdx) _maxBuiltIdx = i;
-                  final ev = lensed[i];
-                  final builtSeq = (ev['seq'] as num?)?.toInt() ?? 0;
-                  if (builtSeq > 0 &&
-                      (_topBuiltSeq == 0 || builtSeq < _topBuiltSeq)) {
-                    _topBuiltSeq = builtSeq;
-                  }
+                  _seek.recordBuiltRow(i, builtSeq);
                   final isTarget = _activeSeekSeq != null &&
                       (ev['seq'] as num?)?.toInt() == _activeSeekSeq;
                   Widget card = AgentEventCard(
-                    key: isTarget ? _seekKey : null,
+                    key: isTarget ? _seek.seekKey : null,
                     event: ev,
                     toolNames: toolNames,
                     toolUpdates: toolUpdates,

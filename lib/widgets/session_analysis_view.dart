@@ -64,7 +64,8 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
 
     // The run-lifetime total drives the feed's "event N of M" position; null
     // until the digest resolves (the feed falls back to the loaded max).
-    final digestBody = digest.valueOrNull?.body;
+    final digestBody =
+        digest.maybeWhen(data: (s) => s.body, orElse: () => null);
     final totalEvents = (digestBody?['event_count'] as num?)?.toInt();
 
     // Full-run minimap anchors: every error in the run (the digest's per-class
@@ -81,11 +82,13 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
         }
       }
     }
-    final runTurnSeqs = turns.valueOrNull
-            ?.map((r) => (r['start_seq'] as num?)?.toInt() ?? 0)
-            .where((s) => s > 0)
-            .toList() ??
-        const <int>[];
+    final runTurnSeqs = turns.maybeWhen(
+      data: (rows) => rows
+          .map((r) => (r['start_seq'] as num?)?.toInt() ?? 0)
+          .where((s) => s > 0)
+          .toList(),
+      orElse: () => <int>[],
+    );
 
     final card = digest.when(
       loading: () => const SizedBox.shrink(),

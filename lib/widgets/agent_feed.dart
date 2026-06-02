@@ -748,6 +748,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // top of the build that owns the list; -1 / length are empty sentinels.
   int _minBuiltIdx = 0;
   int _maxBuiltIdx = -1;
+  // Length of the current lensed (rendered) list, snapshotted each build. The
+  // convergent index seek reads it to seed its first probe *proportionally*
+  // (idx / count → offset) so a structural jump lands within a screen of the
+  // target on the first frame — and to land the card by a final proportional
+  // jump if the realized-window feedback can't fully converge, so a jump never
+  // leaves the card off-screen ("card not in viewport").
+  int _lensedCount = 0;
   // Plan P2 (accurate Insight position) — the smallest seq among the rows
   // realised in the current build (the topmost on-screen card ≈ the viewport
   // top). [_topBuiltSeq] accumulates during a frame's layout; [_lastTopBuiltSeq]
@@ -1436,34 +1443,80 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     });
   }
 
-  // Binary-search the scroll offset in [lo, hi] until row [idx] is realized,
-  // then ease it into a comfortable position. Offset rises monotonically with
-  // index in this (non-reversed) list, so the realized window brackets the
-  // target: idx below it → scroll up (hi=mid), above it → scroll down
-  // (lo=mid). Each step is one frame; the cap bounds the worst case.
+  // Land row [idx] in the viewport by index (option 1+2,
+  // docs/discussions/insight-navigation-fixed-pages.md §10). Offset rises
+  // monotonically with index in this (non-reversed) list, so the realized
+  // window brackets the target: idx below it → scroll up (hi=mid), above it →
+  // scroll down (lo=mid). Two refinements over a plain [lo,hi] bisection make
+  // this land the card RELIABLY rather than approximately:
+  //   1. The first probe is *proportional* (idx / count → offset), not the
+  //      [0,max] midpoint, so the target usually realizes on the first frame —
+  //      a far jump no longer needs the full log₂(extent) bisection budget.
+  //   2. On the iteration cap it NEVER bails to nothing: it does a final
+  //      proportional jump + best-effort ensureVisible, so the card is brought
+  //      into view even when the realized-window feedback can't fully converge
+  //      (the "card not in viewport" bug was this branch releasing with a null
+  //      seek context and no scroll).
   void _convergeToIndex(int idx, double lo, double hi, int iter) {
     if (!mounted || !_scroll.hasClients) {
       _releaseProgrammatic();
       return;
     }
+    final max = _scroll.position.maxScrollExtent;
+    final ctx = _seekKey.currentContext;
     final realized =
-        idx >= _minBuiltIdx && idx <= _maxBuiltIdx && _seekKey.currentContext != null;
-    if (realized || iter >= 14) {
-      final ctx = _seekKey.currentContext;
+        idx >= _minBuiltIdx && idx <= _maxBuiltIdx && ctx != null;
+    if (realized) {
+      Scrollable.ensureVisible(
+        ctx!,
+        alignment: 0.3,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      ).whenComplete(_releaseProgrammatic);
+      return;
+    }
+    if (iter >= 14) {
+      // Converged as far as the realized-window feedback allows. Guarantee the
+      // card lands rather than leaving the viewport off-target.
       if (ctx != null) {
         Scrollable.ensureVisible(
           ctx,
           alignment: 0.3,
-          duration: const Duration(milliseconds: 220),
+          duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         ).whenComplete(_releaseProgrammatic);
-      } else {
-        _releaseProgrammatic();
+        return;
       }
+      if (_lensedCount > 1) {
+        _scroll.jumpTo(((idx / (_lensedCount - 1)) * max).clamp(0.0, max));
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          _releaseProgrammatic();
+          return;
+        }
+        final c2 = _seekKey.currentContext;
+        if (c2 != null) {
+          Scrollable.ensureVisible(
+            c2,
+            alignment: 0.3,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          ).whenComplete(_releaseProgrammatic);
+        } else {
+          _releaseProgrammatic();
+        }
+      });
       return;
     }
-    final max = _scroll.position.maxScrollExtent;
-    final mid = ((lo + hi) / 2).clamp(0.0, max);
+    // First probe proportional (lands within ~a screen so the target usually
+    // realizes immediately); thereafter bisect using the realized window.
+    final double mid;
+    if (iter == 0 && _lensedCount > 1) {
+      mid = ((idx / (_lensedCount - 1)) * max).clamp(0.0, max);
+    } else {
+      mid = ((lo + hi) / 2).clamp(0.0, max);
+    }
     // Reset the realized-window sentinels so the post-jump layout reports
     // ONLY the new viewport. Critical: jumpTo re-runs the itemBuilder (which
     // grows the window) but NOT build() (where the reset otherwise lives), so
@@ -2173,6 +2226,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     _topBuiltSeq = 0;
     _minBuiltIdx = lensed.length;
     _maxBuiltIdx = -1;
+    _lensedCount = lensed.length;
     // Consume a pending "view in context" request: now that the lens is
     // back to All (so [lensed] == [visible]), find the row's index in the
     // unfiltered list and seek to it once this frame lays out. Convergent

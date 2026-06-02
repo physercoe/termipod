@@ -21,6 +21,7 @@ import '../../widgets/agent_journal_view.dart';
 import '../../widgets/agent_pane_view.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/insights_panel.dart';
+import '../../widgets/session_analysis_view.dart';
 import '../../widgets/session_details_sheet.dart';
 import '../../widgets/session_header.dart';
 import '../../widgets/team_switcher.dart';
@@ -1630,14 +1631,22 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
 
   String get _id => widget.agent['id']?.toString() ?? '';
   String get _handle => widget.agent['handle']?.toString() ?? '?';
-  String get _status => widget.agent['status']?.toString() ?? 'unknown';
+  // Prefer the freshly-fetched full row so a lifecycle action (stop, pause)
+  // reflected by a re-fetch flips the header/menu state without reopening.
+  String get _status =>
+      (_full?['status'] ?? widget.agent['status'] ?? 'unknown').toString();
+  // Hub session id for this agent's current session (the events' top-level
+  // session_id, not the engine session id in session.init). Resolved from the
+  // same agent_events scan as the init chip; drives the rich Insights surface.
+  String _hubSessionId = '';
   // Mode lives on the list row (P1 resolver output). Prefer the
   // freshly-fetched full row when available so a spawn that was
   // pending at open time picks up its resolved mode on first load.
   String get _mode =>
       (_full?['mode'] ?? widget.agent['mode'] ?? '').toString();
   String get _pauseState =>
-      widget.agent['pause_state']?.toString() ?? 'running';
+      (_full?['pause_state'] ?? widget.agent['pause_state'] ?? 'running')
+          .toString();
   bool get _isPaused => _pauseState == 'paused';
   bool get _isDead =>
       _status == 'terminated' ||
@@ -1675,6 +1684,14 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     try {
       final events = await client.listAgentEvents(_id, tail: true, limit: 200);
       if (!mounted) return;
+      // The newest event's top-level session_id is the agent's current hub
+      // session — the key the rich Insights surface (digest + turns) needs.
+      if (events.isNotEmpty) {
+        final sid = (events.first['session_id'] ?? '').toString();
+        if (sid.isNotEmpty && sid != _hubSessionId) {
+          setState(() => _hubSessionId = sid);
+        }
+      }
       for (final e in events.reversed) {
         if ((e['kind'] ?? '').toString() != 'session.init') continue;
         final p = e['payload'];
@@ -1853,6 +1870,64 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     if (mounted) Navigator.pop(context);
   }
 
+  // Stop = the RESUMABLE halt: kills the worker but pauses the session, so it
+  // can be brought back with Resume (the counterpart of terminate=archive).
+  Future<void> _stop() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Stop "$_handle"?'),
+        content: const Text(
+            'Halts this worker: the host-runner kills the pane (dirty '
+            'worktrees are preserved) and the session is PAUSED — resumable '
+            'later from where it left off. To end it permanently instead, use '
+            'Terminate.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Stop')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final done = await _guard(() async {
+      await client.stopAgent(_id);
+      return true;
+    });
+    if (done != true || !mounted) return;
+    // Keep the sheet open and re-fetch so it flips to the dead/paused state
+    // with a Resume action one tap away.
+    await _loadFull();
+    await ref.read(hubProvider.notifier).refreshAll();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Stopped — session paused (resumable)')));
+    }
+  }
+
+  // Resume = the inverse of Stop: respawn the agent's paused session (reusing
+  // its worktree + spec + engine session id) so the conversation continues.
+  Future<void> _resumeSession() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    // _guard surfaces a 409 ("no paused session …" — e.g. the agent was
+    // terminated, not stopped) in the sheet's error banner.
+    final out = await _guard(() => client.resumeAgentSession(_id));
+    if (out == null || !mounted) return;
+    await ref.read(hubProvider.notifier).refreshAll();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Session resumed')));
+    // The paused session is now driven by a freshly spawned agent; this sheet
+    // tracked the old (dead) one, so close it.
+    Navigator.pop(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -1920,6 +1995,8 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                 canRespawn: _specYaml.isNotEmpty,
                 onConfig: () => showAgentConfigSheet(context, agentId: _id),
                 onPauseResume: _pauseOrResume,
+                onStop: _stop,
+                onResumeSession: _resumeSession,
                 onTerminate: _terminate,
                 onArchive: _archive,
                 onRespawn: _respawn,
@@ -1956,16 +2033,25 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                   AgentPaneView(agentId: _id),
                   // --- Journal (shared AgentJournalView).
                   AgentJournalView(agentId: _id),
-                  // --- Insights (Phase 2 W4): per-agent Tier-1 tiles.
-                  // Embed the panel rather than pushing the fullscreen
-                  // view so the user keeps the lifecycle controls one
-                  // switch away.
-                  ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                    children: [
-                      InsightsPanel(scope: InsightsScope.agent(_id)),
-                    ],
-                  ),
+                  // --- Insights (agent-run-analysis-mode): the rich analysis
+                  // surface — run-report dashboard (digest) over the navigable
+                  // transcript — same as the team SessionChatScreen Insights
+                  // tab (closes the project-agent parity gap, incl. terminated
+                  // agents whose finished run is exactly what you want to
+                  // review). Needs the hub session id; until it resolves (or if
+                  // the agent has no session yet) fall back to the Tier-1 tiles.
+                  _hubSessionId.isNotEmpty
+                      ? SessionAnalysisView(
+                          agentId: _id,
+                          sessionId: _hubSessionId,
+                          live: !_isDead,
+                        )
+                      : ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                          children: [
+                            InsightsPanel(scope: InsightsScope.agent(_id)),
+                          ],
+                        ),
                         ],
                       ),
                     ),
@@ -1991,6 +2077,8 @@ class _ActionsMenu extends StatelessWidget {
   final bool canRespawn;
   final VoidCallback onConfig;
   final VoidCallback onPauseResume;
+  final VoidCallback onStop;
+  final VoidCallback onResumeSession;
   final VoidCallback onTerminate;
   final VoidCallback onArchive;
   final VoidCallback onRespawn;
@@ -2003,6 +2091,8 @@ class _ActionsMenu extends StatelessWidget {
     required this.canRespawn,
     required this.onConfig,
     required this.onPauseResume,
+    required this.onStop,
+    required this.onResumeSession,
     required this.onTerminate,
     required this.onArchive,
     required this.onRespawn,
@@ -2019,6 +2109,10 @@ class _ActionsMenu extends StatelessWidget {
             onConfig();
           case 'pause_resume':
             onPauseResume();
+          case 'stop':
+            onStop();
+          case 'resume_session':
+            onResumeSession();
           case 'terminate':
             onTerminate();
           case 'archive':
@@ -2048,6 +2142,21 @@ class _ActionsMenu extends StatelessWidget {
               dense: true,
             ),
           ),
+        // Resume the paused session a Stop left behind (continue, not fresh).
+        // Offered for any dead agent; the hub 409s with a clear message if the
+        // session was archived by Terminate rather than paused by Stop.
+        if (isDead)
+          const PopupMenuItem(
+            value: 'resume_session',
+            child: ListTile(
+              leading: Icon(Icons.play_circle_outline,
+                  color: DesignColors.success),
+              title: Text('Resume session'),
+              subtitle: Text('Continue the paused session (keeps history)'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
         if (canRespawn)
           const PopupMenuItem(
             value: 'respawn',
@@ -2055,6 +2164,19 @@ class _ActionsMenu extends StatelessWidget {
               leading: Icon(Icons.replay),
               title: Text('Respawn'),
               subtitle: Text('Spawn a new agent from the same spec'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+        // Stop = resumable halt (session paused). Sits above Terminate so the
+        // recoverable option is the default reach; both kill the live pane.
+        if (!isDead)
+          const PopupMenuItem(
+            value: 'stop',
+            child: ListTile(
+              leading: Icon(Icons.pause_circle_outline),
+              title: Text('Stop'),
+              subtitle: Text('Halt; session paused (resumable)'),
               contentPadding: EdgeInsets.zero,
               dense: true,
             ),

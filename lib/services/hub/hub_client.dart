@@ -763,6 +763,9 @@ class HubClient {
   Future<void> terminateAgent(String agentId) =>
       agents.terminateAgent(agentId);
 
+  Future<Map<String, dynamic>> resumeAgentSession(String agentId) =>
+      agents.resumeAgentSession(agentId);
+
   Future<void> renameAgent(String agentId, String newHandle) =>
       agents.renameAgent(agentId, newHandle);
 

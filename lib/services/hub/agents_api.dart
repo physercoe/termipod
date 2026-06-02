@@ -226,6 +226,20 @@ class AgentsApi {
         const <String, dynamic>{});
   }
 
+  /// Resumes the paused session left behind by [stopAgent] — respawns it,
+  /// reusing the worktree + spawn spec + engine session id so the
+  /// conversation continues (the inverse of stop). Keyed by the stopped
+  /// agent's id (the hub finds its paused session). Returns the resume
+  /// result (the freshly spawned agent/session). 409 if there's no paused
+  /// session to resume (the agent is still live, or its session was
+  /// archived by [terminateAgent]).
+  Future<Map<String, dynamic>> resumeAgentSession(String agentId) async {
+    final out = await _t.post(
+        '/v1/teams/${_t.cfg.teamId}/agents/$agentId/resume-session',
+        const <String, dynamic>{});
+    return (out as Map).cast<String, dynamic>();
+  }
+
   /// Renames an agent (handle field). Used by the multi-steward UX to
   /// label stewards (research-steward, infra-steward, …). Server
   /// enforces the live-handle uniqueness — collisions surface as 409

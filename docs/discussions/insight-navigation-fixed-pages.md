@@ -311,6 +311,33 @@ stays rejected.
 
 This is the "option 1+2" the director approved to build after this doc.
 
+## 11. Device-test pass 4 — anchor-near-top reset (2026-06-02)
+
+Option 1+2 shipped (v1.0.789-alpha) hardened the offset binary-search but kept
+the **centered** window: `_resetWindowAround` fetched ≈half the page *before*
+the anchor and half *after*, so an **unloaded** anchor still landed **mid-list
+and off-screen**, and the convergence had to scroll ~half a window down to it.
+Device-testing confirmed that for context outside the loaded window the card
+**still didn't land** — the offset search over a variable-height list (agent
+cards span one line to multi-MB) can't reliably bracket a far target inside its
+iteration budget, because `maxScrollExtent` is only an extrapolated estimate.
+
+Rather than swap the list engine (`scrollable_positioned_list` would give exact
+`scrollTo(index)` but drops the `ScrollController`, forcing a rewrite of the
+load-older/newer, tail-follow, minimap, and position machinery stabilised
+across passes 1–3 — the largest regression surface, unverifiable without a
+device), the fix makes the **reset asymmetric**: fetch a small backward lead
+(`kDefaultAnchorLead = 12`) and the rest of the page *after* the anchor, so the
+target renders among the **first** rows of the fresh window. It is then
+realised at scroll offset 0 and `ensureVisible` (via the existing convergence,
+now a *small near-top* scroll where height-variance error is negligible) lands
+it directly. Scrolling up reloads older context through the normal load-older
+pager (`_maybeLoadOlder`, keyset-anchored — works in windowed mode). This keeps
+**every** piece of the stabilised machinery untouched and adds no dependency;
+the only trade-off is the anchor lands near the top, not centred. The
+`scrollable_positioned_list` swap (§7/§10) remains the documented next lever if
+even a small near-top scroll proves unreliable on-device.
+
 ## Related
 
 - [`discussions/transcript-paging-vs-forum-model.md`](transcript-paging-vs-forum-model.md)

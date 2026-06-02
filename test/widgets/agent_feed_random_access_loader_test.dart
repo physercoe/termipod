@@ -72,6 +72,41 @@ void main() {
       expect(f.calls[1].limit, 2);
     });
 
+    test('anchor-near-top split: small lead before, large remainder after', () async {
+      // At a realistic page size the split is asymmetric: a small backward lead
+      // (kDefaultAnchorLead = 12) so the anchor renders near the top of the
+      // window, and the rest of the page after it. (At tiny page sizes the lead
+      // clamps to _half, which is why the pageSize:4 tests still see 2/2.)
+      final f = fakeFetcher([
+        [for (var s = 39; s >= 28; s--) ev(s, 't$s')], // 12 older (DESC)
+        [for (var s = 40; s < 40 + 28; s++) ev(s, 't$s')], // 28 newer (ASC)
+      ]);
+      final loader = RandomAccessLoader(fetch: f.fetch, pageSize: 40);
+
+      final w = await loader.fetchAround(40, 't40');
+
+      expect(f.calls[0].limit, 12); // lead
+      expect(f.calls[1].limit, 28); // pageSize - lead
+      // Anchor (seq 40) sits at index 12 — near the top, after the 12-event lead.
+      expect(w.ascending[12]['seq'], 40);
+      expect(w.reachedHead, isFalse); // 12 == lead -> not short
+      expect(w.reachedTail, isFalse); // 28 == afterLimit -> not short
+    });
+
+    test('explicit leadBefore overrides the default lead', () async {
+      final f = fakeFetcher([
+        [ev(39, 't39'), ev(38, 't38'), ev(37, 't37')], // 3 older
+        [for (var s = 40; s < 40 + 17; s++) ev(s, 't$s')], // 17 newer
+      ]);
+      final loader =
+          RandomAccessLoader(fetch: f.fetch, pageSize: 20, leadBefore: 3);
+
+      await loader.fetchAround(40, 't40');
+
+      expect(f.calls[0].limit, 3);
+      expect(f.calls[1].limit, 17); // 20 - 3
+    });
+
     test('merges older.reversed + newer into one ascending run', () async {
       final f = fakeFetcher([
         [ev(40, 't40'), ev(30, 't30')], // older DESC

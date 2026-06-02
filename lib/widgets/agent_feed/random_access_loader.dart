@@ -71,34 +71,58 @@ class ForwardPage {
   final bool reachedTail;
 }
 
+/// Default backward lead for [RandomAccessLoader.fetchAround]: the number of
+/// events fetched *before* the anchor. Deliberately small — see [_leadBefore].
+const int kDefaultAnchorLead = 12;
+
 /// Pure `(ts, seq)` keyset loader for the random-access (Insights) window.
 /// Holds no buffer and no widget state — it only knows how to ask the fetcher
 /// for the right rows and report whether an edge was reached.
 class RandomAccessLoader {
-  RandomAccessLoader({required AgentEventsFetcher fetch, required int pageSize})
-      : _fetch = fetch,
-        _pageSize = pageSize;
+  RandomAccessLoader({
+    required AgentEventsFetcher fetch,
+    required int pageSize,
+    int leadBefore = kDefaultAnchorLead,
+  })  : _fetch = fetch,
+        _pageSize = pageSize,
+        _leadBefore = leadBefore;
 
   final AgentEventsFetcher _fetch;
   final int _pageSize;
 
-  /// A window is one [_pageSize] block split evenly across the anchor: half
-  /// before, half after.
+  /// How many events to fetch *before* the anchor. Small on purpose: the
+  /// anchor then renders among the FIRST rows of the freshly-reset window, so
+  /// it is realised at scroll offset 0 and `ensureVisible` lands it directly —
+  /// no far-scroll convergence over a variable-height list (the "structural
+  /// jump doesn't land the card in the viewport for unloaded context" class of
+  /// bug, device-test pass 4). The rest of the page loads *after* the anchor;
+  /// scrolling up reloads older context via the State's load-older pager. See
+  /// docs/discussions/insight-navigation-fixed-pages.md §10.
+  final int _leadBefore;
+
   int get _half => _pageSize ~/ 2;
 
-  /// Fetch one block *around* the anchor `(ts, seq)` — the backward half
-  /// (events strictly before the anchor key, DESC) and the forward half (the
-  /// anchor and after, ASC, anchor-inclusive via `afterSeq: seq - 1`). The two
-  /// fetches run sequentially (preserving the prior inline behaviour). Returns
-  /// the merged ascending window plus the head/tail-reached flags derived from
-  /// each half's length.
+  /// Backward lead, clamped to [`_half`] so tiny-page callers (tests) still get
+  /// a sane split rather than a zero-length forward half.
+  int get _lead => _leadBefore < _half ? _leadBefore : _half;
+
+  /// Fetch one block *around* the anchor `(ts, seq)`: a small backward lead
+  /// ([_lead] events strictly before the anchor key, DESC) and a large forward
+  /// remainder (the anchor and after, ASC, anchor-inclusive via
+  /// `afterSeq: seq - 1`), summing to [_pageSize]. The asymmetric split lands
+  /// the anchor near the top of the window. The two fetches run sequentially.
+  /// Returns the merged ascending window plus the head/tail-reached flags
+  /// derived from each half's length against what it requested.
   Future<RandomAccessWindow> fetchAround(int seq, String ts) async {
-    final older = await _fetch(beforeTs: ts, beforeSeq: seq, limit: _half);
-    final newer = await _fetch(afterTs: ts, afterSeq: seq - 1, limit: _half);
+    final lead = _lead;
+    final afterLimit = _pageSize - lead;
+    final older = await _fetch(beforeTs: ts, beforeSeq: seq, limit: lead);
+    final newer =
+        await _fetch(afterTs: ts, afterSeq: seq - 1, limit: afterLimit);
     return RandomAccessWindow(
       ascending: <Map<String, dynamic>>[...older.reversed, ...newer],
-      reachedHead: older.length < _half,
-      reachedTail: newer.length < _half,
+      reachedHead: older.length < lead,
+      reachedTail: newer.length < afterLimit,
     );
   }
 

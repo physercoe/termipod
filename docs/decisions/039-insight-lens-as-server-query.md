@@ -158,16 +158,25 @@ All view of a *live* agent still tails; **switching to a lens snapshots**.
    lands, the Errors lens *list* is bounded by the digest's error **sample**
    completeness (`runErrorSeqs`); the *count* stays whole-run (`error_count`).
    Acceptable for MVP; P3 closes it.
-2. **Whole-run `M` for Text (and tool-results).** The digest carries
-   `turn_count`, `error_count`, `tool_total`, `tool_failed`
-   (`digest_store.go:37–39`) — so Turns / Errors / Tools get a stable,
-   monotonic `N/M` denominator — but **no text/message count**. The Text lens
-   therefore cannot show a whole-run `M` from the digest. Options: (a) add a
-   per-kind count (e.g. `text_count`) to the digest fold; (b) accept a
-   loaded-lens-window `M` for Text (non-monotonic as you page — the very
-   complaint we're removing elsewhere); (c) a cheap server `COUNT` for the
-   sealed range only (immutable → cacheable). **Decision needed before P1
-   ships the Text lens.**
+2. **Whole-run `M` for Text — deferred (the "add a count" default did not
+   hold).** The digest carries `turn_count`, `error_count`, `tool_total`,
+   `tool_failed` (`digest_store.go:37–39`) — so Turns / Errors / Tools get a
+   stable, monotonic `N/M` — but **no text/message count**, and adding one is
+   **not** the one-line fold first assumed: streaming `text` partials are
+   **persisted as separate rows** (`driver_exec_resume.go:512–523`,
+   `driver_appserver.go:1810–1811`), and the mobile Text lens collapses them
+   by `(kind, message_id)` (`collapseStreamingPartials`). So a raw count
+   over-counts every chunk; a "non-partial only" count reads **zero** for
+   engines that emit partial-only chains (gemini exec-resume emits no terminal
+   `partial:false`); and a collapse-accurate count needs per-`message_id`
+   dedup state the **incremental** folder cannot carry without breaking the
+   `incremental == brute` invariant (`digest_fold_test.go`). **MVP decision:**
+   Errors / Turns / Tools use the exact digest `M`; **Text uses a loaded-lens-
+   window `M`** (mildly non-monotonic for that one lens — acceptable; it is the
+   least analysis-critical). **Follow-on for exact Text `M`:** a persisted
+   per-`message_id` chain field (e.g. `last_text_msg_id` so the fold counts a
+   new chain incrementally) + a `schema_version` bump to refold existing
+   digests — tracked, not in P1.
 3. **Multi-agent `(ts, seq)` keyset stability.** The session-scoped keyset
    branches order by `ts ASC|DESC, seq` with **no `agent_id` tiebreak**
    (`handlers_agent_events.go:296,300`), whereas the non-keyset session

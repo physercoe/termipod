@@ -62,9 +62,11 @@ The lenses whose predicate is a `kind` set; no hub change.
 - In `AgentFeed`, when `randomAccess && lens != All`, render from a **per-lens
   buffer** fed by that loader instead of `_events.where(...)`. The All view and
   the live Feed keep `_events`.
-- Funnel `N/M` + the unified stepper read the lens buffer's index; whole-run
-  count stays the digest total (already wired). Lens entry lands on the newest
-  match by default; load-older pages the lens, never the mixed window.
+- Funnel `N/M` + the unified stepper read the lens buffer's index. Whole-run
+  `M`: Turns / Errors / Tools use the exact digest total (already wired); **Text
+  uses a loaded-lens-window `M`** for MVP (no digest text count — ADR-039 open
+  question 2; exact Text `M` is a tracked follow-on). Lens entry lands on the
+  newest match by default; load-older pages the lens, never the mixed window.
 - Verify the kind sets against `agentEventMatchesLens`
   (`feed_reducer.dart`) so the server query ≡ the old client predicate
   (Text = `text`,`thought`; Tools = `tool_call`,`tool_result`; Turns =

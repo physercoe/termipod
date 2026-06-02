@@ -2341,7 +2341,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   left: 0,
                   right: 0,
                   child: IgnorePointer(
-                    child: Center(child: _FeedPositionPill(pos: _logPosition()!)),
+                    child: Center(child: FeedPositionPill(pos: _logPosition()!)),
                   ),
                 ),
               // Right-edge minimap (full-screen only): a tick per tool call
@@ -2594,38 +2594,5 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
   }
 
-}
-
-/// Plan P2 — the monotonic "event N / M" position chip floating over the
-/// full-screen log. Low-emphasis (it's an indicator, not a control) and
-/// wrapped in an IgnorePointer by the caller, so it never competes with the
-/// funnel/minimap for a tap.
-class _FeedPositionPill extends StatelessWidget {
-  final ({int n, int m}) pos;
-  const _FeedPositionPill({required this.pos});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final muted =
-        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
-    final border =
-        isDark ? DesignColors.borderDark : DesignColors.borderLight;
-    return Material(
-      color: bg.withValues(alpha: 0.88),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: border),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        child: Text(
-          'event ${pos.n} / ${pos.m}',
-          style: GoogleFonts.robotoMono(fontSize: 10, color: muted),
-        ),
-      ),
-    );
-  }
 }
 

@@ -747,3 +747,38 @@ class TurnStepperPill extends StatelessWidget {
     );
   }
 }
+
+/// Plan P2 (agent-run-analysis-mode) — the monotonic "event N / M" position
+/// chip floating over the full-screen analysis log. Low-emphasis (it's an
+/// indicator, not a control) and wrapped in an IgnorePointer by the caller, so
+/// it never competes with the funnel/minimap for a tap. Analysis-only chrome:
+/// AgentFeed renders it solely when a digest total was supplied (the Insights
+/// surface); the live-tail Feed never does.
+class FeedPositionPill extends StatelessWidget {
+  final ({int n, int m}) pos;
+  const FeedPositionPill({super.key, required this.pos});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    return Material(
+      color: bg.withValues(alpha: 0.88),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        child: Text(
+          'event ${pos.n} / ${pos.m}',
+          style: GoogleFonts.robotoMono(fontSize: 10, color: muted),
+        ),
+      ),
+    );
+  }
+}

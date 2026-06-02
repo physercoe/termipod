@@ -154,10 +154,14 @@ All view of a *live* agent still tails; **switching to a lens snapshots**.
 
 ## Open questions
 
-1. **Errors list fidelity (MVP cap).** Until the P3 server `error=true` keyset
-   lands, the Errors lens *list* is bounded by the digest's error **sample**
-   completeness (`runErrorSeqs`); the *count* stays whole-run (`error_count`).
-   Acceptable for MVP; P3 closes it.
+1. **Errors list fidelity (MVP cap).** ~~Until the P3 server `error=true`
+   keyset lands~~ — **the server keyset shipped (P3a):** `GET …/events?error=true`
+   scans candidate-kind rows and filters with the same `canonicalErrorClass`
+   the digest uses (no divergence), so a complete error list is available
+   server-side at any depth. The *mobile* Errors lens still reads the digest
+   samples (whole-run up to the 200 cap — covers real runs); rewiring it to
+   page the server keyset (P3b) lifts the UI cap entirely and is the only
+   remaining gap. The *count* is always exact (`error_count`).
 2. **Whole-run `M` for Text — deferred (the "add a count" default did not
    hold).** The digest carries `turn_count`, `error_count`, `tool_total`,
    `tool_failed` (`digest_store.go:37–39`) — so Turns / Errors / Tools get a

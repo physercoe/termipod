@@ -278,6 +278,18 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 		limit = 1000
 	}
 
+	// error=true (ADR-039 P3) — the canonical error events of this scope,
+	// keyset-paged. Errors are a *derived* predicate (not a kind), so we scan
+	// candidate-kind rows and filter with the SAME canonicalErrorClass the
+	// digest fold uses (no SQL/Go divergence). Lifts the digest's per-class
+	// sample cap so the mobile Errors lens can list EVERY error.
+	if r.URL.Query().Get("error") == "true" {
+		s.respondErrorEvents(w, r, sessionFilter, agent,
+			beforeTS, beforeSeq, haveBeforeSeq,
+			afterTS, afterSeq, haveAfterSeq, limit)
+		return
+	}
+
 	// Build the cursor clause per branch, then append the optional kind
 	// filter and the limit uniformly.
 	const cols = `id, agent_id, seq, ts, kind, producer, payload_json, session_id`
@@ -369,6 +381,106 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 		evt.Payload = json.RawMessage(payload)
 		evt.SessionID = sessionID.String
 		out = append(out, evt)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// errorCandidateKinds are the only kinds canonicalErrorClass can classify as an
+// error. Scanning just these (then applying the SAME predicate the digest fold
+// uses) yields the canonical error list with no SQL/Go divergence — the exact
+// "disjoint error definitions" pitfall ADR-038 warns about.
+var errorCandidateKinds = []string{
+	"error", "tool_result", "tool_call_update", "turn.result",
+}
+
+// respondErrorEvents serves GET …/events?error=true (ADR-039 P3): the scope's
+// canonical error events, keyset-paged. "Error" is a derived predicate, not a
+// kind, so this scans candidate-kind rows over the (ts, seq) keyset in batches
+// and filters each with canonicalErrorClass — reusing the digest's classifier
+// rather than reimplementing it in SQL. Errors are sparse, hence the
+// scan-in-batches loop until `limit` errors are collected or the scan is
+// exhausted. The client pages with the oldest (before_ts/seq) or newest
+// (after_ts/seq) returned error, matching the events endpoint's cursor shape.
+func (s *Server) respondErrorEvents(w http.ResponseWriter, r *http.Request,
+	session, agent, beforeTS string, beforeSeq int64, haveBeforeSeq bool,
+	afterTS string, afterSeq int64, haveAfterSeq bool, limit int) {
+	const cols = `id, agent_id, seq, ts, kind, producer, payload_json, session_id`
+	const scanBatch = 500
+	sessionScoped := session != ""
+	ascending := haveAfterSeq && afterTS != ""
+
+	// Running keyset cursor; advances past the last *scanned* (not just
+	// matched) row so a sparse batch doesn't re-scan.
+	curTS, curSeq, haveCur := beforeTS, beforeSeq, haveBeforeSeq
+	if ascending {
+		curTS, curSeq, haveCur = afterTS, afterSeq, haveAfterSeq
+	}
+	kindPH := strings.TrimSuffix(strings.Repeat("?,", len(errorCandidateKinds)), ",")
+
+	out := []agentEventOut{}
+	for len(out) < limit {
+		where := "agent_id = ?"
+		args := []any{agent}
+		if sessionScoped {
+			where = "session_id = ?"
+			args = []any{session}
+		}
+		if haveCur {
+			if ascending {
+				where += " AND (ts > ? OR (ts = ? AND seq > ?))"
+			} else {
+				where += " AND (ts < ? OR (ts = ? AND seq < ?))"
+			}
+			args = append(args, curTS, curTS, curSeq)
+		}
+		where += " AND kind IN (" + kindPH + ")"
+		for _, k := range errorCandidateKinds {
+			args = append(args, k)
+		}
+		order := "ts DESC, seq DESC"
+		if ascending {
+			order = "ts ASC, seq ASC"
+		}
+		args = append(args, scanBatch)
+		q := "SELECT " + cols + " FROM agent_events WHERE " + where +
+			" ORDER BY " + order + " LIMIT ?"
+		rows, err := s.db.QueryContext(r.Context(), q, args...)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		scanned := 0
+		for rows.Next() {
+			var evt agentEventOut
+			var payload string
+			var sid sql.NullString
+			if err := rows.Scan(&evt.ID, &evt.AgentID, &evt.Seq, &evt.TS,
+				&evt.Kind, &evt.Producer, &payload, &sid); err != nil {
+				rows.Close()
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			scanned++
+			curTS, curSeq, haveCur = evt.TS, evt.Seq, true
+			var p map[string]any
+			_ = json.Unmarshal([]byte(payload), &p)
+			if _, isErr := canonicalErrorClass(foldEvent{
+				Seq: evt.Seq, Kind: evt.Kind, TS: evt.TS,
+				Producer: evt.Producer, Payload: p,
+			}); !isErr {
+				continue
+			}
+			evt.Payload = json.RawMessage(payload)
+			evt.SessionID = sid.String
+			out = append(out, evt)
+			if len(out) >= limit {
+				break
+			}
+		}
+		rows.Close()
+		if len(out) >= limit || scanned < scanBatch {
+			break // collected enough, or the candidate scan is exhausted
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

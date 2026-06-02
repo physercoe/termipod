@@ -87,12 +87,15 @@ The lenses whose predicate is a `kind` set; no hub change.
 - **Device-test gate:** Errors lens lists the run's errors and pages them;
   minimap tap lands the exact landmark card in the viewport.
 
-### P3 (follow-on, optional) — full-fidelity Errors keyset + monotonic minimap
+### P3 (follow-on) — full-fidelity Errors keyset + monotonic minimap
 
-- **Server `error=true` keyset** on `GET …/events`: a WHERE clause reusing the
-  canonical error union in `digest_fold.go` (failed `tool_call_update` ∪ failed
-  `turn.result`) so the Errors lens lists **every** error, not just digest
-  samples. Go-testable; closes the ADR-039 open question.
+- **Server `error=true` keyset** on `GET …/events` — **SHIPPED (P3a).** Scans
+  candidate-kind rows in (ts,seq)-keyset batches and filters each with the same
+  `canonicalErrorClass` the digest fold uses (no SQL/Go divergence), so the
+  endpoint lists **every** error at any depth. Go-tested
+  (`handlers_agent_events_errors_test.go`). **Remaining (P3b):** rewire the
+  mobile Errors lens to page this endpoint instead of the digest samples,
+  lifting the 200-cap in the UI.
 - **Monotonic minimap tick position + drag-scrub** via the dense per-session
   ordinal / time-scale (`transcript-paging` §§4–5). Separable; only if device
   testing shows the overview scrubber still wants exact positioning.

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -201,6 +202,44 @@ func TestDigestErrorSampleTS(t *testing.T) {
 	if len(got.SampleTSs) != 1 || got.SampleTSs[0] != "2026-06-02T00:00:05Z" {
 		t.Errorf("errors[error].sample_ts = %v, want [2026-06-02T00:00:05Z]",
 			got.SampleTSs)
+	}
+}
+
+// TestDigestErrorSeqsWholeRun pins ADR-039: the error seq list is NOT capped at
+// the 25 tool-sample cap — it keeps the whole run's errors (up to
+// maxDigestErrorSeqs) so the mobile Errors lens can render the complete,
+// navigable error list. error_count stays the exact total regardless.
+func TestDigestErrorSeqsWholeRun(t *testing.T) {
+	const n = 40 // > maxDigestSampleSeqs (25), < maxDigestErrorSeqs (200)
+	events := make([]foldEvent, 0, n)
+	for i := 1; i <= n; i++ {
+		events = append(events, foldEvent{
+			Seq: int64(i), Kind: "tool_result",
+			TS:       fmt.Sprintf("2026-06-02T00:%02d:00Z", i),
+			Producer: "agent",
+			Payload:  map[string]any{"is_error": true, "tool_use_id": fmt.Sprintf("t%d", i)},
+		})
+	}
+	d, _ := computeAgentDigest("a", "t", events)
+
+	if d.SchemaVersion != digestSchemaVersion {
+		t.Errorf("schema_version = %d, want %d", d.SchemaVersion, digestSchemaVersion)
+	}
+	if d.ErrorCount != n {
+		t.Errorf("error_count = %d, want %d", d.ErrorCount, n)
+	}
+	agg := d.Errors["tool_error"]
+	if agg == nil {
+		t.Fatalf("missing tool_error class; classes=%v", d.Errors)
+	}
+	// The whole run's error seqs are kept (was capped at 25 before ADR-039).
+	if len(agg.SampleSeqs) != n {
+		t.Errorf("tool_error sample_seqs len = %d, want %d (whole run, not 25-capped)",
+			len(agg.SampleSeqs), n)
+	}
+	if len(agg.SampleTSs) != len(agg.SampleSeqs) {
+		t.Errorf("sample_ts len %d != sample_seqs len %d",
+			len(agg.SampleTSs), len(agg.SampleSeqs))
 	}
 }
 

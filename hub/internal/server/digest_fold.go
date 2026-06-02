@@ -21,11 +21,23 @@ import (
 // a brute-force scan at every watermark by construction.
 
 const (
-	digestSchemaVersion = 1
-	// Cap the per-class / per-tool sample-seq lists so a pathological run
-	// can't bloat the JSON blobs. The samples are navigation anchors, not a
-	// complete index (agent_turns + the kind-filtered listing are that).
+	// Bumped to 2 in the lens-as-query work (ADR-039): errors now keep a much
+	// larger seq list (maxDigestErrorSeqs) so the mobile Errors lens can render
+	// the *whole-run* error list, not a 25-cap sample. The bump makes
+	// ensureAgentDigest refold already-sealed digests so they pick up the
+	// fuller list (see digestIsStale's caller).
+	digestSchemaVersion = 2
+	// Cap the per-tool sample-seq lists so a pathological run can't bloat the
+	// JSON blob. Tool samples are navigation anchors, not a complete index
+	// (agent_turns + the kind-filtered listing are that).
 	maxDigestSampleSeqs = 25
+	// Errors get a far larger cap: they are the analysis-critical lens and are
+	// bounded in practice (a run has dozens, rarely hundreds, of errors), so we
+	// keep the whole list to back the Insight Errors lens as a complete,
+	// navigable list (ADR-039). Still capped so a degenerate error-storm run
+	// can't unbound the errors_json blob; ~200 ints + ts strings/class is a few
+	// KiB. error_count remains the exact whole-run total regardless of the cap.
+	maxDigestErrorSeqs = 200
 )
 
 // latencyBoundsMs are the fixed log-scale (≈×2.5, OTel-exponential-aligned)
@@ -545,10 +557,12 @@ func addSample(dst *[]int64, seq int64) {
 }
 
 // addSampleTS appends a (seq, ts) sample keeping the two slices aligned 1:1.
-// Capped at maxDigestSampleSeqs like addSample; a missing ts is appended as ""
-// so the indices never drift.
+// Used only by the error path (recordError + the session error-class merge),
+// so it caps at maxDigestErrorSeqs — the Errors lens wants the whole-run list,
+// not a 25-cap sample. A missing ts is appended as "" so the indices never
+// drift.
 func addSampleTS(seqs *[]int64, tss *[]string, seq int64, ts string) {
-	if len(*seqs) >= maxDigestSampleSeqs {
+	if len(*seqs) >= maxDigestErrorSeqs {
 		return
 	}
 	*seqs = append(*seqs, seq)

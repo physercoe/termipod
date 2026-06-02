@@ -324,10 +324,14 @@ func ensureAgentDigest(ctx context.Context, db *sql.DB, agentID, teamID string) 
 	if err != nil {
 		return nil, err
 	}
-	if ok && !digestIsStale(ctx, db, agentID, d.WatermarkSeq) {
+	// Refold when the persisted digest predates the current schema (e.g. the
+	// ADR-039 bump that widened the error seq list) so already-sealed agents
+	// pick up the new shape, not only when the watermark lags the log.
+	if ok && d.SchemaVersion >= digestSchemaVersion &&
+		!digestIsStale(ctx, db, agentID, d.WatermarkSeq) {
 		return d, nil
 	}
-	// Missing, or a best-effort fold lagged behind the log — (re)compute.
+	// Missing, stale, or an older schema — (re)compute.
 	return backfillAgentDigest(ctx, db, agentID, teamID)
 }
 

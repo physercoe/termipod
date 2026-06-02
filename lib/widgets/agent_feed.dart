@@ -2500,15 +2500,23 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   onSelectLens: _setLens,
                   counts: widget.dense ? null : lensCounts,
                   // Prev = older (one step up the lensed list); next =
-                  // newer (one step down). matchIndex is 1-based.
+                  // newer (one step down). matchIndex is 1-based. matchSeqs
+                  // is built 1:1 from the lensed list, so its index IS the
+                  // lensed-list index — land via the height-agnostic
+                  // convergent seek ([_seekToLoadedIndex]) rather than
+                  // [_seekToSeq]'s lone ensureVisible, which silently no-ops
+                  // when the match row isn't currently realised (the common
+                  // case for a far jump in the full-screen transcript).
                   onPrev: () {
                     if (matchIndex > 1) {
-                      _seekToSeq(matchSeqs[matchIndex - 2]);
+                      final i = matchIndex - 2;
+                      _seekToLoadedIndex(i, matchSeqs[i]);
                     }
                   },
                   onNext: () {
                     if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
-                      _seekToSeq(matchSeqs[matchIndex]);
+                      final i = matchIndex;
+                      _seekToLoadedIndex(i, matchSeqs[i]);
                     }
                   },
                 ),

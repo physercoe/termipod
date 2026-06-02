@@ -82,6 +82,27 @@ func TestListAgentEvents_CompoundKeysetWindow(t *testing.T) {
 	}
 }
 
+// The list endpoint must echo each event's session_id at the top level —
+// mobile resolves an agent's run session from the newest event's session_id
+// to anchor the Insights analysis surface (digest + turns). Without it the
+// archived-agent screen and project-agent sheet silently drop the Insights
+// tab. Regression guard for that footgun.
+func TestListAgentEvents_ReturnsSessionID(t *testing.T) {
+	c := newE2E(t)
+	agentID, sessionID := seedVectorRun(t, c)
+	rows := getEventRows(t, c, fmt.Sprintf(
+		"/v1/teams/%s/agents/%s/events?tail=1&limit=5",
+		defaultTeamID, agentID))
+	if len(rows) == 0 {
+		t.Fatalf("expected at least one event for the seeded run")
+	}
+	for _, r := range rows {
+		if got, _ := r["session_id"].(string); got != sessionID {
+			t.Fatalf("event session_id = %q, want %q (row=%v)", got, sessionID, r)
+		}
+	}
+}
+
 func seqSet(rows []map[string]any) []int {
 	out := make([]int, 0, len(rows))
 	for _, r := range rows {

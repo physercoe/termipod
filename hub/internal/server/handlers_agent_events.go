@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -30,6 +31,11 @@ type agentEventOut struct {
 	Kind     string          `json:"kind"`
 	Producer string          `json:"producer"`
 	Payload  json.RawMessage `json:"payload"`
+	// SessionID is the hub session this event belongs to. Mobile resolves
+	// an agent's run session from the newest event's session_id to anchor
+	// the Insights analysis surface (digest + turns), so the list endpoint
+	// must echo it — the single-event POST response already does.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 func validAgentEventProducer(p string) bool {
@@ -274,7 +280,7 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Build the cursor clause per branch, then append the optional kind
 	// filter and the limit uniformly.
-	const cols = `id, agent_id, seq, ts, kind, producer, payload_json`
+	const cols = `id, agent_id, seq, ts, kind, producer, payload_json, session_id`
 	var (
 		where string
 		order string
@@ -350,14 +356,18 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var evt agentEventOut
 		var payload string
+		// session_id is nullable for legacy rows written before the column
+		// existed; scan through NullString so those don't error the whole list.
+		var sessionID sql.NullString
 		if err := rows.Scan(
 			&evt.ID, &evt.AgentID, &evt.Seq, &evt.TS, &evt.Kind,
-			&evt.Producer, &payload,
+			&evt.Producer, &payload, &sessionID,
 		); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		evt.Payload = json.RawMessage(payload)
+		evt.SessionID = sessionID.String
 		out = append(out, evt)
 	}
 	writeJSON(w, http.StatusOK, out)

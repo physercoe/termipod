@@ -1547,6 +1547,19 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (_programmaticScrollDepth > 0) _programmaticScrollDepth--;
   }
 
+  /// The whole-run anchor list backing a lens's funnel in Insight mode — the
+  /// digest's turn starts / error samples (sorted to run order). Null for the
+  /// lenses with no whole-run index (text / tools / all). Mirrors the
+  /// `funnelUsesRunList` selection in build.
+  List<int>? _runAnchorListFor(FeedLens lens) {
+    if (!_runAnchorMode) return null;
+    final raw = lens == FeedLens.turns
+        ? widget.runTurnSeqs
+        : (lens == FeedLens.errors ? widget.runErrorSeqs : null);
+    if (raw == null || raw.isEmpty) return null;
+    return [...raw]..sort();
+  }
+
   /// Switch the active lens. Resets the seek anchor; for a non-`all`
   /// lens, pins to the tail so the user lands on the most recent match
   /// (the newest error is usually what you're debugging).
@@ -1559,6 +1572,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       _funnelRunIdx = null;
       if (lens != FeedLens.all) _followTail = true;
     });
+    // ADR-039 P1b — a run-anchor lens (turns / errors) in Insight mode jumps to
+    // its NEWEST match on entry. Without this the filtered view is empty
+    // whenever no match sits in the loaded tail window — and an empty list has
+    // no scroll extent, so "scroll up to load older" can never fire (the
+    // "Errors lens is blank and won't load" bug). The jump random-access-resets
+    // the window around the newest anchor (reachable at any depth), so the
+    // list shows that match and the funnel/stepper walk older from there.
+    final runList = _runAnchorListFor(lens);
+    if (runList != null) {
+      _funnelRunJump(runList.length - 1, runList.last);
+      return;
+    }
     if (lens != FeedLens.all) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _scrollToTail();

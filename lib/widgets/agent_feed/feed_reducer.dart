@@ -1183,6 +1183,30 @@ bool agentEventMatchesLens(
   }
 }
 
+/// The event `kind` set a lens narrows to — the server-side `kind=` query the
+/// Insight "lens as a keyset query" pages (ADR-039). Returns `null` for the
+/// lenses that are NOT a simple kind set: `all` (everything) and `errors` (a
+/// derived predicate — failed tool_call/turn.result, not a kind). Callers fall
+/// back to the loaded-window client filter for those. The returned set is a
+/// SUPERSET of the rendered lens for `turns` (it can't encode the
+/// background-task `system` exclusion in [agentEventMatchesLens]), so a buffer
+/// fed by this set must still pass each row through [agentEventMatchesLens].
+/// Single source of truth: the same `_kFeedLens*Kinds` constants the predicate
+/// uses.
+Set<String>? feedLensKinds(FeedLens lens) {
+  switch (lens) {
+    case FeedLens.text:
+      return _kFeedLensTextKinds;
+    case FeedLens.turns:
+      return _kFeedLensTurnKinds;
+    case FeedLens.tools:
+      return _kFeedLensToolKinds;
+    case FeedLens.all:
+    case FeedLens.errors:
+      return null;
+  }
+}
+
 /// True when a `usage` payload carries cumulative session totals
 /// (codex's thread/tokenUsage/updated). Accepts a real bool or the
 /// string "true" — the frame-profile evaluator only emits strings.

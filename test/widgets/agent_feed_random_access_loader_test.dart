@@ -183,4 +183,46 @@ void main() {
       expect(p.reachedTail, isTrue);
     });
   });
+
+  group('RandomAccessLoader.fetchOlder', () {
+    test('pages with before=(oldestTs,oldestSeq) at full pageSize, reversed to '
+        'ascending', () async {
+      // Server returns DESC for a `before` cursor.
+      final f = fakeFetcher([
+        [ev(50, 't50'), ev(40, 't40')],
+      ]);
+      final loader = RandomAccessLoader(fetch: f.fetch, pageSize: 4);
+
+      final p = await loader.fetchOlder('t60', 60);
+
+      expect(f.calls.single.beforeTs, 't60');
+      expect(f.calls.single.beforeSeq, 60);
+      expect(f.calls.single.afterTs, isNull);
+      expect(f.calls.single.limit, 4); // full page, not half
+      // Reversed DESC -> ascending for the buffer.
+      expect(p.ascending.map((e) => e['seq']), [40, 50]);
+    });
+
+    test('full page -> not yet at head', () async {
+      final f = fakeFetcher([
+        [ev(50, 't50'), ev(40, 't40'), ev(30, 't30'), ev(20, 't20')],
+      ]);
+      final loader = RandomAccessLoader(fetch: f.fetch, pageSize: 4);
+
+      final p = await loader.fetchOlder('t60', 60);
+
+      expect(p.reachedHead, isFalse);
+    });
+
+    test('short page -> reached the start of the range', () async {
+      final f = fakeFetcher([
+        [ev(50, 't50')],
+      ]);
+      final loader = RandomAccessLoader(fetch: f.fetch, pageSize: 4);
+
+      final p = await loader.fetchOlder('t60', 60);
+
+      expect(p.reachedHead, isTrue);
+    });
+  });
 }

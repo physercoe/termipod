@@ -421,6 +421,7 @@ class AgentsApi {
     bool tail = false,
     int? limit,
     String? sessionId,
+    List<String>? kinds,
   }) {
     final q = <String, String>{};
     // Cursor precedence on the server is after_ts > before_ts > before > tail
@@ -449,6 +450,12 @@ class AgentsApi {
     }
     if (limit != null) q['limit'] = '$limit';
     if (sessionId != null && sessionId.isNotEmpty) q['session'] = sessionId;
+    // kind=<a,b,c> filters server-side to a set of event kinds (ADR-038 §5,
+    // ADR-039) — the substrate for the Insight "lens as a keyset query": the
+    // Text/Tools/Turns lens pages its own kind set instead of client-filtering
+    // a mixed live-tail window. Paired with the (ts,seq) keyset above so a
+    // lens list stays a clean keyset scan.
+    if (kinds != null && kinds.isNotEmpty) q['kind'] = kinds.join(',');
     return _t.listJson(
       '/v1/teams/${_t.cfg.teamId}/agents/$agentId/events',
       query: q.isEmpty ? null : q,

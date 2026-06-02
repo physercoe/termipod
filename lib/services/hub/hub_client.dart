@@ -863,6 +863,7 @@ class HubClient {
     bool tail = false,
     int? limit,
     String? sessionId,
+    List<String>? kinds,
   }) =>
       agents.listAgentEvents(
         agentId,
@@ -875,6 +876,7 @@ class HubClient {
         tail: tail,
         limit: limit,
         sessionId: sessionId,
+        kinds: kinds,
       );
 
   Future<CachedResponse<List<Map<String, dynamic>>>> listAgentEventsCached(

@@ -71,6 +71,21 @@ class ForwardPage {
   final bool reachedTail;
 }
 
+/// Result of [RandomAccessLoader.fetchOlder]: the next backward page already
+/// reversed to ascending order (the buffer's order), plus whether it came back
+/// short — i.e. the list now reaches the start of the (kind-filtered) range.
+class BackwardPage {
+  const BackwardPage({required this.ascending, required this.reachedHead});
+
+  /// The fetched page, reversed from the server's DESC to ascending. The
+  /// caller dedupes + prepends.
+  final List<Map<String, dynamic>> ascending;
+
+  /// The page came back short → there is nothing older left; the list reaches
+  /// the start of its range.
+  final bool reachedHead;
+}
+
 /// Default backward lead for [RandomAccessLoader.fetchAround]: the number of
 /// events fetched *before* the anchor. Deliberately small — see [_leadBefore].
 const int kDefaultAnchorLead = 12;
@@ -136,5 +151,25 @@ class RandomAccessLoader {
       limit: _pageSize,
     );
     return ForwardPage(events: newer, reachedTail: newer.length < _pageSize);
+  }
+
+  /// Page the next [_pageSize] block *older* than the loaded edge
+  /// `(oldestTs, oldestSeq)` — the backward complement of [fetchNewer]. The
+  /// server returns DESC for a `before` cursor; the result is reversed to the
+  /// ascending order the buffer keeps. `reachedHead` is true when the page
+  /// came back short (no older events remain). Used by the lens-as-query list
+  /// (ADR-039) to scroll up through a homogeneous kind set — unlike the live
+  /// Feed's load-older, every returned row is a real list item, so there is no
+  /// filtered-prepend anchoring ambiguity.
+  Future<BackwardPage> fetchOlder(String oldestTs, int oldestSeq) async {
+    final older = await _fetch(
+      beforeTs: oldestTs,
+      beforeSeq: oldestSeq,
+      limit: _pageSize,
+    );
+    return BackwardPage(
+      ascending: older.reversed.toList(),
+      reachedHead: older.length < _pageSize,
+    );
   }
 }

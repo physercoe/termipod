@@ -1464,11 +1464,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
     final max = _scroll.position.maxScrollExtent;
     final ctx = _seekKey.currentContext;
-    final realized =
-        idx >= _minBuiltIdx && idx <= _maxBuiltIdx && ctx != null;
-    if (realized) {
+    // ctx != null inline in the `if` so flow analysis promotes it (no `!`).
+    if (idx >= _minBuiltIdx && idx <= _maxBuiltIdx && ctx != null) {
       Scrollable.ensureVisible(
-        ctx!,
+        ctx,
         alignment: 0.3,
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOut,

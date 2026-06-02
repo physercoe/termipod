@@ -223,6 +223,27 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	// around a jump anchor. The (session_id, ts) index already supports
 	// `ts > ? ASC`; this just wires it. Agent scope keeps using `since`.
 	afterTS := strings.TrimSpace(r.URL.Query().Get("after_ts"))
+	// after_seq / before_seq are the SECONDARY tiebreak for the session-scoped
+	// ts cursors (plan P2, the analysis-mode random-access loader). ts alone
+	// can't window around a precise point: a session's events frequently share
+	// a ts (sub-second bursts), and a strict `ts > ?` / `ts < ?` either drops
+	// those same-ts siblings or re-includes the anchor. Pairing ts with seq
+	// gives a complete `(ts, seq)` keyset — `ts > ? OR (ts = ? AND seq > ?)` —
+	// so a window-around-anchor fetch loses no events and the two halves are
+	// contiguous. Only honored alongside after_ts / before_ts; the plain ts
+	// branches (the live-tail feed's load-older) are untouched.
+	var afterSeq, beforeSeq int64
+	var haveAfterSeq, haveBeforeSeq bool
+	if v := strings.TrimSpace(r.URL.Query().Get("after_seq")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			afterSeq, haveAfterSeq = n, true
+		}
+	}
+	if v := strings.TrimSpace(r.URL.Query().Get("before_seq")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			beforeSeq, haveBeforeSeq = n, true
+		}
+	}
 	// tail=true returns the newest N events in seq DESC. Without this
 	// the cold-open path used `since=0 ORDER BY seq ASC LIMIT N` which
 	// silently truncated long sessions to their oldest N events; the
@@ -260,6 +281,19 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 		args  []any
 	)
 	switch {
+	case sessionFilter != "" && afterTS != "" && haveAfterSeq:
+		// Session-scoped forward window with the `(ts, seq)` keyset tiebreak —
+		// the analysis-mode random-access loader's load-newer / jump-forward.
+		// Self-consistent order + cursor (ts, seq) so same-ts siblings aren't
+		// dropped or duplicated across the page boundary.
+		where = `session_id = ? AND (ts > ? OR (ts = ? AND seq > ?))`
+		order = `ts ASC, seq ASC`
+		args = []any{sessionFilter, afterTS, afterTS, afterSeq}
+	case sessionFilter != "" && beforeTS != "" && haveBeforeSeq:
+		// Session-scoped backward window with the `(ts, seq)` keyset tiebreak.
+		where = `session_id = ? AND (ts < ? OR (ts = ? AND seq < ?))`
+		order = `ts DESC, seq DESC`
+		args = []any{sessionFilter, beforeTS, beforeTS, beforeSeq}
 	case sessionFilter != "" && afterTS != "":
 		// Session-scoped forward window (the load-newer / jump-forward path).
 		where = `session_id = ? AND ts > ?`

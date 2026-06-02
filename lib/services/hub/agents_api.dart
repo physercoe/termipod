@@ -401,16 +401,22 @@ class AgentsApi {
     int? since,
     int? before,
     String? beforeTs,
+    String? afterTs,
     bool tail = false,
     int? limit,
     String? sessionId,
   }) {
     final q = <String, String>{};
-    // Cursor precedence on the server is before_ts > before > tail > since.
-    // before_ts is the session-scoped variant — seq is per-agent so it
-    // can't order events across the agents that one resumed session
-    // spans, but ts can.
-    if (beforeTs != null && beforeTs.isNotEmpty) {
+    // Cursor precedence on the server is after_ts > before_ts > before > tail
+    // > since (handlers_agent_events.go). after_ts/before_ts are the
+    // session-scoped variants — seq is per-agent so it can't order events
+    // across the agents that one resumed session spans, but ts can. after_ts
+    // is the forward window (ADR-038 §5): the analysis-mode random-access
+    // loader uses it to page *newer* events when it relocates a window around
+    // a jump anchor (the live-tail feed only ever pages older + SSE-tails).
+    if (afterTs != null && afterTs.isNotEmpty) {
+      q['after_ts'] = afterTs;
+    } else if (beforeTs != null && beforeTs.isNotEmpty) {
       q['before_ts'] = beforeTs;
     } else if (before != null) {
       q['before'] = '$before';

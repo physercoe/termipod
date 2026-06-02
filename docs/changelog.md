@@ -58,6 +58,104 @@ v1.0.786 device pass surfaced, plus an affordance hardening.
 
 ---
 
+## v1.0.786-alpha — 2026-06-02
+
+**Analysis-mode device-test passes 2–3 + error-ts jumps + claude
+`turn.start` (#1039).** Builds on the v1.0.785 device pass.
+
+### Added
+- **claude M2/M4 drivers emit `turn.start`** at prompt dispatch with a
+  stable `turn_id` (#1039), so the digest folds an explicit turn instead
+  of synthesising one. The marker is in `kAgentFeedAlwaysHiddenKinds` —
+  no change to the rendered feed. (`940d20a`)
+- **Archived/terminated-agent Insights tab** (device pass 3): the
+  archived-agent screen gained an Insights tab over the finished run
+  (resolved hub session id), separate from the project-agent sheet.
+  (`c837abc`)
+
+### Fixed
+- **Error jumps are now random-access** — error samples in the digest
+  carry their `ts` (`errorClassAgg.SampleTSs`, paired 1:1 with
+  `SampleSeqs`), so an Errors-stat or minimap error tap resets the window
+  around the anchor like turns do, instead of a page-walk. (`940d20a`)
+- **Latent fold bug:** the hub-inserted `input.text` opened a synthetic
+  turn *before* the driver's `turn.start`, so the fold closed+reopened →
+  a spurious empty turn (affected ACP too). `turn.start` now *adopts* the
+  open synthetic turn (`isSyntheticTurnID`) rather than close+reopen.
+  (`940d20a`)
+- **Compose box showed busy after a jump** — `agentIsBusy` read the
+  mid-run window tail; now trusted only when `_windowHasTail`. (`c837abc`)
+- **Minimap tap yanked to the top** — a ts-less error anchor page-walked
+  past the cap to the oldest loaded row; errors now carry ts, and both
+  fallbacks stay put instead of jumping to top. (`c837abc`)
+- Minimap tick colours now match the transcript cards
+  (`agentEventAccent`), and the "event N/M" readout + thumb are monotonic
+  across window growth (top-built-seq). (`804aa56`, in v1.0.785 pass)
+
+### Changed
+- Dashboard duration split into **Active** (sum of `agent_turns`
+  `duration_ms`, read-time `sumTurnActiveMs`, no migration) vs
+  **Elapsed** (full span). (`804aa56`)
+
+---
+
+## v1.0.785-alpha — 2026-06-02
+
+**Analysis-mode device-test pass 1 (four nav fixes) + project-agent
+Insights & stop/resume.**
+
+### Added
+- **Project-agent sheet rich Insights** — resolves the hub session id and
+  renders the full `SessionAnalysisView` (digest + turns + random-access
+  transcript), incl. terminated agents; falls back to tiles until the id
+  resolves. Wired **Stop** (→ paused, resumable) and **Resume session**
+  (`resumeAgentSession` → `POST /agents/{id}/resume-session`) alongside
+  the existing Terminate/budget-pause. (`acec688`)
+- **Tappable "event N/M" pill** → a jump-to-any-ordinal scrubber, and a
+  tappable minimap. (`4c06b51`)
+
+### Fixed
+- **Random-access landings were inaccurate** (turn jumps, dead Turns
+  rows, no minimap land): external/random-access landings now route
+  through a convergent index seek (`_landOnSeq` → `_jumpToContext` →
+  `_seekToLoadedIndex`) that lands on an unrealised row, instead of a
+  lone `ensureVisible` that no-ops off-screen. (`4c06b51`)
+- **Minimap was untappable** — vertical-drag recognizers stole the
+  gesture arena; drag is now attached only when `onScrub != null`, the
+  strip widened 20→28px, and turn ticks thread `seq→ts` for an
+  O(log n) reset. (`4c06b51`)
+
+---
+
+## v1.0.784-alpha — 2026-06-02
+
+**Agent-run analysis mode — ADR-038 (P0–P2).** Per-run **event digest**
++ first-class **turns**; the Insights view becomes the analysis surface
+(run-report dashboard over a navigable transcript). Cut for device
+testing.
+
+### Added
+- **Hub:** per-run event digest + turn index (`digestFolder`,
+  migrations 0049/0050, canonical-error union, read-repair, digest
+  endpoints with `after_ts`/`kind` params) (`f3f547f`); turn-index
+  listing endpoints (`03475bb`); session-scoped `(ts,seq)` compound
+  keyset for random-access windows (`cd67296`); ACP `turn.start`
+  emission + `turn_id` stamping (`b4e4a36`).
+- **Mobile:** Insights view as the run-analysis surface — `getSessionDigest`
+  + provider, `RunReportCard`, `SessionAnalysisView` (`c4c1b2e`);
+  dashboard jump-to-seq wired into the feed (`2a0ccb3`); monotonic
+  "event N of M" position (`e6441bb`); digest-backed Turns structure
+  index (`255eb1a`); full-run minimap anchors (`4091135`); a dedicated
+  random-access loader decoupling Insights from the live-tail Feed,
+  gated so the Feed path is byte-identical (`95b9277`).
+
+### Fixed
+- Use `maybeWhen`, not `valueOrNull`, on `AsyncValue` in the analysis
+  view (`b38988f`); classify `turn.start` in the feed kind contract
+  (`efc3095`).
+
+---
+
 ## v1.0.783-alpha — 2026-06-01
 
 **Fix: convergent seek still landed wrong after lazy-loading.** The

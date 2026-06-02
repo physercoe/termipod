@@ -14,7 +14,7 @@ description: Generalise apply-on-approve to a single MCP verb `propose(kind, tar
 > Option 2′; reconciliations with ADR-032 + ADR-034; principal vs
 > owner; line-ref drift fixed).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.785-alpha (spot-check: policy.go Kinds map + the 5 apply_*.go still present)
+> **Last verified vs code:** v1.0.791-alpha (spot-check: policy.go Kinds map + the 5 apply_*.go still present; v1.0.786–791 are mobile/Insight + transcript-refactor only — no governed-actions change)
 > **Freshness:** contract
 
 **TL;DR.** Promote *apply-on-approve* from two bespoke branches

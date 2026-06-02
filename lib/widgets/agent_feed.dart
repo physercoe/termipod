@@ -16,6 +16,7 @@ import '../theme/design_colors.dart';
 import 'agent_compose.dart';
 import 'transcript/event_card.dart';
 import 'transcript/feed_misc.dart';
+import 'transcript/fold_maps.dart';
 import 'transcript/feed_reducer.dart';
 import 'transcript/feed_render.dart';
 import 'transcript/random_access_loader.dart';
@@ -1955,44 +1956,16 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         ],
       );
     }
-    // Precompute tool_use_id → tool name so tool_result cards can show
-    // "tool: git_log" in their header instead of a bare id. Cheap — only
-    // scans tool_call events, and the Feed is O(dozens) of events.
-    final toolNames = <String, String>{};
-    // Already-answered approval requests: any input.approval the user has
-    // sent gets its request_id recorded here so the matching
-    // approval_request card renders in a disabled/resolved state instead
-    // of offering the buttons again.
-    final resolvedApprovals = <String, String>{}; // request_id → decision
-    // Latest tool_call_update per toolCallId, folded into the parent
-    // tool_call card below. Individual tool_call_update events are hidden
-    // from the feed — rendering every progress tick floods the list.
-    final toolUpdates = <String, Map<String, dynamic>>{};
-    // tool_use_id → tool_result event (full row, so we can also surface ts).
-    // The tool_call card pulls its matching result from here; bare
-    // tool_result cards drop out of the feed because the lineage is now
-    // expressed inside one card per call.
-    final toolResults = <String, Map<String, dynamic>>{};
-    for (final e in _events) {
-      final kind = (e['kind'] ?? '').toString();
-      final p = e['payload'];
-      if (p is! Map) continue;
-      if (kind == 'tool_call') {
-        final id = p['id']?.toString() ?? '';
-        final name = p['name']?.toString() ?? '';
-        if (id.isNotEmpty && name.isNotEmpty) toolNames[id] = name;
-      } else if (kind == 'tool_call_update') {
-        final id = (p['toolCallId'] ?? p['tool_call_id'] ?? '').toString();
-        if (id.isNotEmpty) toolUpdates[id] = p.cast<String, dynamic>();
-      } else if (kind == 'tool_result') {
-        final id = p['tool_use_id']?.toString() ?? '';
-        if (id.isNotEmpty) toolResults[id] = e.cast<String, dynamic>();
-      } else if (kind == 'input.approval') {
-        final rid = p['request_id']?.toString() ?? '';
-        final dec = p['decision']?.toString() ?? '';
-        if (rid.isNotEmpty) resolvedApprovals[rid] = dec;
-      }
-    }
+    // The per-event fold (tool names / results / updates / resolved approvals)
+    // — the lineage maps cards render from and lens predicates read. Extracted
+    // to the shared substrate (ADR-040): pure over the loaded window, so both
+    // transcript modes share it. Local bindings keep the downstream call sites
+    // unchanged.
+    final fold = FoldMaps.fromEvents(_events);
+    final toolNames = fold.toolNames;
+    final resolvedApprovals = fold.resolvedApprovals; // request_id → decision
+    final toolUpdates = fold.toolUpdates;
+    final toolResults = fold.toolResults;
     // session.init is now reported up to the parent (AppBar) via the
     // onSessionInit callback above; nothing inline needs the payload.
     // Telemetry strip inputs: cumulative cost from all turn.result

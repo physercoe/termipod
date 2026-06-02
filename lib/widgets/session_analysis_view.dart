@@ -78,9 +78,16 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
     // anchors fall back to the page-walk).
     final runAnchorTs = <int, String>{};
     final runErrorSeqs = <int>[];
+    // seq → error class (tool_error / failed_turn / error:<type>), so the
+    // Errors lens can render the whole-run error list straight from the digest
+    // with no event-body fetch (ADR-039 P2). Iterate entries (not values) to
+    // keep the class key.
+    final runErrorClasses = <int, String>{};
     final errs = digestBody?['errors'];
     if (errs is Map) {
-      for (final v in errs.values) {
+      for (final entry in errs.entries) {
+        final cls = entry.key.toString();
+        final v = entry.value;
         if (v is! Map) continue;
         final seqs = v['sample_seqs'];
         if (seqs is! List) continue;
@@ -90,6 +97,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
           if (s is! num) continue;
           final seq = s.toInt();
           runErrorSeqs.add(seq);
+          runErrorClasses[seq] = cls;
           if (tss is List && i < tss.length) {
             final ts = (tss[i] ?? '').toString();
             if (ts.isNotEmpty) runAnchorTs[seq] = ts;
@@ -164,6 +172,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               seekController: _seek,
               totalEventCount: totalEvents,
               runErrorSeqs: runErrorSeqs,
+              runErrorClasses: runErrorClasses,
               runTurnSeqs: runTurnSeqs,
               runAnchorTs: runAnchorTs,
               // The analysis surface owns the random-access loader; the Feed

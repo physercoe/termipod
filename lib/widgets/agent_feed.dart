@@ -150,6 +150,12 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// the run is one tap away, not just the loaded slice. Null = loaded-window
   /// minimap (the plain full-screen feed, which has no digest).
   final List<int>? runErrorSeqs;
+  /// ADR-039 P2 — `seq → error class` (tool_error / failed_turn / error:<type>)
+  /// for every whole-run error, straight from the digest. Lets the Errors lens
+  /// render the COMPLETE error list as summary rows (class + time) with no
+  /// event-body fetch; a tap jumps to the error in full context. Null on the
+  /// plain Feed (no digest).
+  final Map<int, String>? runErrorClasses;
   final List<int>? runTurnSeqs;
   /// Plan P2 — `seq → ts` for the run anchors that carry a timestamp (the turn
   /// index's `start_ts`). A minimap tap only has the anchor's seq; with the ts
@@ -179,6 +185,7 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.seekController,
     this.totalEventCount,
     this.runErrorSeqs,
+    this.runErrorClasses,
     this.runTurnSeqs,
     this.runAnchorTs,
     this.randomAccess = false,
@@ -657,6 +664,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // to the end (the "jump to end" tester bug). During programmatic
     // motion we touch neither _followTail nor the load pager.
     if (_programmaticScroll) return;
+    // ADR-039 P2 — the Errors summary list is a digest-only list with no
+    // _events paging; scrolling it must not trigger load-older/newer or
+    // tail-follow on the (unrelated) _events window.
+    if (_errorsSummaryMode) return;
     // Random-access window short of the tail (plan P2): the bottom edge pages
     // *newer* — the forward complement of load-older at the top. We're not at
     // the live tail yet, so this is NOT a tail-follow point. For the Feed
@@ -722,6 +733,20 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       widget.totalEventCount != null &&
       ((widget.runErrorSeqs?.isNotEmpty ?? false) ||
           (widget.runTurnSeqs?.isNotEmpty ?? false));
+
+  // ADR-039 P2 — the Errors lens renders the WHOLE-RUN error list as digest-only
+  // summary rows (class + time), not a client filter over the loaded window:
+  // exact, never-empty, no event-body fetch. A tap jumps to the error in full
+  // context. Gated to the random-access Insight surface with errors present.
+  static const double _kErrorRowExtent = 52.0;
+  bool _isErrorsSummaryLens(FeedLens lens) =>
+      widget.randomAccess &&
+      lens == FeedLens.errors &&
+      (widget.runErrorSeqs?.isNotEmpty ?? false);
+  bool get _errorsSummaryMode => _isErrorsSummaryLens(_lens);
+  // The run's error seqs, ascending (oldest→newest) so the newest sits at the
+  // bottom like the chat transcript. Built once per build that needs it.
+  List<int> _sortedErrorSeqs() => [...?widget.runErrorSeqs]..sort();
 
   /// The minimap's position indicator. In full-run anchor mode it tracks the
   /// run ordinal (N/M) so the thumb sits where the viewport is *in the whole
@@ -1572,13 +1597,23 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       _funnelRunIdx = null;
       if (lens != FeedLens.all) _followTail = true;
     });
-    // ADR-039 P1b — a run-anchor lens (turns / errors) in Insight mode jumps to
-    // its NEWEST match on entry. Without this the filtered view is empty
-    // whenever no match sits in the loaded tail window — and an empty list has
-    // no scroll extent, so "scroll up to load older" can never fire (the
-    // "Errors lens is blank and won't load" bug). The jump random-access-resets
-    // the window around the newest anchor (reachable at any depth), so the
-    // list shows that match and the funnel/stepper walk older from there.
+    // ADR-039 P2 — the Errors lens is the whole-run error list (digest-only
+    // summary rows), not a client filter over the loaded window. On entry just
+    // show it scrolled to the newest error (bottom); no _events reset.
+    if (_isErrorsSummaryLens(lens)) {
+      final n = _sortedErrorSeqs().length;
+      setState(() => _funnelRunIdx = n - 1); // newest selected
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollToTail();
+      });
+      return;
+    }
+    // ADR-039 P1b — the OTHER run-anchor lens (turns) jumps to its NEWEST match
+    // on entry. Without this the filtered view is empty whenever no match sits
+    // in the loaded tail window — and an empty list has no scroll extent, so
+    // "scroll up to load older" can never fire. The jump random-access-resets
+    // the window around the newest anchor (reachable at any depth), so the list
+    // shows that match and the funnel/stepper walk older from there.
     final runList = _runAnchorListFor(lens);
     if (runList != null) {
       _funnelRunJump(runList.length - 1, runList.last);
@@ -1663,11 +1698,56 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   /// moved.
   void _funnelStep(int i, List<int> matchSeqs, {required bool usesRunList}) {
     if (i < 0 || i >= matchSeqs.length) return;
+    // ADR-039 P2 — in the Errors summary list the stepper just scrolls the
+    // fixed-extent list to row i (matchSeqs == the sorted run error seqs ==
+    // the rendered rows), not a window reset. The funnel N/M reads _funnelRunIdx.
+    if (_errorsSummaryMode) {
+      setState(() => _funnelRunIdx = i);
+      if (_scroll.hasClients) {
+        final off =
+            (i * _kErrorRowExtent).clamp(0.0, _scroll.position.maxScrollExtent);
+        _scroll.animateTo(off,
+            duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      }
+      return;
+    }
     if (usesRunList) {
       _funnelRunJump(i, matchSeqs[i]);
     } else {
       _seekToLoadedIndex(i, matchSeqs[i]);
     }
+  }
+
+  /// ADR-039 P2 — the Errors lens as the run's COMPLETE error list: digest-only
+  /// summary rows (class + relative time), exact + never-empty + no event-body
+  /// fetch. A tap jumps to that error in full context (switches to All and
+  /// lands via the `(ts, seq)` window reset). Fixed [_kErrorRowExtent] so the
+  /// funnel stepper scrolls to a row by index ([_funnelStep]).
+  Widget _buildErrorsSummaryList() {
+    final seqs = _sortedErrorSeqs();
+    final active = _funnelRunIdx;
+    return ListView.builder(
+      controller: _scroll,
+      padding: EdgeInsets.zero,
+      itemExtent: _kErrorRowExtent,
+      itemCount: seqs.length,
+      itemBuilder: (ctx, i) {
+        final seq = seqs[i];
+        final ts = widget.runAnchorTs?[seq];
+        return ErrorSummaryRow(
+          ordinal: i + 1,
+          errorClass: widget.runErrorClasses?[seq] ?? 'error',
+          ts: ts,
+          active: active == i,
+          onTap: () {
+            setState(() => _funnelRunIdx = i);
+            // Switch to All + land on the error in context (reuses the
+            // random-access reset; the row's ts makes it an O(log n) jump).
+            _handleExternalSeek(seq, ts);
+          },
+        );
+      },
+    );
   }
 
   /// Plan P2 — "jump to any event" scrubber. The position pill (event N / M) is
@@ -2529,7 +2609,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         Expanded(
           child: Stack(
             children: [
-              ListView.separated(
+              _errorsSummaryMode
+                  ? _buildErrorsSummaryList()
+                  : ListView.separated(
                 controller: _scroll,
                 padding: widget.padding,
                 itemCount: lensed.length,
@@ -2651,7 +2733,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // ListView would read as "no transcript". Tell the user
               // it's the filter — and that older matches may exist
               // above — so they can scroll up or clear it.
-              if (_lens != FeedLens.all && lensed.isEmpty)
+              if (_lens != FeedLens.all && lensed.isEmpty && !_errorsSummaryMode)
                 Center(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
@@ -2716,7 +2798,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // access surface it's a control (tap → "jump to any event"
               // scrubber); otherwise it self-wraps in an IgnorePointer so it
               // never steals a tap from the funnel/minimap.
+              // (Suppressed in the Errors summary list — the position pill +
+              // minimap describe the transcript window, which the digest-only
+              // error list isn't; the funnel N/M + the list itself are the nav.)
               if (!widget.dense &&
+                  !_errorsSummaryMode &&
                   widget.totalEventCount != null &&
                   _logPosition() != null)
                 Positioned(
@@ -2737,7 +2823,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // strip is a consistent scrubber. In full-run anchor mode the
               // ticks are whole-run (digest + turn index) and a tap routes
               // through the random-access seek (the target may not be loaded).
-              if (!widget.dense)
+              if (!widget.dense && !_errorsSummaryMode)
                 Positioned(
                   top: 8,
                   right: 4,

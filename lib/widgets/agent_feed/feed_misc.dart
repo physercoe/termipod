@@ -806,3 +806,117 @@ class FeedPositionPill extends StatelessWidget {
     return onTap == null ? IgnorePointer(child: pill) : pill;
   }
 }
+
+/// Human label for a canonical error class (the digest's keys): `tool_error` →
+/// "Tool error", `failed_turn` → "Failed turn", `error:<type>` → "Error · type".
+String errorClassLabel(String cls) {
+  switch (cls) {
+    case 'tool_error':
+      return 'Tool error';
+    case 'failed_turn':
+      return 'Failed turn';
+    case 'error':
+      return 'Error';
+    default:
+      if (cls.startsWith('error:')) return 'Error · ${cls.substring(6)}';
+      return cls;
+  }
+}
+
+/// "2m ago" from an RFC3339 timestamp; empty when absent/unparseable.
+String relativeAgo(String? ts) {
+  if (ts == null || ts.isEmpty) return '';
+  final t = DateTime.tryParse(ts);
+  if (t == null) return '';
+  final d = DateTime.now().toUtc().difference(t.toUtc());
+  final s = d.inSeconds;
+  if (s < 0) return 'now';
+  if (s < 60) return '${s}s ago';
+  if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+  if (d.inHours < 24) return '${d.inHours}h ago';
+  return '${d.inDays}d ago';
+}
+
+/// One row of the Insight **Errors** lens rendered as the run's complete error
+/// list (ADR-039 P2): a red dot, the error class, a relative timestamp, and the
+/// run ordinal — all from the digest, no event-body fetch. Tapping jumps to the
+/// error in full context. Sized to a fixed extent so the funnel stepper can
+/// scroll to a row by index.
+class ErrorSummaryRow extends StatelessWidget {
+  final int ordinal;
+  final String errorClass;
+  final String? ts;
+  final bool active;
+  final VoidCallback onTap;
+  const ErrorSummaryRow({
+    super.key,
+    required this.ordinal,
+    required this.errorClass,
+    required this.onTap,
+    this.ts,
+    this.active = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final fg =
+        isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
+    final rel = relativeAgo(ts);
+    return Material(
+      color: active
+          ? DesignColors.error.withValues(alpha: 0.10)
+          : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: DesignColors.error,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      errorClassLabel(errorClass),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: fg,
+                      ),
+                    ),
+                    if (rel.isNotEmpty)
+                      Text(
+                        rel,
+                        style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10, color: muted),
+                      ),
+                  ],
+                ),
+              ),
+              Text('#$ordinal',
+                  style:
+                      GoogleFonts.jetBrainsMono(fontSize: 10, color: muted)),
+              const SizedBox(width: 6),
+              Icon(Icons.chevron_right, size: 18, color: muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

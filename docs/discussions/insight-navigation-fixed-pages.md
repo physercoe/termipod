@@ -29,7 +29,12 @@ is client-side. This is the same keystone that
 [`transcript-paging-vs-forum-model.md`](transcript-paging-vs-forum-model.md)
 §§5/8–13 already identified (a maintained count + a dense session ordinal);
 this doc is its *implementation-decision* companion, scoped to the
-navigation/minimap surface, with three concrete options.
+navigation/minimap surface. §§1–6 frame the fixed-page family; **§§7–10
+widen to the full design space and land the actual decision**: for
+*structural* navigation (turn/error/tool jumps) the winner is **structure-first
++ window-around-anchor, landed by index not by pixel-search** (§10), with a
+dense ordinal demoted to a "N of M" nicety and a time-scaled minimap for the
+arbitrary-scrub case.
 
 ---
 
@@ -178,6 +183,133 @@ today's dense-seq assumption, exact once the server ordinal lands.
    risk.
 
 Open question for the director: ship B as a stopgap, or go straight to A?
+
+> **Superseded by §10 (2026-06-02).** After working the design space below
+> (§§7–9), the recommendation shifted: a dense ordinal is no longer the
+> load-bearing mechanism for *structural* navigation — see §10.
+
+## 7. Alternatives beyond fixed pages (industry practice)
+
+Fixed-page (a server ordinal) attacks only the **logical-index** axis. The
+problem has a second, independent axis — **pixel landing** (getting a
+virtualized, variable-height, lazily-built row onto the screen) — and most of
+the industry's answers target one axis or the other:
+
+**7a. Measured-extent virtualization (the standard fix for the *pixel* axis).**
+Maintain a running prefix-sum of measured row heights (an order-statistic /
+Fenwick tree): estimate an extent before a row builds, correct it once
+measured, keep a cumulative-offset index. `scrollToIndex` is then O(log n)
+**exact** — no offset binary-search, no frame-timing. This is what TanStack
+Virtual, react-virtualized (`CellMeasurer`), VS Code's list/editor, and
+Slack/Discord message lists do. It is **client-only** — no hub change. Flutter
+has off-the-shelf forms: `scrollable_positioned_list`
+(`ItemScrollController.scrollTo(index)` for variable heights),
+`super_sliver_list` (dynamic-extent estimation + accurate scrollbar), or a
+`CustomScrollView` with a `center` key + two slivers (the "anchor in the
+middle" chat pattern — lays out *around* the target so it is always realized).
+This directly dissolves Stage 2.
+
+**7b. Time as the index (the observability / trace-viewer standard).**
+Perfetto, Chrome DevTools Performance, Jaeger, and log tools (Kibana, Loki,
+Datadog, CloudWatch) navigate by **timestamp** + a time-ruler/overview-minimap
++ zoom, not by item count; a click/drag on time seeks and reloads. Relevant
+because **`ts` is the one total order we already have** across a multi-agent
+session (forum doc §3). A time-proportional minimap (thumb =
+`(ts − t0)/(t1 − t0)`) is exact and dense **by construction, with no ordinal
+and no migration** — the trade-off is that idle gaps render as empty stretches
+(arguably honest: it shows think-vs-idle time), which those tools handle with a
+ruler + zoom.
+
+**7c. Structure-first + small local window (the IDE / long-doc pattern).**
+VS Code (minimap + breadcrumbs + sticky scroll), Google Docs outline, Jupyter
+TOC: navigate by **structure**, then the local scroll is short. We are already
+half-way — the Turns index + funnel is the outline, and `_resetWindowAround`
+already resets to a small window around an anchor (`agent_feed.dart:461`).
+
+The consistent best practice across all of these is a **separation of
+authority**: the *data cursor* (ordinal or timestamp) is the source of truth
+for "where am I," and the **view follows**. Within that, pixel landing uses
+measured-extent or an anchored viewport — **nobody binary-searches scroll
+offsets on purpose**; we only do because plain `ListView.builder` gives no
+exact `scrollToIndex`.
+
+## 8. For structural nav to a context position, structure-first wins
+
+For the specific job of "jump to *this* turn / error / tool call and see its
+context" in a **long** log, structure-first is best — and its margin *grows*
+with length:
+
+| Approach | Natural target | Precision vs. log length |
+|---|---|---|
+| Ordinal / fixed-page | "event N of M" | degrades (thousands of events per minimap pixel) |
+| Time-as-index | "moment T" | degrades + idle gaps distort density |
+| **Structure-first** | "this turn / error / tool" | **scale-invariant** |
+
+The number of structural landmarks grows far slower than raw events (a
+10k-event run might have ~50 turns, ~8 errors): you navigate the *landmark
+list* (trivial, exact) and load only the **window around the chosen landmark**.
+A pure ordinal/time scrubber has to resolve one target out of thousands per a
+few hundred pixels — precision you cannot physically drag to. It is also the
+only family that delivers **context** by construction: windowing *around* an
+anchor pulls the surrounding turns; an ordinal/time seek only parks a viewport
+at a coordinate. This is why IDEs navigate big files by "go to symbol /
+outline," and why log/trace tools (Kibana "surrounding documents", Jaeger span
+pick) show a structured entry's context rather than make you scrub for it.
+
+## 9. Landing accuracy — window-around-anchor vs. index-based, and caching
+
+The current jump's failure mode is specific: after resolving the anchor to a
+row index, `_convergeToIndex` (`agent_feed.dart:1444`) **binary-searches the
+scroll offset** until the row is realized, capped at 14 iterations, and only
+then `ensureVisible`s. On a large, height-varied loaded window it can exhaust
+the cap and **bail with `ctx == null`, never scrolling to the card at all**
+(`1460-1462`) — i.e. "the card is not in the viewport."
+
+**Window-around-anchor is materially more accurate** because it flips every
+variable in the search's favor: small scroll extent → converges within the
+cap; the anchor is centered in a fresh ~200-event window so the target row is
+realized on the first probe and the existing `ensureVisible` actually fires;
+the anchor is guaranteed present so the "nearest visible row ≥ anchor" fallback
+rarely triggers. It makes the *existing* landing code succeed where it bails.
+
+But it is **reliable, not exact** — it still ends in a (small) pixel search.
+The exact fix is to **land by index, not by offset** (§7a): compute the
+anchor's index in the list and `scrollTo(index)` via a positioned list.
+
+**Caching reality (answers "does mobile refetch?").** The random-access loader
+calls the plain `listAgentEvents` (`agents_api.dart:413`), which is **always a
+network round-trip**; the cached variants (`listAgentEventsCached` /
+`...CacheOnly`) only support `tail`/`since` cursors, **not** the `(ts, seq)`
+keyset a window-around-anchor uses — so there is **no local cache for RA
+windows**, and the offline snapshot cache covers only the cold-open tail. The
+consequence is decisive for the design: an **already-loaded** anchor is in the
+in-memory `_events` buffer (`_seqIsLoaded`, `agent_feed.dart:423`), so
+index-based landing on it needs **zero** network; "always re-window" would
+refetch two pages **even when the data is already local**, adding a round-trip
+and a visible reflow on every turn-step. So index-based landing is not just
+more exact — it is the one that *avoids* the refetch in the common case.
+
+## 10. Revised recommendation (2026-06-02)
+
+For **structural navigation** (the common case — turn/error/tool jumps),
+**structure-first is the model**, landed by **index, not pixel-search**:
+
+1. **Loaded anchor → land by index** in the in-memory window (positioned-list
+   `scrollTo(index)`): exact, **no refetch**. Fixes the "card not in viewport"
+   symptom for the common turn-stepping case.
+2. **Unloaded anchor → `_resetWindowAround` → land by index** in the fresh
+   small window: exact at any depth, one round-trip (unavoidable — the data is
+   not on the device).
+
+Both remove the offset binary-search — the actual defect — and are mobile-only,
+gated behind `randomAccess`. A **time-scaled minimap** (§7b) is the cheap,
+migration-free way to make the *overview scrubber* exact and draggable for the
+*arbitrary* (non-landmark) case. The **server dense ordinal** (Option A,
+§5/§Options-A) demotes to a *nice-to-have* for an honest "N of M" pill — no
+longer the load-bearing nav mechanism. Option C (full fixed-page rewrite)
+stays rejected.
+
+This is the "option 1+2" the director approved to build after this doc.
 
 ## Related
 

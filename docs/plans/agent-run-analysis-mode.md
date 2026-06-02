@@ -319,13 +319,46 @@ window around its `seq`. Render the digest's error taxonomy / tool list / turn
 index as the tappable dashboard sections. This is the "navigate accurately"
 payoff — overview and log bound together, full-run complete.
 
-### P3 — Operator OTLP export (ADR-038 §4)
+### P3 — Operator OTLP export (ADR-038 §4) — **SHIPPED**
 The hub's optional OTLP exporter (`--otlp-endpoint`, off by default) projects
 `agent_turns` → spans: **trace = session, span = turn, child span = tool
 call**, OTel GenAI attributes, deterministic span IDs. **Batch export at idle
 *and* terminal** (both watermark points) — idempotent via the deterministic
 IDs, so a long-running agent still exports without live streaming. Operator
 points it at Phoenix / Jaeger.
+
+**What shipped:**
+- `hub/internal/otlptrace/` — a dependency-free OTLP/HTTP **JSON** exporter
+  (`Span`/`Resource`/`Encode`/`Client.Export`). Deliberately avoids the OTel
+  Go SDK + protobuf tree: we re-emit *historical* spans with caller-chosen
+  deterministic IDs and explicit timestamps, which the live-instrumentation
+  SDK fights. Gets the two OTLP/JSON footguns right — hex (not base64) IDs and
+  decimal-string 64-bit timestamps. (`trace.go` + `trace_test.go`.)
+- `hub/internal/server/otlp_export.go` — the projection: `buildSessionSpans`
+  (trace `sha256(session_id)[:16]`; turn `sha256(session_id|turn_id)[:8]`;
+  tool `sha256(session_id|tool_call_id)[:8]`; GenAI attrs from the turn row;
+  tool child spans paired call→result by seq-range; errors → `exception`
+  span events) + the `runOTLPExport`/`exportDueSessions` loop (30 s sweep,
+  per-session watermark on max closed-turn `end_ts`, **numeric** ts compare so
+  RFC3339Nano fractional-precision can't *miss* an export). Open turns skipped
+  until they close.
+- Wiring: `Config.OTLPEndpoint` / `--otlp-endpoint` + `--otlp-service-name`;
+  goroutine launched from `Serve` only when configured.
+- Operator guide: [`how-to/export-traces-to-otlp.md`](../how-to/export-traces-to-otlp.md).
+- Tests: encoder wire-shape + transport (httptest); projection over the shared
+  canonical vector (ids/parenting/timing/status/determinism); export-loop
+  ship-then-watermark against an in-process receiver.
+
+**Decision — JSON over protobuf.** OTLP/HTTP JSON keeps the hub's lean
+pure-Go tree (no protobuf dep) and is locally testable with no backend. Jaeger
+and the OTel Collector accept it; a protobuf-only backend sits behind a
+Collector (documented in the how-to §5).
+
+**Follow-ups (not blocking):** `gen_ai.request.model` per turn (model lives in
+the digest `by_model`, not on the turn row — needs a join or a turn-row
+column); optional auth header for hosted backends (today: trusted same-host/VPC
+target); the `sessionsWithClosedTurnsSince` sweep is a full GROUP BY — fine at
+current scale, revisit if session counts grow.
 
 ### Later (post-MVP)
 - Per-session **dense ordinal** materialized (vs. the ts-rank used here) if a

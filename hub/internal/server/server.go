@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/termipod/hub/internal/auth"
 	"github.com/termipod/hub/internal/buildinfo"
 	"github.com/termipod/hub/internal/envelope"
+	"github.com/termipod/hub/internal/otlptrace"
 	"github.com/termipod/hub/internal/pricing"
 )
 
@@ -41,7 +43,16 @@ type Config struct {
 	// means "derive from the request Host header" — fine for single-host
 	// dev, less so when the directory is scraped by off-box peers.
 	PublicURL string
-	Logger    *slog.Logger
+	// OTLPEndpoint, when set, turns on the operator trace export (ADR-038
+	// §4): the hub projects each session's turn index + tool/error events
+	// into OTLP traces and ships them to this OTLP/HTTP base URL (e.g.
+	// "http://localhost:4318") on an idle/terminal batch cadence. Empty =
+	// disabled (the default — a backend buys query/viz UX, not storage).
+	OTLPEndpoint string
+	// OTLPServiceName overrides the resource service.name on exported
+	// spans (default "termipod-hub").
+	OTLPServiceName string
+	Logger          *slog.Logger
 }
 
 type Server struct {
@@ -68,6 +79,14 @@ type Server struct {
 	// TemplateEditorScreen, so prompt iteration doesn't require a
 	// rebuild. See hub/internal/envelope/loader.go.
 	envelope *envelope.Loader
+	// otlp is the operator trace exporter (ADR-038 §4), non-nil only when
+	// Config.OTLPEndpoint is set. otlpWatermark tracks the max exported
+	// turn end_ts per session so the loop re-ships only sessions that
+	// grew; deterministic span IDs keep the re-export idempotent. See
+	// otlp_export.go.
+	otlp          *otlptrace.Client
+	otlpMu        sync.Mutex
+	otlpWatermark map[string]string
 }
 
 func New(cfg Config) (*Server, error) {
@@ -160,6 +179,20 @@ func New(cfg Config) (*Server, error) {
 	s.envelope = envelope.NewLoader(func(action, summary string, meta map[string]any) {
 		s.log.Warn("envelope config", "action", action, "msg", summary, "meta", meta)
 	}).WithHubData(cfg.DataRoot)
+	// Operator OTLP trace export (ADR-038 §4) — opt-in. The export loop is
+	// launched from Serve; here we just build the client + watermark map.
+	if cfg.OTLPEndpoint != "" {
+		svc := cfg.OTLPServiceName
+		if svc == "" {
+			svc = "termipod-hub"
+		}
+		s.otlp = &otlptrace.Client{
+			Endpoint: cfg.OTLPEndpoint,
+			Resource: otlptrace.Resource{ServiceName: svc},
+		}
+		s.otlpWatermark = map[string]string{}
+		s.log.Info("otlp trace export enabled", "endpoint", s.otlp.TracesURL(), "service", svc)
+	}
 	s.router = s.buildRouter()
 	return s, nil
 }
@@ -186,6 +219,11 @@ func (s *Server) Serve(ctx context.Context) error {
 	// Loop-closure reconcile sweep: detect stalled loop-entities and
 	// escalate / time them out (ADR-034). Same ctx lifetime.
 	go s.runLoopSweep(ctx)
+	// Operator OTLP trace export (ADR-038 §4) — only when configured.
+	// Idle/terminal batch cadence; same ctx lifetime, no Stop handle.
+	if s.otlp != nil {
+		go s.runOTLPExport(ctx)
+	}
 
 	// SIGHUP → hot-reload policy.yaml. Lets an operator edit the file and
 	// signal the daemon without restarting and losing in-flight connections.

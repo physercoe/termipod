@@ -169,6 +169,8 @@ func runServe(args []string, log *slog.Logger) {
 	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
 	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
 	publicURL := fs.String("public-url", "", "externally reachable base URL (e.g. https://hub.example.com); used to rewrite A2A card urls to the hub relay when hosts are NAT'd. Empty = derive from request Host header.")
+	otlpEndpoint := fs.String("otlp-endpoint", "", "OTLP/HTTP base URL to export agent-run traces to (e.g. http://localhost:4318). Empty = disabled. Projects each session's turns+tool calls to OTLP spans (ADR-038 §4); point it at Jaeger / an OpenTelemetry Collector / Phoenix.")
+	otlpService := fs.String("otlp-service-name", "termipod-hub", "resource service.name on exported OTLP spans")
 	_ = fs.Parse(args)
 
 	if *dbPath == "" {
@@ -179,11 +181,13 @@ func runServe(args []string, log *slog.Logger) {
 		os.Exit(1)
 	}
 	srv, err := server.New(server.Config{
-		Listen:    *listen,
-		DBPath:    *dbPath,
-		DataRoot:  *dataRoot,
-		PublicURL: *publicURL,
-		Logger:    log,
+		Listen:          *listen,
+		DBPath:          *dbPath,
+		DataRoot:        *dataRoot,
+		PublicURL:       *publicURL,
+		OTLPEndpoint:    *otlpEndpoint,
+		OTLPServiceName: *otlpService,
+		Logger:          log,
 	})
 	if err != nil {
 		log.Error("server init failed", "err", err)

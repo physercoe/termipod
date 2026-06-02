@@ -23,6 +23,8 @@ first — it defines what every doc must declare and where it lives.
 2. [`how-to/install-host-runner.md`](how-to/install-host-runner.md)
 3. [`how-to/run-the-demo.md`](how-to/run-the-demo.md)
 4. [`how-to/release-testing.md`](how-to/release-testing.md)
+5. [`how-to/export-traces-to-otlp.md`](how-to/export-traces-to-otlp.md)
+   — ship agent-run traces to Jaeger / a Collector / Phoenix.
 
 **I'm trying to understand a piece of the system.**
 1. Start with [`spine/blueprint.md`](spine/blueprint.md) for the

@@ -402,9 +402,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (!mounted) return;
     if (_seqIsLoaded(seq)) {
       _landOnSeq(seq);
-    } else {
-      _jumpToOldestLoaded();
     }
+    // Else: a ts-less anchor (older digest) beyond the page-walk cap — leave
+    // the viewport where it is. Yanking to the top here was the "minimap tap
+    // jumps to the top" bug; with anchor timestamps (turns + errors now carry
+    // them) the reset path above handles every reachable anchor instead.
   }
 
   /// Land on [seq] robustly even when its row isn't currently realised. Defers
@@ -459,8 +461,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         ...newer,
       ];
       if (ascending.isEmpty) {
-        // Nothing came back (anchor out of range) — fall back gracefully.
-        _jumpToOldestLoaded();
+        // Nothing came back (anchor out of range) — leave the current window
+        // untouched rather than yanking the viewport to the top.
         return;
       }
       _ingestWindow(ascending);
@@ -1673,7 +1675,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // producing output for the in-flight turn". Composer only renders
     // the cancel button when the user has already typed something —
     // so this flag matters only in the predictive-input scenario.
-    final isAgentBusy = agentIsBusy(_events);
+    //
+    // In random-access (Insight) mode a jump replaces the window with a
+    // *mid-run* slice whose last loaded event is mid-turn — so agentIsBusy
+    // would read "busy" off a slice that isn't the live tail. Only trust the
+    // signal when the window actually reaches the tail; otherwise the run's
+    // real state isn't loaded here, so report not-busy.
+    final isAgentBusy = (widget.randomAccess && !_windowHasTail)
+        ? false
+        : agentIsBusy(_events);
     final compose = AgentCompose(
       agentId: widget.agentId,
       slashCommands: composeSlash,

@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
+import '../../widgets/session_analysis_view.dart';
 
 /// Read-only list of historical agents. Two modes:
 /// - Global (default; projectId null): shows agents with
@@ -283,6 +284,10 @@ class _ArchivedAgentDetailScreenState
   String? _journal;
   String? _error;
   bool _loading = true;
+  // Hub session id for this agent's run — resolved from its newest event's
+  // top-level session_id so the Insights tab can render the full analysis
+  // surface (digest + turns) over the finished run.
+  String _sessionId = '';
 
   String get _id => (widget.summary['id'] ?? '').toString();
 
@@ -297,6 +302,16 @@ class _ArchivedAgentDetailScreenState
     if (client == null) return;
     try {
       final full = (await client.getAgentCached(_id)).body;
+      // Resolve the hub session id (newest event's session_id) for Insights.
+      // Best-effort — the tab self-gates to the Feed-only fallback if absent.
+      try {
+        final ev = await client.listAgentEvents(_id, tail: true, limit: 1);
+        if (ev.isNotEmpty) {
+          _sessionId = (ev.first['session_id'] ?? '').toString();
+        }
+      } catch (_) {
+        // Non-fatal: leave _sessionId empty, Insights falls back.
+      }
       String? journal;
       try {
         journal = await client.readAgentJournal(_id);
@@ -329,8 +344,9 @@ class _ArchivedAgentDetailScreenState
     // closes the debugging gap where the archive screen only showed
     // metadata + journal — operators investigating a failed run had
     // to bounce to Me → Sessions to read the transcript.
+    final hasInsights = _sessionId.isNotEmpty;
     return DefaultTabController(
-      length: 3,
+      length: hasInsights ? 4 : 3,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
@@ -338,12 +354,16 @@ class _ArchivedAgentDetailScreenState
             style: GoogleFonts.spaceGrotesk(
                 fontSize: 16, fontWeight: FontWeight.w700),
           ),
-          bottom: const TabBar(
+          bottom: TabBar(
             isScrollable: true,
             tabs: [
-              Tab(text: 'Feed'),
-              Tab(text: 'Summary'),
-              Tab(text: 'Journal'),
+              const Tab(text: 'Feed'),
+              const Tab(text: 'Summary'),
+              const Tab(text: 'Journal'),
+              // Insights = the run-report dashboard + navigable transcript over
+              // the finished run — the analysis surface a terminated agent most
+              // wants. Only when we resolved a session id.
+              if (hasInsights) const Tab(text: 'Insights'),
             ],
           ),
         ),
@@ -368,6 +388,12 @@ class _ArchivedAgentDetailScreenState
                       AgentFeed(agentId: _id),
                       _summaryTab(),
                       _journalTab(),
+                      if (hasInsights)
+                        SessionAnalysisView(
+                          agentId: _id,
+                          sessionId: _sessionId,
+                          live: false,
+                        ),
                     ],
                   ),
       ),

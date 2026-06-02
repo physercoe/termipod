@@ -98,22 +98,15 @@ class FoldableToolCall extends StatefulWidget {
 }
 
 class _FoldableToolCallState extends State<FoldableToolCall> {
-  // Collapsed by default — tool-call args + result preview eat the
-  // whole transcript otherwise, and the user is usually scanning for
-  // text turns, not tool internals. Auto-expand for failed calls so
-  // an error stays visible without an extra tap.
-  late bool _expanded = widget.resultIsError;
-
-  @override
-  void didUpdateWidget(covariant FoldableToolCall old) {
-    super.didUpdateWidget(old);
-    // If a result lands later and it's an error, pop the card open
-    // so the user notices. Don't fight a manual collapse — only
-    // auto-expand on the *transition* into error state.
-    if (widget.resultIsError && !old.resultIsError && !_expanded) {
-      _expanded = true;
-    }
-  }
+  // Collapsed by default for EVERY call — tool-call args + result preview
+  // eat the whole transcript otherwise, and the user is usually scanning
+  // for text turns, not tool internals. Failed calls collapse too: a failed
+  // tool can carry a huge body (e.g. an `attach` that errored still holds
+  // its base64 content), so auto-expanding it on error blew up the card.
+  // The `failed` status pill in the header (rendered outside the expand
+  // block) already signals the error at a glance — the user taps to read
+  // the details.
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {

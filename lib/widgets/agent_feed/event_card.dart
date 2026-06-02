@@ -841,16 +841,15 @@ class _AgentEventCardState extends State<AgentEventCard> {
   // tool_call in scope, so they aren't already folded INTO the
   // parent card) default to collapsed. They're noisy by nature
   // (long Bash output, file dumps) and the user is usually scanning
-  // for text turns. Failed results auto-expand so the error is
-  // visible without an extra tap.
+  // for text turns. Failed results collapse too: an errored result can
+  // carry a huge body (e.g. a failed `attach` still holds its base64
+  // content), so keeping errors expanded blew up the card. The header's
+  // failed/error styling still flags it; the user taps to read the body.
   late bool _collapsed = _defaultCollapsedForKind();
 
   bool _defaultCollapsedForKind() {
     final kind = (widget.event['kind'] ?? '').toString();
-    if (kind != 'tool_result') return false;
-    final p = widget.event['payload'];
-    if (p is Map && p['is_error'] == true) return false; // keep errors visible
-    return true;
+    return kind == 'tool_result';
   }
 
   @override

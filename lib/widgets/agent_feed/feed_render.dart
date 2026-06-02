@@ -44,6 +44,11 @@ class CollapsibleMono extends StatefulWidget {
 }
 
 const int _kCollapseLines = 12;
+// Also cap by characters, not just lines: a base64 blob (a failed `attach`'s
+// content, a data: URI, a minified JSON) is ONE line with no newlines, so the
+// line cap alone never fires and the whole multi-MB string renders inline and
+// blows up the card. The char cap bounds the worst case regardless of newlines.
+const int _kCollapseChars = 2000;
 
 class _CollapsibleMonoState extends State<CollapsibleMono> {
   bool _expanded = false;
@@ -52,10 +57,19 @@ class _CollapsibleMonoState extends State<CollapsibleMono> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final lines = widget.text.split('\n');
-    final overflow = lines.length > _kCollapseLines;
-    final shown = (overflow && !_expanded)
-        ? lines.take(_kCollapseLines).join('\n')
-        : widget.text;
+    final lineOverflow = lines.length > _kCollapseLines;
+    final charOverflow = widget.text.length > _kCollapseChars;
+    final overflow = lineOverflow || charOverflow;
+    String shown;
+    if (overflow && !_expanded) {
+      // Cap by whichever limit hits first.
+      final byLines = lines.take(_kCollapseLines).join('\n');
+      shown = byLines.length > _kCollapseChars
+          ? byLines.substring(0, _kCollapseChars)
+          : byLines;
+    } else {
+      shown = widget.text;
+    }
     final muted = isDark
         ? DesignColors.textMuted
         : DesignColors.textMutedLight;
@@ -86,7 +100,9 @@ class _CollapsibleMonoState extends State<CollapsibleMono> {
               child: Text(
                 _expanded
                     ? 'Collapse'
-                    : 'Show all (${lines.length} lines)',
+                    : lineOverflow
+                        ? 'Show all (${lines.length} lines)'
+                        : 'Show all (${widget.text.length} chars)',
                 style: GoogleFonts.jetBrainsMono(fontSize: 10),
               ),
             ),

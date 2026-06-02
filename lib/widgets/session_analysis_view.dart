@@ -83,6 +83,10 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
     // with no event-body fetch (ADR-039 P2). Iterate entries (not values) to
     // keep the class key.
     final runErrorClasses = <int, String>{};
+    // seq → per-error headline label (the failing tool's name, the error type,
+    // or "" for a failed turn — digest schema v3 `sample_labels`). Lets the
+    // Errors lens headline a row with "Bash" instead of the generic class.
+    final runErrorLabels = <int, String>{};
     final errs = digestBody?['errors'];
     if (errs is Map) {
       for (final entry in errs.entries) {
@@ -92,6 +96,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
         final seqs = v['sample_seqs'];
         if (seqs is! List) continue;
         final tss = v['sample_ts'];
+        final labels = v['sample_labels'];
         for (var i = 0; i < seqs.length; i++) {
           final s = seqs[i];
           if (s is! num) continue;
@@ -101,6 +106,10 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
           if (tss is List && i < tss.length) {
             final ts = (tss[i] ?? '').toString();
             if (ts.isNotEmpty) runAnchorTs[seq] = ts;
+          }
+          if (labels is List && i < labels.length) {
+            final label = (labels[i] ?? '').toString();
+            if (label.isNotEmpty) runErrorLabels[seq] = label;
           }
         }
       }
@@ -173,6 +182,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               totalEventCount: totalEvents,
               runErrorSeqs: runErrorSeqs,
               runErrorClasses: runErrorClasses,
+              runErrorLabels: runErrorLabels,
               runTurnSeqs: runTurnSeqs,
               runAnchorTs: runAnchorTs,
               // The analysis surface owns the random-access loader; the Feed

@@ -243,6 +243,51 @@ func TestDigestErrorSeqsWholeRun(t *testing.T) {
 	}
 }
 
+// TestDigestErrorSampleLabels pins schema v3: each sampled tool failure carries
+// the failing tool's resolved name (so the mobile Errors lens can headline the
+// row with "Bash" rather than the generic "Tool error"), aligned 1:1 with its
+// seq. A failed turn carries an empty label (the class label is the meaning).
+func TestDigestErrorSampleLabels(t *testing.T) {
+	events := []foldEvent{
+		{Seq: 1, Kind: "input.text", TS: "2026-06-02T00:00:00Z", Producer: "user",
+			Payload: map[string]any{"text": "go"}},
+		{Seq: 2, Kind: "tool_call", TS: "2026-06-02T00:00:01Z", Producer: "agent",
+			Payload: map[string]any{"name": "Bash", "id": "t1"}},
+		{Seq: 3, Kind: "tool_result", TS: "2026-06-02T00:00:02Z", Producer: "agent",
+			Payload: map[string]any{"is_error": true, "tool_use_id": "t1"}},
+		{Seq: 4, Kind: "turn.result", TS: "2026-06-02T00:00:03Z", Producer: "agent",
+			Payload: map[string]any{"status": "error"}},
+	}
+	d, _ := computeAgentDigest("a", "t", events)
+
+	if d.SchemaVersion != digestSchemaVersion {
+		t.Errorf("schema_version = %d, want %d", d.SchemaVersion, digestSchemaVersion)
+	}
+	// Labels stay aligned with seqs across every class.
+	for class, agg := range d.Errors {
+		if len(agg.SampleLabels) != len(agg.SampleSeqs) {
+			t.Errorf("errors[%q]: sample_labels len %d != sample_seqs len %d",
+				class, len(agg.SampleLabels), len(agg.SampleSeqs))
+		}
+	}
+	// The tool failure (seq 3) resolves to the tool_call's name (seq 2).
+	te := d.Errors["tool_error"]
+	if te == nil {
+		t.Fatalf("missing tool_error class; classes=%v", d.Errors)
+	}
+	if len(te.SampleLabels) != 1 || te.SampleLabels[0] != "Bash" {
+		t.Errorf("tool_error sample_labels = %v, want [Bash]", te.SampleLabels)
+	}
+	// The failed turn (seq 4) carries an empty label.
+	ft := d.Errors["failed_turn"]
+	if ft == nil {
+		t.Fatalf("missing failed_turn class; classes=%v", d.Errors)
+	}
+	if len(ft.SampleLabels) != 1 || ft.SampleLabels[0] != "" {
+		t.Errorf("failed_turn sample_labels = %v, want [\"\"]", ft.SampleLabels)
+	}
+}
+
 // TestDigestTurnStartAdoptsSyntheticTurn pins the fold's turn.start adoption:
 // the hub inserts the user's input.text (opening a synthetic turn) before the
 // driver emits turn.start, so turn.start must ADOPT that synthetic turn — one

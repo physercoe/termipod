@@ -156,6 +156,11 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// event-body fetch; a tap jumps to the error in full context. Null on the
   /// plain Feed (no digest).
   final Map<int, String>? runErrorClasses;
+  /// ADR-039 P2 (schema v3) — `seq → headline label` for each whole-run error:
+  /// the failing tool's name ("Bash"), the error type, or absent for a failed
+  /// turn. Lets an Errors-lens row headline with the tool instead of the
+  /// generic class label. Null / missing entry → fall back to the class label.
+  final Map<int, String>? runErrorLabels;
   final List<int>? runTurnSeqs;
   /// Plan P2 — `seq → ts` for the run anchors that carry a timestamp (the turn
   /// index's `start_ts`). A minimap tap only has the anchor's seq; with the ts
@@ -186,6 +191,7 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.totalEventCount,
     this.runErrorSeqs,
     this.runErrorClasses,
+    this.runErrorLabels,
     this.runTurnSeqs,
     this.runAnchorTs,
     this.randomAccess = false,
@@ -1737,6 +1743,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         return ErrorSummaryRow(
           ordinal: i + 1,
           errorClass: widget.runErrorClasses?[seq] ?? 'error',
+          label: widget.runErrorLabels?[seq],
           ts: ts,
           active: active == i,
           onTap: () {
@@ -1910,12 +1917,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     final isAgentBusy = (widget.randomAccess && !_windowHasTail)
         ? false
         : agentIsBusy(_events);
-    final compose = AgentCompose(
-      agentId: widget.agentId,
-      slashCommands: composeSlash,
-      mentions: composeMentions,
-      isAgentBusy: isAgentBusy,
-    );
+    // Insight (random-access) mode is a read-only analysis surface — the run is
+    // a sealed dataset, not a live conversation — so it drops the composer
+    // entirely (and the telemetry strip below): the RunReportCard already shows
+    // the run's cost/turns/context, and the reclaimed rows go to the transcript.
+    final Widget? compose = widget.randomAccess
+        ? null
+        : AgentCompose(
+            agentId: widget.agentId,
+            slashCommands: composeSlash,
+            mentions: composeMentions,
+            isAgentBusy: isAgentBusy,
+          );
     if (_events.isEmpty) {
       return Column(
         children: [
@@ -1938,7 +1951,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               ),
             ),
           ),
-          compose,
+          if (compose != null) compose,
         ],
       );
     }
@@ -2577,7 +2590,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // session_details_sheet.dart). We intentionally don't render
         // it inline — the info is fixed for the session and burning a
         // full transcript row on mobile wasn't worth it.
-        if (hasTelemetry)
+        if (hasTelemetry && !widget.randomAccess)
           TelemetryStrip(
             totalCostUsd: totalCostUsd,
             turnCount: turnCount,
@@ -2918,7 +2931,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         ),
         // (Turn stepper now floats bottom-left inside the Stack above,
         // replacing the old full-width footer row.)
-        compose,
+        if (compose != null) compose,
       ],
     );
   }

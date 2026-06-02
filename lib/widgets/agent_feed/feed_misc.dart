@@ -845,6 +845,12 @@ String relativeAgo(String? ts) {
 class ErrorSummaryRow extends StatelessWidget {
   final int ordinal;
   final String errorClass;
+
+  /// Optional per-error headline (digest schema v3 `sample_labels`): the failing
+  /// tool's name ("Bash"), the error type, etc. When present it becomes the row
+  /// headline and the class label drops to the subtitle; when absent the class
+  /// label is the headline (older digests).
+  final String? label;
   final String? ts;
   final bool active;
   final VoidCallback onTap;
@@ -853,6 +859,7 @@ class ErrorSummaryRow extends StatelessWidget {
     required this.ordinal,
     required this.errorClass,
     required this.onTap,
+    this.label,
     this.ts,
     this.active = false,
   });
@@ -865,6 +872,17 @@ class ErrorSummaryRow extends StatelessWidget {
     final fg =
         isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
     final rel = relativeAgo(ts);
+    final classLabel = errorClassLabel(errorClass);
+    final hasLabel = label != null && label!.trim().isNotEmpty;
+    // Headline = the tool/type label when present, else the class label.
+    final headline = hasLabel ? label!.trim() : classLabel;
+    // Subtitle = the class label (only when it isn't already the headline) +
+    // the relative time, joined by a middot.
+    final subParts = <String>[
+      if (hasLabel) classLabel,
+      if (rel.isNotEmpty) rel,
+    ];
+    final sub = subParts.join(' · ');
     return Material(
       color: active
           ? DesignColors.error.withValues(alpha: 0.10)
@@ -890,7 +908,7 @@ class ErrorSummaryRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      errorClassLabel(errorClass),
+                      headline,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.spaceGrotesk(
@@ -899,9 +917,11 @@ class ErrorSummaryRow extends StatelessWidget {
                         color: fg,
                       ),
                     ),
-                    if (rel.isNotEmpty)
+                    if (sub.isNotEmpty)
                       Text(
-                        rel,
+                        sub,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.jetBrainsMono(
                             fontSize: 10, color: muted),
                       ),

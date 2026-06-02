@@ -164,11 +164,14 @@ func mergeDigest(dst, src *agentDigest) {
 		}
 		d.Count += c.Count
 		for i, seq := range c.SampleSeqs {
-			var ts string
+			var ts, label string
 			if i < len(c.SampleTSs) {
 				ts = c.SampleTSs[i]
 			}
-			addSampleTS(&d.SampleSeqs, &d.SampleTSs, seq, ts)
+			if i < len(c.SampleLabels) {
+				label = c.SampleLabels[i]
+			}
+			addSampleTS(&d.SampleSeqs, &d.SampleTSs, &d.SampleLabels, seq, ts, label)
 		}
 	}
 	for name, tgt := range src.Tools {

@@ -26,7 +26,11 @@ const (
 	// the *whole-run* error list, not a 25-cap sample. The bump makes
 	// ensureAgentDigest refold already-sealed digests so they pick up the
 	// fuller list (see digestIsStale's caller).
-	digestSchemaVersion = 2
+	//
+	// v3 adds per-error SampleLabels (the failing tool's name) so the mobile
+	// Errors lens can headline each row with the tool ("Bash") instead of the
+	// generic class ("Tool error"); the bump refolds sealed digests to fill it.
+	digestSchemaVersion = 3
 	// Cap the per-tool sample-seq lists so a pathological run can't bloat the
 	// JSON blob. Tool samples are navigation anchors, not a complete index
 	// (agent_turns + the kind-filtered listing are that).
@@ -74,6 +78,13 @@ type errorClassAgg struct {
 	// already carry start_ts; this closes the same gap for errors). Older
 	// digests folded before this field stay seq-only and degrade to page-walk.
 	SampleTSs []string `json:"sample_ts,omitempty"`
+	// SampleLabels is aligned 1:1 with SampleSeqs — a short headline for each
+	// sampled error. For a tool failure it is the failing tool's resolved name
+	// ("Bash", "Edit"); for an `error:<type>` it is the type; for a failed turn
+	// it is "" (the class label carries the meaning). Lets the mobile Errors
+	// lens distinguish rows that would otherwise all read "Tool error". Older
+	// (pre-v3) digests fold without it and degrade to the class label.
+	SampleLabels []string `json:"sample_labels,omitempty"`
 }
 
 type toolAgg struct {
@@ -309,7 +320,7 @@ func (f *digestFolder) step(e foldEvent) {
 		}
 		// Canonical error: a failed turn counts once.
 		if class, ok := canonicalErrorClass(e); ok {
-			f.recordError(class, e.Seq, e.TS)
+			f.recordError(class, e.Seq, e.TS, f.errorSampleLabel(e))
 		}
 		f.closeTurn(status, e.TS)
 		return
@@ -318,7 +329,7 @@ func (f *digestFolder) step(e foldEvent) {
 	// Canonical-error classification for non-turn events (the open turn is
 	// guaranteed non-nil here because we opened one above).
 	if class, ok := canonicalErrorClass(e); ok {
-		f.recordError(class, e.Seq, e.TS)
+		f.recordError(class, e.Seq, e.TS, f.errorSampleLabel(e))
 		if isToolFailure(e) {
 			d.ToolFailed++
 			if f.open != nil {
@@ -391,7 +402,7 @@ func (f *digestFolder) tool(name string) *toolAgg {
 	return t
 }
 
-func (f *digestFolder) recordError(class string, seq int64, ts string) {
+func (f *digestFolder) recordError(class string, seq int64, ts, label string) {
 	f.digest.ErrorCount++
 	if f.open != nil {
 		// Every canonical error during the turn (including its failed-turn
@@ -405,7 +416,21 @@ func (f *digestFolder) recordError(class string, seq int64, ts string) {
 		f.digest.Errors[class] = c
 	}
 	c.Count++
-	addSampleTS(&c.SampleSeqs, &c.SampleTSs, seq, ts)
+	addSampleTS(&c.SampleSeqs, &c.SampleTSs, &c.SampleLabels, seq, ts, label)
+}
+
+// errorSampleLabel derives the per-sample headline for an error event: the
+// failing tool's resolved name for a tool failure, the error type for an
+// `error:<type>`, else "". Uses f.resolve so brute-force (in-memory map) and
+// incremental (DB lookup) agree — keeping incremental == brute (ADR-038).
+func (f *digestFolder) errorSampleLabel(e foldEvent) string {
+	if id := eventToolID(e.Kind, e.Payload); id != "" {
+		return f.resolve(id)
+	}
+	if e.Kind == "error" {
+		return stringOf(e.Payload["type"])
+	}
+	return ""
 }
 
 // --- shared classification predicates -------------------------------------
@@ -556,17 +581,18 @@ func addSample(dst *[]int64, seq int64) {
 	*dst = append(*dst, seq)
 }
 
-// addSampleTS appends a (seq, ts) sample keeping the two slices aligned 1:1.
-// Used only by the error path (recordError + the session error-class merge),
-// so it caps at maxDigestErrorSeqs — the Errors lens wants the whole-run list,
-// not a 25-cap sample. A missing ts is appended as "" so the indices never
-// drift.
-func addSampleTS(seqs *[]int64, tss *[]string, seq int64, ts string) {
+// addSampleTS appends a (seq, ts, label) sample keeping the three slices
+// aligned 1:1. Used only by the error path (recordError + the session
+// error-class merge), so it caps at maxDigestErrorSeqs — the Errors lens wants
+// the whole-run list, not a 25-cap sample. A missing ts/label is appended as ""
+// so the indices never drift.
+func addSampleTS(seqs *[]int64, tss, labels *[]string, seq int64, ts, label string) {
 	if len(*seqs) >= maxDigestErrorSeqs {
 		return
 	}
 	*seqs = append(*seqs, seq)
 	*tss = append(*tss, ts)
+	*labels = append(*labels, label)
 }
 
 // tsDeltaMs returns end-start in milliseconds for two RFC3339 timestamps, or

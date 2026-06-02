@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-31)
+> **Status:** Current (2026-06-02)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.783
+> **Last verified vs code:** v1.0.787
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,41 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.787-alpha — 2026-06-02
+
+**Analysis-mode device-test follow-ups (Insights).** Two real bugs the
+v1.0.786 device pass surfaced, plus an affordance hardening.
+
+### Fixed
+- **Full-screen funnel ▲▼ stepper landed on the wrong row.** The
+  prev/next match steppers used `_seekToSeq` (a lone
+  `Scrollable.ensureVisible`), which silently no-ops when the target
+  match row isn't currently realised — the common case for a far jump
+  in the full-screen transcript. `matchSeqs` is built 1:1 from the
+  lensed list, so its index *is* the lensed-list index; route through
+  the height-agnostic convergent seek (`_seekToLoadedIndex`), the same
+  landing the "view in full" jump and turn-nav use. Stays in the active
+  lens. (`baf5034`)
+- **Terminated project-agent showed no Insights tab.** Both the
+  archived-agent screen and the project-agent sheet resolve a run's hub
+  session from the newest event's top-level `session_id`, but the
+  list-events endpoint (`GET …/events`) never selected `session_id` —
+  only the single-event POST response did — so the field was always
+  null and the Insights tab self-gated off. The endpoint now echoes
+  `session_id` (nullable scan for legacy rows).
+  `TestListAgentEvents_ReturnsSessionID` guards it. (`baf5034`)
+
+### Changed
+- **Insights tab is now unconditional on the archived/terminated-agent
+  screen.** Gating the whole tab on async session-id resolution meant
+  the affordance could silently vanish if resolution lagged or the hub
+  wasn't redeployed. It is now always present and degrades gracefully:
+  full `SessionAnalysisView` once the session id resolves, agent-scoped
+  `InsightsPanel` tiles until then — matching the project-agent sheet.
+  (`9f0e695`)
 
 ---
 

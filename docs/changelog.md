@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-02)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.788
+> **Last verified vs code:** v1.0.789
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,43 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.789-alpha — 2026-06-02
+
+**Insight navigation: reliable structural landing + errored-card folding.**
+
+### Fixed
+- **Funnel / turn / error jumps now land the card in the viewport reliably.**
+  A "view in full" jump binary-searched the scroll offset over the whole
+  loaded window and, on a long height-varied transcript, could exhaust its
+  iteration budget and **bail with no scroll at all** — leaving the target
+  card off-screen. The index seek now seeds its first probe *proportionally*
+  (so the row realises on the first frame for most jumps) and, on the cap,
+  does a final proportional jump + `ensureVisible` so the card is always
+  brought into view. The jump routing already preferred the in-memory window
+  for a loaded anchor (no refetch) and a `(ts, seq)` window reset for an
+  unloaded one — only the landing was unreliable. Structure-first model +
+  rationale: [`discussions/insight-navigation-fixed-pages.md`](discussions/insight-navigation-fixed-pages.md)
+  §10. (`9935b3d`, `75ac139`)
+- **Errored tool cards collapse by default; huge bodies are character-capped.**
+  A failed tool call could blow up the transcript — an `attach` that errored
+  still holds its base64 content, yet errored cards auto-expanded, so the
+  multi-MB body rendered inline on first paint. Errored cards now collapse
+  like every other tool card (the `failed` status pill still flags them at a
+  glance; the Errors lens still surfaces them — collapse is a render default,
+  not a filter), and `CollapsibleMono` now caps by **characters** as well as
+  lines, so a single-line blob (base64 / data-URI / minified JSON) can no
+  longer render uncapped. (`9def171`)
+
+### Changed
+- **`RandomAccessLoader` extracted from `_AgentFeedState`** (#1049). The
+  `(ts, seq)` compound-keyset fetch logic for the Insight random-access window
+  moved into a pure, widget-free `agent_feed/random_access_loader.dart`
+  (`fetchAround` / `fetchNewer`), with a direct unit test for the keyset
+  contract. Behaviour is byte-identical; the live-tail loader, SSE, and Feed
+  are untouched. (`56e6a04`)
 
 ---
 

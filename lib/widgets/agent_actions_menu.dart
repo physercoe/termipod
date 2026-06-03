@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/hub_provider.dart';
+import '../services/hub/agent_status.dart';
 import '../theme/design_colors.dart';
 
 /// Menu action values (also the `onSelected` switch keys). `config` and
@@ -63,6 +64,7 @@ List<PopupMenuEntry<String>> agentLifecycleMenuItems(
   required bool isPaused,
   required bool hasPane,
   required bool canRespawn,
+  AgentResumability resumable = AgentResumability.unknown,
 }) {
   final err = Theme.of(context).colorScheme.error;
   return [
@@ -76,9 +78,13 @@ List<PopupMenuEntry<String>> agentLifecycleMenuItems(
           dense: true,
         ),
       ),
-    // Resume the paused session a Stop left behind (continue, not fresh). Shown
-    // for any dead agent; the hub 409s clearly if the session was archived.
-    if (isDead)
+    // Resume the paused session a Stop left behind (continue, not fresh).
+    // Offered for a dead agent UNLESS we know its session was archived
+    // (permanent — Resume would 409): an "Archived/ended" run is fork-only, so
+    // hiding the item keeps the user from a guaranteed-failed resume (the
+    // confusing "tried to resume, failed" path). When the session fate is
+    // unknown (cold list) we still offer it and let the hub 409 clearly.
+    if (isDead && resumable != AgentResumability.permanent)
       const PopupMenuItem(
         value: AgentAction.resumeSession,
         child: ListTile(

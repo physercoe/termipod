@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-03)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.798
+> **Last verified vs code:** v1.0.799
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,35 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.799-alpha — 2026-06-03
+
+**"Ended" disambiguated + clearer rail scope.** A terminated agent now reads
+as the *resumability* the user cares about, and the Sessions rail names the
+scope it's showing so the team→project re-scope stops being a surprise.
+
+### Fixed
+- **"Stopped" vs "ended"** (`agent_status.dart`): Stop and Archive both leave
+  `agents.status = 'terminated'`, so every surface labelled both "ended" —
+  giving no way to tell a resumable run from a permanent one (the "what does
+  ended mean, paused or archived?" confusion). The distinguishing fact lives on
+  the *session* (Stop → paused, Archive → archived), so the new
+  `agentResumability(sessionStatus)` + `agentStatusLabelResumable` resolve it
+  from the warm sessions snapshot: a paused session reads **"stopped"** (amber
+  dot, resumable); an archived/unknown one reads **"ended"**. Applied to the
+  project Agents tab, the agent-history page, and the Sessions rail.
+- **No more guaranteed-failed resume** (`agent_actions_menu.dart`): "Resume
+  session" was offered for *any* dead agent — on an archived run it always
+  409'd ("tried to resume another, failed"). The shared menu now takes the
+  resumability and hides Resume when the session is known-archived; it still
+  offers it when the fate is unknown (cold list) and lets the hub 409 clearly.
+- **Legible rail scope** (`sessions_rail.dart`): tapping a project agent
+  silently flipped the rail from the team's stewards to that project's agents
+  with only a tiny header change. A `_scopeBanner` (icon + bold title +
+  subtitle — "Team stewards · steward sessions" vs "Project · agents in this
+  project") now names what you're looking at and why.
 
 ---
 

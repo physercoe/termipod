@@ -268,7 +268,13 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
         padding: const EdgeInsets.only(bottom: 12),
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-          _groupHeader('Agents · ${_projectName(projects, projectId)}', muted),
+          _scopeBanner(
+            icon: Icons.folder_outlined,
+            title: _projectName(projects, projectId),
+            subtitle: 'Agents in this project',
+            fg: fg,
+            muted: muted,
+          ),
           if (rows.isEmpty)
             _emptyRow('No other runs in scope.', muted)
           else
@@ -285,7 +291,13 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
         padding: const EdgeInsets.only(bottom: 12),
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-          _groupHeader('Sessions', muted),
+          _scopeBanner(
+            icon: Icons.hub_outlined,
+            title: 'Team stewards',
+            subtitle: 'Steward sessions across the team',
+            fg: fg,
+            muted: muted,
+          ),
           if (sessions.isEmpty)
             _emptyRow('No sessions in scope.', muted)
           else
@@ -335,18 +347,53 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     return null;
   }
 
-  Widget _groupHeader(String label, Color muted) => Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
-        child: Text(
-          label.toUpperCase(),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.6,
-            color: muted,
-          ),
+  /// The rail's scope header — names *what* you're looking at and *why* so the
+  /// silent re-scope (tapping a project agent flips the rail from the team's
+  /// stewards to that project's agents) is legible instead of a surprise. Icon
+  /// + bold title + a one-line subtitle, pinned above the list.
+  Widget _scopeBanner({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color fg,
+    required Color muted,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 16, color: muted),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: fg,
+                    ),
+                  ),
+                  Text(
+                    subtitle.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                      color: muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       );
 
@@ -362,7 +409,16 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     final status = (a['status'] ?? '').toString();
     final active = id == widget.agentId;
     final live = _agentLive(status);
-    final dot = live ? DesignColors.success : muted;
+    // Fold the session's fate into the row: a Stop (session paused) reads
+    // "stopped" with an amber dot (resumable); an Archive (session archived)
+    // reads "ended" with a muted dot (permanent). Both carry status=terminated.
+    final resumable = agentResumability(
+        sessionStatusForAgent(ref.watch(sessionsProvider).value, id));
+    final dot = live
+        ? DesignColors.success
+        : resumable == AgentResumability.resumable
+            ? DesignColors.warning
+            : muted;
     return Material(
       color: active
           ? DesignColors.primary.withValues(alpha: 0.10)
@@ -399,7 +455,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                 )
               else
                 Text(
-                  agentStatusLabel(status),
+                  agentStatusLabelResumable(status, resumable),
                   style:
                       GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
                 ),

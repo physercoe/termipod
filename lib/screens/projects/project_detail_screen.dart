@@ -1060,6 +1060,9 @@ class _AgentsView extends ConsumerWidget {
     final hubState = ref.watch(hubProvider).value;
     final all = hubState?.agents ?? const [];
     final hosts = hubState?.hosts ?? const [];
+    // Warm sessions resolve a terminated agent's fate: Stop (session paused →
+    // "stopped", resumable) vs Archive (session archived → "ended", permanent).
+    final sessions = ref.watch(sessionsProvider).value;
     final rows = all
         .where((a) => (a['project_id'] ?? '').toString() == projectId)
         .toList();
@@ -1116,6 +1119,8 @@ class _AgentsView extends ConsumerWidget {
               final isPaused =
                   (a['pause_state'] ?? 'running').toString() == 'paused';
               final hasPane = (a['pane_id'] ?? '').toString().isNotEmpty;
+              final resumable = agentResumability(sessionStatusForAgent(
+                  sessions, (a['id'] ?? '').toString()));
               final mutedC = isDark
                   ? DesignColors.textMuted
                   : DesignColors.textMutedLight;
@@ -1167,7 +1172,7 @@ class _AgentsView extends ConsumerWidget {
                           ],
                         ),
                       ),
-                      Text(agentStatusLabel(aStatus),
+                      Text(agentStatusLabelResumable(aStatus, resumable),
                           style: GoogleFonts.jetBrainsMono(
                               fontSize: 10, color: mutedC)),
                       // Per-row action affordance (parity with the steward
@@ -1210,6 +1215,7 @@ class _AgentsView extends ConsumerWidget {
                             isPaused: isPaused,
                             hasPane: hasPane,
                             canRespawn: false,
+                            resumable: resumable,
                           ),
                         ],
                       ),

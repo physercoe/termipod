@@ -199,6 +199,11 @@ class _ArchivedTile extends ConsumerWidget {
     final kind = (row['kind'] ?? '').toString();
     final status = (row['status'] ?? '').toString();
     final isPaused = (row['pause_state'] ?? '').toString() == 'paused';
+    // Resolve the run's fate from the warm sessions snapshot: Stop (session
+    // paused → "stopped", Resume offered) vs Archive (session archived →
+    // "ended", Resume hidden — it would 409).
+    final resumable = agentResumability(
+        sessionStatusForAgent(ref.watch(sessionsProvider).value, id));
     final archivedAt = (row['archived_at'] ?? '').toString();
     final terminatedAt = (row['terminated_at'] ?? '').toString();
     // Subtitle line: kind + the most relevant timestamp. For
@@ -250,9 +255,10 @@ class _ArchivedTile extends ConsumerWidget {
                           style: GoogleFonts.spaceGrotesk(
                               fontSize: 14, fontWeight: FontWeight.w600)),
                     ),
-                    // Friendly status (terminated → "ended"), not the raw
-                    // hub vocabulary.
-                    Text(agentStatusLabel(status),
+                    // Friendly status that folds in the session's fate:
+                    // terminated → "stopped" (resumable) or "ended"
+                    // (permanent), not the raw hub vocabulary.
+                    Text(agentStatusLabelResumable(status, resumable),
                         style: GoogleFonts.jetBrainsMono(
                             fontSize: 10, color: DesignColors.textMuted)),
                     const SizedBox(width: 2),
@@ -284,6 +290,7 @@ class _ArchivedTile extends ConsumerWidget {
                         isPaused: isPaused,
                         hasPane: false,
                         canRespawn: false,
+                        resumable: resumable,
                       ),
                     ),
                   ],

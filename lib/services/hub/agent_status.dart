@@ -34,3 +34,49 @@ String agentStatusLabel(String status) {
 /// ('terminated') is reviewable and is NOT excluded.
 bool agentIsCrashedOrFailed(String status) =>
     status == 'crashed' || status == 'failed';
+
+/// Whether a *terminal* agent's session can be resumed. Stop and Archive BOTH
+/// leave `agents.status = 'terminated'` (handlers_agents.go) — the fate that
+/// distinguishes them lives on the SESSION: Stop pauses it (resumable via
+/// Resume session), Archive archives it (permanent, fork-only — Resume 409s).
+/// So the agent row alone can't say "stopped" vs "ended"; callers resolve the
+/// session status and pass it through [agentResumability].
+enum AgentResumability {
+  /// Session is paused — Resume session respawns into it (keeps history).
+  resumable,
+
+  /// Session is archived/gone — permanent, Resume would 409. Fork-only.
+  permanent,
+
+  /// No session info to hand (cold list) — fall back to the legacy wording
+  /// and let the hub 409 if a resume is attempted.
+  unknown,
+}
+
+/// Map a session `status` to the resumability it implies for the agent that
+/// fronted it. See [AgentResumability].
+AgentResumability agentResumability(String sessionStatus) {
+  switch (sessionStatus) {
+    case 'paused':
+    case 'interrupted':
+      return AgentResumability.resumable;
+    case 'archived':
+    case 'deleted':
+      return AgentResumability.permanent;
+    default:
+      return AgentResumability.unknown;
+  }
+}
+
+/// Friendly label for an agent row that folds in the session's fate, so a
+/// `terminated` row reads as the *resumability* the user cares about rather
+/// than the ambiguous "ended": a Stop (session paused) shows "stopped"
+/// (resumable); an Archive (session archived) or an unknown session shows
+/// "ended" (permanent). Every non-terminated status defers to
+/// [agentStatusLabel].
+String agentStatusLabelResumable(String status, AgentResumability r) {
+  if (status == 'terminated' && r == AgentResumability.resumable) {
+    return 'stopped';
+  }
+  return agentStatusLabel(status);
+}

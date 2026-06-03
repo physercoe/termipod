@@ -6,6 +6,7 @@ import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/host_label.dart';
+import '../../services/hub/agent_status.dart';
 import '../../services/hub/session_display.dart';
 import '../../services/id_format.dart';
 import '../../services/steward_handle.dart';
@@ -2670,6 +2671,9 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
             isPaused: agentIsPaused,
             hasPane: agentHasPane,
             canRespawn: agentSpec.isNotEmpty && !agentIsSteward,
+            // We're on the session itself, so its status is the authority on
+            // whether a Stop left it resumable vs an Archive made it permanent.
+            resumable: agentResumability(sessionStatus),
           ),
         if (canFork)
           PopupMenuItem(

@@ -23,6 +23,23 @@ class SessionsState {
   bool get isEmpty => active.isEmpty && previous.isEmpty;
 }
 
+/// The status of the session an agent currently fronts (matched by
+/// `current_agent_id`), from the warm sessions snapshot, or '' if none is
+/// known. Lets a surface tell a *stopped* (session paused, resumable) agent
+/// from an *ended* (session archived, permanent) one — both carry
+/// `agent.status = 'terminated'`, so the distinguishing fact lives here on the
+/// session. The list endpoint returns every team session, so project agents
+/// resolve too (not just stewards).
+String sessionStatusForAgent(SessionsState? sessions, String agentId) {
+  if (sessions == null || agentId.isEmpty) return '';
+  for (final s in [...sessions.active, ...sessions.previous]) {
+    if ((s['current_agent_id'] ?? '').toString() == agentId) {
+      return (s['status'] ?? '').toString();
+    }
+  }
+  return '';
+}
+
 class SessionsNotifier extends AsyncNotifier<SessionsState> {
   @override
   Future<SessionsState> build() async {

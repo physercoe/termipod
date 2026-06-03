@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-03)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.793
+> **Last verified vs code:** v1.0.794
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,32 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.794-alpha — 2026-06-03
+
+**The Insight workbench R3 + an error-headline fix
+([ADR-041](decisions/041-insight-workbench-layout.md)).** A test build adding the
+left "Sessions" rail (a scoped run switcher) and fixing missing tool-name
+headlines on error rows.
+
+### Added
+- **Left "Sessions" rail** (`SessionsRail`, R3 `e0bf51a`) — a phone-first left
+  drawer that retargets the Insight surface without leaving it: two groups,
+  **Agents · <project>** (the project's siblings) and **This agent** (its
+  sessions). Picking one swaps the analyzed run — dashboard, transcript, and
+  Navigator outline retarget together (`SessionAnalysisView` holds the active
+  `(agentId, sessionId)` in state and re-keys `InsightTranscript`). Scoped to
+  the current project/agent — not a competing top-level navigator.
+
+### Fixed
+- **Error rows now headline with the failing tool's name** even when the
+  failing event's tool id doesn't resolve to a recorded `tool_call` (`734a243`):
+  `errorSampleLabel` falls back to a tool name carried on the event itself
+  (`name` / `tool_name` / `toolName` / `title`). The digest schema bumps 3 → 4 so
+  already-sealed digests refold and previously-unlabelled tool errors gain their
+  headline on next read.
+
+R4 (paged Text/Tools filter) is not yet started.
 
 ## v1.0.793-alpha — 2026-06-03
 

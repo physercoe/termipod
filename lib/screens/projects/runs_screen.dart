@@ -12,6 +12,7 @@ import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/histogram_tile.dart';
 import '../../widgets/hub_offline_banner.dart';
+import '../../widgets/view_switcher.dart';
 import 'artifacts_screen.dart';
 import 'run_create_sheet.dart';
 
@@ -617,12 +618,27 @@ class RunDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<RunDetailScreen> createState() => _RunDetailScreenState();
 }
 
+/// The run-detail surfaces, reachable via the header `View ▾` switcher.
+/// Every view is always present in the switcher (an empty one renders a
+/// quiet empty state) so the menu shape stays stable run-to-run.
+/// See docs/plans/run-detail-ui.md.
+enum _RunView { overview, charts, media, outputs, config }
+
+const _runViewOptions = <ViewOption>[
+  ViewOption(label: 'Overview', icon: Icons.dashboard_outlined),
+  ViewOption(label: 'Charts', icon: Icons.show_chart),
+  ViewOption(label: 'Media', icon: Icons.image_outlined),
+  ViewOption(label: 'Outputs', icon: Icons.folder_outlined),
+  ViewOption(label: 'Config', icon: Icons.tune),
+];
+
 class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   Map<String, dynamic>? _run;
   List<Map<String, dynamic>> _metrics = const [];
   List<Map<String, dynamic>> _images = const [];
   List<Map<String, dynamic>> _histograms = const [];
   List<Map<String, dynamic>> _artifacts = const [];
+  _RunView _view = _RunView.overview;
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -748,6 +764,48 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     }
   }
 
+  Future<void> _deleteRun() async {
+    final r = _run ?? widget.summary ?? const <String, dynamic>{};
+    final name = (r['name'] ?? r['id'] ?? 'this run').toString();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete run?'),
+        content: Text(
+          'Permanently delete "$name" and its stored digests '
+          '(metrics, images, config, alerts). This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      await client.deleteRun(widget.runId);
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(content: Text('Run deleted')));
+      navigator.pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      messenger.showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+    }
+  }
+
   List<Map<String, dynamic>> _metricUris() {
     final r = _run ?? widget.summary ?? const <String, dynamic>{};
     final raw = r['metric_uris'];
@@ -787,6 +845,16 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
           ],
         ),
         actions: [
+          if (!_loading && _error == null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: ViewSwitcher(
+                views: _runViewOptions,
+                currentView: _view.index,
+                onSelect: (i) =>
+                    setState(() => _view = _RunView.values[i]),
+              ),
+            ),
           IconButton(
             tooltip: 'Attach dashboard',
             icon: const Icon(Icons.link),
@@ -798,6 +866,26 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
               icon: const Icon(Icons.flag_outlined),
               onPressed: _busy ? null : _complete,
             ),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            enabled: !_busy,
+            onSelected: (v) {
+              if (v == 'delete') _deleteRun();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem<String>(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline,
+                        size: 18, color: DesignColors.error),
+                    SizedBox(width: 10),
+                    Text('Delete run'),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: _body(r),
@@ -820,6 +908,35 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         ),
       );
     }
+    // One IndexedStack so each view keeps its own scroll position as the
+    // user flips between them via the header `View ▾`. Every view is always
+    // built (empty ones show a quiet empty state) — see _RunView.
+    return IndexedStack(
+      index: _view.index,
+      children: [
+        _overviewView(r),
+        _chartsView(),
+        _mediaView(),
+        _outputsView(),
+        _configView(r),
+      ],
+    );
+  }
+
+  // A scrolling, pull-to-refreshable column for one view. The
+  // AlwaysScrollableScrollPhysics keeps pull-to-refresh working even when a
+  // view is short (or empty).
+  Widget _viewScroll(List<Widget> children) => RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: children,
+        ),
+      );
+
+  // ---- Overview: identity + summary (P3 enriches this into the glance) ----
+  Widget _overviewView(Map<String, dynamic> r) {
     final kind = (r['kind'] ?? '').toString();
     final projectId = (r['project_id'] ?? '').toString();
     final agentId = (r['agent_id'] ?? '').toString();
@@ -837,103 +954,177 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     final completed = (r['completed_at'] ?? '').toString();
     final duration = _runDuration(created, completed);
     final summary = (r['summary'] ?? '').toString();
-    final meta = r['metadata_json'];
-    final uris = _metricUris();
-
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          if (kind.isNotEmpty) _metaRow('kind', kind),
-          if (project.isNotEmpty) _metaRow('project', project),
-          if (agent.isNotEmpty) _metaRow('agent', agent),
-          if (parent.isNotEmpty) _metaRow('parent run', parent),
-          if (created.isNotEmpty) _metaRow('started', created),
-          if (completed.isNotEmpty) _metaRow('completed', completed),
-          if (duration.isNotEmpty) _metaRow('duration', duration),
-          if (summary.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _sectionLabel('Summary'),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.25),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: DesignColors.borderDark),
-              ),
-              child: _SummaryBody(summary: summary),
-            ),
-          ],
-          if (_metrics.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _sectionLabel('Metrics'),
-            for (final g in _groupMetrics(_metrics))
-              if (g.rows.length == 1)
-                _MetricSparklineTile(row: g.rows.single)
-              else
-                _MetricGroupTile(groupName: g.name, rows: g.rows),
-          ],
-          if (_images.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _sectionLabel('Images'),
-            for (final group in _groupImages(_images))
-              _ImageSeriesTile(
-                groupName: group.name,
-                rows: group.rows,
-                runId: widget.runId,
-              ),
-          ],
-          if (_histograms.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _sectionLabel('Distributions'),
-            for (final group in _groupHistograms(_histograms))
-              HistogramSeriesTile(
-                groupName: group.name,
-                rows: group.rows,
-              ),
-          ],
-          if (uris.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _sectionLabel('Metric dashboards'),
-            for (final u in uris) _MetricURITile(row: u, onLaunch: _launch),
-          ],
-          if (_artifacts.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _sectionLabel('Outputs'),
-            for (final a in _artifacts.take(5)) _RunArtifactTile(row: a),
-            if (_artifacts.length > 5)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: Text('View all ${_artifacts.length} outputs'),
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => ArtifactsScreen(runId: widget.runId),
-                  )),
-                ),
-              ),
-          ],
-          if (meta is Map && meta.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _sectionLabel('Metadata'),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.25),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: DesignColors.borderDark),
-              ),
-              child: SelectableText(
-                const JsonEncoder.withIndent('  ').convert(meta),
-                style: GoogleFonts.jetBrainsMono(fontSize: 11, height: 1.4),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
+    return _viewScroll([
+      if (kind.isNotEmpty) _metaRow('kind', kind),
+      if (project.isNotEmpty) _metaRow('project', project),
+      if (agent.isNotEmpty) _metaRow('agent', agent),
+      if (parent.isNotEmpty) _metaRow('parent run', parent),
+      if (created.isNotEmpty) _metaRow('started', created),
+      if (completed.isNotEmpty) _metaRow('completed', completed),
+      if (duration.isNotEmpty) _metaRow('duration', duration),
+      if (summary.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        _sectionLabel('Summary'),
+        _panel(child: _SummaryBody(summary: summary)),
+      ],
+    ]);
   }
+
+  // ---- Charts: scalar metrics + external dashboard links ----
+  Widget _chartsView() {
+    final uris = _metricUris();
+    if (_metrics.isEmpty && uris.isEmpty) {
+      return _emptyView(
+        Icons.show_chart,
+        'No metrics yet',
+        'Scalar metric curves appear here once a tracker is attached.',
+      );
+    }
+    return _viewScroll([
+      if (_metrics.isNotEmpty) ...[
+        _sectionLabel('Metrics'),
+        for (final g in _groupMetrics(_metrics))
+          if (g.rows.length == 1)
+            _MetricSparklineTile(row: g.rows.single)
+          else
+            _MetricGroupTile(groupName: g.name, rows: g.rows),
+      ],
+      if (uris.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        _sectionLabel('Metric dashboards'),
+        for (final u in uris) _MetricURITile(row: u, onLaunch: _launch),
+      ],
+    ]);
+  }
+
+  // ---- Media: images + distributions ----
+  Widget _mediaView() {
+    if (_images.isEmpty && _histograms.isEmpty) {
+      return _emptyView(
+        Icons.image_outlined,
+        'No media yet',
+        'Logged images and distributions appear here.',
+      );
+    }
+    return _viewScroll([
+      if (_images.isNotEmpty) ...[
+        _sectionLabel('Images'),
+        for (final group in _groupImages(_images))
+          _ImageSeriesTile(
+            groupName: group.name,
+            rows: group.rows,
+            runId: widget.runId,
+          ),
+      ],
+      if (_histograms.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        _sectionLabel('Distributions'),
+        for (final group in _groupHistograms(_histograms))
+          HistogramSeriesTile(
+            groupName: group.name,
+            rows: group.rows,
+          ),
+      ],
+    ]);
+  }
+
+  // ---- Outputs: produced artifacts ----
+  Widget _outputsView() {
+    if (_artifacts.isEmpty) {
+      return _emptyView(
+        Icons.folder_outlined,
+        'No outputs yet',
+        'Files and checkpoints the run produces appear here.',
+      );
+    }
+    return _viewScroll([
+      _sectionLabel('Outputs'),
+      for (final a in _artifacts.take(5)) _RunArtifactTile(row: a),
+      if (_artifacts.length > 5)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: Text('View all ${_artifacts.length} outputs'),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ArtifactsScreen(runId: widget.runId),
+            )),
+          ),
+        ),
+    ]);
+  }
+
+  // ---- Config: metadata (P4 adds searchable hyperparameters) ----
+  Widget _configView(Map<String, dynamic> r) {
+    final meta = r['metadata_json'];
+    final hasMeta = meta is Map && meta.isNotEmpty;
+    if (!hasMeta) {
+      return _emptyView(
+        Icons.tune,
+        'No config yet',
+        'Hyperparameters and run metadata appear here.',
+      );
+    }
+    return _viewScroll([
+      _sectionLabel('Metadata'),
+      _panel(
+        child: SelectableText(
+          const JsonEncoder.withIndent('  ').convert(meta),
+          style: GoogleFonts.jetBrainsMono(fontSize: 11, height: 1.4),
+        ),
+      ),
+    ]);
+  }
+
+  // A bordered, faintly-filled container — the shared chrome for the
+  // summary/metadata blocks.
+  Widget _panel({required Widget child}) => Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.25),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: DesignColors.borderDark),
+        ),
+        child: child,
+      );
+
+  // A quiet, scrollable (so pull-to-refresh still works) empty state for a
+  // view that has no data for this run yet.
+  Widget _emptyView(IconData icon, String title, String subtitle) =>
+      RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 64, 24, 24),
+              child: Column(
+                children: [
+                  Icon(icon, size: 40, color: DesignColors.textMuted),
+                  const SizedBox(height: 12),
+                  Text(
+                    title,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: DesignColors.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 11,
+                      color: DesignColors.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
 
   Widget _metaRow(String k, String v) => Padding(
         padding: const EdgeInsets.only(bottom: 4),

@@ -30,7 +30,13 @@ const (
 	// v3 adds per-error SampleLabels (the failing tool's name) so the mobile
 	// Errors lens can headline each row with the tool ("Bash") instead of the
 	// generic class ("Tool error"); the bump refolds sealed digests to fill it.
-	digestSchemaVersion = 3
+	//
+	// v4 widens SampleLabels coverage: when a failing tool_result /
+	// tool_call_update id doesn't resolve to a recorded tool_call (engines vary
+	// in which id field they carry), errorSampleLabel falls back to the tool
+	// name on the failing event itself (toolNameFromPayload). The bump refolds
+	// sealed digests so previously-unlabelled tool errors gain their headline.
+	digestSchemaVersion = 4
 	// Cap the per-tool sample-seq lists so a pathological run can't bloat the
 	// JSON blob. Tool samples are navigation anchors, not a complete index
 	// (agent_turns + the kind-filtered listing are that).
@@ -422,10 +428,19 @@ func (f *digestFolder) recordError(class string, seq int64, ts, label string) {
 // errorSampleLabel derives the per-sample headline for an error event: the
 // failing tool's resolved name for a tool failure, the error type for an
 // `error:<type>`, else "". Uses f.resolve so brute-force (in-memory map) and
-// incremental (DB lookup) agree — keeping incremental == brute (ADR-038).
+// incremental (DB lookup) agree — keeping incremental == brute (ADR-038). When
+// the tool-call lookup misses (engines vary in which id field a tool_result /
+// tool_call_update carries, so resolve can come up empty), it falls back to a
+// tool name carried on the failing event itself — so the Errors outline still
+// headlines with the tool, not the generic class.
 func (f *digestFolder) errorSampleLabel(e foldEvent) string {
 	if id := eventToolID(e.Kind, e.Payload); id != "" {
-		return f.resolve(id)
+		if name := f.resolve(id); name != "" {
+			return name
+		}
+		if name := toolNameFromPayload(e.Payload); name != "" {
+			return name
+		}
 	}
 	if e.Kind == "error" {
 		return stringOf(e.Payload["type"])
@@ -529,6 +544,20 @@ func eventToolID(kind string, p map[string]any) string {
 			return id
 		}
 		return stringOf(p["id"])
+	}
+	return ""
+}
+
+// toolNameFromPayload reads a tool name carried directly on an event payload,
+// across the field spellings engines use (`name` for claude/native, `title` /
+// `toolName` for ACP tool_call_update). Used as the errorSampleLabel fallback
+// when the tool-call id lookup misses, so a failed tool_result / tool_call_update
+// can still headline with its tool.
+func toolNameFromPayload(p map[string]any) string {
+	for _, k := range []string{"name", "tool_name", "toolName", "title"} {
+		if n := stringOf(p[k]); n != "" {
+			return n
+		}
 	}
 	return ""
 }

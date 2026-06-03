@@ -288,6 +288,33 @@ func TestDigestErrorSampleLabels(t *testing.T) {
 	}
 }
 
+// TestDigestErrorSampleLabelFallback pins the headline fallback: when the tool
+// id on a failing event doesn't resolve to a recorded tool_call (engines vary
+// in which id field a tool_result / tool_call_update carries), the label falls
+// back to a tool name carried on the failing event itself — so the Errors
+// outline still headlines with the tool, not the generic "Tool error".
+func TestDigestErrorSampleLabelFallback(t *testing.T) {
+	events := []foldEvent{
+		{Seq: 1, Kind: "input.text", TS: "2026-06-02T00:00:00Z", Producer: "user",
+			Payload: map[string]any{"text": "go"}},
+		// A failed tool_call_update whose id ("t2") matches no recorded
+		// tool_call, but which carries the tool name directly (ACP `toolName`).
+		{Seq: 2, Kind: "tool_call_update", TS: "2026-06-02T00:00:01Z", Producer: "agent",
+			Payload: map[string]any{
+				"toolCallId": "t2", "status": "failed", "toolName": "WebSearch"}},
+	}
+	d, _ := computeAgentDigest("a", "t", events)
+
+	te := d.Errors["tool_error"]
+	if te == nil {
+		t.Fatalf("missing tool_error class; classes=%v", d.Errors)
+	}
+	if len(te.SampleLabels) != 1 || te.SampleLabels[0] != "WebSearch" {
+		t.Errorf("tool_error sample_labels = %v, want [WebSearch] (payload fallback)",
+			te.SampleLabels)
+	}
+}
+
 // TestDigestTurnStartAdoptsSyntheticTurn pins the fold's turn.start adoption:
 // the hub inserts the user's input.text (opening a synthetic turn) before the
 // driver emits turn.start, so turn.start must ADOPT that synthetic turn — one

@@ -1,12 +1,14 @@
 # Insight transcript workbench — phased execution
 
 > **Type:** plan
-> **Status:** Proposed (2026-06-03) — implements
-> [ADR-041](../decisions/041-insight-workbench-layout.md). Not started. Each
-> phase gates on the director's device-test (Flutter is untestable locally);
-> pure extractions carry unit tests.
+> **Status:** In progress (2026-06-03) — implements
+> [ADR-041](../decisions/041-insight-workbench-layout.md). **R1 coded (awaiting
+> the director's device-test); R2–R4 not started.** Each phase gates on the
+> director's device-test (Flutter is untestable locally); pure extractions carry
+> unit tests.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.792-alpha (post-`a9c2af1`; not started).
+> **Last verified vs code:** v1.0.792-alpha (R1 coded post-tag; see the R1
+> phase note below).
 
 **TL;DR.** Reshape the `InsightTranscript` surface per
 [ADR-041](../decisions/041-insight-workbench-layout.md): the funnel becomes a
@@ -68,6 +70,16 @@ widgets; remove the transcript-replace mode.
 - **Gate:** the transcript always shows cards; the funnel filters in place;
   opening the Navigator shows the Turns/Errors outline; a tap lands the
   transcript on the right turn/error in context.
+- **Status: coded (awaiting device-test).** `FeedFilterControl` gained an
+  optional `selectableLenses` (Insight passes `All / Text / Tools`).
+  `InsightTranscript` dropped the `_summaryMode` transcript→list swap (and the
+  `_isErrorsSummaryLens` / `_isTurnsSummaryLens` / `_runAnchorListFor` helpers);
+  the centre `ListView` always renders cards. The point-6 row builders became
+  `_buildNavTurnsList` / `_buildNavErrorsList` (own scroll controllers; a tap
+  calls `_jumpFromOutline` → close drawer + `_handleExternalSeek`), hosted in a
+  phone-overlay `_buildNavigatorOverlay` (scrim + right panel + `Turns | Errors`
+  `TabBar`), opened by the top-right `_NavigatorHandle`. Stepper + N/M pill +
+  floating minimap stay for now (R2 removes them).
 
 ### R2 — Map tab (minimap into the Navigator)
 

@@ -228,6 +228,11 @@ class FeedFilterControl extends StatelessWidget {
   // so the funnel replaces the old always-on lens BAR — same information,
   // no vertical row). Null in the dense host.
   final Map<FeedLens, int>? counts;
+  // The lenses offered in the menu. Defaults to every [FeedLens]; the Insight
+  // workbench (ADR-041) restricts it to All/Text/Tools — Turns and Errors are
+  // structural navigation (the Navigator outline), not card filters, so they
+  // are no longer selectable lenses.
+  final List<FeedLens>? selectableLenses;
   const FeedFilterControl({
     required this.lens,
     required this.matchCount,
@@ -238,6 +243,7 @@ class FeedFilterControl extends StatelessWidget {
     required this.onPrev,
     required this.onNext,
     this.counts,
+    this.selectableLenses,
   });
 
   static IconData iconFor(FeedLens l) {
@@ -288,7 +294,7 @@ class FeedFilterControl extends StatelessWidget {
       padding: EdgeInsets.zero,
       onSelected: onSelectLens,
       itemBuilder: (_) => [
-        for (final l in FeedLens.values)
+        for (final l in (selectableLenses ?? FeedLens.values))
           PopupMenuItem<FeedLens>(
             value: l,
             child: Row(

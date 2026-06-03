@@ -146,6 +146,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   // with the snapshot timestamp.
   DateTime? _staleSince;
   final ScrollController _scroll = ScrollController();
+  // The Navigator drawer's Turns / Errors tabs scroll independently of the
+  // transcript window — each owns its controller.
+  final ScrollController _navTurnsScroll = ScrollController();
+  final ScrollController _navErrorsScroll = ScrollController();
   // Tail-follow here only governs whether a jump-to-latest control shows and
   // whether load-newer fires near the bottom; there's no live tail to follow.
   bool _followTail = true;
@@ -160,8 +164,20 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   int? _activeSeekSeq;
   bool _seekHighlight = false;
   Timer? _seekHighlightTimer;
-  // Single-select transcript lens (Errors / Turns / Text / Tools / All).
+  // Single-select transcript CARD FILTER (All / Text / Tools). Turns and Errors
+  // are no longer lenses — they are the Navigator outline (ADR-041). The
+  // [FeedLens] enum keeps those values for the minimap/anchor predicates, but
+  // they are not offered as selectable filters.
   FeedLens _lens = FeedLens.all;
+  // The lenses the funnel offers — a pure card filter (ADR-041 §1).
+  static const List<FeedLens> _kLensFilter = [
+    FeedLens.all,
+    FeedLens.text,
+    FeedLens.tools,
+  ];
+  // The right "Navigator" drawer (ADR-041 §2): the structural outline you jump
+  // *from* — Turns / Errors tabs (Map arrives in R2). Phone-first overlay.
+  bool _navigatorOpen = false;
   // Generation of the last external seek serviced (so a controller notify for a
   // seq we already jumped to doesn't re-fire, but a fresh seekTo does).
   int _lastSeekGeneration = 0;
@@ -206,6 +222,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     _seekHighlightTimer?.cancel();
     widget.seekController?.removeListener(_onSeekRequest);
     _scroll.dispose();
+    _navTurnsScroll.dispose();
+    _navErrorsScroll.dispose();
     super.dispose();
   }
 
@@ -522,9 +540,6 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     // the pager — it can momentarily land near the bottom (the "jump to end"
     // bug).
     if (_seek.isProgrammatic) return;
-    // A whole-run summary list (Errors / Turns) is digest-backed with no _events
-    // paging; scrolling it must not touch the transcript window.
-    if (_summaryMode) return;
     // Window short of the tail: the bottom edge pages *newer* (the forward
     // complement of load-older at the top). We're not at the live tail yet.
     final atTrueTail = atBottom && _windowHasTail;
@@ -579,27 +594,15 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     return _viewFrac;
   }
 
-  // ── Lens-as-query (the whole-run Errors / Turns summary lists) ────────────
+  // ── Outline data (the Navigator's Turns / Errors tabs) ───────────────────
 
-  /// The Errors lens renders the WHOLE-RUN error list as digest-only summary
-  /// rows (class + time), not a client filter over the loaded window: exact,
-  /// never-empty, no event-body fetch. Gated to errors-present.
-  bool _isErrorsSummaryLens(FeedLens lens) =>
-      lens == FeedLens.errors && (widget.runErrorSeqs?.isNotEmpty ?? false);
-  bool get _errorsSummaryMode => _isErrorsSummaryLens(_lens);
   // The run's error seqs, ascending so the newest sits at the bottom.
   List<int> _sortedErrorSeqs() => [...?widget.runErrorSeqs]..sort();
 
-  /// The Turns lens renders the WHOLE-RUN turn list as digest-backed summary
-  /// rows (P5 point 6) — the structure index folded into the funnel, replacing
-  /// the old standalone disclosure. Gated to turn-rows-present.
-  bool _isTurnsSummaryLens(FeedLens lens) =>
-      lens == FeedLens.turns && (widget.runTurns?.isNotEmpty ?? false);
-  bool get _turnsSummaryMode => _isTurnsSummaryLens(_lens);
   // The turn rows with a real start_seq, ascending so the newest sits at the
   // bottom like the chat transcript. The start_seq>0 filter mirrors how
-  // `runTurnSeqs` is built (the funnel anchor list), so the rendered rows stay
-  // index-aligned with the funnel N/M + the minimap ticks.
+  // `runTurnSeqs` is built (the minimap anchor list), so the rendered rows stay
+  // index-aligned with the minimap ticks.
   List<Map<String, dynamic>> _sortedTurnRows() {
     final rows = [
       for (final r in (widget.runTurns ?? const <Map<String, dynamic>>[]))
@@ -609,11 +612,6 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         .compareTo((b['start_seq'] as num?)?.toInt() ?? 0));
     return rows;
   }
-
-  /// True when the active lens renders a whole-run summary list (Errors or
-  /// Turns) rather than the transcript ListView — the gate for suppressing the
-  /// _events scroll pager, the minimap, and the position pill.
-  bool get _summaryMode => _errorsSummaryMode || _turnsSummaryMode;
 
   // ── Seek primitives (the landing engine drivers) ──────────────────────────
 
@@ -831,20 +829,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
 
   // ── Lens / funnel orchestration ───────────────────────────────────────────
 
-  /// The whole-run anchor list backing a lens's funnel — the digest's turn
-  /// starts / error samples (sorted to run order). Null for lenses with no
-  /// whole-run index (text / tools / all).
-  List<int>? _runAnchorListFor(FeedLens lens) {
-    if (!_runAnchorMode) return null;
-    final raw = lens == FeedLens.turns
-        ? widget.runTurnSeqs
-        : (lens == FeedLens.errors ? widget.runErrorSeqs : null);
-    if (raw == null || raw.isEmpty) return null;
-    return [...raw]..sort();
-  }
-
-  /// Switch the active lens. Resets the seek anchor; a non-`all` lens jumps to
-  /// its newest match (the newest error/turn is usually what you're debugging).
+  /// Switch the active card filter (All / Text / Tools). Resets the seek anchor;
+  /// a non-`all` filter jumps to the tail so the newest matches show and the
+  /// scroll extent exists to page older. Turns/Errors are not lenses — they live
+  /// in the Navigator outline (ADR-041).
   void _setLens(FeedLens lens) {
     setState(() {
       _lens = lens;
@@ -852,36 +840,6 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       _funnelRunIdx = null;
       if (lens != FeedLens.all) _followTail = true;
     });
-    // The Errors / Turns lenses are whole-run summary lists (digest-backed
-    // rows). On entry just show the list scrolled to the newest row (bottom);
-    // no _events reset, no jump into the transcript.
-    if (_isErrorsSummaryLens(lens)) {
-      final n = _sortedErrorSeqs().length;
-      setState(() => _funnelRunIdx = n - 1);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _scrollToTail();
-      });
-      return;
-    }
-    if (_isTurnsSummaryLens(lens)) {
-      final n = _sortedTurnRows().length;
-      setState(() => _funnelRunIdx = n - 1);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _scrollToTail();
-      });
-      return;
-    }
-    // A run-anchor lens with no summary rows (e.g. turns when only seqs, not the
-    // full rows, were supplied) jumps to its NEWEST match on entry.
-    // Without this the filtered view is empty whenever no match sits in the
-    // loaded tail window — and an empty list has no scroll extent, so
-    // "scroll up to load older" can never fire. The jump random-access-resets
-    // around the newest anchor (reachable at any depth).
-    final runList = _runAnchorListFor(lens);
-    if (runList != null) {
-      _funnelRunJump(runList.length - 1, runList.last);
-      return;
-    }
     if (lens != FeedLens.all) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _scrollToTail();
@@ -932,20 +890,6 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// loaded-window convergent seek.
   void _funnelStep(int i, List<int> matchSeqs, {required bool usesRunList}) {
     if (i < 0 || i >= matchSeqs.length) return;
-    // In a whole-run summary list (Errors / Turns) the stepper just scrolls the
-    // fixed-extent list to row i (matchSeqs == the sorted run seqs == the
-    // rendered rows).
-    if (_summaryMode) {
-      setState(() => _funnelRunIdx = i);
-      if (_scroll.hasClients) {
-        final extent = _errorsSummaryMode ? _kErrorRowExtent : _kTurnRowExtent;
-        final off =
-            (i * extent).clamp(0.0, _scroll.position.maxScrollExtent);
-        _scroll.animateTo(off,
-            duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
-      }
-      return;
-    }
     if (usesRunList) {
       _funnelRunJump(i, matchSeqs[i]);
     } else {
@@ -953,15 +897,16 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     }
   }
 
-  /// The Errors lens as the run's COMPLETE error list: digest-only summary rows
-  /// (class + relative time), exact + never-empty + no event-body fetch. A tap
-  /// jumps to that error in full context. Fixed [_kErrorRowExtent] so the funnel
-  /// stepper scrolls to a row by index.
-  Widget _buildErrorsSummaryList() {
+  /// The Navigator **Errors** tab — the run's COMPLETE error list as digest-only
+  /// summary rows (class + relative time), exact + never-empty + no event-body
+  /// fetch. An outline you jump *from*: a tap closes the drawer and lands the
+  /// transcript on that error in full context (ADR-041 §2). Owns its own scroll
+  /// controller [ctl] — it is a drawer list, NOT the transcript window.
+  Widget _buildNavErrorsList(ScrollController ctl) {
     final seqs = _sortedErrorSeqs();
-    final active = _funnelRunIdx;
+    if (seqs.isEmpty) return _navEmpty('No errors — a clean run.');
     return ListView.builder(
-      controller: _scroll,
+      controller: ctl,
       padding: EdgeInsets.zero,
       itemExtent: _kErrorRowExtent,
       itemCount: seqs.length,
@@ -973,27 +918,23 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
           errorClass: widget.runErrorClasses?[seq] ?? 'error',
           label: widget.runErrorLabels?[seq],
           ts: ts,
-          active: active == i,
-          onTap: () {
-            setState(() => _funnelRunIdx = i);
-            _handleExternalSeek(seq, ts);
-          },
+          active: _activeSeekSeq == seq,
+          onTap: () => _jumpFromOutline(seq, ts),
         );
       },
     );
   }
 
-  /// P5 point 6 — the Turns lens as the run's COMPLETE turn list: digest-backed
-  /// summary rows (status · duration · tools · errors), exact + never-empty. A
-  /// tap jumps to that turn's start in full context. The digest-backed structure
-  /// index folded into the funnel, replacing the old standalone `_TurnsDisclosure`
-  /// row. Fixed [_kTurnRowExtent] so the funnel stepper scrolls to a row by
-  /// index ([_funnelStep]).
-  Widget _buildTurnsSummaryList() {
+  /// The Navigator **Turns** tab — the run's COMPLETE turn list as digest-backed
+  /// summary rows (status · duration · tools · errors), exact + never-empty. An
+  /// outline you jump *from*: a tap closes the drawer and lands the transcript on
+  /// that turn's start in full context (ADR-041 §2). Owns its own scroll
+  /// controller [ctl].
+  Widget _buildNavTurnsList(ScrollController ctl) {
     final rows = _sortedTurnRows();
-    final active = _funnelRunIdx;
+    if (rows.isEmpty) return _navEmpty('No turns recorded yet.');
     return ListView.builder(
-      controller: _scroll,
+      controller: ctl,
       padding: EdgeInsets.zero,
       itemExtent: _kTurnRowExtent,
       itemCount: rows.length,
@@ -1015,13 +956,34 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
           toolFailed: (r['tool_failed'] as num?)?.toInt() ?? 0,
           errorCount: (r['error_count'] as num?)?.toInt() ?? 0,
           ts: ts,
-          active: active == i,
-          onTap: () {
-            setState(() => _funnelRunIdx = i);
-            _handleExternalSeek(seq, ts);
-          },
+          active: _activeSeekSeq == seq,
+          onTap: () => _jumpFromOutline(seq, ts),
         );
       },
+    );
+  }
+
+  /// Outline-row tap (Turns / Errors): close the Navigator drawer and land the
+  /// transcript on [seq] in full card context.
+  void _jumpFromOutline(int seq, String? ts) {
+    setState(() => _navigatorOpen = false);
+    _handleExternalSeek(seq, ts);
+  }
+
+  Widget _navEmpty(String message) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 12,
+            color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1119,6 +1081,108 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     } catch (_) {
       // Network blip — leave the window in place; the user can retry.
     }
+  }
+
+  // ── Navigator drawer (the structural outline) ─────────────────────────────
+
+  /// The right "Navigator" drawer (ADR-041 §2), as a phone-first overlay since
+  /// [InsightTranscript] is embedded (no Scaffold of its own): a tap-to-dismiss
+  /// scrim + a right-aligned panel with the **Turns | Errors** outline tabs.
+  /// Each tab is a whole-run structural index you jump *from* — a row tap closes
+  /// the drawer and lands the transcript on that seq in full context. (R2 adds a
+  /// Map tab here and retires the floating minimap.)
+  Widget _buildNavigatorOverlay() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final panelBg =
+        isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final fg =
+        isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final border = isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final width =
+        math.min(340.0, MediaQuery.of(context).size.width * 0.86);
+    final errorCount = widget.runErrorSeqs?.length ?? 0;
+    final turnCount = _sortedTurnRows().length;
+    return Positioned.fill(
+      child: Stack(
+        children: [
+          // Scrim — tap anywhere outside the panel to dismiss.
+          GestureDetector(
+            onTap: () => setState(() => _navigatorOpen = false),
+            child: Container(color: Colors.black.withValues(alpha: 0.45)),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Material(
+              color: panelBg,
+              elevation: 12,
+              child: SizedBox(
+                width: width,
+                height: double.infinity,
+                child: SafeArea(
+                  left: false,
+                  child: DefaultTabController(
+                    length: 2,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding:
+                              const EdgeInsets.fromLTRB(14, 10, 6, 4),
+                          child: Row(
+                            children: [
+                              Icon(Icons.toc, size: 18, color: muted),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Navigator',
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: fg,
+                                ),
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                tooltip: 'Close',
+                                visualDensity: VisualDensity.compact,
+                                icon: Icon(Icons.close,
+                                    size: 18, color: muted),
+                                onPressed: () => setState(
+                                    () => _navigatorOpen = false),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TabBar(
+                          labelColor: DesignColors.primary,
+                          unselectedLabelColor: muted,
+                          indicatorColor: DesignColors.primary,
+                          labelStyle: GoogleFonts.spaceGrotesk(
+                              fontSize: 12, fontWeight: FontWeight.w700),
+                          tabs: [
+                            Tab(text: 'Turns ($turnCount)'),
+                            Tab(text: 'Errors ($errorCount)'),
+                          ],
+                        ),
+                        Divider(height: 1, color: border),
+                        Expanded(
+                          child: TabBarView(
+                            children: [
+                              _buildNavTurnsList(_navTurnsScroll),
+                              _buildNavErrorsList(_navErrorsScroll),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -1358,11 +1422,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         Expanded(
           child: Stack(
             children: [
-              _errorsSummaryMode
-                  ? _buildErrorsSummaryList()
-                  : _turnsSummaryMode
-                      ? _buildTurnsSummaryList()
-                      : ListView.separated(
+              // The transcript always renders cards now — Turns/Errors are the
+              // Navigator outline, never a list that replaces the stream
+              // (ADR-041 §1–2).
+              ListView.separated(
                       controller: _scroll,
                       padding: widget.padding,
                       itemCount: lensed.length,
@@ -1462,7 +1525,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
               // When a lens filters out every loaded event, tell the user it's
               // the filter (older matches may exist above) so they can scroll up
               // or clear it.
-              if (_lens != FeedLens.all && lensed.isEmpty && !_summaryMode)
+              if (_lens != FeedLens.all && lensed.isEmpty)
                 Center(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
@@ -1493,6 +1556,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                   canNext: matchIndex >= 1 && matchIndex < matchSeqs.length,
                   onSelectLens: _setLens,
                   counts: lensCounts,
+                  selectableLenses: _kLensFilter,
                   onPrev: () {
                     if (matchIndex > 1) {
                       _funnelStep(matchIndex - 2, matchSeqs,
@@ -1508,12 +1572,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                 ),
               ),
               // Monotonic "event N of M" position. On the random-access surface
-              // it's a control (tap → "jump to any event" scrubber). Suppressed
-              // in the Errors summary list (the funnel N/M + the list are the
-              // nav there).
-              if (!_summaryMode &&
-                  widget.totalEventCount != null &&
-                  _logPosition() != null)
+              // it's a control (tap → "jump to any event" scrubber).
+              if (widget.totalEventCount != null && _logPosition() != null)
                 Positioned(
                   top: 8,
                   left: 0,
@@ -1528,24 +1588,24 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
               // Right-edge minimap: a tick per tool call / turn anchor
               // (card-coloured) + a red tick per error, plus a viewport
               // indicator. In full-run anchor mode the ticks are whole-run and a
-              // tap routes through the random-access seek.
-              if (!_summaryMode)
-                Positioned(
-                  top: 8,
-                  right: 4,
-                  bottom: 12,
-                  width: 28,
-                  child: FeedMinimap(
-                    marks: minimapMarks,
-                    onJump: _runAnchorMode
-                        ? (frac, seq) {
-                            _handleExternalSeek(seq, widget.runAnchorTs?[seq]);
-                          }
-                        : _seekToFrac,
-                    onScrub: _runAnchorMode ? null : _scrubTo,
-                    viewportFrac: _minimapViewportFrac(),
-                  ),
+              // tap routes through the random-access seek. (R2 folds this into
+              // the Navigator as the Map tab and drops the floating lane.)
+              Positioned(
+                top: 8,
+                right: 4,
+                bottom: 12,
+                width: 28,
+                child: FeedMinimap(
+                  marks: minimapMarks,
+                  onJump: _runAnchorMode
+                      ? (frac, seq) {
+                          _handleExternalSeek(seq, widget.runAnchorTs?[seq]);
+                        }
+                      : _seekToFrac,
+                  onScrub: _runAnchorMode ? null : _scrubTo,
+                  viewportFrac: _minimapViewportFrac(),
                 ),
+              ),
               // Bottom-left stepper: ⤒ top-of-loaded, ‹/› previous/next of the
               // current view's unit. Always actionable: prev falls back to
               // paging older (then top), next to jumping to the tail.
@@ -1583,18 +1643,61 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                           : _jumpToLatest),
                 ),
               ),
+              // Navigator open-handle, top-right (clears the minimap lane). Opens
+              // the structural outline drawer (Turns / Errors).
+              Positioned(
+                top: 6,
+                right: 38,
+                child: _NavigatorHandle(
+                  onTap: () => setState(() => _navigatorOpen = true),
+                ),
+              ),
               // Verbose toggle, top-right (shifted left to clear the minimap
-              // lane).
+              // lane + the Navigator handle).
               if (verboseChip != null)
                 Positioned(
                   top: 6,
-                  right: 30,
+                  right: 84,
                   child: verboseChip,
                 ),
+              // The Navigator drawer overlay (phone-first): a scrim + a
+              // right-aligned panel with the Turns / Errors outline tabs.
+              if (_navigatorOpen) _buildNavigatorOverlay(),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The Navigator open-handle — a compact round button that opens the structural
+/// outline drawer (Turns / Errors). Sits top-right, clear of the minimap lane.
+class _NavigatorHandle extends StatelessWidget {
+  final VoidCallback onTap;
+  const _NavigatorHandle({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border = isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Material(
+      color: bg,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: border),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Icon(Icons.toc, size: 18, color: muted),
+        ),
+      ),
     );
   }
 }

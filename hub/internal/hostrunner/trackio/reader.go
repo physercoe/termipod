@@ -2,14 +2,25 @@
 // SQLite store (§6.5, P3.1).
 //
 // Trackio is wandb-compatible and stores one SQLite file per project
-// under TRACKIO_DIR (default ~/.cache/huggingface/trackio). Its schema
-// — as of https://huggingface.co/docs/trackio/storage_schema — keeps
-// scalar metrics in a single table:
+// (`{project}.db`) under TRACKIO_DIR (default ~/.cache/huggingface/trackio).
+// Scalar metrics live in a single `metrics` table. Verified against
+// gradio-app/trackio main (2026-06-03, trackio/sqlite_storage.py):
 //
-//	metrics(id INTEGER, timestamp TEXT, run_name TEXT, step INTEGER,
-//	        metrics TEXT /* JSON blob like {"loss":1.23,"acc":0.7} */)
+//	metrics(id INTEGER, run_id TEXT, timestamp TEXT, run_name TEXT,
+//	        step INTEGER, metrics TEXT /* JSON like {"loss":1.23,"acc":0.7} */,
+//	        log_id TEXT, space_id TEXT)
 //
-// URI scheme: trackio://<project>/<run_name>.
+// We read only (run_name, step, metrics) with a COLUMN-SPECIFIC SELECT, so the
+// columns upstream has added since this driver shipped (run_id / log_id /
+// space_id, plus the sibling system_metrics / configs / traces / alerts tables)
+// are forward-compatible and need no change here. run_name + step + metrics have
+// kept their names and types; that is the contract this driver depends on.
+//
+// URI scheme: trackio://<project>/<run_name>. (Upstream stores the DB under a
+// *sanitized* project name — alphanumerics, '-' and '_'; a project whose name
+// carries other characters would land at a different path than ProjectDBPath
+// builds. Run names round-tripped through trackio.init are normally already
+// safe, so this is a latent edge, not an observed break.)
 package trackio
 
 import (

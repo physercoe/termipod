@@ -2,13 +2,13 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-06-03) — implements
-> [ADR-041](../decisions/041-insight-workbench-layout.md). **R1 + R2 coded
-> (awaiting the director's device-test); R3–R4 not started.** Each phase gates on
-> the director's device-test (Flutter is untestable locally); pure extractions
-> carry unit tests.
+> [ADR-041](../decisions/041-insight-workbench-layout.md). **R1 + R2 tagged
+> (v1.0.793-alpha); R3 coded (awaiting the director's device-test); R4 not
+> started.** Each phase gates on the director's device-test (Flutter is
+> untestable locally); pure extractions carry unit tests.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.792-alpha (R1 + R2 coded post-tag; see the
-> per-phase status notes below).
+> **Last verified vs code:** v1.0.793-alpha (R3 coded post-tag; see the per-phase
+> status notes below).
 
 **TL;DR.** Reshape the `InsightTranscript` surface per
 [ADR-041](../decisions/041-insight-workbench-layout.md): the funnel becomes a
@@ -120,6 +120,22 @@ widgets; remove the transcript-replace mode.
 - **Gate:** the rail lists the in-scope sessions/agents; selecting one swaps the
   analyzed run (transcript + dashboard + outline all retarget); the app's
   top-level navigation is unaffected.
+- **Status: coded (awaiting device-test).** Source = **both** (director's call):
+  a `SessionsRail` (`lib/widgets/sessions_rail.dart`) lists two groups — **Agents
+  · <project>** (the project's siblings via `listAgentsCached(projectId,
+  includeTerminated, includeArchived)`, project resolved from the current agent's
+  row) and **This agent** (its sessions via `listSessionsCached()` filtered on
+  `current_agent_id`). Picking an agent resolves its session (newest event
+  `session_id`, like the archived-agent screen) and picking a session uses its
+  `current_agent_id`. The host (`SessionAnalysisView`) now holds the active
+  `(agentId, sessionId, live)` in state (seeded from the widget, re-synced in
+  `didUpdateWidget` so external nav still wins), exposes `_retarget`, and re-keys
+  `InsightTranscript` on `'$agentId/$sessionId'` so the buffer rebuilds while the
+  digest/turns providers re-resolve on the new session id. Phone overlay: a slim
+  left-edge pull handle (`_SessionsRailHandle`) opens a scrim + left panel.
+  **Known limit (follow-up):** the "This agent" group only catches sessions this
+  agent currently fronts (`current_agent_id`); full respawn history needs a hub
+  "sessions for agent" endpoint (distinct `session_id`s in its events).
 
 ### R4 — paged Text/Tools filter (ADR-039 point 3)
 

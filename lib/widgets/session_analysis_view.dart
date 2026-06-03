@@ -6,6 +6,7 @@ import '../providers/session_turns_provider.dart';
 import '../theme/design_colors.dart';
 import 'insight_transcript.dart';
 import 'run_report_card.dart';
+import 'sessions_rail.dart';
 import 'transcript/seek_controller.dart';
 
 /// The analysis surface (agent-run-analysis-mode plan P1/P2): a foldable
@@ -50,6 +51,39 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
   // share one instance for the view's lifetime.
   final TranscriptSeekController _seek = TranscriptSeekController();
 
+  // The *active* analysed run. Seeded from the widget, but the left Sessions
+  // rail (ADR-041 §4) can retarget it to a project sibling / another session
+  // without leaving the surface; the digest/turns providers re-resolve on the
+  // new session id and the transcript re-keys.
+  late String _agentId = widget.agentId;
+  late String _sessionId = widget.sessionId;
+  late bool _live = widget.live;
+  bool _railOpen = false;
+
+  @override
+  void didUpdateWidget(covariant SessionAnalysisView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // An external navigation (the host pushed a different run into this widget)
+    // wins over a rail retarget — re-sync the active target.
+    if (oldWidget.agentId != widget.agentId ||
+        oldWidget.sessionId != widget.sessionId) {
+      _agentId = widget.agentId;
+      _sessionId = widget.sessionId;
+      _live = widget.live;
+    }
+  }
+
+  void _retarget(String agentId, String sessionId, bool live) {
+    if (sessionId.isEmpty || (agentId == _agentId && sessionId == _sessionId)) {
+      return;
+    }
+    setState(() {
+      _agentId = agentId;
+      _sessionId = sessionId;
+      _live = live;
+    });
+  }
+
   @override
   void dispose() {
     _seek.dispose();
@@ -61,8 +95,8 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
-    final digest = ref.watch(sessionDigestProvider(widget.sessionId));
-    final turns = ref.watch(sessionTurnsProvider(widget.sessionId));
+    final digest = ref.watch(sessionDigestProvider(_sessionId));
+    final turns = ref.watch(sessionTurnsProvider(_sessionId));
 
     // The run-lifetime total drives the feed's "event N of M" position; null
     // until the digest resolves (the feed falls back to the loaded max).
@@ -138,7 +172,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
         return RunReportCard(
           digest: body,
           staleSince: state.staleSince,
-          live: widget.live,
+          live: _live,
           // Tapping the Errors stat jumps the transcript below to the first
           // error anchor — now with the error's ts (sample_ts) so it takes the
           // random-access reset, not the page-walk.
@@ -153,7 +187,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
     // summary rows like the Errors lens. The rows flow down as `runTurns`; the
     // funnel is the single "filter card view for all the items".
 
-    return Column(
+    final column = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         card,
@@ -161,13 +195,16 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
         Expanded(
           child: RefreshIndicator(
             onRefresh: () async {
-              ref.invalidate(sessionDigestProvider(widget.sessionId));
-              ref.invalidate(sessionTurnsProvider(widget.sessionId));
-              await ref.read(sessionDigestProvider(widget.sessionId).future);
+              ref.invalidate(sessionDigestProvider(_sessionId));
+              ref.invalidate(sessionTurnsProvider(_sessionId));
+              await ref.read(sessionDigestProvider(_sessionId).future);
             },
             child: InsightTranscript(
-              agentId: widget.agentId,
-              sessionId: widget.sessionId,
+              // Re-key on the active run so a rail retarget rebuilds the
+              // transcript's `(ts, seq)` buffer fresh for the new session.
+              key: ValueKey('$_agentId/$_sessionId'),
+              agentId: _agentId,
+              sessionId: _sessionId,
               seekController: _seek,
               totalEventCount: totalEvents,
               runErrorSeqs: runErrorSeqs,
@@ -180,6 +217,68 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
           ),
         ),
       ],
+    );
+
+    // The left "Sessions" rail (ADR-041 §4) overlays the surface phone-first: a
+    // left-edge pull handle opens a scoped switcher; picking a run retargets
+    // the whole view (dashboard + transcript + outline) via [_retarget].
+    return Stack(
+      children: [
+        column,
+        // Left-edge pull handle, vertically centred so it clears the dashboard
+        // card and the transcript's top-left funnel.
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: _SessionsRailHandle(
+              onTap: () => setState(() => _railOpen = true),
+            ),
+          ),
+        ),
+        if (_railOpen)
+          SessionsRail(
+            agentId: _agentId,
+            activeSessionId: _sessionId,
+            onSelect: _retarget,
+            onClose: () => setState(() => _railOpen = false),
+          ),
+      ],
+    );
+  }
+}
+
+/// The left-edge pull handle that opens the Sessions rail — a slim half-rounded
+/// tab hugging the screen edge, vertically centred (clear of the dashboard card
+/// and the transcript's top-left funnel).
+class _SessionsRailHandle extends StatelessWidget {
+  final VoidCallback onTap;
+  const _SessionsRailHandle({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border = isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Material(
+      color: bg,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.horizontal(right: Radius.circular(10)),
+        side: BorderSide(color: border),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius:
+            const BorderRadius.horizontal(right: Radius.circular(10)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 14),
+          child: Icon(Icons.chevron_right, size: 18, color: muted),
+        ),
+      ),
     );
   }
 }

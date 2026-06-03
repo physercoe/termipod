@@ -1583,7 +1583,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         ),
         // (Turn stepper now floats bottom-left inside the Stack above,
         // replacing the old full-width footer row.)
-        if (compose != null) compose,
+        compose,
       ],
     );
   }

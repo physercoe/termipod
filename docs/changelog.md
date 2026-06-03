@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-03)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.794
+> **Last verified vs code:** v1.0.795
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,45 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.795-alpha — 2026-06-03
+
+**The Insight workbench R4 + the rail/action device-test arc
+([ADR-041](decisions/041-insight-workbench-layout.md)).** A test build that lands
+R4 (the whole-run Text/Tools filter), makes the Sessions rail instant and
+finished-run-aware, and unifies the agent-lifecycle action vocabulary across the
+project-agent and steward/session surfaces.
+
+### Added
+- **R4 — paged Text/Tools filter** (`5f0dc96`): the Text/Tools lens pages the
+  WHOLE run via a `kind=` keyset buffer (distinct from the live-tail window), so
+  a text/tool match anywhere in the run is reachable; a card's "view in context"
+  hands back to the main window at that seq.
+- **Shared agent-lifecycle module** (`lib/widgets/agent_actions_menu.dart`,
+  `27ed92f`) — one source of truth for the worker lifecycle actions + their
+  names (`agentLifecycleMenuItems` / `runAgentLifecycleAction` /
+  `respawnAgentFromSpec`), now driving BOTH the project-agent sheet and the
+  steward/session header. The session header gained the full lifecycle set
+  (was Stop-session + Fork only); the two surfaces can no longer drift.
+
+### Changed
+- **One lifecycle vocabulary everywhere** (`27ed92f`): the permanent-end action
+  is **"Archive"** on every surface (the project-agent sheet's outlier
+  "Terminate" is renamed to match the canonical glossary + the steward surface).
+  Canonical principal words: **Pause** (SIGSTOP) · **Stop** (resumable,
+  session→paused) · **Archive** (permanent, session→archived) · **Resume
+  session** · **Respawn** · **Delete** (remove a dead row).
+- **Sessions rail is instant + finished-run-aware** (`cf47dd7`, `27ed92f`): reads
+  the warm hub snapshot synchronously (the source the project Agents tab uses)
+  instead of three sequential fetches, then pages in terminated/archived runs
+  (the hub's default agents list omits them); the "This agent" group is dropped
+  in favour of a single context-scoped roster (project agents, or the team
+  steward roster).
+
+### Fixed
+- **The two workbench drawers are mutually exclusive and persistent** (`cf47dd7`):
+  the Navigator's open state is lifted to the host beside the rail's, so opening
+  either closes the other; picking a row no longer auto-closes the drawer.
 
 ## v1.0.794-alpha — 2026-06-03
 

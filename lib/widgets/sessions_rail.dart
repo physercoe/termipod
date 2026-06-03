@@ -276,16 +276,18 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
         ],
       );
     } else {
-      // STEWARD / team scope → the active sessions, matching the Me page's
-      // active-sessions strip (same source + category accents).
-      final sessions = _activeSessions();
+      // STEWARD / team scope → every session in scope: active, paused, AND
+      // archived. The rail is a switch-to-analyse roster, so a paused or
+      // archived steward session must be reachable here (not just the live
+      // ones); each row carries its status so the band is legible.
+      final sessions = _scopeSessions();
       list = ListView(
         padding: const EdgeInsets.only(bottom: 12),
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-          _groupHeader('Active sessions', muted),
+          _groupHeader('Sessions', muted),
           if (sessions.isEmpty)
-            _emptyRow('No active sessions.', muted)
+            _emptyRow('No sessions in scope.', muted)
           else
             for (final s in sessions) _sessionRow(s, all, fg, muted),
         ],
@@ -295,23 +297,34 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     return RefreshIndicator(onRefresh: _onRefresh, child: list);
   }
 
-  /// Active sessions, mirroring the Me page (`status` active/open, newest
-  /// first). The rail switches between exactly these.
-  List<Map<String, dynamic>> _activeSessions() {
+  // The status bands the rail orders by: live (active/open) first, then
+  // paused (paused/interrupted), then archived/other.
+  static int _sessionBand(String status) {
+    if (status == 'active' || status == 'open') return 0;
+    if (status == 'paused' || status == 'interrupted') return 1;
+    return 2;
+  }
+
+  /// Every session in scope — active, paused, AND archived (the sessions
+  /// provider buckets the first two into `active`, archived into `previous`).
+  /// Live first, then paused, then archived; newest within each band.
+  List<Map<String, dynamic>> _scopeSessions() {
     final state = ref.watch(sessionsProvider).value;
     if (state == null) return const [];
-    final live = <Map<String, dynamic>>[
-      for (final s in state.active)
-        if ((s['status'] ?? '').toString() == 'active' ||
-            (s['status'] ?? '').toString() == 'open')
-          s,
-    ];
-    live.sort((a, b) {
-      final ta = (a['last_active_at'] ?? a['opened_at'] ?? '').toString();
-      final tb = (b['last_active_at'] ?? b['opened_at'] ?? '').toString();
+    final rows = <Map<String, dynamic>>[...state.active, ...state.previous];
+    rows.sort((a, b) {
+      final ba = _sessionBand((a['status'] ?? '').toString());
+      final bb = _sessionBand((b['status'] ?? '').toString());
+      if (ba != bb) return ba.compareTo(bb);
+      final ta =
+          (a['last_active_at'] ?? a['opened_at'] ?? a['archived_at'] ?? '')
+              .toString();
+      final tb =
+          (b['last_active_at'] ?? b['opened_at'] ?? b['archived_at'] ?? '')
+              .toString();
       return tb.compareTo(ta);
     });
-    return live;
+    return rows;
   }
 
   Map<String, dynamic>? _agentFor(List<Map<String, dynamic>> all, String id) {
@@ -412,6 +425,17 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     final title = sessionDisplayTitle(s);
     final style = agentCategoryStyle(agentCategory(agent, session: s));
     final steward = stewardLabel((agent?['handle'] ?? '').toString());
+    final status = (s['status'] ?? '').toString();
+    final band = _sessionBand(status);
+    final isLive = band == 0;
+    // Status dot: live=green, paused=amber, archived=muted — so the band a
+    // row belongs to reads at a glance now that the rail is no longer
+    // live-only.
+    final statusDot = isLive
+        ? DesignColors.success
+        : band == 1
+            ? DesignColors.warning
+            : muted;
     final active = agentId == widget.agentId && agentId.isNotEmpty;
     return Material(
       color: active
@@ -420,7 +444,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
       child: InkWell(
         onTap: (active || agentId.isEmpty)
             ? null
-            : () => widget.onSelect(agentId, sid, true),
+            : () => widget.onSelect(agentId, sid, isLive),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           child: Row(
@@ -452,8 +476,56 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
+              Container(
+                width: 7,
+                height: 7,
+                decoration:
+                    BoxDecoration(color: statusDot, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              if (status.isNotEmpty)
+                Text(
+                  status,
+                  style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+                ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The left-edge pull handle that opens the [SessionsRail] — a slim
+/// half-rounded tab hugging the screen edge. Shared by every surface that
+/// hosts the rail (the Insight analysis view and the session chat screen) so
+/// the affordance can't drift between them.
+class SessionsRailHandle extends StatelessWidget {
+  final VoidCallback onTap;
+  const SessionsRailHandle({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border = isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Material(
+      color: bg,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.horizontal(right: Radius.circular(10)),
+        side: BorderSide(color: border),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius:
+            const BorderRadius.horizontal(right: Radius.circular(10)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 14),
+          child: Icon(Icons.chevron_right, size: 18, color: muted),
         ),
       ),
     );

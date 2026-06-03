@@ -7,7 +7,10 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../services/hub/agent_status.dart';
 import '../../services/id_format.dart';
+import '../../widgets/agent_actions_menu.dart';
+import '../../widgets/agent_config_sheet.dart';
 import '../sessions/sessions_screen.dart' show SessionChatScreen;
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
@@ -1174,6 +1177,16 @@ class _AgentsView extends ConsumerWidget {
               separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (_, i) {
               final a = rows[i];
+              final aStatus = (a['status'] ?? '').toString();
+              final isDead = aStatus == 'terminated' ||
+                  aStatus == 'failed' ||
+                  aStatus == 'crashed';
+              final isPaused =
+                  (a['pause_state'] ?? 'running').toString() == 'paused';
+              final hasPane = (a['pane_id'] ?? '').toString().isNotEmpty;
+              final mutedC = isDark
+                  ? DesignColors.textMuted
+                  : DesignColors.textMutedLight;
               return InkWell(
                 onTap: () => openAgentDetail(context, a),
                 borderRadius: BorderRadius.circular(8),
@@ -1222,12 +1235,52 @@ class _AgentsView extends ConsumerWidget {
                           ],
                         ),
                       ),
-                      Text((a['status'] ?? '').toString(),
+                      Text(agentStatusLabel(aStatus),
                           style: GoogleFonts.jetBrainsMono(
-                              fontSize: 10,
-                              color: isDark
-                                  ? DesignColors.textMuted
-                                  : DesignColors.textMutedLight)),
+                              fontSize: 10, color: mutedC)),
+                      // Per-row action affordance (parity with the steward
+                      // session rows): the shared agent-lifecycle menu. Respawn
+                      // (needs the spawn spec) stays in the detail sheet.
+                      PopupMenuButton<String>(
+                        tooltip: 'Agent actions',
+                        icon: Icon(Icons.more_vert, size: 18, color: mutedC),
+                        onSelected: (v) async {
+                          final id = (a['id'] ?? '').toString();
+                          final handle = (a['handle'] ?? id).toString();
+                          if (v == AgentAction.config) {
+                            showAgentConfigSheet(context, agentId: id);
+                            return;
+                          }
+                          await runAgentLifecycleAction(
+                            context,
+                            ref,
+                            v,
+                            agentId: id,
+                            handle: handle,
+                            isPaused: isPaused,
+                          );
+                          // The dispatcher refreshes the hub; this view watches
+                          // hubProvider, so the row re-renders on its own.
+                        },
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: AgentAction.config,
+                            child: ListTile(
+                              leading: Icon(Icons.account_tree_outlined),
+                              title: Text('View agent config'),
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                            ),
+                          ),
+                          ...agentLifecycleMenuItems(
+                            context,
+                            isDead: isDead,
+                            isPaused: isPaused,
+                            hasPane: hasPane,
+                            canRespawn: false,
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),

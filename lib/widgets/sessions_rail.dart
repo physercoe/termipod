@@ -29,8 +29,11 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
 import '../providers/sessions_provider.dart';
+import '../services/hub/agent_status.dart';
+import '../services/hub/session_display.dart';
 import '../services/steward_handle.dart';
 import '../theme/design_colors.dart';
+import 'agent_category_style.dart';
 
 /// Retarget callback: `(agentId, sessionId, live)` for the picked run.
 typedef RetargetCallback = void Function(
@@ -57,12 +60,12 @@ class SessionsRail extends ConsumerStatefulWidget {
 class _SessionsRailState extends ConsumerState<SessionsRail> {
   // The agent row whose session is being resolved on tap (a tiny inline spinner).
   String? _resolvingAgentId;
-  // The FULL roster (live + terminated + archived), fetched once. The warm hub
-  // snapshot excludes terminated/failed/crashed/archived (the hub's default
-  // agents list filters them — they live in the history page), but the rail is
-  // a *switch-to-analyse* roster and a finished run is exactly what you review,
-  // so we page them in. Null until the fetch lands — the warm snapshot paints
-  // the live roster instantly meanwhile (no open latency).
+  // The project roster INCLUDING terminated runs (a clean finish is reviewable),
+  // fetched fresh. The warm hub snapshot is live-only (the hub's default agents
+  // list excludes terminated/failed/crashed/archived), but the rail is a
+  // *switch-to-analyse* roster. We DON'T pull archived — a "deleted" (archived)
+  // agent shouldn't reappear here. Null until the fetch lands — the warm
+  // snapshot paints the live roster instantly meanwhile (no open latency).
   List<Map<String, dynamic>>? _fullRoster;
   bool _fullTried = false;
 
@@ -77,23 +80,30 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     return null;
   }
 
-  /// Fetch the full roster once — including terminated + archived, which the
-  /// warm snapshot omits. Doubles as the resolver for an archived analysed
-  /// agent (absent from the warm snapshot): once this lands, `_meIn` finds it.
+  /// Fetch the roster including terminated runs (the warm snapshot omits them).
+  /// Fetched FRESH (not the read-through cache) so a pull-to-refresh reflects
+  /// deletions. Doubles as the resolver for a terminated analysed agent: once
+  /// this lands, `_meIn` finds it. Archived agents are deliberately NOT pulled.
   Future<void> _fetchFull() async {
     _fullTried = true;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final out = (await client.listAgentsCached(
-        includeTerminated: true,
-        includeArchived: true,
-      ))
-          .body;
+      final out = await client.listAgents(includeTerminated: true);
       if (mounted) setState(() => _fullRoster = out);
     } catch (_) {
       // Non-fatal — the warm snapshot's live roster still shows.
     }
+  }
+
+  /// Pull-to-refresh: refresh the hub snapshot + sessions, then re-fetch the
+  /// terminated roster (so a freshly deleted/archived agent drops off).
+  Future<void> _onRefresh() async {
+    await ref.read(hubProvider.notifier).refreshAll();
+    try {
+      await ref.read(sessionsProvider.notifier).refresh();
+    } catch (_) {}
+    await _fetchFull();
   }
 
   /// Resolve the picked agent's session and retarget. Prefer the warm sessions
@@ -215,12 +225,12 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
   Widget _body(Color fg, Color muted) {
     final hub = ref.watch(hubProvider).value;
     final projects = hub?.projects ?? const <Map<String, dynamic>>[];
-    // Full roster once it lands (live + terminated + archived); the warm
-    // snapshot (live only) paints instantly meanwhile.
+    // Project roster once it lands (live + terminated); warm (live only) paints
+    // instantly meanwhile.
     final all = _fullRoster ?? hub?.agents ?? const <Map<String, dynamic>>[];
 
-    // Page in the terminated/archived runs once (also resolves an archived
-    // analysed agent that the warm snapshot omits).
+    // Page in the terminated runs once (also resolves a terminated analysed
+    // agent the warm snapshot omits).
     if (!_fullTried) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !_fullTried) _fetchFull();
@@ -228,50 +238,88 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     }
 
     final me = _meIn(all);
-
-    // Scope from the analysed agent. project_id → the project roster; otherwise
-    // a steward → the team steward roster.
     final projectId = (me?['project_id'] ?? '').toString();
 
-    String header;
-    List<Map<String, dynamic>> rows;
-    if (projectId.isNotEmpty) {
-      header = 'Agents · ${_projectName(projects, projectId)}';
-      rows = [
-        for (final a in all)
-          if ((a['project_id'] ?? '').toString() == projectId) a,
-      ];
-    } else if (me == null && _fullRoster == null) {
-      // Analysed agent not in the warm snapshot yet (archived) and the full
-      // roster is still loading — spinner rather than a misleading roster.
+    // Cold case: analysed agent not yet resolvable (terminated, awaiting the
+    // fetch) — spinner rather than guessing scope.
+    if (me == null && projectId.isEmpty && _fullRoster == null) {
       return const Center(child: CircularProgressIndicator());
-    } else {
-      // A team-level steward (or an unresolved agent): the team steward roster.
-      header = 'Stewards';
-      rows = [for (final a in all) if (isStewardAgent(a)) a];
     }
 
-    // Live runs first, then dead; alphabetical within each — the freshest
-    // switch targets on top, finished runs reachable below.
-    rows.sort((x, y) {
-      final lx = _agentLive((x['status'] ?? '').toString());
-      final ly = _agentLive((y['status'] ?? '').toString());
-      if (lx != ly) return lx ? -1 : 1;
-      return (x['handle'] ?? '')
-          .toString()
-          .compareTo((y['handle'] ?? '').toString());
-    });
+    final Widget list;
+    if (projectId.isNotEmpty) {
+      // PROJECT scope → the project's agents (live + a clean finish). Crashed /
+      // failed are error states, not switch targets, so they're excluded.
+      final rows = [
+        for (final a in all)
+          if ((a['project_id'] ?? '').toString() == projectId &&
+              !agentIsCrashedOrFailed((a['status'] ?? '').toString()))
+            a,
+      ];
+      rows.sort((x, y) {
+        final lx = _agentLive((x['status'] ?? '').toString());
+        final ly = _agentLive((y['status'] ?? '').toString());
+        if (lx != ly) return lx ? -1 : 1;
+        return (x['handle'] ?? '')
+            .toString()
+            .compareTo((y['handle'] ?? '').toString());
+      });
+      list = ListView(
+        padding: const EdgeInsets.only(bottom: 12),
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          _groupHeader('Agents · ${_projectName(projects, projectId)}', muted),
+          if (rows.isEmpty)
+            _emptyRow('No other runs in scope.', muted)
+          else
+            for (final a in rows) _agentRow(a, fg, muted),
+        ],
+      );
+    } else {
+      // STEWARD / team scope → the active sessions, matching the Me page's
+      // active-sessions strip (same source + category accents).
+      final sessions = _activeSessions();
+      list = ListView(
+        padding: const EdgeInsets.only(bottom: 12),
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          _groupHeader('Active sessions', muted),
+          if (sessions.isEmpty)
+            _emptyRow('No active sessions.', muted)
+          else
+            for (final s in sessions) _sessionRow(s, all, fg, muted),
+        ],
+      );
+    }
 
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 12),
-      children: [
-        _groupHeader(header, muted),
-        if (rows.isEmpty)
-          _emptyRow('No other runs in scope.', muted)
-        else
-          for (final a in rows) _agentRow(a, fg, muted),
-      ],
-    );
+    return RefreshIndicator(onRefresh: _onRefresh, child: list);
+  }
+
+  /// Active sessions, mirroring the Me page (`status` active/open, newest
+  /// first). The rail switches between exactly these.
+  List<Map<String, dynamic>> _activeSessions() {
+    final state = ref.watch(sessionsProvider).value;
+    if (state == null) return const [];
+    final live = <Map<String, dynamic>>[
+      for (final s in state.active)
+        if ((s['status'] ?? '').toString() == 'active' ||
+            (s['status'] ?? '').toString() == 'open')
+          s,
+    ];
+    live.sort((a, b) {
+      final ta = (a['last_active_at'] ?? a['opened_at'] ?? '').toString();
+      final tb = (b['last_active_at'] ?? b['opened_at'] ?? '').toString();
+      return tb.compareTo(ta);
+    });
+    return live;
+  }
+
+  Map<String, dynamic>? _agentFor(List<Map<String, dynamic>> all, String id) {
+    if (id.isEmpty) return null;
+    for (final a in all) {
+      if ((a['id'] ?? '').toString() == id) return a;
+    }
+    return null;
   }
 
   Widget _groupHeader(String label, Color muted) => Padding(
@@ -338,10 +386,72 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                 )
               else
                 Text(
-                  status,
+                  agentStatusLabel(status),
                   style:
                       GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
                 ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A steward/team active-session row — mirrors the Me page's session card
+  /// (category accent + session title), adapted to the rail's vertical list.
+  /// Picking it retargets the Insight surface to that session.
+  Widget _sessionRow(
+    Map<String, dynamic> s,
+    List<Map<String, dynamic>> all,
+    Color fg,
+    Color muted,
+  ) {
+    final sid = (s['id'] ?? '').toString();
+    final agentId = (s['current_agent_id'] ?? '').toString();
+    final agent = _agentFor(all, agentId);
+    final title = sessionDisplayTitle(s);
+    final style = agentCategoryStyle(agentCategory(agent, session: s));
+    final steward = stewardLabel((agent?['handle'] ?? '').toString());
+    final active = agentId == widget.agentId && agentId.isNotEmpty;
+    return Material(
+      color: active
+          ? DesignColors.primary.withValues(alpha: 0.10)
+          : Colors.transparent,
+      child: InkWell(
+        onTap: (active || agentId.isEmpty)
+            ? null
+            : () => widget.onSelect(agentId, sid, true),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Row(
+            children: [
+              Icon(style.icon, size: 16, color: style.color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 13,
+                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                        color: fg,
+                      ),
+                    ),
+                    if (steward.isNotEmpty)
+                      Text(
+                        steward,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10, color: muted),
+                      ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

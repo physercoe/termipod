@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -13,6 +14,7 @@ import '../../theme/design_colors.dart';
 import '../../widgets/histogram_tile.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/view_switcher.dart';
+import '../sessions/sessions_screen.dart';
 import 'artifacts_screen.dart';
 import 'run_create_sheet.dart';
 
@@ -638,15 +640,29 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   List<Map<String, dynamic>> _images = const [];
   List<Map<String, dynamic>> _histograms = const [];
   List<Map<String, dynamic>> _artifacts = const [];
+  // Run "extras" consumed by the Overview glance (P3). Alerts → banner;
+  // config → highlight chips. System metrics ride in P4 (Charts subsection).
+  List<Map<String, dynamic>> _alerts = const [];
+  Map<String, dynamic>? _config;
   _RunView _view = _RunView.overview;
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  // While the run is live, re-fetch the fast-moving signals (metrics +
+  // alerts + status) on a timer so the glance stays current without a
+  // manual pull-to-refresh. Cancelled on a terminal status and on dispose.
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -667,17 +683,26 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       List<Map<String, dynamic>> images = const [];
       List<Map<String, dynamic>> histograms = const [];
       List<Map<String, dynamic>> artifacts = const [];
+      List<Map<String, dynamic>> alerts = const [];
+      Map<String, dynamic>? config;
       try {
         final results = await Future.wait([
           client.getRunMetricsCached(widget.runId),
           client.getRunImagesCached(widget.runId),
           client.getRunHistogramsCached(widget.runId),
           client.listArtifactsCached(runId: widget.runId),
+          client.getRunAlertsCached(widget.runId),
         ]);
         metrics = results[0].body;
         images = results[1].body;
         histograms = results[2].body;
         artifacts = results[3].body;
+        alerts = results[4].body;
+        // Config rides a different response shape (a {config, updated_at}
+        // map, not a list), so it's fetched separately.
+        final cfgEnvelope = (await client.getRunConfigCached(widget.runId)).body;
+        final cfg = cfgEnvelope['config'];
+        if (cfg is Map) config = cfg.cast<String, dynamic>();
       } catch (_) {
         // Keep defaults; render the rest of the screen even if digests fail.
       }
@@ -688,8 +713,11 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         _images = images;
         _histograms = histograms;
         _artifacts = artifacts;
+        _alerts = alerts;
+        _config = config;
         _loading = false;
       });
+      _syncPollTimer();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -697,6 +725,77 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         _loading = false;
       });
     }
+  }
+
+  // The run is "live" (worth polling) until it reaches a terminal status.
+  bool get _runIsLive {
+    final r = _run ?? widget.summary ?? const <String, dynamic>{};
+    final s = (r['status'] ?? '').toString().toLowerCase();
+    if (s.isEmpty) return false;
+    return s != 'succeeded' && s != 'failed' && s != 'cancelled';
+  }
+
+  // Starts the live-refresh timer for a running run, stops it once the run
+  // is terminal. Idempotent — safe to call after every load/poll.
+  void _syncPollTimer() {
+    if (_runIsLive) {
+      _pollTimer ??=
+          Timer.periodic(const Duration(seconds: 25), (_) => _pollLive());
+    } else {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    }
+  }
+
+  // Lightweight live refresh: the status + the two fast-moving digests
+  // (metrics, alerts). Heavier, slow-changing data (images, histograms,
+  // artifacts, config) waits for an explicit pull-to-refresh.
+  Future<void> _pollLive() async {
+    if (!mounted) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final run = (await client.getRunCached(widget.runId)).body;
+      final results = await Future.wait([
+        client.getRunMetricsCached(widget.runId),
+        client.getRunAlertsCached(widget.runId),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _run = run;
+        _metrics = results[0].body;
+        _alerts = results[1].body;
+      });
+      _syncPollTimer();
+    } catch (_) {
+      // Transient — the next tick (or a pull-to-refresh) will retry.
+    }
+  }
+
+  // Opens the producing agent's session (its Insight surface is reachable
+  // via that screen's View ▾). The hub session id is resolved from the
+  // agent's newest event — the same lookup the project-agent sheet uses.
+  Future<void> _openAgent(String agentId, String handle) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    String sid = '';
+    try {
+      final events =
+          await client.listAgentEvents(agentId, tail: true, limit: 1);
+      if (events.isNotEmpty) {
+        sid = (events.first['session_id'] ?? '').toString();
+      }
+    } catch (_) {
+      // Fall through with an empty session id; the screen still opens.
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => SessionChatScreen(
+        sessionId: sid,
+        agentId: agentId,
+        title: handle.isEmpty ? 'Agent' : handle,
+      ),
+    ));
   }
 
   Future<void> _launch(String uri) async {
@@ -935,8 +1034,9 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         ),
       );
 
-  // ---- Overview: identity + summary (P3 enriches this into the glance) ----
+  // ---- Overview: the glance — "is it healthy and how's it going?" ----
   Widget _overviewView(Map<String, dynamic> r) {
+    final status = (r['status'] ?? '').toString().toLowerCase();
     final kind = (r['kind'] ?? '').toString();
     final projectId = (r['project_id'] ?? '').toString();
     final agentId = (r['agent_id'] ?? '').toString();
@@ -947,27 +1047,218 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     final project =
         projectId.isEmpty ? '' : projectNameFor(projectId, projects);
     final agent = agentId.isEmpty ? '' : agentHandleFor(agentId, agents);
+    // Show "Open agent →" only when the producing agent still exists as a
+    // live agent (in the hub's warm roster, which excludes terminated /
+    // archived) — decision 8 of the plan.
+    final agentAlive = agentId.isNotEmpty &&
+        agents.any((a) => (a['id'] ?? '').toString() == agentId);
     // Parent is almost always on a different page of runs than the one
     // we're viewing; resolve to a short-id label instead of the raw ULID.
     final parent = parentId.isEmpty ? '' : runLabelForId(parentId, const []);
     final created = (r['created_at'] ?? '').toString();
     final completed = (r['completed_at'] ?? '').toString();
-    final duration = _runDuration(created, completed);
     final summary = (r['summary'] ?? '').toString();
+    final headline = _headlineMetrics(_metrics);
+    final highlights = _configHighlightEntries(_config);
+
     return _viewScroll([
+      // 1. Status strip — status + live-ticking duration.
+      _RunStatusStrip(status: status, created: created, completed: completed),
+      // 6. Open agent → (placed near the strip, as in the target shape).
+      if (agentAlive) ...[
+        const SizedBox(height: 6),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            icon: const Icon(Icons.smart_toy_outlined, size: 16),
+            label: Text(agent.isEmpty ? 'Open agent →' : 'Open $agent →'),
+            onPressed: () => _openAgent(agentId, agent),
+          ),
+        ),
+      ],
+      // 2. Alerts banner — only when the run logged alerts.
+      if (_alerts.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        _RunAlertsBanner(alerts: _alerts),
+      ],
+      // 3. Headline metric tiles.
+      if (headline.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        _sectionHeaderAction(
+          'Metrics',
+          'See all',
+          () => setState(() => _view = _RunView.charts),
+        ),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [for (final m in headline) _MetricStatTile(row: m)],
+        ),
+      ],
+      // 4. Config highlights.
+      if (highlights.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        _sectionHeaderAction(
+          'Config',
+          'See all',
+          () => setState(() => _view = _RunView.config),
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [for (final e in highlights) _configChip(e.key, e.value)],
+        ),
+      ],
+      // 5. Summary.
+      if (summary.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        _sectionLabel('Summary'),
+        _panel(child: _SummaryBody(summary: summary)),
+      ],
+      // Identity details below the glance.
+      const SizedBox(height: 16),
+      _sectionLabel('Details'),
       if (kind.isNotEmpty) _metaRow('kind', kind),
       if (project.isNotEmpty) _metaRow('project', project),
       if (agent.isNotEmpty) _metaRow('agent', agent),
       if (parent.isNotEmpty) _metaRow('parent run', parent),
       if (created.isNotEmpty) _metaRow('started', created),
       if (completed.isNotEmpty) _metaRow('completed', completed),
-      if (duration.isNotEmpty) _metaRow('duration', duration),
-      if (summary.isNotEmpty) ...[
-        const SizedBox(height: 12),
-        _sectionLabel('Summary'),
-        _panel(child: _SummaryBody(summary: summary)),
-      ],
     ]);
+  }
+
+  // A section label with a trailing tappable action (e.g. "See all →" that
+  // jumps to the full view).
+  Widget _sectionHeaderAction(
+          String label, String action, VoidCallback onTap) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: DesignColors.textMuted,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+            InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Text(
+                  '$action →',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: DesignColors.primary,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  // A compact "key value" chip for the Overview config highlights.
+  Widget _configChip(String key, String value) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.25),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: DesignColors.borderDark),
+        ),
+        child: RichText(
+          text: TextSpan(
+            children: [
+              TextSpan(
+                text: '$key ',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+              TextSpan(
+                text: value,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: DesignColors.terminalCyan,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  // Picks up to four headline metrics by a priority heuristic
+  // (loss → accuracy → lr, then alphabetical). Decision 2 of the plan;
+  // user-pinned metrics are a later enhancement.
+  List<Map<String, dynamic>> _headlineMetrics(
+      List<Map<String, dynamic>> metrics) {
+    if (metrics.isEmpty) return const [];
+    int rank(String name) {
+      final n = name.toLowerCase();
+      if (n.contains('loss')) return 0;
+      if (n.contains('acc')) return 1;
+      if (n == 'lr' || n.contains('learning_rate')) return 2;
+      return 3;
+    }
+
+    final sorted = [...metrics]..sort((a, b) {
+        final na = (a['name'] ?? '').toString();
+        final nb = (b['name'] ?? '').toString();
+        final ra = rank(na);
+        final rb = rank(nb);
+        return ra != rb ? ra.compareTo(rb) : na.compareTo(nb);
+      });
+    return sorted.take(4).toList();
+  }
+
+  // Pulls a curated hyperparameter subset for the Overview chips, falling
+  // back to the first few scalar keys. Nested values are skipped (they
+  // belong in the full Config view). Decision 7 of the plan.
+  List<MapEntry<String, String>> _configHighlightEntries(
+      Map<String, dynamic>? config) {
+    if (config == null || config.isEmpty) return const [];
+    String? scalar(dynamic v) =>
+        (v is num || v is bool || v is String) ? v.toString() : null;
+    const curated = [
+      'model',
+      'batch',
+      'batch_size',
+      'lr',
+      'learning_rate',
+      'steps',
+      'max_steps',
+      'epochs',
+      'seed',
+    ];
+    final out = <MapEntry<String, String>>[];
+    for (final k in curated) {
+      if (!config.containsKey(k)) continue;
+      final s = scalar(config[k]);
+      if (s != null) out.add(MapEntry(k, s));
+    }
+    if (out.isEmpty) {
+      for (final e in config.entries) {
+        final s = scalar(e.value);
+        if (s == null) continue;
+        out.add(MapEntry(e.key, s));
+        if (out.length >= 4) break;
+      }
+    }
+    return out.take(6).toList();
   }
 
   // ---- Charts: scalar metrics + external dashboard links ----
@@ -1163,6 +1454,318 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
           ),
         ),
       );
+}
+
+// ---- Overview glance widgets (P3) ----
+
+/// Maps an alert level to its accent colour. Unknown levels read as info.
+Color _alertLevelColor(String level) {
+  switch (level.toLowerCase()) {
+    case 'error':
+    case 'critical':
+      return DesignColors.error;
+    case 'warn':
+    case 'warning':
+      return DesignColors.warning;
+    default:
+      return DesignColors.terminalCyan;
+  }
+}
+
+/// The Overview status strip: a status chip beside a duration that ticks
+/// live while the run is still going.
+class _RunStatusStrip extends StatelessWidget {
+  final String status;
+  final String created;
+  final String completed;
+  const _RunStatusStrip({
+    required this.status,
+    required this.created,
+    required this.completed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: DesignColors.borderDark),
+      ),
+      child: Row(
+        children: [
+          RunStatusChip(status: status),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _LiveDurationText(created: created, completed: completed),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Renders the run duration, repainting itself once a second while the run
+/// is still running (completed timestamp empty) so the elapsed time stays
+/// live without rebuilding the whole screen.
+class _LiveDurationText extends StatefulWidget {
+  final String created;
+  final String completed;
+  const _LiveDurationText({required this.created, required this.completed});
+
+  @override
+  State<_LiveDurationText> createState() => _LiveDurationTextState();
+}
+
+class _LiveDurationTextState extends State<_LiveDurationText> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LiveDurationText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncTicker();
+  }
+
+  void _syncTicker() {
+    final running = widget.completed.isEmpty;
+    if (running) {
+      _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      _ticker?.cancel();
+      _ticker = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = _runDuration(widget.created, widget.completed);
+    return Text(
+      d.isEmpty ? '—' : d,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: GoogleFonts.jetBrainsMono(
+        fontSize: 12,
+        color: DesignColors.textMuted,
+      ),
+    );
+  }
+}
+
+/// The Overview alerts banner. Collapsed it shows a level-coloured headline
+/// (the most severe, newest alert); tapping expands the full list inline.
+class _RunAlertsBanner extends StatefulWidget {
+  final List<Map<String, dynamic>> alerts;
+  const _RunAlertsBanner({required this.alerts});
+
+  @override
+  State<_RunAlertsBanner> createState() => _RunAlertsBannerState();
+}
+
+class _RunAlertsBannerState extends State<_RunAlertsBanner> {
+  bool _expanded = false;
+
+  static int _severity(String level) {
+    switch (level.toLowerCase()) {
+      case 'error':
+      case 'critical':
+        return 2;
+      case 'warn':
+      case 'warning':
+        return 1;
+      default:
+        return 0;
+    }
+  }
+
+  static String _line(Map<String, dynamic> a) {
+    final title = (a['title'] ?? '').toString();
+    final step = a['step'];
+    return step is num ? '$title · step $step' : title;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final alerts = widget.alerts;
+    // Headline = most severe; ties broken by recency (later in the
+    // server's oldest-first ordering wins via >=).
+    var head = alerts.first;
+    for (final a in alerts) {
+      if (_severity((a['level'] ?? '').toString()) >=
+          _severity((head['level'] ?? '').toString())) {
+        head = a;
+      }
+    }
+    final color = _alertLevelColor((head['level'] ?? '').toString());
+    final n = alerts.length;
+    final muted = DesignColors.textMuted;
+    return InkWell(
+      onTap: () => setState(() => _expanded = !_expanded),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, size: 18, color: color),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    n == 1 ? '1 alert' : '$n alerts',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                ),
+                Icon(_expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 18, color: muted),
+              ],
+            ),
+            const SizedBox(height: 4),
+            if (!_expanded)
+              Text(
+                _line(head),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.jetBrainsMono(fontSize: 11, height: 1.3),
+              )
+            else
+              for (final a in alerts) _alertRow(a, muted),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _alertRow(Map<String, dynamic> a, Color muted) {
+    final level = (a['level'] ?? '').toString();
+    final color = _alertLevelColor(level);
+    final text = (a['text'] ?? '').toString();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _line(a),
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                  ),
+                ),
+                if (text.isNotEmpty)
+                  Text(
+                    text,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      color: muted,
+                      height: 1.3,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A single Overview headline tile: metric name, its last value (large),
+/// and a mini-sparkline. Reuses the metric digest's point parser + painter.
+class _MetricStatTile extends StatelessWidget {
+  final Map<String, dynamic> row;
+  const _MetricStatTile({required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (row['name'] ?? '').toString();
+    final points = _MetricSparklineTile._parsePoints(row['points']);
+    final lastValue = (row['last_value'] as num?)?.toDouble() ??
+        (points.isEmpty ? null : points.last.$2);
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: DesignColors.borderDark),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: DesignColors.textMuted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            lastValue == null
+                ? '—'
+                : _MetricSparklineTile._fmtValue(lastValue),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: DesignColors.terminalCyan,
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 24,
+            child: points.length >= 2
+                ? CustomPaint(
+                    size: const Size.fromHeight(24),
+                    painter: _SparklinePainter(points),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Renders a run summary as markdown when it contains common markdown

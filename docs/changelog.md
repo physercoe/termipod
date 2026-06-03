@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-06-02)
+> **Status:** Current (2026-06-03)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.792
+> **Last verified vs code:** v1.0.793
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,43 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.793-alpha — 2026-06-03
+
+**The Insight transcript workbench, R1 + R2
+([ADR-041](decisions/041-insight-workbench-layout.md),
+[`plans/insight-workbench-layout.md`](plans/insight-workbench-layout.md)).**
+A test build that separates *filtering the cards* (a lens) from *navigating the
+run's structure* (an outline). The funnel becomes a pure card filter; Turns,
+Errors, and the minimap move into a right "Navigator" drawer you jump *from*.
+Insight-only — `LiveFeed` is unchanged.
+
+### Added
+- **Navigator drawer** (`InsightTranscript`, R1 `242d6e9`) — a phone-first
+  overlay (scrim + right panel) opened by a top-right handle, with **Turns** and
+  **Errors** outline tabs (the relocated point-6 summary rows): a row tap closes
+  the drawer and lands the transcript on that turn/error in full card context.
+- **Map tab** (R2 `c277960`) — a third Navigator tab hosting the whole-run
+  minimap (tap a tick → close drawer + land) plus a "Jump to event N / M" slider
+  for arbitrary-position navigation.
+- **`FeedFilterControl.selectableLenses`** — restricts the funnel menu; Insight
+  passes `All / Text / Tools` only.
+
+### Changed
+- The funnel is now a **pure card filter** (`All / Text / Tools`). Turns and
+  Errors are no longer selectable lenses — they are structural navigation in the
+  Navigator outline. The centre transcript always renders cards (the point-6
+  list-swap that replaced the stream is gone).
+
+### Removed
+- The floating right-edge minimap (it collided with the card's top-right
+  control), the centred "event N of M" position pill, and the bottom turn
+  stepper — replaced by the Navigator's Map tab and outline tabs. The associated
+  seek machinery (`_funnelRunJump` / `funnelUsesRunList` / the `keepLens` path /
+  the stepper math) is removed; arbitrary-position navigation is preserved by the
+  Map tab's slider. (`TurnStepperPill` / `FeedPositionPill` remain for `LiveFeed`.)
+
+R3 (left Sessions rail) and R4 (paged Text/Tools filter) are not yet started.
 
 ## v1.0.792-alpha — 2026-06-03
 

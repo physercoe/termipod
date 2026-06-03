@@ -24,7 +24,7 @@ import 'hub_provider.dart';
 ///   subscription closes and the buffer is freed. Collapsing the
 ///   overlay puck while no Sessions chat is open releases the
 ///   steward stream automatically.
-/// - **Window cap = 200 events.** Matches `agent_feed.dart`'s
+/// - **Window cap = 200 events.** Matches `live_feed.dart`'s
 ///   `_pageSize` so AgentFeed's eventual migration (P2) doesn't
 ///   introduce regressions in the cold-open paint. The overlay
 ///   slices the tail it needs (currently last 20).
@@ -35,7 +35,7 @@ import 'hub_provider.dart';
 ///   on the previous attempt). This avoids burning bandwidth
 ///   on every consumer-mount churn.
 /// - **Reconnect** — exponential backoff capped at 16 s, mirrors
-///   `agent_feed.dart`'s established pattern. Idle-drop signatures
+///   `live_feed.dart`'s established pattern. Idle-drop signatures
 ///   (proxy timeouts, carrier NAT) suppress the user-facing
 ///   banner; only real connectivity failures surface.
 ///
@@ -43,12 +43,12 @@ import 'hub_provider.dart';
 ///   - Demuxing event kinds (consumer's responsibility).
 ///   - Rendering — provides raw event maps; consumers shape them.
 ///   - Persistence beyond what `HubSnapshotCache` already does.
-///   - `session.init` one-shot backfill (stays in `agent_feed.dart`
+///   - `session.init` one-shot backfill (stays in `live_feed.dart`
 ///     as a UI-routing concern).
 ///   - Mode/model picker payload reporting (UI-routing concern).
 ///
 /// See also: ADR-023 (agent-driven mobile UI), the parent plan,
-/// and `lib/widgets/agent_feed.dart` for the established lifecycle
+/// and `lib/widgets/live_feed.dart` for the established lifecycle
 /// patterns this provider preserves.
 
 /// Window cap. Each `(agentId, sessionId)` keeps at most this
@@ -197,7 +197,7 @@ class AgentEventsNotifier extends Notifier<AgentEventsState> {
     }
 
     // 1. Cache-only first paint — instant render from disk if a
-    //    snapshot exists. Mirrors `agent_feed.dart` line 561.
+    //    snapshot exists. Mirrors `live_feed.dart` line 561.
     var paintedFromCache = false;
     try {
       final cacheOnly = await client.listAgentEventsCacheOnly(

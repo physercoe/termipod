@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // Tests for ADR-036 W6 — the two final status_line-sourced surfaces
 // in Phase B:

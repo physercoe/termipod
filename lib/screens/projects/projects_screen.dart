@@ -16,7 +16,7 @@ import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_config_sheet.dart';
-import '../../widgets/agent_feed.dart';
+import '../../widgets/live_feed.dart';
 import '../../widgets/agent_journal_view.dart';
 import '../../widgets/agent_pane_view.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -1625,7 +1625,7 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
   // Latest session.init payload for this agent. Surfaced in the header
   // as a SessionInitChip so the project agent detail sheet shows the
   // same engine/model/perm/tools/mcp at a glance that the team session
-  // page does. Fetched via the same agent_events scan AgentFeed uses
+  // page does. Fetched via the same agent_events scan LiveFeed uses
   // internally — best-effort, silent on failure (chip is decorative).
   Map<String, dynamic>? _sessionInit;
 
@@ -1674,7 +1674,7 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     }
   }
 
-  // Mirror AgentFeed._maybeBackfillSessionInit: scan recent agent_events
+  // Mirror LiveFeed._maybeBackfillSessionInit: scan recent agent_events
   // for the latest session.init payload and stash it for the chip.
   // Best-effort — claude only emits session.init once per process start
   // so older agents may have it outside the page window.
@@ -2020,7 +2020,7 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                   // --- Feed: live agent_events from P1.1 drivers. The
                   // sheet is constrained (dense), so it offers an expand
                   // affordance to the full-screen transcript (P3).
-                  AgentFeed(
+                  LiveFeed(
                     agentId: _id,
                     onExpand: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(

@@ -12,8 +12,8 @@ import 'package:flutter/foundation.dart';
 /// Mode-agnostic substrate (ADR-040): the live feed never wires a dashboard, so
 /// in practice only the Insight surface drives this — but the shape is pure
 /// `ChangeNotifier` plumbing with no surface knowledge, so it lives in the
-/// shared substrate. `agent_feed.dart` keeps an `AgentFeedSeekController` alias
-/// for its existing call sites + test until the P4 rename.
+/// shared substrate (`InsightTranscript` wires it; the live `LiveFeed` does
+/// not).
 class TranscriptSeekController extends ChangeNotifier {
   int? _seq;
   String? _ts;

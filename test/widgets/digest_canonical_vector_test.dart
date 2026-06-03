@@ -12,7 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 void main() {
   test('canonical error classification matches the shared hub vector', () {

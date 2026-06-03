@@ -1,8 +1,13 @@
-// AgentFeed — mobile renderer for the hub's agent_events stream
+// LiveFeed — mobile renderer for the hub's live agent_events stream
 // (blueprint P2.1). Subscribes to SSE, backfills any seq the user
 // missed, and lays each event out as a typed card (text, tool_call,
 // tool_result, completion, lifecycle, …). Unknown kinds fall through
 // to a raw JSON card so the transcript is never silently dropped.
+//
+// This is the live-conversation half of the former flag-switched AgentFeed
+// (ADR-040): the sealed / random-access half lives in `insight_transcript.dart`
+// (`InsightTranscript`). LiveFeed keeps the live-tail loader, the composer, the
+// telemetry strip, and the loaded-window lens / minimap / stepper.
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -19,7 +24,6 @@ import 'transcript/feed_misc.dart';
 import 'transcript/feed_telemetry.dart';
 import 'transcript/fold_maps.dart';
 import 'transcript/feed_reducer.dart';
-import 'transcript/seek_controller.dart';
 import 'transcript/transcript_seek.dart';
 import 'transcript/interaction_cards.dart';
 import 'transcript/telemetry_strip.dart';
@@ -27,16 +31,9 @@ import 'session_details_sheet.dart';
 
 // W0 (docs/plans/agent-feed-split.md): the reducer/formatter layer now
 // lives in transcript/feed_reducer.dart (ADR-040 substrate rename). Re-export
-// it so the ten agent_feed_* reducer tests (which import this file) resolve
-// unchanged and external callers keep their single import surface.
+// it so the reducer tests (which import this file) resolve unchanged and
+// external callers keep their single import surface.
 export 'transcript/feed_reducer.dart';
-
-/// The dashboard→transcript jump channel moved to the shared substrate
-/// (`transcript/seek_controller.dart`) as [TranscriptSeekController] — ADR-040
-/// P3. This alias keeps `agent_feed.dart`'s call sites and the existing
-/// `agent_feed_seek_controller_test.dart` compiling unchanged until the P4
-/// rename; the live feed never actually wires a seek controller.
-typedef AgentFeedSeekController = TranscriptSeekController;
 
 /// Renders a live, scrollable feed of agent_events for [agentId]. Keeps
 /// its own seq cursor so reconnects don't replay the whole history. The
@@ -53,7 +50,7 @@ typedef AgentFeedSeekController = TranscriptSeekController;
 /// to lift the model/permission/tools/mcp summary into the AppBar so
 /// the transcript itself doesn't burn a row of vertical real estate
 /// on a fixed-shape header.
-class AgentFeed extends ConsumerStatefulWidget {
+class LiveFeed extends ConsumerStatefulWidget {
   final String agentId;
   final String? sessionId;
   final EdgeInsetsGeometry padding;
@@ -106,7 +103,7 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// caller's dedicated full-screen transcript route. Null hides it —
   /// hosts that are already full-screen pass `dense: false` instead.
   final VoidCallback? onExpand;
-  const AgentFeed({
+  const LiveFeed({
     super.key,
     required this.agentId,
     this.sessionId,
@@ -121,10 +118,10 @@ class AgentFeed extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<AgentFeed> createState() => _AgentFeedState();
+  ConsumerState<LiveFeed> createState() => _LiveFeedState();
 }
 
-class _AgentFeedState extends ConsumerState<AgentFeed> {
+class _LiveFeedState extends ConsumerState<LiveFeed> {
   final List<Map<String, dynamic>> _events = [];
   // Event ids we've ingested. The de-dup key. Used instead of seq when
   // the feed is session-scoped: a resumed session spans multiple agents
@@ -181,7 +178,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // them under an explicit toggle (matches Anthropic's Ctrl+O verbose
   // toggle behavior, and Happy's "transcript styled, raw on demand"
   // pattern). Default off — most users want a chat surface, not a
-  // protocol trace. Per-AgentFeed instance, not global.
+  // protocol trace. Per-LiveFeed instance, not global.
   bool _verbose = false;
   // Reconnect bookkeeping: exponential backoff (1, 2, 4, 8, 16s cap) so a
   // flaky hub connection doesn't hammer the server. Reset to 0 the moment
@@ -213,7 +210,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   bool _seekHighlight = false;
   Timer? _seekHighlightTimer;
   // Single-select transcript lens (P1 — docs/plans/agent-transcript-
-  // debug-and-header-parity.md). Ephemeral per-AgentFeed instance: resets
+  // debug-and-header-parity.md). Ephemeral per-LiveFeed instance: resets
   // when the surface closes so a stale filter never surprises a returning
   // user. Orthogonal to [_verbose] (depth, not family).
   FeedLens _lens = FeedLens.all;
@@ -245,7 +242,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   }
 
   @override
-  void didUpdateWidget(covariant AgentFeed oldWidget) {
+  void didUpdateWidget(covariant LiveFeed oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.sessionId != widget.sessionId) {
       // Session swap: nuke the prior cost so the chip self-gates
@@ -1647,7 +1644,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
 
   // Fire the parent callback when the picker payload changes. Called
   // from build() — schedules the actual notify on a post-frame
-  // callback so the parent's setState doesn't fire while AgentFeed is
+  // callback so the parent's setState doesn't fire while LiveFeed is
   // still building.
   void _maybeFireModeModelChanged() {
     final cb = widget.onModeModelChanged;

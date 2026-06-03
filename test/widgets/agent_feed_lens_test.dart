@@ -3,11 +3,11 @@
 // visible feed to one family — All / Text / Turns / Tools / Errors — so the
 // debug-affordance behavior is locked without spinning the widget tree.
 //
-// Symbols are imported through agent_feed.dart, which re-exports the
+// Symbols are imported through live_feed.dart, which re-exports the
 // feed_reducer layer (same convention as the other agent_feed_* tests).
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 Map<String, dynamic> _ev(String kind, {Map<String, dynamic>? payload}) =>
     {'kind': kind, 'payload': payload ?? const <String, dynamic>{}};

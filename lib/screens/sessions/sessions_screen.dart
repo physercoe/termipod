@@ -11,7 +11,7 @@ import '../../services/id_format.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_config_sheet.dart';
-import '../../widgets/agent_feed.dart';
+import '../../widgets/live_feed.dart';
 import '../../widgets/agent_journal_view.dart';
 import '../../widgets/agent_pane_view.dart';
 import '../../widgets/session_analysis_view.dart';
@@ -2168,7 +2168,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
   }
 }
 
-/// Per-session chat view. Thin wrapper over [AgentFeed] scoped to the
+/// Per-session chat view. Thin wrapper over [LiveFeed] scoped to the
 /// session's current_agent_id with the session title in the AppBar.
 /// AppBar offers a Rename action so the user can title the session
 /// while still chatting in it (the Sessions list also exposes Rename
@@ -2202,13 +2202,13 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   // Brings Pane/Journal/Insights parity with the project-agent sheet
   // (the session-detail surface was Feed-only before). Feed is index 0.
   int _view = 0;
-  // Latest session.init payload reported up by AgentFeed. Drives the
+  // Latest session.init payload reported up by LiveFeed. Drives the
   // AppBar's compact session chip (model + perm + tool/mcp counts);
   // tap → details sheet. Lifted out of the transcript so the chat
   // surface itself isn't paying a row of vertical real estate for a
   // fixed-shape header.
   Map<String, dynamic>? _sessionInit;
-  // Latest mode + model picker payload reported up by AgentFeed (ADR-
+  // Latest mode + model picker payload reported up by LiveFeed (ADR-
   // 021 W2.5). Hosting the picker in the AppBar keeps it one tap away
   // without burning a chip strip above the transcript on every turn.
   // Null when no agent has advertised either capability — the AppBar
@@ -2223,7 +2223,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   // surfaced yet (cold open) or claude cleared it.
   String? _sessionNameHint;
   // v1.0.706 polish — latest status_line payload, forwarded up by
-  // AgentFeed. The session-details sheet reads `effort.level`,
+  // LiveFeed. The session-details sheet reads `effort.level`,
   // `output_style.name`, `thinking.enabled`, and `fast_mode` from
   // here so live mid-session toggles (`/style`, `/thinking`)
   // surface in the sheet even though session.init only carries the
@@ -2709,7 +2709,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
               child: IndexedStack(
                 index: _view,
                 children: [
-                  AgentFeed(
+                  LiveFeed(
                     agentId: widget.agentId,
                     sessionId: widget.sessionId,
                     initialSeq: widget.initialSeq,

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/transcript/seek_controller.dart';
 
 // P2 (agent-run-analysis-mode): the jump channel from the analysis dashboard
 // down into the feed. The feed dedups on the generation counter, so these pin
@@ -8,9 +8,9 @@ import 'package:termipod/widgets/agent_feed.dart';
 // contract the feed's _onSeekRequest relies on to re-fire a second tap on the
 // same error.
 void main() {
-  group('AgentFeedSeekController', () {
+  group('TranscriptSeekController', () {
     test('seekTo records the seq and notifies', () {
-      final c = AgentFeedSeekController();
+      final c = TranscriptSeekController();
       var notified = 0;
       c.addListener(() => notified++);
 
@@ -21,7 +21,7 @@ void main() {
     });
 
     test('generation advances on every seekTo, including a repeat seq', () {
-      final c = AgentFeedSeekController();
+      final c = TranscriptSeekController();
       final g0 = c.generation;
 
       c.seekTo(7);
@@ -36,7 +36,7 @@ void main() {
     });
 
     test('carries the optional ts for the random-access window reset', () {
-      final c = AgentFeedSeekController();
+      final c = TranscriptSeekController();
 
       // A Turns-index jump supplies the anchor's timestamp.
       c.seekTo(12, ts: '2026-06-01T00:00:01Z');

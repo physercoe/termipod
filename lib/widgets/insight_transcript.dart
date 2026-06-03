@@ -6,7 +6,7 @@
 // orchestration (anchor + funnel-run jumps + "view in context"), and the
 // lens-as-query engine (the whole-run Errors list, the turns/errors funnel, the
 // minimap, the N/M ordinal + stepper). It deliberately has **no composer, no
-// telemetry strip, and no live SSE tail** — the live feed (`agent_feed.dart`,
+// telemetry strip, and no live SSE tail** — the live feed (`live_feed.dart`,
 // renamed `LiveFeed` in P4) owns those; Insight's dashboard is the digest
 // RunReportCard rendered by its host. A live run is handled snapshot-on-entry +
 // manual refresh (the host's RefreshIndicator re-pulls the digest; the
@@ -15,7 +15,7 @@
 // This is the per-mode decoupling of the former flag-switched `AgentFeed`: the
 // random-access code paths that lived behind `widget.randomAccess == true` and
 // `widget.dense == false` are lifted here with those flags resolved to their
-// Insight values; the live paths stay in `agent_feed.dart`. Shared substrate
+// Insight values; the live paths stay in `live_feed.dart`. Shared substrate
 // (`transcript/`): FoldMaps (cards), TranscriptSeek (landing), RandomAccessLoader
 // (the keyset fetch), the FeedLens predicate + funnel/minimap/stepper widgets.
 import 'dart:async';

@@ -646,7 +646,7 @@ class _Pill extends StatelessWidget {
 }
 
 /// ADR-021 W2.5 — captured mode + model state advertised by the agent
-/// plus the bound picker callbacks. Lifted out of [AgentFeed] so the
+/// plus the bound picker callbacks. Lifted out of [LiveFeed] so the
 /// SessionChatScreen AppBar can host the picker icon — without it the
 /// chip strip cost a row of vertical space above every transcript even
 /// for engines that never re-advertise mode/model after handshake.

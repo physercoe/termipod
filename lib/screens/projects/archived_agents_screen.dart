@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
-import '../../widgets/agent_feed.dart';
+import '../../widgets/live_feed.dart';
 import '../../widgets/insights_panel.dart';
 import '../../widgets/session_analysis_view.dart';
 import '../../widgets/session_header.dart';
@@ -399,7 +399,7 @@ class _ArchivedAgentDetailScreenState
                         // its lifetime. Static for terminated agents but
                         // historical events render identically to live ones —
                         // the same widget Me → Sessions uses.
-                        AgentFeed(agentId: _id),
+                        LiveFeed(agentId: _id),
                         _summaryTab(),
                         _journalTab(),
                         hasSession

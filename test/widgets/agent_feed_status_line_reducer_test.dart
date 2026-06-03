@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // Tests for ADR-036 v1.0.706 polish — the `latestStatusLinePayload`
 // reducer that backs the new SessionInitChip → showSessionDetailsSheet

@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // Tests for the envelope `from:` label resolver (v1.0.710 fix to
 // ADR-032 D-10). Background: v1.0.708 made the engine-facing prose
 // configurable via `hub/templates/envelope/active.yaml` but left a
-// parallel hardcoded Dart map in `agent_feed.dart:_envelopeRoleLabel`
+// parallel hardcoded Dart map in `live_feed.dart:_envelopeRoleLabel`
 // rendering the mobile transcript header. Editing
 // `roles.principal: "the director"` reached the engine but the
 // mobile feed stayed "from: the principal". The hub now stamps

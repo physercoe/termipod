@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // Cross-language contract test: `renderAttentionReplyText` (Dart) must
 // produce the same per-kind text as `formatAttentionReplyText` (Go,

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // Tests for ADR-036 D4 — `status_line` is a periodic-snapshot event
 // (chip-source only, NOT a transcript bubble or a turn-active signal).

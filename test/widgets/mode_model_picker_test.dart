@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // Tests for ADR-021 W2.5 — mode + model state extraction the picker
 // strip uses. Pins the contract that only the *latest*

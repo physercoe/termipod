@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // P2 (agent-run-analysis-mode): the full-run minimap anchors. Positions must
 // be the run ordinal (seq / total), error ticks must paint last (on top of

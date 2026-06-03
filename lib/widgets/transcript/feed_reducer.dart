@@ -6,7 +6,7 @@
 // `kAgentFeedAlwaysHiddenKinds`, `agentIsBusy`, `isHiddenInFeed`), the
 // dedupe/replay keys, and the telemetry/cost/rate-limit/envelope
 // formatters. Pinned by the ten `test/widgets/agent_feed_*` reducer
-// tests, which import these symbols through `agent_feed.dart`
+// tests, which import these symbols through `live_feed.dart`
 // (re-exported there) so the split is behavior-preserving by construction.
 //
 // Keeping this layer pure is the point: the dispatch-classification logic

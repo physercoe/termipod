@@ -6,7 +6,7 @@
 // by the mobile consumer side. Three classifications are accepted:
 //
 //   1. **Turn-active** — listed in `kAgentTurnActiveKinds` in
-//      lib/widgets/agent_feed.dart. Drives the cancel-on-send
+//      lib/widgets/live_feed.dart. Drives the cancel-on-send
 //      composer overlay.
 //
 //   2. **Always-hidden** — listed in `kAgentFeedAlwaysHiddenKinds`.
@@ -30,7 +30,7 @@
 
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // The third bucket: kinds the consumer side has actively decided
 // are not turn-active and not always-hidden. Each entry carries a

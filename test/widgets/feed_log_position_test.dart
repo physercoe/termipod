@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // P2 (agent-run-analysis-mode): the monotonic "event N of M" position. The
 // readout must reflect the whole run (M from the digest), not just the loaded

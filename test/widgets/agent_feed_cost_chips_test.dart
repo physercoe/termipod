@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_feed.dart';
+import 'package:termipod/widgets/live_feed.dart';
 
 // Tests for ADR-036 D8 chip pair (W4-a + W4-c) — the two cost chips
 // the agent feed renders side-by-side:

@@ -52,11 +52,16 @@ Sessions rail names the scope it's showing.
   409'd ("tried to resume another, failed"). The shared menu now takes the
   resumability and hides Resume when the session is known-archived; it still
   offers it when the fate is unknown (cold list) and lets the hub 409 clearly.
-- **Legible rail scope** (`sessions_rail.dart`): tapping a project agent
-  silently flipped the rail from the team's stewards to that project's agents
-  with only a tiny header change. A `_scopeBanner` (icon + bold title +
-  subtitle — "Team stewards · steward sessions" vs "Project · agents in this
-  project") now names what you're looking at and why.
+- **Legible + reversible rail scope** (`sessions_rail.dart`): tapping a
+  project agent silently flipped the rail from the all-sessions root to that
+  project's agents with only a tiny header change — and there was no way back
+  (the scope was derived from the analysed agent, so the drill-in was a
+  one-way trip). A `_scopeBanner` now names what you're looking at ("All
+  sessions · stewards + project runs" as the root vs "Project · agents in this
+  project"), and the project banner carries a **‹ back** chevron that climbs
+  back to the all-sessions root. A `_showAllScope` override holds the root view
+  while a project agent is analysed; any row tap clears it so forward
+  navigation still follows the tapped run into its scope.
 
 ---
 

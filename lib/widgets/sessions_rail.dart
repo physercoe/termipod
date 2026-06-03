@@ -68,6 +68,22 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
   // snapshot paints the live roster instantly meanwhile (no open latency).
   List<Map<String, dynamic>>? _fullRoster;
   bool _fullTried = false;
+  // Scope override. Scope is normally DERIVED from the analysed agent (a
+  // project agent → that project; a steward → the team). That made the drill
+  // asymmetric: tapping a project agent re-scoped the rail to the project with
+  // no way back to the all-sessions view. This flag forces the all-sessions
+  // (root) list even while a project agent is analysed, so the back affordance
+  // in the project banner gives a real round-trip. Cleared on any retarget so
+  // a tap still follows the thing you tapped into its scope.
+  bool _showAllScope = false;
+
+  /// Retarget the Insight surface to [agentId]/[sid] and follow the tapped
+  /// thing into its own scope (drop any all-sessions override). The single
+  /// path every row tap funnels through, so forward navigation stays in sync.
+  void _retarget(String agentId, String sid, bool live) {
+    if (_showAllScope && mounted) setState(() => _showAllScope = false);
+    widget.onSelect(agentId, sid, live);
+  }
 
   static bool _agentLive(String status) =>
       status == 'running' || status == 'idle' || status == 'pending';
@@ -128,7 +144,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
         setState(() => _resolvingAgentId = null);
       }
     }
-    widget.onSelect(id, sid, _agentLive(status));
+    _retarget(id, sid, _agentLive(status));
   }
 
   /// The session an agent currently fronts, from the warm sessions snapshot.
@@ -246,8 +262,12 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    // Project scope is a drill-down OFF the all-sessions root; the override
+    // lets the user climb back out (set by the project banner's back button).
+    final inProjectScope = projectId.isNotEmpty && !_showAllScope;
+
     final Widget list;
-    if (projectId.isNotEmpty) {
+    if (inProjectScope) {
       // PROJECT scope → the project's agents (live + a clean finish). Crashed /
       // failed are error states, not switch targets, so they're excluded.
       final rows = [
@@ -274,6 +294,9 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
             subtitle: 'Agents in this project',
             fg: fg,
             muted: muted,
+            // Climb back out to the all-sessions root (symmetry: the drill-in
+            // was a tap, the drill-out is this back chevron).
+            onBack: () => setState(() => _showAllScope = true),
           ),
           if (rows.isEmpty)
             _emptyRow('No other runs in scope.', muted)
@@ -282,10 +305,12 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
         ],
       );
     } else {
-      // STEWARD / team scope → every session in scope: active, paused, AND
-      // archived. The rail is a switch-to-analyse roster, so a paused or
-      // archived steward session must be reachable here (not just the live
-      // ones); each row carries its status so the band is legible.
+      // ROOT (all-sessions) scope → every session in the team: active, paused,
+      // AND archived, stewards and project runs alike. The rail is a
+      // switch-to-analyse roster, so a paused or archived session must be
+      // reachable here (not just the live ones); each row carries its status
+      // so the band is legible. Tapping a project run drills INTO project
+      // scope; the project banner's back chevron climbs back here.
       final sessions = _scopeSessions();
       list = ListView(
         padding: const EdgeInsets.only(bottom: 12),
@@ -293,8 +318,8 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
         children: [
           _scopeBanner(
             icon: Icons.hub_outlined,
-            title: 'Team stewards',
-            subtitle: 'Steward sessions across the team',
+            title: 'All sessions',
+            subtitle: 'Stewards + project runs across the team',
             fg: fg,
             muted: muted,
           ),
@@ -357,12 +382,24 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     required String subtitle,
     required Color fg,
     required Color muted,
+    VoidCallback? onBack,
   }) =>
       Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+        padding: const EdgeInsets.fromLTRB(8, 12, 14, 8),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (onBack != null)
+              InkWell(
+                onTap: onBack,
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(Icons.chevron_left, size: 20, color: fg),
+                ),
+              )
+            else
+              const SizedBox(width: 6),
             Icon(icon, size: 16, color: muted),
             const SizedBox(width: 8),
             Expanded(
@@ -500,7 +537,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
       child: InkWell(
         onTap: (active || agentId.isEmpty)
             ? null
-            : () => widget.onSelect(agentId, sid, isLive),
+            : () => _retarget(agentId, sid, isLive),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           child: Row(

@@ -57,6 +57,9 @@ next sequential number — don't reserve, don't skip.
 | [036](036-claude-code-statusline-telemetry.md) | claude-code statusLine as authoritative M4 telemetry channel | Proposed 2026-05-24 | — |
 | [037](037-multi-team-isolation-and-operator-principal-split.md) | Multi-team isolation + operator/principal split | Proposed 2026-05-31 | (single-team reading of [005](005-owner-authority-model.md)) |
 | [038](038-per-run-event-digest.md) | Per-run event digest + turn index (`agent_turns`) + OTLP projection — canonical run summary, accurate navigation, operator traces | Proposed 2026-06-01 | — |
+| [039](039-insight-lens-as-server-query.md) | Insight transcript lens as a server keyset query (`kind=` paging) | Proposed 2026-06-02 | — |
+| [040](040-transcript-surfaces-decoupled-by-mode.md) | Decouple the transcript surfaces — one file per mode (`LiveFeed` / `InsightTranscript`), additive by file | Accepted 2026-06-02 | — |
+| [041](041-insight-workbench-layout.md) | The Insight transcript workbench — card-filter lens, outline Navigator, Sessions rail (drop stepper + N/M pill) | Accepted 2026-06-03 | — |
 
 ---
 

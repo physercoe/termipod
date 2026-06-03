@@ -723,6 +723,59 @@ acts on them here.
 The chat-style scroll of `agent_events` for one hub session. The
 mobile session detail screen embeds this.
 
+### Insight transcript
+The per-run **sealed analysis transcript** (`InsightTranscript`,
+ADR-040) — a random-access, read-only view of one session's
+`agent_events` driven by the digest, distinct from the live feed
+(`LiveFeed`). The "Insights" tab body. ADR-041 reshapes it into a
+workbench: a card stream + a left Sessions rail + a right Navigator.
+- *Distinguish from:* **insights surface** (the aggregate
+  spend/latency/errors metrics screen, ADR-022) — they collide on
+  "insight(s)" but are different surfaces; and **transcript view**
+  (the live chat scroll).
+- *Canonical:* ADR-038, ADR-040, ADR-041.
+
+### lens
+A **card-family filter** over the Insight transcript: `All / Text /
+Tools`. Narrows the visible cards in place; never navigates. The
+Text/Tools lens pages its kinds across the whole run via the `kind=`
+keyset (ADR-039).
+- *Distinguish from:* **outline** (a structural index you jump from,
+  not a filter).
+- *Canonical:* ADR-039, ADR-041.
+
+### outline
+The whole-run **structural index** of the Insight transcript —
+**Turns** and **Errors** — rendered as summary rows you jump *from*
+into the full transcript. Lives in the Navigator; does not filter the
+stream. Also called the TOC.
+- *Distinguish from:* **lens** (a card filter).
+- *Canonical:* ADR-041; rows in `transcript/feed_misc.dart`.
+
+### Navigator
+The Insight transcript's **right drawer** (phone overlay) hosting the
+outline tabs (Turns, Errors) plus the **Map** (the minimap). Opened on
+demand; jumping from it lands the transcript in full context.
+- *Canonical:* ADR-041.
+
+### Map (transcript)
+The whole-run **minimap** as a Navigator tab — ticks per turn/error +
+a viewport indicator + drag-scrub + the "jump to any event" scrubber.
+Relocated off the floating card overlay (ADR-041) to end the
+top-right-control collision.
+- *Distinguish from:* **map** in any geographic sense (there is none
+  here).
+- *Canonical:* ADR-041.
+
+### Sessions rail
+The Insight transcript's **left drawer** (phone overlay) — a *scoped*
+quick-switcher for the current project/agent's sessions (and related
+agents); selecting one retargets the analyzed run. A convenience
+inside the surface, **not** a global tree or a top-level navigator.
+- *Distinguish from:* the **Sessions** screen / top-level IA tabs
+  (Projects · Activity · Me · Hosts · Settings).
+- *Canonical:* ADR-041.
+
 ### insights surface
 The mobile screen rendering scope-parameterized aggregate metrics
 (spend / latency / errors / capacity / concurrency). Phase 1 =

@@ -338,6 +338,37 @@ the only trade-off is the anchor lands near the top, not centred. The
 `scrollable_positioned_list` swap (§7/§10) remains the documented next lever if
 even a small near-top scroll proves unreliable on-device.
 
+## 12. The workbench — structure-first as UI chrome (2026-06-03, → ADR-041)
+
+§10 concluded *structure-first* is the model but left it as a navigation
+*mechanism*. The director's redesign gives it a *home*, and in doing so corrects
+a category error that crept into the P5 "point 6" build: the Turns lens had been
+made to **replace the transcript with a summary list**, which conflates two
+distinct jobs —
+
+- a **lens** *filters the cards in place* (you stay in the stream), versus
+- an **outline** *is a list of landmarks you jump from* (you navigate the
+  stream, you don't filter it).
+
+The resolution ([ADR-041](../decisions/041-insight-workbench-layout.md)): the
+funnel reverts to a pure card-filter (`All / Text / Tools`); **Turns, Errors, and
+the minimap (Map) become tabs in a right "Navigator" drawer** — the structure-
+first index of §10, now a panel you open and jump from, never a filter. This
+also dissolves a standing symptom: the minimap stops floating over the card
+stack (the top-right-control collision) because it lives in the Navigator. A left
+**"Sessions" drawer** adds a *scoped* session/agent switcher (the multi-session
+differentiator the surface lacked). Phone-first: both rails are overlay drawers,
+not a persistent three-pane split. The bottom `‹ › ⤒` stepper and the "N of M"
+pill are dropped — the outline does landmark navigation and the Map tab does
+arbitrary scrubbing, so they are redundant.
+
+So the §10 levers map onto chrome: **outline tabs** = the loaded/unloaded
+land-by-index jumps (1+2); **Map tab** = the time-scaled minimap (§7b) for the
+arbitrary case; the **dense ordinal** stays the demoted "N of M" nice-to-have —
+now without even a pill to host it. The point-3 paged Text/Tools work survives,
+clarified as a *filter* (lens) concern. Execution:
+[`plans/insight-workbench-layout.md`](../plans/insight-workbench-layout.md).
+
 ## Related
 
 - [`discussions/transcript-paging-vs-forum-model.md`](transcript-paging-vs-forum-model.md)

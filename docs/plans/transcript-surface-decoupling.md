@@ -172,12 +172,40 @@ seek orchestration + the lens-as-query engine all got their decoupled home.
 
 ### P5 — land the deferred features ON the new structure (open/closed)
 
-- **Point 6 — unified lens selector** inside `InsightTranscript`: fold the
-  `_TurnsDisclosure` + funnel into one foldable selector; Turns renders as a
-  summary list like Errors. No change to `LiveFeed`.
-- **Point 3 — paged Text/Tools lens** (ADR-039 P1b): a `kind=`-keyset buffer the
-  `RandomAccessLoader` + `TranscriptSeek` page, so far text/tools matches are
-  reachable and land by index. Owned by `InsightTranscript`.
+- **Point 6 — Turns lens as a whole-run summary list — DONE (`a9c2af1` + parse-fix
+  `68cf54f`, CI-green; awaiting device-test).** The standalone `_TurnsDisclosure`
+  row folded into the transcript funnel as the **Turns lens**: selecting Turns
+  renders the complete `agent_turns` index as summary rows (status · duration ·
+  tools · ⚠errors, tap-to-jump), the mirror of the Errors lens. New substrate
+  `TurnSummaryRow` (feed_misc.dart); `InsightTranscript` gained `runTurns` +
+  `_turnsSummaryMode` + `_buildTurnsSummaryList` + a generalized `_summaryMode`
+  (Errors OR Turns) gating the scroll pager / minimap / position pill;
+  `session_analysis_view` passes `runTurns` and dropped `_TurnsDisclosure`/
+  `_TurnRow`. The funnel is now the single "filter card view for all the items".
+- **Point 3 — paged Text/Tools lens** (ADR-039 P1b) — **NEXT; substrate fully
+  ready (hub + client + reducer), so it's a mobile-only `InsightTranscript`
+  change.** Today the Text/Tools lens filters only the *loaded window*, so a
+  match outside it is unreachable (the "text jump still incorrect" report). Fix:
+  a SECOND `kind=`-keyset buffer paged across the whole run.
+  - **Substrate (all present):** the hub `listAgentEvents` takes `kind=a,b,c` +
+    the `(ts,seq)` keyset (`handlers_agent_events.go:264`); the mobile client
+    `listAgentEvents` takes `kinds:` (`agents_api.dart:424`); and
+    `feedLensKinds(lens)` (`feed_reducer.dart:1196`) is the canonical page kind
+    set — Text = {text, thought, input.text}, Tools = {tool_call, tool_result,
+    tool_call_update}. The Tools set **includes results/updates**, so the paged
+    buffer can build FoldMaps + pair results (cards still render folded).
+  - **Design:** on entering Text/Tools, fetch the kind-filtered keyset window
+    (newest-first), build FoldMaps over it, filter `isHiddenInFeed` +
+    `agentEventMatchesLens` (the kind set is a SUPERSET — must re-check the
+    predicate) + `collapseStreamingPartials`, render as cards; the
+    funnel/stepper/landing run over this paged buffer; a card tap → "view in
+    context" jumps back into the main `_events` window at that seq. Scroll-up
+    pages older kind-matches. Errors/Turns stay summary lists; All stays the
+    main window.
+  - **Care points:** lens-switch lifecycle (build/discard the buffer), the
+    funnel N/M over the paged list, `_activeSeekSeq` interaction, and keeping the
+    minimap/position semantics sane while a paged lens is active. A focused unit
+    — worth its own commit + device-test, not bundled.
 - **LiveFeed §6 tightening (optional).** Reduce `LiveFeed`'s funnel to a pure
   declutter filter and drop its loaded-window minimap + steppers (ADR-040 §6 /
   open-question A), so navigation lives only in Insight. Deferred from P4b to

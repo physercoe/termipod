@@ -197,3 +197,40 @@ Future<void> openStewardSession(
     builder: (_) => const SessionsScreen(),
   ));
 }
+
+/// Opens an agent's session full-screen — the single agent surface
+/// (`SessionChatScreen`). Replaces the old project-agent bottom sheet so the
+/// project Agents tab and every other entry point share one surface (no
+/// drift; workspace agents reach parity with project agents automatically).
+///
+/// Resolves the agent's current session from the warm snapshot (the session
+/// whose `current_agent_id` is this agent — reliable, unlike the engine-
+/// dependent event `session_id` echo). An empty result is fine: the chat
+/// screen resolves the Insights session itself and the feed renders by agent
+/// id, so a session-less agent still opens.
+void openAgentSession(
+  BuildContext context,
+  WidgetRef ref,
+  Map<String, dynamic> agent,
+) {
+  final agentId = (agent['id'] ?? '').toString();
+  if (agentId.isEmpty) return;
+  final handle = (agent['handle'] ?? agentId).toString();
+  String sessionId = '';
+  final s = ref.read(sessionsProvider).value;
+  if (s != null) {
+    for (final sess in [...s.active, ...s.previous]) {
+      if ((sess['current_agent_id'] ?? '').toString() == agentId) {
+        sessionId = (sess['id'] ?? '').toString();
+        break;
+      }
+    }
+  }
+  Navigator.of(context).push(MaterialPageRoute<void>(
+    builder: (_) => SessionChatScreen(
+      agentId: agentId,
+      sessionId: sessionId,
+      title: handle,
+    ),
+  ));
+}

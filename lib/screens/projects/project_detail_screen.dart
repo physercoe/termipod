@@ -25,7 +25,7 @@ import '../../widgets/template_yaml_sheet.dart';
 import 'phase_summary_screen.dart';
 import 'archived_agents_screen.dart';
 import 'docs_section.dart';
-import 'projects_screen.dart' show openAgentDetail;
+import '../../services/hub/open_steward_session.dart' show openAgentSession;
 import 'overview_widgets/portfolio_header.dart';
 import 'overview_widgets/registry.dart';
 import 'overview_widgets/workspace_overview.dart' show formatRelative;
@@ -1120,7 +1120,7 @@ class _AgentsView extends ConsumerWidget {
                   ? DesignColors.textMuted
                   : DesignColors.textMutedLight;
               return InkWell(
-                onTap: () => openAgentDetail(context, a),
+                onTap: () => openAgentSession(context, ref, a),
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -1325,9 +1325,9 @@ Future<void> _askProjectSteward(
   }
   if (stewardSession == null) {
     // Steward without a session is the multi-steward UX gap that
-    // pre-dates auto_open_session. Drop into the agent detail
-    // sheet so the operator can resolve manually.
-    openAgentDetail(context, stewardAgent);
+    // pre-dates auto_open_session. Open the agent full-screen so the
+    // operator can resolve manually (the chat screen handles no-session).
+    openAgentSession(context, ref, stewardAgent);
     return;
   }
   if (!context.mounted) return;

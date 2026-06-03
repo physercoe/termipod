@@ -2264,6 +2264,26 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     }
   }
 
+  /// The hub session id for the Insights surface. Prefers the active
+  /// [_sessionId] (constructor / retarget), but when it's empty — agents
+  /// opened by id with no pre-resolved session — falls back to the warm
+  /// sessions snapshot's session whose `current_agent_id` is this agent (the
+  /// reliable lookup, unlike the engine-dependent event `session_id` echo).
+  /// Reactive via watch so the Insight appears once sessions load.
+  String _analysisSessionId() {
+    if (_sessionId.isNotEmpty) return _sessionId;
+    final s = ref.watch(sessionsProvider).value;
+    if (s != null) {
+      for (final sess in [...s.active, ...s.previous]) {
+        if ((sess['current_agent_id'] ?? '').toString() == _agentId) {
+          final sid = (sess['id'] ?? '').toString();
+          if (sid.isNotEmpty) return sid;
+        }
+      }
+    }
+    return '';
+  }
+
   /// Retarget the whole surface to another in-scope session (from the left
   /// Sessions rail). Resets the per-agent ephemeral state forwarded up by the
   /// feed so the header chip / title / menu re-resolve against the new agent;
@@ -2770,9 +2790,9 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
                   // per-agent InsightsPanel. showRail:false — the screen
                   // provides one rail across all views (issue 4).
                   SessionAnalysisView(
-                    key: ValueKey('insights/$_agentId/$_sessionId'),
+                    key: ValueKey('insights/$_agentId/${_analysisSessionId()}'),
                     agentId: _agentId,
-                    sessionId: _sessionId,
+                    sessionId: _analysisSessionId(),
                     showRail: false,
                   ),
                 ],

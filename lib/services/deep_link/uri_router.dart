@@ -23,8 +23,7 @@ import '../../screens/projects/project_channels_list_screen.dart'
     show ProjectChannelsListScreen;
 import '../../screens/projects/project_detail_screen.dart';
 import '../../screens/projects/project_hero_screen.dart' show ProjectHeroScreen;
-import '../../screens/projects/projects_screen.dart'
-    show openAgentDetail, openHostDetail;
+import '../../screens/projects/projects_screen.dart' show openHostDetail;
 import '../../screens/projects/runs_screen.dart'
     show RunsScreen, RunDetailScreen;
 import '../../screens/projects/schedules_screen.dart' show SchedulesScreen;
@@ -797,8 +796,17 @@ Future<NavigateResult> _openAgent(
   }
   if (agent.isEmpty) return NavigateResult.unknown;
   if (!context.mounted) return NavigateResult.unknown;
-  openAgentDetail(context, agent);
   final handle = (agent['handle'] ?? '').toString();
+  // Open the agent full-screen (the single agent surface). No pre-resolved
+  // session here — SessionChatScreen resolves the Insights session itself and
+  // the feed renders by agent id.
+  Navigator.of(context).push(MaterialPageRoute<void>(
+    builder: (_) => SessionChatScreen(
+      agentId: agentId,
+      sessionId: '',
+      title: handle.isEmpty ? agentId : handle,
+    ),
+  ));
   return NavigateResult(true, 'Agent: ${handle.isEmpty ? agentId : handle}');
 }
 

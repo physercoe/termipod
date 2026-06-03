@@ -690,6 +690,13 @@ type spawnIn struct {
 	// template definition. Ignored when SessionID is set (the swap
 	// path already updates the named session in-tx).
 	AutoOpenSession bool `json:"auto_open_session,omitempty"`
+	// SuppressAutoSession turns OFF the otherwise-forced project auto-open
+	// (ADR-025 D5: project spawns always get a session). Set ONLY by the
+	// resume path, which lands the new agent in a pre-existing paused session
+	// it stamps itself afterwards — without this, threading the resumed
+	// agent's project_id would auto-open a SECOND session that collides on the
+	// (team_id, worktree_path) uniqueness index.
+	SuppressAutoSession bool `json:"-"`
 	// Wait, when true (the default for the agents.spawn MCP path),
 	// asks handleSpawn to block until the new agent reaches `running`
 	// or `failed`, bounded by WaitSeconds. The response Status field
@@ -1485,7 +1492,7 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	// viewer, so every (worker agent, session) pair is born together.
 	// The session inherits scope_kind='project', scope_id=projectID
 	// so the project detail surfaces can find it.
-	autoOpen := in.AutoOpenSession || projectID != ""
+	autoOpen := (in.AutoOpenSession || projectID != "") && !in.SuppressAutoSession
 	if swapSessionID == "" && autoOpen {
 		newSessionID := NewID()
 		scopeKind := "team"

@@ -15,9 +15,12 @@ String agentStatusLabel(String status) {
     case 'paused':
       return 'paused';
     case 'terminated':
-      // The worker process ended (via Stop or Archive). "terminated" is DB
-      // jargon; "ended" reads cleanly and doesn't falsely claim archived.
-      return 'ended';
+      // The worker process was killed (via Stop or Archive). 'terminated' is DB
+      // jargon; the glossary's principal-facing words are Stop/Archive. With no
+      // session context the conservative reading is the permanent one, so this
+      // bare label is 'archived' — callers that know the session fate use
+      // [agentStatusLabelResumable] to show 'stopped' (resumable) instead.
+      return 'archived';
     case 'failed':
       return 'failed';
     case 'crashed':
@@ -68,12 +71,13 @@ AgentResumability agentResumability(String sessionStatus) {
   }
 }
 
-/// Friendly label for an agent row that folds in the session's fate, so a
+/// Friendly label for an agent row that folds in the session's fate, using the
+/// glossary's principal-facing lifecycle words (Stop / Archive) so a
 /// `terminated` row reads as the *resumability* the user cares about rather
 /// than the ambiguous "ended": a Stop (session paused) shows "stopped"
-/// (resumable); an Archive (session archived) or an unknown session shows
-/// "ended" (permanent). Every non-terminated status defers to
-/// [agentStatusLabel].
+/// (resumable); an Archive (session archived) — or an unknown session, read
+/// conservatively as permanent — shows "archived". Every non-terminated status
+/// defers to [agentStatusLabel].
 String agentStatusLabelResumable(String status, AgentResumability r) {
   if (status == 'terminated' && r == AgentResumability.resumable) {
     return 'stopped';

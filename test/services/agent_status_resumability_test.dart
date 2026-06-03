@@ -34,14 +34,14 @@ void main() {
       );
     });
 
-    test('terminated + permanent / unknown → "ended"', () {
+    test('terminated + permanent / unknown → "archived" (glossary word)', () {
       expect(
         agentStatusLabelResumable('terminated', AgentResumability.permanent),
-        'ended',
+        'archived',
       );
       expect(
         agentStatusLabelResumable('terminated', AgentResumability.unknown),
-        'ended',
+        'archived',
       );
     });
 
@@ -114,7 +114,7 @@ void main() {
           'terminated',
           agentResumability(sessionStatusForAgent(state, 'archived-agent')),
         ),
-        'ended',
+        'archived',
       );
     });
   });

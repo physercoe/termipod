@@ -599,19 +599,24 @@ func (s *Server) resumePausedSession(ctx context.Context, team, id string) (map[
 			errors.New("session has no spawn_spec_yaml — likely opened pre-resume; close + start fresh")
 	}
 
-	// Pull the dead agent's identity (handle, kind, host, parent) so the
-	// new spawn looks like a continuation rather than a brand-new entity.
+	// Pull the dead agent's identity (handle, kind, host, parent, project) so
+	// the new spawn looks like a continuation rather than a brand-new entity.
+	// project_id matters: without it the resumed agent is unbound and never
+	// shows in the project Agents tab — the operator sees only the stale
+	// terminated row while the live worker hides off-project. DoSpawn lets a
+	// `project_id:` in the reused spawn_spec_yaml win, so threading it here is
+	// the fallback for specs that don't carry it (ADR-025 W2 precedence).
 	var (
-		deadHandle, deadKind, deadHostID, deadParentID sql.NullString
+		deadHandle, deadKind, deadHostID, deadParentID, deadProjectID sql.NullString
 	)
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT handle, kind, host_id,
+		SELECT handle, kind, host_id, project_id,
 		       (SELECT parent_agent_id FROM agent_spawns
 		         WHERE child_agent_id = agents.id
 		         ORDER BY spawned_at DESC LIMIT 1)
 		  FROM agents WHERE team_id = ? AND id = ?`,
 		team, currentAgentID.String).Scan(
-		&deadHandle, &deadKind, &deadHostID, &deadParentID,
+		&deadHandle, &deadKind, &deadHostID, &deadProjectID, &deadParentID,
 	); err != nil {
 		return nil, http.StatusInternalServerError,
 			fmt.Errorf("lookup dead agent: %w", err)
@@ -650,12 +655,17 @@ func (s *Server) resumePausedSession(ctx context.Context, team, id string) (map[
 	}
 
 	in := spawnIn{
-		ParentID:     deadParentID.String,
-		ChildHandle:  deadHandle.String,
-		Kind:         deadKind.String,
-		HostID:       deadHostID.String,
-		SpawnSpec:    specYAML,
-		WorktreePath: worktreePath.String,
+		ParentID:    deadParentID.String,
+		ChildHandle: deadHandle.String,
+		Kind:        deadKind.String,
+		HostID:      deadHostID.String,
+		ProjectID:   deadProjectID.String,
+		SpawnSpec:   specYAML,
+		// Resume stamps the EXISTING paused session below; suppress the
+		// project auto-open so threading project_id doesn't mint a second
+		// session that collides on (team_id, worktree_path).
+		SuppressAutoSession: true,
+		WorktreePath:        worktreePath.String,
 	}
 	out, code, derr := s.DoSpawn(ctx, team, in)
 	if derr != nil {

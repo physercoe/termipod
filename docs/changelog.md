@@ -25,20 +25,28 @@ binding). Seed entries prior to that are in
 
 ## v1.0.799-alpha — 2026-06-03
 
-**"Ended" disambiguated + clearer rail scope.** A terminated agent now reads
-as the *resumability* the user cares about, and the Sessions rail names the
-scope it's showing so the team→project re-scope stops being a surprise.
+**Resume keeps its project + glossary-consistent lifecycle labels + clearer
+rail scope.** A resumed agent now stays bound to its project, a terminated
+agent reads in the glossary's principal words (stopped / archived), and the
+Sessions rail names the scope it's showing.
 
 ### Fixed
-- **"Stopped" vs "ended"** (`agent_status.dart`): Stop and Archive both leave
-  `agents.status = 'terminated'`, so every surface labelled both "ended" —
-  giving no way to tell a resumable run from a permanent one (the "what does
-  ended mean, paused or archived?" confusion). The distinguishing fact lives on
-  the *session* (Stop → paused, Archive → archived), so the new
-  `agentResumability(sessionStatus)` + `agentStatusLabelResumable` resolve it
-  from the warm sessions snapshot: a paused session reads **"stopped"** (amber
-  dot, resumable); an archived/unknown one reads **"ended"**. Applied to the
-  project Agents tab, the agent-history page, and the Sessions rail.
+- **Resume re-binds the project** (`handlers_sessions.go`): `resumePausedSession`
+  rebuilt the spawn without `project_id`, so a resumed worker was unbound unless
+  the reused spawn-spec YAML happened to carry one. The new agent then hid from
+  the project Agents tab while the old terminated row lingered — "I resumed it
+  but the project agent row still shows ended." Resume now threads the dead
+  agent's `project_id` into the spawn (DoSpawn still lets a YAML `project_id:`
+  win, per ADR-025 W2), so the live continuation reappears in-project.
+- **Glossary lifecycle labels** (`agent_status.dart`): Stop and Archive both
+  leave `agents.status = 'terminated'`, so every surface labelled both the
+  ambiguous "ended" — no way to tell a resumable run from a permanent one. The
+  distinguishing fact lives on the *session* (Stop → paused, Archive →
+  archived), so `agentResumability(sessionStatus)` + `agentStatusLabelResumable`
+  resolve it from the warm sessions snapshot and use the glossary's
+  principal-facing words: a paused session reads **"stopped"** (amber dot,
+  resumable); an archived/unknown one reads **"archived"**. "ended" is retired.
+  Applied to the project Agents tab, the agent-history page, and the rail.
 - **No more guaranteed-failed resume** (`agent_actions_menu.dart`): "Resume
   session" was offered for *any* dead agent — on an archived run it always
   409'd ("tried to resume another, failed"). The shared menu now takes the

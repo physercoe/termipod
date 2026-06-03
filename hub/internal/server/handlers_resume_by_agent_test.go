@@ -96,3 +96,55 @@ func TestResumeByAgent_NoPausedSession(t *testing.T) {
 		t.Fatalf("want 409 for no paused session, got %d", status)
 	}
 }
+
+// TestResumeKeepsProjectBinding: a resumed agent must inherit the dead
+// agent's project_id, else the live continuation hides from the project
+// Agents tab while the stale terminated row lingers. Regression guard for
+// the v1.0.799 fix (resumePausedSession threads project_id into the spawn).
+func TestResumeKeepsProjectBinding(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, oldAgentID := seedChannelAndAgent(t, s, "", "host-x")
+
+	// Bind the agent to a project (no project_id: in the spawn-spec YAML, so
+	// the binding has to be carried by resume itself — the failing path).
+	projectID := seedProject(t, s, defaultTeamID)
+	if _, err := s.db.Exec(
+		`UPDATE agents SET project_id = ? WHERE id = ?`, projectID, oldAgentID); err != nil {
+		t.Fatalf("seed project_id: %v", err)
+	}
+
+	ses := openSessionForAgent(t, s, token, oldAgentID)
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/stop", nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("stop: %d %s", status, body)
+	}
+
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/resume-session", nil)
+	if status != http.StatusOK {
+		t.Fatalf("resume-session: %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	newID, _ := resp["new_agent_id"].(string)
+	if newID == "" {
+		t.Fatalf("no new_agent_id in resume response: %s", body)
+	}
+
+	var gotProject string
+	if err := s.db.QueryRow(
+		`SELECT COALESCE(project_id, '') FROM agents WHERE id = ?`, newID).Scan(&gotProject); err != nil {
+		t.Fatalf("read new agent project_id: %v", err)
+	}
+	if gotProject != projectID {
+		t.Fatalf("resumed agent project_id=%q; want %q", gotProject, projectID)
+	}
+	// Sanity: the session itself stayed bound to the same agent it resumed.
+	var curAgent string
+	_ = s.db.QueryRow(`SELECT COALESCE(current_agent_id, '') FROM sessions WHERE id = ?`, ses.ID).Scan(&curAgent)
+	if curAgent != newID {
+		t.Fatalf("session current_agent_id=%q; want resumed %q", curAgent, newID)
+	}
+}

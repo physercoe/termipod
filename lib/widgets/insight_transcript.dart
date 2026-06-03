@@ -81,6 +81,15 @@ class InsightTranscript extends ConsumerStatefulWidget {
   /// funnel + the minimap's turn ticks.
   final List<int>? runTurnSeqs;
 
+  /// The full whole-run turn rows (the `agent_turns` index: `idx`, `start_seq`,
+  /// `start_ts`, `status`, `open`, `duration_ms`, `tool_count`, `tool_failed`,
+  /// `error_count`). Lets the **Turns lens render the complete turn list** as
+  /// summary rows (P5 point 6) — the digest-backed structure index folded into
+  /// the funnel, replacing the old standalone `_TurnsDisclosure` row. Null /
+  /// empty → the Turns lens falls back to stepping turn starts in the loaded
+  /// window.
+  final List<Map<String, dynamic>>? runTurns;
+
   /// `seq → ts` for the run anchors that carry a timestamp (turn `start_ts`,
   /// error `sample_ts`). A jump with a ts takes the O(log n) `(ts, seq)` window
   /// reset; a ts-less anchor (older digest) falls back to the bounded
@@ -98,6 +107,7 @@ class InsightTranscript extends ConsumerStatefulWidget {
     this.runErrorClasses,
     this.runErrorLabels,
     this.runTurnSeqs,
+    this.runTurns,
     this.runAnchorTs,
   });
 
@@ -168,9 +178,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   // errors). Decoupled from [_activeSeekSeq] because the landing row (nearest
   // visible >= anchor) may differ from the anchor seq (a hidden turn.start).
   int? _funnelRunIdx;
-  // ADR-039 P2 — the Errors summary list's fixed row extent (lets the funnel
-  // stepper scroll to a row by index).
+  // The summary-list fixed row extents (let the funnel stepper scroll to a row
+  // by index). Errors: ADR-039 P2; Turns: P5 point 6.
   static const double _kErrorRowExtent = 52.0;
+  static const double _kTurnRowExtent = 52.0;
 
   @override
   void initState() {
@@ -511,8 +522,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     // the pager — it can momentarily land near the bottom (the "jump to end"
     // bug).
     if (_seek.isProgrammatic) return;
-    // The Errors summary list is a digest-only list with no _events paging.
-    if (_errorsSummaryMode) return;
+    // A whole-run summary list (Errors / Turns) is digest-backed with no _events
+    // paging; scrolling it must not touch the transcript window.
+    if (_summaryMode) return;
     // Window short of the tail: the bottom edge pages *newer* (the forward
     // complement of load-older at the top). We're not at the live tail yet.
     final atTrueTail = atBottom && _windowHasTail;
@@ -567,7 +579,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     return _viewFrac;
   }
 
-  // ── Errors-as-query (the whole-run error list) ────────────────────────────
+  // ── Lens-as-query (the whole-run Errors / Turns summary lists) ────────────
 
   /// The Errors lens renders the WHOLE-RUN error list as digest-only summary
   /// rows (class + time), not a client filter over the loaded window: exact,
@@ -577,6 +589,31 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   bool get _errorsSummaryMode => _isErrorsSummaryLens(_lens);
   // The run's error seqs, ascending so the newest sits at the bottom.
   List<int> _sortedErrorSeqs() => [...?widget.runErrorSeqs]..sort();
+
+  /// The Turns lens renders the WHOLE-RUN turn list as digest-backed summary
+  /// rows (P5 point 6) — the structure index folded into the funnel, replacing
+  /// the old standalone disclosure. Gated to turn-rows-present.
+  bool _isTurnsSummaryLens(FeedLens lens) =>
+      lens == FeedLens.turns && (widget.runTurns?.isNotEmpty ?? false);
+  bool get _turnsSummaryMode => _isTurnsSummaryLens(_lens);
+  // The turn rows with a real start_seq, ascending so the newest sits at the
+  // bottom like the chat transcript. The start_seq>0 filter mirrors how
+  // `runTurnSeqs` is built (the funnel anchor list), so the rendered rows stay
+  // index-aligned with the funnel N/M + the minimap ticks.
+  List<Map<String, dynamic>> _sortedTurnRows() {
+    final rows = [
+      for (final r in (widget.runTurns ?? const <Map<String, dynamic>>[]))
+        if (((r['start_seq'] as num?)?.toInt() ?? 0) > 0) r,
+    ];
+    rows.sort((a, b) => ((a['start_seq'] as num?)?.toInt() ?? 0)
+        .compareTo((b['start_seq'] as num?)?.toInt() ?? 0));
+    return rows;
+  }
+
+  /// True when the active lens renders a whole-run summary list (Errors or
+  /// Turns) rather than the transcript ListView — the gate for suppressing the
+  /// _events scroll pager, the minimap, and the position pill.
+  bool get _summaryMode => _errorsSummaryMode || _turnsSummaryMode;
 
   // ── Seek primitives (the landing engine drivers) ──────────────────────────
 
@@ -815,8 +852,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       _funnelRunIdx = null;
       if (lens != FeedLens.all) _followTail = true;
     });
-    // The Errors lens is the whole-run error list (digest-only summary rows). On
-    // entry just show it scrolled to the newest error (bottom); no _events reset.
+    // The Errors / Turns lenses are whole-run summary lists (digest-backed
+    // rows). On entry just show the list scrolled to the newest row (bottom);
+    // no _events reset, no jump into the transcript.
     if (_isErrorsSummaryLens(lens)) {
       final n = _sortedErrorSeqs().length;
       setState(() => _funnelRunIdx = n - 1);
@@ -825,7 +863,16 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       });
       return;
     }
-    // The other run-anchor lens (turns) jumps to its NEWEST match on entry.
+    if (_isTurnsSummaryLens(lens)) {
+      final n = _sortedTurnRows().length;
+      setState(() => _funnelRunIdx = n - 1);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollToTail();
+      });
+      return;
+    }
+    // A run-anchor lens with no summary rows (e.g. turns when only seqs, not the
+    // full rows, were supplied) jumps to its NEWEST match on entry.
     // Without this the filtered view is empty whenever no match sits in the
     // loaded tail window — and an empty list has no scroll extent, so
     // "scroll up to load older" can never fire. The jump random-access-resets
@@ -885,13 +932,15 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// loaded-window convergent seek.
   void _funnelStep(int i, List<int> matchSeqs, {required bool usesRunList}) {
     if (i < 0 || i >= matchSeqs.length) return;
-    // In the Errors summary list the stepper just scrolls the fixed-extent list
-    // to row i (matchSeqs == the sorted run error seqs == the rendered rows).
-    if (_errorsSummaryMode) {
+    // In a whole-run summary list (Errors / Turns) the stepper just scrolls the
+    // fixed-extent list to row i (matchSeqs == the sorted run seqs == the
+    // rendered rows).
+    if (_summaryMode) {
       setState(() => _funnelRunIdx = i);
       if (_scroll.hasClients) {
+        final extent = _errorsSummaryMode ? _kErrorRowExtent : _kTurnRowExtent;
         final off =
-            (i * _kErrorRowExtent).clamp(0.0, _scroll.position.maxScrollExtent);
+            (i * extent).clamp(0.0, _scroll.position.maxScrollExtent);
         _scroll.animateTo(off,
             duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
       }
@@ -923,6 +972,46 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
           ordinal: i + 1,
           errorClass: widget.runErrorClasses?[seq] ?? 'error',
           label: widget.runErrorLabels?[seq],
+          ts: ts,
+          active: active == i,
+          onTap: () {
+            setState(() => _funnelRunIdx = i);
+            _handleExternalSeek(seq, ts);
+          },
+        );
+      },
+    );
+  }
+
+  /// P5 point 6 — the Turns lens as the run's COMPLETE turn list: digest-backed
+  /// summary rows (status · duration · tools · errors), exact + never-empty. A
+  /// tap jumps to that turn's start in full context. The digest-backed structure
+  /// index folded into the funnel, replacing the old standalone `_TurnsDisclosure`
+  /// row. Fixed [_kTurnRowExtent] so the funnel stepper scrolls to a row by
+  /// index ([_funnelStep]).
+  Widget _buildTurnsSummaryList() {
+    final rows = _sortedTurnRows();
+    final active = _funnelRunIdx;
+    return ListView.builder(
+      controller: _scroll,
+      padding: EdgeInsets.zero,
+      itemExtent: _kTurnRowExtent,
+      itemCount: rows.length,
+      itemBuilder: (ctx, i) {
+        final r = rows[i];
+        final seq = (r['start_seq'] as num?)?.toInt() ?? 0;
+        final ts0 = (r['start_ts'] ?? '').toString();
+        final ts = ts0.isEmpty ? widget.runAnchorTs?[seq] : ts0;
+        return TurnSummaryRow(
+          // Prefer the digest's own turn ordinal (`idx`, 0-based) so the label
+          // matches the run-report card; fall back to the list position.
+          ordinal: ((r['idx'] as num?)?.toInt() ?? i) + 1,
+          status: (r['status'] ?? '').toString(),
+          open: r['open'] == true,
+          durationMs: (r['duration_ms'] as num?)?.toInt() ?? 0,
+          toolCount: (r['tool_count'] as num?)?.toInt() ?? 0,
+          toolFailed: (r['tool_failed'] as num?)?.toInt() ?? 0,
+          errorCount: (r['error_count'] as num?)?.toInt() ?? 0,
           ts: ts,
           active: active == i,
           onTap: () {
@@ -1269,7 +1358,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
             children: [
               _errorsSummaryMode
                   ? _buildErrorsSummaryList()
-                  : ListView.separated(
+                  : _turnsSummaryMode
+                      ? _buildTurnsSummaryList()
+                      : ListView.separated(
                       controller: _scroll,
                       padding: widget.padding,
                       itemCount: lensed.length,
@@ -1369,7 +1460,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
               // When a lens filters out every loaded event, tell the user it's
               // the filter (older matches may exist above) so they can scroll up
               // or clear it.
-              if (_lens != FeedLens.all && lensed.isEmpty && !_errorsSummaryMode)
+              if (_lens != FeedLens.all && lensed.isEmpty && !_summaryMode)
                 Center(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
@@ -1418,7 +1509,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
               // it's a control (tap → "jump to any event" scrubber). Suppressed
               // in the Errors summary list (the funnel N/M + the list are the
               // nav there).
-              if (!_errorsSummaryMode &&
+              if (!_summaryMode &&
                   widget.totalEventCount != null &&
                   _logPosition() != null)
                 Positioned(
@@ -1436,7 +1527,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
               // (card-coloured) + a red tick per error, plus a viewport
               // indicator. In full-run anchor mode the ticks are whole-run and a
               // tap routes through the random-access seek.
-              if (!_errorsSummaryMode)
+              if (!_summaryMode)
                 Positioned(
                   top: 8,
                   right: 4,

@@ -940,3 +940,119 @@ class ErrorSummaryRow extends StatelessWidget {
     );
   }
 }
+
+/// Whole-run Turns-lens summary row (ADR-040 P5 point 6) — the mirror of
+/// [ErrorSummaryRow] for the turn index. Renders "Turn N", a status dot
+/// (live = muted, errored/failed = red, else green), and a compact metrics
+/// subtitle (duration · tools k/n · live · rel-time), with a ⚠N badge when the
+/// turn had errors. Tapping jumps to the turn's start in full context. The
+/// digest-backed turn list folds into the funnel as a lens, so this replaces the
+/// old standalone `_TurnsDisclosure` row.
+class TurnSummaryRow extends StatelessWidget {
+  final int ordinal; // 1-based turn number
+  final String status;
+  final bool open; // live / in-progress
+  final int durationMs;
+  final int toolCount;
+  final int toolFailed;
+  final int errorCount;
+  final String? ts;
+  final bool active;
+  final VoidCallback onTap;
+  const TurnSummaryRow({
+    super.key,
+    required this.ordinal,
+    required this.onTap,
+    this.status = '',
+    this.open = false,
+    this.durationMs = 0,
+    this.toolCount = 0,
+    this.toolFailed = 0,
+    this.errorCount = 0,
+    this.ts,
+    this.active = false,
+  });
+
+  static String _fmtDuration(int ms) {
+    if (ms <= 0) return '';
+    if (ms < 1000) return '${ms}ms';
+    final s = ms / 1000.0;
+    if (s < 60) return '${s.toStringAsFixed(s < 10 ? 1 : 0)}s';
+    final m = (s / 60).floor();
+    return '${m}m${(s % 60).round()}s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final fg =
+        isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
+    final bad = status == 'error' || status == 'failed' || errorCount > 0;
+    final dot =
+        open ? muted : (bad ? DesignColors.error : DesignColors.success);
+    final rel = relativeAgo(ts);
+    final parts = <String>[];
+    final dur = _fmtDuration(durationMs);
+    if (dur.isNotEmpty) parts.add(dur);
+    if (toolCount > 0) parts.add('tools ${toolCount - toolFailed}/$toolCount');
+    if (open) parts.add('live');
+    if (rel.isNotEmpty) parts.add(rel);
+    final sub = parts.join(' · ');
+    return Material(
+      color: active
+          ? DesignColors.primary.withValues(alpha: 0.10)
+          : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Turn $ordinal',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: fg,
+                      ),
+                    ),
+                    if (sub.isNotEmpty)
+                      Text(
+                        sub,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10, color: muted),
+                      ),
+                  ],
+                ),
+              ),
+              if (errorCount > 0) ...[
+                Text('⚠$errorCount',
+                    style: const TextStyle(
+                        fontSize: 11, color: DesignColors.error)),
+                const SizedBox(width: 6),
+              ],
+              Icon(Icons.chevron_right, size: 18, color: muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

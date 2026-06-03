@@ -640,9 +640,11 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   List<Map<String, dynamic>> _images = const [];
   List<Map<String, dynamic>> _histograms = const [];
   List<Map<String, dynamic>> _artifacts = const [];
-  // Run "extras" consumed by the Overview glance (P3). Alerts → banner;
-  // config → highlight chips. System metrics ride in P4 (Charts subsection).
+  // Run "extras": alerts → Overview banner; config → highlight chips +
+  // searchable Config view; system metrics → "System (GPU/CPU)" subsection
+  // in Charts (x-axis is a sample ordinal, not a training step).
   List<Map<String, dynamic>> _alerts = const [];
+  List<Map<String, dynamic>> _systemMetrics = const [];
   Map<String, dynamic>? _config;
   _RunView _view = _RunView.overview;
   bool _loading = true;
@@ -684,6 +686,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       List<Map<String, dynamic>> histograms = const [];
       List<Map<String, dynamic>> artifacts = const [];
       List<Map<String, dynamic>> alerts = const [];
+      List<Map<String, dynamic>> systemMetrics = const [];
       Map<String, dynamic>? config;
       try {
         final results = await Future.wait([
@@ -692,12 +695,14 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
           client.getRunHistogramsCached(widget.runId),
           client.listArtifactsCached(runId: widget.runId),
           client.getRunAlertsCached(widget.runId),
+          client.getRunSystemMetricsCached(widget.runId),
         ]);
         metrics = results[0].body;
         images = results[1].body;
         histograms = results[2].body;
         artifacts = results[3].body;
         alerts = results[4].body;
+        systemMetrics = results[5].body;
         // Config rides a different response shape (a {config, updated_at}
         // map, not a list), so it's fetched separately.
         final cfgEnvelope = (await client.getRunConfigCached(widget.runId)).body;
@@ -714,6 +719,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         _histograms = histograms;
         _artifacts = artifacts;
         _alerts = alerts;
+        _systemMetrics = systemMetrics;
         _config = config;
         _loading = false;
       });
@@ -1261,10 +1267,10 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     return out.take(6).toList();
   }
 
-  // ---- Charts: scalar metrics + external dashboard links ----
+  // ---- Charts: scalar metrics + system (GPU/CPU) + dashboard links ----
   Widget _chartsView() {
     final uris = _metricUris();
-    if (_metrics.isEmpty && uris.isEmpty) {
+    if (_metrics.isEmpty && _systemMetrics.isEmpty && uris.isEmpty) {
       return _emptyView(
         Icons.show_chart,
         'No metrics yet',
@@ -1279,6 +1285,18 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
             _MetricSparklineTile(row: g.rows.single)
           else
             _MetricGroupTile(groupName: g.name, rows: g.rows),
+      ],
+      if (_systemMetrics.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        _sectionLabel('System (GPU/CPU)'),
+        // System points are keyed by a 0-based sample ordinal, not a
+        // training step — tell the tiles to suppress the "step N" label.
+        for (final g in _groupMetrics(_systemMetrics))
+          if (g.rows.length == 1)
+            _MetricSparklineTile(row: g.rows.single, sampleOrdinalX: true)
+          else
+            _MetricGroupTile(
+                groupName: g.name, rows: g.rows, sampleOrdinalX: true),
       ],
       if (uris.isNotEmpty) ...[
         const SizedBox(height: 16),
@@ -1349,7 +1367,8 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   Widget _configView(Map<String, dynamic> r) {
     final meta = r['metadata_json'];
     final hasMeta = meta is Map && meta.isNotEmpty;
-    if (!hasMeta) {
+    final hasConfig = _config != null && _config!.isNotEmpty;
+    if (!hasConfig && !hasMeta) {
       return _emptyView(
         Icons.tune,
         'No config yet',
@@ -1357,13 +1376,20 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       );
     }
     return _viewScroll([
-      _sectionLabel('Metadata'),
-      _panel(
-        child: SelectableText(
-          const JsonEncoder.withIndent('  ').convert(meta),
-          style: GoogleFonts.jetBrainsMono(fontSize: 11, height: 1.4),
+      if (hasConfig) ...[
+        _sectionLabel('Hyperparameters'),
+        _ConfigKeyValueList(config: _config!),
+      ],
+      if (hasMeta) ...[
+        if (hasConfig) const SizedBox(height: 16),
+        _sectionLabel('Metadata'),
+        _panel(
+          child: SelectableText(
+            const JsonEncoder.withIndent('  ').convert(meta),
+            style: GoogleFonts.jetBrainsMono(fontSize: 11, height: 1.4),
+          ),
         ),
-      ),
+      ],
     ]);
   }
 
@@ -1768,6 +1794,122 @@ class _MetricStatTile extends StatelessWidget {
   }
 }
 
+/// Flattens a (possibly nested) config map to dotted keys so the Config
+/// view can show one searchable row per leaf. Lists and leftover maps are
+/// rendered as compact JSON values rather than exploded further.
+Map<String, String> _flattenConfig(Map<String, dynamic> config,
+    [String prefix = '']) {
+  final out = <String, String>{};
+  config.forEach((k, v) {
+    final key = prefix.isEmpty ? k : '$prefix.$k';
+    if (v is Map) {
+      out.addAll(_flattenConfig(v.cast<String, dynamic>(), key));
+    } else if (v is List) {
+      out[key] = jsonEncode(v);
+    } else {
+      out[key] = '$v';
+    }
+  });
+  return out;
+}
+
+/// The Config view's hyperparameter list — flattened dotted key/value
+/// rows with a filter field, since configs routinely run to 50+ keys.
+class _ConfigKeyValueList extends StatefulWidget {
+  final Map<String, dynamic> config;
+  const _ConfigKeyValueList({required this.config});
+
+  @override
+  State<_ConfigKeyValueList> createState() => _ConfigKeyValueListState();
+}
+
+class _ConfigKeyValueListState extends State<_ConfigKeyValueList> {
+  String _q = '';
+  late final List<MapEntry<String, String>> _flat =
+      (_flattenConfig(widget.config).entries.toList()
+        ..sort((a, b) => a.key.compareTo(b.key)));
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _q.isEmpty
+        ? _flat
+        : _flat
+            .where((e) =>
+                e.key.toLowerCase().contains(_q) ||
+                e.value.toLowerCase().contains(_q))
+            .toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
+          style: GoogleFonts.jetBrainsMono(fontSize: 12),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'Filter ${_flat.length} keys…',
+            hintStyle: GoogleFonts.jetBrainsMono(
+              fontSize: 12,
+              color: DesignColors.textMuted,
+            ),
+            prefixIcon: const Icon(Icons.search, size: 18),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide: const BorderSide(color: DesignColors.borderDark),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide: const BorderSide(color: DesignColors.borderDark),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (entries.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'no keys match "$_q"',
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: DesignColors.textMuted,
+              ),
+            ),
+          )
+        else
+          for (final e in entries) _kvRow(e.key, e.value),
+      ],
+    );
+  }
+
+  Widget _kvRow(String k, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 5,
+              child: SelectableText(
+                k,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 6,
+              child: SelectableText(
+                v,
+                style: GoogleFonts.jetBrainsMono(fontSize: 11),
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
 /// Renders a run summary as markdown when it contains common markdown
 /// markers; otherwise falls back to selectable mono text so short
 /// one-liners don't get paragraph-wrapped into oblivion. Same heuristic
@@ -1877,7 +2019,14 @@ const _seriesPalette = <Color>[
 class _MetricGroupTile extends StatelessWidget {
   final String groupName;
   final List<Map<String, dynamic>> rows;
-  const _MetricGroupTile({required this.groupName, required this.rows});
+  // When true the x-axis is a sample ordinal (system metrics) — the
+  // bottom label drops the misleading "step N".
+  final bool sampleOrdinalX;
+  const _MetricGroupTile({
+    required this.groupName,
+    required this.rows,
+    this.sampleOrdinalX = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1952,7 +2101,7 @@ class _MetricGroupTile extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            lastStep > 0
+            (!sampleOrdinalX && lastStep > 0)
                 ? 'step $lastStep · $sampleCount samples'
                 : '$sampleCount samples',
             style: GoogleFonts.jetBrainsMono(
@@ -2074,7 +2223,10 @@ class _MultiSparklinePainter extends CustomPainter {
 /// link below.
 class _MetricSparklineTile extends StatelessWidget {
   final Map<String, dynamic> row;
-  const _MetricSparklineTile({required this.row});
+  // When true the x-axis is a sample ordinal (system metrics) — the
+  // bottom label drops the misleading "step N".
+  final bool sampleOrdinalX;
+  const _MetricSparklineTile({required this.row, this.sampleOrdinalX = false});
 
   @override
   Widget build(BuildContext context) {
@@ -2135,7 +2287,7 @@ class _MetricSparklineTile extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            lastStep != null
+            (!sampleOrdinalX && lastStep != null)
                 ? 'step $lastStep · $sampleCount samples'
                 : '$sampleCount samples',
             style: GoogleFonts.jetBrainsMono(

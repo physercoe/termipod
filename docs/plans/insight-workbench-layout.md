@@ -3,11 +3,12 @@
 > **Type:** plan
 > **Status:** In progress (2026-06-03) — implements
 > [ADR-041](../decisions/041-insight-workbench-layout.md). **R1 + R2 tagged
-> (v1.0.793-alpha); R3 coded (awaiting the director's device-test); R4 not
-> started.** Each phase gates on the director's device-test (Flutter is
-> untestable locally); pure extractions carry unit tests.
+> (v1.0.793-alpha); R3 tagged (v1.0.794-alpha); R4 coded (awaiting the
+> director's device-test).** All four phases are now implemented. Each phase
+> gates on the director's device-test (Flutter is untestable locally); pure
+> extractions carry unit tests.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.793-alpha (R3 coded post-tag; see the per-phase
+> **Last verified vs code:** v1.0.794-alpha (R4 coded post-tag; see the per-phase
 > status notes below).
 
 **TL;DR.** Reshape the `InsightTranscript` surface per
@@ -149,6 +150,20 @@ widgets; remove the transcript-replace mode.
 - **Gate:** a text/tool match anywhere in the run is reachable from the
   Text/Tools filter (fixes "the text jump still incorrect"); folding + result
   pairing render correctly (Tools set includes `tool_result` / `tool_call_update`).
+- **Status: coded (awaiting device-test).** `InsightTranscript` gained a second
+  buffer (`_lensEvents` + `_lensScroll` + cursors) fed by a `kind=`-bound
+  `RandomAccessLoader` (`_lensLoader`): `_loadLensBuffer` tail-fetches the
+  newest page on entering Text/Tools, `_loadOlderLens` pages older via
+  `fetchOlder` on scroll-up. Build branches its source — `isLensView ? _lensEvents
+  : _events` — then folds / hides / re-applies `agentEventMatchesLens` /
+  collapses over it; the centre `ListView` uses `_lensScroll` in lens view. A
+  card's "view in context" → `_viewInContext` clears the buffer + lens and
+  `_handleExternalSeek`s the main window onto the seq (resetting it around the
+  anchor if off-window — the real fix for "the text jump is wrong"). The funnel
+  pill is now count-only in lens view (`FeedFilterControl.showStepper=false`,
+  new flag; LiveFeed keeps its stepper), and the in-lens prev/next stepper
+  (`_funnelStep` / `matchSeqs` / `matchIndex`) is removed. **Also done:** the
+  R1-leftover over-indented centre `ListView.separated` is re-flowed.
 
 ### Polish
 

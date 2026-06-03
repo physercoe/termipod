@@ -150,6 +150,19 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   // transcript window — each owns its controller.
   final ScrollController _navTurnsScroll = ScrollController();
   final ScrollController _navErrorsScroll = ScrollController();
+  // R4 — the Text/Tools filter pages the WHOLE run via a `kind=` keyset buffer
+  // (ADR-039 point 3), distinct from the main `_events` live-tail window: a
+  // text/tool match anywhere in the run is reachable, not just in the loaded
+  // slice. Built on entering a kind lens; scrolled up via `fetchOlder`. A card
+  // tap → "view in context" hands back to the main window at that seq.
+  final List<Map<String, dynamic>> _lensEvents = [];
+  final Set<String> _lensIds = <String>{};
+  final ScrollController _lensScroll = ScrollController();
+  FeedLens? _lensLoadedFor; // which lens the buffer currently holds (null=none)
+  bool _lensLoading = false;
+  bool _lensAtHead = false;
+  String _lensOldestTs = '';
+  int _lensMinSeq = 0;
   // Tail-follow here only governs whether a jump-to-latest control shows and
   // whether load-newer fires near the bottom; there's no live tail to follow.
   bool _followTail = true;
@@ -197,6 +210,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     _seek = TranscriptSeek(scroll: _scroll, isActive: () => mounted);
     _bootstrap();
     _scroll.addListener(_onScroll);
+    _lensScroll.addListener(_onLensScroll);
     widget.seekController?.addListener(_onSeekRequest);
   }
 
@@ -216,6 +230,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     _scroll.dispose();
     _navTurnsScroll.dispose();
     _navErrorsScroll.dispose();
+    _lensScroll.dispose();
     super.dispose();
   }
 
@@ -511,6 +526,159 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     }
   }
 
+  // ── Text/Tools lens buffer (the whole-run `kind=` keyset paging) ──────────
+
+  /// A [RandomAccessLoader] bound to this agent/session AND a `kind` set — the
+  /// substrate for the Text/Tools filter paging the whole run (ADR-039). Only
+  /// [RandomAccessLoader.fetchOlder] is used (scroll-up through the homogeneous
+  /// kind set); the newest page is a direct tail fetch.
+  RandomAccessLoader _lensLoader(HubClient client, List<String> kinds) =>
+      RandomAccessLoader(
+        pageSize: _pageSize,
+        fetch: ({
+          String? beforeTs,
+          int? beforeSeq,
+          String? afterTs,
+          int? afterSeq,
+          required int limit,
+        }) =>
+            client.listAgentEvents(
+              widget.agentId,
+              sessionId: widget.sessionId,
+              beforeTs: beforeTs,
+              beforeSeq: beforeSeq,
+              afterTs: afterTs,
+              afterSeq: afterSeq,
+              limit: limit,
+              kinds: kinds,
+            ),
+      );
+
+  /// Build the whole-run buffer for a kind lens (Text / Tools) from its newest
+  /// page. Replaces any prior buffer; a later lens switch that wins the race is
+  /// detected via [_lensLoadedFor]. The server `kind=` set is a SUPERSET of the
+  /// rendered lens, so build re-applies [agentEventMatchesLens] over the buffer.
+  Future<void> _loadLensBuffer(FeedLens lens) async {
+    final kindSet = feedLensKinds(lens);
+    if (kindSet == null) return; // all / errors are not kind-paged
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() {
+      _lensLoadedFor = lens;
+      _lensLoading = true;
+      _lensEvents.clear();
+      _lensIds.clear();
+      _lensAtHead = false;
+      _lensOldestTs = '';
+      _lensMinSeq = 0;
+    });
+    try {
+      final page = await client.listAgentEvents(
+        widget.agentId,
+        sessionId: widget.sessionId,
+        tail: true,
+        limit: _pageSize,
+        kinds: kindSet.toList(),
+      );
+      // A newer lens switch may have superseded this load.
+      if (!mounted || _lensLoadedFor != lens) return;
+      _ingestLensPage(page.reversed.toList(), prepend: false);
+      setState(() {
+        _lensAtHead = page.length < _pageSize;
+        _lensLoading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _lensScroll.hasClients) {
+          _lensScroll.jumpTo(_lensScroll.position.maxScrollExtent);
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _lensLoading = false);
+    }
+  }
+
+  /// Merge a fetched [ascending] page into the lens buffer (dedupe by id, drop
+  /// replay text/thought like the main window), then refresh the load-older
+  /// cursor from the buffer's oldest row (it's kept contiguous + ascending).
+  void _ingestLensPage(List<Map<String, dynamic>> ascending,
+      {required bool prepend}) {
+    final add = <Map<String, dynamic>>[];
+    for (final e in ascending) {
+      final id = (e['id'] ?? '').toString();
+      if (id.isNotEmpty && !_lensIds.add(id)) continue;
+      if (agentEventIsReplay(e)) {
+        final kind = (e['kind'] ?? '').toString();
+        if (kind == 'text' || kind == 'thought') continue;
+      }
+      add.add(e);
+    }
+    setState(() {
+      if (prepend) {
+        _lensEvents.insertAll(0, add);
+      } else {
+        _lensEvents.addAll(add);
+      }
+      if (_lensEvents.isNotEmpty) {
+        _lensOldestTs = (_lensEvents.first['ts'] ?? '').toString();
+        _lensMinSeq = (_lensEvents.first['seq'] as num?)?.toInt() ?? 0;
+      }
+    });
+  }
+
+  /// Page the next older block of kind-filtered matches when the lens list
+  /// scrolls near its top, anchoring the viewport so the prepend doesn't jump.
+  Future<void> _loadOlderLens() async {
+    final lens = _lensLoadedFor;
+    if (_lensLoading || _lensAtHead || _lensOldestTs.isEmpty || lens == null) {
+      return;
+    }
+    final kindSet = feedLensKinds(lens);
+    if (kindSet == null) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() => _lensLoading = true);
+    final priorMax =
+        _lensScroll.hasClients ? _lensScroll.position.maxScrollExtent : 0.0;
+    final priorPixels =
+        _lensScroll.hasClients ? _lensScroll.position.pixels : 0.0;
+    try {
+      final page = await _lensLoader(client, kindSet.toList())
+          .fetchOlder(_lensOldestTs, _lensMinSeq);
+      if (!mounted) return;
+      _ingestLensPage(page.ascending, prepend: true);
+      setState(() {
+        _lensAtHead = page.reachedHead;
+        _lensLoading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_lensScroll.hasClients) return;
+        final delta = _lensScroll.position.maxScrollExtent - priorMax;
+        if (delta > 0) _lensScroll.jumpTo(priorPixels + delta);
+      });
+    } catch (_) {
+      if (mounted) setState(() => _lensLoading = false);
+    }
+  }
+
+  void _onLensScroll() {
+    if (!_lensScroll.hasClients) return;
+    if (_lensScroll.position.pixels <= 120) _loadOlderLens();
+  }
+
+  /// Hand a lens-buffer card back to the main transcript "in context": clear
+  /// the buffer + lens, then land the main window on [seq] (resetting it around
+  /// the anchor if the seq isn't in the loaded slice). Fixes the old "view in
+  /// context jumps to the wrong row" when the match was outside the window.
+  void _viewInContext(int seq, String? ts) {
+    setState(() {
+      _lens = FeedLens.all;
+      _lensEvents.clear();
+      _lensIds.clear();
+      _lensLoadedFor = null;
+    });
+    _handleExternalSeek(seq, ts);
+  }
+
   // ── Scroll / position ─────────────────────────────────────────────────────
 
   void _onScroll() {
@@ -790,19 +958,33 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
 
   // ── Lens / funnel orchestration ───────────────────────────────────────────
 
-  /// Switch the active card filter (All / Text / Tools). Resets the seek anchor;
-  /// a non-`all` filter jumps to the tail so the newest matches show and the
-  /// scroll extent exists to page older. Turns/Errors are not lenses — they live
-  /// in the Navigator outline (ADR-041).
+  /// Switch the active card filter (All / Text / Tools). Text/Tools page the
+  /// WHOLE run via the `kind=` keyset buffer (ADR-039 point 3) — distinct from
+  /// the main live-tail window — so a match anywhere in the run is reachable.
+  /// Turns/Errors are not lenses — they live in the Navigator outline (ADR-041).
   void _setLens(FeedLens lens) {
     setState(() {
       _lens = lens;
       _activeSeekSeq = null;
-      if (lens != FeedLens.all) _followTail = true;
     });
-    if (lens != FeedLens.all) {
+    if (lens == FeedLens.all) {
+      // Drop the buffer; the main window owns the All view.
+      setState(() {
+        _lensEvents.clear();
+        _lensIds.clear();
+        _lensLoadedFor = null;
+        _lensLoading = false;
+      });
+      return;
+    }
+    // Build (or reuse) the kind-filtered whole-run buffer.
+    if (_lensLoadedFor != lens) {
+      _loadLensBuffer(lens);
+    } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _scrollToTail();
+        if (mounted && _lensScroll.hasClients) {
+          _lensScroll.jumpTo(_lensScroll.position.maxScrollExtent);
+        }
       });
     }
   }
@@ -817,14 +999,6 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       _followTail = false;
       _pendingContextSeq = seq;
     });
-  }
-
-  /// Step the funnel cursor to the loaded-window match [i] of [matchSeqs] (the
-  /// Text/Tools in-filter stepper). Routes through the convergent index seek so
-  /// it lands exactly regardless of row-height variance.
-  void _funnelStep(int i, List<int> matchSeqs) {
-    if (i < 0 || i >= matchSeqs.length) return;
-    _seekToLoadedIndex(i, matchSeqs[i]);
   }
 
   /// The Navigator **Errors** tab — the run's COMPLETE error list as digest-only
@@ -1200,10 +1374,18 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         ),
       );
     }
+    // The center list's source: the All view reads the main live-tail window
+    // (`_events`); a Text/Tools filter reads its whole-run `kind=` keyset buffer
+    // (`_lensEvents`, R4) so a match anywhere in the run is reachable, not just
+    // the loaded slice.
+    final bool isLensView = _lens != FeedLens.all;
+    final src = isLensView ? _lensEvents : _events;
     // The per-event fold (tool names / results / updates / resolved approvals)
     // — the lineage maps cards render from and lens predicates read (shared
-    // substrate, ADR-040). Local bindings keep the downstream call sites tidy.
-    final fold = FoldMaps.fromEvents(_events);
+    // substrate, ADR-040). Folded over the active source so tool_result pairing
+    // works inside the buffer too (the Tools kind set carries tool_result /
+    // tool_call_update). Local bindings keep the downstream call sites tidy.
+    final fold = FoldMaps.fromEvents(src);
     final toolNames = fold.toolNames;
     final resolvedApprovals = fold.resolvedApprovals;
     final toolUpdates = fold.toolUpdates;
@@ -1212,14 +1394,15 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     // paired tool_result, session.init, verbose-gated), then collapse streaming
     // partials by message_id.
     final filtered = <Map<String, dynamic>>[
-      for (final e in _events)
+      for (final e in src)
         if (!isHiddenInFeed(e, toolNames, verbose: _verbose)) e,
     ];
     final visible = collapseStreamingPartials(filtered);
-    // Narrow the visible transcript to one family (the lens). Runs AFTER folding
-    // so the Errors lens reads a tool_call's resolved status from the same
+    // Narrow to one family (the lens). The server `kind=` set is a SUPERSET of
+    // the rendered lens, so re-apply the predicate over the buffer. Runs AFTER
+    // folding so a tool_call's resolved status reads from the same
     // toolResults/toolUpdates maps the card does.
-    final lensed = _lens == FeedLens.all
+    final lensed = !isLensView
         ? visible
         : [
             for (final e in visible)
@@ -1256,21 +1439,11 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         });
       }
     }
-    // The funnel is a pure card filter now (All / Text / Tools). Its inline
-    // prev/next steps the loaded-window matches of the active filter; Turns and
-    // Errors navigation moved to the Navigator outline (ADR-041). All view has
-    // no in-filter match cursor.
-    final List<int> matchSeqs = _lens == FeedLens.all
-        ? const <int>[]
-        : [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
-    // 1-based position of the active match. Default to the newest when there's
-    // no explicit anchor.
-    int matchIndex = 0;
-    if (matchSeqs.isNotEmpty) {
-      var idx = _activeSeekSeq == null ? -1 : matchSeqs.indexOf(_activeSeekSeq!);
-      if (idx < 0) idx = matchSeqs.length - 1;
-      matchIndex = idx + 1;
-    }
+    // The funnel is a pure card filter (All / Text / Tools): Text/Tools page the
+    // whole run as a scrollable buffer, so the pill shows the loaded match count
+    // and a clear button — no position cursor, no stepper (ADR-041). Turns and
+    // Errors navigation lives in the Navigator outline.
+    final int lensMatchCount = isLensView ? lensed.length : 0;
     // Per-lens counts for the funnel menu + minimap marks (a faint tick per
     // tool_call / turn anchor, a red tick per error) over the WHOLE loaded
     // transcript (or whole-run anchors in run-anchor mode).
@@ -1348,7 +1521,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     return Column(
       children: [
         if (_staleSince != null) OfflineBanner(staleSince: _staleSince!),
-        if (_loadingOlder)
+        if (_loadingOlder || (isLensView && _lensLoading && lensed.isNotEmpty))
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
             child: Center(
@@ -1362,66 +1535,68 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         Expanded(
           child: Stack(
             children: [
-              // The transcript always renders cards now — Turns/Errors are the
+              // The transcript always renders cards — Turns/Errors are the
               // Navigator outline, never a list that replaces the stream
-              // (ADR-041 §1–2).
+              // (ADR-041 §1–2). The All view scrolls the main window; a
+              // Text/Tools filter scrolls its own whole-run buffer (R4).
               ListView.separated(
-                      controller: _scroll,
-                      padding: widget.padding,
-                      itemCount: lensed.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
-                      itemBuilder: (ctx, i) {
-                        final ev = lensed[i];
-                        final builtSeq = (ev['seq'] as num?)?.toInt() ?? 0;
-                        _seek.recordBuiltRow(i, builtSeq);
-                        final isTarget = _activeSeekSeq != null &&
-                            (ev['seq'] as num?)?.toInt() == _activeSeekSeq;
-                        Widget card = AgentEventCard(
-                          key: isTarget ? _seek.seekKey : null,
-                          event: ev,
-                          toolNames: toolNames,
-                          toolUpdates: toolUpdates,
-                          toolResults: toolResults,
-                          resolvedApprovals: resolvedApprovals,
-                          agentId: widget.agentId,
-                        );
-                        // In a filtered view, give each card a "view in context"
-                        // affordance: tap to clear the filter and land on this
-                        // row in the full transcript.
-                        if (_lens != FeedLens.all) {
-                          final seq = (ev['seq'] as num?)?.toInt();
-                          if (seq != null) {
-                            card = Stack(
-                              children: [
-                                card,
-                                Positioned(
-                                  top: 2,
-                                  left: 2,
-                                  child: ContextJumpButton(
-                                      onTap: () => _jumpToContext(seq)),
-                                ),
-                              ],
-                            );
-                          }
-                        }
-                        if (isTarget && _seekHighlight) {
-                          return AnimatedContainer(
-                            duration: const Duration(milliseconds: 400),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: DesignColors.primary
-                                    .withValues(alpha: 0.6),
-                                width: 2,
-                              ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            padding: const EdgeInsets.all(2),
-                            child: card,
-                          );
-                        }
-                        return card;
-                      },
-                    ),
+                controller: isLensView ? _lensScroll : _scroll,
+                padding: widget.padding,
+                itemCount: lensed.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                itemBuilder: (ctx, i) {
+                  final ev = lensed[i];
+                  final builtSeq = (ev['seq'] as num?)?.toInt() ?? 0;
+                  _seek.recordBuiltRow(i, builtSeq);
+                  final isTarget = _activeSeekSeq != null &&
+                      (ev['seq'] as num?)?.toInt() == _activeSeekSeq;
+                  Widget card = AgentEventCard(
+                    key: isTarget ? _seek.seekKey : null,
+                    event: ev,
+                    toolNames: toolNames,
+                    toolUpdates: toolUpdates,
+                    toolResults: toolResults,
+                    resolvedApprovals: resolvedApprovals,
+                    agentId: widget.agentId,
+                  );
+                  // In a filtered view, give each card a "view in context"
+                  // affordance: tap → clear the filter and land the main window
+                  // on this row (resetting it around the anchor if the match is
+                  // outside the loaded slice).
+                  if (isLensView) {
+                    final seq = (ev['seq'] as num?)?.toInt();
+                    if (seq != null) {
+                      final ts = (ev['ts'] ?? '').toString();
+                      card = Stack(
+                        children: [
+                          card,
+                          Positioned(
+                            top: 2,
+                            left: 2,
+                            child: ContextJumpButton(
+                                onTap: () => _viewInContext(seq, ts)),
+                          ),
+                        ],
+                      );
+                    }
+                  }
+                  if (isTarget && _seekHighlight) {
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 400),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: DesignColors.primary.withValues(alpha: 0.6),
+                          width: 2,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.all(2),
+                      child: card,
+                    );
+                  }
+                  return card;
+                },
+              ),
               // Inline approval cards: a live run viewed in Insight can still
               // have an open permission/select request — pin it to the bottom so
               // it's in context with the latest turn. Self-filter by agent_id.
@@ -1453,7 +1628,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                     ),
                   ),
                 ),
-              if (!_followTail)
+              if (!isLensView && !_followTail)
                 Positioned(
                   left: 0,
                   right: 0,
@@ -1462,50 +1637,51 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                     child: NewEventsPill(count: 0, onTap: _jumpToLatest),
                   ),
                 ),
-              // When a lens filters out every loaded event, tell the user it's
-              // the filter (older matches may exist above) so they can scroll up
-              // or clear it.
-              if (_lens != FeedLens.all && lensed.isEmpty)
+              // The Text/Tools buffer covers the whole run: an empty lensed list
+              // means the run has no such events (once loaded) — not "scroll to
+              // find more". While the buffer is still fetching, show a spinner.
+              if (isLensView && lensed.isEmpty)
                 Center(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
-                    child: Text(
-                      'No ${FeedFilterControl.labelFor(_lens)} events in the '
-                      'loaded transcript — scroll up to load older, or clear '
-                      'the filter.',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 12,
-                        color: isDark
-                            ? DesignColors.textMuted
-                            : DesignColors.textMutedLight,
-                      ),
-                    ),
+                    child: _lensLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(
+                            'No ${FeedFilterControl.labelFor(_lens)} events in '
+                            'this run.',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 12,
+                              color: isDark
+                                  ? DesignColors.textMuted
+                                  : DesignColors.textMutedLight,
+                            ),
+                          ),
                   ),
                 ),
-              // Card-filter funnel (All / Text / Tools), floating top-left. Its
-              // inline prev/next steps the active filter's loaded-window matches;
-              // structural navigation (Turns/Errors/Map) is the Navigator's job.
+              // Card-filter funnel (All / Text / Tools), floating top-left.
+              // Text/Tools page the whole run as a scrollable buffer, so the
+              // pill shows the loaded match count + a clear button — no cursor,
+              // no stepper. Structural navigation is the Navigator's job.
               Positioned(
                 top: 6,
                 left: 6,
                 child: FeedFilterControl(
                   lens: _lens,
-                  matchCount: matchSeqs.length,
-                  matchIndex: matchIndex,
-                  canPrev: matchIndex > 1,
-                  canNext: matchIndex >= 1 && matchIndex < matchSeqs.length,
+                  matchCount: lensMatchCount,
+                  matchIndex: 0,
+                  canPrev: false,
+                  canNext: false,
                   onSelectLens: _setLens,
                   counts: lensCounts,
                   selectableLenses: _kLensFilter,
-                  onPrev: () {
-                    if (matchIndex > 1) _funnelStep(matchIndex - 2, matchSeqs);
-                  },
-                  onNext: () {
-                    if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
-                      _funnelStep(matchIndex, matchSeqs);
-                    }
-                  },
+                  showStepper: false,
+                  onPrev: () {},
+                  onNext: () {},
                 ),
               ),
               // Navigator open-handle, top-right. Opens the structural outline +

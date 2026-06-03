@@ -233,6 +233,12 @@ class FeedFilterControl extends StatelessWidget {
   // structural navigation (the Navigator outline), not card filters, so they
   // are no longer selectable lenses.
   final List<FeedLens>? selectableLenses;
+  // When false, the active-filter pill shows just the match count + a clear
+  // button — no position index, no prev/next arrows. The Insight workbench
+  // (ADR-041) sets this: Text/Tools page the whole run as a scrollable buffer,
+  // so the lens is a filter you scroll, not a cursor you step. LiveFeed's dense
+  // funnel keeps the stepper (default true).
+  final bool showStepper;
   const FeedFilterControl({
     required this.lens,
     required this.matchCount,
@@ -244,6 +250,7 @@ class FeedFilterControl extends StatelessWidget {
     required this.onNext,
     this.counts,
     this.selectableLenses,
+    this.showStepper = true,
   });
 
   static IconData iconFor(FeedLens l) {
@@ -376,25 +383,29 @@ class FeedFilterControl extends StatelessWidget {
               children: [
                 menu,
                 Text(
-                  matchCount == 0 ? '0' : '$matchIndex/$matchCount',
+                  showStepper
+                      ? (matchCount == 0 ? '0' : '$matchIndex/$matchCount')
+                      : '$matchCount',
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     color: muted,
                   ),
                 ),
-                _StepButton(
-                  icon: Icons.keyboard_arrow_up,
-                  tooltip: 'Older match',
-                  color: muted,
-                  onTap: canPrev ? onPrev : null,
-                ),
-                _StepButton(
-                  icon: Icons.keyboard_arrow_down,
-                  tooltip: 'Newer match',
-                  color: muted,
-                  onTap: canNext ? onNext : null,
-                ),
+                if (showStepper) ...[
+                  _StepButton(
+                    icon: Icons.keyboard_arrow_up,
+                    tooltip: 'Older match',
+                    color: muted,
+                    onTap: canPrev ? onPrev : null,
+                  ),
+                  _StepButton(
+                    icon: Icons.keyboard_arrow_down,
+                    tooltip: 'Newer match',
+                    color: muted,
+                    onTap: canNext ? onNext : null,
+                  ),
+                ],
                 _StepButton(
                   icon: Icons.close,
                   tooltip: 'Clear filter',

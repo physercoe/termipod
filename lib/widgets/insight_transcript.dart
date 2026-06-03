@@ -187,15 +187,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   // switches to All and (in build, once the unfiltered list is back) seeks the
   // row so the surrounding turns are visible.
   int? _pendingContextSeq;
-  // When true, the pending-context jump keeps the active lens (the run-anchor
-  // funnel stepper, which steps within turns/errors).
-  bool _pendingContextKeepLens = false;
-  // The funnel stepper's position within the full-run anchor list (turns /
-  // errors). Decoupled from [_activeSeekSeq] because the landing row (nearest
-  // visible >= anchor) may differ from the anchor seq (a hidden turn.start).
-  int? _funnelRunIdx;
-  // The summary-list fixed row extents (let the funnel stepper scroll to a row
-  // by index). Errors: ADR-039 P2; Turns: P5 point 6.
+  // The Navigator outline rows' fixed extents (let the list lay out cheaply).
   static const double _kErrorRowExtent = 52.0;
   static const double _kTurnRowExtent = 52.0;
 
@@ -341,8 +333,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// key, DESC) and the forward half (the anchor and after, ASC). After a reset
   /// the window may not reach the tail, so [_windowHasTail] goes false (arming
   /// the forward pager).
-  Future<void> _resetWindowAround(int seq, String ts,
-      {bool keepLens = false}) async {
+  Future<void> _resetWindowAround(int seq, String ts) async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
@@ -364,11 +355,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       // Land on the anchor once the new (mid-list, unrealised) window lays out —
       // route through the convergent index seek, not the ensureVisible-only
       // [_seekToSeq] which would silently no-op here.
-      if (keepLens) {
-        _landOnSeqKeepLens(seq);
-      } else {
-        _landOnSeq(seq);
-      }
+      _landOnSeq(seq);
     } catch (_) {
       // Network blip — leave the existing window; the caller can retry.
     }
@@ -658,9 +645,6 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// to All so the landing row has its surrounding context.
   void _landOnSeq(int seq) => _jumpToContext(seq);
 
-  /// Land on [seq] but keep the active lens (run-anchor funnel stepping).
-  void _landOnSeqKeepLens(int seq) => _jumpToContext(seq, keepLens: true);
-
   bool _seqIsLoaded(int seq) =>
       _events.any((e) => (e['seq'] as num?)?.toInt() == seq);
 
@@ -707,21 +691,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     }
   }
 
-  /// Jump to the oldest *loaded* row (top of the list). We deliberately don't
-  /// kick the pager here (letting the load-older anchor-jump fire mid-animation
-  /// made ⤒ flicker); the natural top-of-scroll trigger pages more once the
-  /// animation settles at 0.
-  void _jumpToOldestLoaded() {
-    if (!_scroll.hasClients) return;
-    setState(() => _followTail = false);
-    _seek.animateProgrammatic(() => _scroll.animateTo(
-          0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        ));
-  }
-
-  /// Continuous scrub from the right-edge minimap drag. jumpTo (not animateTo)
+  /// Continuous scrub from the Map-tab minimap drag. jumpTo (not animateTo)
   /// so the viewport tracks the finger directly.
   void _scrubTo(double frac) {
     if (!_scroll.hasClients) return;
@@ -818,15 +788,6 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     });
   }
 
-  /// Seek to the row at [idx] in the rendered [lensed] list (the turn-nav
-  /// stepper). Routes through the convergent index seek so it lands exactly
-  /// regardless of row-height variance.
-  void _seekToLensedIndex(int idx, List<Map<String, dynamic>> lensed) {
-    if (idx < 0 || idx >= lensed.length) return;
-    final seq = (lensed[idx]['seq'] as num?)?.toInt() ?? 0;
-    _seekToLoadedIndex(idx, seq);
-  }
-
   // ── Lens / funnel orchestration ───────────────────────────────────────────
 
   /// Switch the active card filter (All / Text / Tools). Resets the seek anchor;
@@ -837,7 +798,6 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     setState(() {
       _lens = lens;
       _activeSeekSeq = null;
-      _funnelRunIdx = null;
       if (lens != FeedLens.all) _followTail = true;
     });
     if (lens != FeedLens.all) {
@@ -850,51 +810,21 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// Clear the active filter and land on [seq] in the full transcript, so a
   /// match found in a filtered view can be read with its surrounding context.
   /// The seek runs in build once `_lens == all` has put the row back in the
-  /// list. With [keepLens] the active lens is preserved (the run-anchor funnel
-  /// stepper stays in turns/errors).
-  void _jumpToContext(int seq, {bool keepLens = false}) {
+  /// list.
+  void _jumpToContext(int seq) {
     setState(() {
-      if (!keepLens) _lens = FeedLens.all;
+      _lens = FeedLens.all;
       _followTail = false;
       _pendingContextSeq = seq;
-      _pendingContextKeepLens = keepLens;
     });
   }
 
-  /// Funnel stepper jump driven by the full-run anchor list (turns / errors).
-  /// Records the run-list position, then lands on the anchor: a clean window
-  /// reset around its `(ts, seq)` if it isn't loaded, else a convergent seek —
-  /// both keeping the lens.
-  void _funnelRunJump(int idx, int seq) {
-    setState(() {
-      _funnelRunIdx = idx;
-      _activeSeekSeq = seq;
-      _followTail = false;
-    });
-    if (_seqIsLoaded(seq)) {
-      _landOnSeqKeepLens(seq);
-      return;
-    }
-    final ts = widget.runAnchorTs?[seq];
-    if (ts != null && ts.isNotEmpty) {
-      _resetWindowAround(seq, ts, keepLens: true);
-      return;
-    }
-    _landOnSeqKeepLens(seq);
-  }
-
-  /// Step the funnel cursor to match [i] of [matchSeqs] — the SINGLE entry point
-  /// shared by the top-left funnel pill AND the bottom-left stepper, so the two
-  /// can never drift onto different cursors. A whole-run lens (turns/errors)
-  /// routes through [_funnelRunJump]; text/tools route through the
-  /// loaded-window convergent seek.
-  void _funnelStep(int i, List<int> matchSeqs, {required bool usesRunList}) {
+  /// Step the funnel cursor to the loaded-window match [i] of [matchSeqs] (the
+  /// Text/Tools in-filter stepper). Routes through the convergent index seek so
+  /// it lands exactly regardless of row-height variance.
+  void _funnelStep(int i, List<int> matchSeqs) {
     if (i < 0 || i >= matchSeqs.length) return;
-    if (usesRunList) {
-      _funnelRunJump(i, matchSeqs[i]);
-    } else {
-      _seekToLoadedIndex(i, matchSeqs[i]);
-    }
+    _seekToLoadedIndex(i, matchSeqs[i]);
   }
 
   /// The Navigator **Errors** tab — the run's COMPLETE error list as digest-only
@@ -970,6 +900,63 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     _handleExternalSeek(seq, ts);
   }
 
+  /// The Navigator **Map** tab — the whole-run minimap (ADR-041 §3): a vertical
+  /// colour-coded overview (tool/turn ticks + red error ticks + a viewport
+  /// indicator). Tapping a tick closes the drawer and lands the transcript on
+  /// that landmark; the "Jump to event…" button opens the arbitrary-ordinal
+  /// slider. This replaces the old floating right-edge lane that collided with
+  /// the card's top-right control. [marks] are computed in build (they depend on
+  /// the lensed window / digest anchors).
+  Widget _buildNavMap(List<FeedMinimapMark> marks) {
+    final pos = _logPosition();
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.my_location, size: 16),
+              label: Text(pos != null
+                  ? 'Jump to event ${pos.n} / ${pos.m}'
+                  : 'Jump to event…'),
+              onPressed: (pos != null && pos.m > 1)
+                  ? () {
+                      setState(() => _navigatorOpen = false);
+                      _openJumpSheet();
+                    }
+                  : null,
+            ),
+          ),
+        ),
+        Expanded(
+          child: marks.isEmpty
+              ? _navEmpty('No tool calls, turns, or errors to map yet.')
+              : Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: FeedMinimap(
+                    marks: marks,
+                    // Tap a tick → close the drawer, land on that landmark.
+                    onJump: (frac, seq) {
+                      setState(() => _navigatorOpen = false);
+                      if (_runAnchorMode) {
+                        _handleExternalSeek(seq, widget.runAnchorTs?[seq]);
+                      } else {
+                        _seekToFrac(frac, seq);
+                      }
+                    },
+                    // Continuous scrub only in loaded-window mode (run-anchor
+                    // mode jumps by landmark); the slider above covers arbitrary
+                    // positions either way.
+                    onScrub: _runAnchorMode ? null : _scrubTo,
+                    viewportFrac: _minimapViewportFrac(),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
   Widget _navEmpty(String message) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
@@ -987,10 +974,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     );
   }
 
-  /// "Jump to any event" scrubber. The position pill (event N / M) is tappable:
-  /// it opens a slider over the whole run [1, M] and, on confirm, random-access-
-  /// windows onto the chosen ordinal. The minimap only reaches anchors
-  /// (turns/errors); this reaches any position.
+  /// "Jump to any event" scrubber, opened from the Navigator's Map tab: a slider
+  /// over the whole run [1, M] that, on confirm, random-access-windows onto the
+  /// chosen ordinal. The minimap ticks only reach anchors (turns/errors/tools);
+  /// this reaches any position.
   void _openJumpSheet() {
     final pos = _logPosition();
     if (pos == null || pos.m <= 1) return;
@@ -1091,7 +1078,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// Each tab is a whole-run structural index you jump *from* — a row tap closes
   /// the drawer and lands the transcript on that seq in full context. (R2 adds a
   /// Map tab here and retires the floating minimap.)
-  Widget _buildNavigatorOverlay() {
+  Widget _buildNavigatorOverlay(List<FeedMinimapMark> minimapMarks) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final panelBg =
         isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
@@ -1123,7 +1110,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                 child: SafeArea(
                   left: false,
                   child: DefaultTabController(
-                    length: 2,
+                    length: 3,
                     child: Column(
                       children: [
                         Padding(
@@ -1162,6 +1149,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                           tabs: [
                             Tab(text: 'Turns ($turnCount)'),
                             Tab(text: 'Errors ($errorCount)'),
+                            const Tab(text: 'Map'),
                           ],
                         ),
                         Divider(height: 1, color: border),
@@ -1170,6 +1158,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                             children: [
                               _buildNavTurnsList(_navTurnsScroll),
                               _buildNavErrorsList(_navErrorsScroll),
+                              _buildNavMap(minimapMarks),
                             ],
                           ),
                         ),
@@ -1238,16 +1227,15 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
           ];
     // Reset the landing engine's realized-row window for this frame; the
     // itemBuilder repopulates it during layout and a convergent seek reads it
-    // back. Also snapshots the last frame's top-built seq for the position pill.
+    // back. Also snapshots the last frame's top-built seq for the Map tab's
+    // "event N / M" readout.
     _seek.beginFrame(lensed.length);
     // Consume a pending "view in context" request: now that the lens is back to
     // All (so lensed == visible), find the row's index and seek once this frame
     // lays out. Convergent index seek (height-agnostic).
-    if (_pendingContextSeq != null &&
-        (_pendingContextKeepLens || _lens == FeedLens.all)) {
+    if (_pendingContextSeq != null && _lens == FeedLens.all) {
       final target = _pendingContextSeq!;
       _pendingContextSeq = null;
-      _pendingContextKeepLens = false;
       var idx = lensed.indexWhere((e) => (e['seq'] as num?)?.toInt() == target);
       if (idx < 0) {
         // No exact row — the anchor may be a hidden marker (ACP turn.start) or
@@ -1268,43 +1256,20 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         });
       }
     }
-    // The turns/errors funnel is driven by the *whole-run* anchor lists (the
-    // digest), not the loaded window: the count equals the insight data and is
-    // stable as more events page in, and a jump random-access-seeks to the exact
-    // anchor even when it isn't loaded. Text/Tools have no whole-run index, so
-    // they stay loaded-window (the convergent seek lands them accurately).
-    final bool funnelUsesRunList = _runAnchorMode &&
-        (_lens == FeedLens.turns || _lens == FeedLens.errors);
-    List<int> matchSeqs;
-    if (_lens == FeedLens.all) {
-      matchSeqs = const <int>[];
-    } else if (funnelUsesRunList) {
-      final runList = (_lens == FeedLens.turns
-              ? widget.runTurnSeqs
-              : widget.runErrorSeqs) ??
-          const <int>[];
-      // Error samples arrive grouped by class — sort to run order so the stepper
-      // walks the transcript monotonically. Copy before sorting.
-      matchSeqs = [...runList]..sort();
-    } else {
-      matchSeqs = [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
-    }
+    // The funnel is a pure card filter now (All / Text / Tools). Its inline
+    // prev/next steps the loaded-window matches of the active filter; Turns and
+    // Errors navigation moved to the Navigator outline (ADR-041). All view has
+    // no in-filter match cursor.
+    final List<int> matchSeqs = _lens == FeedLens.all
+        ? const <int>[]
+        : [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
     // 1-based position of the active match. Default to the newest when there's
     // no explicit anchor.
     int matchIndex = 0;
     if (matchSeqs.isNotEmpty) {
-      if (funnelUsesRunList) {
-        matchIndex = (_funnelRunIdx != null &&
-                _funnelRunIdx! >= 0 &&
-                _funnelRunIdx! < matchSeqs.length)
-            ? _funnelRunIdx! + 1
-            : matchSeqs.length;
-      } else {
-        var idx =
-            _activeSeekSeq == null ? -1 : matchSeqs.indexOf(_activeSeekSeq!);
-        if (idx < 0) idx = matchSeqs.length - 1;
-        matchIndex = idx + 1;
-      }
+      var idx = _activeSeekSeq == null ? -1 : matchSeqs.indexOf(_activeSeekSeq!);
+      if (idx < 0) idx = matchSeqs.length - 1;
+      matchIndex = idx + 1;
     }
     // Per-lens counts for the funnel menu + minimap marks (a faint tick per
     // tool_call / turn anchor, a red tick per error) over the WHOLE loaded
@@ -1364,31 +1329,6 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                   (e['producer'] ?? 'agent').toString()),
         ));
       }
-    }
-    // The bottom-left stepper steps a DIFFERENT unit per view:
-    //   All view      → inbound prompts (turn anchors)
-    //   filtered view → the matches shown (every lensed row)
-    final stepAnchorIdx = _lens == FeedLens.all
-        ? turnAnchorIdx
-        : [for (var i = 0; i < lensed.length; i++) i];
-    final stepSeqs = [
-      for (final i in stepAnchorIdx) (lensed[i]['seq'] as num?)?.toInt() ?? 0,
-    ];
-    final stepUnit = _lens == FeedLens.all
-        ? 'prompt'
-        : (_lens == FeedLens.errors
-            ? 'error'
-            : (_lens == FeedLens.text
-                ? 'message'
-                : (_lens == FeedLens.turns ? 'turn' : 'tool')));
-    // Step relative to the last seek anchor. prevK = last anchor strictly older
-    // than the anchor; nextK = first strictly newer.
-    final ref = _activeSeekSeq;
-    int? prevStepK;
-    int? nextStepK;
-    for (var k = 0; k < stepSeqs.length; k++) {
-      if (ref == null || stepSeqs[k] < ref) prevStepK = k;
-      if (nextStepK == null && ref != null && stepSeqs[k] > ref) nextStepK = k;
     }
     // Count the verbose-gated events so the toggle can advertise its value.
     int hiddenForVerbose = 0;
@@ -1543,8 +1483,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                     ),
                   ),
                 ),
-              // Transcript filter funnel / combined filter+jump pill, floating
-              // top-left. Carries per-lens counts in its menu.
+              // Card-filter funnel (All / Text / Tools), floating top-left. Its
+              // inline prev/next steps the active filter's loaded-window matches;
+              // structural navigation (Turns/Errors/Map) is the Navigator's job.
               Positioned(
                 top: 6,
                 left: 6,
@@ -1558,111 +1499,37 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                   counts: lensCounts,
                   selectableLenses: _kLensFilter,
                   onPrev: () {
-                    if (matchIndex > 1) {
-                      _funnelStep(matchIndex - 2, matchSeqs,
-                          usesRunList: funnelUsesRunList);
-                    }
+                    if (matchIndex > 1) _funnelStep(matchIndex - 2, matchSeqs);
                   },
                   onNext: () {
                     if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
-                      _funnelStep(matchIndex, matchSeqs,
-                          usesRunList: funnelUsesRunList);
+                      _funnelStep(matchIndex, matchSeqs);
                     }
                   },
                 ),
               ),
-              // Monotonic "event N of M" position. On the random-access surface
-              // it's a control (tap → "jump to any event" scrubber).
-              if (widget.totalEventCount != null && _logPosition() != null)
-                Positioned(
-                  top: 8,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: FeedPositionPill(
-                      pos: _logPosition()!,
-                      onTap: _openJumpSheet,
-                    ),
-                  ),
-                ),
-              // Right-edge minimap: a tick per tool call / turn anchor
-              // (card-coloured) + a red tick per error, plus a viewport
-              // indicator. In full-run anchor mode the ticks are whole-run and a
-              // tap routes through the random-access seek. (R2 folds this into
-              // the Navigator as the Map tab and drops the floating lane.)
-              Positioned(
-                top: 8,
-                right: 4,
-                bottom: 12,
-                width: 28,
-                child: FeedMinimap(
-                  marks: minimapMarks,
-                  onJump: _runAnchorMode
-                      ? (frac, seq) {
-                          _handleExternalSeek(seq, widget.runAnchorTs?[seq]);
-                        }
-                      : _seekToFrac,
-                  onScrub: _runAnchorMode ? null : _scrubTo,
-                  viewportFrac: _minimapViewportFrac(),
-                ),
-              ),
-              // Bottom-left stepper: ⤒ top-of-loaded, ‹/› previous/next of the
-              // current view's unit. Always actionable: prev falls back to
-              // paging older (then top), next to jumping to the tail.
-              Positioned(
-                left: 6,
-                bottom: 12,
-                child: TurnStepperPill(
-                  unit: stepUnit,
-                  onOldest: _jumpToOldestLoaded,
-                  onPrevTurn: (_lens != FeedLens.all && matchSeqs.isNotEmpty)
-                      ? (matchIndex > 1
-                          ? () => _funnelStep(matchIndex - 2, matchSeqs,
-                              usesRunList: funnelUsesRunList)
-                          : (!_atHead
-                              ? () {
-                                  _maybeLoadOlder();
-                                }
-                              : _jumpToOldestLoaded))
-                      : (prevStepK != null
-                          ? () => _seekToLensedIndex(
-                              stepAnchorIdx[prevStepK!], lensed)
-                          : (!_atHead
-                              ? () {
-                                  _maybeLoadOlder();
-                                }
-                              : _jumpToOldestLoaded)),
-                  onNextTurn: (_lens != FeedLens.all && matchSeqs.isNotEmpty)
-                      ? (matchIndex < matchSeqs.length
-                          ? () => _funnelStep(matchIndex, matchSeqs,
-                              usesRunList: funnelUsesRunList)
-                          : _jumpToLatest)
-                      : (nextStepK != null
-                          ? () => _seekToLensedIndex(
-                              stepAnchorIdx[nextStepK!], lensed)
-                          : _jumpToLatest),
-                ),
-              ),
-              // Navigator open-handle, top-right (clears the minimap lane). Opens
-              // the structural outline drawer (Turns / Errors).
+              // Navigator open-handle, top-right. Opens the structural outline +
+              // Map drawer (Turns / Errors / Map). The minimap now lives in the
+              // Map tab — no floating right-edge lane, no card-control collision,
+              // no bottom stepper, no N/M pill (ADR-041 §3, §6).
               Positioned(
                 top: 6,
-                right: 38,
+                right: 6,
                 child: _NavigatorHandle(
                   onTap: () => setState(() => _navigatorOpen = true),
                 ),
               ),
-              // Verbose toggle, top-right (shifted left to clear the minimap
-              // lane + the Navigator handle).
+              // Verbose toggle, top-right (shifted left to clear the Navigator
+              // handle).
               if (verboseChip != null)
                 Positioned(
                   top: 6,
-                  right: 84,
+                  right: 52,
                   child: verboseChip,
                 ),
               // The Navigator drawer overlay (phone-first): a scrim + a
-              // right-aligned panel with the Turns / Errors outline tabs.
-              if (_navigatorOpen) _buildNavigatorOverlay(),
+              // right-aligned panel with the Turns / Errors / Map tabs.
+              if (_navigatorOpen) _buildNavigatorOverlay(minimapMarks),
             ],
           ),
         ),

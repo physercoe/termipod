@@ -2,13 +2,13 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-06-03) — implements
-> [ADR-041](../decisions/041-insight-workbench-layout.md). **R1 coded (awaiting
-> the director's device-test); R2–R4 not started.** Each phase gates on the
-> director's device-test (Flutter is untestable locally); pure extractions carry
-> unit tests.
+> [ADR-041](../decisions/041-insight-workbench-layout.md). **R1 + R2 coded
+> (awaiting the director's device-test); R3–R4 not started.** Each phase gates on
+> the director's device-test (Flutter is untestable locally); pure extractions
+> carry unit tests.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.792-alpha (R1 coded post-tag; see the R1
-> phase note below).
+> **Last verified vs code:** v1.0.792-alpha (R1 + R2 coded post-tag; see the
+> per-phase status notes below).
 
 **TL;DR.** Reshape the `InsightTranscript` surface per
 [ADR-041](../decisions/041-insight-workbench-layout.md): the funnel becomes a
@@ -92,6 +92,21 @@ widgets; remove the transcript-replace mode.
   `nextStepK` build math.
 - **Gate:** the minimap scrubs/jumps from the Map tab; nothing floats over the
   cards; the stepper + pill are gone with no lost capability.
+- **Status: coded (awaiting device-test).** The Navigator gained a third **Map**
+  tab (`_buildNavMap`): a full-height `FeedMinimap` (tap a tick → close drawer +
+  land) plus a "Jump to event N / M" button that opens `_openJumpSheet`. The
+  floating right-edge `FeedMinimap`, the centred `FeedPositionPill`, and the
+  bottom `TurnStepperPill` are deleted, along with the `stepAnchorIdx` /
+  `stepSeqs` / `stepUnit` / `prevStepK` / `nextStepK` math. Removing the stepper
+  cascaded out the now-dead funnel-run-jump machinery: `_funnelRunJump`,
+  `_funnelRunIdx`, `funnelUsesRunList`, `_seekToLensedIndex`,
+  `_jumpToOldestLoaded`, and the `keepLens` path (`_landOnSeqKeepLens`,
+  `_resetWindowAround`/`_jumpToContext` `keepLens` param, `_pendingContextKeepLens`)
+  — all gone, since with Turns/Errors out of the lens the funnel only steps
+  Text/Tools loaded-window matches (`_funnelStep` simplified). The `_NavigatorHandle`
+  moved to the clean top-right corner (`right:6`); arbitrary-position navigation
+  is preserved by the Map tab's slider (more precise than a hidden drag-strip).
+  Stepper/pill widgets stay in `feed_misc.dart` (still used by `LiveFeed`).
 
 ### R3 — Sessions rail (left drawer, scoped switcher)
 

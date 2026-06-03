@@ -19,7 +19,6 @@ import 'transcript/feed_misc.dart';
 import 'transcript/feed_telemetry.dart';
 import 'transcript/fold_maps.dart';
 import 'transcript/feed_reducer.dart';
-import 'transcript/random_access_loader.dart';
 import 'transcript/seek_controller.dart';
 import 'transcript/transcript_seek.dart';
 import 'transcript/interaction_cards.dart';
@@ -107,50 +106,6 @@ class AgentFeed extends ConsumerStatefulWidget {
   /// caller's dedicated full-screen transcript route. Null hides it —
   /// hosts that are already full-screen pass `dense: false` instead.
   final VoidCallback? onExpand;
-  /// Plan P2 — lets a sibling (the analysis-mode run-report dashboard /
-  /// structure index) jump the feed to a seq. The feed pages toward the
-  /// anchor if it's older than the loaded window (bounded), then anchors +
-  /// highlights it. Null = no external seek channel.
-  final AgentFeedSeekController? seekController;
-  /// Plan P2 — the run-lifetime total event count (from the digest), used to
-  /// render a monotonic "event N of M" position over the full-screen log:
-  /// the loaded window is only a slice, so M is the true total. Per-agent seq
-  /// is the dense 1-based run ordinal, so N (≈ the viewport-top seq) is the
-  /// honest position for a single-agent run. Null / full-screen-only.
-  final int? totalEventCount;
-  /// Plan P2 — full-run minimap anchors (from the digest's `errors_json`
-  /// sample seqs + the turn index's `start_seq`s). When supplied (with
-  /// [totalEventCount]), the right-edge minimap switches from loaded-window
-  /// ticks to *whole-run* anchors positioned by `seq / total`, and a tap
-  /// routes through the random-access seek — so a failure or turn anywhere in
-  /// the run is one tap away, not just the loaded slice. Null = loaded-window
-  /// minimap (the plain full-screen feed, which has no digest).
-  final List<int>? runErrorSeqs;
-  /// ADR-039 P2 — `seq → error class` (tool_error / failed_turn / error:<type>)
-  /// for every whole-run error, straight from the digest. Lets the Errors lens
-  /// render the COMPLETE error list as summary rows (class + time) with no
-  /// event-body fetch; a tap jumps to the error in full context. Null on the
-  /// plain Feed (no digest).
-  final Map<int, String>? runErrorClasses;
-  /// ADR-039 P2 (schema v3) — `seq → headline label` for each whole-run error:
-  /// the failing tool's name ("Bash"), the error type, or absent for a failed
-  /// turn. Lets an Errors-lens row headline with the tool instead of the
-  /// generic class label. Null / missing entry → fall back to the class label.
-  final Map<int, String>? runErrorLabels;
-  final List<int>? runTurnSeqs;
-  /// Plan P2 — `seq → ts` for the run anchors that carry a timestamp (the turn
-  /// index's `start_ts`). A minimap tap only has the anchor's seq; with the ts
-  /// the jump can take the O(log n) `(ts, seq)` window reset instead of the
-  /// bounded page-walk. Error anchors have no ts (the digest's sample seqs are
-  /// ts-less), so they're absent here and fall back to the page-walk. Null =
-  /// loaded-window minimap (no digest).
-  final Map<int, String>? runAnchorTs;
-  /// Plan P2 — enables the analysis-owned **random-access loader**: a jump to
-  /// an off-window anchor *resets* the window around it (`(ts, seq)` keyset)
-  /// instead of walking from the tail, and the feed gains a forward pager. Set
-  /// only by the Insights surface; the live-tail Feed leaves it false, so every
-  /// random-access code path is inert there (no regression).
-  final bool randomAccess;
   const AgentFeed({
     super.key,
     required this.agentId,
@@ -163,14 +118,6 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.onStatusLineChanged,
     this.dense = true,
     this.onExpand,
-    this.seekController,
-    this.totalEventCount,
-    this.runErrorSeqs,
-    this.runErrorClasses,
-    this.runErrorLabels,
-    this.runTurnSeqs,
-    this.runAnchorTs,
-    this.randomAccess = false,
   });
 
   @override
@@ -217,22 +164,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // True once a load-older fetch returns fewer than _pageSize rows —
   // we've reached the start of the session, no more pages exist.
   bool _atHead = false;
-  // Plan P2 (random-access loader) — whether the loaded window reaches the
-  // live tail. True for the normal tail-anchored window (and ALWAYS true in
-  // the live-tail Feed, which never resets). A random-access reset to a
-  // mid-run anchor sets it false, which (a) arms the forward pager
-  // [_maybeLoadNewer] and (b) silences the SSE tail-append so a non-contiguous
-  // live event can't graft onto a mid-run window. Re-armed true when the
-  // forward pager reaches the tail or a jump-to-latest re-bootstraps it.
-  bool _windowHasTail = true;
-  // True while a forward (load-newer) fetch is in flight; the random-access
-  // complement of _loadingOlder.
-  bool _loadingNewer = false;
-  // Newest loaded (ts, seq) — the forward pager's cursor. Only maintained on
-  // the random-access path (the live-tail loader pages backward + SSE-tails,
-  // so it never needs a forward cursor).
-  String _newestTs = '';
-  int _newestSeq = 0;
   // When the bootstrap fetch falls back to the offline cache (server
   // unreachable, 5xx, etc.), we keep the cached transcript visible and
   // surface a banner with the snapshot timestamp. Cleared the moment a
@@ -301,12 +232,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // hub side, so 15s is comfortable headroom.
   static const Duration _sessionCostPollInterval = Duration(seconds: 15);
 
-  // Generation of the last external seek we serviced — so a controller
-  // notification for a seq we already jumped to (e.g. a parent rebuild
-  // re-attaching the listener) doesn't re-fire, but a fresh seekTo (which
-  // bumps the generation) does.
-  int _lastSeekGeneration = 0;
-
   @override
   void initState() {
     super.initState();
@@ -316,7 +241,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     _seek = TranscriptSeek(scroll: _scroll, isActive: () => mounted);
     _bootstrap();
     _scroll.addListener(_onScroll);
-    widget.seekController?.addListener(_onSeekRequest);
     _startSessionCostPolling();
   }
 
@@ -330,10 +254,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       _sessionCost = null;
       _startSessionCostPolling();
     }
-    if (oldWidget.seekController != widget.seekController) {
-      oldWidget.seekController?.removeListener(_onSeekRequest);
-      widget.seekController?.addListener(_onSeekRequest);
-    }
   }
 
   @override
@@ -342,248 +262,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     _bannerGraceTimer?.cancel();
     _sessionCostTimer?.cancel();
     _seekHighlightTimer?.cancel();
-    widget.seekController?.removeListener(_onSeekRequest);
     _sub?.cancel();
     _scroll.dispose();
     super.dispose();
-  }
-
-  // Controller fired a jump request. Dedup on generation so only a genuine
-  // new seekTo triggers a seek.
-  void _onSeekRequest() {
-    final c = widget.seekController;
-    if (c == null) return;
-    if (c.generation == _lastSeekGeneration) return;
-    _lastSeekGeneration = c.generation;
-    final seq = c.seq;
-    if (seq != null) _handleExternalSeek(seq, c.ts);
-  }
-
-  /// Jump the feed to [seq] (the analysis dashboard / structure index). If the
-  /// seq is already loaded we anchor it directly. Otherwise:
-  ///   - In [AgentFeed.randomAccess] mode with a known [ts] (the Insights
-  ///     surface, which carries the anchor's timestamp), we **reset the window
-  ///     around the anchor** — one block before + one after via the `(ts, seq)`
-  ///     keyset — O(log n), reachable at any depth, decoupled from the tail.
-  ///   - Otherwise we fall back to the bounded page-walk: page older toward the
-  ///     anchor (the live-tail window is contiguous from the tail), capped so a
-  ///     far/unreachable anchor can't load forever.
-  Future<void> _handleExternalSeek(int seq, [String? ts]) async {
-    if (_seqIsLoaded(seq)) {
-      // Robust landing: after a lazy prepend the row is usually off-screen, so
-      // route through the convergent index seek (build resolves the row's index
-      // and binary-searches the offset onto it) rather than the ensureVisible-
-      // only [_seekToSeq], which no-ops on an unrealised row.
-      _landOnSeq(seq);
-      return;
-    }
-    final sessionScoped = (widget.sessionId ?? '').isNotEmpty;
-    if (widget.randomAccess && sessionScoped && ts != null && ts.isNotEmpty) {
-      await _resetWindowAround(seq, ts);
-      return;
-    }
-    const maxPages = 12; // _pageSize(200) × 12 = 2400 events of headroom.
-    for (var i = 0; i < maxPages; i++) {
-      if (_atHead) break;
-      // Agent scope: once the window's floor has passed the target, paging
-      // further up can't reveal it (it's newer than the loaded floor, i.e.
-      // we jumped away from the tail) — stop and fall back.
-      if (!sessionScoped && _minSeq > 0 && _minSeq <= seq) break;
-      await _maybeLoadOlder();
-      if (!mounted) return;
-      if (_seqIsLoaded(seq)) break;
-    }
-    if (!mounted) return;
-    if (_seqIsLoaded(seq)) {
-      _landOnSeq(seq);
-    }
-    // Else: a ts-less anchor (older digest) beyond the page-walk cap — leave
-    // the viewport where it is. Yanking to the top here was the "minimap tap
-    // jumps to the top" bug; with anchor timestamps (turns + errors now carry
-    // them) the reset path above handles every reachable anchor instead.
-  }
-
-  /// Land on [seq] robustly even when its row isn't currently realised. Defers
-  /// to the convergent index seek via the pending-context mechanism: a rebuild
-  /// finds the row's index in the laid-out (lensed) list and binary-searches
-  /// the scroll offset onto it ([_seekToLoadedIndex] → the [TranscriptSeek]
-  /// landing engine), which
-  /// — unlike [_seekToSeq]'s lone `ensureVisible` — works on an off-screen,
-  /// lazily-built row. The anchor may be a hidden marker (an ACP `turn.start`
-  /// isn't rendered), so the consumer lands on the nearest visible row at or
-  /// after it. Resets the lens to All so the landing row has its surrounding
-  /// context. This is the shared landing for every external/random-access jump.
-  void _landOnSeq(int seq) => _jumpToContext(seq);
-
-  bool _seqIsLoaded(int seq) =>
-      _events.any((e) => (e['seq'] as num?)?.toInt() == seq);
-
-  /// Bind a [RandomAccessLoader] to this feed's `agentId` + session scope. The
-  /// loader owns the `(ts, seq)` keyset fetch shapes (around-anchor / page-
-  /// newer); the State keeps the buffer + setState. Cheap to build per call —
-  /// it holds no state, just the bound fetch closure.
-  RandomAccessLoader _randomAccessLoader(HubClient client, String sid) =>
-      RandomAccessLoader(
-        pageSize: _pageSize,
-        fetch: ({
-          String? beforeTs,
-          int? beforeSeq,
-          String? afterTs,
-          int? afterSeq,
-          required int limit,
-        }) =>
-            client.listAgentEvents(
-              widget.agentId,
-              sessionId: sid,
-              beforeTs: beforeTs,
-              beforeSeq: beforeSeq,
-              afterTs: afterTs,
-              afterSeq: afterSeq,
-              limit: limit,
-            ),
-      );
-
-  /// Random-access window reset (plan P2): replace the loaded window with one
-  /// block fetched *around* the anchor `(ts, seq)` — the backward half (events
-  /// before the anchor key, DESC) and the forward half (the anchor and after,
-  /// ASC) via the session `(ts, seq)` compound keyset. Decoupled from the
-  /// live-tail loader: after a reset the window may not reach the tail, so
-  /// [_windowHasTail] goes false, which arms the forward pager and silences
-  /// the SSE tail-append (a mid-run window must not grow a non-contiguous live
-  /// event). Only ever runs in [AgentFeed.randomAccess] mode, so the Feed view
-  /// never enters this path.
-  Future<void> _resetWindowAround(int seq, String ts,
-      {bool keepLens = false}) async {
-    final sid = widget.sessionId;
-    final client = ref.read(hubProvider.notifier).client;
-    if (sid == null || client == null) return;
-    try {
-      final window = await _randomAccessLoader(client, sid).fetchAround(seq, ts);
-      if (!mounted) return;
-      if (window.isEmpty) {
-        // Nothing came back (anchor out of range) — leave the current window
-        // untouched rather than yanking the viewport to the top.
-        return;
-      }
-      _ingestWindow(window.ascending);
-      setState(() {
-        _atHead = window.reachedHead; // reached the start
-        _windowHasTail = window.reachedTail; // reached the live tail
-        _followTail = false;
-        _loading = false;
-        _error = null;
-      });
-      // Land on the anchor once the new window lays out. The window was just
-      // swapped wholesale, so the anchor's row sits mid-list and isn't
-      // realised — route through the convergent index seek (which resolves the
-      // nearest-visible row >= the anchor and binary-searches onto it) rather
-      // than the ensureVisible-only [_seekToSeq], which would silently no-op
-      // here. This was the "turn jump lands wrong / does nothing" bug.
-      if (keepLens) {
-        _landOnSeqKeepLens(seq);
-      } else {
-        _landOnSeq(seq);
-      }
-    } catch (_) {
-      // Network blip — leave the existing window; the caller can retry.
-    }
-  }
-
-  /// Replace [_events] with a fresh, contiguous [ascending] window (used by the
-  /// random-access reset). Distinct from [_ingestSnapshot] (the live-tail cold
-  /// open) because it also tracks the *newest* loaded `(ts, seq)` — the forward
-  /// pager's cursor, which the tail-anchored loader never needs.
-  void _ingestWindow(List<Map<String, dynamic>> ascending) {
-    final filtered = <Map<String, dynamic>>[];
-    for (final e in ascending) {
-      if (agentEventIsReplay(e)) {
-        final kind = (e['kind'] ?? '').toString();
-        if (kind == 'text' || kind == 'thought') continue;
-      }
-      filtered.add(e);
-    }
-    setState(() {
-      _events
-        ..clear()
-        ..addAll(filtered);
-      _ids.clear();
-      _replayKeys.clear();
-      _maxSeq = 0;
-      _minSeq = 0;
-      _oldestTs = '';
-      _newestTs = '';
-      _newestSeq = 0;
-      for (final e in _events) {
-        final id = (e['id'] ?? '').toString();
-        if (id.isNotEmpty) _ids.add(id);
-        final replayKey = agentEventReplayKey(e);
-        if (replayKey != null) _replayKeys.add(replayKey);
-        final s = (e['seq'] as num?)?.toInt() ?? 0;
-        if (s > _maxSeq) _maxSeq = s;
-        if (_minSeq == 0 || s < _minSeq) _minSeq = s;
-        final t = (e['ts'] ?? '').toString();
-        if (t.isNotEmpty && (_oldestTs.isEmpty || t.compareTo(_oldestTs) < 0)) {
-          _oldestTs = t;
-        }
-        // Newest by (ts, seq) — the forward cursor.
-        if (t.compareTo(_newestTs) > 0 ||
-            (t == _newestTs && s > _newestSeq)) {
-          _newestTs = t;
-          _newestSeq = s;
-        }
-      }
-    });
-  }
-
-  /// Forward pager (plan P2) — the complement of [_maybeLoadOlder], armed only
-  /// after a random-access reset has left the window short of the tail. Pages
-  /// the next block *newer* than the loaded edge via the `(ts, seq)` keyset and
-  /// appends it. When a short page comes back we've reached the live tail, so
-  /// [_windowHasTail] flips true (re-enabling SSE append). Inert outside
-  /// [AgentFeed.randomAccess] (the Feed view never sets [_windowHasTail] false).
-  Future<void> _maybeLoadNewer() async {
-    if (_loadingNewer || _windowHasTail) return;
-    final sid = widget.sessionId;
-    final client = ref.read(hubProvider.notifier).client;
-    if (sid == null || client == null || _newestTs.isEmpty) return;
-    setState(() => _loadingNewer = true);
-    try {
-      final page = await _randomAccessLoader(client, sid)
-          .fetchNewer(_newestTs, _newestSeq);
-      if (!mounted) return;
-      final added = <Map<String, dynamic>>[];
-      for (final e in page.events) {
-        final id = (e['id'] ?? '').toString();
-        if (id.isNotEmpty && !_ids.add(id)) continue;
-        if (agentEventIsReplay(e)) {
-          final kind = (e['kind'] ?? '').toString();
-          if (kind == 'text' || kind == 'thought') continue;
-        }
-        added.add(e);
-      }
-      setState(() {
-        _events.addAll(added);
-        for (final e in added) {
-          final s = (e['seq'] as num?)?.toInt() ?? 0;
-          if (s > _maxSeq) _maxSeq = s;
-          final t = (e['ts'] ?? '').toString();
-          if (t.compareTo(_newestTs) > 0 ||
-              (t == _newestTs && s > _newestSeq)) {
-            _newestTs = t;
-            _newestSeq = s;
-          }
-          final replayKey = agentEventReplayKey(e);
-          if (replayKey != null) _replayKeys.add(replayKey);
-        }
-        // A short page means there's nothing newer left — we've rejoined the
-        // live tail, so live SSE frames may append again.
-        if (page.reachedTail) _windowHasTail = true;
-      });
-    } catch (_) {
-      // Silent: the next scroll re-triggers.
-    } finally {
-      if (mounted) setState(() => _loadingNewer = false);
-    }
   }
 
   /// (Re)start the periodic session-cost poll. No-ops when there is no
@@ -651,27 +332,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // to the end (the "jump to end" tester bug). During programmatic
     // motion we touch neither _followTail nor the load pager.
     if (_seek.isProgrammatic) return;
-    // ADR-039 P2 — the Errors summary list is a digest-only list with no
-    // _events paging; scrolling it must not trigger load-older/newer or
-    // tail-follow on the (unrelated) _events window.
-    if (_errorsSummaryMode) return;
-    // Random-access window short of the tail (plan P2): the bottom edge pages
-    // *newer* — the forward complement of load-older at the top. We're not at
-    // the live tail yet, so this is NOT a tail-follow point. For the Feed
-    // (randomAccess false, _windowHasTail always true) atTrueTail == atBottom,
-    // so the live-tail behaviour below is unchanged.
-    final atTrueTail = atBottom && (_windowHasTail || !widget.randomAccess);
-    if (widget.randomAccess &&
-        !_windowHasTail &&
-        _scroll.position.pixels >= maxExt - 120) {
-      _maybeLoadNewer();
-    }
-    if (_followTail != atTrueTail) {
+    if (_followTail != atBottom) {
       setState(() {
-        _followTail = atTrueTail;
+        _followTail = atBottom;
         // Returning to the tail clears the pending-event counter; the
         // pill disappears on the same frame.
-        if (atTrueTail) {
+        if (atBottom) {
           _newWhileAway = 0;
           // Reset the turn-stepper anchor so the next `‹` starts from the
           // newest prompt rather than wherever we last jumped.
@@ -684,67 +350,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
 
   // Viewport-top position (0..1) for the minimap indicator.
   double _viewFrac = 1.0;
-
-  /// Plan P2 — the monotonic "event N of M" position for the full-screen log.
-  /// The loaded window is a contiguous tail slice spanning seqs
-  /// [_minSeq, _maxSeq]; the viewport-top fraction [_viewFrac] interpolates
-  /// linearly across it, and per-agent seq is the dense run ordinal, so N is
-  /// the viewport-top seq. M is the digest's run-lifetime total (fallback: the
-  /// newest loaded seq before the digest resolves). Returns null until there's
-  /// a window to position within. N is clamped into [1, M] so a multi-agent
-  /// session (per-agent seq isn't a run-wide ordinal) still reads sanely.
-  ({int n, int m})? _logPosition() {
-    final total = widget.totalEventCount;
-    // Insight/random-access: read N straight from the top-built row's run
-    // ordinal (the seq). It's exact and monotonic and — crucially — doesn't
-    // lurch when the window grows by a load-older/newer page (the viewFrac
-    // interpolation does, because both the fraction and the [_minSeq, _maxSeq]
-    // span shift under it). Falls back to the interpolation until the first
-    // layout records a top seq.
-    if (widget.randomAccess && total != null && total > 0 && _seek.lastTopBuiltSeq > 0) {
-      final n = _seek.lastTopBuiltSeq.clamp(1, total);
-      return (n: n, m: total);
-    }
-    return feedLogPosition(
-      minSeq: _minSeq,
-      maxSeq: _maxSeq,
-      viewFrac: _viewFrac,
-      totalEventCount: total,
-    );
-  }
-
-  /// True when the full-screen minimap should render whole-run anchors (from
-  /// the digest + turn index) rather than loaded-window ticks — i.e. the
-  /// analysis surface supplied both a run total and at least one anchor.
-  bool get _runAnchorMode =>
-      widget.totalEventCount != null &&
-      ((widget.runErrorSeqs?.isNotEmpty ?? false) ||
-          (widget.runTurnSeqs?.isNotEmpty ?? false));
-
-  // ADR-039 P2 — the Errors lens renders the WHOLE-RUN error list as digest-only
-  // summary rows (class + time), not a client filter over the loaded window:
-  // exact, never-empty, no event-body fetch. A tap jumps to the error in full
-  // context. Gated to the random-access Insight surface with errors present.
-  static const double _kErrorRowExtent = 52.0;
-  bool _isErrorsSummaryLens(FeedLens lens) =>
-      widget.randomAccess &&
-      lens == FeedLens.errors &&
-      (widget.runErrorSeqs?.isNotEmpty ?? false);
-  bool get _errorsSummaryMode => _isErrorsSummaryLens(_lens);
-  // The run's error seqs, ascending (oldest→newest) so the newest sits at the
-  // bottom like the chat transcript. Built once per build that needs it.
-  List<int> _sortedErrorSeqs() => [...?widget.runErrorSeqs]..sort();
-
-  /// The minimap's position indicator. In full-run anchor mode it tracks the
-  /// run ordinal (N/M) so the thumb sits where the viewport is *in the whole
-  /// run*; otherwise it tracks the within-loaded-window fraction.
-  double _minimapViewportFrac() {
-    if (_runAnchorMode) {
-      final p = _logPosition();
-      if (p != null && p.m > 0) return (p.n / p.m).clamp(0.0, 1.0);
-    }
-    return _viewFrac;
-  }
 
   // The programmatic-scroll guard, the realized-row-window sentinels, and the
   // jump/animate helpers all moved to [TranscriptSeek] (`_seek`) — ADR-040 P2a.
@@ -823,11 +428,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         widget.agentId,
         before: sessionScoped ? null : priorMinSeq,
         beforeTs: sessionScoped ? priorOldestTs : null,
-        // In random-access mode, pair the load-older ts cursor with the
-        // seq tiebreak so same-ts events at the window floor aren't dropped
-        // (the (ts, seq) keyset). Gated → the Feed's load-older is untouched.
-        beforeSeq:
-            (widget.randomAccess && sessionScoped) ? _minSeq : null,
         limit: _pageSize,
         sessionId: widget.sessionId,
       );
@@ -880,48 +480,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   }
 
   void _jumpToLatest() {
-    // Plan P2: if a random-access reset left the window short of the live tail,
-    // the tail isn't loaded — scrolling to the loaded bottom wouldn't reach it.
-    // Re-bootstrap the tail window first, then follow it.
-    if (widget.randomAccess && !_windowHasTail) {
-      _rebootstrapTail();
-      return;
-    }
     _scrollToTail();
     setState(() {
       _followTail = true;
       _newWhileAway = 0;
     });
-  }
-
-  /// Re-fetch the live-tail window after a random-access reset, restoring the
-  /// normal tail-anchored, SSE-followed state. The inverse of
-  /// [_resetWindowAround]: it puts the window back on the tail so live frames
-  /// append again ([_windowHasTail] = true).
-  Future<void> _rebootstrapTail() async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    try {
-      final tail = await client.listAgentEvents(
-        widget.agentId,
-        tail: true,
-        limit: _pageSize,
-        sessionId: widget.sessionId,
-      );
-      if (!mounted) return;
-      _ingestWindow(tail.reversed.toList());
-      setState(() {
-        _atHead = tail.length < _pageSize;
-        _windowHasTail = true;
-        _followTail = true;
-        _newWhileAway = 0;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _scrollToTail();
-      });
-    } catch (_) {
-      // Leave the current window in place on a network blip.
-    }
   }
 
   /// Jump to the oldest *loaded* row (top of the list). The transcript is
@@ -1167,24 +730,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (replayKey != null && _replayKeys.contains(replayKey)) return;
       }
       if (replayKey != null) _replayKeys.add(replayKey);
-      // Plan P2: a random-access window that hasn't paged back to the live
-      // tail must NOT append live frames — they belong at the tail (not
-      // loaded), so grafting them here would break contiguity and the
-      // position math. Drop the frame; the forward pager / jump-to-latest
-      // re-joins the tail when the user heads back down. Still note the
-      // stream is alive. Inert for the Feed (randomAccess false → always tail).
-      if (widget.randomAccess && !_windowHasTail) {
-        _reconnectAttempt = 0;
-        _bannerGraceTimer?.cancel();
-        _bannerGraceTimer = null;
-        if (_staleSince != null || _error != null) {
-          setState(() {
-            _staleSince = null;
-            _error = null;
-          });
-        }
-        return;
-      }
       final seq = (evt['seq'] as num?)?.toInt() ?? 0;
       // First successful delivery after a drop clears the banner, the
       // backoff counter, and any "Offline · last updated" pill — the
@@ -1396,53 +941,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     });
   }
 
-  /// The whole-run anchor list backing a lens's funnel in Insight mode — the
-  /// digest's turn starts / error samples (sorted to run order). Null for the
-  /// lenses with no whole-run index (text / tools / all). Mirrors the
-  /// `funnelUsesRunList` selection in build.
-  List<int>? _runAnchorListFor(FeedLens lens) {
-    if (!_runAnchorMode) return null;
-    final raw = lens == FeedLens.turns
-        ? widget.runTurnSeqs
-        : (lens == FeedLens.errors ? widget.runErrorSeqs : null);
-    if (raw == null || raw.isEmpty) return null;
-    return [...raw]..sort();
-  }
-
-  /// Switch the active lens. Resets the seek anchor; for a non-`all`
-  /// lens, pins to the tail so the user lands on the most recent match
-  /// (the newest error is usually what you're debugging).
+  /// Switch the active lens. Resets the seek anchor; for a non-`all` lens, pins
+  /// to the tail so the user lands on the most recent match (the newest error
+  /// is usually what you're debugging).
   void _setLens(FeedLens lens) {
     setState(() {
       _lens = lens;
       _activeSeekSeq = null;
-      // Reset the run-anchor funnel position so a fresh lens starts at its
-      // newest match rather than wherever a prior lens left the stepper.
-      _funnelRunIdx = null;
       if (lens != FeedLens.all) _followTail = true;
     });
-    // ADR-039 P2 — the Errors lens is the whole-run error list (digest-only
-    // summary rows), not a client filter over the loaded window. On entry just
-    // show it scrolled to the newest error (bottom); no _events reset.
-    if (_isErrorsSummaryLens(lens)) {
-      final n = _sortedErrorSeqs().length;
-      setState(() => _funnelRunIdx = n - 1); // newest selected
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _scrollToTail();
-      });
-      return;
-    }
-    // ADR-039 P1b — the OTHER run-anchor lens (turns) jumps to its NEWEST match
-    // on entry. Without this the filtered view is empty whenever no match sits
-    // in the loaded tail window — and an empty list has no scroll extent, so
-    // "scroll up to load older" can never fire. The jump random-access-resets
-    // the window around the newest anchor (reachable at any depth), so the list
-    // shows that match and the funnel/stepper walk older from there.
-    final runList = _runAnchorListFor(lens);
-    if (runList != null) {
-      _funnelRunJump(runList.length - 1, runList.last);
-      return;
-    }
     if (lens != FeedLens.all) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _scrollToTail();
@@ -1450,234 +957,32 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
   }
 
-  // A seq the user asked to view "in context": tapped from a filtered card,
-  // it switches to the All lens and (in build, once the unfiltered list is
-  // back) seeks to that row so the surrounding turns are visible.
+  // A seq the user asked to view "in context": tapped from a filtered card, it
+  // switches to the All lens and (in build, once the unfiltered list is back)
+  // seeks to that row so the surrounding turns are visible.
   int? _pendingContextSeq;
-  // When true, the pending context jump keeps the active lens instead of
-  // resetting to All — used by the run-anchor funnel stepper, which steps
-  // within the turns/errors lens (see [_funnelRunJump]).
-  bool _pendingContextKeepLens = false;
-  // The funnel stepper's position within the full-run anchor list (turns /
-  // errors) when driving from the digest in Insight mode. Decoupled from
-  // [_activeSeekSeq] because the landing row (nearest visible >= anchor) may
-  // differ from the anchor seq (e.g. a hidden turn.start), which would break
-  // an indexOf-based position. Null = default to the newest match.
-  int? _funnelRunIdx;
 
   /// Clear the active filter and land on [seq] in the full transcript, so a
-  /// match found in a filtered view can be read with its surrounding
-  /// context. The seek itself runs in build once `_lens == all` has put the
-  /// row back in the list (we know its index there, so it works even if the
-  /// row isn't currently realised). With [keepLens] the active lens is
-  /// preserved (the run-anchor funnel stepper stays in turns/errors).
-  void _jumpToContext(int seq, {bool keepLens = false}) {
+  /// match found in a filtered view can be read with its surrounding context.
+  /// The seek itself runs in build once `_lens == all` has put the row back in
+  /// the list (we know its index there, so it works even if the row isn't
+  /// currently realised).
+  void _jumpToContext(int seq) {
     setState(() {
-      if (!keepLens) _lens = FeedLens.all;
+      _lens = FeedLens.all;
       _followTail = false;
       _pendingContextSeq = seq;
-      _pendingContextKeepLens = keepLens;
     });
   }
 
-  /// Land on [seq] but keep the active lens (run-anchor funnel stepping).
-  void _landOnSeqKeepLens(int seq) => _jumpToContext(seq, keepLens: true);
-
-  /// Funnel stepper jump in Insight mode, driven by the full-run anchor list
-  /// (turns / errors). Records the run-list position, then lands on the
-  /// anchor: a clean window reset around its `(ts, seq)` if it isn't loaded
-  /// (reachable at any depth), else a convergent seek — both keeping the lens.
-  void _funnelRunJump(int idx, int seq) {
-    setState(() {
-      _funnelRunIdx = idx;
-      _activeSeekSeq = seq;
-      _followTail = false;
-    });
-    if (_seqIsLoaded(seq)) {
-      _landOnSeqKeepLens(seq);
-      return;
-    }
-    final ts = widget.runAnchorTs?[seq];
-    if (widget.randomAccess &&
-        (widget.sessionId ?? '').isNotEmpty &&
-        ts != null &&
-        ts.isNotEmpty) {
-      // Fire-and-forget: resets the window then lands (keeping the lens).
-      _resetWindowAround(seq, ts, keepLens: true);
-      return;
-    }
-    // No ts (older digest) — best-effort within the loaded window.
-    _landOnSeqKeepLens(seq);
-  }
-
-  /// Step the funnel cursor to match [i] of [matchSeqs]. The SINGLE entry point
-  /// shared by the top-left funnel pill (`FeedFilterControl`) AND the
+  /// Step the funnel cursor to match [i] of [matchSeqs] — the SINGLE entry
+  /// point shared by the top-left funnel pill (`FeedFilterControl`) AND the
   /// bottom-left full-screen stepper (`TurnStepperPill`) so the two can never
-  /// drift onto different cursors — the "tap the stepper, the funnel N/M
-  /// doesn't move / they step different units" bug. A whole-run lens
-  /// (turns/errors) routes through [_funnelRunJump] (the cursor is
-  /// [_funnelRunIdx], reachable at any depth); text/tools route through the
-  /// loaded-window convergent seek (the cursor is [_activeSeekSeq]). Either
-  /// way the position the funnel reads back ([matchIndex]) is the one this
-  /// moved.
-  void _funnelStep(int i, List<int> matchSeqs, {required bool usesRunList}) {
+  /// drift onto different cursors. The match list is the loaded+lensed window;
+  /// the convergent index seek lands the row exactly (height-agnostic).
+  void _funnelStep(int i, List<int> matchSeqs) {
     if (i < 0 || i >= matchSeqs.length) return;
-    // ADR-039 P2 — in the Errors summary list the stepper just scrolls the
-    // fixed-extent list to row i (matchSeqs == the sorted run error seqs ==
-    // the rendered rows), not a window reset. The funnel N/M reads _funnelRunIdx.
-    if (_errorsSummaryMode) {
-      setState(() => _funnelRunIdx = i);
-      if (_scroll.hasClients) {
-        final off =
-            (i * _kErrorRowExtent).clamp(0.0, _scroll.position.maxScrollExtent);
-        _scroll.animateTo(off,
-            duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
-      }
-      return;
-    }
-    if (usesRunList) {
-      _funnelRunJump(i, matchSeqs[i]);
-    } else {
-      _seekToLoadedIndex(i, matchSeqs[i]);
-    }
-  }
-
-  /// ADR-039 P2 — the Errors lens as the run's COMPLETE error list: digest-only
-  /// summary rows (class + relative time), exact + never-empty + no event-body
-  /// fetch. A tap jumps to that error in full context (switches to All and
-  /// lands via the `(ts, seq)` window reset). Fixed [_kErrorRowExtent] so the
-  /// funnel stepper scrolls to a row by index ([_funnelStep]).
-  Widget _buildErrorsSummaryList() {
-    final seqs = _sortedErrorSeqs();
-    final active = _funnelRunIdx;
-    return ListView.builder(
-      controller: _scroll,
-      padding: EdgeInsets.zero,
-      itemExtent: _kErrorRowExtent,
-      itemCount: seqs.length,
-      itemBuilder: (ctx, i) {
-        final seq = seqs[i];
-        final ts = widget.runAnchorTs?[seq];
-        return ErrorSummaryRow(
-          ordinal: i + 1,
-          errorClass: widget.runErrorClasses?[seq] ?? 'error',
-          label: widget.runErrorLabels?[seq],
-          ts: ts,
-          active: active == i,
-          onTap: () {
-            setState(() => _funnelRunIdx = i);
-            // Switch to All + land on the error in context (reuses the
-            // random-access reset; the row's ts makes it an O(log n) jump).
-            _handleExternalSeek(seq, ts);
-          },
-        );
-      },
-    );
-  }
-
-  /// Plan P2 — "jump to any event" scrubber. The position pill (event N / M) is
-  /// tappable on the random-access surface: it opens a slider over the whole
-  /// run [1, M] and, on confirm, random-access-windows onto the chosen ordinal.
-  /// This is the answer to "how do I jump to an arbitrary event" — the minimap
-  /// only reaches anchors (turns/errors), this reaches any position.
-  void _openJumpSheet() {
-    final pos = _logPosition();
-    if (pos == null || pos.m <= 1) return;
-    final m = pos.m;
-    double val = pos.n.toDouble().clamp(1.0, m.toDouble()).toDouble();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor:
-          isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-      builder: (sheetCtx) => StatefulBuilder(
-        builder: (sheetCtx, setSheet) {
-          final fg = isDark
-              ? DesignColors.textPrimary
-              : DesignColors.textPrimaryLight;
-          final muted = isDark
-              ? DesignColors.textMuted
-              : DesignColors.textMutedLight;
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Jump to event ${val.round()} of $m',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: fg),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Scrub anywhere in the run, then jump.',
-                    style: TextStyle(fontSize: 11, color: muted),
-                  ),
-                  Slider(
-                    min: 1,
-                    max: m.toDouble(),
-                    value: val.clamp(1.0, m.toDouble()).toDouble(),
-                    label: '${val.round()}',
-                    divisions: m > 1 ? math.min(m - 1, 1000) : null,
-                    onChanged: (v) => setSheet(() => val = v),
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {
-                        Navigator.of(sheetCtx).pop();
-                        _jumpToOrdinal(val.round());
-                      },
-                      child: const Text('Jump'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  /// Random-access jump to an arbitrary run ordinal [n] (1-based). Per-agent
-  /// seq is the dense run ordinal, so ordinal n is the event at seq == n; we
-  /// fetch that one event (agent-scoped seq lookup) to recover its ts, then
-  /// drive the `(ts, seq)` window reset. Honest for single-agent runs — the
-  /// same assumption the N / M pill makes (a resumed multi-agent session has
-  /// non-dense per-agent seqs, so the landing is approximate there).
-  Future<void> _jumpToOrdinal(int n) async {
-    if (_seqIsLoaded(n)) {
-      _landOnSeq(n);
-      return;
-    }
-    final sid = widget.sessionId;
-    final client = ref.read(hubProvider.notifier).client;
-    if (sid == null || sid.isEmpty || client == null) return;
-    try {
-      // `before: n + 1` (agent-scoped) → newest row with seq <= n, i.e. the
-      // event at ordinal n. One row; cheap.
-      final rows = await client.listAgentEvents(
-        widget.agentId,
-        before: n + 1,
-        limit: 1,
-      );
-      if (!mounted || rows.isEmpty) return;
-      final e = rows.first;
-      final seq = (e['seq'] as num?)?.toInt() ?? n;
-      final ts = (e['ts'] ?? '').toString();
-      if (ts.isEmpty) {
-        await _handleExternalSeek(seq);
-        return;
-      }
-      await _resetWindowAround(seq, ts);
-    } catch (_) {
-      // Network blip — leave the window in place; the user can retry.
-    }
+    _seekToLoadedIndex(i, matchSeqs[i]);
   }
 
   @override
@@ -1726,27 +1031,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // producing output for the in-flight turn". Composer only renders
     // the cancel button when the user has already typed something —
     // so this flag matters only in the predictive-input scenario.
-    //
-    // In random-access (Insight) mode a jump replaces the window with a
-    // *mid-run* slice whose last loaded event is mid-turn — so agentIsBusy
-    // would read "busy" off a slice that isn't the live tail. Only trust the
-    // signal when the window actually reaches the tail; otherwise the run's
-    // real state isn't loaded here, so report not-busy.
-    final isAgentBusy = (widget.randomAccess && !_windowHasTail)
-        ? false
-        : agentIsBusy(_events);
-    // Insight (random-access) mode is a read-only analysis surface — the run is
-    // a sealed dataset, not a live conversation — so it drops the composer
-    // entirely (and the telemetry strip below): the RunReportCard already shows
-    // the run's cost/turns/context, and the reclaimed rows go to the transcript.
-    final Widget? compose = widget.randomAccess
-        ? null
-        : AgentCompose(
-            agentId: widget.agentId,
-            slashCommands: composeSlash,
-            mentions: composeMentions,
-            isAgentBusy: isAgentBusy,
-          );
+    final isAgentBusy = agentIsBusy(_events);
+    final Widget compose = AgentCompose(
+      agentId: widget.agentId,
+      slashCommands: composeSlash,
+      mentions: composeMentions,
+      isAgentBusy: isAgentBusy,
+    );
     if (_events.isEmpty) {
       return Column(
         children: [
@@ -1769,7 +1060,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               ),
             ),
           ),
-          if (compose != null) compose,
+          compose,
         ],
       );
     }
@@ -1839,11 +1130,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // unfiltered list and seek to it once this frame lays out. Convergent
     // index seek (height-agnostic) so it lands exactly on the row even when
     // it isn't currently realised.
-    if (_pendingContextSeq != null &&
-        (_pendingContextKeepLens || _lens == FeedLens.all)) {
+    if (_pendingContextSeq != null && _lens == FeedLens.all) {
       final target = _pendingContextSeq!;
       _pendingContextSeq = null;
-      _pendingContextKeepLens = false;
       var idx =
           lensed.indexWhere((e) => (e['seq'] as num?)?.toInt() == target);
       if (idx < 0) {
@@ -1866,48 +1155,21 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         });
       }
     }
-    // In Insight mode the turns/errors funnel is driven by the *whole-run*
-    // anchor lists (the digest's turn index + error samples), not the loaded
-    // window: so the count equals the insight data and is stable as more
-    // events page in, and a jump random-access-seeks to the exact anchor even
-    // when it isn't loaded. Text/Tools have no whole-run index, so they stay
-    // loaded-window (the convergent seek lands them accurately).
-    final bool funnelUsesRunList = _runAnchorMode &&
-        (_lens == FeedLens.turns || _lens == FeedLens.errors);
-    List<int> matchSeqs;
-    if (_lens == FeedLens.all) {
-      matchSeqs = const <int>[];
-    } else if (funnelUsesRunList) {
-      final runList = (_lens == FeedLens.turns
-              ? widget.runTurnSeqs
-              : widget.runErrorSeqs) ??
-          const <int>[];
-      // Error samples arrive grouped by class — sort to run order so the
-      // stepper walks the transcript monotonically. (Turn starts are already
-      // ascending.) Copy before sorting; never mutate the widget's list.
-      matchSeqs = [...runList]..sort();
-    } else {
-      matchSeqs = [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
-    }
-    // 1-based position of the active match. Default to the newest when
-    // there's no explicit anchor (fresh lens activation) so the pill
-    // reads N/N and the steppers walk backward into history.
+    // The lens funnel/stepper walk the loaded+lensed window. matchSeqs is the
+    // 1:1 seq list of the rendered rows; older matches join as the user scrolls
+    // up and the list grows.
+    final List<int> matchSeqs = _lens == FeedLens.all
+        ? const <int>[]
+        : [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
+    // 1-based position of the active match. Default to the newest when there's
+    // no explicit anchor (fresh lens activation) so the pill reads N/N and the
+    // steppers walk backward into history.
     int matchIndex = 0;
     if (matchSeqs.isNotEmpty) {
-      if (funnelUsesRunList) {
-        // The run-anchor stepper tracks its own position (decoupled from the
-        // landed row, which may be a nearest-visible substitute).
-        matchIndex = (_funnelRunIdx != null &&
-                _funnelRunIdx! >= 0 &&
-                _funnelRunIdx! < matchSeqs.length)
-            ? _funnelRunIdx! + 1
-            : matchSeqs.length;
-      } else {
-        var idx =
-            _activeSeekSeq == null ? -1 : matchSeqs.indexOf(_activeSeekSeq!);
-        if (idx < 0) idx = matchSeqs.length - 1;
-        matchIndex = idx + 1;
-      }
+      var idx =
+          _activeSeekSeq == null ? -1 : matchSeqs.indexOf(_activeSeekSeq!);
+      if (idx < 0) idx = matchSeqs.length - 1;
+      matchIndex = idx + 1;
     }
     // P3 — full-screen-only chrome (dense=false): per-lens counts for the
     // lens bar + minimap marks (a faint tick per tool_call, a red tick
@@ -1925,68 +1187,34 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         for (final l in FeedLens.values)
           l: l == FeedLens.all
               ? visible.length
-              // In Insight mode, turns/errors report their whole-run totals
-              // (the digest) so the dropdown count matches the funnel pill and
-              // the insight data — not the loaded-window slice.
-              : (_runAnchorMode && l == FeedLens.turns)
-                  ? (widget.runTurnSeqs?.length ?? 0)
-                  : (_runAnchorMode && l == FeedLens.errors)
-                      ? (widget.runErrorSeqs?.length ?? 0)
-                      : visible
-                          .where((e) => agentEventMatchesLens(
-                              e, l, toolResults, toolUpdates))
-                          .length,
+              : visible
+                  .where((e) =>
+                      agentEventMatchesLens(e, l, toolResults, toolUpdates))
+                  .length,
       };
       turnAnchorIdx = turnAnchorIndices(lensed);
       final turnIdxSet = turnAnchorIdx.toSet();
-      if (_runAnchorMode) {
-        // Full-run minimap: anchors come from the digest (every error in the
-        // run) + the turn index (every turn start), positioned by their run
-        // ordinal (`seq / total`) rather than their index in the loaded slice.
-        // So the strip is a true whole-run overview, and a tap jumps to a seq
-        // that may not be loaded yet (routed through the random-access seek).
-        for (final a in feedRunAnchorMarks(
-          errorSeqs: widget.runErrorSeqs ?? const <int>[],
-          turnSeqs: widget.runTurnSeqs ?? const <int>[],
-          total: widget.totalEventCount!,
-        )) {
-          minimapMarks.add(FeedMinimapMark(
-            frac: a.frac,
-            seq: a.seq,
-            isError: a.isError,
-            // Match the transcript card: a turn anchor is the turn's start
-            // event — an `input.text` user prompt — so colour it with the same
-            // accent the prompt card paints (terminalYellow), not a flat grey.
-            // Errors stay red. So the strip reads as a colour-coded shrink of
-            // the feed, like the loaded-window minimap.
-            color: a.isError
-                ? DesignColors.error
-                : agentEventAccent('input.text', 'user'),
-          ));
-        }
-      } else {
-        // Ticks track the list actually on screen (`lensed`) so the minimap
-        // is populated in EVERY view (item: "no minimap for turn/text view"),
-        // not only where tool/error rows exist: a faint tick per tool call OR
-        // turn anchor, a red tick per error. A tick's fraction maps straight
-        // to scroll offset for the tap-jump pre-scroll (see [_seekToFrac]).
-        for (var i = 0; i < lensed.length; i++) {
-          final e = lensed[i];
-          final isErr = agentEventIsError(e, toolResults, toolUpdates);
-          final isTool = (e['kind'] ?? '').toString() == 'tool_call';
-          if (!isErr && !isTool && !turnIdxSet.contains(i)) continue;
-          minimapMarks.add(FeedMinimapMark(
-            frac: i / lensedDenom,
-            seq: (e['seq'] as num?)?.toInt() ?? 0,
-            isError: isErr,
-            // Tick colour matches the transcript card (agentEventAccent),
-            // so the strip reads as a colour-coded shrink of the feed.
-            color: isErr
-                ? DesignColors.error
-                : agentEventAccent((e['kind'] ?? '').toString(),
-                    (e['producer'] ?? 'agent').toString()),
-          ));
-        }
+      // Ticks track the list actually on screen (`lensed`) so the minimap is
+      // populated in EVERY view (item: "no minimap for turn/text view"), not
+      // only where tool/error rows exist: a faint tick per tool call OR turn
+      // anchor, a red tick per error. A tick's fraction maps straight to scroll
+      // offset for the tap-jump pre-scroll (see [_seekToFrac]).
+      for (var i = 0; i < lensed.length; i++) {
+        final e = lensed[i];
+        final isErr = agentEventIsError(e, toolResults, toolUpdates);
+        final isTool = (e['kind'] ?? '').toString() == 'tool_call';
+        if (!isErr && !isTool && !turnIdxSet.contains(i)) continue;
+        minimapMarks.add(FeedMinimapMark(
+          frac: i / lensedDenom,
+          seq: (e['seq'] as num?)?.toInt() ?? 0,
+          isError: isErr,
+          // Tick colour matches the transcript card (agentEventAccent), so the
+          // strip reads as a colour-coded shrink of the feed.
+          color: isErr
+              ? DesignColors.error
+              : agentEventAccent((e['kind'] ?? '').toString(),
+                  (e['producer'] ?? 'agent').toString()),
+        ));
       }
     }
     // The bottom-left stepper steps a DIFFERENT unit per view, so `‹/›`
@@ -2061,7 +1289,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // session_details_sheet.dart). We intentionally don't render
         // it inline — the info is fixed for the session and burning a
         // full transcript row on mobile wasn't worth it.
-        if (hasTelemetry && !widget.randomAccess)
+        if (hasTelemetry)
           TelemetryStrip(
             totalCostUsd: totalCostUsd,
             turnCount: turnCount,
@@ -2093,9 +1321,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         Expanded(
           child: Stack(
             children: [
-              _errorsSummaryMode
-                  ? _buildErrorsSummaryList()
-                  : ListView.separated(
+              ListView.separated(
                 controller: _scroll,
                 padding: widget.padding,
                 itemCount: lensed.length,
@@ -2212,7 +1438,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // ListView would read as "no transcript". Tell the user
               // it's the filter — and that older matches may exist
               // above — so they can scroll up or clear it.
-              if (_lens != FeedLens.all && lensed.isEmpty && !_errorsSummaryMode)
+              if (_lens != FeedLens.all && lensed.isEmpty)
                 Center(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
@@ -2256,53 +1482,22 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   // case for a far jump in the full-screen transcript).
                   onPrev: () {
                     if (matchIndex > 1) {
-                      _funnelStep(matchIndex - 2, matchSeqs,
-                          usesRunList: funnelUsesRunList);
+                      _funnelStep(matchIndex - 2, matchSeqs);
                     }
                   },
                   onNext: () {
                     if (matchIndex >= 1 && matchIndex < matchSeqs.length) {
-                      _funnelStep(matchIndex, matchSeqs,
-                          usesRunList: funnelUsesRunList);
+                      _funnelStep(matchIndex, matchSeqs);
                     }
                   },
                 ),
               ),
-              // Monotonic "event N of M" position. N is the viewport-top run
-              // ordinal, M the digest's run total — so the readout reflects the
-              // whole run, not just the loaded window. Gated on a supplied
-              // total (the analysis surface) so the plain full-screen feed,
-              // which has no digest, doesn't show a loaded-max denominator that
-              // would imply older unloaded events don't exist. On the random-
-              // access surface it's a control (tap → "jump to any event"
-              // scrubber); otherwise it self-wraps in an IgnorePointer so it
-              // never steals a tap from the funnel/minimap.
-              // (Suppressed in the Errors summary list — the position pill +
-              // minimap describe the transcript window, which the digest-only
-              // error list isn't; the funnel N/M + the list itself are the nav.)
-              if (!widget.dense &&
-                  !_errorsSummaryMode &&
-                  widget.totalEventCount != null &&
-                  _logPosition() != null)
-                Positioned(
-                  top: 8,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: FeedPositionPill(
-                      pos: _logPosition()!,
-                      onTap: widget.randomAccess ? _openJumpSheet : null,
-                    ),
-                  ),
-                ),
               // Right-edge minimap (full-screen only): a tick per tool call
               // / turn anchor (card-coloured) + a red tick per error, plus a
               // viewport indicator. Tap jumps to the nearest error, drag
               // scrubs. Always rendered in full-screen (every view) so the
-              // strip is a consistent scrubber. In full-run anchor mode the
-              // ticks are whole-run (digest + turn index) and a tap routes
-              // through the random-access seek (the target may not be loaded).
-              if (!widget.dense && !_errorsSummaryMode)
+              // strip is a consistent scrubber over the loaded window.
+              if (!widget.dense)
                 Positioned(
                   top: 8,
                   right: 4,
@@ -2313,16 +1508,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   width: 28,
                   child: FeedMinimap(
                     marks: minimapMarks,
-                    onJump: _runAnchorMode
-                        ? (frac, seq) {
-                            // Turn anchors carry a ts (→ O(log n) window reset);
-                            // error anchors don't and fall back to the page-walk.
-                            _handleExternalSeek(
-                                seq, widget.runAnchorTs?[seq]);
-                          }
-                        : _seekToFrac,
-                    onScrub: _runAnchorMode ? null : _scrubTo,
-                    viewportFrac: _minimapViewportFrac(),
+                    onJump: _seekToFrac,
+                    onScrub: _scrubTo,
+                    viewportFrac: _viewFrac,
                   ),
                 ),
               // Full-screen stepper: floats bottom-left. ⤒ top-of-loaded,
@@ -2346,8 +1534,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     // page-older / jump-to-tail so it never dead-ends.
                     onPrevTurn: (_lens != FeedLens.all && matchSeqs.isNotEmpty)
                         ? (matchIndex > 1
-                            ? () => _funnelStep(matchIndex - 2, matchSeqs,
-                                usesRunList: funnelUsesRunList)
+                            ? () => _funnelStep(matchIndex - 2, matchSeqs)
                             : (!_atHead
                                 ? () { _maybeLoadOlder(); }
                                 : _jumpToOldestLoaded))
@@ -2359,8 +1546,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                                 : _jumpToOldestLoaded)),
                     onNextTurn: (_lens != FeedLens.all && matchSeqs.isNotEmpty)
                         ? (matchIndex < matchSeqs.length
-                            ? () => _funnelStep(matchIndex, matchSeqs,
-                                usesRunList: funnelUsesRunList)
+                            ? () => _funnelStep(matchIndex, matchSeqs)
                             : _jumpToLatest)
                         : (nextStepK != null
                             ? () => _seekToLensedIndex(

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-03)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.797
+> **Last verified vs code:** v1.0.798
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,41 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.798-alpha — 2026-06-03
+
+**Agent-surface consolidation + the v1.0.797 device-test fixes.** Retires the
+duplicate project-agent bottom sheet so there is one full-screen agent surface,
+and clears the workspace-vs-project parity gaps the duplication created.
+
+### Changed
+- **One agent surface** (`656fd20`): the project Agents tab (and steward-open +
+  deep-link) now open the full-screen `SessionChatScreen` instead of a near-
+  full-screen bottom sheet that duplicated its whole view stack. New
+  `openAgentSession` resolves the session from the warm snapshot and pushes the
+  screen; the deleted `_AgentDetailSheet` had been the source of recurring
+  drift (the rail, the Insight). Workspace agents now reach parity with project
+  agents structurally — there is no kind-branch anywhere.
+- **Project detail `View ▾`** (`175f210`): the header team switcher + the pill
+  bar are replaced by a `View ▾` switcher over Overview / Activity / Agents /
+  Tasks / Files, reclaiming a vertical row (parity with the run/session
+  surfaces).
+- **Sessions rail across all views** (`b4c5d3c`): the left Sessions rail is
+  hoisted out of the Insights view up to `SessionChatScreen`, so it overlays
+  every view — the Live Feed included — and retargets the whole surface.
+
+### Fixed
+- **Insight resolves for any agent** (`7d25385`, `656fd20`): the rich
+  `SessionAnalysisView` (digest + transcript) only showed when the hub session
+  id resolved from the newest event's `session_id` — engine/data-dependent, so
+  workspace / non-claude / older agents silently fell back to the legacy
+  metric tiles. A warm-session fallback (the session whose `current_agent_id`
+  is this agent) now resolves it reliably.
+- **Rail shows paused + archived** (`be4138e`): the steward-scope Sessions rail
+  listed only active sessions; it now shows active + paused + archived, banded
+  and labelled.
+- **Agent history actions** (`aa814b5`): archived-agent rows show a friendly
+  status ("ended") and gain a ⋮ menu (Resume session / Delete).
 
 ## v1.0.797-alpha — 2026-06-03
 

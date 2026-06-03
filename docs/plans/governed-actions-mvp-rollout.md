@@ -15,7 +15,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > (override on resolved rows), deferred propose kinds (criterion /
 > agent.terminate / etc — plan §5).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.792-alpha (spot-check: policy.go Kinds map + the 5 apply_*.go still present; the 786–792 releases are mobile/Insight + transcript-refactor only — no governed-actions change)
+> **Last verified vs code:** v1.0.798-alpha (spot-check: policy.go Kinds map + the apply_*.go handlers still present; the 793–798 releases are mobile/UI only — run-detail UI, Sessions rail, agent-surface consolidation — no governed-actions change)
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by

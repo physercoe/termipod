@@ -15,6 +15,7 @@ import '../../providers/sessions_provider.dart';
 import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/agent_actions_menu.dart';
 import '../../widgets/agent_config_sheet.dart';
 import '../../widgets/live_feed.dart';
 import '../../widgets/agent_journal_view.dart';
@@ -1784,148 +1785,41 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     }
   }
 
-  Future<void> _pauseOrResume() async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    final ok = await _guard(() =>
-        _isPaused ? client.resumeAgent(_id) : client.pauseAgent(_id));
-    if (ok == null || !mounted) return;
-    // Command is enqueued; the host-runner flips pause_state after it runs.
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(_isPaused
-          ? 'Resume command enqueued'
-          : 'Pause command enqueued'),
-    ));
-    await ref.read(hubProvider.notifier).refreshAll();
-  }
-
-  Future<void> _archive() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Delete "$_handle"?'),
-        content: const Text(
-            'Moves this terminated agent off the live list. The row stays in '
-            'the database so spawn history and audit events still resolve. '
-            'You can review archived agents from the hub menu.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(ctx).colorScheme.error),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    final done = await _guard(() async {
-      await client.archiveAgent(_id);
-      return true;
-    });
-    if (done != true || !mounted) return;
-    await ref.read(hubProvider.notifier).refreshAll();
-    if (mounted) Navigator.pop(context);
-  }
-
-  Future<void> _terminate() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Terminate "$_handle"?'),
-        content: const Text(
-            'Permanently ends this worker: the host-runner kills the pane '
-            '(dirty worktrees are preserved) and the session is ARCHIVED — '
-            'not resumable, only fork-eligible. To halt a worker you may '
-            'want back, use Stop instead.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(ctx).colorScheme.error),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Terminate'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    final done = await _guard(() async {
-      await client.terminateAgent(_id);
-      return true;
-    });
-    if (done != true || !mounted) return;
-    await ref.read(hubProvider.notifier).refreshAll();
-    if (mounted) Navigator.pop(context);
-  }
-
-  // Stop = the RESUMABLE halt: kills the worker but pauses the session, so it
-  // can be brought back with Resume (the counterpart of terminate=archive).
-  Future<void> _stop() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Stop "$_handle"?'),
-        content: const Text(
-            'Halts this worker: the host-runner kills the pane (dirty '
-            'worktrees are preserved) and the session is PAUSED — resumable '
-            'later from where it left off. To end it permanently instead, use '
-            'Terminate.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Stop')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    final done = await _guard(() async {
-      await client.stopAgent(_id);
-      return true;
-    });
-    if (done != true || !mounted) return;
-    // Keep the sheet open and re-fetch so it flips to the dead/paused state
-    // with a Resume action one tap away.
-    await _loadFull();
-    await ref.read(hubProvider.notifier).refreshAll();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Stopped — session paused (resumable)')));
+  // The lifecycle actions (Pause/Stop/Archive/Resume-session/Delete) route
+  // through the shared dispatcher [runAgentLifecycleAction] so the vocabulary +
+  // confirm copy match the steward/session surface exactly (one source of
+  // truth). config + respawn are surface-specific and handled inline here.
+  Future<void> _onAction(String value) async {
+    if (value == AgentAction.config) {
+      showAgentConfigSheet(context, agentId: _id);
+      return;
     }
-  }
-
-  // Resume = the inverse of Stop: respawn the agent's paused session (reusing
-  // its worktree + spec + engine session id) so the conversation continues.
-  Future<void> _resumeSession() async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    // _guard surfaces a 409 ("no paused session …" — e.g. the agent was
-    // terminated, not stopped) in the sheet's error banner.
-    final out = await _guard(() => client.resumeAgentSession(_id));
-    if (out == null || !mounted) return;
-    await ref.read(hubProvider.notifier).refreshAll();
+    if (value == AgentAction.respawn) {
+      await _respawn();
+      return;
+    }
+    setState(() => _busy = true);
+    final outcome = await runAgentLifecycleAction(
+      context,
+      ref,
+      value,
+      agentId: _id,
+      handle: _handle,
+      isPaused: _isPaused,
+    );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Session resumed')));
-    // The paused session is now driven by a freshly spawned agent; this sheet
-    // tracked the old (dead) one, so close it.
-    Navigator.pop(context);
+    setState(() => _busy = false);
+    if (outcome == AgentActionOutcome.removed ||
+        outcome == AgentActionOutcome.sessionResumed) {
+      // The tracked agent is gone (Archived/Deleted) or the paused session is
+      // now driven by a fresh agent (Resume session) — close this sheet.
+      Navigator.pop(context);
+    } else if (outcome == AgentActionOutcome.stayed) {
+      // Stop / Pause keep the sheet open; re-fetch so it flips to the
+      // dead/paused state with the next action one tap away.
+      await _loadFull();
+    }
+    // cancelled → nothing changed.
   }
 
   @override
@@ -1987,19 +1881,29 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                 ],
                 const SizedBox(width: 4),
               ],
-              menu: _ActionsMenu(
-                busy: _busy,
-                isPaused: _isPaused,
-                isDead: _isDead,
-                hasPane: _hasPane,
-                canRespawn: _specYaml.isNotEmpty,
-                onConfig: () => showAgentConfigSheet(context, agentId: _id),
-                onPauseResume: _pauseOrResume,
-                onStop: _stop,
-                onResumeSession: _resumeSession,
-                onTerminate: _terminate,
-                onArchive: _archive,
-                onRespawn: _respawn,
+              menu: PopupMenuButton<String>(
+                tooltip: 'Agent actions',
+                enabled: !_busy,
+                onSelected: _onAction,
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: AgentAction.config,
+                    child: ListTile(
+                      leading: Icon(Icons.account_tree_outlined),
+                      title: Text('View agent config'),
+                      subtitle: Text('Kind, role, mode, spawn spec'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                  ...agentLifecycleMenuItems(
+                    context,
+                    isDead: _isDead,
+                    isPaused: _isPaused,
+                    hasPane: _hasPane,
+                    canRespawn: _specYaml.isNotEmpty,
+                  ),
+                ],
               ),
               onClose: () => Navigator.pop(context),
             ),
@@ -2058,158 +1962,6 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Overflow menu for the agent detail sheet header. Carries the
-/// destructive + lifecycle actions (pause/resume, terminate or delete,
-/// respawn) plus the read-only "View agent config" entry. Mirrors the
-/// SessionChatScreen action-popup pattern so the same gestures work
-/// from both surfaces. Collapsing these into one PopupMenuButton keeps
-/// the sheet header on a single row instead of forcing an action-bar
-/// row that re-flowed on narrow devices.
-class _ActionsMenu extends StatelessWidget {
-  final bool busy;
-  final bool isPaused;
-  final bool isDead;
-  final bool hasPane;
-  final bool canRespawn;
-  final VoidCallback onConfig;
-  final VoidCallback onPauseResume;
-  final VoidCallback onStop;
-  final VoidCallback onResumeSession;
-  final VoidCallback onTerminate;
-  final VoidCallback onArchive;
-  final VoidCallback onRespawn;
-
-  const _ActionsMenu({
-    required this.busy,
-    required this.isPaused,
-    required this.isDead,
-    required this.hasPane,
-    required this.canRespawn,
-    required this.onConfig,
-    required this.onPauseResume,
-    required this.onStop,
-    required this.onResumeSession,
-    required this.onTerminate,
-    required this.onArchive,
-    required this.onRespawn,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      tooltip: 'Agent actions',
-      enabled: !busy,
-      onSelected: (v) {
-        switch (v) {
-          case 'config':
-            onConfig();
-          case 'pause_resume':
-            onPauseResume();
-          case 'stop':
-            onStop();
-          case 'resume_session':
-            onResumeSession();
-          case 'terminate':
-            onTerminate();
-          case 'archive':
-            onArchive();
-          case 'respawn':
-            onRespawn();
-        }
-      },
-      itemBuilder: (_) => [
-        const PopupMenuItem(
-          value: 'config',
-          child: ListTile(
-            leading: Icon(Icons.account_tree_outlined),
-            title: Text('View agent config'),
-            subtitle: Text('Kind, role, mode, spawn spec'),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-          ),
-        ),
-        if (!isDead && hasPane)
-          PopupMenuItem(
-            value: 'pause_resume',
-            child: ListTile(
-              leading: Icon(isPaused ? Icons.play_arrow : Icons.pause),
-              title: Text(isPaused ? 'Resume' : 'Pause'),
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-            ),
-          ),
-        // Resume the paused session a Stop left behind (continue, not fresh).
-        // Offered for any dead agent; the hub 409s with a clear message if the
-        // session was archived by Terminate rather than paused by Stop.
-        if (isDead)
-          const PopupMenuItem(
-            value: 'resume_session',
-            child: ListTile(
-              leading: Icon(Icons.play_circle_outline,
-                  color: DesignColors.success),
-              title: Text('Resume session'),
-              subtitle: Text('Continue the paused session (keeps history)'),
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-            ),
-          ),
-        if (canRespawn)
-          const PopupMenuItem(
-            value: 'respawn',
-            child: ListTile(
-              leading: Icon(Icons.replay),
-              title: Text('Respawn'),
-              subtitle: Text('Spawn a new agent from the same spec'),
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-            ),
-          ),
-        // Stop = resumable halt (session paused). Sits above Terminate so the
-        // recoverable option is the default reach; both kill the live pane.
-        if (!isDead)
-          const PopupMenuItem(
-            value: 'stop',
-            child: ListTile(
-              leading: Icon(Icons.pause_circle_outline),
-              title: Text('Stop'),
-              subtitle: Text('Halt; session paused (resumable)'),
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-            ),
-          ),
-        if (!isDead)
-          PopupMenuItem(
-            value: 'terminate',
-            child: ListTile(
-              leading: Icon(Icons.stop_circle_outlined,
-                  color: Theme.of(context).colorScheme.error),
-              title: Text('Terminate',
-                  style: TextStyle(
-                      color: Theme.of(context).colorScheme.error)),
-              subtitle: const Text('Kills the pane; clean worktrees swept'),
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-            ),
-          ),
-        if (isDead)
-          PopupMenuItem(
-            value: 'archive',
-            child: ListTile(
-              leading: Icon(Icons.delete_outline,
-                  color: Theme.of(context).colorScheme.error),
-              title: Text('Delete',
-                  style: TextStyle(
-                      color: Theme.of(context).colorScheme.error)),
-              subtitle: const Text('Hide from live list; row preserved'),
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-            ),
-          ),
-      ],
     );
   }
 }

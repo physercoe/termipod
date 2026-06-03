@@ -57,17 +57,19 @@ class SessionsRail extends ConsumerStatefulWidget {
 class _SessionsRailState extends ConsumerState<SessionsRail> {
   // The agent row whose session is being resolved on tap (a tiny inline spinner).
   String? _resolvingAgentId;
-  // Project id learned from a one-shot fetch when the analysed agent isn't in
-  // the warm hub snapshot (the archived-agent case). Null until/unless fetched.
-  String? _coldProjectId;
-  bool _coldTried = false;
-  bool _coldLoading = false;
+  // The FULL roster (live + terminated + archived), fetched once. The warm hub
+  // snapshot excludes terminated/failed/crashed/archived (the hub's default
+  // agents list filters them — they live in the history page), but the rail is
+  // a *switch-to-analyse* roster and a finished run is exactly what you review,
+  // so we page them in. Null until the fetch lands — the warm snapshot paints
+  // the live roster instantly meanwhile (no open latency).
+  List<Map<String, dynamic>>? _fullRoster;
+  bool _fullTried = false;
 
   static bool _agentLive(String status) =>
       status == 'running' || status == 'idle' || status == 'pending';
 
-  /// The analysed agent's row from the warm hub snapshot, or null if it isn't
-  /// in it (archived).
+  /// The analysed agent's row from [agents], or null if absent.
   Map<String, dynamic>? _meIn(List<Map<String, dynamic>> agents) {
     for (final a in agents) {
       if ((a['id'] ?? '').toString() == widget.agentId) return a;
@@ -75,28 +77,22 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     return null;
   }
 
-  /// Cold fallback: the analysed agent isn't in the warm snapshot, so fetch it
-  /// once to learn its project and render the sibling roster from warm state.
-  Future<void> _resolveCold() async {
-    _coldTried = true;
-    _coldLoading = true;
+  /// Fetch the full roster once — including terminated + archived, which the
+  /// warm snapshot omits. Doubles as the resolver for an archived analysed
+  /// agent (absent from the warm snapshot): once this lands, `_meIn` finds it.
+  Future<void> _fetchFull() async {
+    _fullTried = true;
     final client = ref.read(hubProvider.notifier).client;
-    if (client == null) {
-      if (mounted) setState(() => _coldLoading = false);
-      return;
-    }
+    if (client == null) return;
     try {
-      final a = (await client.getAgentCached(widget.agentId)).body;
-      final pid = (a['project_id'] ?? '').toString();
-      if (mounted) {
-        setState(() {
-          if (pid.isNotEmpty) _coldProjectId = pid;
-          _coldLoading = false;
-        });
-      }
+      final out = (await client.listAgentsCached(
+        includeTerminated: true,
+        includeArchived: true,
+      ))
+          .body;
+      if (mounted) setState(() => _fullRoster = out);
     } catch (_) {
-      // Leave _coldProjectId null — the body shows the steward fallback.
-      if (mounted) setState(() => _coldLoading = false);
+      // Non-fatal — the warm snapshot's live roster still shows.
     }
   }
 
@@ -218,14 +214,24 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
 
   Widget _body(Color fg, Color muted) {
     final hub = ref.watch(hubProvider).value;
-    final all = hub?.agents ?? const <Map<String, dynamic>>[];
     final projects = hub?.projects ?? const <Map<String, dynamic>>[];
+    // Full roster once it lands (live + terminated + archived); the warm
+    // snapshot (live only) paints instantly meanwhile.
+    final all = _fullRoster ?? hub?.agents ?? const <Map<String, dynamic>>[];
+
+    // Page in the terminated/archived runs once (also resolves an archived
+    // analysed agent that the warm snapshot omits).
+    if (!_fullTried) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_fullTried) _fetchFull();
+      });
+    }
+
     final me = _meIn(all);
 
     // Scope from the analysed agent. project_id → the project roster; otherwise
     // a steward → the team steward roster.
-    final projectId =
-        (me?['project_id'] ?? _coldProjectId ?? '').toString();
+    final projectId = (me?['project_id'] ?? '').toString();
 
     String header;
     List<Map<String, dynamic>> rows;
@@ -235,22 +241,18 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
         for (final a in all)
           if ((a['project_id'] ?? '').toString() == projectId) a,
       ];
-    } else if (me == null && (!_coldTried || _coldLoading)) {
-      // Not in the warm snapshot yet (archived) — learn its project once, then
-      // re-render. Show a spinner rather than a misleading roster while we do.
-      if (!_coldTried) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && !_coldTried) _resolveCold();
-        });
-      }
+    } else if (me == null && _fullRoster == null) {
+      // Analysed agent not in the warm snapshot yet (archived) and the full
+      // roster is still loading — spinner rather than a misleading roster.
       return const Center(child: CircularProgressIndicator());
     } else {
-      // A team-level steward (or an unresolved cold agent): the steward roster.
+      // A team-level steward (or an unresolved agent): the team steward roster.
       header = 'Stewards';
       rows = [for (final a in all) if (isStewardAgent(a)) a];
     }
 
-    // Live runs first, then by handle — the freshest switch targets on top.
+    // Live runs first, then dead; alphabetical within each — the freshest
+    // switch targets on top, finished runs reachable below.
     rows.sort((x, y) {
       final lx = _agentLive((x['status'] ?? '').toString());
       final ly = _agentLive((y['status'] ?? '').toString());

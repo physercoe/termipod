@@ -10,6 +10,7 @@ import '../../services/hub/session_display.dart';
 import '../../services/id_format.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/agent_actions_menu.dart';
 import '../../widgets/agent_config_sheet.dart';
 import '../../widgets/live_feed.dart';
 import '../../widgets/agent_journal_view.dart';
@@ -2231,6 +2232,30 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   // / older claude / non-claude engine).
   Map<String, dynamic>? _latestStatusLine;
 
+  // The full agent row (status / pause_state / pane_id / spawn_spec), fetched
+  // once so the header's lifecycle menu reaches the SAME actions as the
+  // project-agent sheet (Stop / Archive / Pause / Resume session / Delete /
+  // Respawn) with the same names — the warm `hub.agents` snapshot omits the
+  // dead/archived state these actions key on. Null until it lands.
+  Map<String, dynamic>? _fullAgent;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFullAgent();
+  }
+
+  Future<void> _loadFullAgent() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null || widget.agentId.isEmpty) return;
+    try {
+      final out = (await client.getAgentCached(widget.agentId)).body;
+      if (mounted) setState(() => _fullAgent = out);
+    } catch (_) {
+      // Non-fatal — the menu falls back to config/rename/fork only.
+    }
+  }
+
   // Effective AppBar title: user-set title wins; otherwise claude's
   // auto-derived hint; otherwise the (untitled session) placeholder
   // the parent passes in for unnamed sessions. The hint is purely a
@@ -2299,67 +2324,10 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     }
   }
 
-  /// Stops the session by killing the attached engine. Destructive —
-  /// the agent process is killed, the session auto-flips to paused
-  /// (and stays that way until the user explicitly resumes or the
-  /// steward is replaced).
-  ///
-  /// "Close session" used to live next to this as a separate action,
-  /// but it violated the multi-steward design invariant ("every live
-  /// steward has a session"): archiving the only active session
-  /// would leave a steward agent without a current session, an
-  /// agent-without-session intermediate that the design forbids.
-  /// The two clean options are now: Reset (new conversation), which
-  /// preserves the agent and rotates the transcript via the per-
-  /// steward kebab on the Sessions page; or Stop session (this
-  /// action), which detaches the engine. Per ADR-009 D6 the action
-  /// is gated on session.state == active so it doesn't render in
-  /// paused/archived sessions where there is no engine to stop.
-  Future<void> _stopSession() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Stop session?'),
-        content: const Text(
-          "Kills the steward's agent process. The session will pause; "
-          'you can Resume it later or replace the steward with a fresh '
-          'one (potentially a different engine/model).\n\n'
-          "This doesn't delete any history — the transcript stays "
-          'available under Previous.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Stop'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    try {
-      await client.stopAgent(widget.agentId);
-      // Refresh state so the Sessions list reflects the pause and
-      // the home/projects screens drop the dead steward chip.
-      await ref.read(hubProvider.notifier).refreshAll();
-      await ref.read(sessionsProvider.notifier).refresh();
-      if (!mounted) return;
-      Navigator.of(context).pop();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Stop failed: $e')),
-      );
-    }
-  }
+  // Stop now routes through the shared agent-lifecycle dispatcher
+  // (agent_actions_menu.dart) so the steward/session surface and the
+  // project-agent sheet share one vocabulary; the bespoke `_stopSession` was
+  // retired with the menu rebuild.
 
   /// Forks the archived session (ADR-009 D4): server creates a new
   /// session with the same scope. When a live steward exists, the
@@ -2529,22 +2497,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
       }
     }
     final sessionStatus = (sessionRow?['status'] ?? '').toString();
-    // Mirror the sessions-list defensive override: if the session
-    // claims to be active but the attached agent is gone (terminal
-    // status or missing from hub.agents), there's nothing for Stop to
-    // kill. Hide it so the chat AppBar matches reality.
     final hub = ref.watch(hubProvider).value;
-    bool agentLive = false;
-    if (hub != null) {
-      for (final a in hub.agents) {
-        if ((a['id'] ?? '').toString() != widget.agentId) continue;
-        final st = (a['status'] ?? '').toString();
-        agentLive = st == 'running' || st == 'pending' || st == 'paused';
-        break;
-      }
-    }
-    final canStop =
-        agentLive && (sessionStatus == 'active' || sessionStatus == 'open');
     final canFork =
         sessionStatus == 'archived' || sessionStatus == 'closed';
     final scopeChip = _buildScopeChip(context, ref, sessionRow);
@@ -2563,30 +2516,82 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
       }
     }
     final agentKindForPill = _agentKind() ?? '';
-    // P2 — the session-actions overflow (agent config / rename / stop /
-    // fork). Hung off the shared SessionHeader's ⋮ slot, same as the
-    // project-agent sheet hangs _ActionsMenu there.
+
+    // Agent lifecycle state for the shared action menu (parity with the
+    // project-agent sheet). Derived from the full agent row; the warm snapshot
+    // omits the dead/archived state, so until `_fullAgent` lands the lifecycle
+    // items stay hidden and the menu shows config/rename/fork only.
+    final fa = _fullAgent;
+    final aStatus = (fa?['status'] ?? '').toString();
+    final agentIsDead = aStatus == 'terminated' ||
+        aStatus == 'failed' ||
+        aStatus == 'crashed';
+    final agentIsPaused =
+        (fa?['pause_state'] ?? 'running').toString() == 'paused';
+    final agentHasPane = (fa?['pane_id'] ?? '').toString().isNotEmpty;
+    final agentSpec = (fa?['spawn_spec_yaml'] ?? '').toString();
+    // Stewards have a dedicated singleton spawn flow — never offer a generic
+    // Respawn for them (it would mint a duplicate steward).
+    final agentIsSteward = fa != null && isStewardAgent(fa);
+    final agentHandle = (fa?['handle'] ?? _title).toString();
+    final agentKind = (fa?['kind'] ?? '').toString();
+    final agentHostId = (fa?['host_id'] ?? '').toString();
+
+    // P2 — the session-actions overflow. Shares the lifecycle vocabulary with
+    // the project-agent sheet via [agentLifecycleMenuItems] /
+    // [runAgentLifecycleAction] so the actions + names can't drift; config /
+    // rename / fork are session-specific.
     final sessionActionsMenu = PopupMenuButton<String>(
       tooltip: 'Session actions',
-      onSelected: (v) {
+      onSelected: (v) async {
         switch (v) {
-          case 'agent_config':
+          case AgentAction.config:
             final aid = (sessionRow?['current_agent_id'] ?? '').toString();
             if (aid.isNotEmpty) {
               showAgentConfigSheet(context, agentId: aid);
             }
+            return;
           case 'rename':
             _rename();
-          case 'stop':
-            _stopSession();
+            return;
           case 'fork':
             _forkSession();
+            return;
+          case AgentAction.respawn:
+            await respawnAgentFromSpec(
+              context,
+              ref,
+              handle: agentHandle,
+              kind: agentKind,
+              hostId: agentHostId,
+              specYaml: agentSpec,
+            );
+            return;
+          default:
+            final outcome = await runAgentLifecycleAction(
+              context,
+              ref,
+              v,
+              agentId: widget.agentId,
+              handle: agentHandle,
+              isPaused: agentIsPaused,
+            );
+            if (!mounted) return;
+            await ref.read(sessionsProvider.notifier).refresh();
+            if (!mounted) return;
+            // Stop / Archive / Delete / Resume-session leave nothing live to
+            // view here — return to the list. Pause/Resume (budget) stays.
+            if (outcome == AgentActionOutcome.removed ||
+                outcome == AgentActionOutcome.sessionResumed ||
+                v == AgentAction.stop) {
+              Navigator.of(context).pop();
+            }
         }
       },
       itemBuilder: (_) => [
         if ((sessionRow?['current_agent_id'] ?? '').toString().isNotEmpty)
           const PopupMenuItem(
-            value: 'agent_config',
+            value: AgentAction.config,
             child: ListTile(
               leading: Icon(Icons.account_tree_outlined),
               title: Text('View agent config'),
@@ -2604,19 +2609,15 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
             dense: true,
           ),
         ),
-        if (canStop)
-          PopupMenuItem(
-            value: 'stop',
-            child: ListTile(
-              leading: Icon(Icons.power_settings_new,
-                  color: Theme.of(context).colorScheme.error),
-              title: Text('Stop session',
-                  style:
-                      TextStyle(color: Theme.of(context).colorScheme.error)),
-              subtitle: const Text('Kills the agent process; session pauses'),
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-            ),
+        // Shared agent-lifecycle items (same labels as the project-agent
+        // sheet), once the full agent row has resolved.
+        if (fa != null)
+          ...agentLifecycleMenuItems(
+            context,
+            isDead: agentIsDead,
+            isPaused: agentIsPaused,
+            hasPane: agentHasPane,
+            canRespawn: agentSpec.isNotEmpty && !agentIsSteward,
           ),
         if (canFork)
           PopupMenuItem(

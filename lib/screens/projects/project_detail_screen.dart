@@ -19,7 +19,7 @@ import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/insights_panel.dart';
 import '../../widgets/phase_badge.dart';
 import '../../widgets/shortcut_tile_strip.dart';
-import '../../widgets/team_switcher.dart';
+import '../../widgets/view_switcher.dart';
 import '../../widgets/spawn_project_steward_sheet.dart';
 import '../../widgets/template_yaml_sheet.dart';
 import 'phase_summary_screen.dart';
@@ -116,6 +116,17 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
     'Files',
   ];
 
+  // The same surfaces, as `View ▾` entries — the header switcher replaces the
+  // old pill bar to reclaim a vertical row (parity with the run/session
+  // surfaces). Order matches _labels (and the PageView children).
+  static const _viewOptions = <ViewOption>[
+    ViewOption(label: 'Overview', icon: Icons.dashboard_outlined),
+    ViewOption(label: 'Activity', icon: Icons.bolt_outlined),
+    ViewOption(label: 'Agents', icon: Icons.smart_toy_outlined),
+    ViewOption(label: 'Tasks', icon: Icons.checklist_outlined),
+    ViewOption(label: 'Files', icon: Icons.folder_outlined),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -207,7 +218,16 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
           ],
         ),
         actions: [
-          const TeamSwitcher(),
+          // The `View ▾` switcher replaces both the team switcher and the old
+          // pill bar here, reclaiming a vertical row on the project surface.
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: ViewSwitcher(
+              views: _viewOptions,
+              currentView: _index,
+              onSelect: _jump,
+            ),
+          ),
           // Edit + View template YAML moved into the overflow menu so
           // the title row has room for the kind chip + (long) project
           // name on narrow phones. The overflow now collects all the
@@ -290,11 +310,6 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
         children: [
           if (parentId.isNotEmpty)
             _ParentBreadcrumb(parentProjectId: parentId),
-          _PillBar(
-            labels: _labels,
-            selected: _index,
-            onChanged: _jump,
-          ),
           Expanded(
             child: PageView(
               controller: _pager,
@@ -315,89 +330,6 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PillBar extends StatelessWidget {
-  final List<String> labels;
-  final int selected;
-  final ValueChanged<int> onChanged;
-  const _PillBar({
-    required this.labels,
-    required this.selected,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            for (var i = 0; i < labels.length; i++) ...[
-              _Pill(
-                label: labels[i],
-                selected: selected == i,
-                onTap: () => onChanged(i),
-              ),
-              const SizedBox(width: 8),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _Pill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected
-              ? DesignColors.primary
-              : (isDark
-                  ? DesignColors.surfaceDark
-                  : DesignColors.surfaceLight),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected
-                ? DesignColors.primary
-                : (isDark
-                    ? DesignColors.borderDark
-                    : DesignColors.borderLight),
-          ),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: selected
-                ? Colors.white
-                : (isDark
-                    ? DesignColors.textSecondary
-                    : DesignColors.textSecondaryLight),
-          ),
-        ),
       ),
     );
   }

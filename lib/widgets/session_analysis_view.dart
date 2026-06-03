@@ -33,11 +33,17 @@ class SessionAnalysisView extends ConsumerStatefulWidget {
   /// report card's "as of `<ts>` · live" affordance.
   final bool live;
 
+  /// Whether to render the left Sessions rail (handle + overlay) inside this
+  /// view. False when a host (e.g. the session chat screen) already provides a
+  /// screen-level rail across all its views, so this view doesn't double it.
+  final bool showRail;
+
   const SessionAnalysisView({
     super.key,
     required this.agentId,
     required this.sessionId,
     this.live = false,
+    this.showRail = true,
   });
 
   @override
@@ -234,6 +240,10 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
       ],
     );
 
+    // When a host provides a screen-level rail across all its views, this view
+    // omits its own (no double handle / overlay).
+    if (!widget.showRail) return column;
+
     // The left "Sessions" rail (ADR-041 §4) overlays the surface phone-first: a
     // left-edge pull handle opens a scoped switcher; picking a run retargets
     // the whole view (dashboard + transcript + outline) via [_retarget].
@@ -250,7 +260,7 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
             top: 0,
             bottom: 0,
             child: Center(
-              child: _SessionsRailHandle(
+              child: SessionsRailHandle(
                 onTap: _openRail,
               ),
             ),
@@ -262,40 +272,6 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
             onClose: () => setState(() => _railOpen = false),
           ),
       ],
-    );
-  }
-}
-
-/// The left-edge pull handle that opens the Sessions rail — a slim half-rounded
-/// tab hugging the screen edge, vertically centred (clear of the dashboard card
-/// and the transcript's top-left funnel).
-class _SessionsRailHandle extends StatelessWidget {
-  final VoidCallback onTap;
-  const _SessionsRailHandle({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
-    final border = isDark ? DesignColors.borderDark : DesignColors.borderLight;
-    final muted =
-        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-    return Material(
-      color: bg,
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.horizontal(right: Radius.circular(10)),
-        side: BorderSide(color: border),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius:
-            const BorderRadius.horizontal(right: Radius.circular(10)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 14),
-          child: Icon(Icons.chevron_right, size: 18, color: muted),
-        ),
-      ),
     );
   }
 }

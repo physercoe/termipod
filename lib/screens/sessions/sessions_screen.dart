@@ -16,6 +16,7 @@ import '../../widgets/live_feed.dart';
 import '../../widgets/agent_journal_view.dart';
 import '../../widgets/agent_pane_view.dart';
 import '../../widgets/session_analysis_view.dart';
+import '../../widgets/sessions_rail.dart';
 import '../../widgets/session_details_sheet.dart';
 import '../../widgets/session_header.dart';
 import '../insights/insights_screen.dart';
@@ -2199,6 +2200,13 @@ class SessionChatScreen extends ConsumerStatefulWidget {
 
 class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   late String _title = widget.title;
+  // The active agent/session. Seeded from the widget, but the left Sessions
+  // rail (now hoisted to the screen so it overlays EVERY view, Feed included —
+  // not just the Insights analysis view) can retarget the whole surface to
+  // another in-scope session without leaving the screen.
+  late String _agentId = widget.agentId;
+  late String _sessionId = widget.sessionId;
+  bool _railOpen = false;
   // P2 — selected view in the shared SessionHeader's `View ▾` switcher.
   // Brings Pane/Journal/Insights parity with the project-agent sheet
   // (the session-detail surface was Feed-only before). Feed is index 0.
@@ -2247,13 +2255,37 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
 
   Future<void> _loadFullAgent() async {
     final client = ref.read(hubProvider.notifier).client;
-    if (client == null || widget.agentId.isEmpty) return;
+    if (client == null || _agentId.isEmpty) return;
     try {
-      final out = (await client.getAgentCached(widget.agentId)).body;
+      final out = (await client.getAgentCached(_agentId)).body;
       if (mounted) setState(() => _fullAgent = out);
     } catch (_) {
       // Non-fatal — the menu falls back to config/rename/fork only.
     }
+  }
+
+  /// Retarget the whole surface to another in-scope session (from the left
+  /// Sessions rail). Resets the per-agent ephemeral state forwarded up by the
+  /// feed so the header chip / title / menu re-resolve against the new agent;
+  /// the view children re-key on `_agentId/_sessionId` and rebuild.
+  void _retarget(String agentId, String sessionId, bool live) {
+    if (sessionId.isEmpty ||
+        (agentId == _agentId && sessionId == _sessionId)) {
+      return;
+    }
+    setState(() {
+      _agentId = agentId;
+      _sessionId = sessionId;
+      _sessionInit = null;
+      _modeModel = null;
+      _sessionNameHint = null;
+      _latestStatusLine = null;
+      _fullAgent = null;
+      // Drop the prior title so _effectiveTitle() falls back to the new
+      // session's auto-derived name hint (reported up by its feed).
+      _title = '(untitled session)';
+    });
+    _loadFullAgent();
   }
 
   // Effective AppBar title: user-set title wins; otherwise claude's
@@ -2280,7 +2312,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     final hub = ref.read(hubProvider).value;
     if (hub == null) return null;
     for (final a in hub.agents) {
-      if ((a['id'] ?? '').toString() != widget.agentId) continue;
+      if ((a['id'] ?? '').toString() != _agentId) continue;
       final kind = (a['kind'] ?? '').toString();
       if (kind.isNotEmpty) return kind;
     }
@@ -2296,7 +2328,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     if (hub == null) return null;
     String? hostId;
     for (final a in hub.agents) {
-      if ((a['id'] ?? '').toString() != widget.agentId) continue;
+      if ((a['id'] ?? '').toString() != _agentId) continue;
       hostId = (a['host_id'] ?? '').toString();
       break;
     }
@@ -2313,7 +2345,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     try {
       await ref
           .read(sessionsProvider.notifier)
-          .rename(widget.sessionId, next);
+          .rename(_sessionId, next);
       if (!mounted) return;
       setState(() => _title = next.isEmpty ? '(untitled session)' : next);
     } catch (e) {
@@ -2341,7 +2373,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     try {
       final out = await ref
           .read(sessionsProvider.notifier)
-          .fork(widget.sessionId);
+          .fork(_sessionId);
       if (out == null || !mounted) return;
       final newSessionId = (out['session_id'] ?? '').toString();
       final newAgentId = (out['agent_id'] ?? '').toString();
@@ -2490,7 +2522,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     Map<String, dynamic>? sessionRow;
     if (sessions != null) {
       for (final s in [...sessions.active, ...sessions.previous]) {
-        if ((s['id'] ?? '').toString() == widget.sessionId) {
+        if ((s['id'] ?? '').toString() == _sessionId) {
           sessionRow = s;
           break;
         }
@@ -2509,7 +2541,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     String agentProjectId = '';
     if (hub != null) {
       for (final a in hub.agents) {
-        if ((a['id'] ?? '').toString() == widget.agentId) {
+        if ((a['id'] ?? '').toString() == _agentId) {
           agentProjectId = (a['project_id'] ?? '').toString();
           break;
         }
@@ -2572,7 +2604,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
               context,
               ref,
               v,
-              agentId: widget.agentId,
+              agentId: _agentId,
               handle: agentHandle,
               isPaused: agentIsPaused,
             );
@@ -2643,9 +2675,11 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
       // supplies the status-bar inset the bar used to.
       body: SafeArea(
         bottom: false,
-        child: Column(
+        child: Stack(
           children: [
-            SessionHeader(
+            Column(
+              children: [
+                SessionHeader(
               leading: const BackButton(),
               title: _effectiveTitle(),
               subtitle: hostName != null ? '@$hostName' : null,
@@ -2710,9 +2744,12 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
               child: IndexedStack(
                 index: _view,
                 children: [
+                  // Keyed on the active run so a rail retarget rebuilds each
+                  // view fresh for the new session.
                   LiveFeed(
-                    agentId: widget.agentId,
-                    sessionId: widget.sessionId,
+                    key: ValueKey('feed/$_agentId/$_sessionId'),
+                    agentId: _agentId,
+                    sessionId: _sessionId,
                     initialSeq: widget.initialSeq,
                     // Full-screen surface — unfold the lens bar + minimap
                     // (P3) rather than the constrained funnel/pill.
@@ -2724,19 +2761,46 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
                     onStatusLineChanged: (p) =>
                         setState(() => _latestStatusLine = p),
                   ),
-                  AgentPaneView(agentId: widget.agentId),
-                  AgentJournalView(agentId: widget.agentId),
+                  AgentPaneView(key: ValueKey('pane/$_agentId'), agentId: _agentId),
+                  AgentJournalView(
+                      key: ValueKey('journal/$_agentId'), agentId: _agentId),
                   // Insight *is* analysis (ADR-038 / analysis-mode plan P1):
                   // a foldable run-report dashboard from the session digest
                   // over the navigable transcript, replacing the sparse
-                  // per-agent InsightsPanel.
+                  // per-agent InsightsPanel. showRail:false — the screen
+                  // provides one rail across all views (issue 4).
                   SessionAnalysisView(
-                    agentId: widget.agentId,
-                    sessionId: widget.sessionId,
+                    key: ValueKey('insights/$_agentId/$_sessionId'),
+                    agentId: _agentId,
+                    sessionId: _sessionId,
+                    showRail: false,
                   ),
                 ],
               ),
             ),
+              ],
+            ),
+            // Screen-level Sessions rail (issue 4): hoisted out of the
+            // Insights view so it overlays EVERY view — Feed included, not
+            // just analysis. The handle sits vertically centred on the left
+            // edge; picking a row retargets the whole screen via [_retarget]
+            // and the rail stays open (ADR-041 §4 — user closes it).
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: SessionsRailHandle(
+                  onTap: () => setState(() => _railOpen = true),
+                ),
+              ),
+            ),
+            if (_railOpen)
+              SessionsRail(
+                agentId: _agentId,
+                onSelect: _retarget,
+                onClose: () => setState(() => _railOpen = false),
+              ),
           ],
         ),
       ),

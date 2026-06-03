@@ -177,6 +177,14 @@ class RunsApi {
     await _t.invalidate('/v1/teams/${_t.cfg.teamId}/runs');
   }
 
+  /// Permanently deletes a run and its digests (the hub's `handleDeleteRun`,
+  /// `DELETE /v1/teams/{team}/runs/{run}`). Invalidates the cached run list so
+  /// the row drops out on the next read.
+  Future<void> deleteRun(String runId) async {
+    await _t.delete('/v1/teams/${_t.cfg.teamId}/runs/$runId');
+    await _t.invalidate('/v1/teams/${_t.cfg.teamId}/runs');
+  }
+
   // UI run-status 'succeeded' ↔ server 'completed'. All other values pass
   // through unchanged.
   String _runStatusToServer(String uiStatus) =>
@@ -324,5 +332,68 @@ class RunsApi {
       _t.put(
         '/v1/teams/${_t.cfg.teamId}/runs/$runId/histograms',
         {'histograms': histograms},
+      );
+
+  // ---- run "extras": config / system metrics / alerts (v1.0.796) ----
+  // The trackio sibling-table digests beside the scalar metric curves. The
+  // host-runner's metric poller PUTs them; the mobile run-detail screen reads
+  // them. See docs/plans/run-detail-ui.md.
+
+  /// Pulls the run's logged config (hyperparameters). The response is a map
+  /// `{config: {...} | null, updated_at}` — `config` is null when nothing has
+  /// been logged yet (a clean 200, not a 404, since the run exists).
+  Future<Map<String, dynamic>> getRunConfig(String runId) async {
+    final out = await _t.get('/v1/teams/${_t.cfg.teamId}/runs/$runId/config');
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Read-through variant of [getRunConfig]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<Map<String, dynamic>>> getRunConfigCached(
+    String runId,
+  ) =>
+      readThrough<Map<String, dynamic>>(
+        cache: _t.snapshotCache,
+        hubKey: _t.cacheHubKey,
+        endpoint: '/v1/teams/${_t.cfg.teamId}/runs/$runId/config',
+        fetch: () => getRunConfig(runId),
+        decode: _t.decodeMap,
+      );
+
+  /// Pulls the run's system (GPU/CPU) metric digests. Same wire shape as
+  /// [getRunMetrics] — one row per metric name with a downsampled points
+  /// array — except the x-axis is a sample ordinal, not a training step.
+  Future<List<Map<String, dynamic>>> getRunSystemMetrics(String runId) =>
+      _t.listJson('/v1/teams/${_t.cfg.teamId}/runs/$runId/system_metrics');
+
+  /// Read-through variant of [getRunSystemMetrics]; see [listRunsCached] for
+  /// the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> getRunSystemMetricsCached(
+    String runId,
+  ) =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: _t.snapshotCache,
+        hubKey: _t.cacheHubKey,
+        endpoint: '/v1/teams/${_t.cfg.teamId}/runs/$runId/system_metrics',
+        fetch: () => getRunSystemMetrics(runId),
+        decode: _t.decodeListMaps,
+      );
+
+  /// Pulls the run's alerts — one row per alert with `{title, text, level,
+  /// step, ts, alert_id}`. Ordered oldest-first (rows without a ts last).
+  Future<List<Map<String, dynamic>>> getRunAlerts(String runId) =>
+      _t.listJson('/v1/teams/${_t.cfg.teamId}/runs/$runId/alerts');
+
+  /// Read-through variant of [getRunAlerts]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> getRunAlertsCached(
+    String runId,
+  ) =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: _t.snapshotCache,
+        hubKey: _t.cacheHubKey,
+        endpoint: '/v1/teams/${_t.cfg.teamId}/runs/$runId/alerts',
+        fetch: () => getRunAlerts(runId),
+        decode: _t.decodeListMaps,
       );
 }

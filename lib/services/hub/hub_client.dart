@@ -1041,6 +1041,8 @@ class HubClient {
           {required String status, String? summary}) =>
       runs.completeRun(runId, status: status, summary: summary);
 
+  Future<void> deleteRun(String runId) => runs.deleteRun(runId);
+
   Future<void> attachRunMetricURI(String runId,
           {required String kind, required String uri}) =>
       runs.attachRunMetricURI(runId, kind: kind, uri: uri);
@@ -1078,6 +1080,29 @@ class HubClient {
   Future<void> putRunHistograms(
           String runId, List<Map<String, dynamic>> histograms) =>
       runs.putRunHistograms(runId, histograms);
+
+  // ---- run extras: config / system metrics / alerts (v1.0.796) ----
+
+  Future<Map<String, dynamic>> getRunConfig(String runId) =>
+      runs.getRunConfig(runId);
+
+  Future<CachedResponse<Map<String, dynamic>>> getRunConfigCached(
+          String runId) =>
+      runs.getRunConfigCached(runId);
+
+  Future<List<Map<String, dynamic>>> getRunSystemMetrics(String runId) =>
+      runs.getRunSystemMetrics(runId);
+
+  Future<CachedResponse<List<Map<String, dynamic>>>> getRunSystemMetricsCached(
+          String runId) =>
+      runs.getRunSystemMetricsCached(runId);
+
+  Future<List<Map<String, dynamic>>> getRunAlerts(String runId) =>
+      runs.getRunAlerts(runId);
+
+  Future<CachedResponse<List<Map<String, dynamic>>>> getRunAlertsCached(
+          String runId) =>
+      runs.getRunAlertsCached(runId);
 
   // ---- documents + annotations → DocumentsApi (W11) ----
 

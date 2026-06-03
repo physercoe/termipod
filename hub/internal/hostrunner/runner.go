@@ -56,8 +56,9 @@ type Runner struct {
 	MetricsPollInterval time.Duration
 
 	// MetricsMaxPoints caps the per-metric sample count uploaded to the
-	// hub from every metrics.Reader backend. 0 falls back to 100 — the
-	// blueprint default (§6.5).
+	// hub from every metrics.Reader backend. 0 falls back to 150 — enough
+	// resolution for the run-detail sparklines (docs/plans/run-detail-ui.md
+	// decision 5) while keeping the digest compact (blueprint §6.5).
 	MetricsMaxPoints int
 
 	// TrackioDir, when non-empty, enables the trackio metric-digest
@@ -146,7 +147,7 @@ func (a *Runner) defaults() {
 		a.MetricsPollInterval = 20 * time.Second
 	}
 	if a.MetricsMaxPoints == 0 {
-		a.MetricsMaxPoints = 100
+		a.MetricsMaxPoints = 150
 	}
 	if a.Log == nil {
 		a.Log = slog.Default()

@@ -1,13 +1,26 @@
 // SessionsRail — the left "Sessions" drawer of the Insight workbench (ADR-041
-// §4): a *scoped* quick-switcher for the analysed run. It lists the current
-// agent's project siblings ("Agents · <project>") and the current agent's own
-// sessions ("This agent"), and retargets the Insight surface when one is picked.
-// Scoped, not a global tree — a convenience inside the surface, never a second
-// top-level navigator competing with the app's five-tab IA.
+// §4): a *scoped* quick-switcher for the analysed run. It lists the sibling
+// runs you'd switch between *in this scope* and retargets the Insight surface
+// when one is picked. Scoped, not a global tree — a convenience inside the
+// surface, never a second top-level navigator competing with the five-tab IA.
+//
+// Scope is read off the analysed agent, so the rail matches its entry context
+// with no extra plumbing:
+//   - a project agent (`project_id` set) → the project's agent roster, the
+//     same warm list the Project-detail Agents tab shows;
+//   - a team-level steward (no `project_id`) → the team steward roster.
+//
+// **No latency:** the roster is read synchronously from the warm hub snapshot
+// (`hubProvider.value.agents`) — the exact source the Project-detail Agents tab
+// reads — so the list paints on open instead of awaiting a fetch. (Only the
+// rare cold case — an archived agent absent from the snapshot — falls back to a
+// one-shot fetch to learn its project.)
 //
 // Phone-first: a self-contained overlay (tap-to-dismiss scrim + a left-aligned
 // panel), mirroring the right Navigator drawer. The host (`SessionAnalysisView`)
-// just renders it when open and holds the active target in state.
+// renders it when open, holds the active target in state, and keeps the left
+// and right drawers mutually exclusive. Picking a row retargets but leaves the
+// rail open (ADR-041 §4) — the user closes it explicitly.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -15,6 +28,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
+import '../providers/sessions_provider.dart';
+import '../services/steward_handle.dart';
 import '../theme/design_colors.dart';
 
 /// Retarget callback: `(agentId, sessionId, live)` for the picked run.
@@ -22,19 +37,15 @@ typedef RetargetCallback = void Function(
     String agentId, String sessionId, bool live);
 
 class SessionsRail extends ConsumerStatefulWidget {
-  /// The agent currently being analysed (the scope anchor + active highlight).
+  /// The agent currently being analysed — the scope anchor and the active-row
+  /// highlight (the rail switches *agents*, so it highlights the active agent).
   final String agentId;
-
-  /// The session currently being analysed (the active highlight in the
-  /// "This agent" group).
-  final String activeSessionId;
   final RetargetCallback onSelect;
   final VoidCallback onClose;
 
   const SessionsRail({
     super.key,
     required this.agentId,
-    required this.activeSessionId,
     required this.onSelect,
     required this.onClose,
   });
@@ -44,112 +55,96 @@ class SessionsRail extends ConsumerStatefulWidget {
 }
 
 class _SessionsRailState extends ConsumerState<SessionsRail> {
-  bool _loading = true;
-  String? _error;
-  String _projectId = '';
-  String _projectLabel = '';
-  // Sibling agents in the project (includes the current one, marked active).
-  List<Map<String, dynamic>> _agents = const [];
-  // The current agent's sessions (this agent is their current_agent_id).
-  List<Map<String, dynamic>> _sessions = const [];
   // The agent row whose session is being resolved on tap (a tiny inline spinner).
   String? _resolvingAgentId;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) {
-      setState(() {
-        _error = 'Not connected to a hub';
-        _loading = false;
-      });
-      return;
-    }
-    try {
-      // The current agent gives us the project scope + handle.
-      final agent = (await client.getAgentCached(widget.agentId)).body;
-      final projectId = (agent['project_id'] ?? '').toString();
-      // Project siblings (include terminated/archived so a finished run is still
-      // reachable for analysis). Empty project → just this agent.
-      List<Map<String, dynamic>> agents;
-      if (projectId.isNotEmpty) {
-        agents = (await client.listAgentsCached(
-          projectId: projectId,
-          includeTerminated: true,
-          includeArchived: true,
-        ))
-            .body;
-      } else {
-        agents = [agent];
-      }
-      // This agent's sessions — the durable frames it currently fronts.
-      List<Map<String, dynamic>> sessions = const [];
-      try {
-        final all = (await client.listSessionsCached()).body;
-        sessions = [
-          for (final s in all)
-            if ((s['current_agent_id'] ?? '').toString() == widget.agentId) s,
-        ];
-      } catch (_) {
-        // Non-fatal: the Agents group still works.
-      }
-      if (!mounted) return;
-      setState(() {
-        _projectId = projectId;
-        _projectLabel = (agent['handle'] ?? '').toString();
-        _agents = agents;
-        _sessions = sessions;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = 'Could not load sessions';
-        _loading = false;
-      });
-    }
-  }
+  // Project id learned from a one-shot fetch when the analysed agent isn't in
+  // the warm hub snapshot (the archived-agent case). Null until/unless fetched.
+  String? _coldProjectId;
+  bool _coldTried = false;
+  bool _coldLoading = false;
 
   static bool _agentLive(String status) =>
       status == 'running' || status == 'idle' || status == 'pending';
 
-  /// Resolve an agent's hub session (its newest event's session_id) and
-  /// retarget. Mirrors the archived-agent screen's resolution.
-  Future<void> _pickAgent(Map<String, dynamic> agent) async {
-    final id = (agent['id'] ?? '').toString();
-    if (id.isEmpty) return;
-    final status = (agent['status'] ?? '').toString();
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    setState(() => _resolvingAgentId = id);
-    String sid = '';
-    try {
-      final ev = await client.listAgentEvents(id, tail: true, limit: 1);
-      if (ev.isNotEmpty) sid = (ev.first['session_id'] ?? '').toString();
-    } catch (_) {
-      // Leave sid empty — InsightTranscript falls back to the loaded window.
+  /// The analysed agent's row from the warm hub snapshot, or null if it isn't
+  /// in it (archived).
+  Map<String, dynamic>? _meIn(List<Map<String, dynamic>> agents) {
+    for (final a in agents) {
+      if ((a['id'] ?? '').toString() == widget.agentId) return a;
     }
-    if (!mounted) return;
-    setState(() => _resolvingAgentId = null);
-    widget.onSelect(id, sid, _agentLive(status));
-    widget.onClose();
+    return null;
   }
 
-  void _pickSession(Map<String, dynamic> session) {
-    final sid = (session['id'] ?? '').toString();
-    if (sid.isEmpty) return;
-    final agentId =
-        (session['current_agent_id'] ?? '').toString().isNotEmpty
-            ? (session['current_agent_id']).toString()
-            : widget.agentId;
-    final live = (session['status'] ?? '').toString() == 'active';
-    widget.onSelect(agentId, sid, live);
-    widget.onClose();
+  /// Cold fallback: the analysed agent isn't in the warm snapshot, so fetch it
+  /// once to learn its project and render the sibling roster from warm state.
+  Future<void> _resolveCold() async {
+    _coldTried = true;
+    _coldLoading = true;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) {
+      if (mounted) setState(() => _coldLoading = false);
+      return;
+    }
+    try {
+      final a = (await client.getAgentCached(widget.agentId)).body;
+      final pid = (a['project_id'] ?? '').toString();
+      if (mounted) {
+        setState(() {
+          if (pid.isNotEmpty) _coldProjectId = pid;
+          _coldLoading = false;
+        });
+      }
+    } catch (_) {
+      // Leave _coldProjectId null — the body shows the steward fallback.
+      if (mounted) setState(() => _coldLoading = false);
+    }
+  }
+
+  /// Resolve the picked agent's session and retarget. Prefer the warm sessions
+  /// snapshot (instant); fall back to the newest event's session_id (inline
+  /// spinner). The rail stays open afterwards — the user closes it.
+  Future<void> _pickAgent(Map<String, dynamic> agent) async {
+    final id = (agent['id'] ?? '').toString();
+    if (id.isEmpty || id == widget.agentId) return;
+    final status = (agent['status'] ?? '').toString();
+    String sid = _warmSessionFor(id);
+    if (sid.isEmpty) {
+      final client = ref.read(hubProvider.notifier).client;
+      if (client != null) {
+        setState(() => _resolvingAgentId = id);
+        try {
+          final ev = await client.listAgentEvents(id, tail: true, limit: 1);
+          if (ev.isNotEmpty) sid = (ev.first['session_id'] ?? '').toString();
+        } catch (_) {
+          // Leave sid empty — InsightTranscript falls back to the loaded window.
+        }
+        if (!mounted) return;
+        setState(() => _resolvingAgentId = null);
+      }
+    }
+    widget.onSelect(id, sid, _agentLive(status));
+  }
+
+  /// The session an agent currently fronts, from the warm sessions snapshot.
+  String _warmSessionFor(String agentId) {
+    final s = ref.read(sessionsProvider).value;
+    if (s == null) return '';
+    for (final sess in [...s.active, ...s.previous]) {
+      if ((sess['current_agent_id'] ?? '').toString() == agentId) {
+        return (sess['id'] ?? '').toString();
+      }
+    }
+    return '';
+  }
+
+  String _projectName(List<Map<String, dynamic>> projects, String pid) {
+    for (final p in projects) {
+      if ((p['id'] ?? '').toString() == pid) {
+        final n = (p['name'] ?? p['title'] ?? '').toString();
+        return n.isNotEmpty ? n : pid;
+      }
+    }
+    return pid;
   }
 
   @override
@@ -209,7 +204,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                         ),
                       ),
                       Divider(height: 1, color: border),
-                      Expanded(child: _body(isDark, fg, muted)),
+                      Expanded(child: _body(fg, muted)),
                     ],
                   ),
                 ),
@@ -221,40 +216,58 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     );
   }
 
-  Widget _body(bool isDark, Color fg, Color muted) {
-    if (_loading) {
+  Widget _body(Color fg, Color muted) {
+    final hub = ref.watch(hubProvider).value;
+    final all = hub?.agents ?? const <Map<String, dynamic>>[];
+    final projects = hub?.projects ?? const <Map<String, dynamic>>[];
+    final me = _meIn(all);
+
+    // Scope from the analysed agent. project_id → the project roster; otherwise
+    // a steward → the team steward roster.
+    final projectId =
+        (me?['project_id'] ?? _coldProjectId ?? '').toString();
+
+    String header;
+    List<Map<String, dynamic>> rows;
+    if (projectId.isNotEmpty) {
+      header = 'Agents · ${_projectName(projects, projectId)}';
+      rows = [
+        for (final a in all)
+          if ((a['project_id'] ?? '').toString() == projectId) a,
+      ];
+    } else if (me == null && (!_coldTried || _coldLoading)) {
+      // Not in the warm snapshot yet (archived) — learn its project once, then
+      // re-render. Show a spinner rather than a misleading roster while we do.
+      if (!_coldTried) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_coldTried) _resolveCold();
+        });
+      }
       return const Center(child: CircularProgressIndicator());
+    } else {
+      // A team-level steward (or an unresolved cold agent): the steward roster.
+      header = 'Stewards';
+      rows = [for (final a in all) if (isStewardAgent(a)) a];
     }
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            _error!,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.spaceGrotesk(fontSize: 12, color: muted),
-          ),
-        ),
-      );
-    }
+
+    // Live runs first, then by handle — the freshest switch targets on top.
+    rows.sort((x, y) {
+      final lx = _agentLive((x['status'] ?? '').toString());
+      final ly = _agentLive((y['status'] ?? '').toString());
+      if (lx != ly) return lx ? -1 : 1;
+      return (x['handle'] ?? '')
+          .toString()
+          .compareTo((y['handle'] ?? '').toString());
+    });
+
     return ListView(
       padding: const EdgeInsets.only(bottom: 12),
       children: [
-        _groupHeader(
-          _projectLabel.isNotEmpty && _projectId.isNotEmpty
-              ? 'Agents · ${_projectLabel.split('/').first}'
-              : 'Agents',
-          muted,
-        ),
-        if (_agents.isEmpty)
-          _emptyRow('No sibling agents.', muted)
+        _groupHeader(header, muted),
+        if (rows.isEmpty)
+          _emptyRow('No other runs in scope.', muted)
         else
-          for (final a in _agents) _agentRow(a, fg, muted),
-        _groupHeader('This agent', muted),
-        if (_sessions.isEmpty)
-          _emptyRow('No other sessions.', muted)
-        else
-          for (final s in _sessions) _sessionRow(s, fg, muted),
+          for (final a in rows) _agentRow(a, fg, muted),
       ],
     );
   }
@@ -327,55 +340,6 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                   style:
                       GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
                 ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _sessionRow(Map<String, dynamic> s, Color fg, Color muted) {
-    final sid = (s['id'] ?? '').toString();
-    final title = (s['title'] ?? '').toString();
-    final status = (s['status'] ?? '').toString();
-    final active = sid == widget.activeSessionId;
-    final label = title.isNotEmpty
-        ? title
-        : (sid.length > 8 ? 'sess-${sid.substring(0, 6)}' : sid);
-    final live = status == 'active';
-    final dot = live ? DesignColors.success : muted;
-    return Material(
-      color: active
-          ? DesignColors.primary.withValues(alpha: 0.10)
-          : Colors.transparent,
-      child: InkWell(
-        onTap: active ? null : () => _pickSession(s),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          child: Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 13,
-                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                    color: fg,
-                  ),
-                ),
-              ),
-              Text(
-                status,
-                style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
-              ),
             ],
           ),
         ),

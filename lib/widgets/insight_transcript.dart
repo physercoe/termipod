@@ -96,10 +96,19 @@ class InsightTranscript extends ConsumerStatefulWidget {
   /// page-walk.
   final Map<int, String>? runAnchorTs;
 
+  /// The right Navigator drawer's open state, **lifted to the host** so the
+  /// left Sessions rail and the right Navigator stay mutually exclusive (only
+  /// one overlay at a time — ADR-041 §5). The host owns the bool; the handle /
+  /// scrim / close button report changes via [onNavigatorOpenChanged].
+  final bool navigatorOpen;
+  final ValueChanged<bool> onNavigatorOpenChanged;
+
   const InsightTranscript({
     super.key,
     required this.agentId,
     required this.sessionId,
+    required this.navigatorOpen,
+    required this.onNavigatorOpenChanged,
     this.padding = const EdgeInsets.all(12),
     this.seekController,
     this.totalEventCount,
@@ -189,8 +198,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     FeedLens.tools,
   ];
   // The right "Navigator" drawer (ADR-041 §2): the structural outline you jump
-  // *from* — Turns / Errors tabs (Map arrives in R2). Phone-first overlay.
-  bool _navigatorOpen = false;
+  // *from* — Turns / Errors / Map tabs. Phone-first overlay. Its open state is
+  // lifted to the host (`widget.navigatorOpen`) so the left Sessions rail and
+  // this drawer stay mutually exclusive; toggles go through
+  // `widget.onNavigatorOpenChanged`.
   // Generation of the last external seek serviced (so a controller notify for a
   // seq we already jumped to doesn't re-fire, but a fresh seekTo does).
   int _lastSeekGeneration = 0;
@@ -1067,10 +1078,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     );
   }
 
-  /// Outline-row tap (Turns / Errors): close the Navigator drawer and land the
-  /// transcript on [seq] in full card context.
+  /// Outline-row tap (Turns / Errors): land the transcript on [seq] in full card
+  /// context. The Navigator drawer **stays open** (ADR-041 §4) so the user can
+  /// keep stepping the outline; they close it explicitly when done.
   void _jumpFromOutline(int seq, String? ts) {
-    setState(() => _navigatorOpen = false);
     _handleExternalSeek(seq, ts);
   }
 
@@ -1094,12 +1105,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
               label: Text(pos != null
                   ? 'Jump to event ${pos.n} / ${pos.m}'
                   : 'Jump to event…'),
-              onPressed: (pos != null && pos.m > 1)
-                  ? () {
-                      setState(() => _navigatorOpen = false);
-                      _openJumpSheet();
-                    }
-                  : null,
+              onPressed: (pos != null && pos.m > 1) ? _openJumpSheet : null,
             ),
           ),
         ),
@@ -1110,9 +1116,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
                   child: FeedMinimap(
                     marks: marks,
-                    // Tap a tick → close the drawer, land on that landmark.
+                    // Tap a tick → land on that landmark. The drawer stays open
+                    // (ADR-041 §4); the user closes it explicitly.
                     onJump: (frac, seq) {
-                      setState(() => _navigatorOpen = false);
                       if (_runAnchorMode) {
                         _handleExternalSeek(seq, widget.runAnchorTs?[seq]);
                       } else {
@@ -1270,7 +1276,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         children: [
           // Scrim — tap anywhere outside the panel to dismiss.
           GestureDetector(
-            onTap: () => setState(() => _navigatorOpen = false),
+            onTap: () => widget.onNavigatorOpenChanged(false),
             child: Container(color: Colors.black.withValues(alpha: 0.45)),
           ),
           Align(
@@ -1308,8 +1314,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                                 visualDensity: VisualDensity.compact,
                                 icon: Icon(Icons.close,
                                     size: 18, color: muted),
-                                onPressed: () => setState(
-                                    () => _navigatorOpen = false),
+                                onPressed: () =>
+                                    widget.onNavigatorOpenChanged(false),
                               ),
                             ],
                           ),
@@ -1692,7 +1698,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                 top: 6,
                 right: 6,
                 child: _NavigatorHandle(
-                  onTap: () => setState(() => _navigatorOpen = true),
+                  onTap: () => widget.onNavigatorOpenChanged(true),
                 ),
               ),
               // Verbose toggle, top-right (shifted left to clear the Navigator
@@ -1705,7 +1711,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                 ),
               // The Navigator drawer overlay (phone-first): a scrim + a
               // right-aligned panel with the Turns / Errors / Map tabs.
-              if (_navigatorOpen) _buildNavigatorOverlay(minimapMarks),
+              if (widget.navigatorOpen) _buildNavigatorOverlay(minimapMarks),
             ],
           ),
         ),

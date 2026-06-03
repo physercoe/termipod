@@ -134,9 +134,23 @@ widgets; remove the transcript-replace mode.
   `InsightTranscript` on `'$agentId/$sessionId'` so the buffer rebuilds while the
   digest/turns providers re-resolve on the new session id. Phone overlay: a slim
   left-edge pull handle (`_SessionsRailHandle`) opens a scrim + left panel.
-  **Known limit (follow-up):** the "This agent" group only catches sessions this
-  agent currently fronts (`current_agent_id`); full respawn history needs a hub
-  "sessions for agent" endpoint (distinct `session_id`s in its events).
+  **Device-test pass 1 (R3):** the rail awaited three sequential fetches on open
+  (`getAgentCached` + `listAgentsCached` + `listSessionsCached`) → visible
+  latency; the Project-detail Agents tab is instant because it reads the *warm*
+  `hubProvider.value.agents` snapshot synchronously. Rewrote the rail to read
+  that same warm snapshot — the roster paints on open, no spinner. **Dropped the
+  "This agent" sessions group** (the latency source *and* the respawn-history
+  limit): the rail is now a single context-scoped roster — a project agent
+  (`project_id` set) shows the **project's agents** (the Agents-tab list), a
+  team-level steward (no `project_id`) shows the **team steward roster**
+  (`isStewardAgent`). Picking an agent resolves its session from the warm
+  sessions snapshot first (instant), falling back to the newest-event fetch only
+  when cold; the rare archived-agent case (absent from the snapshot) does one
+  `getAgentCached` to learn its project. **Persistence + mutual exclusion
+  (ADR-041 §4/§5):** picking a row no longer closes the rail — it stays open
+  until the user closes it; and the rail's open state is hoisted beside the
+  Navigator's into the host so only one drawer shows at a time (opening either
+  closes the other; the rail handle hides while the Navigator is open).
 
 ### R4 — paged Text/Tools filter (ADR-039 point 3)
 
@@ -164,6 +178,14 @@ widgets; remove the transcript-replace mode.
   new flag; LiveFeed keeps its stepper), and the in-lens prev/next stepper
   (`_funnelStep` / `matchSeqs` / `matchIndex`) is removed. **Also done:** the
   R1-leftover over-indented centre `ListView.separated` is re-flowed.
+  **Device-test pass 1 (Navigator persistence):** the Navigator's open state was
+  a private `_navigatorOpen` field inside `InsightTranscript`, so it couldn't be
+  coordinated with the left rail (both could show at once) and a Turns / Errors /
+  Map row tap closed it. Lifted it to the host as a controlled prop
+  (`navigatorOpen` + `onNavigatorOpenChanged`); the host owns both drawers and
+  keeps them mutually exclusive (opening either closes the other). Outline /
+  minimap row taps no longer close the Navigator — only the scrim and the close
+  button do (ADR-041 §4/§5).
 
 ### Polish
 

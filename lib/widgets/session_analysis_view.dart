@@ -58,7 +58,20 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
   late String _agentId = widget.agentId;
   late String _sessionId = widget.sessionId;
   late bool _live = widget.live;
+  // The two workbench drawers are owned here so they stay mutually exclusive —
+  // only one overlay at a time (ADR-041 §5). Opening either closes the other.
   bool _railOpen = false;
+  bool _navigatorOpen = false;
+
+  void _openRail() => setState(() {
+        _railOpen = true;
+        _navigatorOpen = false;
+      });
+
+  void _setNavigatorOpen(bool open) => setState(() {
+        _navigatorOpen = open;
+        if (open) _railOpen = false;
+      });
 
   @override
   void didUpdateWidget(covariant SessionAnalysisView oldWidget) {
@@ -205,6 +218,8 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               key: ValueKey('$_agentId/$_sessionId'),
               agentId: _agentId,
               sessionId: _sessionId,
+              navigatorOpen: _navigatorOpen,
+              onNavigatorOpenChanged: _setNavigatorOpen,
               seekController: _seek,
               totalEventCount: totalEvents,
               runErrorSeqs: runErrorSeqs,
@@ -226,21 +241,23 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
       children: [
         column,
         // Left-edge pull handle, vertically centred so it clears the dashboard
-        // card and the transcript's top-left funnel.
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          child: Center(
-            child: _SessionsRailHandle(
-              onTap: () => setState(() => _railOpen = true),
+        // card and the transcript's top-left funnel. Hidden while the Navigator
+        // is open so it doesn't float over that drawer's scrim (only one drawer
+        // shows at a time — ADR-041 §5).
+        if (!_navigatorOpen)
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: _SessionsRailHandle(
+                onTap: _openRail,
+              ),
             ),
           ),
-        ),
         if (_railOpen)
           SessionsRail(
             agentId: _agentId,
-            activeSessionId: _sessionId,
             onSelect: _retarget,
             onClose: () => setState(() => _railOpen = false),
           ),

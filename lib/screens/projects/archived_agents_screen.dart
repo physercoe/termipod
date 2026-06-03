@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/agent_status.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/agent_actions_menu.dart';
 import '../../widgets/live_feed.dart';
 import '../../widgets/insights_panel.dart';
 import '../../widgets/session_analysis_view.dart';
@@ -169,23 +171,33 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
               builder: (_) => ArchivedAgentDetailScreen(summary: _rows[i]),
             ));
           },
+          onChanged: _load,
         ),
       ),
     );
   }
 }
 
-class _ArchivedTile extends StatelessWidget {
+class _ArchivedTile extends ConsumerWidget {
   final Map<String, dynamic> row;
   final VoidCallback onTap;
-  const _ArchivedTile({required this.row, required this.onTap});
+  // Re-fetches the history list after a lifecycle action (Delete removes the
+  // row from the live roster; Resume session revives it elsewhere).
+  final Future<void> Function() onChanged;
+  const _ArchivedTile({
+    required this.row,
+    required this.onTap,
+    required this.onChanged,
+  });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final id = (row['id'] ?? '').toString();
     final handle = (row['handle'] ?? '?').toString();
     final kind = (row['kind'] ?? '').toString();
     final status = (row['status'] ?? '').toString();
+    final isPaused = (row['pause_state'] ?? '').toString() == 'paused';
     final archivedAt = (row['archived_at'] ?? '').toString();
     final terminatedAt = (row['terminated_at'] ?? '').toString();
     // Subtitle line: kind + the most relevant timestamp. For
@@ -237,12 +249,42 @@ class _ArchivedTile extends StatelessWidget {
                           style: GoogleFonts.spaceGrotesk(
                               fontSize: 14, fontWeight: FontWeight.w600)),
                     ),
-                    Text(status,
+                    // Friendly status (terminated → "ended"), not the raw
+                    // hub vocabulary.
+                    Text(agentStatusLabel(status),
                         style: GoogleFonts.jetBrainsMono(
                             fontSize: 10, color: DesignColors.textMuted)),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.chevron_right,
-                        size: 18, color: DesignColors.textMuted),
+                    const SizedBox(width: 2),
+                    // Dead-agent actions — Resume session (continue the paused
+                    // session) + Delete (drop from the list). Respawn lives in
+                    // the detail screen, which fetches the spawn spec.
+                    PopupMenuButton<String>(
+                      tooltip: 'Agent actions',
+                      icon: const Icon(Icons.more_vert,
+                          size: 18, color: DesignColors.textMuted),
+                      padding: EdgeInsets.zero,
+                      onSelected: (v) async {
+                        final out = await runAgentLifecycleAction(
+                          context,
+                          ref,
+                          v,
+                          agentId: id,
+                          handle: handle,
+                          isPaused: isPaused,
+                        );
+                        if (out == AgentActionOutcome.removed ||
+                            out == AgentActionOutcome.sessionResumed) {
+                          await onChanged();
+                        }
+                      },
+                      itemBuilder: (ctx) => agentLifecycleMenuItems(
+                        ctx,
+                        isDead: true,
+                        isPaused: isPaused,
+                        hasPane: false,
+                        canRespawn: false,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 4),

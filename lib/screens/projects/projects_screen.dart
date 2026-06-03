@@ -1705,6 +1705,28 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     }
   }
 
+  /// The hub session id for the rich Insights surface. Prefers the value
+  /// resolved from the agent's events ([_hubSessionId]), but falls back to the
+  /// warm sessions snapshot — the session whose `current_agent_id` is this
+  /// agent. The event scrape depends on the newest event carrying a top-level
+  /// `session_id` (only echoed since v1.0.787, and engine-dependent), so a
+  /// workspace / non-claude / older agent often resolved empty and dropped to
+  /// the legacy InsightsPanel. The warm lookup (the same one the Sessions rail
+  /// uses) fixes that for any agent that fronts a session. Reactive via watch.
+  String _analysisSessionId() {
+    if (_hubSessionId.isNotEmpty) return _hubSessionId;
+    final s = ref.watch(sessionsProvider).value;
+    if (s != null) {
+      for (final sess in [...s.active, ...s.previous]) {
+        if ((sess['current_agent_id'] ?? '').toString() == _id) {
+          final sid = (sess['id'] ?? '').toString();
+          if (sid.isNotEmpty) return sid;
+        }
+      }
+    }
+    return '';
+  }
+
   String get _specYaml =>
       (_full?['spawn_spec_yaml'] ?? '').toString();
 
@@ -1942,12 +1964,14 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                   // transcript — same as the team SessionChatScreen Insights
                   // tab (closes the project-agent parity gap, incl. terminated
                   // agents whose finished run is exactly what you want to
-                  // review). Needs the hub session id; until it resolves (or if
-                  // the agent has no session yet) fall back to the Tier-1 tiles.
-                  _hubSessionId.isNotEmpty
+                  // review). Needs the hub session id (events first, warm
+                  // sessions snapshot as fallback — see _analysisSessionId);
+                  // only when neither resolves (agent has no session yet) does
+                  // it fall back to the Tier-1 tiles.
+                  _analysisSessionId().isNotEmpty
                       ? SessionAnalysisView(
                           agentId: _id,
-                          sessionId: _hubSessionId,
+                          sessionId: _analysisSessionId(),
                           live: !_isDead,
                         )
                       : ListView(

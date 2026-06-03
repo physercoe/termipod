@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/sessions_provider.dart';
 import '../../services/hub/agent_status.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_actions_menu.dart';
@@ -339,6 +340,23 @@ class _ArchivedAgentDetailScreenState
 
   String get _id => (widget.summary['id'] ?? '').toString();
 
+  /// The hub session id for the Insights surface: the event-resolved
+  /// [_sessionId] if present, else the warm sessions snapshot's session whose
+  /// `current_agent_id` is this agent. Reactive via watch.
+  String _resolveAnalysisSessionId() {
+    if (_sessionId.isNotEmpty) return _sessionId;
+    final s = ref.watch(sessionsProvider).value;
+    if (s != null) {
+      for (final sess in [...s.active, ...s.previous]) {
+        if ((sess['current_agent_id'] ?? '').toString() == _id) {
+          final sid = (sess['id'] ?? '').toString();
+          if (sid.isNotEmpty) return sid;
+        }
+      }
+    }
+    return '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -397,7 +415,12 @@ class _ArchivedAgentDetailScreenState
     // tiles ([InsightsPanel]) until the hub session id resolves (or if the run
     // never stamped one). Matches the project-agent sheet
     // (projects_screen.dart:2043).
-    final hasSession = _sessionId.isNotEmpty;
+    // Prefer the event-resolved session id; fall back to the warm sessions
+    // snapshot (the session fronting this agent) so the rich Insights surface
+    // still shows when the newest event carries no top-level session_id
+    // (engine/older-data dependent — see the project-agent sheet's note).
+    final analysisSessionId = _resolveAnalysisSessionId();
+    final hasSession = analysisSessionId.isNotEmpty;
     final subtitle = [
       if (kind.isNotEmpty) kind,
       if (status.isNotEmpty) status,
@@ -447,7 +470,7 @@ class _ArchivedAgentDetailScreenState
                         hasSession
                             ? SessionAnalysisView(
                                 agentId: _id,
-                                sessionId: _sessionId,
+                                sessionId: analysisSessionId,
                                 live: false,
                               )
                             : ListView(

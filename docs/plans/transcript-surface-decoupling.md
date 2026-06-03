@@ -6,7 +6,7 @@
 > started. Each phase gates on the director's device-test (Flutter is
 > untestable locally); pure extractions carry unit tests.
 > **Audience:** contributors
-> **Last verified vs code:** post-`ba4cbbd` (P3 done).
+> **Last verified vs code:** post-`afb3cb9` (P3 + P4 done; awaiting device-test).
 
 **TL;DR.** Turn the one flag-switched `AgentFeed`
 (`lib/widgets/agent_feed.dart`) into two mode files — `LiveFeed` and
@@ -139,21 +139,36 @@ seek orchestration + the lens-as-query engine all got their decoupled home.
   lens / funnel / stepper / minimap jump) is parity-or-better vs. the live
   `agent_feed.dart` Insight path, on device — plus the §E liveness change above.
 
-### P4 — strip + rename the remainder to `LiveFeed`
+### P4 — strip + rename the remainder to `LiveFeed` — DONE (`0e18b11` strip + `afb3cb9` rename, CI-green)
 
-- With Insight gone, delete `agent_feed.dart`'s now-dead random-access /
-  lens-as-query / minimap / seek-orchestration paths (the `randomAccess`,
-  `runErrorSeqs`/`runTurnSeqs`/… params, the Errors/Turns summary lists, the
-  funnel *jump* machinery).
-- Rename `agent_feed.dart` → `live_feed.dart`, `AgentFeed` → `LiveFeed`. It keeps
-  `FeedTransport`-style live-tail loading (in its own State), `FoldMaps`,
-  `FeedTelemetry`, the composer, the telemetry strip, and the **shared declutter
-  funnel** (the pure `FeedLens` predicate filtering the loaded window — no jump,
-  no minimap, no summary list; ADR-040 §6).
-- Migrate the four live consumers (`sessions_screen`, `transcript_screen`,
-  `projects_screen`, `archived_agents_screen`) → `LiveFeed`.
-- **Gate:** every live surface renders + tails + loads-older + composes as
-  before; CI + CodeQL green; no importer of `agent_feed.dart` remains.
+- **P4a strip (`0e18b11`, +fix `61d7e56`).** Removed `agent_feed.dart`'s
+  now-dead code — but only what was **inert when `randomAccess == false`** (i.e.
+  on every live consumer): the `randomAccess` / `seekController` /
+  `totalEventCount` / `runErrorSeqs`/`runTurnSeqs`/… params, the `(ts,seq)`
+  keyset loader + forward pager, the external-seek channel, and the digest /
+  whole-run lens-as-query (Errors summary list, funnel-run jumps, whole-run
+  minimap, N/M position pill, jump-to-ordinal). 894 lines removed.
+- **Scoping note vs. the original §6 plan.** The **loaded-window** minimap +
+  turn-stepper + funnel match-stepper are `dense`-gated, **not**
+  `randomAccess`-gated, so they were active in the live full-screen feed
+  (`TranscriptScreen`) and stay in `LiveFeed` — P4a kept them to guarantee
+  *zero live behaviour change*. So LiveFeed's funnel is filter **+ loaded-window
+  stepper** (the shipped v1.0.770 pill), and it retains a loaded-window minimap —
+  a touch more than ADR-040 §6's "filter only / no minimap". Tightening LiveFeed
+  to a pure declutter filter (dropping its loaded-window minimap/stepper) is a
+  deliberate **follow-up** (device-tested on its own), not bundled into the
+  behaviour-preserving rename.
+- **P4b rename (`afb3cb9`).** `git mv agent_feed.dart → live_feed.dart`,
+  `AgentFeed`→`LiveFeed`; dropped the `AgentFeedSeekController` typedef; migrated
+  the 4 live consumers + the reducer/widget test imports; moved
+  `agent_feed_seek_controller_test.dart` → `transcript_seek_controller_test.dart`
+  (now testing `TranscriptSeekController` directly). Pure rename.
+- **Result:** Insight (`InsightTranscript`) and live (`LiveFeed`) each own their
+  file over the shared `transcript/` substrate. ADR-040 is structurally complete
+  — a new mode is a new file.
+- **Gate (pending device-test):** every live surface renders + tails +
+  loads-older + composes as before; no importer of `agent_feed.dart` remains.
+  CI + CodeQL green.
 
 ### P5 — land the deferred features ON the new structure (open/closed)
 
@@ -163,6 +178,12 @@ seek orchestration + the lens-as-query engine all got their decoupled home.
 - **Point 3 — paged Text/Tools lens** (ADR-039 P1b): a `kind=`-keyset buffer the
   `RandomAccessLoader` + `TranscriptSeek` page, so far text/tools matches are
   reachable and land by index. Owned by `InsightTranscript`.
+- **LiveFeed §6 tightening (optional).** Reduce `LiveFeed`'s funnel to a pure
+  declutter filter and drop its loaded-window minimap + steppers (ADR-040 §6 /
+  open-question A), so navigation lives only in Insight. Deferred from P4b to
+  keep that a zero-behaviour-change rename; do it as its own device-tested change
+  only if the director still wants the live full-screen feed's minimap/stepper
+  gone.
 
 ## Risks
 

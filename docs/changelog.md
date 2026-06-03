@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-03)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.795
+> **Last verified vs code:** v1.0.796
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,29 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.796-alpha — 2026-06-03
+
+**Insight Sessions-rail device-test fixes + the trackio run-extras hub stack.**
+A test build polishing the workbench rail and laying the (hub-side) groundwork
+for richer run data.
+
+### Changed
+- **Sessions rail** (`cf47dd7`→`5a02375`): friendly status labels (no raw
+  "terminated" — now "ended"), pull-to-refresh that re-fetches a fresh roster
+  (so a deleted/archived agent drops off), crashed/failed runs excluded, and the
+  steward/team scope now lists the **active sessions** like the Me page (category
+  accent + session title) instead of a steward-agent roster.
+- **Project-detail Agents rows** gained a ⋮ action menu (the shared
+  agent-lifecycle vocabulary: Pause / Stop / Archive / Resume session / Delete).
+
+### Added
+- **Trackio run-extras (hub)** (`c805ea3`): the host-runner now reads trackio's
+  sibling tables — **config** (hyperparameters), **system_metrics** (GPU/CPU),
+  and **alerts** — via the new optional `metrics.RunExtras` capability, and PUTs
+  them to new hub endpoints (`run_config` / `run_system_metrics` / `run_alerts`,
+  migration 0051). Project-name DB path now mirrors trackio's own sanitization.
+  *(The mobile run-item UI for these is designed next.)*
 
 ## v1.0.795-alpha — 2026-06-03
 

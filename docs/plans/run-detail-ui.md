@@ -3,7 +3,11 @@
 > **Type:** plan
 > **Status:** Proposed (2026-06-03) — design only, not yet built. Director chose
 > the **`View ▾` switcher** model with a glance **Overview**; **Outputs** is its
-> own view, distinct from **Media**.
+> own view, distinct from **Media**. Open questions resolved (see Decisions):
+> live-poll metrics+alerts while running, heuristic headline metrics, sample-
+> ordinal system x-axis, always-show empty views, sparklines-only at ≤150 pts,
+> Delete-run action, searchable config (parent-diff later), run→agent link,
+> trackio-only extras.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.796-alpha
 
@@ -35,12 +39,43 @@ heavy content (image scrubbers, dozens of sparklines).
 - **Outputs (artifacts) is a dedicated view**, separate from **Media** (images +
   distributions). Media = visual training artefacts; Outputs = produced files.
 
+## Decisions (open questions resolved, 2026-06-03)
+
+1. **Live updates.** While `status=running`, **poll `metrics` + `alerts` every
+   ~20–30 s** (the two signals that change); config / media / outputs load once
+   (pull-to-refresh re-fetches all). Stop polling on a terminal status.
+2. **Headline metric selection.** A **heuristic** for now (priority list
+   loss / accuracy / lr, then first N); user-pinned/starred metrics are a later
+   enhancement.
+3. **System x-axis.** **Keep the sample ordinal** (don't thread timestamps into
+   the digest yet).
+4. **Empty views.** **Always show** every view in `View ▾`; an empty one renders
+   a quiet empty state (menu shape stays stable run-to-run).
+5. **Chart depth.** **Sparklines only** for now (no tap-to-zoom chart). Bump the
+   host-runner downsample cap to **≤150 points** (`Runner.MetricsMaxPoints`
+   100 → 150, `hub/internal/hostrunner/runner.go:149`).
+6. **Run actions (`⋮`).** Add **Delete run** now (confirm dialog →
+   `DELETE /v1/teams/{team}/runs/{run}`, the existing `handleDeleteRun`; the
+   mobile client needs a new `deleteRun`). Rename / re-attach deferred.
+7. **Config rendering.** Flat **searchable key/value** (flattened dotted keys)
+   now. A **"vs parent" diff** (fetch the `parent_run_id`'s `run_config`,
+   highlight only differing keys old→new, "show only differences" toggle —
+   matching W&B / MLflow compare) is a **follow-up**, not the first build.
+8. **Run ↔ agent cross-link.** When a run has `agent_id` **and that agent still
+   exists** (not deleted/archived — resolve against the hub agents list), the
+   Overview shows an **"Open agent →"** link into the agent's Insight surface.
+   Omit the link when the agent is gone.
+9. **Tracker parity.** Accept **trackio-only** config / system / alerts for now
+   (they ride `metrics.RunExtras`; wandb / TensorBoard runs simply omit those
+   sections). Revisit wandb/TB extras later.
+
 ## Target shape
 
 ```
 Run detail (phone)
   ┌─ header: [● status] <run name>        [View ▾]  [⚲ attach] [⚑ complete] [⋮]
   │  View ▾ → Overview · Charts · Media · Outputs · Config   (IndexedStack)
+  │  ⋮ → Delete run                       (every view always shown, empty-stated)
   │
   │  [Overview]   ← the glance
   │    status strip: running · 2h14m · pi-box · @trainer
@@ -75,6 +110,8 @@ Answers "is it healthy and how's it going?" before any scroll.
    (model / batch|batch_size / lr|learning_rate / steps|max_steps / epochs /
    seed); fallback to the first few keys. "See all → Config".
 5. **Summary** — the run's markdown summary (`_SummaryBody`) when present.
+6. **Open agent →** — when `agent_id` is set and that agent still exists, a link
+   into the producing agent's Insight surface (decision 8).
 
 ### Charts
 - **Metrics** — all scalar metric sparklines, grouped (reuse `_groupMetrics`,
@@ -98,7 +135,7 @@ Answers "is it healthy and how's it going?" before any scroll.
 ### Config
 - **Hyperparameters** — full `run_config` JSON as a **searchable** key/value
   list (flatten nested objects to dotted keys; a filter field, since configs can
-  be 50+ keys).
+  be 50+ keys). A **"vs parent" diff** is a follow-up (decision 7).
 - **Metadata** — the raw `metadata_json`, collapsible (reuse the pretty-printed
   JSON block).
 
@@ -110,10 +147,16 @@ its parallel `Future.wait`, and add the Dart client reads mirroring
 
 - `runs_api.dart`: `getRunConfig` / `getRunSystemMetrics` / `getRunAlerts` +
   `…Cached` variants, hitting the v1.0.796 endpoints
-  (`GET /v1/teams/{team}/runs/{run}/{config,system_metrics,alerts}`).
-- Pull-to-refresh re-runs `_load` (already present).
+  (`GET /v1/teams/{team}/runs/{run}/{config,system_metrics,alerts}`); plus
+  **`deleteRun`** (`DELETE /v1/teams/{team}/runs/{run}`) for the `⋮` action.
+- Pull-to-refresh re-runs `_load` (already present). A **live refresh timer**
+  (~20–30 s) re-fetches `metrics` + `alerts` only while `status=running`
+  (decision 1).
 
-No new hub work — the endpoints + storage shipped in `c805ea3` (migration 0051).
+Hub work is minimal: the digest endpoints + storage shipped in `c805ea3`
+(migration 0051). The only host-side tweak is bumping the metrics downsample cap
+to ≤150 points (decision 5) — a one-line `Runner.MetricsMaxPoints` default
+change.
 
 ## Reuse / new widgets
 
@@ -134,15 +177,19 @@ No new hub work — the endpoints + storage shipped in `c805ea3` (migration 0051
 
 ## Phasing (each phone-device-tested by the director)
 
-- **P1 — client reads.** `getRunConfig/SystemMetrics/Alerts` (+cached) in
-  `runs_api.dart`; `_load` fetches them. (CI `flutter analyze`.)
-- **P2 — view scaffold.** Header `View ▾` + `IndexedStack`; move today's sections
-  into **Charts / Media / Outputs / Config** unchanged. No data loss, just
-  relocation.
+- **P1 — client reads + host tweak.** `getRunConfig/SystemMetrics/Alerts`
+  (+cached) and `deleteRun` in `runs_api.dart`; `_load` fetches the digests.
+  Bump `Runner.MetricsMaxPoints` 100 → 150 (Go, locally testable). (CI
+  `flutter analyze` + `go test`.)
+- **P2 — view scaffold.** Header `View ▾` + `IndexedStack` (every view always
+  present); `⋮ → Delete run`. Move today's sections into **Charts / Media /
+  Outputs / Config** unchanged + empty states. No data loss, just relocation.
 - **P3 — Overview.** Status strip + alerts banner + headline metric tiles +
-  config highlights + summary.
+  config highlights + summary + run→agent link + the live-poll timer.
 - **P4 — fill the views.** System subsection in Charts; full alerts list; Config
-  search; Media/Outputs split polish.
+  search; Media/Outputs polish.
+- **Later (not scheduled).** Config "vs parent" diff; user-pinned headline
+  metrics; tap-to-zoom charts; wandb/TB extras.
 
 ## Risks
 

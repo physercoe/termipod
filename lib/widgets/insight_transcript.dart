@@ -1001,7 +1001,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         final r = rows[i];
         final seq = (r['start_seq'] as num?)?.toInt() ?? 0;
         final ts0 = (r['start_ts'] ?? '').toString();
-        final ts = ts0.isEmpty ? widget.runAnchorTs?[seq] : ts0;
+        // Reorder so the null-aware index sits in the false branch — `?[` right
+        // after a ternary `?` trips the Dart parser.
+        final ts = ts0.isNotEmpty ? ts0 : widget.runAnchorTs?[seq];
         return TurnSummaryRow(
           // Prefer the digest's own turn ordinal (`idx`, 0-based) so the label
           // matches the run-report card; fall back to the list position.

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-03)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.796
+> **Last verified vs code:** v1.0.797
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,42 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.797-alpha — 2026-06-03
+
+**The run-detail UI: a `View ▾` switcher with a glance Overview.** The run-detail
+screen — which had grown to many kinds of data (identity, config, scalar
+metrics, system metrics, alerts, images, distributions, dashboards, artifacts,
+summary, metadata) crammed into one long scroll — is reshaped into five focused
+views behind a header switcher, fronted by an Overview that answers "is it
+healthy and how's it going?" at a glance. Surfaces the v1.0.796 trackio
+run-extras (config / system / alerts). Design: `docs/plans/run-detail-ui.md`
+(Status: Done). Shipped in four device-tested phases.
+
+### Added
+- **`View ▾` switcher + five views** (`b722e58`): `RunDetailScreen` is now a
+  header `View ▾` (new standalone `lib/widgets/view_switcher.dart`) over an
+  `IndexedStack` — **Overview · Charts · Media · Outputs · Config** — each
+  keeping its own scroll state, each with a quiet empty state. **Outputs**
+  (artifacts) is its own view, distinct from **Media** (images + distributions).
+- **Overview glance** (`d065591`): a status strip with a **live-ticking
+  duration**, an expandable **alerts banner** (level-coloured), **headline metric
+  tiles** (loss→accuracy→lr heuristic, name + value + mini-spark), **config
+  highlight** chips, the summary, and an **"Open agent →"** link when the
+  producing agent is still live. While the run is non-terminal a 25 s timer
+  re-fetches status + metrics + alerts.
+- **System (GPU/CPU) charts + searchable config** (`3bc5f17`): Charts gains a
+  System subsection (sample-ordinal x-axis, not a training step); Config gains a
+  searchable flattened key/value list (dotted keys) above the metadata block.
+- **Run client reads** (`2dd7b73`): `getRunConfig` / `getRunSystemMetrics` /
+  `getRunAlerts` (+cached) and `deleteRun` in `runs_api.dart`.
+
+### Changed
+- **Delete a run** (`b722e58`): the run-detail `⋮` menu gains **Delete run**
+  (confirm dialog → `DELETE /runs/{run}`).
+- **Metric resolution** (`2dd7b73`): host-runner `Runner.MetricsMaxPoints`
+  default 100 → 150 so the run-detail sparklines carry more detail while the
+  digest stays compact.
 
 ## v1.0.796-alpha — 2026-06-03
 

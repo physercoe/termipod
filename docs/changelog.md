@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-02)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.791
+> **Last verified vs code:** v1.0.792
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,46 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.792-alpha — 2026-06-03
+
+**The transcript decoupling is structurally complete
+([ADR-040](decisions/040-transcript-surfaces-decoupled-by-mode.md),
+[`plans/transcript-surface-decoupling.md`](plans/transcript-surface-decoupling.md)).**
+A test build for the per-mode split: the former flag-switched `AgentFeed` is now
+two files over the shared `transcript/` substrate — `LiveFeed` (the live
+conversation) and `InsightTranscript` (the sealed / random-access analysis
+surface). A new mode is a new file, not a flag.
+
+### Added
+- **`InsightTranscript`** (`lib/widgets/insight_transcript.dart`, P3 `ba4cbbd`) —
+  the sealed / random-access transcript mode in its own file: its own `(ts,seq)`
+  keyset buffer (window-reset-around-anchor + forward pager), the seek
+  orchestration (active-anchor, funnel-run jumps, "view in context"), and the
+  lens-as-query engine (whole-run Errors list, turns/errors funnel, full-run
+  minimap, N/M ordinal + stepper). The dashboard→transcript jump channel moved to
+  the substrate as `TranscriptSeekController`.
+
+### Changed
+- **Insight is now a sealed dataset (ADR-040 §E):** snapshot-on-entry + manual
+  refresh, with **no live SSE tail, no composer, no telemetry strip**. A
+  *running* agent's Insight transcript no longer auto-updates (it re-snapshots on
+  re-entry; the pull-to-refresh still re-pulls the digest). Sealed / terminated
+  runs — the dominant Insight case — are unaffected (P3 `ba4cbbd`).
+- **`agent_feed.dart` → `live_feed.dart`, `AgentFeed` → `LiveFeed`** (P4b
+  `afb3cb9`), after stripping the now-dead random-access machinery (P4a
+  `0e18b11`, 894 lines). `LiveFeed` keeps the live-tail loader, the composer, the
+  telemetry strip, and its loaded-window lens / minimap / stepper unchanged — a
+  behaviour-preserving rename. The four live consumers were migrated.
+
+### Removed
+- **The random-access / digest machinery from the live feed** — the `(ts,seq)`
+  loader + forward pager, the external-seek channel, and the whole-run
+  lens-as-query (Errors summary list, funnel-run jumps, whole-run minimap, N/M
+  position pill, jump-to-ordinal) all moved to `InsightTranscript`; the live
+  feed only ever had them inert (P4a `0e18b11`).
 
 ---
 

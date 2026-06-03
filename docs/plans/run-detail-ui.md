@@ -1,15 +1,17 @@
 # Run detail UI — multi-view design
 
 > **Type:** plan
-> **Status:** Proposed (2026-06-03) — design only, not yet built. Director chose
-> the **`View ▾` switcher** model with a glance **Overview**; **Outputs** is its
-> own view, distinct from **Media**. Open questions resolved (see Decisions):
+> **Status:** Done (2026-06-03) — all four phases shipped (P1 `2dd7b73`, P2
+> `b722e58`, P3 `d065591`, P4 `3bc5f17`), CI + CodeQL green; awaiting a director
+> device-test before tagging (next = v1.0.797-alpha). Director chose the
+> **`View ▾` switcher** model with a glance **Overview**; **Outputs** is its own
+> view, distinct from **Media**. Open questions resolved (see Decisions):
 > live-poll metrics+alerts while running, heuristic headline metrics, sample-
 > ordinal system x-axis, always-show empty views, sparklines-only at ≤150 pts,
 > Delete-run action, searchable config (parent-diff later), run→agent link,
 > trackio-only extras.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.796-alpha
+> **Last verified vs code:** v1.0.796-alpha (HEAD `3bc5f17`)
 
 **TL;DR.** The run-detail screen now has many kinds of data to show — identity,
 config (hyperparameters), scalar metrics, system (GPU/CPU) metrics, alerts,
@@ -177,19 +179,27 @@ change.
 
 ## Phasing (each phone-device-tested by the director)
 
-- **P1 — client reads + host tweak.** `getRunConfig/SystemMetrics/Alerts`
-  (+cached) and `deleteRun` in `runs_api.dart`; `_load` fetches the digests.
-  Bump `Runner.MetricsMaxPoints` 100 → 150 (Go, locally testable). (CI
-  `flutter analyze` + `go test`.)
-- **P2 — view scaffold.** Header `View ▾` + `IndexedStack` (every view always
-  present); `⋮ → Delete run`. Move today's sections into **Charts / Media /
-  Outputs / Config** unchanged + empty states. No data loss, just relocation.
-- **P3 — Overview.** Status strip + alerts banner + headline metric tiles +
-  config highlights + summary + run→agent link + the live-poll timer.
-- **P4 — fill the views.** System subsection in Charts; full alerts list; Config
-  search; Media/Outputs polish.
+- **P1 — client reads + host tweak. ✅ shipped (`2dd7b73`).**
+  `getRunConfig/SystemMetrics/Alerts` (+cached) and `deleteRun` in
+  `runs_api.dart` (+ `hub_client` facade). Bumped `Runner.MetricsMaxPoints`
+  100 → 150. The `_load` digest fetch was deferred to its consumers (P2–P4) to
+  avoid unread-field analyzer failures.
+- **P2 — view scaffold. ✅ shipped (`b722e58`).** Header `View ▾`
+  (new standalone `lib/widgets/view_switcher.dart`, not a SessionHeader
+  refactor) + `IndexedStack` (every view always present, empty-stated);
+  `⋮ → Delete run`. Today's sections relocated into **Charts / Media / Outputs /
+  Config** — pure relocation, no new fetch.
+- **P3 — Overview. ✅ shipped (`d065591`).** Status strip + live-ticking
+  duration + alerts banner + headline metric tiles + config highlights +
+  summary + run→agent link; `_load` gains the alerts + config fetch and a 25 s
+  live-poll (status + metrics + alerts) while non-terminal.
+- **P4 — fill the views. ✅ shipped (`3bc5f17`).** System (GPU/CPU) subsection
+  in Charts (sample-ordinal x-axis via a `sampleOrdinalX` flag); searchable
+  flattened Config (`_ConfigKeyValueList`) above Metadata. Full alerts list was
+  already inline-expandable in the P3 banner.
 - **Later (not scheduled).** Config "vs parent" diff; user-pinned headline
-  metrics; tap-to-zoom charts; wandb/TB extras.
+  metrics; tap-to-zoom charts; wandb/TB extras; system metrics in the live
+  poll.
 
 ## Risks
 

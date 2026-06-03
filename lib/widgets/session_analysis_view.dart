@@ -4,8 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/session_digest_provider.dart';
 import '../providers/session_turns_provider.dart';
 import '../theme/design_colors.dart';
-import 'agent_feed.dart';
+import 'insight_transcript.dart';
 import 'run_report_card.dart';
+import 'transcript/seek_controller.dart';
 
 /// The analysis surface (agent-run-analysis-mode plan P1/P2): a foldable
 /// run-report dashboard (from the session **digest** — ADR-038 §5) over the
@@ -13,15 +14,16 @@ import 'run_report_card.dart';
 /// `View ▾ → Insights` body — no separate route. Available for any run; the
 /// report card labels itself "as of `<ts>` · live" while the run is ongoing.
 ///
-/// The dashboard is foldable so the log reclaims height; the log is the same
-/// `AgentFeed(dense: false)` the Feed tab renders, here driven by the digest
-/// (true event count, full-run errors) rather than the loaded window.
+/// The dashboard is foldable so the log reclaims height; the log is the
+/// [InsightTranscript] — the sealed / random-access transcript mode (ADR-040),
+/// driven by the digest (true event count, full-run errors) rather than the
+/// loaded window.
 ///
-/// P2 — the dashboard and the feed are siblings, so a tapped dashboard stat
-/// (the Errors stat → the first error's seq) drives the transcript through an
-/// [AgentFeedSeekController]: the card requests a jump, the feed pages toward
-/// the anchor and highlights it. The random-access loader + filtered views
-/// land alongside.
+/// P2 — the dashboard and the transcript are siblings, so a tapped dashboard
+/// stat (the Errors stat → the first error's seq) drives the transcript through
+/// a [TranscriptSeekController]: the card requests a jump, the transcript
+/// window-resets around the anchor and highlights it. The random-access loader
+/// + filtered views land alongside.
 class SessionAnalysisView extends ConsumerStatefulWidget {
   final String agentId;
   final String sessionId;
@@ -43,10 +45,10 @@ class SessionAnalysisView extends ConsumerStatefulWidget {
 }
 
 class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
-  // The jump channel from the dashboard down into the feed. Owned here so
-  // both the RunReportCard (requester) and the AgentFeed (responder) share
-  // one instance for the view's lifetime.
-  final AgentFeedSeekController _seek = AgentFeedSeekController();
+  // The jump channel from the dashboard down into the transcript. Owned here so
+  // both the RunReportCard (requester) and the InsightTranscript (responder)
+  // share one instance for the view's lifetime.
+  final TranscriptSeekController _seek = TranscriptSeekController();
 
   @override
   void dispose() {
@@ -174,10 +176,9 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               ref.invalidate(sessionTurnsProvider(widget.sessionId));
               await ref.read(sessionDigestProvider(widget.sessionId).future);
             },
-            child: AgentFeed(
+            child: InsightTranscript(
               agentId: widget.agentId,
               sessionId: widget.sessionId,
-              dense: false,
               seekController: _seek,
               totalEventCount: totalEvents,
               runErrorSeqs: runErrorSeqs,
@@ -185,9 +186,6 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               runErrorLabels: runErrorLabels,
               runTurnSeqs: runTurnSeqs,
               runAnchorTs: runAnchorTs,
-              // The analysis surface owns the random-access loader; the Feed
-              // tab leaves this false and keeps its live-tail loader.
-              randomAccess: true,
             ),
           ),
         ),

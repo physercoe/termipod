@@ -20,6 +20,7 @@ import 'transcript/feed_telemetry.dart';
 import 'transcript/fold_maps.dart';
 import 'transcript/feed_reducer.dart';
 import 'transcript/random_access_loader.dart';
+import 'transcript/seek_controller.dart';
 import 'transcript/transcript_seek.dart';
 import 'transcript/interaction_cards.dart';
 import 'transcript/telemetry_strip.dart';
@@ -31,39 +32,12 @@ import 'session_details_sheet.dart';
 // unchanged and external callers keep their single import surface.
 export 'transcript/feed_reducer.dart';
 
-/// Drives an external jump-to-seq into an [AgentFeed] from a sibling — the
-/// analysis-mode payoff (plan P2): the run-report dashboard and the
-/// structure-index rows live *above* the feed, so a tapped error/turn/tool
-/// needs a channel down into the feed's seek. The feed listens; [seekTo]
-/// bumps a generation counter so re-requesting the *same* seq still re-fires
-/// (a second tap on the same error jumps again). The feed resolves the seq
-/// against its loaded window, paging toward it if the anchor is older than
-/// what's loaded (bounded), then anchors+highlights the row.
-class AgentFeedSeekController extends ChangeNotifier {
-  int? _seq;
-  String? _ts;
-  int _generation = 0;
-
-  /// The most recently requested seq, or null before any request.
-  int? get seq => _seq;
-
-  /// The anchor's timestamp, when the caller knows it (the Turns index carries
-  /// `start_ts`). The session-scoped random-access loader needs it to window
-  /// around the anchor via the `(ts, seq)` keyset; a seq-only request (the
-  /// Errors stat) falls back to the bounded page-walk.
-  String? get ts => _ts;
-
-  /// Increments on every [seekTo]; lets the feed distinguish a fresh
-  /// request for the same seq from a no-op rebuild.
-  int get generation => _generation;
-
-  void seekTo(int seq, {String? ts}) {
-    _seq = seq;
-    _ts = ts;
-    _generation++;
-    notifyListeners();
-  }
-}
+/// The dashboard→transcript jump channel moved to the shared substrate
+/// (`transcript/seek_controller.dart`) as [TranscriptSeekController] — ADR-040
+/// P3. This alias keeps `agent_feed.dart`'s call sites and the existing
+/// `agent_feed_seek_controller_test.dart` compiling unchanged until the P4
+/// rename; the live feed never actually wires a seek controller.
+typedef AgentFeedSeekController = TranscriptSeekController;
 
 /// Renders a live, scrollable feed of agent_events for [agentId]. Keeps
 /// its own seq cursor so reconnects don't replay the whole history. The

@@ -568,6 +568,13 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Get("/images", s.handleGetRunImages)
 				r.Put("/histograms", s.handlePutRunHistograms)
 				r.Get("/histograms", s.handleGetRunHistograms)
+				// Run "extras" digests from the trackio sibling tables.
+				r.Put("/config", s.handlePutRunConfig)
+				r.Get("/config", s.handleGetRunConfig)
+				r.Put("/system_metrics", s.handlePutRunSystemMetrics)
+				r.Get("/system_metrics", s.handleGetRunSystemMetrics)
+				r.Put("/alerts", s.handlePutRunAlerts)
+				r.Get("/alerts", s.handleGetRunAlerts)
 			})
 		})
 		// Documents (§6.7) + Reviews (§6.8). Team-scoped; filter by project

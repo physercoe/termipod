@@ -60,11 +60,65 @@ func (a *Runner) metricsPollOne(ctx context.Context, r metrics.Reader, run Run, 
 	if err != nil {
 		return err
 	}
-	if len(series) == 0 {
-		// Worker hasn't logged yet. Nothing to push.
-		return nil
+	if len(series) > 0 {
+		if err := a.Client.PutRunMetrics(ctx, run.ID, seriesToWire(series, maxPoints)); err != nil {
+			return err
+		}
+	}
+	// Extras (config / system_metrics / alerts) are an OPTIONAL capability —
+	// only trackio implements metrics.RunExtras today. Poll them independently
+	// of the scalar series so a run that has only config or only alerts still
+	// surfaces.
+	if rx, ok := r.(metrics.RunExtras); ok {
+		if err := a.pollRunExtras(ctx, rx, run, maxPoints); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// pollRunExtras reads the run's config / system series / alerts and PUTs each
+// non-empty digest. Each piece is independent: a missing one is skipped, not an
+// error (the reader returns empty for "nothing logged yet").
+func (a *Runner) pollRunExtras(ctx context.Context, rx metrics.RunExtras, run Run, maxPoints int) error {
+	cfg, err := rx.ReadConfig(ctx, run.TrackioRunURI)
+	if err != nil {
+		return err
+	}
+	if len(cfg) > 0 {
+		if err := a.Client.PutRunConfig(ctx, run.ID, cfg); err != nil {
+			return err
+		}
 	}
 
+	sys, err := rx.ReadSystemMetrics(ctx, run.TrackioRunURI)
+	if err != nil {
+		return err
+	}
+	if len(sys) > 0 {
+		if err := a.Client.PutRunSystemMetrics(ctx, run.ID, seriesToWire(sys, maxPoints)); err != nil {
+			return err
+		}
+	}
+
+	alerts, err := rx.ReadAlerts(ctx, run.TrackioRunURI)
+	if err != nil {
+		return err
+	}
+	if len(alerts) > 0 {
+		if err := a.Client.PutRunAlerts(ctx, run.ID, alerts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seriesToWire downsamples each named series and snapshots its last point into
+// the MetricPoints wire shape. last_step / last_value come from the
+// un-downsampled series so the mobile headline number matches the source
+// tracker's own dashboard, not whichever point survived downsampling. Shared by
+// the scalar-metric and system-metric polls.
+func seriesToWire(series map[string]metrics.Series, maxPoints int) []MetricPoints {
 	out := make([]MetricPoints, 0, len(series))
 	for name, pts := range series {
 		downs := metrics.Downsample(pts, maxPoints)
@@ -73,9 +127,6 @@ func (a *Runner) metricsPollOne(ctx context.Context, r metrics.Reader, run Run, 
 			Points:      toWirePoints(downs),
 			SampleCount: int64(len(pts)),
 		}
-		// last_step / last_value come from the un-downsampled series so
-		// the mobile headline number matches the source tracker's own
-		// dashboard, not whichever point survived downsampling.
 		if len(pts) > 0 {
 			last := pts[len(pts)-1]
 			step := last.Step
@@ -85,7 +136,7 @@ func (a *Runner) metricsPollOne(ctx context.Context, r metrics.Reader, run Run, 
 		}
 		out = append(out, row)
 	}
-	return a.Client.PutRunMetrics(ctx, run.ID, out)
+	return out
 }
 
 // toWirePoints converts a metrics.Series to the [[step, value], ...]

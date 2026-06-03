@@ -18,6 +18,7 @@ import (
 
 	"github.com/termipod/hub/internal/buildinfo"
 	"github.com/termipod/hub/internal/hostrunner/a2a"
+	"github.com/termipod/hub/internal/hostrunner/metrics"
 )
 
 type Client struct {
@@ -104,13 +105,13 @@ func (c *Client) PutCapabilities(ctx context.Context, hostID string, caps any) e
 // for one but lives here so the host-runner package doesn't import the
 // hub-internal agentfamilies package — keeps the build dependency one-way.
 type AgentFamilyFromHub struct {
-	Family            string                 `json:"family"`
-	Bin               string                 `json:"bin"`
-	VersionFlag       string                 `json:"version_flag"`
-	Supports          []string               `json:"supports"`
-	Incompatibilities []AgentFamilyIncompat  `json:"incompatibilities,omitempty"`
-	Source            string                 `json:"source,omitempty"`
-	DefaultAuthMethod string                 `json:"default_auth_method,omitempty"`
+	Family            string                `json:"family"`
+	Bin               string                `json:"bin"`
+	VersionFlag       string                `json:"version_flag"`
+	Supports          []string              `json:"supports"`
+	Incompatibilities []AgentFamilyIncompat `json:"incompatibilities,omitempty"`
+	Source            string                `json:"source,omitempty"`
+	DefaultAuthMethod string                `json:"default_auth_method,omitempty"`
 	// RuntimeModeSwitch mirrors agentfamilies.Family.RuntimeModeSwitch
 	// (ADR-021 D4 / W2.1) over the wire so probe sweeps see the same
 	// declaration the hub-server consults at /agents/{id}/input time.
@@ -210,14 +211,14 @@ func (c *Client) ListHostAgents(ctx context.Context, hostID string) ([]Agent2, e
 }
 
 type AttentionIn struct {
-	ScopeKind   string          `json:"scope_kind"`
-	ScopeID     string          `json:"scope_id,omitempty"`
-	Kind        string          `json:"kind"`
-	Summary     string          `json:"summary"`
-	Severity    string          `json:"severity,omitempty"`
-	Assignees   []string        `json:"assignees,omitempty"`
-	SessionID   string          `json:"session_id,omitempty"`
-	ActorHandle string          `json:"actor_handle,omitempty"`
+	ScopeKind      string          `json:"scope_kind"`
+	ScopeID        string          `json:"scope_id,omitempty"`
+	Kind           string          `json:"kind"`
+	Summary        string          `json:"summary"`
+	Severity       string          `json:"severity,omitempty"`
+	Assignees      []string        `json:"assignees,omitempty"`
+	SessionID      string          `json:"session_id,omitempty"`
+	ActorHandle    string          `json:"actor_handle,omitempty"`
 	PendingPayload json.RawMessage `json:"pending_payload,omitempty"`
 }
 
@@ -488,11 +489,11 @@ func (c *Client) ListRunsForHost(ctx context.Context, hostID string) ([]Run, err
 // MetricPoints is one downsampled series plus the last-observed snapshot
 // the mobile UI reads directly without having to parse points_json.
 type MetricPoints struct {
-	Name        string     `json:"name"`
-	Points      [][2]any   `json:"points"` // [[step, value], ...]
-	SampleCount int64      `json:"sample_count"`
-	LastStep    *int64     `json:"last_step,omitempty"`
-	LastValue   *float64   `json:"last_value,omitempty"`
+	Name        string   `json:"name"`
+	Points      [][2]any `json:"points"` // [[step, value], ...]
+	SampleCount int64    `json:"sample_count"`
+	LastStep    *int64   `json:"last_step,omitempty"`
+	LastValue   *float64 `json:"last_value,omitempty"`
 }
 
 // PutRunMetrics replaces the hub-side digest for one run with the given
@@ -502,6 +503,30 @@ func (c *Client) PutRunMetrics(ctx context.Context, runID string, metrics []Metr
 	return c.do(ctx, http.MethodPut,
 		fmt.Sprintf("/v1/teams/%s/runs/%s/metrics", c.Team, runID),
 		map[string]any{"metrics": metrics}, nil)
+}
+
+// PutRunConfig upserts the run's config (hyperparameters) digest — one JSON
+// object per run, read from trackio's `configs` table.
+func (c *Client) PutRunConfig(ctx context.Context, runID string, config map[string]any) error {
+	return c.do(ctx, http.MethodPut,
+		fmt.Sprintf("/v1/teams/%s/runs/%s/config", c.Team, runID),
+		map[string]any{"config": config}, nil)
+}
+
+// PutRunSystemMetrics replaces the run's system/utilization digest. Same wire
+// shape as PutRunMetrics; the points' x-axis is a sample ordinal, not a step.
+func (c *Client) PutRunSystemMetrics(ctx context.Context, runID string, metrics []MetricPoints) error {
+	return c.do(ctx, http.MethodPut,
+		fmt.Sprintf("/v1/teams/%s/runs/%s/system_metrics", c.Team, runID),
+		map[string]any{"metrics": metrics}, nil)
+}
+
+// PutRunAlerts replaces the run's alert digest, read from trackio's `alerts`
+// table.
+func (c *Client) PutRunAlerts(ctx context.Context, runID string, alerts []metrics.Alert) error {
+	return c.do(ctx, http.MethodPut,
+		fmt.Sprintf("/v1/teams/%s/runs/%s/alerts", c.Team, runID),
+		map[string]any{"alerts": alerts}, nil)
 }
 
 // ---- low level ----

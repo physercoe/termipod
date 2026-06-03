@@ -33,6 +33,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"unicode"
 
 	"github.com/termipod/hub/internal/hostrunner/metrics"
 
@@ -119,9 +121,38 @@ func DefaultDir() string {
 }
 
 // ProjectDBPath returns the absolute SQLite path trackio uses for a
-// project. trackio writes `{project}.db` directly under its root dir.
+// project. trackio writes `{safeProject}.db` directly under its root dir,
+// where the filename is the *sanitized* project name — see SafeProjectName.
 func ProjectDBPath(root, project string) string {
-	return filepath.Join(root, project+".db")
+	return filepath.Join(root, SafeProjectName(project)+".db")
+}
+
+// SafeProjectName mirrors trackio's own DB-filename sanitization
+// (trackio/sqlite_storage.py: get_project_db_filename, verified against
+// gradio-app/trackio main 2026-06-03):
+//
+//	safe = "".join(c for c in project if c.isalnum() or c in ("-","_")).rstrip()
+//	if not safe: safe = "default"
+//
+// We must match it exactly or we'd stat the wrong `.db` and silently report
+// the run as empty. Python's str.isalnum is Unicode-aware, so we keep Unicode
+// letters/numbers (not just ASCII), plus '-' and '_'; everything else (spaces,
+// '/', '.', ':' …) is dropped. An empty result falls back to "default".
+func SafeProjectName(project string) string {
+	var b strings.Builder
+	for _, r := range project {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	// trackio applies .rstrip() after the filter; whitespace is already
+	// dropped by the keep-set, so this only matters for fidelity. Kept so the
+	// rule reads 1:1 with upstream.
+	safe := strings.TrimRightFunc(b.String(), unicode.IsSpace)
+	if safe == "" {
+		return "default"
+	}
+	return safe
 }
 
 // ReadRun loads every scalar metric series for one run from the trackio
@@ -191,6 +222,183 @@ func ReadRun(ctx context.Context, dbPath string, runName string) (map[string]met
 		series[k] = dedupByStep(pts)
 	}
 	return series, nil
+}
+
+// ReadConfig implements metrics.RunExtras.
+func (s *Source) ReadConfig(ctx context.Context, uri string) (map[string]any, error) {
+	u, err := ParseURI(uri)
+	if err != nil {
+		return nil, err
+	}
+	return ReadConfig(ctx, ProjectDBPath(s.Root, u.Project), u.RunName)
+}
+
+// ReadSystemMetrics implements metrics.RunExtras.
+func (s *Source) ReadSystemMetrics(ctx context.Context, uri string) (map[string]metrics.Series, error) {
+	u, err := ParseURI(uri)
+	if err != nil {
+		return nil, err
+	}
+	return ReadSystemMetrics(ctx, ProjectDBPath(s.Root, u.Project), u.RunName)
+}
+
+// ReadAlerts implements metrics.RunExtras.
+func (s *Source) ReadAlerts(ctx context.Context, uri string) ([]metrics.Alert, error) {
+	u, err := ParseURI(uri)
+	if err != nil {
+		return nil, err
+	}
+	return ReadAlerts(ctx, ProjectDBPath(s.Root, u.Project), u.RunName)
+}
+
+// openRO opens a trackio project DB read-only. A missing file is reported as
+// (nil, nil) — the project hasn't been created yet — so callers can return an
+// empty result without bubbling an error up the poll loop.
+func openRO(dbPath string) (*sql.DB, error) {
+	if _, err := os.Stat(dbPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("stat %s: %w", dbPath, err)
+	}
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", dbPath, err)
+	}
+	return db, nil
+}
+
+// isNoSuchTable reports whether err is sqlite's "no such table" — an older
+// trackio store (or a brand-new DB that only has the metrics table) may not
+// carry every sibling table yet. We treat that as "nothing logged" rather than
+// a failure so the poller stays quiet.
+func isNoSuchTable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such table")
+}
+
+// ReadConfig loads the run's config (hyperparameters) from trackio's `configs`
+// table — one JSON row per run. Returns nil (not an error) when the DB or the
+// config row is absent.
+func ReadConfig(ctx context.Context, dbPath, runName string) (map[string]any, error) {
+	db, err := openRO(dbPath)
+	if err != nil || db == nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	var payload string
+	err = db.QueryRowContext(ctx,
+		`SELECT config FROM configs WHERE run_name = ? ORDER BY id DESC LIMIT 1`,
+		runName).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if isNoSuchTable(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query config for %s: %w", runName, err)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(payload), &obj); err != nil {
+		// A corrupt config row shouldn't fail the whole poll.
+		return nil, nil
+	}
+	return obj, nil
+}
+
+// ReadSystemMetrics loads the run's system/utilization series from trackio's
+// `system_metrics` table. Unlike user metrics these are TIME-keyed (no step),
+// so we use a 0-based sample ordinal (rows ordered by timestamp) as the x-axis;
+// every numeric key in a row's JSON gets a point at that ordinal. Returns an
+// empty map when the DB / table / rows are absent.
+func ReadSystemMetrics(ctx context.Context, dbPath, runName string) (map[string]metrics.Series, error) {
+	db, err := openRO(dbPath)
+	if err != nil || db == nil {
+		return map[string]metrics.Series{}, err
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT metrics FROM system_metrics WHERE run_name = ? ORDER BY timestamp ASC, id ASC`,
+		runName)
+	if isNoSuchTable(err) {
+		return map[string]metrics.Series{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query system_metrics for %s: %w", runName, err)
+	}
+	defer rows.Close()
+
+	series := map[string]metrics.Series{}
+	var ordinal int64
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(payload), &obj); err != nil {
+			ordinal++
+			continue
+		}
+		for k, v := range obj {
+			f, ok := asFloat(v)
+			if !ok {
+				continue
+			}
+			series[k] = append(series[k], metrics.Point{Step: ordinal, Value: f})
+		}
+		ordinal++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return series, nil
+}
+
+// ReadAlerts loads the run's alerts from trackio's `alerts` table, oldest
+// first. Returns an empty slice when the DB / table / rows are absent.
+func ReadAlerts(ctx context.Context, dbPath, runName string) ([]metrics.Alert, error) {
+	db, err := openRO(dbPath)
+	if err != nil || db == nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT timestamp, title, COALESCE(text, ''), COALESCE(level, ''),
+		       step, COALESCE(alert_id, '')
+		FROM alerts WHERE run_name = ? ORDER BY timestamp ASC, id ASC`,
+		runName)
+	if isNoSuchTable(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query alerts for %s: %w", runName, err)
+	}
+	defer rows.Close()
+
+	var out []metrics.Alert
+	for rows.Next() {
+		var (
+			ts, title, text, level, alertID string
+			step                            sql.NullInt64
+		)
+		if err := rows.Scan(&ts, &title, &text, &level, &step, &alertID); err != nil {
+			return nil, err
+		}
+		a := metrics.Alert{TS: ts, Title: title, Text: text, Level: level, AlertID: alertID}
+		if step.Valid {
+			v := step.Int64
+			a.Step = &v
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // asFloat coerces JSON scalars to float64. json.Unmarshal into map[string]any

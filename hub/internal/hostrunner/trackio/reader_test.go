@@ -160,6 +160,122 @@ func TestReadRun_DedupsDuplicateSteps(t *testing.T) {
 	}
 }
 
+// seedSiblingTables creates the configs / system_metrics / alerts tables on an
+// existing project DB so the extras readers have something to read.
+func seedSiblingTables(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	stmts := []string{
+		`CREATE TABLE configs (id INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id TEXT, run_name TEXT, config TEXT, created_at TEXT)`,
+		`CREATE TABLE system_metrics (id INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id TEXT, timestamp TEXT, run_name TEXT, metrics TEXT)`,
+		`CREATE TABLE alerts (id INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id TEXT, timestamp TEXT, run_name TEXT, title TEXT, text TEXT,
+			level TEXT, step INTEGER, alert_id TEXT)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	}
+	return db
+}
+
+func TestReadConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := seedTrackioDB(t, dir, "nano", nil)
+	db := seedSiblingTables(t, path)
+	defer db.Close()
+	if _, err := db.Exec(
+		`INSERT INTO configs (run_id, run_name, config, created_at) VALUES (?,?,?,?)`,
+		"r1", "run-a", `{"lr": 0.001, "batch": 64, "model": "nanoGPT"}`, "t0"); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := ReadConfig(context.Background(), path, "run-a")
+	if err != nil {
+		t.Fatalf("ReadConfig: %v", err)
+	}
+	if cfg["lr"] != 0.001 || cfg["model"] != "nanoGPT" {
+		t.Errorf("config = %+v, want lr+model", cfg)
+	}
+
+	// Missing run → nil, no error.
+	empty, err := ReadConfig(context.Background(), path, "no-such-run")
+	if err != nil || empty != nil {
+		t.Errorf("missing run: got (%+v, %v), want (nil, nil)", empty, err)
+	}
+}
+
+func TestReadConfig_MissingTableIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := seedTrackioDB(t, dir, "nano", nil) // metrics table only, no configs
+	cfg, err := ReadConfig(context.Background(), path, "run-a")
+	if err != nil || cfg != nil {
+		t.Errorf("no configs table: got (%+v, %v), want (nil, nil)", cfg, err)
+	}
+}
+
+func TestReadSystemMetrics(t *testing.T) {
+	dir := t.TempDir()
+	path := seedTrackioDB(t, dir, "nano", nil)
+	db := seedSiblingTables(t, path)
+	defer db.Close()
+	rows := []struct{ ts, run, m string }{
+		{"t0", "run-a", `{"gpu.0.util": 10, "cpu": 5}`},
+		{"t1", "run-a", `{"gpu.0.util": 80, "cpu": 7}`},
+		{"t2", "run-b", `{"gpu.0.util": 99}`}, // other run, excluded
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(
+			`INSERT INTO system_metrics (run_id, timestamp, run_name, metrics) VALUES (?,?,?,?)`,
+			"x", r.ts, r.run, r.m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	series, err := ReadSystemMetrics(context.Background(), path, "run-a")
+	if err != nil {
+		t.Fatalf("ReadSystemMetrics: %v", err)
+	}
+	gpu := series["gpu.0.util"]
+	if len(gpu) != 2 || gpu[0].Step != 0 || gpu[1].Step != 1 || gpu[1].Value != 80 {
+		t.Errorf("gpu series = %+v, want ordinals 0,1 ending 80", gpu)
+	}
+	if len(series["cpu"]) != 2 {
+		t.Errorf("cpu series = %+v, want 2 points", series["cpu"])
+	}
+}
+
+func TestReadAlerts(t *testing.T) {
+	dir := t.TempDir()
+	path := seedTrackioDB(t, dir, "nano", nil)
+	db := seedSiblingTables(t, path)
+	defer db.Close()
+	if _, err := db.Exec(
+		`INSERT INTO alerts (run_id, timestamp, run_name, title, text, level, step, alert_id)
+		 VALUES (?,?,?,?,?,?,?,?)`,
+		"r1", "t1", "run-a", "Loss spike", "loss jumped", "warn", 1200, "a1"); err != nil {
+		t.Fatal(err)
+	}
+
+	alerts, err := ReadAlerts(context.Background(), path, "run-a")
+	if err != nil {
+		t.Fatalf("ReadAlerts: %v", err)
+	}
+	if len(alerts) != 1 {
+		t.Fatalf("alerts = %+v, want 1", alerts)
+	}
+	a := alerts[0]
+	if a.Title != "Loss spike" || a.Level != "warn" || a.Step == nil || *a.Step != 1200 {
+		t.Errorf("alert = %+v, want titled warn step=1200", a)
+	}
+}
+
 func TestDefaultDir_UsesEnvWhenSet(t *testing.T) {
 	t.Setenv("TRACKIO_DIR", "/tmp/mytrackio")
 	if d := DefaultDir(); d != "/tmp/mytrackio" {
@@ -172,5 +288,25 @@ func TestProjectDBPath(t *testing.T) {
 	want := "/root/nano-ablation.db"
 	if got != want {
 		t.Errorf("got %q want %q", got, want)
+	}
+}
+
+func TestSafeProjectName(t *testing.T) {
+	// Mirrors trackio's get_project_db_filename sanitization.
+	cases := []struct{ in, want string }{
+		{"nano-ablation", "nano-ablation"},
+		{"keeps_under_score", "keeps_under_score"},
+		{"with space", "withspace"},
+		{"slash/and.dot:colon", "slashanddotcolon"},
+		{"trail   ", "trail"},
+		{"   ", "default"},   // all dropped → default
+		{"!@#$%", "default"}, // nothing kept → default
+		{"", "default"},
+		{"café-2", "café-2"}, // Unicode letters + digits kept
+	}
+	for _, c := range cases {
+		if got := SafeProjectName(c.in); got != c.want {
+			t.Errorf("SafeProjectName(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }

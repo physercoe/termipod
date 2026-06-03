@@ -43,3 +43,34 @@ type Reader interface {
 	// "try again next tick" rather than a failure.
 	Read(ctx context.Context, uri string) (map[string]Series, error)
 }
+
+// Alert is one run-level alert/note a tracker emitted (title + optional body
+// + severity, optionally pinned to a step). Vendor-neutral shape; backends map
+// their own alert rows onto it.
+type Alert struct {
+	TS      string `json:"ts,omitempty"`
+	Title   string `json:"title"`
+	Text    string `json:"text,omitempty"`
+	Level   string `json:"level,omitempty"`
+	Step    *int64 `json:"step,omitempty"`
+	AlertID string `json:"alert_id,omitempty"`
+}
+
+// RunExtras is an OPTIONAL capability a Reader may also implement to surface the
+// non-scalar-series run data some trackers keep beside the metrics curves: the
+// run's **config** (hyperparameters), its **system** utilization series
+// (GPU/CPU — time-keyed, so the points use a sample ordinal as the x-axis), and
+// its **alerts**. The poll loop type-asserts a Reader to this interface; a
+// backend that doesn't implement it (wandb / TensorBoard today) is simply
+// skipped for extras. Each method follows the same "empty (not error) means
+// nothing logged yet" contract as Read.
+type RunExtras interface {
+	// ReadConfig returns the run's config as a decoded JSON object, or nil
+	// when the run has no config row.
+	ReadConfig(ctx context.Context, uri string) (map[string]any, error)
+	// ReadSystemMetrics returns the system/utilization series keyed by metric
+	// name. Time-keyed sources use a 0-based sample ordinal for Point.Step.
+	ReadSystemMetrics(ctx context.Context, uri string) (map[string]Series, error)
+	// ReadAlerts returns the run's alerts oldest-first.
+	ReadAlerts(ctx context.Context, uri string) ([]Alert, error)
+}

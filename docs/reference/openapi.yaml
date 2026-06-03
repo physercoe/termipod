@@ -2036,6 +2036,110 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/RunHistogramsBatch" }
 
+  /v1/teams/{team}/runs/{run}/config:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    put:
+      tags: [Runs]
+      operationId: putRunConfig
+      summary: Upsert the run's config (hyperparameters)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config: { type: object, description: Run hyperparameters }
+              required: [config]
+      responses:
+        "200": { description: Stored }
+    get:
+      tags: [Runs]
+      operationId: getRunConfig
+      summary: Get the run's config (config null when none logged)
+      responses:
+        "200":
+          description: Config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  config: { type: object, nullable: true }
+                  updated_at: { type: string }
+
+  /v1/teams/{team}/runs/{run}/system_metrics:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    put:
+      tags: [Runs]
+      operationId: putRunSystemMetrics
+      summary: Replace GPU/CPU system series (sample-ordinal x-axis)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunMetricsBatch" }
+      responses:
+        "200": { description: Stored }
+    get:
+      tags: [Runs]
+      operationId: getRunSystemMetrics
+      summary: List run system-metric series
+      responses:
+        "200":
+          description: System metrics
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunMetricsBatch" }
+
+  /v1/teams/{team}/runs/{run}/alerts:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    put:
+      tags: [Runs]
+      operationId: putRunAlerts
+      summary: Replace the run's alerts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alerts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      title: { type: string }
+                      text: { type: string }
+                      level: { type: string }
+                      step: { type: integer, nullable: true }
+                      ts: { type: string }
+                      alert_id: { type: string }
+                    required: [title]
+              required: [alerts]
+      responses:
+        "200": { description: Stored }
+    get:
+      tags: [Runs]
+      operationId: getRunAlerts
+      summary: List the run's alerts
+      responses:
+        "200":
+          description: Alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
   # ======================================================================
   # Attention
   # ======================================================================

@@ -77,6 +77,9 @@ erDiagram
   runs ||--o{ run_metrics : "scalar series"
   runs ||--o{ run_images : "image series"
   runs ||--o{ run_histograms : "histogram series"
+  runs ||--|| run_config : "hyperparameters"
+  runs ||--o{ run_system_metrics : "GPU/CPU series"
+  runs ||--o{ run_alerts : "alerts"
 
   documents ||--o{ reviews : "may be reviewed"
   artifacts ||--o{ reviews : "may be reviewed"
@@ -138,6 +141,9 @@ head; ships in W1 of [`../plans/project-lifecycle-mvp.md`](../plans/project-life
 | `run_metrics` | Downsampled scalar time-series (≤100 points) per metric per run; produced by host-runner's metric poller from trackio / wandb / tfevents | — |
 | `run_images` | Image-series checkpoints (e.g., generated samples, attention heatmaps) | — |
 | `run_histograms` | Histogram-series checkpoints (e.g., gradient distributions) | — |
+| `run_config` | The run's hyperparameters — one JSON object per run, from trackio's `configs` sibling table | — |
+| `run_system_metrics` | Downsampled GPU/CPU utilization series per run (trackio's `system_metrics`); time-keyed, so points use a sample ordinal x-axis | — |
+| `run_alerts` | Per-run alerts/notes (title, body, level, optional step) from trackio's `alerts` sibling table | — |
 
 ### 3.4 Documents + artifacts
 
@@ -214,6 +220,7 @@ Recent migrations (selected):
 | 0026 | `sessions_create` | sessions table |
 | 0031 | `agent_events_fts` | FTS5 on agent_events |
 | 0033 | `sessions_engine_session_id` | resume cursor for engine sessions |
+| 0051 | `run_extras` | `run_config` + `run_system_metrics` + `run_alerts` (trackio sibling tables) |
 
 Each migration is idempotent on rerun via `INSERT OR IGNORE` /
 `CREATE TABLE IF NOT EXISTS` patterns where applicable. To add a new

@@ -6,7 +6,7 @@
 > started. Each phase gates on the director's device-test (Flutter is
 > untestable locally); pure extractions carry unit tests.
 > **Audience:** contributors
-> **Last verified vs code:** post-`8e2e6cb`.
+> **Last verified vs code:** post-`ba4cbbd` (P3 done).
 
 **TL;DR.** Turn the one flag-switched `AgentFeed`
 (`lib/widgets/agent_feed.dart`) into two mode files — `LiveFeed` and
@@ -105,11 +105,11 @@ thin shell over two divergent flows that P4 would partly undo. So the buffer +
 loaders **stay with each mode** and get their decoupled home in the mode split
 below — that *is* the transport decoupling.
 
-### P3 — build `InsightTranscript` (the sealed / random-access mode)
+### P3 — build `InsightTranscript` (the sealed / random-access mode) — DONE (`ba4cbbd`, CI-green, awaiting device-test)
 
-Extract the Insight mode first — it has a single consumer
+Extracted the Insight mode first — it had a single consumer
 (`session_analysis_view.dart`) and is where Insight's loader + the deferred P2b
-seek orchestration + the lens-as-query engine all get their decoupled home.
+seek orchestration + the lens-as-query engine all got their decoupled home.
 
 - New `lib/widgets/insight_transcript.dart` (`InsightTranscript`): its own State
   owning a random-access event buffer fed by `RandomAccessLoader`, composing
@@ -117,15 +117,27 @@ seek orchestration + the lens-as-query engine all get their decoupled home.
   lifted from the monolith (the deferred P2b: the `_activeSeekSeq` anchor, the
   funnel-run jumps, the pending-context "view in context", `_resetWindowAround`/
   the forward pager) + the lens-as-query engine (Errors/Turns summary lists, the
-  whole-run minimap, the N/M ordinal + stepper-as-cursor). **No** composer, **no**
-  telemetry strip, **no** live SSE tail (snapshot-on-entry + manual refresh —
-  ADR-040 §E).
-- Migrate `session_analysis_view.dart` → `InsightTranscript`. `agent_feed.dart`
-  keeps serving the four live consumers unchanged during the migration (it is
-  never turned into a `randomAccess`-delegating shim — open-question C).
-- **Gate:** the Insight surface (digest dashboard + transcript + every lens /
-  funnel / stepper / minimap jump) is parity-or-better vs. the live
-  `agent_feed.dart` Insight path, on device.
+  whole-run minimap, the N/M ordinal + stepper-as-cursor). The `randomAccess` /
+  `dense` flags are resolved to their Insight values (always-true / always-false)
+  rather than carried — the live branches don't exist in this file.
+- **Sealed-dataset semantics (ADR-040 §E):** snapshot-on-entry (one read-through
+  fetch, cache fallback) + manual refresh — **No** composer, **No** telemetry
+  strip, **No live SSE tail**. This is the one deliberate *behaviour* change vs.
+  the monolith's Insight path, which DID SSE-tail when its window reached the
+  live tail: a *running* agent's Insight transcript no longer auto-updates (it
+  re-snapshots on re-entry; the host's RefreshIndicator re-pulls the digest).
+  Sealed / terminated runs — the dominant Insight case — are unaffected (SSE was
+  silent there). **Device-test this deliberately.**
+- The dashboard→transcript jump channel moved to the substrate as
+  `transcript/seek_controller.dart` (`TranscriptSeekController`); `agent_feed.dart`
+  keeps an `AgentFeedSeekController` typedef alias so its call sites +
+  `agent_feed_seek_controller_test.dart` compile unchanged until P4.
+- Migrated `session_analysis_view.dart` → `InsightTranscript` +
+  `TranscriptSeekController`. `agent_feed.dart` keeps serving the four live
+  consumers unchanged (never a `randomAccess`-delegating shim — open-question C).
+- **Gate (pending):** the Insight surface (digest dashboard + transcript + every
+  lens / funnel / stepper / minimap jump) is parity-or-better vs. the live
+  `agent_feed.dart` Insight path, on device — plus the §E liveness change above.
 
 ### P4 — strip + rename the remainder to `LiveFeed`
 

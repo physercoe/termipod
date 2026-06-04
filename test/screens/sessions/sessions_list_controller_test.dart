@@ -26,7 +26,7 @@ Map<String, dynamic> agent(
 Map<String, dynamic> session(String id, String agentId, String status) =>
     {'id': id, 'current_agent_id': agentId, 'status': status};
 
-StewardGroup group(String id, String handle, {String projectId = ''}) =>
+StewardGroup mkGroup(String id, String handle, {String projectId = ''}) =>
     StewardGroup(
       agent: {'id': id, 'handle': handle, 'project_id': projectId},
       current: null,
@@ -36,25 +36,25 @@ StewardGroup group(String id, String handle, {String projectId = ''}) =>
 void main() {
   group('categorizeStewardGroup', () {
     test('general steward handle → general', () {
-      expect(categorizeStewardGroup(group('s1', '@steward')),
+      expect(categorizeStewardGroup(mkGroup('s1', '@steward')),
           StewardCategory.general);
     });
     test('project-bound by @steward.<pid8> handle → project', () {
-      expect(categorizeStewardGroup(group('s1', '@steward.abc12345')),
+      expect(categorizeStewardGroup(mkGroup('s1', '@steward.abc12345')),
           StewardCategory.project);
     });
     test('project-bound by non-empty project_id → project', () {
       expect(
           categorizeStewardGroup(
-              group('s1', 'research-steward', projectId: 'p1')),
+              mkGroup('s1', 'research-steward', projectId: 'p1')),
           StewardCategory.project);
     });
     test('unbound domain steward → domain', () {
-      expect(categorizeStewardGroup(group('s1', 'research-steward')),
+      expect(categorizeStewardGroup(mkGroup('s1', 'research-steward')),
           StewardCategory.domain);
     });
     test('empty agentId → detached', () {
-      expect(categorizeStewardGroup(group('', 'Detached sessions')),
+      expect(categorizeStewardGroup(mkGroup('', 'Detached sessions')),
           StewardCategory.detached);
     });
   });

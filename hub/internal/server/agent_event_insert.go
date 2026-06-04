@@ -38,16 +38,29 @@ type agentEventInsert struct {
 //
 // SessionID is normalized through NULLIF so an empty string becomes a real SQL
 // NULL — an event either belongs to a session or it does not; "" is never a
-// session id (and ADR-042 P1's session_ordinal is only assigned when session_id
-// is non-NULL).
+// session id.
+//
+// session_ordinal (ADR-042) is assigned in the same statement: a dense,
+// monotonic coordinate per *session* (COALESCE(MAX(session_ordinal),0)+1 over
+// the rows sharing session_id), NULL when the event has no session. Unlike
+// `seq` (per-agent), it is unique across the whole session even when the
+// session spans multiple agents after a resume — the coordinate the
+// session-scoped Insight surface lands on. UNIQUE(session_id, session_ordinal)
+// backstops the race, the same way UNIQUE(agent_id, seq) backstops seq.
 func insertAgentEvent(ctx context.Context, q agentEventRower, ev agentEventInsert) (id string, seq int64, ts string, err error) {
 	id = NewID()
 	ts = NowUTC()
 	err = q.QueryRowContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, NULLIF(?, '')
+		INSERT INTO agent_events (id, agent_id, seq, session_ordinal, ts, kind, producer, payload_json, session_id)
+		SELECT ?, ?,
+		       COALESCE(MAX(seq), 0) + 1,
+		       CASE WHEN NULLIF(?, '') IS NULL THEN NULL
+		            ELSE COALESCE((SELECT MAX(session_ordinal) FROM agent_events WHERE session_id = ?), 0) + 1
+		       END,
+		       ?, ?, ?, ?, NULLIF(?, '')
 		  FROM agent_events WHERE agent_id = ?
 		RETURNING seq`,
-		id, ev.AgentID, ts, ev.Kind, ev.Producer, ev.PayloadJSON, ev.SessionID, ev.AgentID).Scan(&seq)
+		id, ev.AgentID, ev.SessionID, ev.SessionID,
+		ts, ev.Kind, ev.Producer, ev.PayloadJSON, ev.SessionID, ev.AgentID).Scan(&seq)
 	return id, seq, ts, err
 }

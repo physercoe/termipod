@@ -5,7 +5,8 @@
 > [ADR-042](../decisions/042-dense-session-ordinal.md). Hub phases (P0–P3) are
 > Go-testable locally and land green before mobile (P4), which is CI-verified
 > (no local Flutter). Director-directed: "Option C … a clean and solid
-> foundation," full foundation, phased.
+> foundation," full foundation, phased. **P0 done (`42a4e3d`); P1 done (column
+> + assignment, migration 0052). P2 next.**
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.801-alpha
 
@@ -48,7 +49,8 @@ func (s *Server) insertAgentEvent(ctx, tx, ev agentEventInsert) (seq int64, ts s
 
 ## P1 — the coordinate
 
-- **Migration `0051_agent_events_session_ordinal`:** `ALTER TABLE agent_events
+- **Migration `0052_agent_events_session_ordinal`** (0051 was taken by
+  `run_extras`): `ALTER TABLE agent_events
   ADD COLUMN session_ordinal INTEGER`; `CREATE UNIQUE INDEX
   ux_agent_events_session_ordinal ON agent_events(session_id, session_ordinal)
   WHERE session_id IS NOT NULL`; `CREATE INDEX idx_agent_events_session_ordinal
@@ -68,7 +70,7 @@ func (s *Server) insertAgentEvent(ctx, tx, ev agentEventInsert) (seq int64, ts s
 - `digest_fold.go`: alongside `start_seq` and the error `sample_seqs`, record
   `start_ordinal` and `sample_ordinals` (mirror how `sample_ts` was threaded via
   `addSampleTS`). Digest schema bump (v→v+1); old digests refold or degrade.
-- `agent_turns` (migration `0052`): add `start_ordinal INTEGER`; `digest_fold`
+- `agent_turns` (migration `0053`): add `start_ordinal INTEGER`; `digest_fold`
   populates it; `handlers_agent_turns.go` selects + emits it.
 - `handlers_agent_digest.go`: session digest emits `sample_ordinals`; turn rows
   emit `start_ordinal`.

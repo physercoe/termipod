@@ -139,6 +139,96 @@ func TestNoInlineAgentEventInsert_OutsideHelper(t *testing.T) {
 	}
 }
 
+// P1: session_ordinal is dense and unique across the WHOLE session even when
+// the session spans multiple agents after a resume — the coordinate that fixes
+// the navigator wrong-row bug. seq still collides (per-agent); the ordinal does
+// not.
+func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
+	s, _ := newA2ATestServer(t)
+	a := seedAgentRow(t, s, defaultTeamID, "p1-a", "claude-code")
+	b := seedAgentRow(t, s, defaultTeamID, "p1-b", "claude-code")
+	const session = "resumed-session"
+
+	// Interleave inserts across the two agents in one session (the resume
+	// shape): seq is per-agent, but session_ordinal must run 1..5 dense.
+	steps := []struct {
+		agent   string
+		wantOrd int64
+		wantSeq int64
+	}{
+		{a, 1, 1}, {a, 2, 2}, {b, 3, 1}, {a, 4, 3}, {b, 5, 2},
+	}
+	for i, st := range steps {
+		id, seq, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
+			AgentID:     st.agent,
+			SessionID:   session,
+			Kind:        "text",
+			Producer:    "agent",
+			PayloadJSON: `{}`,
+		})
+		if err != nil {
+			t.Fatalf("insert %d: %v", i, err)
+		}
+		if seq != st.wantSeq {
+			t.Fatalf("insert %d (agent %s): want seq %d, got %d", i, st.agent, st.wantSeq, seq)
+		}
+		var ord sql.NullInt64
+		if err := s.db.QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
+			t.Fatalf("read ordinal %d: %v", i, err)
+		}
+		if !ord.Valid || ord.Int64 != st.wantOrd {
+			t.Fatalf("insert %d (agent %s): want session_ordinal %d, got %v", i, st.agent, st.wantOrd, ord)
+		}
+	}
+
+	// Dense + unique across the session: exactly {1,2,3,4,5}, one row each.
+	rows, err := s.db.Query(
+		`SELECT session_ordinal, COUNT(*) FROM agent_events WHERE session_id = ?
+		  GROUP BY session_ordinal ORDER BY session_ordinal`, session)
+	if err != nil {
+		t.Fatalf("query ordinals: %v", err)
+	}
+	defer rows.Close()
+	var got []int64
+	for rows.Next() {
+		var ord, n int64
+		if err := rows.Scan(&ord, &n); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if n != 1 {
+			t.Fatalf("session_ordinal %d appears %d times (must be unique)", ord, n)
+		}
+		got = append(got, ord)
+	}
+	if len(got) != 5 || got[0] != 1 || got[4] != 5 {
+		t.Fatalf("want dense ordinals 1..5, got %v", got)
+	}
+}
+
+// A session-less event gets a NULL session_ordinal (it never appears in a
+// session view, and the unique index is partial on session_id IS NOT NULL).
+func TestSessionOrdinal_NullForSessionlessEvent(t *testing.T) {
+	s, _ := newA2ATestServer(t)
+	agent := seedAgentRow(t, s, defaultTeamID, "p1-null", "claude-code")
+	id, _, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
+		AgentID:     agent,
+		SessionID:   "",
+		Kind:        "system",
+		Producer:    "system",
+		PayloadJSON: `{}`,
+	})
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	var ord sql.NullInt64
+	if err := s.db.QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
+		t.Fatalf("read ordinal: %v", err)
+	}
+	if ord.Valid {
+		t.Fatalf("want NULL session_ordinal for a session-less event, got %d", ord.Int64)
+	}
+}
+
 func insertSeq(t *testing.T, s *Server, agentID, session string) int64 {
 	t.Helper()
 	_, seq, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{

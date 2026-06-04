@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/hub/agent_status.dart';
+import '../../services/hub/open_steward_session.dart' show openAgentSession;
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_actions_menu.dart';
 import '../../widgets/live_feed.dart';
@@ -143,14 +144,29 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
         ),
       );
     }
-    if (_rows.isEmpty) {
+    // Stopped agents (session paused → resumable) are active, recoverable
+    // work — not history. They belong in the live agent / sessions view, so
+    // drop them from the project history list (the project Agents tab surfaces
+    // them instead). Resumability is read off the warm sessions snapshot; the
+    // global audit view (no project) still shows everything for forensics.
+    final sessions = ref.watch(sessionsProvider).value;
+    final visible = _projectScoped
+        ? _rows
+            .where((r) =>
+                agentResumability(sessionStatusForAgent(
+                    sessions, (r['id'] ?? '').toString())) !=
+                AgentResumability.resumable)
+            .toList()
+        : _rows;
+    if (visible.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
             _projectScoped
                 ? 'No past agents on this project yet.\n'
-                    'Terminated, crashed, failed, and archived agents will appear here.'
+                    'Crashed, failed, and archived agents will appear here.\n'
+                    'Stopped (resumable) agents stay in the Agents tab.'
                 : 'No archived agents.\n'
                     'Terminate an agent, then tap Archive on its detail sheet to move it here.',
             textAlign: TextAlign.center,
@@ -163,13 +179,13 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
       onRefresh: _load,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        itemCount: _rows.length,
+        itemCount: visible.length,
         separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (_, i) => _ArchivedTile(
-          row: _rows[i],
+          row: visible[i],
           onTap: () {
             Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => ArchivedAgentDetailScreen(summary: _rows[i]),
+              builder: (_) => ArchivedAgentDetailScreen(summary: visible[i]),
             ));
           },
           onChanged: _load,
@@ -201,20 +217,23 @@ class _ArchivedTile extends ConsumerWidget {
     final isPaused = (row['pause_state'] ?? '').toString() == 'paused';
     // Resolve the run's fate from the warm sessions snapshot: Stop (session
     // paused → "stopped", Resume offered) vs Archive (session archived →
-    // "ended", Resume hidden — it would 409).
+    // "archived", Resume hidden — it would 409). Both carry agent
+    // status='terminated', so the session is the only discriminator.
     final resumable = agentResumability(
         sessionStatusForAgent(ref.watch(sessionsProvider).value, id));
     final archivedAt = (row['archived_at'] ?? '').toString();
     final terminatedAt = (row['terminated_at'] ?? '').toString();
-    // Subtitle line: kind + the most relevant timestamp. For
-    // archived-but-also-terminated rows we prefer the archived
-    // timestamp (operator-driven event). Pure-terminated rows fall
-    // back to terminated_at.
-    final tsLabel = archivedAt.isNotEmpty
-        ? 'archived ${_trim(archivedAt)}'
+    // Subtitle line: kind + "<fate> <timestamp>". The fate verb is the
+    // glossary-friendly status (stopped / archived / crashed / failed) — never
+    // the raw "terminated", which is ambiguous between Stop and Archive. The
+    // timestamp prefers archived_at (operator Delete) then terminated_at.
+    final tsVerb = agentStatusLabelResumable(status, resumable);
+    final tsWhen = archivedAt.isNotEmpty
+        ? archivedAt
         : terminatedAt.isNotEmpty
-            ? 'terminated ${_trim(terminatedAt)}'
+            ? terminatedAt
             : '';
+    final tsLabel = tsWhen.isEmpty ? '' : '$tsVerb ${_trim(tsWhen)}';
     // Icon hints at provenance: archive bin for archived, ghost for
     // terminal-without-archive. Both share the same muted opacity so
     // the visual weight stays consistent.
@@ -226,7 +245,12 @@ class _ArchivedTile extends ConsumerWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onTap,
+          // A stopped (resumable) row that slips through to this list opens the
+          // full session surface — which carries the left rail + resume — not
+          // the read-only tombstone. Genuinely-dead rows keep the tombstone.
+          onTap: resumable == AgentResumability.resumable
+              ? () => openAgentSession(context, ref, row)
+              : onTap,
           borderRadius: BorderRadius.circular(10),
           child: Container(
             padding:
@@ -256,7 +280,7 @@ class _ArchivedTile extends ConsumerWidget {
                               fontSize: 14, fontWeight: FontWeight.w600)),
                     ),
                     // Friendly status that folds in the session's fate:
-                    // terminated → "stopped" (resumable) or "ended"
+                    // terminated → "stopped" (resumable) or "archived"
                     // (permanent), not the raw hub vocabulary.
                     Text(agentStatusLabelResumable(status, resumable),
                         style: GoogleFonts.jetBrainsMono(

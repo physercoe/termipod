@@ -25,7 +25,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/hub_provider.dart';
+import '../providers/sessions_provider.dart';
 import '../services/hub/agent_status.dart';
+import '../services/hub/hub_transport.dart';
 import '../theme/design_colors.dart';
 
 /// Menu action values (also the `onSelected` switch keys). `config` and
@@ -203,6 +205,10 @@ Future<AgentActionOutcome> runAgentLifecycleAction(
       return AgentActionOutcome.cancelled;
     }
     await ref.read(hubProvider.notifier).refreshAll();
+    // Resumability ("stopped" vs "archived") is read off the session, not the
+    // agent row — refresh the sessions snapshot too so a just-stopped agent
+    // resolves as resumable immediately (the label + Resume gate depend on it).
+    await ref.read(sessionsProvider.notifier).refresh();
     messenger.showSnackBar(SnackBar(content: Text(ok)));
     return outcome;
   }
@@ -261,12 +267,29 @@ Future<AgentActionOutcome> runAgentLifecycleAction(
       return guarded(() => client.archiveAgent(agentId),
           ok: 'Deleted', outcome: AgentActionOutcome.removed);
     case AgentAction.resumeSession:
-      return guarded(
-          () async {
-            await client.resumeAgentSession(agentId);
-          },
-          ok: 'Session resumed',
-          outcome: AgentActionOutcome.sessionResumed);
+      // A 409 here means there's no paused session to bring back — the run was
+      // Archived (session archived, fork-only) or is still live. Surface that
+      // plainly instead of the generic "Action failed" so a user who tapped
+      // Resume on an archived run learns *why* and what to do (fork) — not just
+      // that it failed. (The menu already hides Resume when the session fate is
+      // known-permanent; this covers the cold-snapshot case where it isn't.)
+      try {
+        await client.resumeAgentSession(agentId);
+      } on HubApiError catch (e) {
+        final msg = e.status == 409
+            ? 'No paused session to resume — this run was archived '
+                '(permanent). Fork it to continue from its history.'
+            : 'Resume failed: $e';
+        messenger.showSnackBar(SnackBar(content: Text(msg)));
+        return AgentActionOutcome.cancelled;
+      } catch (e) {
+        messenger.showSnackBar(SnackBar(content: Text('Resume failed: $e')));
+        return AgentActionOutcome.cancelled;
+      }
+      await ref.read(hubProvider.notifier).refreshAll();
+      await ref.read(sessionsProvider.notifier).refresh();
+      messenger.showSnackBar(const SnackBar(content: Text('Session resumed')));
+      return AgentActionOutcome.sessionResumed;
     default:
       return AgentActionOutcome.cancelled;
   }

@@ -42,8 +42,8 @@ bool agentIsCrashedOrFailed(String status) =>
 /// leave `agents.status = 'terminated'` (handlers_agents.go) — the fate that
 /// distinguishes them lives on the SESSION: Stop pauses it (resumable via
 /// Resume session), Archive archives it (permanent, fork-only — Resume 409s).
-/// So the agent row alone can't say "stopped" vs "ended"; callers resolve the
-/// session status and pass it through [agentResumability].
+/// So the agent row alone can't say "stopped" vs "archived"; callers resolve
+/// the session status and pass it through [agentResumability].
 enum AgentResumability {
   /// Session is paused — Resume session respawns into it (keeps history).
   resumable,
@@ -74,7 +74,7 @@ AgentResumability agentResumability(String sessionStatus) {
 /// Friendly label for an agent row that folds in the session's fate, using the
 /// glossary's principal-facing lifecycle words (Stop / Archive) so a
 /// `terminated` row reads as the *resumability* the user cares about rather
-/// than the ambiguous "ended": a Stop (session paused) shows "stopped"
+/// than the ambiguous raw "terminated": a Stop (session paused) shows "stopped"
 /// (resumable); an Archive (session archived) — or an unknown session, read
 /// conservatively as permanent — shows "archived". Every non-terminated status
 /// defers to [agentStatusLabel].

@@ -12,6 +12,8 @@ Keep the field names in lockstep with the hub structs:
 
 - `sessions_list.json` → `sessionOut` (`hub/internal/server/handlers_sessions.go`)
 - `agents_list.json` → `agentOut` (`hub/internal/server/handlers_agents.go`)
+- `session_digest.json` → `digestJSON` session rollup (`hub/internal/server/handlers_agent_digest.go`)
+- `agent_turns.json` → `turnJSON` listing (`hub/internal/server/handlers_agent_turns.go`)
 
 When the hub contract changes intentionally, update both the struct and the
 fixture in the same change.

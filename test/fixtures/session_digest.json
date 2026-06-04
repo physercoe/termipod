@@ -1,0 +1,74 @@
+{
+  "session_id": "ses_live01",
+  "agent_ids": ["agt_live01", "agt_resumed01"],
+  "team_id": "team_demo",
+  "watermark_seq": 482,
+  "event_count": 137,
+  "turn_count": 9,
+  "first_ts": "2026-06-03T18:01:12.402Z",
+  "last_ts": "2026-06-03T18:44:51.118Z",
+  "duration_ms": 2618716,
+  "active_ms": 511430,
+  "cost_usd": 0.8423,
+  "by_model": {
+    "claude-opus-4-8": {
+      "in": 184200,
+      "out": 21840,
+      "cache_read": 1204880,
+      "cache_create": 96120,
+      "cost_usd": 0.7611
+    },
+    "claude-haiku-4-5": {
+      "in": 40320,
+      "out": 5210,
+      "cache_read": 0,
+      "cache_create": 0,
+      "cost_usd": 0.0812
+    }
+  },
+  "error_count": 3,
+  "errors": {
+    "tool:Bash": {
+      "count": 2,
+      "sample_seqs": [212, 418],
+      "sample_ts": [
+        "2026-06-03T18:19:04.221Z",
+        "2026-06-03T18:41:33.907Z"
+      ],
+      "sample_labels": ["Bash", "Bash"]
+    },
+    "error:rate_limit": {
+      "count": 1,
+      "sample_seqs": [301],
+      "sample_ts": ["2026-06-03T18:28:55.640Z"],
+      "sample_labels": ["rate_limit"]
+    }
+  },
+  "tool_total": 41,
+  "tool_failed": 2,
+  "tools": {
+    "Bash": {
+      "calls": 18,
+      "failed": 2,
+      "sample_seqs": [104, 212, 418]
+    },
+    "Edit": {
+      "calls": 14,
+      "failed": 0,
+      "sample_seqs": [131, 167, 245]
+    },
+    "Read": {
+      "calls": 9,
+      "failed": 0,
+      "sample_seqs": [98, 140]
+    }
+  },
+  "latency": {
+    "p50_ms": 18250,
+    "p95_ms": 96400,
+    "samples": 9,
+    "bounds": [100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000, 300000],
+    "counts": [0, 0, 0, 0, 1, 1, 2, 3, 1, 1, 0, 0]
+  },
+  "outcome": "done"
+}

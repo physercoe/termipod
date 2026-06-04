@@ -6,27 +6,37 @@ import 'package:termipod/providers/sessions_provider.dart';
 import 'package:termipod/services/hub/agent_status.dart';
 
 // WS3 (docs/plans/internal-techdebt-cleanup.md): pin the hub→app JSON
-// contract for the two highest-churn shapes — sessions and agents — at parse
-// time, so a renamed/dropped hub field fails in CI instead of rendering a
-// blank card on a device. The app reads these as Map<String, dynamic> by
-// design (no DTOs); the fixtures + the pure resolvers are the safety net.
+// contract for the three highest-churn shapes — sessions, agents, and the
+// session digest + turn index — at parse time, so a renamed/dropped hub field
+// fails in CI instead of rendering a blank card on a device. The app reads
+// these as Map<String, dynamic> by design (no DTOs); the fixtures + the pure
+// resolvers are the safety net.
 //
 // Fixtures mirror the hub structs:
-//   test/fixtures/sessions_list.json → sessionOut (handlers_sessions.go)
-//   test/fixtures/agents_list.json   → agentOut   (handlers_agents.go)
+//   test/fixtures/sessions_list.json  → sessionOut  (handlers_sessions.go)
+//   test/fixtures/agents_list.json    → agentOut    (handlers_agents.go)
+//   test/fixtures/session_digest.json → digestJSON  (handlers_agent_digest.go)
+//   test/fixtures/agent_turns.json    → turnJSON    (handlers_agent_turns.go)
 
 List<Map<String, dynamic>> _loadList(String path) {
   final raw = jsonDecode(File(path).readAsStringSync()) as List;
   return raw.map((e) => (e as Map).cast<String, dynamic>()).toList();
 }
 
+Map<String, dynamic> _loadMap(String path) =>
+    (jsonDecode(File(path).readAsStringSync()) as Map).cast<String, dynamic>();
+
 void main() {
   late List<Map<String, dynamic>> sessions;
   late List<Map<String, dynamic>> agents;
+  late Map<String, dynamic> digest;
+  late Map<String, dynamic> turnsBody;
 
   setUpAll(() {
     sessions = _loadList('test/fixtures/sessions_list.json');
     agents = _loadList('test/fixtures/agents_list.json');
+    digest = _loadMap('test/fixtures/session_digest.json');
+    turnsBody = _loadMap('test/fixtures/agent_turns.json');
   });
 
   group('session JSON contract', () {
@@ -117,6 +127,126 @@ void main() {
     test('no matching session → empty status (cold snapshot tolerated)', () {
       expect(sessionStatusForAgent(state, 'agt_does_not_exist'), '');
       expect(agentResumability(''), AgentResumability.unknown);
+    });
+  });
+
+  group('session digest JSON contract (ADR-038 §5)', () {
+    test('headline fields RunReportCard reads are present', () {
+      // run_report_card.dart pulls each of these by key; a rename here would
+      // blank the report card on a device.
+      for (final key in <String>[
+        'event_count',
+        'turn_count',
+        'error_count',
+        'tool_total',
+        'tool_failed',
+        'cost_usd',
+        'duration_ms',
+        'active_ms',
+        'outcome',
+        'last_ts',
+        'by_model',
+        'errors',
+        'latency',
+      ]) {
+        expect(digest.containsKey(key), isTrue, reason: 'digest.$key');
+      }
+      // session rollup swaps agent_id for session_id + agent_ids.
+      expect(digest.containsKey('session_id'), isTrue);
+      expect(digest['agent_ids'], isA<List<dynamic>>());
+    });
+
+    test('by_model aggregates carry in/out token keys', () {
+      // _modelRow reads m['in'] / m['out']; the digest agg uses those keys
+      // (not tokens_in/tokens_out — that is the /v1/insights shape).
+      final byModel = digest['by_model'] as Map<String, dynamic>;
+      expect(byModel, isNotEmpty);
+      for (final agg in byModel.values) {
+        final m = (agg as Map).cast<String, dynamic>();
+        expect(m.containsKey('in'), isTrue, reason: 'by_model.*.in');
+        expect(m.containsKey('out'), isTrue, reason: 'by_model.*.out');
+      }
+    });
+
+    test('error classes keep sample arrays aligned 1:1 (940d20a)', () {
+      // The Errors lens jumps via (ts, seq); sample_ts must stay aligned with
+      // sample_seqs or a jump lands on the wrong event. Pin that alignment.
+      final errors = digest['errors'] as Map<String, dynamic>;
+      expect(errors, isNotEmpty);
+      for (final v in errors.values) {
+        final cls = (v as Map).cast<String, dynamic>();
+        final seqs = cls['sample_seqs'] as List;
+        final tss = cls['sample_ts'] as List;
+        final labels = cls['sample_labels'] as List;
+        expect(cls['count'], isA<int>(), reason: 'errors.*.count');
+        expect(tss.length, seqs.length, reason: 'sample_ts ⟷ sample_seqs');
+        expect(labels.length, seqs.length,
+            reason: 'sample_labels ⟷ sample_seqs');
+      }
+    });
+
+    test('first-error-seq traversal (RunReportCard) finds the min sample', () {
+      // Mirror run_report_card._firstErrorSeq: scan every class, take the
+      // smallest first-sample seq. Proves the nested errors map is navigable.
+      final errors = digest['errors'] as Map<String, dynamic>;
+      int? best;
+      for (final v in errors.values) {
+        final seqs = (v as Map)['sample_seqs'];
+        if (seqs is List && seqs.isNotEmpty) {
+          final s = seqs.first as int;
+          if (best == null || s < best) best = s;
+        }
+      }
+      expect(best, 212); // tool:Bash 212 < error:rate_limit 301 < tool:Bash 418
+    });
+
+    test('latency exposes percentile + histogram fields', () {
+      final latency = digest['latency'] as Map<String, dynamic>;
+      for (final key in <String>['p50_ms', 'p95_ms', 'bounds', 'counts']) {
+        expect(latency.containsKey(key), isTrue, reason: 'latency.$key');
+      }
+      // counts has len(bounds)+1 buckets (the trailing overflow bucket).
+      final bounds = latency['bounds'] as List;
+      final counts = latency['counts'] as List;
+      expect(counts.length, bounds.length + 1);
+    });
+  });
+
+  group('agent_turns JSON contract (turn index)', () {
+    test('listing wraps turns[] under the session keys', () {
+      expect(turnsBody.containsKey('turns'), isTrue);
+      expect(turnsBody['turns'], isA<List<dynamic>>());
+      expect(turnsBody.containsKey('agent_ids'), isTrue);
+    });
+
+    test('every turn carries start_seq — the loader window anchor', () {
+      // The mobile loader resets the All-view window around start_seq; without
+      // it, jump-to-turn cannot land.
+      final turns = (turnsBody['turns'] as List).cast<Map>();
+      expect(turns, isNotEmpty);
+      for (final t in turns) {
+        final row = t.cast<String, dynamic>();
+        for (final key in <String>[
+          'turn_id',
+          'idx',
+          'start_seq',
+          'start_ts',
+          'status',
+          'open',
+        ]) {
+          expect(row.containsKey(key), isTrue, reason: 'turn.$key');
+        }
+      }
+    });
+
+    test('open turn is flagged open with a zero end_seq', () {
+      final turns = (turnsBody['turns'] as List).cast<Map>();
+      final open = turns
+          .map((t) => t.cast<String, dynamic>())
+          .firstWhere((t) => t['open'] == true);
+      // scanTurns sets open = (end_seq == 0); a live in-progress turn.
+      expect(open['end_seq'], 0);
+      expect(open['status'], 'in_progress');
     });
   });
 }

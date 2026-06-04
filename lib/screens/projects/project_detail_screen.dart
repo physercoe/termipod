@@ -23,6 +23,7 @@ import '../../widgets/view_switcher.dart';
 import '../../widgets/spawn_project_steward_sheet.dart';
 import '../../widgets/template_yaml_sheet.dart';
 import 'phase_summary_screen.dart';
+import 'project_agents_controller.dart';
 import 'archived_agents_screen.dart';
 import 'docs_section.dart';
 import '../../services/hub/open_steward_session.dart' show openAgentSession;
@@ -1050,26 +1051,9 @@ class _TaskTileAttribution extends StatelessWidget {
 // sibling tab under Projects. The archive action on the top-right
 // replaces the old tab-level _AgentsTab archive button (Gap #6).
 
-/// Terminated agents bound to [projectId], fetched directly because the warm
-/// hub roster (`hubState.agents`) hides terminated rows. [_AgentsView] filters
-/// these to the *resumable* ones (session paused → "stopped") and lists them
-/// alongside the live agents, so a Stop doesn't make a worker vanish from the
-/// project (it's recoverable work, not history — the history page deliberately
-/// drops it). Re-runs whenever the hub roster changes — a Stop/Resume calls
-/// refreshAll — so the list self-heals after a lifecycle action.
-final _projectTerminatedAgentsProvider = FutureProvider.family<
-    List<Map<String, dynamic>>, String>((ref, projectId) async {
-  ref.watch(hubProvider); // refetch on roster change (post Stop/Resume refreshAll)
-  final client = ref.read(hubProvider.notifier).client;
-  if (client == null || projectId.isEmpty) return const [];
-  final all =
-      await client.listAgents(includeTerminated: true, projectId: projectId);
-  return all
-      .where((a) =>
-          (a['project_id'] ?? '').toString() == projectId &&
-          (a['status'] ?? '').toString() == 'terminated')
-      .toList();
-});
+// The live+stopped row merge, resumability resolution, terminated-agents
+// provider, and refresh fan-out live in project_agents_controller.dart — a
+// non-widget seam so they can be unit-tested without a widget harness (WS2).
 
 class _AgentsView extends ConsumerWidget {
   final String projectId;
@@ -1079,32 +1063,22 @@ class _AgentsView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final hubState = ref.watch(hubProvider).value;
-    final all = hubState?.agents ?? const [];
+    final all = hubState?.agents ?? const <Map<String, dynamic>>[];
     final hosts = hubState?.hosts ?? const [];
     // Warm sessions resolve a terminated agent's fate: Stop (session paused →
     // "stopped", resumable) vs Archive (session archived → "archived",
-    // permanent).
+    // permanent). The merge (live + stopped-resumable, deduped) is the pure
+    // projectAgentRows seam.
     final sessions = ref.watch(sessionsProvider).value;
-    final liveRows = all
-        .where((a) => (a['project_id'] ?? '').toString() == projectId)
-        .toList();
-    // Fold in stopped (terminated + session paused → resumable) agents the warm
-    // roster hides, so a Stop keeps the worker visible here (resumable, not
-    // history). Dedup against the live rows by id; the row tile already renders
-    // a terminated/resumable agent correctly (label "stopped", Resume offered,
-    // tap → full session surface).
-    final stopped =
-        ref.watch(_projectTerminatedAgentsProvider(projectId)).value ??
+    final terminated =
+        ref.watch(projectTerminatedAgentsProvider(projectId)).value ??
             const <Map<String, dynamic>>[];
-    final liveIds =
-        liveRows.map((a) => (a['id'] ?? '').toString()).toSet();
-    final stoppedRows = stopped.where((a) {
-      final id = (a['id'] ?? '').toString();
-      if (liveIds.contains(id)) return false;
-      return agentResumability(sessionStatusForAgent(sessions, id)) ==
-          AgentResumability.resumable;
-    });
-    final rows = [...liveRows, ...stoppedRows];
+    final rows = projectAgentRows(
+      all: all,
+      terminated: terminated,
+      sessions: sessions,
+      projectId: projectId,
+    );
     final kind = (hubState?.projects ?? const <Map<String, dynamic>>[])
         .firstWhere(
           (p) => (p['id'] ?? '').toString() == projectId,
@@ -1125,11 +1099,7 @@ class _AgentsView extends ConsumerWidget {
     // exist yet — RefreshIndicator needs a scrollable child.
     // Refresh the roster, the sessions snapshot (resumability lives there), and
     // the stopped-agents fetch so a pull-to-refresh reconciles all three.
-    Future<void> onRefresh() async {
-      ref.invalidate(_projectTerminatedAgentsProvider(projectId));
-      await ref.read(hubProvider.notifier).refreshAll();
-      await ref.read(sessionsProvider.notifier).refresh();
-    }
+    Future<void> onRefresh() => refreshProjectAgents(ref, projectId);
     final body = rows.isEmpty
         ? RefreshIndicator(
             onRefresh: onRefresh,

@@ -223,6 +223,39 @@ Today:
 file-lock bug the current comment documents is the regression to guard.
 Keep tmux/git/system probes on direct `exec` (they already are).
 
+**Scope refinement (verified vs code 2026-06-04, HEAD `aad1d6f`).** The
+"every agent launch" framing above is too broad — only the M1/M2
+host-runner-owned paths are structurable:
+
+- **M1/M2** (`RealProcSpawner.Spawn` / `SpawnWithStderr`) own the process
+  and run `bash -c`. The M2 launcher composes `cd <wd> && <cmd>`
+  (`launch_m2.go:238`) — the `cd` prefix becomes `cmd.Dir`, the clean win.
+  These are the structured-exec candidates.
+- **M4 is NOT a candidate.** claude-code (`LocalLogTailDriver`) and
+  antigravity launch via **tmux**, which fundamentally needs a *shell
+  command string* for the new-window arg. Worse, `spec.Backend.Cmd` is
+  **string-inspected** for flags on those paths — `permissionModeFromCmd`,
+  `conversationIDFromCmd` (`launch_m4_antigravity.go:184,194`),
+  `cmdContainsResumeFlag` (`launch_m4_locallogtail.go:243`). A structured
+  model would have to reconstitute a joined string for them anyway, so M4
+  stays shell. (Tmux/git/system probes already use direct `exec`.)
+- **`shell:true` is the default for the existing `cmd:` templates**, not
+  an exotic opt-in: shell-tokenising an arbitrary `cmd:` string into
+  `exec`+`args` is the fragile part the escape hatch exists to avoid.
+  Structured launch is therefore **opt-in via a new `exec:`/`args:`**
+  template field; every current `cmd:`-only template keeps the `bash -c`
+  path unchanged. The audit (step 3) reports the `cmd:`-vs-`exec:` split
+  so the shell surface is visible and can shrink template-by-template.
+- **Interface blast radius.** Changing `ProcSpawner.Spawn(ctx, command
+  string)` ripples to **7+ test-fake spawners**
+  (`launch_m{1,2}*_test.go`, `driver_appserver_test.go`). Prefer a
+  structured `LaunchCmd{Exec, Args, Env, Dir, Shell, Cmd}` value passed to
+  the spawner over adding a parallel method, and update the fakes in
+  lockstep — mechanical but wide. Land as: (1) struct + YAML + audit
+  (additive, no launch-path change), then (2) wire the M1/M2 structured
+  path with the pgroup guard held. Locally testable end-to-end (the
+  hostrunner package has Go tests + fakes).
+
 ---
 
 ## Sequencing summary

@@ -244,9 +244,8 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ses)
 }
 
-// handleArchiveSession is the canonical action; /close is kept as an
-// alias for one release per plan §8 so an in-flight app build doesn't
-// break during coordinated rollout.
+// handleArchiveSession is the canonical archive action (ADR-009). The
+// deprecated /close alias route was retired in WS1.2.
 func (s *Server) handleArchiveSession(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "session")

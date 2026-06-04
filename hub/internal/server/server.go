@@ -430,11 +430,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Route("/{session}", func(r chi.Router) {
 				r.Get("/", s.handleGetSession)
 				r.Patch("/", s.handlePatchSession)
-				// /archive is canonical (ADR-009); /close is a deprecated
-				// alias kept for one release so an in-flight app build
-				// doesn't break during coordinated rollout.
+				// /archive is the canonical archive action (ADR-009). The
+				// deprecated /close alias was retired in the WS1.2 internal
+				// tech-debt cleanup (no external API consumers).
 				r.Post("/archive", s.handleArchiveSession)
-				r.Post("/close", s.handleArchiveSession)
 				r.Post("/fork", s.handleForkSession)
 				r.Post("/resume", s.handleResumeSession)
 				r.Delete("/", s.handleDeleteSession)

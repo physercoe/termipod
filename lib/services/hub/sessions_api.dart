@@ -157,9 +157,9 @@ class SessionsApi {
     await _t.patch('/v1/teams/${_t.cfg.teamId}/sessions/$id', {'title': title});
   }
 
-  /// Archives a session (was: closeSession). The hub's /close endpoint
-  /// is kept as an alias by ADR-009 for one release; this calls
-  /// /archive directly.
+  /// Archives a session (was: closeSession). Posts to the canonical
+  /// /archive endpoint (ADR-009); the legacy /close alias was retired
+  /// in WS1.2.
   Future<void> archiveSession(String id) async {
     // post requires a non-null body; an empty map is the canonical
     // payload for endpoints that take none.

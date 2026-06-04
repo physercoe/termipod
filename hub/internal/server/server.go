@@ -334,6 +334,9 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 	// create a team + mint its first owner token. List enumerates teams.
 	r.Post("/v1/admin/teams", s.handleAdminCreateTeam)
 	r.Get("/v1/admin/teams", s.handleAdminListTeams)
+	// Rotate a team's owner token (issue fresh + revoke prior). Operator-
+	// gated; never touches the operator/host credentials.
+	r.Post("/v1/admin/teams/{team}/rotate-token", s.handleAdminRotateTeamToken)
 
 	// /v1/insights — scope-parameterized aggregator (ADR-022 D3).
 	// Phase 1 W2 wires the project scope only:

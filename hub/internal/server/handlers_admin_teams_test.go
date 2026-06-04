@@ -96,6 +96,94 @@ func TestProvisionTeam_RequiresOperator(t *testing.T) {
 	}
 }
 
+// TestRotateTeamToken_RevokesOldMintsNew is the rotate acceptance test:
+// an operator rotates a provisioned team's owner token; the new token
+// reaches the team, the prior owner token is revoked (403), and the
+// carried-over handle is preserved.
+func TestRotateTeamToken_RevokesOldMintsNew(t *testing.T) {
+	s, operatorTok := newA2ATestServer(t)
+	prov := provisionTeam(t, s, operatorTok, "acme", "Acme Corp")
+	oldOwner := prov.OwnerToken
+
+	st, body := doReq(t, s, operatorTok, http.MethodPost,
+		"/v1/admin/teams/acme/rotate-token", nil)
+	if st != http.StatusOK {
+		t.Fatalf("rotate: status=%d body=%s", st, body)
+	}
+	var out rotateTeamTokenOut
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode rotate response: %v", err)
+	}
+	if out.NewToken == "" || out.NewTokenID == "" || out.TeamID != "acme" {
+		t.Fatalf("unexpected rotate response: %+v", out)
+	}
+	if out.RevokedCount != 1 {
+		t.Errorf("revoked_count = %d, want 1", out.RevokedCount)
+	}
+
+	// The new token reaches the team; the old one is now revoked → 401/403.
+	if st, b := doReq(t, s, out.NewToken, http.MethodGet, "/v1/teams/acme/projects", nil); st != http.StatusOK {
+		t.Errorf("new owner at own team: status=%d body=%s, want 200", st, b)
+	}
+	if st, _ := doReq(t, s, oldOwner, http.MethodGet, "/v1/teams/acme/projects", nil); st == http.StatusOK {
+		t.Errorf("revoked owner still reaches team: status=%d, want non-200", st)
+	}
+
+	// The carried-over handle survives (provisionTeam set it to "director").
+	var scope string
+	if err := s.db.QueryRow(`SELECT scope_json FROM auth_tokens WHERE id = ?`,
+		out.NewTokenID).Scan(&scope); err != nil {
+		t.Fatalf("query new token: %v", err)
+	}
+	var sc struct {
+		Team, Role, Handle string
+	}
+	_ = json.Unmarshal([]byte(scope), &sc)
+	if sc.Team != "acme" || sc.Role != "principal" || sc.Handle != "director" {
+		t.Errorf("rotated scope = %+v, want team=acme role=principal handle=director", sc)
+	}
+}
+
+// TestRotateTeamToken_DefaultLeavesOperatorIntact guards the hub-root: the
+// `default` team's director is the operator token (no owner minted at
+// Init), so a rotate issues a fresh owner, revokes nothing, and the
+// operator token keeps working.
+func TestRotateTeamToken_DefaultLeavesOperatorIntact(t *testing.T) {
+	s, operatorTok := newA2ATestServer(t)
+
+	st, body := doReq(t, s, operatorTok, http.MethodPost,
+		"/v1/admin/teams/default/rotate-token", nil)
+	if st != http.StatusOK {
+		t.Fatalf("rotate default: status=%d body=%s", st, body)
+	}
+	var out rotateTeamTokenOut
+	_ = json.Unmarshal(body, &out)
+	if out.RevokedCount != 0 {
+		t.Errorf("revoked_count = %d, want 0 (operator is not an owner token)", out.RevokedCount)
+	}
+	// The operator token is untouched — still reaches the fleet.
+	if st, _ := doReq(t, s, operatorTok, http.MethodGet, "/v1/admin/hosts", nil); st != http.StatusOK {
+		t.Errorf("operator after default rotate: status=%d, want 200", st)
+	}
+}
+
+func TestRotateTeamToken_UnknownTeam404(t *testing.T) {
+	s, operatorTok := newA2ATestServer(t)
+	if st, _ := doReq(t, s, operatorTok, http.MethodPost,
+		"/v1/admin/teams/ghost/rotate-token", nil); st != http.StatusNotFound {
+		t.Errorf("rotate unknown team: status=%d, want 404", st)
+	}
+}
+
+func TestRotateTeamToken_RequiresOperator(t *testing.T) {
+	s, _ := newA2ATestServer(t)
+	ownerTok := mintTeamToken(t, s, "owner", defaultTeamID)
+	if st, _ := doReq(t, s, ownerTok, http.MethodPost,
+		"/v1/admin/teams/default/rotate-token", nil); st != http.StatusForbidden {
+		t.Errorf("owner rotating a team token: status=%d, want 403", st)
+	}
+}
+
 func TestAdminListTeams(t *testing.T) {
 	s, operatorTok := newA2ATestServer(t)
 	_ = provisionTeam(t, s, operatorTok, "team-x", "X")

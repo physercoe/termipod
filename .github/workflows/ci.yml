@@ -79,6 +79,14 @@ jobs:
         # when the registry is non-empty.
         run: scripts/lint-governed-actions.sh
 
+      - name: Lint legacy markers
+        # WS1.5 forward-only ratchet — fails when a NEW legacy/deprecated/
+        # alias marker appears in a hub/**.go or lib/**.dart comment unless
+        # it names a removal target (a removal verb or an issue ref). The
+        # existing set is grandfathered in scripts/legacy-marker-baseline.txt;
+        # the linter only blocks net-new undocumented compatibility debt.
+        run: scripts/lint-legacy-markers.sh
+
       - name: Validate OpenAPI spec
         # Enforces docs/reference/openapi.yaml validates against the
         # OpenAPI 3.x schema. Per docs/plans/doc-uplift.md P2.8 §5.8.

@@ -1,0 +1,267 @@
+# legacy-marker baseline — grandfathered compatibility markers.
+# Regenerate with: scripts/lint-legacy-markers.sh --update
+# One <relpath>\t<normalized-comment> per line. Shrinking this
+# file (removing retired markers) is the point; growing it should
+# be rare and deliberate.
+hub/cmd/hub-server/main.go	historic note: the legacy `--shape ablation` flag (candidate a
+hub/cmd/hub-server/main.go	serverdb is an alias so the helper signature matches the caller's
+hub/internal/agentfamilies/families.go	alias). the expression must resolve to a map; non-map values
+hub/internal/agentfamilies/families.go	as payload (system fallback, error, the deprecated completion
+hub/internal/agentfamilies/families.go	during the canary window (profile authoritative + legacy
+hub/internal/agentfamilies/families.go	for this engine. empty (default) is "legacy" — the hardcoded
+hub/internal/agentfamilies/families.go	payload. used when the legacy translator passes the raw frame
+hub/internal/agentfamilies/families.go	valid values: "" / "legacy" / "profile" / "both".
+hub/internal/agentfamilies/families.go	yaml schema 1:1; we don't promote internal aliases to the yaml so
+hub/internal/drivers/local_log_tail/antigravity/adapter.go	new-brain-dir-since-launchtime is the only signal — the legacy
+hub/internal/drivers/local_log_tail/antigravity/adapter.go	shorter alias.
+hub/internal/drivers/local_log_tail/antigravity/pathresolver.go	the legacy `last_conversations.json` cache used to be a secondary
+hub/internal/drivers/local_log_tail/antigravity/reader.go	copy the slice: bytes.split aliases the backing array, which
+hub/internal/drivers/local_log_tail/claude_code/mapper.go	(2) per-name legacy overrides — opus-4-{0,1,5} ship 200k
+hub/internal/drivers/local_log_tail/claude_code/mapper.go	- v1.0.671 (this): prefix family with per-name legacy overrides.
+hub/internal/drivers/local_log_tail/claude_code/mapper.go	2. per-name overrides for known legacy models that don't follow
+hub/internal/drivers/local_log_tail/claude_code/mapper.go	v4+ — all of which ship at 1m today, with the three legacy
+hub/internal/hostrunner/a2a_dispatcher.go	unparseable, so a legacy peer's message still dispatches.
+hub/internal/hostrunner/driver_acp.go	so the legacy `id` lookup left availablemodels empty and
+hub/internal/hostrunner/driver_appserver.go	approval / answer (the legacy stream-json shapes) are not used
+hub/internal/hostrunner/driver_appserver.go	the "five_hour"/"seven_day" labels are semantic legacy from
+hub/internal/hostrunner/driver_exec_resume.go	approval / answer (legacy stream-json shapes) are not used —
+hub/internal/hostrunner/driver_exec_resume.go	skip the legacy --yolo flag when the picker explicitly chose a
+hub/internal/hostrunner/driver_stdio.go	"" / "legacy" (default) → hardcoded legacytranslate;
+hub/internal/hostrunner/driver_stdio.go	"both" → applyprofile authoritative, legacy in shadow with
+hub/internal/hostrunner/driver_stdio.go	"profile" → data-driven applyprofile, legacy not invoked;
+hub/internal/hostrunner/driver_stdio.go	- ""/"legacy" — the hardcoded translator (legacytranslate). v1
+hub/internal/hostrunner/driver_stdio.go	authored" — translate() falls through to legacy with a warning
+hub/internal/hostrunner/driver_stdio.go	completion *(deprecated alias, kept for one release)*
+hub/internal/hostrunner/driver_stdio.go	keep working — drop the alias once telemetry shows no caller
+hub/internal/hostrunner/driver_stdio.go	nil we fall through to legacy with a one-time warning so a
+hub/internal/hostrunner/driver_stdio.go	shadow always runs the legacy path.
+hub/internal/hostrunner/driver_stdio.go	shadow-run the legacy translator into a capture buffer
+hub/internal/hostrunner/driver_stdio.go	the db); legacy runs in shadow and any divergence is logged.
+hub/internal/hostrunner/hooks_install.go	"" matches all tools, equivalent to the deprecated "*" form. we
+hub/internal/hostrunner/idle.go	side of not raising a false attention item; the legacy detector can
+hub/internal/hostrunner/input_envelope.go	(legacy rows pre-d-10, or hub-side render failure) → fall through
+hub/internal/hostrunner/input_envelope.go	a payload carrying no envelope (from.role empty — a legacy/malformed
+hub/internal/hostrunner/input_envelope.go	hub's filesystem. empty `rendered_text` (legacy rows / hub-side
+hub/internal/hostrunner/launch_m1.go	(adr-037 d6). empty falls back to the legacy team-less path.
+hub/internal/hostrunner/launch_m2.go	"on-request", "never"; "on-failure" is upstream-deprecated and
+hub/internal/hostrunner/launch_m2.go	(adr-037 d6). empty falls back to the legacy team-less path.
+hub/internal/hostrunner/launch_m2.go	host-runner's cwd (legacy single-host demo path).
+hub/internal/hostrunner/launch_m2.go	phase 1.6: default is legacy until canary holds.
+hub/internal/hostrunner/launch_m2.go	uses stdiodriver with the frame-profile + legacy translators
+hub/internal/hostrunner/launch_m4_antigravity.go	translated to claude-code's "bypasspermissions" / "default" alias
+hub/internal/hostrunner/launch_m4_antigravity.go	— easier to grep on the hub side than a shorter alias).
+hub/internal/hostrunner/launch_m4_locallogtail.go	falls back to the legacy team-less path.
+hub/internal/hostrunner/launch_m4_locallogtail.go	is empty (legacy spawns).
+hub/internal/hostrunner/profile_diff.go	- by_model: legacy normalizeturnresult walks modelusage's per-
+hub/internal/hostrunner/profile_diff.go	- overage_disabled: legacy translateratelimit derives a boolean
+hub/internal/hostrunner/profile_diff.go	count differs: legacy=n profile=m
+hub/internal/hostrunner/profile_diff.go	diffevents compares the events produced by the legacy translator
+hub/internal/hostrunner/profile_diff.go	event[i] kind: legacy=… profile=…
+hub/internal/hostrunner/profile_diff.go	event[i].field: legacy=… profile=… (extra/missing/mismatch)
+hub/internal/hostrunner/profile_diff.go	legacy translateratelimit / similar always pass map[string]any,
+hub/internal/hostrunner/profile_diff.go	legacy translator in shadow and the profile authoritatively,
+hub/internal/hostrunner/profile_diff.go	mode to shadow-run the legacy translator without writing to the
+hub/internal/hostrunner/profile_diff.go	order matters: legacy emits events in a fixed order
+hub/internal/hostrunner/profile_diff.go	parityignorefields lists payload field names where the legacy and
+hub/internal/hostrunner/profile_diff.go	profile-vs-legacy event diff (adr-010 phase 1.6 + 1.5).
+hub/internal/hostrunner/profile_translate.go	legacy translator emits the raw frame: system fallback, error,
+hub/internal/hostrunner/runner.go	is empty (legacy behavior — `.mcp.json` carries the real url).
+hub/internal/hostrunner/runner.go	the detector remains for legacy/unknown agents that panedriver runs
+hub/internal/hostrunner/runner.go	the proxy and `.mcp.json` carries the real hub url (legacy
+hub/internal/hostrunner/spec.go	a no-op (legacy spawns) returning "".
+hub/internal/hostrunner/spec.go	empty — legacy single-host demo path. agent runs from
+hub/internal/hostrunner/spec.go	expandhome. empty result means the legacy "no workdir, run from
+hub/internal/hostrunner/spec.go	share a mutable workdir subtree. an empty team yields the legacy
+hub/internal/hostrunner/spec.go	team segment (legacy `~/hub-work/…`), so pre-w5 callers and demo
+hub/internal/hostrunner/tbreader/proto.go	folds (tag → value) into out. both the legacy simple_value path and
+hub/internal/hubmcpserver/run.go	(registrycatalogdefs — canonical snake_case + one [deprecated] entry
+hub/internal/hubmcpserver/run.go	per old alias) so the authority names match the in-process surface;
+hub/internal/hubmcpserver/run.go	resolves dot-named aliases on tools/call, so legacy callers
+hub/internal/hubmcpserver/schema_validate.go	schemajson returns nil (the legacy "no schema declared" case stays
+hub/internal/hubmcpserver/tools.go	get_task alias compatibility (adr-033 w5)
+hub/internal/hubmcpserver/toolspec.go	`get_audit` alias was retired in ws1.1.
+hub/internal/hubmcpserver/toolspec.go	agents_list absorbed the legacy thin `list_agents` (adr-033
+hub/internal/hubmcpserver/toolspec.go	alias — to its toolspec. `viaalias` reports whether `name` was a
+hub/internal/hubmcpserver/toolspec.go	audit_read absorbed the legacy `get_audit` (adr-033 d-4) — same
+hub/internal/hubmcpserver/toolspec.go	canonical entry plus one entry per deprecated alias — the rename
+hub/internal/hubmcpserver/toolspec.go	canonical snake_case `name` resolves now; aliases stays empty.
+hub/internal/hubmcpserver/toolspec.go	d-4); the `list_agents` alias was retired in ws1.1.
+hub/internal/hubmcpserver/toolspec.go	deprecated alias rather than the canonical name.
+hub/internal/hubmcpserver/toolspec.go	deprecatedprefix marks an alias entry in the catalog so a client
+hub/internal/hubmcpserver/toolspec.go	key (name → backend), not a callable name. the deprecated dotted/old
+hub/internal/hubmcpserver/toolspec.go	legacy entry that still carries that closure. later wedges add
+hub/internal/hubmcpserver/toolspec.go	lookuptoolspec resolves a tool name — canonical or a deprecated
+hub/internal/hubmcpserver/toolspec.go	reserved; empty since ws1.1 retired all dotted/legacy aliases
+hub/internal/hubmcpserver/toolspec.go	spellings were retired as callable aliases in ws1.1) and reuses its
+hub/internal/hubmcpserver/toolspec.go	tasks_get absorbed the legacy native `get_task` (adr-033 d-4);
+hub/internal/hubmcpserver/toolspec.go	the adapter accepts a bare task id. the `get_task` alias was
+hub/internal/server/a2a_notify.go	chat preview. when recvhandle is empty (legacy / un-handle'd agent),
+hub/internal/server/apply_agent_spawn.go	"deprecated alias" path the plan w8 names; old mcp callers
+hub/internal/server/apply_agent_spawn.go	- the legacy `approval_request + spawnin` path. the w8 decide-
+hub/internal/server/apply_agent_spawn.go	dispatch hop so consumers can tell new from legacy.
+hub/internal/server/apply_agent_spawn.go	legacy pending_payload carried) so the two dispatch paths can
+hub/internal/server/apply_deliverable_set_state.go	audit row. three transition shapes, mirroring the legacy rest
+hub/internal/server/apply_deliverable_set_state.go	the legacy rest path is split across three endpoints by transition
+hub/internal/server/apply_deliverable_set_state.go	touching the row — matches the "already ratified" 409 the legacy
+hub/internal/server/apply_phase_advance.go	action mirrors the legacy phase-advance handler. `phase_set`
+hub/internal/server/apply_phase_advance.go	apply time. the legacy endpoint 409's when required criteria
+hub/internal/server/apply_phase_advance.go	the legacy rest equivalent is post /v1/teams/{t}/projects/{p}/phase/advance
+hub/internal/server/apply_phase_advance.go	the project has already advanced. the legacy endpoint walks
+hub/internal/server/apply_task_set_status.go	looks "in-flight" again. mirrors the legacy patch path's
+hub/internal/server/apply_task_set_status.go	the legacy rest path is patch /v1/teams/{t}/projects/{p}/tasks/{id}
+hub/internal/server/apply_template_install.go	- the legacy `template_proposal` path. the w8 decide-handler
+hub/internal/server/apply_template_install.go	audit row with the propose lineage on meta. the legacy path
+hub/internal/server/apply_template_install.go	renderers to the install event without confusing the legacy
+hub/internal/server/artifact_kinds.go	handler when a caller still sends a legacy name (transitional grace —
+hub/internal/server/artifact_kinds.go	is documentation-only + a backfill pass for legacy free-form kinds.
+hub/internal/server/artifact_kinds.go	multi-modal in the legacy set — `image` is the safest landing
+hub/internal/server/handlers_agent_events.go	session_id is nullable for legacy rows written before the column
+hub/internal/server/handlers_agent_input.go	aliases — "allow" matches claude code / acp option naming,
+hub/internal/server/handlers_agent_input.go	producer defaults to "user" to preserve legacy callers; the only
+hub/internal/server/handlers_agent_input.go	than the legacy semantic vocabulary. mobile forwards the
+hub/internal/server/handlers_agents.go	- "spawned" — legacy async return (caller passed wait=false or via rest without wait)
+hub/internal/server/handlers_agents.go	mcp path treats nil + true identically (sync wait); the legacy
+hub/internal/server/handlers_agents.go	mode is the resolved driving mode (m1|m2|m4). empty for legacy
+hub/internal/server/handlers_agents.go	motivated w2.6.1). with empty ids the footer is omitted so legacy
+hub/internal/server/handlers_agents.go	reads scope.role first; legacy tokens (role="agent") still work
+hub/internal/server/handlers_agents.go	the same as `worker` so legacy templates keep working while the
+hub/internal/server/handlers_agents.go	typically already-archived) the legacy side-effects run inline:
+hub/internal/server/handlers_artifacts.go	closed-set validation. legacy kinds are silently remapped so
+hub/internal/server/handlers_attention.go	(system-originated rows, legacy rows pre-v1.0.336), we silently skip
+hub/internal/server/handlers_attention.go	alias arms (approval_request / template_proposal pending_payload)
+hub/internal/server/handlers_attention.go	and the legacy `{kind, error}` error shape were retired in w1.4 —
+hub/internal/server/handlers_attention.go	means a legacy non-propose row (request_help, select, …);
+hub/internal/server/handlers_documents.go	filter passes through to sql even if the legacy allowlist
+hub/internal/server/handlers_documents.go	isvaliddockind enforces the legacy plain-markdown kind allowlist.
+hub/internal/server/handlers_documents.go	legacy plain-markdown docs are still capped to the original
+hub/internal/server/handlers_documents.go	longer cap it to the legacy values. the handler short-circuits the
+hub/internal/server/handlers_general_steward.go	mobile picker). empty body keeps the legacy auto-pick semantics —
+hub/internal/server/handlers_general_steward.go	we tolerate an empty body (legacy callers post `{}`) — the
+hub/internal/server/handlers_insights.go	is sitting in a phase the template doesn't list (legacy /
+hub/internal/server/handlers_mobile_intent.go	the legacy muxpod:// scheme so existing deep-link infrastructure
+hub/internal/server/handlers_phase.go	phase set); callers treat phase=="" as "render the legacy overview".
+hub/internal/server/handlers_principals.go	coalesce by handle. legacy tokens (no handle, role=principal) share a
+hub/internal/server/handlers_principals.go	that legacy tokens exist.
+hub/internal/server/handlers_project_docs.go	refused at read time too, so a legacy row (or any future write
+hub/internal/server/handlers_projects.go	phase is empty for legacy / lifecycle-disabled projects; mobile
+hub/internal/server/handlers_projects.go	renders the legacy overview. per reference/project-phase-schema.md
+hub/internal/server/handlers_propose.go	existing decide-time consumers (and future w8 alias dispatch)
+hub/internal/server/handlers_sessions.go	as a deprecated alias for one release per plan §8.
+hub/internal/server/handlers_sessions.go	deprecated /close alias route was retired in ws1.2.
+hub/internal/server/handlers_tasks.go	as an alias (adr-033 w5 / d-4).
+hub/internal/server/handlers_tasks.go	which in turn lets the deprecated `get_task` (bare id) keep working
+hub/internal/server/handlers_templates.go	validcategory is the legacy alias used by handlers; kept as a thin
+hub/internal/server/input_envelope.go	is absent (legacy events, hot-reload-unaware tests, a2a relay
+hub/internal/server/input_envelope.go	it) or when the envelope's `from.role` is empty (legacy / malformed
+hub/internal/server/insights_scope.go	ambiguity. standalone sessions queries are expected to alias the
+hub/internal/server/loop_entity.go	the pre-adr-030 legacy paths (approval_request, template_proposal)
+hub/internal/server/loop_sweep.go	change_kind here; if it's "" the row is a legacy attention kind
+hub/internal/server/loop_sweep.go	legacy attention kind; loop.stall_escalated covers it.
+hub/internal/server/mcp.go	agents still calling the legacy names; the dispatcher accepts them.
+hub/internal/server/mcp.go	canonical entry plus one [deprecated] entry per alias. the
+hub/internal/server/mcp.go	dot-named aliases like `documents.list` for backwards-compat with
+hub/internal/server/mcp.go	dotted/legacy alias (ws1.1) — and must 404 rather than silently
+hub/internal/server/mcp.go	hand-written legacy defs (mcptooldefsbase/extra/orchestrationtooldefs)
+hub/internal/server/mcp.go	may be called by its canonical name or a deprecated alias; the
+hub/internal/server/mcp.go	the wire; legacy callers can still dispatch dot-named tools via
+hub/internal/server/mcp.go	under a canonical name or a deprecated alias.
+hub/internal/server/mcp_authority_roles.go	time. for legacy tokens (role="agent" or empty) it falls back to
+hub/internal/server/native_tools.go	canonical entry plus one [deprecated] entry per alias. each entry
+hub/internal/server/native_tools.go	deprecated alias. the resource-first pass over the verb-first names
+hub/internal/server/native_tools.go	deprecated aliases resolve to the canonical name via
+hub/internal/server/native_tools.go	lookupnativetoolspec resolves a name — canonical or deprecated alias
+hub/internal/server/native_tools.go	nativehandlerfor resolves a name (canonical or alias) to its native
+hub/internal/server/native_tools.go	tool (adr-033 d-3) — name, aliases, catalog metadata, input schema,
+hub/internal/server/policy.go	governance tiers — the adr-030 ladder, distinct from the legacy
+hub/internal/server/policy.go	vocabularies coexist: legacy tiers gate the `tool:*` / `spawn` /
+hub/internal/server/propose_kinds.go	audit row so the legacy-alias path can override without forcing
+hub/internal/server/seed_demo_blob.go	legacy `--shape ablation` seed was retired in v1.0.507
+hub/internal/server/seed_demo_lifecycle.go	`docs/plans/canvas-viewer.md`; the legacy unversioned form still
+hub/internal/server/seed_demo_lifecycle.go	legacy seed) so the run-detail screen renders sparklines + charts
+hub/internal/server/seed_demo_run_curves.go	run_metrics for each completed run. carried over from the legacy
+hub/internal/server/server.go	because the legacy hardcoded prose remains on the consumer
+hub/internal/server/server.go	deprecated /close alias was retired in the ws1.2 internal
+hub/internal/server/server.go	deprecated get_task (bare id) keep working as an alias.
+hub/internal/server/template.go	(<dataroot>/team/templates — built-in seed + any legacy edits), then
+hub/internal/server/template.go	global operator baseline overlay (built-in seed + legacy edits).
+hub/internal/server/tiers.go	legacy alias accepted by dispatch
+hub/internal/server/tunnel_a2a.go	forwarded their bearer (so the sender resolves); legacy unauthed
+hub/internal/server/tunnel_a2a.go	legacy / non-message-send peer (tasks/get, a non-json-rpc body) keeps
+lib/models/artifact_kinds.dart	/ resolve a raw kind slug (which may be a legacy alias or empty) to its
+lib/providers/sessions_provider.dart	/ current hub; the legacy arm was dead code).
+lib/providers/settings_provider.dart	full mode is deprecated in 0.9.1; toggle between compact and off only.
+lib/providers/ssh_provider.dart	/ establish ssh connection (with shell - legacy mode)
+lib/screens/connections/connection_form_screen.dart	detail sheet) can record a binding. on edit, keep the legacy
+lib/screens/hub/hub_bootstrap_screen.dart	/ legacy "hub settings" entry point and from "manage profiles" when
+lib/screens/hub/hub_bootstrap_screen.dart	the active profile (legacy "hub settings" entry point).
+lib/screens/insights/team_overview_insights_screen.dart	counts if the field is empty (legacy snapshots).
+lib/screens/me/me_screen.dart	/ tolerates the legacy status string `open` during the brief
+lib/screens/me/me_screen.dart	unrecognised change_kinds fall back to the legacy
+lib/screens/me/widgets/propose_addressee.dart	/ (primary variant; the legacy fallback)
+lib/screens/me/widgets/propose_addressee.dart	/ - empty `assigned_tier` (legacy or pre-adr-030 row) → `true`
+lib/screens/me/widgets/propose_card_agent_spawn.dart	/ agent.spawn's change_spec is a spawnin json (the legacy
+lib/screens/me/widgets/propose_card_agent_spawn.dart	/ bound). the full spawn_spec_yaml is a blob that the legacy
+lib/screens/me/widgets/propose_card_router.dart	through to the legacy inlineapprovalactions below.
+lib/screens/me/widgets/propose_card_template_install.dart	/ the full yaml body lives behind the legacy template-proposal
+lib/screens/projects/artifacts_screen.dart	the filter still honors any legacy kind the cache holds — the row
+lib/screens/projects/blobs_section.dart	fall-through: not a previewable mime — preserve the legacy
+lib/screens/projects/overview_widgets/portfolio_header.dart	steward strip (w3): replaces the legacy single-line chip
+lib/screens/projects/project_detail_screen.dart	so legacy / lifecycle-disabled projects don't pay ui cost.
+lib/screens/projects/project_detail_screen.dart	worker directly. long-press preserves the legacy
+lib/screens/projects/projects_screen.dart	/ (legacy 'steward' or domain '*-steward') is in an active lifecycle
+lib/screens/projects/spawn_agent_sheet.dart	project-scoped (legacy path) — filtertemplatesforproject then
+lib/screens/projects/task_detail_screen.dart	the case the legacy "created manually" label actually
+lib/screens/sessions/widgets/steward_propose_inbox.dart	/ public-test alias for the row-matching predicate. the widget's
+lib/screens/team/spawn_steward_sheet.dart	is on the team (the legacy single-steward case stays
+lib/screens/team/spawn_steward_sheet.dart	spawn request. defaults to claude-code for the legacy template;
+lib/screens/team/spawn_steward_sheet.dart	the template is the legacy steward.v1.yaml (single-
+lib/screens/terminal/terminal_screen.dart	/ terminals don't trip false-stale after the legacy poll is retired.
+lib/screens/terminal/terminal_screen.dart	fallback (no backend yet): legacy line-loop. only reached during
+lib/screens/terminal/terminal_screen.dart	fallback (no backend yet): preserve the legacy line-loop. this
+lib/screens/terminal/terminal_screen.dart	gated on settings toggle — legacy hidden-textfield path
+lib/screens/vault/snippets_screen.dart	/ isn't in either set (e.g. a legacy preset id). profile ids are
+lib/screens/vault/snippets_screen.dart	legacy (e.g. 'cli-agent') or reserved — hiding it would silently
+lib/services/artifact_manifest/artifact_manifest.dart	/ "version": 1, // optional in legacy inputs
+lib/services/deep_link/deep_link_service.dart	/ deep link service for `termipod://` and legacy `muxpod://` url schemes.
+lib/services/deep_link/deep_link_service.dart	termipod:// or legacy muxpod:// scheme only
+lib/services/deep_link/uri_router.dart	/ - the legacy `deeplinkservice` for external `termipod://` urls
+lib/services/hub/admin_api.dart	/ omitted from a legacy policy.yaml. throws hubapierror(500) when
+lib/services/hub/agent_status.dart	/ no session info to hand (cold list) — fall back to the legacy wording
+lib/services/hub/hub_client.dart	(docs/plans/hub-client-split.md); the legacy private transport shims
+lib/services/hub/hub_client.dart	/ sub-clients and the legacy methods share one cache. when null, the
+lib/services/hub/hub_client.dart	per-domain sub-clients (docs/plans/hub-client-split.md). the legacy
+lib/services/hub/hub_profiles.dart	/ migrated, the legacy keys are gone and subsequent calls see only
+lib/services/hub/hub_profiles.dart	drop legacy keys only after the new ones are durable.
+lib/services/hub/hub_profiles.dart	first-time install with no legacy data — write an empty list so
+lib/services/hub/hub_profiles.dart	legacy single-profile keys (pre-multi-profile). read once on first
+lib/services/hub/open_steward_session.dart	/ → channels and is *not* a steward chat surface; the legacy code
+lib/services/hub/sessions_api.dart	/ /archive endpoint (adr-009); the legacy /close alias was retired
+lib/services/id_format.dart	short ids (custom test seeds, legacy short strings) — show whole.
+lib/services/notes/notes_db.dart	legacy on-device rows wrote `todo`; v1.0.610+ writes `reminder`.
+lib/services/steward_handle.dart	/ - plain `steward` is the legacy default; existing single-steward
+lib/services/steward_handle.dart	/ `general` so it's distinct from the legacy plain `steward`.
+lib/services/steward_handle.dart	/ the legacy hint, or copied from the agents table), it's returned
+lib/services/template_filter.dart	/ when [projecttemplateid] is null/empty (legacy project with no
+lib/services/terminal/raw_pty_backend.dart	/ includes both standard names and tmux aliases (e.g., ppage/pageup)
+lib/services/terminal/raw_pty_backend.dart	tmux alias
+lib/services/terminal/tmux_backend.dart	/ the legacy poll loop in `terminal_screen.dart` can use the same
+lib/services/tmux/tmux_parser.dart	/ @deprecated use [tmuxpane] instead
+lib/services/tmux/tmux_parser.dart	/ @deprecated use [tmuxsession] instead
+lib/services/tmux/tmux_parser.dart	/ @deprecated use [tmuxwindow] instead
+lib/widgets/activity_snippet.dart	/ alongside the legacy actor-kind audits (agent.spawn, run.create,
+lib/widgets/custom_keyboard.dart	/ `usecustomkeyboard` setting; the compose bar then reverts to the legacy
+lib/widgets/custom_keyboard.dart	/ no difference between this, the action bar, and the legacy direct input.
+lib/widgets/markdown_builders.dart	aliases a user might type in a fence get rerouted here so we don't
+lib/widgets/markdown_builders.dart	will raise. map common aliases and fall back to plaintext for
+lib/widgets/shortcut_tile_strip.dart	`currentoverviewwidget` was the legacy "lifecycle disabled" gate;
+lib/widgets/steward_strip.dart	/ project detail steward strip (w3) — replaces the legacy
+lib/widgets/transcript/event_card.dart	legacy / sparse payload that carries `from_label` without a
+lib/widgets/transcript/event_card.dart	resolves via `text` (legacy `body` kept as a fallback). when the
+lib/widgets/transcript/event_card.dart	unknown subtype — keep the legacy json dump so nothing is silently
+lib/widgets/transcript/feed_reducer.dart	completion — deprecated alias for turn.result; already covered
+lib/widgets/transcript/feed_reducer.dart	may still call request_decision; the server aliases to
+lib/widgets/transcript/feed_telemetry.dart	and falls back to `total_tokens` for legacy events on disk
+lib/widgets/transcript/telemetry_strip.dart	"turn-aggregated" is the legacy summed-across-turn-results
+lib/widgets/transcript/telemetry_strip.dart	alias it to the green case so the most-common steady-state reads
+lib/widgets/transcript/telemetry_strip.dart	per window (5h rolling + 7d rolling). distinct from the legacy
+lib/widgets/transcript/telemetry_strip.dart	the legacy claude / codex path

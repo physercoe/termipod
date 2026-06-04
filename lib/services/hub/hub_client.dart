@@ -499,6 +499,18 @@ class HubClient {
   Future<Map<String, dynamic>> adminRotateTokens({bool forceRevoke = false}) =>
       admin.adminRotateTokens(forceRevoke: forceRevoke);
 
+  // ---- teams (operator-gated provisioning, ADR-037 D3) ----
+
+  Future<List<Map<String, dynamic>>> adminListTeams() =>
+      admin.adminListTeams();
+
+  Future<Map<String, dynamic>> adminCreateTeam(String teamId,
+          {String? name, String? handle}) =>
+      admin.adminCreateTeam(teamId, name: name, handle: handle);
+
+  Future<Map<String, dynamic>> adminRotateTeamToken(String teamId) =>
+      admin.adminRotateTeamToken(teamId);
+
   Future<List<Map<String, dynamic>>> adminListAudit({
     String? actionPrefix,
     String? targetKind,

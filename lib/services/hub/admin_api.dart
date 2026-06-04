@@ -77,6 +77,41 @@ class AdminApi {
     return _t.decodeMap(out);
   }
 
+  // ---- teams (ADR-037 D3 — operator-gated team provisioning) ----
+
+  /// Lists every team on the hub. Operator-scope; the endpoint returns a
+  /// bare JSON array of `{id, name, created_at}`.
+  Future<List<Map<String, dynamic>>> adminListTeams() async {
+    final out = await _t.get('/v1/admin/teams');
+    return _t.decodeListMaps(out);
+  }
+
+  /// Provisions a new team and mints its first owner token. The plaintext
+  /// `owner_token` is in the response — shown once, never stored. [name]
+  /// defaults to the id server-side; [handle] is the owner's display name
+  /// on the Members tab.
+  Future<Map<String, dynamic>> adminCreateTeam(
+    String teamId, {
+    String? name,
+    String? handle,
+  }) async {
+    final body = <String, dynamic>{'team_id': teamId};
+    if (name != null && name.isNotEmpty) body['name'] = name;
+    if (handle != null && handle.isNotEmpty) body['handle'] = handle;
+    final out = await _t.post('/v1/admin/teams', body);
+    return _t.decodeMap(out);
+  }
+
+  /// Rotates a team's owner token: mints a fresh one and revokes the prior
+  /// owner tokens for that team. The plaintext is in `new_token` — shown
+  /// once. The operator/host credentials are never touched, so rotating
+  /// `default` (whose director is the operator token) issues a dedicated
+  /// owner token and revokes nothing.
+  Future<Map<String, dynamic>> adminRotateTeamToken(String teamId) async {
+    final out = await _t.post('/v1/admin/teams/$teamId/rotate-token', {});
+    return _t.decodeMap(out);
+  }
+
   /// Cross-team audit query for the Admin pane and the audit screen.
   /// [actionPrefix] is left-anchored — pass "host." to catch the whole
   /// host-verb family in one query.

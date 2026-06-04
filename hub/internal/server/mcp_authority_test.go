@@ -140,14 +140,13 @@ func TestMCPAuthority_RoundTrip(t *testing.T) {
 		}
 	}
 
-	// tools/call projects.list — exercises the chi-router transport
-	// hitting GET /v1/teams/{team}/projects in-process. The dot-named
-	// alias must still resolve on tools/call (the dispatcher accepts
-	// both spellings); only the WIRE catalog is filtered.
+	// tools/call projects_list — exercises the chi-router transport
+	// hitting GET /v1/teams/{team}/projects in-process. Only the canonical
+	// snake_case name resolves (WS1.1 retired the dotted spelling).
 	body, _ = json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{
-			"name":      "projects.list",
+			"name":      "projects_list",
 			"arguments": map[string]any{},
 		},
 	})
@@ -284,7 +283,7 @@ func TestRoles_ManifestMatching(t *testing.T) {
 	// Worker is denied steward-only tools.
 	for _, tool := range []string{
 		"agents.spawn", "agents.archive", "agents.terminate",
-		"templates.agent.create", "schedules.create", "projects.update",
+		"templates_agent_create", "schedules.create", "projects.update",
 		"hosts.update_ssh_hint",
 	} {
 		if r.Allows("worker", tool) {
@@ -366,7 +365,7 @@ func TestMCPAuthority_WorkerDeniedStewardTool(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{
-			"name":      "agents.spawn",
+			"name":      "agents_spawn",
 			"arguments": map[string]any{"child_handle": "@x", "kind": "ml-worker.v1"},
 		},
 	})
@@ -490,7 +489,7 @@ func TestMCPAuthority_A2ATargetRestriction(t *testing.T) {
 		body, _ := json.Marshal(map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 			"params": map[string]any{
-				"name":      "a2a.invoke",
+				"name":      "a2a_invoke",
 				"arguments": map[string]any{"handle": handle, "text": "hi"},
 			},
 		})
@@ -540,7 +539,7 @@ func TestMCPAuthority_A2ATargetRestriction(t *testing.T) {
 	bodyS, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{
-			"name":      "a2a.invoke",
+			"name":      "a2a_invoke",
 			"arguments": map[string]any{"handle": "@other", "text": "hi"},
 		},
 	})
@@ -604,7 +603,7 @@ func TestMCPAuthority_LegacyAgentRoleFallback(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{
-			"name":      "agents.spawn",
+			"name":      "agents_spawn",
 			"arguments": map[string]any{"child_handle": "@w", "kind": "ml-worker.v1"},
 		},
 	})
@@ -702,7 +701,7 @@ func TestTemplateAuthoring_W2(t *testing.T) {
 
 	// 1. Steward creates a worker template.
 	yaml := "family: test-worker\nbin: echo\nsupports: [M4]\n"
-	got := mcpCall(stewardTok, "templates.agent.create", map[string]any{
+	got := mcpCall(stewardTok, "templates_agent_create", map[string]any{
 		"name": "test-worker.v1.yaml", "content": yaml,
 	})
 	if bytes.Contains(got, []byte("\"error\"")) {
@@ -710,13 +709,13 @@ func TestTemplateAuthoring_W2(t *testing.T) {
 	}
 
 	// 2. Steward lists agent templates — should include the new one.
-	got = mcpCall(stewardTok, "templates.agent.list", map[string]any{})
+	got = mcpCall(stewardTok, "templates_agent_list", map[string]any{})
 	if !bytes.Contains(got, []byte("test-worker.v1.yaml")) {
 		t.Errorf("list missing new template: %s", got)
 	}
 
 	// 3. Steward gets back the content.
-	got = mcpCall(stewardTok, "templates.agent.get", map[string]any{
+	got = mcpCall(stewardTok, "templates_agent_get", map[string]any{
 		"name": "test-worker.v1.yaml",
 	})
 	if !bytes.Contains(got, []byte("test-worker")) {
@@ -725,7 +724,7 @@ func TestTemplateAuthoring_W2(t *testing.T) {
 
 	// 4. Steward updates content.
 	yaml2 := yaml + "frame_translator: legacy\n"
-	got = mcpCall(stewardTok, "templates.agent.update", map[string]any{
+	got = mcpCall(stewardTok, "templates_agent_update", map[string]any{
 		"name": "test-worker.v1.yaml", "content": yaml2,
 	})
 	if bytes.Contains(got, []byte("\"error\"")) {
@@ -733,13 +732,13 @@ func TestTemplateAuthoring_W2(t *testing.T) {
 	}
 
 	// 5. Worker calling create — denied by role gate.
-	got = mcpCall(workerTok, "templates.agent.create", map[string]any{
+	got = mcpCall(workerTok, "templates_agent_create", map[string]any{
 		"name": "evil.v1.yaml", "content": "x",
 	})
 	if !bytes.Contains(got, []byte("not permitted for role")) {
 		t.Errorf("worker create should be denied; got: %s", got)
 	}
-	got = mcpCall(workerTok, "templates.agent.delete", map[string]any{
+	got = mcpCall(workerTok, "templates_agent_delete", map[string]any{
 		"name": "test-worker.v1.yaml",
 	})
 	if !bytes.Contains(got, []byte("not permitted for role")) {
@@ -747,11 +746,11 @@ func TestTemplateAuthoring_W2(t *testing.T) {
 	}
 
 	// 6. Worker reads — allowed (via *.list / *.get).
-	got = mcpCall(workerTok, "templates.agent.list", map[string]any{})
+	got = mcpCall(workerTok, "templates_agent_list", map[string]any{})
 	if bytes.Contains(got, []byte("not permitted for role")) {
 		t.Errorf("worker list should be allowed; got role denial: %s", got)
 	}
-	got = mcpCall(workerTok, "templates.agent.get", map[string]any{
+	got = mcpCall(workerTok, "templates_agent_get", map[string]any{
 		"name": "test-worker.v1.yaml",
 	})
 	if bytes.Contains(got, []byte("not permitted for role")) {
@@ -760,14 +759,14 @@ func TestTemplateAuthoring_W2(t *testing.T) {
 
 	// 7. Self-modification guard: steward.research.v1 trying to edit
 	//    its own kind's template — denied.
-	got = mcpCall(stewardTok, "templates.agent.update", map[string]any{
+	got = mcpCall(stewardTok, "templates_agent_update", map[string]any{
 		"name":    "steward.research.v1.yaml",
 		"content": "subverted: true\n",
 	})
 	if !bytes.Contains(got, []byte("self-modification guard")) {
 		t.Errorf("self-mod guard should fire on agents/steward.research.v1.yaml; got: %s", got)
 	}
-	got = mcpCall(stewardTok, "templates.prompt.update", map[string]any{
+	got = mcpCall(stewardTok, "templates_prompt_update", map[string]any{
 		"name":    "steward.research.v1.md",
 		"content": "subverted",
 	})
@@ -776,7 +775,7 @@ func TestTemplateAuthoring_W2(t *testing.T) {
 	}
 
 	// 8. Steward deletes the template.
-	got = mcpCall(stewardTok, "templates.agent.delete", map[string]any{
+	got = mcpCall(stewardTok, "templates_agent_delete", map[string]any{
 		"name": "test-worker.v1.yaml",
 	})
 	if bytes.Contains(got, []byte("\"error\"")) {

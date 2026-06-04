@@ -283,15 +283,16 @@ func handleToolsCall(c *hubClient, tools []toolDef, raw json.RawMessage) (any, *
 	if p.Name == "" {
 		return nil, &jsonrpcError{Code: errInvalidParams, Message: "tool name required"}
 	}
-	// ADR-033: resolve a canonical or deprecated-alias name to the
-	// buildTools() backend that carries the call closure. The old
-	// dotted spelling still works — it is the backend name and also a
-	// registry alias — so pre-registry callers are unaffected.
-	backend := p.Name
-	if spec, ok, _ := LookupToolSpec(p.Name); ok {
-		backend = spec.Backend
+	// ADR-033: resolve the canonical tool name to the buildTools() backend
+	// that carries the call closure. WS1.1 retired the dotted spellings as
+	// callable names — the dotted form is the Backend (a dispatch key), not a
+	// name a caller may use — so an unresolved name 404s rather than falling
+	// through to findTool by its raw dotted spelling.
+	spec, ok, _ := LookupToolSpec(p.Name)
+	if !ok {
+		return nil, &jsonrpcError{Code: errMethodNotFound, Message: "unknown tool: " + p.Name}
 	}
-	tool, ok := findTool(tools, backend)
+	tool, ok := findTool(tools, spec.Backend)
 	if !ok {
 		return nil, &jsonrpcError{Code: errMethodNotFound, Message: "unknown tool: " + p.Name}
 	}

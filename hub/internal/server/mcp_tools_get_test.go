@@ -14,7 +14,7 @@ import (
 func TestMCP_ToolsGet_Known(t *testing.T) {
 	s, _ := newTestServer(t)
 
-	for _, name := range []string{"documents.get", "get_feed"} {
+	for _, name := range []string{"documents_get", "get_feed"} {
 		out, jerr := s.mcpToolsGet(json.RawMessage(`{"tool_name":"` + name + `"}`))
 		if jerr != nil {
 			t.Fatalf("tools.get(%q): unexpected jrpcError %+v", name, jerr)
@@ -64,20 +64,13 @@ func TestMCP_ToolsGet_Unknown(t *testing.T) {
 	}
 }
 
-// MCP spec requires tool names to match `[A-Za-z0-9_-]+` — no dots.
-// Our catalog keeps deprecated dot-named aliases (`documents.list`,
-// `plans.steps.create`) for backwards-compat with agents calling the
-// legacy names; tools/call still resolves them. But strict clients
-// (agy 1.0.1 confirmed) reject the WHOLE tools/list payload with
-// `invalid request` if any entry violates the regex, so we filter
-// dot-named entries off the wire. The post-v1.0.653 smoke caught this
-// — agy's `call_mcp_tool projects_list` failed with `server name
-// termipod failed to load: failed to get tools: calling "tools/list":
-// invalid request` even though the bridge + token were now fine.
-//
-// Every dropped name has a snake_case sibling in the wire output, so
-// no functionality is lost; the dispatcher continues to accept both
-// spellings on tools/call.
+// MCP spec requires tool names to match `[A-Za-z0-9_-]+` — no dots. WS1.1
+// retired every dot-named alias, so the catalog is now all snake_case and no
+// dotted name can reach the wire at all. The MCP-compliance filter that
+// v1.0.654 added (strict clients like agy 1.0.1 reject the WHOLE tools/list
+// payload if any entry has a dot) is therefore belt-and-suspenders now. This
+// test pins that no dotted name ships and every canonical name does, so a
+// regression that re-introduces a dotted catalog entry trips CI.
 func TestMCP_ToolListDefs_FiltersDotNamedAliases(t *testing.T) {
 	defs := mcpToolListDefs()
 	names := map[string]bool{}
@@ -139,19 +132,21 @@ func TestIsMCPCompliantToolName(t *testing.T) {
 // still carries the long body — so the description text it returns is
 // the long one, not the short.
 //
-// v1.0.654: tools/list also drops MCP-spec-noncompliant names (dots),
-// so the wire is shorter than the full catalog — that's intentional.
-// Every dropped entry has a snake_case sibling that stays in the wire,
-// so no functionality is lost.
+// v1.0.654 added an MCP-spec-noncompliant-name (dots) filter; since WS1.1
+// retired every dot-named alias, that filter now drops nothing (the catalog
+// is all snake_case), so the wire and the full catalog have equal COUNTS and
+// the projection's only job is dropping each entry's long body.
 func TestMCP_ToolListDefs_ServesShort(t *testing.T) {
 	defs := mcpToolListDefs()
 	full := mcpToolDefs()
-	if len(defs) > len(full) {
-		t.Fatalf("tools/list has %d entries, full catalog %d — projection inflated", len(defs), len(full))
-	}
-	if len(defs) == len(full) {
-		// Should have dropped at least the documents.list / documents.get etc.
-		t.Errorf("tools/list (%d) equals full catalog (%d) — expected dot-named aliases to be filtered for MCP-spec compliance", len(defs), len(full))
+	// Post-WS1.1 the catalog carries no dot-named aliases, so the MCP-spec
+	// compliance filter drops nothing — tools/list and the full catalog have
+	// the same entry COUNT. The projection still shrinks the WIRE by dropping
+	// each entry's long body, which is what the description-bytes check below
+	// verifies.
+	if len(defs) != len(full) {
+		t.Errorf("tools/list (%d) != full catalog (%d) — no dot-named names remain to filter post-WS1.1",
+			len(defs), len(full))
 	}
 
 	listDescLen := 0

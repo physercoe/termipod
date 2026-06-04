@@ -414,13 +414,11 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 	if h, ok := nativeHandlerFor(call.Name); ok {
 		return h(s, ctx, agentID, scope, call.Arguments)
 	}
-	// Defensive fall-through to the rich-authority catalog. Every
-	// buildTools() tool is registered (TestEveryAuthorityToolRegistered),
-	// so this is unreachable in practice — kept so an un-registered tool
-	// degrades to a working dispatch rather than a 404.
-	if hasAuthorityTool(call.Name) {
-		return s.dispatchAuthorityToolRaw(ctx, agentToken, scope.Team, call.Name, call.Arguments)
-	}
+	// No defensive fall-through to a raw buildTools() name. Every tool is
+	// registered under its canonical name (TestEveryAuthorityToolRegistered),
+	// so anything reaching here is a non-canonical spelling — a retired
+	// dotted/legacy alias (WS1.1) — and must 404 rather than silently
+	// dispatch by its REST-adapter name.
 	return nil, &jrpcError{Code: -32601, Message: "unknown tool: " + call.Name}
 }
 

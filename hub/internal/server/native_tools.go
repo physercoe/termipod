@@ -317,7 +317,6 @@ func buildNativeTools() []nativeTool {
 		},
 		{
 			Name:    "request_select",
-			Aliases: []string{"request_decision"},
 			Short:   "Raise a select/decision attention item for the principal.",
 			Description: "Ask for a choice between named options. Creates an " +
 				"attention_item. Returns immediately with `{id, status: " +
@@ -492,7 +491,6 @@ func buildNativeTools() []nativeTool {
 		},
 		{
 			Name:        "templates_propose",
-			Aliases:     []string{"templates.propose"},
 			Short:       "Propose a template change for steward review.",
 			Description: "Propose a new or revised template. Creates an attention_item for review.",
 			InputSchema: map[string]any{
@@ -550,7 +548,6 @@ func buildNativeTools() []nativeTool {
 		},
 		{
 			Name:    "agents_fanout",
-			Aliases: []string{"agents.fanout"},
 			Short:   "Spawn N workers in one orchestrator-worker fan-out.",
 			Description: "Spawn N workers in parallel under one correlation_id. " +
 				"Each worker spec carries (handle, kind, spawn_spec_yaml, persona_seed, " +
@@ -585,7 +582,6 @@ func buildNativeTools() []nativeTool {
 		},
 		{
 			Name:    "agents_gather",
-			Aliases: []string{"agents.gather"},
 			Short:   "Long-poll for the results of a fan-out's workers.",
 			Description: "Long-poll until every agent in a correlation_id either posts " +
 				"a worker_report event or reaches terminal status. Returns the per-worker " +
@@ -605,7 +601,6 @@ func buildNativeTools() []nativeTool {
 		},
 		{
 			Name:    "reports_post",
-			Aliases: []string{"reports.post"},
 			Short:   "Post a worker's structured report back to its orchestrator.",
 			Description: "Worker writes a typed completion report. Stored as an " +
 				"agent_event of kind=worker_report with structured frontmatter " +
@@ -630,7 +625,6 @@ func buildNativeTools() []nativeTool {
 			// rather than being dispatched like the others; folding it
 			// here (W6.2) retires the last dispatchTool switch case.
 			Name:        "tools_get",
-			Aliases:     []string{"tools.get"},
 			Short:       "Fetch the full description and input schema for one MCP tool.",
 			Description: "Fetch the full description and input schema for one MCP tool by name. Required: tool_name (string). Call tools/list for the available set.",
 			InputSchema: map[string]any{

@@ -47,26 +47,23 @@ func TestToolRegistry_CatalogIsConsistent(t *testing.T) {
 }
 
 // Security-relevant (ADR-033 W3). dispatchTool gates agents_spawn and
-// a2a_invoke by their *canonical* name, resolved through the registry.
-// If either tool's canonical name drifts, or its old dotted spelling
-// stops resolving as an alias, a caller using the un-resolved spelling
-// would slip past authorizeAgentsSpawn / authorizeA2ATarget. This test
-// pins the two names and both spellings so any such drift trips CI.
+// a2a_invoke by their *canonical* name, resolved through the registry. WS1.1
+// retired the dotted spellings, so this pins both halves of the invariant:
+// (a) the canonical name resolves to itself (the gate keys on it), and (b)
+// the old dotted spelling no longer resolves at all — a caller can't reach
+// the tool by a spelling that would slip past the gate, because that spelling
+// now 404s before dispatch.
 func TestDispatchGate_GatedToolNamesResolve(t *testing.T) {
-	cases := []struct{ called, wantCanonical string }{
-		{"agents_spawn", "agents_spawn"},
-		{"agents.spawn", "agents_spawn"},
-		{"a2a_invoke", "a2a_invoke"},
-		{"a2a.invoke", "a2a_invoke"},
-	}
-	for _, c := range cases {
-		spec, found, _ := hubmcpserver.LookupToolSpec(c.called)
-		if !found {
-			t.Errorf("gated tool %q does not resolve in the registry — dispatchTool gate would not fire", c.called)
-			continue
+	for _, canonical := range []string{"agents_spawn", "a2a_invoke"} {
+		spec, found, _ := hubmcpserver.LookupToolSpec(canonical)
+		if !found || spec.Name != canonical {
+			t.Errorf("gated tool %q must resolve to itself; found=%v name=%q",
+				canonical, found, spec.Name)
 		}
-		if spec.Name != c.wantCanonical {
-			t.Errorf("%q resolves to canonical %q, want %q", c.called, spec.Name, c.wantCanonical)
+	}
+	for _, dotted := range []string{"agents.spawn", "a2a.invoke"} {
+		if _, found, _ := hubmcpserver.LookupToolSpec(dotted); found {
+			t.Errorf("retired alias %q still resolves — WS1.1 retired the dotted spellings", dotted)
 		}
 	}
 }
@@ -76,22 +73,34 @@ func TestDispatchGate_GatedToolNamesResolve(t *testing.T) {
 // silently vanishes from the catalog. This locks that invariant: a
 // new buildTools() tool added without a registry entry trips CI.
 func TestEveryAuthorityToolRegistered(t *testing.T) {
+	// The catalog names buildTools() adapters by their dotted spelling; since
+	// WS1.1 those dotted names are no longer callable (LookupToolSpec won't
+	// resolve them), so the invariant is checked against each spec's Backend:
+	// every authority adapter must be the Backend of some ToolSpec, or it is
+	// invisible in tools/list.
+	backends := map[string]bool{}
+	for _, s := range hubmcpserver.ToolRegistry() {
+		if s.Backend != "" {
+			backends[s.Backend] = true
+		}
+	}
 	for _, d := range hubmcpserver.ToolCatalog() {
 		name, _ := d["name"].(string)
 		if name == "" {
 			continue
 		}
-		if _, ok, _ := hubmcpserver.LookupToolSpec(name); !ok {
-			t.Errorf("authority tool %q is not in the ToolSpec registry — "+
+		if !backends[name] {
+			t.Errorf("authority tool %q is not the Backend of any ToolSpec — "+
 				"it would be invisible in tools/list (add a spec to toolspec.go)", name)
 		}
 	}
 }
 
-// ADR-033 W5 / D-4. All three duplicate-pair twins — list_agents,
-// get_audit, get_task — are consolidated: each resolves, via alias,
-// to the authority tool that supersedes it, and no longer exists as
-// a standalone native-registry tool.
+// ADR-033 W5 / D-4 consolidated the duplicate-pair twins (list_agents,
+// get_audit, get_task) into their canonical authority tools; WS1.1 then
+// retired the twins' names entirely. Each retired name must NO LONGER
+// resolve (no alias keeps it alive), while its canonical supersessor does —
+// so an agent calling the old name gets a clean 404 instead of a silent hit.
 func TestDuplicatePairsConsolidated(t *testing.T) {
 	cases := []struct{ retired, canonical string }{
 		{"list_agents", "agents_list"},
@@ -99,26 +108,17 @@ func TestDuplicatePairsConsolidated(t *testing.T) {
 		{"get_task", "tasks_get"},
 	}
 	for _, c := range cases {
-		spec, found, viaAlias := lookupToolSpec(c.retired)
-		if !found {
-			t.Errorf("%q no longer resolves — a deprecated alias must keep working (D-2)", c.retired)
-			continue
+		if _, found, _ := lookupToolSpec(c.retired); found {
+			t.Errorf("retired twin %q still resolves — WS1.1 retired it; an agent must get 404", c.retired)
 		}
-		if !viaAlias || spec.Name != c.canonical {
-			t.Errorf("%q resolved to %q (viaAlias=%v), want alias of %q", c.retired, spec.Name, viaAlias, c.canonical)
-		}
-		// The twin must be gone from the native registry — one
-		// operation, one tool.
-		if _, ok, _ := lookupNativeToolSpec(c.retired); ok {
-			if _, isNativeCanonical := nativeHandlers[c.retired]; isNativeCanonical {
-				t.Errorf("%q is still a native-registry tool — D-4 consolidation incomplete", c.retired)
-			}
+		if _, found, _ := lookupToolSpec(c.canonical); !found {
+			t.Errorf("canonical %q must resolve", c.canonical)
 		}
 	}
 }
 
-// A registry tool resolves under its canonical name and each alias;
-// LookupToolSpec reports alias-ness so deprecation can be surfaced.
+// Every registry tool resolves under its canonical name, and no tool carries
+// a (now-retired) alias. LookupToolSpec never reports viaAlias=true post-WS1.1.
 func TestToolRegistry_AliasResolution(t *testing.T) {
 	specs := hubmcpserver.ToolRegistry()
 	if len(specs) == 0 {
@@ -129,11 +129,8 @@ func TestToolRegistry_AliasResolution(t *testing.T) {
 		if !found || viaAlias || got.Name != s.Name {
 			t.Errorf("canonical lookup %q: found=%v viaAlias=%v name=%q", s.Name, found, viaAlias, got.Name)
 		}
-		for _, a := range s.Aliases {
-			got, found, viaAlias := hubmcpserver.LookupToolSpec(a)
-			if !found || !viaAlias || got.Name != s.Name {
-				t.Errorf("alias lookup %q: found=%v viaAlias=%v name=%q", a, found, viaAlias, got.Name)
-			}
+		if len(s.Aliases) != 0 {
+			t.Errorf("tool %q still carries aliases %v — all were retired in WS1.1", s.Name, s.Aliases)
 		}
 	}
 }

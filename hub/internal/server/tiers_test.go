@@ -144,28 +144,26 @@ func TestEveryDispatcherCaseAdvertised(t *testing.T) {
 		"request_project_steward",
 		"attach",
 		"get_event",
-		"get_task",
+		"tasks_get",
 		"get_parent_thread",
-		"list_agents",
+		"agents_list",
 		"update_own_task_status",
 		"templates_propose",
 		"pause_self",
 		"shutdown_self",
-		"get_audit",
+		"audit_read",
 		"permission_prompt",
-		// orchestrator-worker primitives
-		"agents.fanout",
-		"agents.gather",
-		"reports.post",
+		// orchestrator-worker primitives (canonical snake_case — WS1.1
+		// retired the dotted agents.fanout / agents.gather / reports.post)
+		"agents_fanout",
+		"agents_gather",
+		"reports_post",
 	}
-	// Back-compat aliases the dispatcher accepts but the registry does
-	// not advertise (advertising them would surface duplicates in the
-	// agent's tool picker). Keep tightly scoped — every entry needs a
-	// rename trail in code comments.
-	knownAliases := map[string]struct{}{
-		"request_decision":  {}, // legacy alias for request_select (v1.0.295 rename)
-		"templates.propose": {}, // legacy alias for templates_propose (dot/underscore)
-	}
+	// WS1.1 retired every back-compat alias — the dispatcher no longer
+	// accepts any, so this set is empty. (Kept as the guard point: a
+	// re-introduced alias listed in dispatcherCases would trip the check
+	// below.)
+	knownAliases := map[string]struct{}{}
 
 	advertised := map[string]struct{}{}
 	for _, def := range mcpToolDefs() {

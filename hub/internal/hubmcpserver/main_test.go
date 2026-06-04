@@ -94,7 +94,7 @@ func TestToolsCall_ProjectsList(t *testing.T) {
 	})
 	tools := buildTools()
 
-	line := []byte(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"projects.list","arguments":{}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"projects_list","arguments":{}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -150,7 +150,7 @@ func TestToolsCall_DocumentsGet(t *testing.T) {
 	})
 	tools := buildTools()
 
-	line := []byte(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"documents.get","arguments":{"document_id":"01KRV538"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"documents_get","arguments":{"document_id":"01KRV538"}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -187,7 +187,7 @@ func TestToolsCall_DocumentsGet_MissingArg(t *testing.T) {
 		t.Errorf("hub must not be called when document_id is missing; got %s", r.URL.Path)
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"documents.get","arguments":{}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"documents_get","arguments":{}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -253,7 +253,7 @@ func TestToolsCall_A2AInvoke(t *testing.T) {
 	})
 	tools := buildTools()
 
-	line := []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"a2a.invoke","arguments":{"handle":"worker.ml","text":"train me"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"a2a_invoke","arguments":{"handle":"worker.ml","text":"train me"}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -304,7 +304,7 @@ func TestToolsCall_PlanStepsUpdate(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"plans.steps.update","arguments":{"plan":"pl1","step":"s1","status":"running"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"plan_steps_update","arguments":{"plan":"pl1","step":"s1","status":"running"}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -337,7 +337,7 @@ func TestToolsCall_A2AInvoke_NoCard(t *testing.T) {
 		_, _ = w.Write([]byte(`[]`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"a2a.invoke","arguments":{"handle":"nope","text":"x"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"a2a_invoke","arguments":{"handle":"nope","text":"x"}}}` + "\n")
 	raw, _ := handleLine(c, tools, line)
 	var resp struct {
 		Result struct {
@@ -367,7 +367,7 @@ func TestToolsCall_ProjectsUpdate(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"p1","goal":"new goal"}`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"projects.update","arguments":{"project":"p1","goal":"new goal","budget_cents":5000}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"projects_update","arguments":{"project":"p1","goal":"new goal","budget_cents":5000}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -409,7 +409,7 @@ func TestToolsCall_HostsUpdateSSHHint(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"hosts.update_ssh_hint","arguments":{"host":"h1","ssh_hint":{"user":"alice","port":22}}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"hosts_update_ssh_hint","arguments":{"host":"h1","ssh_hint":{"user":"alice","port":22}}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -449,7 +449,7 @@ func TestToolsCall_HostsList(t *testing.T) {
 		_, _ = w.Write([]byte(`[{"id":"h1","name":"gpu-01","status":"online"}]`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"hosts.list","arguments":{}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"hosts_list","arguments":{}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -474,7 +474,7 @@ func TestToolsCall_HostsGet(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"h1","name":"gpu-01"}`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"hosts.get","arguments":{"host":"h1"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"hosts_get","arguments":{"host":"h1"}}}` + "\n")
 	if _, ok := handleLine(c, tools, line); !ok {
 		t.Fatalf("expected a response")
 	}
@@ -493,7 +493,7 @@ func TestToolsCall_AgentsList(t *testing.T) {
 		_, _ = w.Write([]byte(`[]`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"agents.list","arguments":{"host_id":"h1","status":"running","include_archived":true}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"agents_list","arguments":{"host_id":"h1","status":"running","include_archived":true}}}` + "\n")
 	if _, ok := handleLine(c, tools, line); !ok {
 		t.Fatalf("expected a response")
 	}
@@ -514,7 +514,7 @@ func TestToolsCall_AgentsList_ProjectID(t *testing.T) {
 		_, _ = w.Write([]byte(`[]`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":520,"method":"tools/call","params":{"name":"agents.list","arguments":{"project_id":"proj-xyz"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":520,"method":"tools/call","params":{"name":"agents_list","arguments":{"project_id":"proj-xyz"}}}` + "\n")
 	if _, ok := handleLine(c, tools, line); !ok {
 		t.Fatalf("expected a response")
 	}
@@ -532,7 +532,7 @@ func TestToolsCall_AgentsGet(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"a1"}`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":53,"method":"tools/call","params":{"name":"agents.get","arguments":{"agent":"a1"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":53,"method":"tools/call","params":{"name":"agents_get","arguments":{"agent":"a1"}}}` + "\n")
 	if _, ok := handleLine(c, tools, line); !ok {
 		t.Fatalf("expected a response")
 	}
@@ -552,7 +552,7 @@ func TestToolsCall_AgentsTerminate(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":54,"method":"tools/call","params":{"name":"agents.terminate","arguments":{"agent":"a1"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":54,"method":"tools/call","params":{"name":"agents_terminate","arguments":{"agent":"a1"}}}` + "\n")
 	if _, ok := handleLine(c, tools, line); !ok {
 		t.Fatalf("expected a response")
 	}
@@ -574,7 +574,7 @@ func TestToolsCall_AgentsStop(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":55,"method":"tools/call","params":{"name":"agents.stop","arguments":{"agent":"a1"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":55,"method":"tools/call","params":{"name":"agents_stop","arguments":{"agent":"a1"}}}` + "\n")
 	if _, ok := handleLine(c, tools, line); !ok {
 		t.Fatalf("expected a response")
 	}
@@ -601,7 +601,7 @@ func TestToolsCall_ProjectChannelsCreate(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"ch-1","scope_kind":"project","name":"ops"}`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"project_channels.create","arguments":{"project_id":"p1","name":"ops"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"project_channels_create","arguments":{"project_id":"p1","name":"ops"}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -640,7 +640,7 @@ func TestToolsCall_TeamChannelsCreate(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"ch-team","scope_kind":"team","name":"hub-meta"}`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"team_channels.create","arguments":{"name":"hub-meta"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"team_channels_create","arguments":{"name":"hub-meta"}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -674,7 +674,7 @@ func TestToolsCall_TasksCreate(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"t-new","title":"do it"}`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"tasks.create","arguments":{"project_id":"p1","title":"do it","status":"todo"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"tasks_create","arguments":{"project_id":"p1","title":"do it","status":"todo"}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -715,7 +715,7 @@ func TestToolsCall_TasksUpdate(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"tasks.update","arguments":{"project_id":"p1","task":"t1","status":"done"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"tasks_update","arguments":{"project_id":"p1","task":"t1","status":"done"}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -755,7 +755,7 @@ func TestToolsCall_SchedulesRun(t *testing.T) {
 		_, _ = w.Write([]byte(`{"plan_id":"pl-123"}`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"schedules.run","arguments":{"schedule":"s-42"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"schedules_run","arguments":{"schedule":"s-42"}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")
@@ -798,7 +798,7 @@ func TestToolsCall_SchedulesCreate(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"s-new","enabled":true}`))
 	})
 	tools := buildTools()
-	line := []byte(`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"schedules.create","arguments":{"project_id":"p1","template_id":"t1","trigger_kind":"cron","cron_expr":"0 3 * * *"}}}` + "\n")
+	line := []byte(`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"schedules_create","arguments":{"project_id":"p1","template_id":"t1","trigger_kind":"cron","cron_expr":"0 3 * * *"}}}` + "\n")
 	raw, ok := handleLine(c, tools, line)
 	if !ok {
 		t.Fatalf("expected a response")

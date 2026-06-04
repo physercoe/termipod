@@ -103,14 +103,11 @@ func TestWorkerCanCallTasksComplete(t *testing.T) {
 	if !spec.WorkerEligible {
 		t.Errorf("tasks_complete.WorkerEligible = false; workers can't close out their assigned tasks")
 	}
-	// Also check the dotted alias resolves to the same spec.
-	specDotted, ok, _ := lookupToolSpec("tasks.complete")
-	if !ok {
-		t.Fatal("tasks.complete alias missing")
-	}
-	if specDotted.Name != spec.Name {
-		t.Errorf("alias drift: tasks.complete → %q, tasks_complete → %q",
-			specDotted.Name, spec.Name)
+	// The dotted alias was retired in WS1.1 — it must no longer resolve, so a
+	// worker is steered to the canonical tasks_complete (which the close-out
+	// footer now emits).
+	if _, ok, _ := lookupToolSpec("tasks.complete"); ok {
+		t.Error("tasks.complete still resolves — WS1.1 retired the dotted alias")
 	}
 }
 

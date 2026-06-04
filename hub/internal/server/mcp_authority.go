@@ -46,13 +46,6 @@ func (t chiRouterTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return rec.Result(), nil
 }
 
-// hasAuthorityTool reports whether the named tool is part of the
-// rich-authority catalog. Used by dispatchTool to decide whether to
-// fall through after the in-process switch misses.
-func hasAuthorityTool(name string) bool {
-	return hubmcpserver.HasTool(name)
-}
-
 // dispatchAuthorityTool runs one tool by name in-process. The MCP path
 // token is also the agent's HTTP bearer token (same auth_tokens row
 // resolves both — see resolveMCPToken), so we forward it as

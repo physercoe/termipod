@@ -36,7 +36,7 @@ var _ = tierStrategic // reserved; no W1/W2 tool is strategic-tier yet
 // W2.b.2 and stay nil until then.
 type ToolSpec struct {
 	Name           string          // snake_case, resource-first (ADR-033 D-1)
-	Aliases        []string        // deprecated old names, still resolve (D-2)
+	Aliases        []string        // reserved; empty since WS1.1 retired all dotted/legacy aliases
 	Short          string          // one-line contract (ADR-031 D-1)
 	Description    string          // full body
 	InputSchema    json.RawMessage //
@@ -84,12 +84,12 @@ func deprecatedPrefix(canonical string) string {
 	return "[DEPRECATED — use " + canonical + "] "
 }
 
-// toolRegistry is the unified registry. Migrated authority tools
-// keep their REST adapters in buildTools() under the dotted names;
-// each ToolSpec names that adapter as both Backend and deprecated
-// alias, and reuses its Description + InputSchema so the migration
-// introduces no copy drift. WorkerEligible mirrors what roles.yaml
-// grants today (verified per tool) so authz behaviour is preserved.
+// toolRegistry is the unified registry. Authority tools keep their REST
+// adapters in buildTools() under the dotted names; each ToolSpec names that
+// adapter as its Backend (the dispatch key, NOT a callable name — the dotted
+// spellings were retired as callable aliases in WS1.1) and reuses its
+// Description + InputSchema so there is no copy drift. WorkerEligible mirrors
+// what roles.yaml grants today (verified per tool) so authz is preserved.
 //
 //	W1 — documents.   W2 — projects / plans / runs / artifacts.
 //	W3 — agents / hosts / reviews / channels / a2a (authority-backed
@@ -103,16 +103,15 @@ func deprecatedPrefix(canonical string) string {
 //	     path too.
 func toolRegistry() []ToolSpec {
 	tools := buildTools()
-	// spec builds one ToolSpec for an authority-backed tool. backend
-	// is the buildTools() name carrying the REST adapter and the first
-	// deprecated alias; extraAliases adds further old names that
-	// resolve to this tool (ADR-033 D-4 — consolidating a duplicate
-	// pair retires the twin's name as an alias here).
-	spec := func(name, backend, short, tier string, workerEligible bool, extraAliases ...string) ToolSpec {
+	// spec builds one ToolSpec for an authority-backed tool. backend is
+	// the buildTools() name carrying the REST adapter — it is the dispatch
+	// key (Name → Backend), NOT a callable name. The deprecated dotted/old
+	// spellings were retired in WS1.1 (internal-techdebt-cleanup): only the
+	// canonical snake_case `name` resolves now; Aliases stays empty.
+	spec := func(name, backend, short, tier string, workerEligible bool) ToolSpec {
 		d, _ := findTool(tools, backend)
 		return ToolSpec{
 			Name:           name,
-			Aliases:        append([]string{backend}, extraAliases...),
 			Short:          short,
 			Description:    d.Description,
 			InputSchema:    d.InputSchema,
@@ -200,12 +199,11 @@ func toolRegistry() []ToolSpec {
 			"Create an artifact record. Required: project_id, kind, name, uri.",
 			tierRoutine, false),
 		// --- agents (W3) ---
-		// agents_list absorbs the legacy thin `list_agents` (ADR-033
-		// D-4) — agents_list is a strict superset (richer filters and
-		// rows, and it already returns pane_id).
+		// agents_list absorbed the legacy thin `list_agents` (ADR-033
+		// D-4); the `list_agents` alias was retired in WS1.1.
 		spec("agents_list", "agents.list",
 			"List agents in the team (terminal-status rows hidden by default). Optional: host_id, status, live, project_id, include_terminated, include_archived.",
-			tierTrivial, true, "list_agents"),
+			tierTrivial, true),
 		spec("agents_get", "agents.get",
 			"Fetch one agent by id, with full detail. Required: agent (id).",
 			tierTrivial, true),
@@ -253,13 +251,12 @@ func toolRegistry() []ToolSpec {
 		spec("tasks_list", "tasks.list",
 			"List tasks for a project. Required: project_id. Optional: status, priority, sort.",
 			tierTrivial, true),
-		// tasks_get absorbs the legacy native `get_task` (ADR-033 D-4).
-		// tasks_get already returns the full field union; the adapter
-		// now also accepts a bare task id (no project_id) so get_task's
-		// input contract survives the alias.
+		// tasks_get absorbed the legacy native `get_task` (ADR-033 D-4);
+		// the adapter accepts a bare task id. The `get_task` alias was
+		// retired in WS1.1.
 		spec("tasks_get", "tasks.get",
 			"Get one task by id. Required: task (ULID). Optional: project_id.",
-			tierTrivial, true, "get_task"),
+			tierTrivial, true),
 		spec("tasks_create", "tasks.create",
 			"Create a task under a project. Required: project_id, title.",
 			tierRoutine, true),
@@ -296,12 +293,12 @@ func toolRegistry() []ToolSpec {
 			"Manually fire a schedule, returning the new plan_id. Required: schedule (id).",
 			tierSignificant, false),
 		// --- misc authority-backed (W4) ---
-		// audit_read absorbs the legacy `get_audit` (ADR-033 D-4) —
-		// same data, same 500 cap; audit_read now also forwards the
-		// `action` filter get_audit had.
+		// audit_read absorbed the legacy `get_audit` (ADR-033 D-4) — same
+		// data, same 500 cap, forwards the `action` filter. The
+		// `get_audit` alias was retired in WS1.1.
 		spec("audit_read", "audit.read",
 			"List audit events for the team. Optional: limit, since, action.",
-			tierTrivial, true, "get_audit"),
+			tierTrivial, true),
 		spec("policy_read", "policy.read",
 			"Read the team policy document (STUB — returns placeholder rules). No arguments.",
 			tierTrivial, true),

@@ -69,18 +69,7 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     // Cached read-through: cold open offline still surfaces the last
     // known stewards. Same fallback contract as projects/hosts/etc.
     final cached = await client.listSessionsCached();
-    final all = cached.body;
-    final active = <Map<String, dynamic>>[];
-    final previous = <Map<String, dynamic>>[];
-    for (final s in all) {
-      final status = (s['status'] ?? '').toString();
-      if (_isLive(status)) {
-        active.add(s);
-      } else {
-        previous.add(s);
-      }
-    }
-    return SessionsState(active: active, previous: previous);
+    return bucketSessions(cached.body);
   }
 
   /// Force a refresh — useful after open/close/resume.
@@ -234,11 +223,31 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
 /// Tolerates both the new ADR-009 vocabulary (`active`, `paused`)
 /// and the legacy strings (`open`, `interrupted`) for the brief
 /// rollout window.
-bool _isLive(String status) =>
+///
+/// Public + pure so the hub→app session-status contract can be pinned by a
+/// fixture test without a provider/widget harness (WS3), and so WS1.3 has a
+/// single point to retire the legacy vocab from.
+bool isLiveSessionStatus(String status) =>
     status == 'active' ||
     status == 'paused' ||
     status == 'open' ||
     status == 'interrupted';
+
+/// Buckets a raw session list (as the hub returns it) into the active vs
+/// previous split the UI consumes — the pure core of [SessionsNotifier.build].
+/// Live/paused → active; everything else (archived/deleted/…) → previous.
+SessionsState bucketSessions(List<Map<String, dynamic>> all) {
+  final active = <Map<String, dynamic>>[];
+  final previous = <Map<String, dynamic>>[];
+  for (final s in all) {
+    if (isLiveSessionStatus((s['status'] ?? '').toString())) {
+      active.add(s);
+    } else {
+      previous.add(s);
+    }
+  }
+  return SessionsState(active: active, previous: previous);
+}
 
 final sessionsProvider =
     AsyncNotifierProvider<SessionsNotifier, SessionsState>(SessionsNotifier.new);

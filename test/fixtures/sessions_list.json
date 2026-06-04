@@ -1,0 +1,39 @@
+[
+  {
+    "id": "ses_live01",
+    "team_id": "team_main",
+    "title": "live worker session",
+    "scope_kind": "project",
+    "scope_id": "prj_alpha",
+    "current_agent_id": "agt_live01",
+    "status": "active",
+    "opened_at": "2026-06-04T00:00:00Z",
+    "last_active_at": "2026-06-04T00:10:00Z",
+    "worktree_path": "/tmp/wt/live01"
+  },
+  {
+    "id": "ses_stopped1",
+    "team_id": "team_main",
+    "title": "stopped worker session",
+    "scope_kind": "project",
+    "scope_id": "prj_alpha",
+    "current_agent_id": "agt_stopped1",
+    "status": "paused",
+    "opened_at": "2026-06-03T00:00:00Z",
+    "last_active_at": "2026-06-03T12:00:00Z",
+    "worktree_path": "/tmp/wt/stopped1"
+  },
+  {
+    "id": "ses_archived1",
+    "team_id": "team_main",
+    "title": "archived worker session",
+    "scope_kind": "project",
+    "scope_id": "prj_alpha",
+    "current_agent_id": "agt_archived1",
+    "status": "archived",
+    "opened_at": "2026-06-02T00:00:00Z",
+    "last_active_at": "2026-06-02T09:00:00Z",
+    "closed_at": "2026-06-02T10:00:00Z",
+    "worktree_path": "/tmp/wt/archived1"
+  }
+]

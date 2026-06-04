@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-06-03)
+> **Status:** Current (2026-06-04)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.799
+> **Last verified vs code:** v1.0.800
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,47 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.800-alpha — 2026-06-04
+
+**Internal tech-debt cleanup — compatibility retirement, protocol-edge
+fixtures, and controller seams.** Acts on the 2026-06-03 tech-debt review
+(`docs/plans/internal-techdebt-cleanup.md`), re-scoped to the internal-test
+posture: with no external API consumers, back-compat shims are deleted, not
+ledgered. No user-facing behaviour change — this is subtraction, tests, and
+non-widget seams. Workstreams WS1 (retire compat paths), WS2 (controller
+seams for the active screens), and WS3 (protocol-edge fixtures) all landed;
+WS4 (host-runner structured command model) is deferred.
+
+### Added
+- **Protocol-edge fixture tests (WS3)** — captured-shape fixtures + a
+  `protocol_contract_test` pinning the hub→app JSON the mobile surfaces read,
+  so a renamed/dropped field fails in CI instead of blanking a card on a
+  device: sessions + agents (`855b244`), and the session digest + turn index
+  (`ca2c3cb`), including the errors `sample_seqs`/`sample_ts`/`sample_labels`
+  1:1 alignment the Errors-lens jump depends on.
+- **Forward-only compatibility ratchet (W1.5, `aad1d6f`)** —
+  `scripts/lint-legacy-markers.sh` + a grandfathered baseline + a CI step:
+  fails on a *new* `legacy`/`deprecated`/`alias` comment marker unless it
+  names a removal target (a removal verb or an issue ref).
+- **Controller seams + unit tests for the active screens (WS2)** — the
+  list-shaping logic of the three most-edited screens extracted into sibling
+  `*_controller.dart` files, unit-tested without a widget harness:
+  `project_agents_controller` (`a16a3b0`), `sessions_list_controller`
+  (`5f350e7`), `projects_list_controller` (`70c5886`).
+
+### Removed
+- **Deprecated session `/close` route (W1.2, `a62ed3c`)** — `/archive` is the
+  canonical archive action (ADR-009); the alias is gone (no client posted to
+  it).
+- **Pre-ADR-009 session-status vocabulary (W1.3, `6c3fcfd`)** — the
+  `open`/`interrupted`/`closed` tolerance is deleted app-wide; the hub emits
+  `active`/`paused`/`archived`/`deleted`. (Attention-item `status: 'open'` is a
+  separate domain, untouched.)
+- **Legacy attention dispatch (W1.4, `0f9e52b`)** — the pre-ADR-030
+  `approval_request`/`template_proposal` alias dispatch arms and the legacy
+  `{kind, error}` apply-error response shape; the dispatcher now routes only
+  propose rows (`via="propose"`) and logs apply errors.
 
 ## v1.0.799-alpha — 2026-06-03
 

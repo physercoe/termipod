@@ -113,6 +113,108 @@ func TestListAgentEvents_SessionScoped_SpansResumedAgents(t *testing.T) {
 // agents (seq=2 under agent-A and seq=2 under agent-B are different
 // rows, not duplicates), so the mobile feed switches to ts when a
 // session filter is set. This test pins the cursor semantics.
+// ADR-042 P3: the session-scoped random-access window keys on the dense
+// session_ordinal. before_ordinal / after_ordinal page a contiguous,
+// session-unique window across the resume boundary, and every row echoes its
+// session_ordinal — the coordinate mobile lands on.
+func TestListAgentEvents_OrdinalKeysetWindow(t *testing.T) {
+	c := newE2E(t)
+	srv := httptest.NewServer(c.s.router)
+	t.Cleanup(srv.Close)
+
+	hostID := seedHostCaps(t, c.s, `{
+		"agents": {"claude-code": {"installed": true, "supports": ["M2"]}}
+	}`)
+	first, _, err := c.s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle:     "ord-test",
+		Kind:            "claude-code",
+		HostID:          hostID,
+		SpawnSpec:       "driving_mode: M2\nbackend:\n  cmd: echo test\n",
+		AutoOpenSession: true,
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn first: %v", err)
+	}
+	var sessionID string
+	if err := c.s.db.QueryRow(
+		`SELECT id FROM sessions WHERE current_agent_id = ?`, first.AgentID,
+	).Scan(&sessionID); err != nil {
+		t.Fatalf("session lookup: %v", err)
+	}
+	// Three events under the first agent → session_ordinal 1,2,3.
+	for i := 0; i < 3; i++ {
+		seedAgentEvent(t, c.s, first.AgentID, sessionID, "text", map[string]any{"i": i})
+	}
+	// Resume: a second agent on the same session → ordinals 4,5 (its per-agent
+	// seq restarts at 1,2 — the collision the ordinal resolves).
+	second, _, err := c.s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "ord-test-2",
+		Kind:        "claude-code",
+		HostID:      hostID,
+		SpawnSpec:   "driving_mode: M2\nbackend:\n  cmd: echo test\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn second: %v", err)
+	}
+	if _, err := c.s.db.Exec(
+		`UPDATE sessions SET current_agent_id = ? WHERE id = ?`,
+		second.AgentID, sessionID); err != nil {
+		t.Fatalf("repoint session: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		seedAgentEvent(t, c.s, second.AgentID, sessionID, "text", map[string]any{"i": i})
+	}
+
+	get := func(query string) []map[string]any {
+		t.Helper()
+		url := fmt.Sprintf("%s/v1/teams/%s/agents/%s/events?session=%s&limit=50&%s",
+			srv.URL, defaultTeamID, second.AgentID, sessionID, query)
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", query, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("GET %s: status %d: %s", query, resp.StatusCode, body)
+		}
+		var rows []map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+			t.Fatalf("decode %s: %v", query, err)
+		}
+		return rows
+	}
+	ords := func(rows []map[string]any) []int64 {
+		out := make([]int64, len(rows))
+		for i, r := range rows {
+			out[i] = int64(r["session_ordinal"].(float64))
+		}
+		return out
+	}
+
+	// before_ordinal=4 → the older half (ordinals 3,2,1, DESC) — spans the
+	// resume boundary down into the first agent.
+	older := get("before_ordinal=4")
+	if got := ords(older); len(got) != 3 || got[0] != 3 || got[2] != 1 {
+		t.Fatalf("before_ordinal=4: want [3 2 1], got %v", got)
+	}
+	// after_ordinal=3 → the newer half (ordinals 4,5, ASC) — the second agent.
+	newer := get("after_ordinal=3")
+	if got := ords(newer); len(got) != 2 || got[0] != 4 || got[1] != 5 {
+		t.Fatalf("after_ordinal=3: want [4 5], got %v", got)
+	}
+	// The window spans both agents — proving the ordinal is session-global.
+	seen := map[string]bool{}
+	for _, r := range append(older, newer...) {
+		seen[fmt.Sprint(r["agent_id"])] = true
+	}
+	if !seen[first.AgentID] || !seen[second.AgentID] {
+		t.Fatalf("window should span both agents, saw %v", seen)
+	}
+}
+
 func TestListAgentEvents_SessionScoped_BeforeTsPaginates(t *testing.T) {
 	c := newE2E(t)
 	srv := httptest.NewServer(c.s.router)

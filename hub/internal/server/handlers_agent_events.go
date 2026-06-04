@@ -36,6 +36,11 @@ type agentEventOut struct {
 	// the Insights analysis surface (digest + turns), so the list endpoint
 	// must echo it — the single-event POST response already does.
 	SessionID string `json:"session_id,omitempty"`
+	// SessionOrdinal is the event's dense, session-unique position (ADR-042) —
+	// the coordinate the Insight transcript keys anchors and landing on, so a
+	// jump resolves the right row even after a resume (seq collides across the
+	// session's agents). Omitted (0) for session-less / pre-migration rows.
+	SessionOrdinal int64 `json:"session_ordinal,omitempty"`
 }
 
 func validAgentEventProducer(p string) bool {
@@ -245,6 +250,25 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 			beforeSeq, haveBeforeSeq = n, true
 		}
 	}
+	// after_ordinal / before_ordinal are the session-scoped random-access cursor
+	// keyed on the dense session_ordinal (ADR-042). A single gap-free, totally
+	// ordered, session-unique coordinate — so the analysis-mode loader windows
+	// around an anchor without the (ts, seq) compound keyset, and lands on the
+	// right row even after a resume (where seq collides across the session's
+	// agents). Honored only with a session filter; the per-agent live tail is
+	// untouched.
+	var afterOrdinal, beforeOrdinal int64
+	var haveAfterOrdinal, haveBeforeOrdinal bool
+	if v := strings.TrimSpace(r.URL.Query().Get("after_ordinal")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			afterOrdinal, haveAfterOrdinal = n, true
+		}
+	}
+	if v := strings.TrimSpace(r.URL.Query().Get("before_ordinal")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			beforeOrdinal, haveBeforeOrdinal = n, true
+		}
+	}
 	// tail=true returns the newest N events in seq DESC. Without this
 	// the cold-open path used `since=0 ORDER BY seq ASC LIMIT N` which
 	// silently truncated long sessions to their oldest N events; the
@@ -287,13 +311,27 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Build the cursor clause per branch, then append the optional kind
 	// filter and the limit uniformly.
-	const cols = `id, agent_id, seq, ts, kind, producer, payload_json, session_id`
+	const cols = `id, agent_id, seq, ts, kind, producer, payload_json, session_id, session_ordinal`
 	var (
 		where string
 		order string
 		args  []any
 	)
 	switch {
+	case sessionFilter != "" && haveAfterOrdinal:
+		// Session-scoped forward window by the dense session_ordinal (ADR-042) —
+		// the analysis-mode random-access loader's load-newer / jump-forward.
+		// A single gap-free coordinate (no ts+seq tiebreak), unique across the
+		// session's agents, so it never drops or duplicates a same-ts sibling.
+		where = `session_id = ? AND session_ordinal > ?`
+		order = `session_ordinal ASC`
+		args = []any{sessionFilter, afterOrdinal}
+	case sessionFilter != "" && haveBeforeOrdinal:
+		// Session-scoped backward window by session_ordinal (load-older /
+		// jump-back / window-around-anchor).
+		where = `session_id = ? AND session_ordinal < ?`
+		order = `session_ordinal DESC`
+		args = []any{sessionFilter, beforeOrdinal}
 	case sessionFilter != "" && afterTS != "" && haveAfterSeq:
 		// Session-scoped forward window with the `(ts, seq)` keyset tiebreak —
 		// the analysis-mode random-access loader's load-newer / jump-forward.
@@ -366,15 +404,17 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 		// session_id is nullable for legacy rows written before the column
 		// existed; scan through NullString so those don't error the whole list.
 		var sessionID sql.NullString
+		var sessionOrdinal sql.NullInt64
 		if err := rows.Scan(
 			&evt.ID, &evt.AgentID, &evt.Seq, &evt.TS, &evt.Kind,
-			&evt.Producer, &payload, &sessionID,
+			&evt.Producer, &payload, &sessionID, &sessionOrdinal,
 		); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		evt.Payload = json.RawMessage(payload)
 		evt.SessionID = sessionID.String
+		evt.SessionOrdinal = sessionOrdinal.Int64
 		out = append(out, evt)
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -399,7 +439,7 @@ var errorCandidateKinds = []string{
 func (s *Server) respondErrorEvents(w http.ResponseWriter, r *http.Request,
 	session, agent, beforeTS string, beforeSeq int64, haveBeforeSeq bool,
 	afterTS string, afterSeq int64, haveAfterSeq bool, limit int) {
-	const cols = `id, agent_id, seq, ts, kind, producer, payload_json, session_id`
+	const cols = `id, agent_id, seq, ts, kind, producer, payload_json, session_id, session_ordinal`
 	const scanBatch = 500
 	sessionScoped := session != ""
 	ascending := haveAfterSeq && afterTS != ""
@@ -449,12 +489,14 @@ func (s *Server) respondErrorEvents(w http.ResponseWriter, r *http.Request,
 			var evt agentEventOut
 			var payload string
 			var sid sql.NullString
+			var sord sql.NullInt64
 			if err := rows.Scan(&evt.ID, &evt.AgentID, &evt.Seq, &evt.TS,
-				&evt.Kind, &evt.Producer, &payload, &sid); err != nil {
+				&evt.Kind, &evt.Producer, &payload, &sid, &sord); err != nil {
 				rows.Close()
 				writeErr(w, http.StatusInternalServerError, err.Error())
 				return
 			}
+			evt.SessionOrdinal = sord.Int64
 			scanned++
 			curTS, curSeq, haveCur = evt.TS, evt.Seq, true
 			var p map[string]any

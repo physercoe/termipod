@@ -947,14 +947,15 @@ func (s *Server) carryModeModelStateAcrossResume(ctx context.Context, priorAgent
 	if err != nil {
 		return
 	}
-	id := NewID()
-	ts := NowUTC()
 	sessionID := s.lookupSessionForAgent(ctx, newAgentID)
-	_, _ = s.db.ExecContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'system', 'system', ?, NULLIF(?, '')
-		  FROM agent_events WHERE agent_id = ?`,
-		id, newAgentID, ts, string(carriedJSON), sessionID, newAgentID)
+	// Best-effort marker; the carried mode/model state already applied.
+	_, _, _, _ = insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     newAgentID,
+		SessionID:   sessionID,
+		Kind:        "system",
+		Producer:    "system",
+		PayloadJSON: string(carriedJSON),
+	})
 }
 
 // maybeEmitContextMutationMarker inspects an input.text body for a
@@ -1004,16 +1005,13 @@ func (s *Server) maybeEmitContextMutationMarker(
 	if err != nil {
 		return
 	}
-	id := NewID()
-	ts := NowUTC()
-	var seq int64
-	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, 'system', ?, NULLIF(?, '')
-		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
-		id, agentID, ts, mut.Kind, string(payloadBytes), sessionID, agentID,
-	).Scan(&seq)
+	id, seq, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     agentID,
+		SessionID:   sessionID,
+		Kind:        mut.Kind,
+		Producer:    "system",
+		PayloadJSON: string(payloadBytes),
+	})
 	if err != nil {
 		return
 	}

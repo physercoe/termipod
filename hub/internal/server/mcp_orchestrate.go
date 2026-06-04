@@ -169,13 +169,13 @@ func (s *Server) postSyntheticUserInput(ctx context.Context, agentID, body strin
 		return fmt.Errorf("synthetic input envelope rejected: %s", ae.Error())
 	}
 	payload, _ := json.Marshal(env.PayloadMap())
-	id := NewID()
-	ts := NowUTC()
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, NULLIF(?, '')
-		  FROM agent_events WHERE agent_id = ?`,
-		id, agentID, ts, "input.text", "user", string(payload), sessionID, agentID)
+	id, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     agentID,
+		SessionID:   sessionID,
+		Kind:        "input.text",
+		Producer:    "user",
+		PayloadJSON: string(payload),
+	})
 	if err != nil {
 		return err
 	}
@@ -359,14 +359,15 @@ func (s *Server) mcpReportsPost(ctx context.Context, agentID string, raw json.Ra
 		"budget_used_usd":  a.BudgetUsedUSD,
 		"next_steps":       a.NextSteps,
 	})
-	id := NewID()
-	ts := NowUTC()
 	sessionID := s.lookupSessionForAgent(ctx, agentID)
-	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, NULLIF(?, '')
-		  FROM agent_events WHERE agent_id = ?`,
-		id, agentID, ts, "worker_report", "agent", string(payload), sessionID, agentID); err != nil {
+	id, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     agentID,
+		SessionID:   sessionID,
+		Kind:        "worker_report",
+		Producer:    "agent",
+		PayloadJSON: string(payload),
+	})
+	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
 	s.touchSession(ctx, sessionID)

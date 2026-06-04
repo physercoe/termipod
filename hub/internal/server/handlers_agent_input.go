@@ -585,17 +585,13 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	payload := string(payloadBytes)
 
 	kind := "input." + in.Kind
-	id := NewID()
-	ts := NowUTC()
-	var seq int64
-	// Same COALESCE(MAX)+1 idiom as handlePostAgentEvent — SQLite
-	// serializes writes and UNIQUE(agent_id, seq) backstops any race.
-	err = s.db.QueryRowContext(r.Context(), `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, NULLIF(?, '')
-		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
-		id, agent, ts, kind, producer, payload, sessionID, agent).Scan(&seq)
+	id, seq, ts, err := insertAgentEvent(r.Context(), s.db, agentEventInsert{
+		AgentID:     agent,
+		SessionID:   sessionID,
+		Kind:        kind,
+		Producer:    producer,
+		PayloadJSON: payload,
+	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

@@ -85,16 +85,13 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 		"body":           body,
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	id := NewID()
-	ts := NowUTC()
-	var seq int64
-	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'task.notify', 'system', ?, ?
-		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
-		id, assignerID.String, ts, string(payloadBytes), sessionID, assignerID.String).
-		Scan(&seq)
+	id, seq, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     assignerID.String,
+		SessionID:   sessionID,
+		Kind:        "task.notify",
+		Producer:    "system",
+		PayloadJSON: string(payloadBytes),
+	})
 	if err != nil {
 		s.log.Warn("notify assigner: insert event",
 			"assigner_id", assignerID.String, "err", err)
@@ -160,16 +157,13 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 	inputPayload["from_status"] = fromStatus
 	inputPayload["to_status"] = toStatus
 	inputBytes, _ := json.Marshal(inputPayload)
-	inputID := NewID()
-	inputTS := NowUTC()
-	var inputSeq int64
-	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'input.text', 'system', ?, ?
-		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
-		inputID, assignerID.String, inputTS, string(inputBytes), sessionID,
-		assignerID.String).Scan(&inputSeq)
+	inputID, inputSeq, inputTS, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     assignerID.String,
+		SessionID:   sessionID,
+		Kind:        "input.text",
+		Producer:    "system",
+		PayloadJSON: string(inputBytes),
+	})
 	if err != nil {
 		// Best-effort: render-only path already fired. Log and move on.
 		s.log.Warn("notify assigner: insert input.text (task outcome)",

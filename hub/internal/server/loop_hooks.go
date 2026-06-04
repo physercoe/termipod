@@ -173,15 +173,13 @@ func (s *Server) emitSystemNotification(ctx context.Context, agentID, text, caus
 		return
 	}
 	payload, _ := json.Marshal(env.PayloadMap())
-	id := NewID()
-	ts := NowUTC()
-	var seq int64
-	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'input.text', 'system', ?, NULLIF(?, '')
-		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
-		id, agentID, ts, string(payload), sessionID, agentID).Scan(&seq)
+	id, seq, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     agentID,
+		SessionID:   sessionID,
+		Kind:        "input.text",
+		Producer:    "system",
+		PayloadJSON: string(payload),
+	})
 	if err != nil {
 		s.log.Warn("system notification insert failed", "agent", agentID, "err", err)
 		return

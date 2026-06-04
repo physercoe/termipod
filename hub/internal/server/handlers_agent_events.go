@@ -106,19 +106,14 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 		payload = string(in.Payload)
 	}
 
-	// Monotonic seq per agent. SQLite serializes writes, so a COALESCE(MAX)+1
-	// inside a single statement is race-free against other INSERTs to the
-	// same agent; the UNIQUE(agent_id, seq) constraint is the backstop.
-	id := NewID()
-	ts := NowUTC()
 	sessionID := s.lookupSessionForAgent(r.Context(), agent)
-	var seq int64
-	err = s.db.QueryRowContext(r.Context(), `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, NULLIF(?, '')
-		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
-		id, agent, ts, in.Kind, in.Producer, payload, sessionID, agent).Scan(&seq)
+	id, seq, ts, err := insertAgentEvent(r.Context(), s.db, agentEventInsert{
+		AgentID:     agent,
+		SessionID:   sessionID,
+		Kind:        in.Kind,
+		Producer:    in.Producer,
+		PayloadJSON: payload,
+	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

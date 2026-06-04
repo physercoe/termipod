@@ -165,12 +165,13 @@ func TestAttentionContext_NoSessionPointerReturnsEmpty(t *testing.T) {
 func seedAgentEvent(t *testing.T, s *Server, agentID, sessionID, kind string, payload map[string]any) {
 	t.Helper()
 	pj, _ := json.Marshal(payload)
-	_, err := s.db.Exec(`
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?
-		  FROM agent_events WHERE agent_id = ?`,
-		NewID(), agentID, NowUTC(), kind, "agent", string(pj), sessionID, agentID)
-	if err != nil {
+	if _, _, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
+		AgentID:     agentID,
+		SessionID:   sessionID,
+		Kind:        kind,
+		Producer:    "agent",
+		PayloadJSON: string(pj),
+	}); err != nil {
 		t.Fatalf("seed event: %v", err)
 	}
 }

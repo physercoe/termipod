@@ -357,15 +357,13 @@ func (s *Server) wakeStewardForStall(ctx context.Context, e LoopEntity) {
 		return
 	}
 	payload, _ := json.Marshal(env.PayloadMap())
-	id := NewID()
-	ts := NowUTC()
-	var seq int64
-	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'input.text', 'system', ?, NULLIF(?, '')
-		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
-		id, e.CreatedByID, ts, string(payload), sessionID, e.CreatedByID).Scan(&seq)
+	id, seq, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     e.CreatedByID,
+		SessionID:   sessionID,
+		Kind:        "input.text",
+		Producer:    "system",
+		PayloadJSON: string(payload),
+	})
 	if err != nil {
 		s.log.Warn("loop sweep: stall notification insert failed", "id", e.ID, "err", err)
 		return

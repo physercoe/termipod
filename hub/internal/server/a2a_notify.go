@@ -71,16 +71,13 @@ func (s *Server) notifyA2ASent(ctx context.Context, senderAgentID string, body [
 		"body":        rendered,
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	id := NewID()
-	ts := NowUTC()
-	var seq int64
-	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'a2a.sent', 'system', ?, ?
-		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
-		id, senderAgentID, ts, string(payloadBytes), sessionID, senderAgentID).
-		Scan(&seq)
+	id, seq, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     senderAgentID,
+		SessionID:   sessionID,
+		Kind:        "a2a.sent",
+		Producer:    "system",
+		PayloadJSON: string(payloadBytes),
+	})
 	if err != nil {
 		s.log.Warn("notify a2a sent: insert event",
 			"sender_agent_id", senderAgentID, "err", err)

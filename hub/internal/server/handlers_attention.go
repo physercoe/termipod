@@ -1171,15 +1171,15 @@ func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind s
 		return err
 	}
 
-	id := NewID()
-	ts := NowUTC()
 	agentID := currentAgentID.String
-	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?
-		  FROM agent_events WHERE agent_id = ?`,
-		id, agentID, ts, "input.attention_reply", "user", string(payload), sessionID.String, agentID,
-	); err != nil {
+	id, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     agentID,
+		SessionID:   sessionID.String,
+		Kind:        "input.attention_reply",
+		Producer:    "user",
+		PayloadJSON: string(payload),
+	})
+	if err != nil {
 		return err
 	}
 	s.touchSession(ctx, sessionID.String)

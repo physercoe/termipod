@@ -78,16 +78,13 @@ func (s *Server) notifyRunOwner(ctx context.Context, team, runID, toStatus strin
 		"body":       body,
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	id := NewID()
-	ts := NowUTC()
-	var seq int64
-	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'run.notify', 'system', ?, ?
-		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
-		id, agentID.String, ts, string(payloadBytes), sessionID, agentID.String).
-		Scan(&seq)
+	id, seq, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+		AgentID:     agentID.String,
+		SessionID:   sessionID,
+		Kind:        "run.notify",
+		Producer:    "system",
+		PayloadJSON: string(payloadBytes),
+	})
 	if err != nil {
 		s.log.Warn("notify run owner: insert event",
 			"agent_id", agentID.String, "err", err)

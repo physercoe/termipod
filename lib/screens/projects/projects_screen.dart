@@ -11,6 +11,7 @@ import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../providers/project_filter_provider.dart';
+import 'projects_list_controller.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
@@ -508,7 +509,7 @@ class _ProjectsTab extends ConsumerWidget {
     // server-side; their rows fall back to the 2-line tile.
     final teamId = hub?.config?.teamId ?? '';
     final byProject = teamId.isEmpty
-        ? const <String, _ProjectInsight>{}
+        ? const <String, ProjectInsight>{}
         : _readProjectInsights(ref, teamId);
     // Apply the AppBar filter (status / needs-me / sort) BEFORE the
     // kind partition so the goal-vs-workspace split + the sub-project
@@ -517,7 +518,7 @@ class _ProjectsTab extends ConsumerWidget {
     // by_project[].last_activity with a created_at fallback for rows
     // not yet seen by Insights.
     final filter = ref.watch(projectFilterProvider);
-    final filteredItems = _applyFilter(items, filter, openByProject, byProject);
+    final filteredItems = applyProjectFilter(items, filter, openByProject, byProject);
     // Partition on `kind` per blueprint §6.1: goal vs. standing. The
     // schema is one table; the mobile IA splits them into two named
     // sections (Projects vs. Workspaces) since the mental models differ
@@ -528,18 +529,9 @@ class _ProjectsTab extends ConsumerWidget {
     // than collapsing them behind a tap. Attention-first (Blueprint A1)
     // beats scroll savings — open attention on a child must be visible
     // without drilling in.
-    final goals = <Map<String, dynamic>>[];
-    final standings = <Map<String, dynamic>>[];
-    for (final p in filteredItems) {
-      final kind = (p['kind'] ?? 'goal').toString();
-      if (kind == 'standing') {
-        standings.add(p);
-      } else {
-        goals.add(p);
-      }
-    }
-    final goalRows = _flattenWithChildren(goals);
-    final standingRows = _flattenWithChildren(standings);
+    final (:goals, :standings) = partitionProjectsByKind(filteredItems);
+    final goalRows = flattenProjectsWithChildren(goals);
+    final standingRows = flattenProjectsWithChildren(standings);
 
     final body = filteredItems.isEmpty
         ? _EmptyText(
@@ -619,51 +611,13 @@ class _ProjectsTab extends ConsumerWidget {
     );
   }
 
-  /// Flattens a section's projects with their direct children inlined
-  /// right under each parent, in the order the list came in. Children
-  /// whose parent isn't in this section are rendered as orphan parents
-  /// at depth 0 so archived-parent drift doesn't hide rows (W5 edge case).
-  /// Depth is clamped to 1 on the client even though the server caps it
-  /// server-side; log-on-clamp rather than drop so a data bug surfaces.
-  static List<_ProjectNode> _flattenWithChildren(
-    List<Map<String, dynamic>> rows,
-  ) {
-    final byId = <String, Map<String, dynamic>>{};
-    for (final p in rows) {
-      final id = (p['id'] ?? '').toString();
-      if (id.isNotEmpty) byId[id] = p;
-    }
-    final childrenByParent = <String, List<Map<String, dynamic>>>{};
-    final tops = <Map<String, dynamic>>[];
-    for (final p in rows) {
-      final parent = (p['parent_project_id'] ?? '').toString();
-      if (parent.isNotEmpty && byId.containsKey(parent)) {
-        childrenByParent.putIfAbsent(parent, () => []).add(p);
-      } else {
-        tops.add(p);
-      }
-    }
-    final out = <_ProjectNode>[];
-    for (final parent in tops) {
-      final pid = (parent['id'] ?? '').toString();
-      final kids = childrenByParent[pid] ?? const <Map<String, dynamic>>[];
-      out.add(_ProjectNode(
-        project: parent,
-        depth: 0,
-        childCount: kids.length,
-      ));
-      for (final child in kids) {
-        out.add(_ProjectNode(project: child, depth: 1, childCount: 0));
-      }
-    }
-    return out;
-  }
+  // flattenProjectsWithChildren moved to the projects_list_controller seam (WS2).
 
   Widget _projectRow(
     BuildContext context,
-    _ProjectNode node,
+    ProjectNode node,
     Map<String, int> openByProject,
-    Map<String, _ProjectInsight> byProject,
+    Map<String, ProjectInsight> byProject,
   ) {
     final p = node.project;
     final kind = (p['kind'] ?? 'goal').toString();
@@ -781,19 +735,7 @@ class _ProjectsTab extends ConsumerWidget {
 }
 
 /// Display row for the Projects tab: a project + its tree metadata.
-/// Depth 0 = top-level row; depth 1 = sub-project row rendered with the
-/// indent + left-rail treatment. Max depth is 2 (server-enforced, clamped
-/// client-side in [_ProjectsTab._flattenWithChildren]).
-class _ProjectNode {
-  final Map<String, dynamic> project;
-  final int depth;
-  final int childCount;
-  const _ProjectNode({
-    required this.project,
-    required this.depth,
-    required this.childCount,
-  });
-}
+// ProjectNode moved to the projects_list_controller seam (WS2).
 
 class _ProjectsSectionLabel extends StatelessWidget {
   final String text;
@@ -1048,130 +990,20 @@ class _SectionLabel extends StatelessWidget {
 /// `openByProject` and `byProject` are the same maps the row renderer
 /// uses, so "needs me" + "recent activity" pull from the data the UI
 /// already has on hand — no extra round-trip.
-List<Map<String, dynamic>> _applyFilter(
-  List<Map<String, dynamic>> items,
-  ProjectListFilter filter,
-  Map<String, int> openByProject,
-  Map<String, _ProjectInsight> byProject,
-) {
-  var rows = items;
-  switch (filter.status) {
-    case ProjectStatusFilter.active:
-      rows = rows
-          .where((p) => (p['status'] ?? '').toString() != 'archived')
-          .toList();
-    case ProjectStatusFilter.archived:
-      rows = rows
-          .where((p) => (p['status'] ?? '').toString() == 'archived')
-          .toList();
-    case ProjectStatusFilter.all:
-      // No-op — include both. Local var avoids mutating the caller list.
-      rows = [...rows];
-  }
-  if (filter.needsMeOnly) {
-    rows = rows.where((p) {
-      final pid = (p['id'] ?? '').toString();
-      final att = openByProject[pid] ?? 0;
-      final ac = byProject[pid]?.openCriteria ?? 0;
-      return att > 0 || ac > 0;
-    }).toList();
-  }
-  switch (filter.sort) {
-    case ProjectSortMode.recentActivity:
-      rows.sort((a, b) {
-        // Prefer insights last_activity; fall back to created_at so
-        // workspaces and not-yet-aggregated projects still sort sanely.
-        String key(Map<String, dynamic> p) {
-          final pid = (p['id'] ?? '').toString();
-          final la = byProject[pid]?.lastActivity ?? '';
-          if (la.isNotEmpty) return la;
-          return (p['created_at'] ?? '').toString();
-        }
-        return key(b).compareTo(key(a));
-      });
-    case ProjectSortMode.name:
-      rows.sort((a, b) {
-        final na = (a['name'] ?? '').toString().toLowerCase();
-        final nb = (b['name'] ?? '').toString().toLowerCase();
-        return na.compareTo(nb);
-      });
-    case ProjectSortMode.createdDesc:
-      rows.sort((a, b) {
-        final ca = (a['created_at'] ?? '').toString();
-        final cb = (b['created_at'] ?? '').toString();
-        return cb.compareTo(ca);
-      });
-  }
-  return rows;
-}
+// applyProjectFilter moved to the projects_list_controller seam (WS2).
 
-/// Per-project Insights row condensed for the projects list. Sourced
-/// from `/v1/insights?team_id=X`'s `by_project[]`. The projects list
-/// pulls this in parallel with the hub project list so each row can
-/// render the 3-line card without a per-project round-trip.
-class _ProjectInsight {
-  final String currentPhase;
-  /// 1-based position of `currentPhase` inside the project's template
-  /// phase list (0 when unknown). Plus the total phase count. Drives
-  /// the `N/M` suffix on the project-list phase pill (v1.0.513).
-  final int phaseIndex;
-  final int phasesTotal;
-  final double progress;
-  final int openCriteria;
-  final int openAttention;
-  final String lastActivity;
-  const _ProjectInsight({
-    required this.currentPhase,
-    required this.phaseIndex,
-    required this.phasesTotal,
-    required this.progress,
-    required this.openCriteria,
-    required this.openAttention,
-    required this.lastActivity,
-  });
-}
+// ProjectInsight + the by_project[] fold moved to the projects_list_controller
+// seam (WS2). _readProjectInsights stays here as the ref-watching glue.
 
 /// Watches the team-scope insights provider and folds `by_project[]`
 /// into a project_id-keyed map. Returns an empty map while the provider
 /// is loading or errored — the projects list falls through to the
 /// 2-line tile in that case, so no UI freeze on first paint.
-Map<String, _ProjectInsight> _readProjectInsights(WidgetRef ref, String teamId) {
+Map<String, ProjectInsight> _readProjectInsights(WidgetRef ref, String teamId) {
   final async = ref.watch(insightsProvider(InsightsScope.team(teamId)));
   final body = async.value?.body;
   if (body == null) return const {};
-  final raw = body['by_project'];
-  if (raw is! List) return const {};
-  final out = <String, _ProjectInsight>{};
-  for (final e in raw) {
-    if (e is! Map) continue;
-    final m = e.cast<String, dynamic>();
-    final id = (m['project_id'] ?? '').toString();
-    if (id.isEmpty) continue;
-    out[id] = _ProjectInsight(
-      currentPhase: (m['current_phase'] ?? '').toString(),
-      phaseIndex: _asInt(m['phase_index']),
-      phasesTotal: _asInt(m['phases_total']),
-      progress: _asDouble(m['progress']),
-      openCriteria: _asInt(m['open_criteria']),
-      openAttention: _asInt(m['open_attention']),
-      lastActivity: (m['last_activity'] ?? '').toString(),
-    );
-  }
-  return out;
-}
-
-int _asInt(dynamic v) {
-  if (v is int) return v;
-  if (v is num) return v.toInt();
-  if (v is String) return int.tryParse(v) ?? 0;
-  return 0;
-}
-
-double _asDouble(dynamic v) {
-  if (v is double) return v;
-  if (v is num) return v.toDouble();
-  if (v is String) return double.tryParse(v) ?? 0;
-  return 0;
+  return foldProjectInsights(body['by_project']);
 }
 
 /// Three-line project list card (polish wedge pre-wave-2). Goal projects

@@ -2,24 +2,22 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 )
 
-// ADR-030 W8 — exercises the /decide handler refactor end-to-end.
-// Three input shapes converge on the propose-kind registry, with
-// the audit-meta `via` tag as the discriminator:
+// ADR-030 W8 — exercises the /decide handler dispatcher end-to-end.
+// An approved propose row converges on the propose-kind registry with
+// audit-meta `via="propose"`:
 //
 //   - kind="propose" + change_kind="X" → via="propose"
-//   - kind="approval_request" + spawnIn payload → via="alias_legacy"
-//   - kind="template_proposal" + install payload → via="alias_legacy"
 //
-// Each shape lands the same row update (executed_json + status) and
-// the same per-kind apply audit (with the via tag differing).
+// (The pre-ADR-030 approval_request / template_proposal alias arms were
+// retired in W1.4; the dispatcher now routes only propose rows.) Each
+// shape lands the same row update (executed_json + status) and the
+// per-kind apply audit.
 
 // 1. propose(kind="task.set_status") → /decide approve → apply runs,
 // task status changes, audit carries via=propose + propose_id, the
@@ -159,121 +157,7 @@ func TestDecideDispatcher_Propose_AgentSpawn_EndToEnd(t *testing.T) {
 	}
 }
 
-// 3. Legacy approval_request + spawnIn pending_payload → /decide
-// approve → dispatcher routes through registry → spawn + audit
-// via=alias_legacy. This is the BACKWARD-COMPAT case: the wire shape
-// hasn't changed but the audit-meta `via` tag flags it as the
-// pre-ADR-030 dispatch hop.
-func TestDecideDispatcher_AliasLegacy_ApprovalRequestSpawn(t *testing.T) {
-	s, token := newA2ATestServer(t)
-	hostID := seedHostCaps(t, s, `{
-		"agents": {"claude-code": {"installed": true, "supports": ["M1","M2","M4"]}}
-	}`)
-
-	// Hand-craft the legacy attention row shape: kind='approval_request'
-	// with the spawnIn JSON in pending_payload_json. This mirrors what
-	// the pre-ADR-030 MCP `request_approval` plus spawnIn payload
-	// flow built up before the dispatcher refactor.
-	spawnPayload, _ := json.Marshal(map[string]any{
-		"child_handle":    "alias-spawn",
-		"kind":            "claude-code",
-		"host_id":         hostID,
-		"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: echo legacy\n",
-	})
-	attID := NewID()
-	if _, err := s.db.Exec(`
-		INSERT INTO attention_items (
-			id, project_id, scope_kind, scope_id, kind,
-			summary, severity, current_assignees_json,
-			pending_payload_json, status, created_at,
-			actor_kind, actor_handle
-		) VALUES (?, NULL, 'team', NULL, 'approval_request',
-		          'spawn worker', 'minor', '[]',
-		          ?, 'open', ?,
-		          'agent', 'legacy-caller')`,
-		attID, string(spawnPayload), NowUTC()); err != nil {
-		t.Fatalf("seed legacy attention: %v", err)
-	}
-
-	status, body := doReq(t, s, token, http.MethodPost,
-		"/v1/teams/"+defaultTeamID+"/attention/"+attID+"/decide",
-		map[string]any{"decision": "approve", "by": "@principal"})
-	if status != 200 {
-		t.Fatalf("decide: %d body=%s", status, string(body))
-	}
-	var dec attentionDecideOut
-	_ = json.Unmarshal(body, &dec)
-	var executed map[string]any
-	_ = json.Unmarshal(dec.Executed, &executed)
-	if executed["kind"] != "spawn" {
-		t.Errorf("executed.kind = %v; want spawn", executed["kind"])
-	}
-	spawnedID := executed["agent_id"].(string)
-
-	// Audit via=alias_legacy — the discriminator from the new code.
-	var meta string
-	_ = s.db.QueryRow(`
-		SELECT meta_json FROM audit_events
-		 WHERE action = 'agent.spawn' AND target_id = ?
-		 ORDER BY ts DESC LIMIT 1`, spawnedID).Scan(&meta)
-	if !strings.Contains(meta, `"via":"alias_legacy"`) {
-		t.Errorf("audit should carry via=alias_legacy; got %q", meta)
-	}
-	// propose_id still set (the attention row's id) so consumers can
-	// link the audit back to the row even on the legacy path.
-	if !strings.Contains(meta, `"propose_id":"`+attID+`"`) {
-		t.Errorf("audit missing propose_id: %q", meta)
-	}
-}
-
-// 4. Legacy template_proposal payload → /decide approve → dispatcher
-// routes through registry → install + audit via=alias_legacy.
-func TestDecideDispatcher_AliasLegacy_TemplateProposal(t *testing.T) {
-	s, token := newA2ATestServer(t)
-	// Seed the blob.
-	body := []byte("kind: legacy-template\n")
-	sum := sha256.Sum256(body)
-	sha := hex.EncodeToString(sum[:])
-	seedBlob(t, s, body)
-
-	payloadJSON, _ := json.Marshal(map[string]any{
-		"category":    "prompt",
-		"name":        "legacy-shape.v1",
-		"blob_sha256": sha,
-	})
-	attID := NewID()
-	if _, err := s.db.Exec(`
-		INSERT INTO attention_items (
-			id, project_id, scope_kind, scope_id, kind,
-			summary, severity, current_assignees_json,
-			pending_payload_json, status, created_at,
-			actor_kind, actor_handle
-		) VALUES (?, NULL, 'team', NULL, 'template_proposal',
-		          'install legacy template', 'minor', '[]',
-		          ?, 'open', ?,
-		          'agent', 'legacy-proposer')`,
-		attID, string(payloadJSON), NowUTC()); err != nil {
-		t.Fatalf("seed legacy attention: %v", err)
-	}
-
-	status, _ := doReq(t, s, token, http.MethodPost,
-		"/v1/teams/"+defaultTeamID+"/attention/"+attID+"/decide",
-		map[string]any{"decision": "approve", "by": "@principal"})
-	if status != 200 {
-		t.Fatalf("decide: %d", status)
-	}
-
-	var meta string
-	_ = s.db.QueryRow(`
-		SELECT meta_json FROM audit_events
-		 WHERE action = 'template.install' AND target_id = ?
-		 ORDER BY ts DESC LIMIT 1`, "prompt/legacy-shape.v1").Scan(&meta)
-	if !strings.Contains(meta, `"via":"alias_legacy"`) {
-		t.Errorf("audit should carry via=alias_legacy; got %q", meta)
-	}
-}
-
-// 5. Reject decision: no apply runs, no audit emitted for the kind.
+// 3. Reject decision: no apply runs, no audit emitted for the kind.
 // Existing tests already cover the reject path for legacy shapes;
 // here we add a specific propose-shape reject regression so the
 // dispatcher refactor doesn't accidentally fire Apply on reject.

@@ -136,8 +136,8 @@ func TestAgentSpawn_Apply_HappyPath(t *testing.T) {
 	}
 }
 
-// Apply via legacy alias path stamps via=alias_legacy on the audit.
-func TestAgentSpawn_Apply_AliasLegacyViaTag(t *testing.T) {
+// Apply stamps the dispatch context's via tag onto the audit meta.
+func TestAgentSpawn_Apply_StampsViaTag(t *testing.T) {
 	s, _ := newTestServer(t)
 	hostID := seedHostCaps(t, s, `{
 		"agents": {"claude-code": {"installed": true, "supports": ["M1","M2","M4"]}}
@@ -150,8 +150,8 @@ func TestAgentSpawn_Apply_AliasLegacyViaTag(t *testing.T) {
 		"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: echo test\n",
 	})
 	ac := ProposeApplyContext{
-		AttentionID: "att-legacy", Team: defaultTeamID,
-		Via: "alias_legacy",
+		AttentionID: "att-via", Team: defaultTeamID,
+		Via: "propose",
 	}
 	executedRaw, err := pk.Apply(context.Background(), s, ac, nil, spec)
 	if err != nil {
@@ -165,8 +165,8 @@ func TestAgentSpawn_Apply_AliasLegacyViaTag(t *testing.T) {
 		SELECT meta_json FROM audit_events
 		 WHERE action = 'agent.spawn' AND target_id = ?
 		 ORDER BY ts DESC LIMIT 1`, agentID).Scan(&meta)
-	if !strings.Contains(meta, `"via":"alias_legacy"`) {
-		t.Errorf("audit meta should carry via=alias_legacy; got %q", meta)
+	if !strings.Contains(meta, `"via":"propose"`) {
+		t.Errorf("audit meta should carry via=propose; got %q", meta)
 	}
 }
 

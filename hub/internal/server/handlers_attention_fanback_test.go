@@ -321,8 +321,9 @@ func TestFanBack_LegacyApprovalRequest_NoProposeExtras(t *testing.T) {
 		"claude-code", "")
 	_ = seedSessionForAgent(t, s, agentID)
 
-	// Legacy approval_request row with spawnIn payload — exercises
-	// the W8 alias_legacy dispatcher path.
+	// A non-propose attention kind (approval_request). W1.4 retired the
+	// alias dispatcher arm, so decide does not fire an apply here; this
+	// verifies the turn-based fan-back composes regardless of dispatch.
 	spawnPayload, _ := json.Marshal(map[string]any{
 		"child_handle":    "w-spawned",
 		"kind":            "claude-code",
@@ -352,13 +353,11 @@ func TestFanBack_LegacyApprovalRequest_NoProposeExtras(t *testing.T) {
 	if p["kind"] != "approval_request" {
 		t.Errorf("kind = %v; want approval_request", p["kind"])
 	}
-	// Legacy alias path DOES set executed (via the registry
-	// dispatcher) but change_kind is the attention kind, not a
-	// propose kind. For legacy approval_request, the dispatcher
-	// passes changeKind="" (the attention row has no change_kind
-	// column populated for legacy rows).
+	// A non-propose attention carries no change_kind (that column is
+	// populated only for propose rows), so the fan-back reply must not
+	// surface propose-only extras.
 	if ck, has := p["change_kind"]; has && ck != "" {
-		t.Errorf("legacy approval_request should not carry change_kind; got %v", ck)
+		t.Errorf("approval_request should not carry change_kind; got %v", ck)
 	}
 	// Envelope is composed regardless of kind.
 	env := p["envelope"].(map[string]any)

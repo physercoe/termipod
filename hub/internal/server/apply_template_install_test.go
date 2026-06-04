@@ -170,16 +170,17 @@ func TestTemplateInstall_Apply_HappyPath(t *testing.T) {
 	}
 }
 
-func TestTemplateInstall_Apply_AliasLegacyViaTag(t *testing.T) {
+// Apply stamps the dispatch context's via tag onto the audit meta.
+func TestTemplateInstall_Apply_StampsViaTag(t *testing.T) {
 	s, _ := newTestServer(t)
 	pk, _ := LookupProposeKind("template.install")
-	body := []byte("kind: legacy-shape\n")
+	body := []byte("kind: via-shape\n")
 	sha := seedBlob(t, s, body)
 	spec, _ := json.Marshal(map[string]any{
-		"category": "agent", "name": "legacy-only.v1", "blob_sha256": sha,
+		"category": "agent", "name": "via-only.v1", "blob_sha256": sha,
 	})
 	ac := ProposeApplyContext{
-		AttentionID: "att-tmpl-legacy", Team: defaultTeamID, Via: "alias_legacy",
+		AttentionID: "att-tmpl-via", Team: defaultTeamID, Via: "propose",
 	}
 	if _, err := pk.Apply(context.Background(), s, ac, nil, spec); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -188,8 +189,8 @@ func TestTemplateInstall_Apply_AliasLegacyViaTag(t *testing.T) {
 	_ = s.db.QueryRow(`
 		SELECT meta_json FROM audit_events
 		 WHERE action = 'template.install' AND target_id = ?
-		 ORDER BY ts DESC LIMIT 1`, "agent/legacy-only.v1").Scan(&meta)
-	if !strings.Contains(meta, `"via":"alias_legacy"`) {
-		t.Errorf("audit meta should carry via=alias_legacy; got %q", meta)
+		 ORDER BY ts DESC LIMIT 1`, "agent/via-only.v1").Scan(&meta)
+	if !strings.Contains(meta, `"via":"propose"`) {
+		t.Errorf("audit meta should carry via=propose; got %q", meta)
 	}
 }

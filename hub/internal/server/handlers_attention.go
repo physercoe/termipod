@@ -405,21 +405,19 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var (
-		kind, tier, payload, decisions, status, scopeID string
-		// ADR-030 columns (W1). NULL on pre-0045 rows + on rows whose
-		// kind isn't 'propose'. The dispatcher arm at the bottom of
-		// this handler reads them to route through the propose-kind
-		// registry; the legacy alias arms map their pending_payload
-		// onto the same registry shape.
+		kind, tier, decisions, status, scopeID string
+		// ADR-030 columns (W1). NULL on rows whose kind isn't 'propose'.
+		// The dispatcher arm at the bottom of this handler reads them to
+		// route through the propose-kind registry.
 		changeKind, assignedTier, changeSpecJSON, targetRefJSON string
 	)
 	err := s.db.QueryRowContext(r.Context(), `
-		SELECT kind, COALESCE(tier, ''), COALESCE(pending_payload_json, ''),
+		SELECT kind, COALESCE(tier, ''),
 		       decisions_json, status, COALESCE(scope_id, ''),
 		       COALESCE(change_kind, ''), COALESCE(assigned_tier, ''),
 		       COALESCE(change_spec_json, ''), COALESCE(target_ref_json, '')
 		FROM attention_items WHERE id = ?`, id).
-		Scan(&kind, &tier, &payload, &decisions, &status, &scopeID,
+		Scan(&kind, &tier, &decisions, &status, &scopeID,
 			&changeKind, &assignedTier, &changeSpecJSON, &targetRefJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "attention not found")
@@ -519,44 +517,24 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := attentionDecideOut{AttentionID: id, Decision: in.Decision, Resolved: resolved}
-	// ADR-030 W8 dispatcher — three input shapes converge on the
-	// propose-kind registry. The registered Apply function emits
-	// the per-kind audit row (with `meta.via` set per dispatch
-	// shape so consumers can tell propose-routed changes from
-	// legacy-alias changes). On error the legacy `{kind, error}`
-	// shape is preserved in `out.Executed` so existing callers
-	// don't trip on a missing field.
+	// ADR-030 W8 dispatcher — an approved propose row routes through the
+	// propose-kind registry. The registered Apply function emits the
+	// per-kind audit row (with `meta.via="propose"`). The pre-ADR-030
+	// alias arms (approval_request / template_proposal pending_payload)
+	// and the legacy `{kind, error}` error shape were retired in W1.4 —
+	// an apply error is now logged, not encoded into the response.
 	if resolved && in.Decision == "approve" {
 		var (
 			dispatchKind string
 			dispatchSpec json.RawMessage
 			dispatchTRef json.RawMessage
-			dispatchVia  string
 		)
-		switch {
-		case kind == "propose" && changeKind != "":
-			// New ADR-030 path. change_spec / target_ref came in
-			// through W4's mcpPropose; assigned_tier is the row's
-			// tier (not the legacy `tier` column).
+		if kind == "propose" && changeKind != "" {
+			// change_spec / target_ref came in through W4's mcpPropose;
+			// assigned_tier is the row's tier (not the `tier` column).
 			dispatchKind = changeKind
 			dispatchSpec = json.RawMessage(changeSpecJSON)
 			dispatchTRef = json.RawMessage(targetRefJSON)
-			dispatchVia = "propose"
-		case kind == "approval_request" && payload != "":
-			// Legacy spawn path. The pending_payload IS the spawnIn
-			// JSON; map onto the agent.spawn registry entry.
-			var probe spawnIn
-			if err := json.Unmarshal([]byte(payload), &probe); err == nil && probe.ChildHandle != "" {
-				dispatchKind = "agent.spawn"
-				dispatchSpec = json.RawMessage(payload)
-				dispatchTRef = json.RawMessage(`{}`)
-				dispatchVia = "alias_legacy"
-			}
-		case kind == "template_proposal" && payload != "":
-			dispatchKind = "template.install"
-			dispatchSpec = json.RawMessage(payload)
-			dispatchTRef = json.RawMessage(`{}`)
-			dispatchVia = "alias_legacy"
 		}
 
 		if dispatchKind != "" {
@@ -566,21 +544,14 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 					Team:          team,
 					AssignedTier:  assignedTier,
 					DeciderHandle: in.By,
-					Via:           dispatchVia,
+					Via:           "propose",
 				}
 				executed, applyErr := pk.Apply(r.Context(), s, ac, dispatchTRef, dispatchSpec)
-				if applyErr == nil {
-					out.Executed = executed
+				if applyErr != nil {
+					s.log.Warn("propose apply failed",
+						"attention_id", id, "kind", dispatchKind, "err", applyErr)
 				} else {
-					// Preserve the legacy `{kind, error}` shape so
-					// existing callers don't break on a missing
-					// `error` field when the apply errs.
-					b, _ := json.Marshal(map[string]any{
-						"kind":  dispatchKind,
-						"via":   dispatchVia,
-						"error": applyErr.Error(),
-					})
-					out.Executed = b
+					out.Executed = executed
 				}
 			}
 		}

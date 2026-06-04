@@ -334,11 +334,11 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     return RefreshIndicator(onRefresh: _onRefresh, child: list);
   }
 
-  // The status bands the rail orders by: live (active/open) first, then
-  // paused (paused/interrupted), then archived/other.
+  // The status bands the rail orders by: live (active) first, then
+  // paused, then archived/other.
   static int _sessionBand(String status) {
-    if (status == 'active' || status == 'open') return 0;
-    if (status == 'paused' || status == 'interrupted') return 1;
+    if (status == 'active') return 0;
+    if (status == 'paused') return 1;
     return 2;
   }
 

@@ -271,9 +271,7 @@ class MeScreen extends ConsumerWidget {
     if (state == null || state.active.isEmpty) return const [];
     final live = <Map<String, dynamic>>[
       for (final s in state.active)
-        if ((s['status'] ?? '').toString() == 'active' ||
-            (s['status'] ?? '').toString() == 'open')
-          s,
+        if ((s['status'] ?? '').toString() == 'active') s,
     ];
     live.sort((a, b) {
       final ta =

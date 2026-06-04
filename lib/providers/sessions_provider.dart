@@ -8,10 +8,9 @@ import 'hub_provider.dart';
 /// underlying agent died after a host restart, ready for resume per
 /// W2-S3). "Previous" covers `archived` sessions.
 ///
-/// Per ADR-009 the hub emits the new vocabulary `active / paused /
-/// archived / deleted`. Old strings (`open / interrupted / closed`)
-/// are still tolerated here for the brief window where a not-yet-
-/// migrated hub talks to a new app build.
+/// Per ADR-009 the hub emits the vocabulary `active / paused /
+/// archived / deleted`. The pre-ADR-009 strings were retired app-wide
+/// in W1.3 (internal tech-debt cleanup).
 class SessionsState {
   final List<Map<String, dynamic>> active;
   final List<Map<String, dynamic>> previous;
@@ -219,19 +218,15 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
 }
 
 /// Returns true for session statuses where the conversation is live
-/// (engine attached) or paused (engine detached but resumable).
-/// Tolerates both the new ADR-009 vocabulary (`active`, `paused`)
-/// and the legacy strings (`open`, `interrupted`) for the brief
-/// rollout window.
+/// (engine attached) or paused (engine detached but resumable) — the
+/// ADR-009 vocabulary (`active`, `paused`). The pre-ADR-009 strings
+/// (`open`, `interrupted`) were retired in WS1.3 (the fleet runs a
+/// current hub; the legacy arm was dead code).
 ///
 /// Public + pure so the hub→app session-status contract can be pinned by a
-/// fixture test without a provider/widget harness (WS3), and so WS1.3 has a
-/// single point to retire the legacy vocab from.
+/// fixture test without a provider/widget harness (WS3).
 bool isLiveSessionStatus(String status) =>
-    status == 'active' ||
-    status == 'paused' ||
-    status == 'open' ||
-    status == 'interrupted';
+    status == 'active' || status == 'paused';
 
 /// Buckets a raw session list (as the hub returns it) into the active vs
 /// previous split the UI consumes — the pure core of [SessionsNotifier.build].

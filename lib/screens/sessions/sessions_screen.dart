@@ -174,7 +174,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       // Skip rows that are already archived — Archive is a no-op there
       // and would just add audit-log noise.
       final st = (s['status'] ?? '').toString();
-      if (st == 'archived' || st == 'closed' || st == 'deleted') continue;
+      if (st == 'archived' || st == 'deleted') continue;
       ids.add(id);
     }
     if (ids.isEmpty) return;
@@ -230,7 +230,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       // Live conversation = anything not in a terminal state. The
       // hub will refuse the call on already-terminated agents anyway,
       // but pruning here keeps the confirm dialog count honest.
-      if (st == 'archived' || st == 'closed' || st == 'deleted') {
+      if (st == 'archived' || st == 'deleted') {
         skippedTerminal += 1;
         continue;
       }
@@ -301,7 +301,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       final id = (s['id'] ?? '').toString();
       if (id.isEmpty || !_selectedIds.contains(id)) continue;
       final st = (s['status'] ?? '').toString();
-      if (st == 'archived' || st == 'closed') {
+      if (st == 'archived') {
         ids.add(id);
       } else {
         hasNonArchived = true;
@@ -718,8 +718,8 @@ class _SelectionActionBar extends StatelessWidget {
 /// into current vs previous.
 class _StewardGroup {
   final Map<String, dynamic> agent;
-  final Map<String, dynamic>? current; // open or interrupted
-  final List<Map<String, dynamic>> previous; // closed
+  final Map<String, dynamic>? current; // active or paused
+  final List<Map<String, dynamic>> previous; // archived
   const _StewardGroup({
     required this.agent,
     required this.current,
@@ -807,7 +807,7 @@ List<_StewardGroup> _groupByStateward(
     final previous = <Map<String, dynamic>>[];
     for (final s in mine) {
       final st = (s['status'] ?? '').toString();
-      if ((st == 'active' || st == 'paused' || st == 'open' || st == 'interrupted') && current == null) {
+      if (isLiveSessionStatus(st) && current == null) {
         current = s;
       } else {
         previous.add(s);
@@ -866,7 +866,7 @@ List<_StewardGroup> _groupByStateward(
     if (aid.isEmpty || !liveStewardIds.contains(aid)) {
       final asPausedIfActive = {...s};
       final st = (asPausedIfActive['status'] ?? '').toString();
-      if (st == 'active' || st == 'open') {
+      if (st == 'active') {
         asPausedIfActive['status'] = 'paused';
       }
       orphanSessions.add(asPausedIfActive);
@@ -1117,8 +1117,8 @@ Future<void> _resetStewardConversation(
 /// One section per steward on the merged page. Renders:
 ///   - Header: status pill, handle, engine, model
 ///   - Per-steward kebab: Reset (new conversation), Replace, Stop session, Rename
-///   - Current session inline as a tile (open or interrupted)
-///   - Collapsible "previous (N)" subsection of closed sessions
+///   - Current session inline as a tile (active or paused)
+///   - Collapsible "previous (N)" subsection of archived sessions
 class _StewardSection extends ConsumerStatefulWidget {
   final _StewardGroup group;
   // Multi-select wiring (sessions list batch-ops). Threaded through
@@ -1421,7 +1421,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                 onToggleSelect: widget.onToggleTile,
               )
             else if (!isOrphan)
-              // Steward is alive but has no open/interrupted session.
+              // Steward is alive but has no active/paused session.
               // Possible causes: pre-v1.0.290 steward spawned without
               // auto_open_session, or a Reset whose openSession failed
               // silently. Either way the user wants a single tap to
@@ -1940,11 +1940,6 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
       'active' => DesignColors.success,
       'paused' => DesignColors.warning,
       'archived' => muted,
-      // Tolerate legacy strings during the brief rollout window
-      // (ADR-009): a not-yet-migrated hub may still emit these.
-      'open' => DesignColors.success,
-      'interrupted' => DesignColors.warning,
-      'closed' => muted,
       _ => muted,
     };
 
@@ -1975,9 +1970,9 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
               radius: 14,
               backgroundColor: statusColor.withValues(alpha: 0.18),
               child: Icon(
-                (status == 'paused' || status == 'interrupted')
+                (status == 'paused')
                     ? Icons.pause_circle_outline
-                    : ((status == 'archived' || status == 'closed')
+                    : ((status == 'archived')
                         ? Icons.history
                         : Icons.forum_outlined),
                 size: 16,
@@ -2043,9 +2038,9 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     // steward has a session") is preserved because Stop terminates
     // the agent first; the session pauses but the steward dies with
     // it, so no agent-without-session intermediate.
-    final isActive = status == 'active' || status == 'open';
-    final isPaused = status == 'paused' || status == 'interrupted';
-    final isArchived = status == 'archived' || status == 'closed';
+    final isActive = status == 'active';
+    final isPaused = status == 'paused';
+    final isArchived = status == 'archived';
     final hasAgent = (session['current_agent_id'] ?? '').toString().isNotEmpty;
     final menu = PopupMenuButton<String>(
       tooltip: 'Session actions',
@@ -2088,7 +2083,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (status == 'paused' || status == 'interrupted')
+        if (status == 'paused')
           FilledButton.tonal(
             onPressed: _resuming ? null : _resume,
             style: FilledButton.styleFrom(
@@ -2551,8 +2546,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     }
     final sessionStatus = (sessionRow?['status'] ?? '').toString();
     final hub = ref.watch(hubProvider).value;
-    final canFork =
-        sessionStatus == 'archived' || sessionStatus == 'closed';
+    final canFork = sessionStatus == 'archived';
     final scopeChip = _buildScopeChip(context, ref, sessionRow);
 
     final hostName = _hostName();

@@ -179,7 +179,7 @@ Future<void> openStewardSession(
   if (!context.mounted) return;
 
   final status = (session?['status'] ?? '').toString();
-  if (session != null && (status == 'active' || status == 'open')) {
+  if (session != null && status == 'active') {
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => SessionChatScreen(
         sessionId: (session!['id'] ?? '').toString(),

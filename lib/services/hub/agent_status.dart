@@ -61,7 +61,6 @@ enum AgentResumability {
 AgentResumability agentResumability(String sessionStatus) {
   switch (sessionStatus) {
     case 'paused':
-    case 'interrupted':
       return AgentResumability.resumable;
     case 'archived':
     case 'deleted':

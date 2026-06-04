@@ -271,8 +271,8 @@ class HubClient {
   // Sessions are the durable conversational frame around a steward
   // (or any agent) — a transcript that survives a host-runner restart
   // because session_id is stamped on agent_events independent of the
-  // agent process behind it. Status is active | paused | archived
-  // (per ADR-009; legacy hubs may still emit open | interrupted | closed).
+  // agent process behind it. Status is active | paused | archived | deleted
+  // (ADR-009; the pre-ADR-009 vocabulary was retired app-wide in W1.3).
 
   Future<List<Map<String, dynamic>>> listSessions({String? status}) =>
       sessions.listSessions(status: status);

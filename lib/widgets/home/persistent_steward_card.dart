@@ -206,7 +206,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
         for (final s in sessions.active) {
           if ((s['current_agent_id'] ?? '').toString() != agentId) continue;
           final status = (s['status'] ?? '').toString();
-          if (status == 'active' || status == 'open') {
+          if (status == 'active') {
             session = s;
             break;
           }

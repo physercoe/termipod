@@ -9,9 +9,11 @@ import 'package:termipod/providers/sessions_provider.dart';
 // paused or archived?" ambiguity can't quietly come back.
 void main() {
   group('agentResumability', () {
-    test('paused / interrupted session → resumable', () {
+    test('paused session → resumable', () {
       expect(agentResumability('paused'), AgentResumability.resumable);
-      expect(agentResumability('interrupted'), AgentResumability.resumable);
+      // The legacy 'interrupted' alias was retired in W1.3 — it now reads as
+      // unknown (the conservative fallback) like any unrecognised status.
+      expect(agentResumability('interrupted'), AgentResumability.unknown);
     });
 
     test('archived / deleted session → permanent', () {

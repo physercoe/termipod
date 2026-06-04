@@ -60,6 +60,7 @@ next sequential number — don't reserve, don't skip.
 | [039](039-insight-lens-as-server-query.md) | Insight transcript lens as a server keyset query (`kind=` paging) | Proposed 2026-06-02 | — |
 | [040](040-transcript-surfaces-decoupled-by-mode.md) | Decouple the transcript surfaces — one file per mode (`LiveFeed` / `InsightTranscript`), additive by file | Accepted 2026-06-02 | — |
 | [041](041-insight-workbench-layout.md) | The Insight transcript workbench — card-filter lens, outline Navigator, Sessions rail (drop stepper + N/M pill) | Accepted 2026-06-03 | — |
+| [042](042-dense-session-ordinal.md) | A dense per-session event ordinal (`session_ordinal`) — canonical session-scoped identity; fixes resume/navigator wrong-row | Accepted 2026-06-04 | — |
 
 ---
 

@@ -26,6 +26,7 @@ import '../team/spawn_steward_sheet.dart';
 import '../team/templates_screen.dart';
 import 'search_screen.dart';
 import 'widgets/steward_propose_inbox.dart';
+import 'sessions_list_controller.dart';
 
 /// Merged Sessions/Stewards page (multi-steward wedge 2). Each live
 /// steward gets its own section with its current session inline + a
@@ -64,14 +65,14 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   // on — so the user can scope "select all" to e.g. only project
   // stewards without manually deselecting the others. Cleared on
   // _exitSelect; ignored outside selection mode.
-  final Set<_StewardCategory> _categoryFilter = <_StewardCategory>{};
+  final Set<StewardCategory> _categoryFilter = <StewardCategory>{};
 
   // Categories the user has manually collapsed. Detached is collapsed
   // by default because it's history/diagnostic content — users with
   // many orphan sessions don't want it dominating the scroll. Other
   // categories default to expanded.
-  final Set<_StewardCategory> _collapsedCategories = <_StewardCategory>{
-    _StewardCategory.detached,
+  final Set<StewardCategory> _collapsedCategories = <StewardCategory>{
+    StewardCategory.detached,
   };
 
   // Enter select mode from a long-press on a tile. Pre-selects the
@@ -100,7 +101,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     });
   }
 
-  void _toggleCategoryFilter(_StewardCategory c) {
+  void _toggleCategoryFilter(StewardCategory c) {
     setState(() {
       if (_categoryFilter.contains(c)) {
         _categoryFilter.remove(c);
@@ -144,11 +145,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   // for the bottom-bar Archive/Delete actions. When _categoryFilter
   // is non-empty (only possible in selection mode), narrow to groups
   // whose category is in the filter set.
-  List<Map<String, dynamic>> _visibleSessions(List<_StewardGroup> groups) {
+  List<Map<String, dynamic>> _visibleSessions(List<StewardGroup> groups) {
     final out = <Map<String, dynamic>>[];
     for (final g in groups) {
       if (_categoryFilter.isNotEmpty &&
-          !_categoryFilter.contains(_categorize(g))) {
+          !_categoryFilter.contains(categorizeStewardGroup(g))) {
         continue;
       }
       if (g.current != null) out.add(g.current!);
@@ -157,7 +158,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     return out;
   }
 
-  void _selectAll(List<_StewardGroup> groups) {
+  void _selectAll(List<StewardGroup> groups) {
     setState(() {
       for (final s in _visibleSessions(groups)) {
         final id = (s['id'] ?? '').toString();
@@ -379,7 +380,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         data: (s) {
           final agents =
               hubState?.agents ?? const <Map<String, dynamic>>[];
-          final groups = _groupByStateward(agents, s);
+          final groups = groupSessionsBySteward(agents, s);
           if (groups.isEmpty) {
             // Auto-exit select mode if everything disappeared (e.g.,
             // bulkDelete cleared the list) — keeps the AppBar honest.
@@ -394,15 +395,15 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           // render as one flat list. Each category gets a collapsible
           // header above its sections; collapse state lives on the
           // screen (so swapping tabs and coming back preserves it).
-          final byCategory = <_StewardCategory, List<_StewardGroup>>{};
+          final byCategory = <StewardCategory, List<StewardGroup>>{};
           for (final g in groups) {
-            byCategory.putIfAbsent(_categorize(g), () => []).add(g);
+            byCategory.putIfAbsent(categorizeStewardGroup(g), () => []).add(g);
           }
           const order = [
-            _StewardCategory.general,
-            _StewardCategory.project,
-            _StewardCategory.domain,
-            _StewardCategory.detached,
+            StewardCategory.general,
+            StewardCategory.project,
+            StewardCategory.domain,
+            StewardCategory.detached,
           ];
           final orderedCats = order
               .where((c) => byCategory.containsKey(c))
@@ -417,7 +418,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
               children: [
                 for (final cat in orderedCats) ...[
                   _CategoryHeader(
-                    label: _categoryLabel(cat),
+                    label: stewardCategoryLabel(cat),
                     count: byCategory[cat]!.length,
                     collapsed: _collapsedCategories.contains(cat),
                     onToggle: () => setState(() {
@@ -447,7 +448,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       bottomNavigationBar: _selecting
           ? state.maybeWhen(
               data: (s) {
-                final groups = _groupByStateward(
+                final groups = groupSessionsBySteward(
                   hubState?.agents ?? const <Map<String, dynamic>>[],
                   s,
                 );
@@ -534,18 +535,18 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     HubState? hubState,
   ) {
     final groups = state.maybeWhen(
-      data: (s) => _groupByStateward(
+      data: (s) => groupSessionsBySteward(
         hubState?.agents ?? const <Map<String, dynamic>>[],
         s,
       ),
-      orElse: () => const <_StewardGroup>[],
+      orElse: () => const <StewardGroup>[],
     );
     // Count groups per category (across the unfiltered set) so the
     // filter chips can advertise their cardinality even when filter
     // hides them. Empty categories don't get a chip.
-    final categoryCounts = <_StewardCategory, int>{};
+    final categoryCounts = <StewardCategory, int>{};
     for (final g in groups) {
-      final cat = _categorize(g);
+      final cat = categorizeStewardGroup(g);
       categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
     }
     final visible = _visibleSessions(groups);
@@ -603,7 +604,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 }
 
 /// Horizontal strip of toggle-chips, one per non-empty
-/// _StewardCategory. Lives below the selection AppBar so the user
+/// StewardCategory. Lives below the selection AppBar so the user
 /// can scope Select-all / Stop / Archive / Delete to a subset
 /// (e.g. "all project stewards") without manually deselecting.
 class _CategoryFilterStrip extends StatelessWidget {
@@ -612,17 +613,17 @@ class _CategoryFilterStrip extends StatelessWidget {
     required this.selected,
     required this.onToggle,
   });
-  final Map<_StewardCategory, int> counts;
-  final Set<_StewardCategory> selected;
-  final void Function(_StewardCategory c) onToggle;
+  final Map<StewardCategory, int> counts;
+  final Set<StewardCategory> selected;
+  final void Function(StewardCategory c) onToggle;
 
   @override
   Widget build(BuildContext context) {
     const order = [
-      _StewardCategory.general,
-      _StewardCategory.project,
-      _StewardCategory.domain,
-      _StewardCategory.detached,
+      StewardCategory.general,
+      StewardCategory.project,
+      StewardCategory.domain,
+      StewardCategory.detached,
     ];
     final chips = <Widget>[];
     for (final c in order) {
@@ -632,7 +633,7 @@ class _CategoryFilterStrip extends StatelessWidget {
       chips.add(Padding(
         padding: const EdgeInsets.only(right: 8),
         child: FilterChip(
-          label: Text('${_categoryLabel(c)} · $n'),
+          label: Text('${stewardCategoryLabel(c)} · $n'),
           selected: isActive,
           onSelected: (_) => onToggle(c),
           visualDensity: VisualDensity.compact,
@@ -713,188 +714,10 @@ class _SelectionActionBar extends StatelessWidget {
   }
 }
 
-/// One steward's slice of the sessions list. Holds the agent record
-/// (so we can render engine/model/host pills) and the sessions sorted
-/// into current vs previous.
-class _StewardGroup {
-  final Map<String, dynamic> agent;
-  final Map<String, dynamic>? current; // active or paused
-  final List<Map<String, dynamic>> previous; // archived
-  const _StewardGroup({
-    required this.agent,
-    required this.current,
-    required this.previous,
-  });
-
-  String get handle => (agent['handle'] ?? '').toString();
-  String get agentId => (agent['id'] ?? '').toString();
-  String get kind => (agent['kind'] ?? '').toString();
-  String get status => (agent['status'] ?? '').toString();
-  String get projectId => (agent['project_id'] ?? '').toString();
-}
-
-/// Categories the steward sections cluster under in the Sessions list.
-/// User has multiple stewards (general + per-project + domain) and a
-/// flat list hides the hierarchy. Each category renders a collapsible
-/// header so the user can hide categories they aren't actively using.
-enum _StewardCategory { general, project, domain, detached }
-
-/// Classify a group by its agent's handle/kind/project shape. The
-/// classification mirrors how stewards are spawned:
-///   - General: the team-singleton concierge (`@steward`)
-///   - Project: stewards bound to a project (`@steward.<pid8>` or kind
-///     starts with `steward.` + project_id non-empty)
-///   - Domain: long-lived role stewards (`research-steward`,
-///     `infra-steward`, …) — handle ends with `-steward` and not
-///     project-bound
-///   - Detached: synthetic group with empty agentId (orphan sessions)
-_StewardCategory _categorize(_StewardGroup g) {
-  if (g.agentId.isEmpty) return _StewardCategory.detached;
-  if (isGeneralStewardHandle(g.handle)) return _StewardCategory.general;
-  final isProjectBound = g.handle.startsWith('@steward.') ||
-      g.projectId.isNotEmpty;
-  if (isProjectBound) return _StewardCategory.project;
-  return _StewardCategory.domain;
-}
-
-String _categoryLabel(_StewardCategory c) {
-  switch (c) {
-    case _StewardCategory.general:
-      return 'General steward';
-    case _StewardCategory.project:
-      return 'Project stewards';
-    case _StewardCategory.domain:
-      return 'Domain stewards';
-    case _StewardCategory.detached:
-      return 'Detached sessions';
-  }
-}
-
-/// Build one section per live steward + one section per "orphan"
-/// (sessions whose current_agent_id doesn't match any live steward —
-/// happens when the steward was terminated outside this UI).
-/// Stewards without any session at all are still listed (the multi-
-/// steward UX invariant says every live steward has one, so this is
-/// the back-compat case for installs that pre-date auto_open_session).
-List<_StewardGroup> _groupByStateward(
-  List<Map<String, dynamic>> agents,
-  SessionsState sessions,
-) {
-  final byAgent = <String, List<Map<String, dynamic>>>{};
-  for (final ses in [...sessions.active, ...sessions.previous]) {
-    final aid = (ses['current_agent_id'] ?? '').toString();
-    byAgent.putIfAbsent(aid, () => []).add(ses);
-  }
-  final liveStewardIds = <String>{};
-  final groups = <_StewardGroup>[];
-  for (final a in agents) {
-    // Steward predicates by handle don't catch project stewards —
-    // they're spawned with @steward.<pid8> (handlers_project_steward.go
-    // line 46) which isStewardHandle deliberately excludes. isStewardAgent
-    // folds in the `kind` column as the authoritative steward signal so
-    // general + domain + project stewards all surface in the Sessions list.
-    if (!isStewardAgent(a)) continue;
-    final status = (a['status'] ?? '').toString();
-    if (status != 'running' &&
-        status != 'pending' &&
-        status != 'paused') {
-      continue;
-    }
-    final id = (a['id'] ?? '').toString();
-    liveStewardIds.add(id);
-    final mine = byAgent[id] ?? const <Map<String, dynamic>>[];
-    Map<String, dynamic>? current;
-    final previous = <Map<String, dynamic>>[];
-    for (final s in mine) {
-      final st = (s['status'] ?? '').toString();
-      if (isLiveSessionStatus(st) && current == null) {
-        current = s;
-      } else {
-        previous.add(s);
-      }
-    }
-    groups.add(_StewardGroup(
-      agent: a,
-      current: current,
-      previous: previous,
-    ));
-  }
-  // Sort: stewards with an active session by last_active_at desc;
-  // stewards with only previous sessions go to the bottom.
-  DateTime ts(_StewardGroup g) {
-    final s = g.current ?? (g.previous.isEmpty ? null : g.previous.first);
-    if (s == null) return DateTime.fromMillisecondsSinceEpoch(0);
-    final raw = (s['last_active_at'] ?? s['opened_at'] ?? '').toString();
-    return DateTime.tryParse(raw) ??
-        DateTime.fromMillisecondsSinceEpoch(0);
-  }
-  groups.sort((a, b) {
-    if ((a.current == null) != (b.current == null)) {
-      return a.current == null ? 1 : -1;
-    }
-    return ts(b).compareTo(ts(a));
-  });
-  // Orphan sessions: bucket under a synthetic group so they aren't
-  // silently swallowed. The engine they used to talk to is gone, so
-  // we override the rendered status to 'paused' here (regardless of
-  // what the hub reports) — a hub running old code can leave
-  // status='active' when an agent died via a path that didn't auto-
-  // pause its sessions, and showing those rows with a green active
-  // pill misleads the user into thinking the chat is still live. The
-  // backing row's status isn't mutated; only the copy passed to the
-  // tile is. Migration 0032 heals the data on the hub itself; this
-  // keeps the UI honest until the deployed hub picks it up.
-  // ADR-025 W8: worker sessions (non-steward agent bound to a
-  // project) live on the project detail Agents tab, not in the
-  // global Sessions list — keeps this screen focused on the
-  // operator's steward conversations rather than every per-worker
-  // micro-chat. Build a quick "skip" set: agents whose kind is NOT
-  // a steward variant AND whose project_id is non-empty.
-  final workerSessionAgentIDs = <String>{};
-  for (final a in agents) {
-    final kind = (a['kind'] ?? '').toString();
-    final projectID = (a['project_id'] ?? '').toString();
-    if (projectID.isEmpty) continue;
-    if (kind.startsWith('steward.') || kind == 'steward.v1') continue;
-    final aid = (a['id'] ?? '').toString();
-    if (aid.isNotEmpty) workerSessionAgentIDs.add(aid);
-  }
-  final orphanSessions = <Map<String, dynamic>>[];
-  for (final s in [...sessions.active, ...sessions.previous]) {
-    final aid = (s['current_agent_id'] ?? '').toString();
-    if (workerSessionAgentIDs.contains(aid)) continue;
-    if (aid.isEmpty || !liveStewardIds.contains(aid)) {
-      final asPausedIfActive = {...s};
-      final st = (asPausedIfActive['status'] ?? '').toString();
-      if (st == 'active') {
-        asPausedIfActive['status'] = 'paused';
-      }
-      orphanSessions.add(asPausedIfActive);
-    }
-  }
-  if (orphanSessions.isNotEmpty) {
-    // Detached sessions have no live engine, so none of them belongs
-    // in the "current" slot — bucket every row into Previous so the
-    // UX matches the underlying reality (no Stop / no live transcript;
-    // only Resume / Fork / Archive make sense).
-    groups.add(_StewardGroup(
-      // Sessions whose original steward agent was archived /
-      // terminated outside of this UI, or never resolved (cache lag).
-      // The bucket is informational — these sessions are still
-      // openable for reading history; forking them spawns a fresh
-      // steward into a continuation session via the unattached-fork
-      // path.
-      agent: const {
-        'handle': 'Detached sessions',
-        'kind': '',
-        'status': '',
-      },
-      current: null,
-      previous: orphanSessions,
-    ));
-  }
-  return groups;
-}
+// StewardGroup, StewardCategory, categorizeStewardGroup,
+// stewardCategoryLabel, and groupSessionsBySteward moved to the non-widget
+// seam sessions_list_controller.dart (WS2) so the session-list bucketing is
+// unit-testable without a widget harness.
 
 /// Open a fresh session against an existing live steward that has no
 /// active one. Different from Reset (which closes a current session
@@ -1120,7 +943,7 @@ Future<void> _resetStewardConversation(
 ///   - Current session inline as a tile (active or paused)
 ///   - Collapsible "previous (N)" subsection of archived sessions
 class _StewardSection extends ConsumerStatefulWidget {
-  final _StewardGroup group;
+  final StewardGroup group;
   // Multi-select wiring (sessions list batch-ops). Threaded through
   // from the screen down to each _SessionTile so the same widget tree
   // renders both modes — null in single-select callers means tiles
@@ -1148,7 +971,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
   // previous list IS the content.
   late bool _showPrevious = widget.group.current == null;
 
-  _StewardGroup get group => widget.group;
+  StewardGroup get group => widget.group;
 
   Future<void> _rename() async {
     final id = group.agentId;

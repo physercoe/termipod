@@ -4,8 +4,7 @@
 // A constrained host (the project-agent sheet, the steward overlay) wires
 // `LiveFeed.onExpand` to push this screen, which runs the feed in its
 // full-screen `dense: false` mode: the lens unfolds into a horizontal bar
-// and a right-edge minimap (turn ticks + red error ticks, tap to jump)
-// appears — the richest debugging surface for a long run.
+// with per-lens counts — the richest debugging surface for a long run.
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 

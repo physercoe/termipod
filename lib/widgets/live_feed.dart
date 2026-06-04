@@ -7,7 +7,7 @@
 // This is the live-conversation half of the former flag-switched AgentFeed
 // (ADR-040): the sealed / random-access half lives in `insight_transcript.dart`
 // (`InsightTranscript`). LiveFeed keeps the live-tail loader, the composer, the
-// telemetry strip, and the loaded-window lens / minimap / stepper.
+// telemetry strip, and the loaded-window lens / stepper.
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -95,9 +95,8 @@ class LiveFeed extends ConsumerStatefulWidget {
   /// P3 (docs/plans/agent-transcript-debug-and-header-parity.md) —
   /// responsive disclosure by container. `true` (default) is the
   /// constrained host: the lens lives in a floating funnel → combined
-  /// filter/jump pill, no minimap. `false` is a full-screen host: the
-  /// lens unfolds to a horizontal *bar* with per-lens counts and a
-  /// right-edge minimap (turn ticks + red error ticks, tap to jump).
+  /// filter/jump pill. `false` is a full-screen host: the lens unfolds
+  /// to a horizontal *bar* with per-lens counts.
   final bool dense;
   /// When set (and [dense]), a floating expand affordance pushes the
   /// caller's dedicated full-screen transcript route. Null hides it —
@@ -314,15 +313,6 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     if (!_scroll.hasClients) return;
     final maxExt = _scroll.position.maxScrollExtent;
     final atBottom = _scroll.position.pixels >= maxExt - 40;
-    final frac = maxExt <= 0
-        ? 1.0
-        : (_scroll.position.pixels / maxExt).clamp(0.0, 1.0);
-    // Update the minimap position indicator. Coarse threshold (~1%) so a
-    // scroll doesn't rebuild the feed on every pixel — matches the cadence
-    // of the old integer scroll-percent.
-    if ((frac - _viewFrac).abs() > 0.01) {
-      setState(() => _viewFrac = frac);
-    }
     // CRITICAL: only let a *user* scroll flip tail-follow. A programmatic
     // scroll (a seek/scrub/jump) can momentarily land near the bottom — if
     // that re-enabled _followTail, the next live event would yank the user
@@ -344,9 +334,6 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     }
     if (_scroll.position.pixels <= 120) _maybeLoadOlder();
   }
-
-  // Viewport-top position (0..1) for the minimap indicator.
-  double _viewFrac = 1.0;
 
   // The programmatic-scroll guard, the realized-row-window sentinels, and the
   // jump/animate helpers all moved to [TranscriptSeek] (`_seek`) — ADR-040 P2a.
@@ -499,16 +486,6 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOut,
         ));
-  }
-
-  /// Continuous scrub from the right-edge minimap drag. jumpTo (not
-  /// animateTo) so the viewport tracks the finger directly.
-  void _scrubTo(double frac) {
-    if (!_scroll.hasClients) return;
-    if (_followTail) setState(() => _followTail = false);
-    final pos = _scroll.position;
-    _seek.jumpProgrammatic(
-        () => _scroll.jumpTo(frac.clamp(0.0, 1.0) * pos.maxScrollExtent));
   }
 
   // Replace _events with [snapshot] (server-DESC, displayed ASC) and
@@ -864,54 +841,11 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     });
   }
 
-  /// Jump from the right-edge minimap. Unlike [_seekToSeq] (which relies
-  /// on `ensureVisible` over a built row and silently no-ops when the
-  /// target is a lazy ListView child that isn't currently realized — the
-  /// exact far-away ticks the minimap exists to reach), this scrolls the
-  /// controller *proportionally* to the tick's vertical fraction so every
-  /// tap visibly moves the viewport, then best-effort fine-tunes onto the
-  /// row once it's built. [seq] still drives the landing highlight.
-  void _seekToFrac(double frac, int seq) {
-    setState(() {
-      _activeSeekSeq = seq;
-      _followTail = false;
-      _seekHighlight = true;
-    });
-    if (_scroll.hasClients) {
-      final pos = _scroll.position;
-      final target = frac.clamp(0.0, 1.0) * pos.maxScrollExtent;
-      _seek.animateProgrammatic(() => _scroll.animateTo(
-            target,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          ));
-      // Once the proportional scroll has realized the target row, nudge
-      // it into a comfortable position. No-ops harmlessly if still
-      // off-screen (the proportional landing already put it close).
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final ctx = _seek.seekKey.currentContext;
-        if (ctx == null) return;
-        _seek.animateProgrammatic(() => Scrollable.ensureVisible(
-              ctx,
-              alignment: 0.3,
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
-            ));
-      });
-    }
-    _seekHighlightTimer?.cancel();
-    _seekHighlightTimer = Timer(const Duration(milliseconds: 1400), () {
-      if (!mounted) return;
-      setState(() => _seekHighlight = false);
-    });
-  }
-
   /// Seek precisely onto the loaded row at [idx] (in the current lensed
-  /// list) identified by [seq]. Unlike [_seekToFrac] — which maps the
-  /// item-index fraction straight onto a pixel offset and so misses badly
-  /// when rows have very different heights (a one-line text card vs. a tall
-  /// tool dump) — this binary-searches the scroll offset using the actual
+  /// list) identified by [seq]. A bare item-index fraction mapped straight
+  /// onto a pixel offset misses badly when rows have very different heights
+  /// (a one-line text card vs. a tall tool dump), so instead this
+  /// binary-searches the scroll offset using the actual
   /// realized-row window (the [TranscriptSeek] landing engine) as feedback, so it
   /// lands exactly on the target regardless of height variance. Used by the
   /// "view in full transcript" jump and the turn-nav stepper, which both
@@ -1169,16 +1103,13 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
       matchIndex = idx + 1;
     }
     // P3 — full-screen-only chrome (dense=false): per-lens counts for the
-    // lens bar + minimap marks (a faint tick per tool_call, a red tick
-    // per error) over the WHOLE loaded transcript. Skipped in the dense
+    // lens bar over the WHOLE loaded transcript. Skipped in the dense
     // path so a constrained host pays nothing for it.
     Map<FeedLens, int> lensCounts = const {};
-    final minimapMarks = <FeedMinimapMark>[];
     // Turn-nav state (full-screen only). Anchors are the inbound prompts
     // in the rendered list; the stepper walks between them. See
     // [turnAnchorIndices] / [isTurnAnchorEvent].
     List<int> turnAnchorIdx = const [];
-    final lensedDenom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
     if (!widget.dense) {
       lensCounts = {
         for (final l in FeedLens.values)
@@ -1190,29 +1121,6 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
                   .length,
       };
       turnAnchorIdx = turnAnchorIndices(lensed);
-      final turnIdxSet = turnAnchorIdx.toSet();
-      // Ticks track the list actually on screen (`lensed`) so the minimap is
-      // populated in EVERY view (item: "no minimap for turn/text view"), not
-      // only where tool/error rows exist: a faint tick per tool call OR turn
-      // anchor, a red tick per error. A tick's fraction maps straight to scroll
-      // offset for the tap-jump pre-scroll (see [_seekToFrac]).
-      for (var i = 0; i < lensed.length; i++) {
-        final e = lensed[i];
-        final isErr = agentEventIsError(e, toolResults, toolUpdates);
-        final isTool = (e['kind'] ?? '').toString() == 'tool_call';
-        if (!isErr && !isTool && !turnIdxSet.contains(i)) continue;
-        minimapMarks.add(FeedMinimapMark(
-          frac: i / lensedDenom,
-          seq: (e['seq'] as num?)?.toInt() ?? 0,
-          isError: isErr,
-          // Tick colour matches the transcript card (agentEventAccent), so the
-          // strip reads as a colour-coded shrink of the feed.
-          color: isErr
-              ? DesignColors.error
-              : agentEventAccent((e['kind'] ?? '').toString(),
-                  (e['producer'] ?? 'agent').toString()),
-        ));
-      }
     }
     // The bottom-left stepper steps a DIFFERENT unit per view, so `‹/›`
     // always mean something here:
@@ -1270,8 +1178,8 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     // mutable state (effort, thinking, fast_mode, output_style).
     _maybeFireStatusLineChanged(latestStatusLinePayload(_events));
     // Verbose toggle chip, shared between the dense (top-right, beside the
-    // expand button) and full-screen (shifted to clear the minimap) hosts.
-    // Built once so both placements stay identical.
+    // expand button) and full-screen hosts. Built once so both placements
+    // stay identical.
     final verboseChip = (_verbose || hiddenForVerbose > 0)
         ? VerboseToggleChip(
             verbose: _verbose,
@@ -1351,8 +1259,8 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
                       card = Stack(
                         children: [
                           card,
-                          // Top-LEFT, not right: the right edge sits under
-                          // the minimap column, where the two overlapped.
+                          // Top-LEFT, not right, to clear the card's own
+                          // top-right controls.
                           Positioned(
                             top: 2,
                             left: 2,
@@ -1489,27 +1397,6 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
                   },
                 ),
               ),
-              // Right-edge minimap (full-screen only): a tick per tool call
-              // / turn anchor (card-coloured) + a red tick per error, plus a
-              // viewport indicator. Tap jumps to the nearest error, drag
-              // scrubs. Always rendered in full-screen (every view) so the
-              // strip is a consistent scrubber over the loaded window.
-              if (!widget.dense)
-                Positioned(
-                  top: 8,
-                  right: 4,
-                  bottom: 12,
-                  // 28px (was 20) — a 20px strip at the screen edge was a
-                  // near-unhittable tap target (and brushed the system edge-
-                  // swipe zone); 28px gives the tap room without crowding.
-                  width: 28,
-                  child: FeedMinimap(
-                    marks: minimapMarks,
-                    onJump: _seekToFrac,
-                    onScrub: _scrubTo,
-                    viewportFrac: _viewFrac,
-                  ),
-                ),
               // Full-screen stepper: floats bottom-left. ⤒ top-of-loaded,
               // ‹/› previous/next of the current view's unit ([stepUnit] —
               // prompt in All, error in Errors, message in Text, …). Always
@@ -1554,14 +1441,12 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
               // Top-right floating controls: expand (dense only) + verbose
               // toggle, in ONE row so they can't overlap (the previous
               // fixed-offset stacking collided once the verbose chip widened
-              // with its hidden-count). Full-screen has no expand and shifts
-              // right to clear the minimap lane (20px col at right:4 → left
-              // edge ~right:24).
+              // with its hidden-count).
               if (verboseChip != null ||
                   (widget.dense && widget.onExpand != null))
                 Positioned(
                   top: 6,
-                  right: widget.dense ? 6 : 30,
+                  right: 6,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1587,8 +1472,8 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
 
   /// Seek to the row at [idx] in the rendered [lensed] list — used by the
   /// turn-nav stepper. Routes through the convergent index seek so it lands
-  /// exactly on the target row regardless of row-height variance (the old
-  /// proportional [_seekToFrac] overshot on non-uniform transcripts).
+  /// exactly on the target row regardless of row-height variance (a bare
+  /// proportional offset overshoots on non-uniform transcripts).
   void _seekToLensedIndex(int idx, List<Map<String, dynamic>> lensed) {
     if (idx < 0 || idx >= lensed.length) return;
     final seq = (lensed[idx]['seq'] as num?)?.toInt() ?? 0;

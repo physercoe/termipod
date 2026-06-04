@@ -36,7 +36,13 @@ const (
 	// in which id field they carry), errorSampleLabel falls back to the tool
 	// name on the failing event itself (toolNameFromPayload). The bump refolds
 	// sealed digests so previously-unlabelled tool errors gain their headline.
-	digestSchemaVersion = 4
+	//
+	// v5 adds per-error SampleOrdinals + per-turn StartOrdinal (ADR-042): the
+	// session-unique session_ordinal anchor alongside the per-agent seq, so the
+	// Insight Navigator lands on the right row after a resume (seq collides
+	// across the session's agents; the ordinal does not). The bump refolds
+	// sealed digests so their turn/error anchors gain the ordinal.
+	digestSchemaVersion = 5
 	// Cap the per-tool sample-seq lists so a pathological run can't bloat the
 	// JSON blob. Tool samples are navigation anchors, not a complete index
 	// (agent_turns + the kind-filtered listing are that).
@@ -60,7 +66,12 @@ var latencyBoundsMs = []int64{100, 250, 500, 1000, 2500, 5000, 10000, 30000, 600
 
 // foldEvent is the minimal projection of an agent_event the digest folds.
 type foldEvent struct {
-	Seq      int64
+	Seq int64
+	// Ordinal is the event's session_ordinal (ADR-042) — its dense,
+	// session-unique position. 0 when the event has no session. Recorded
+	// alongside Seq on turn/error anchors so the session-scoped Insight surface
+	// can land across a resume boundary, where Seq collides.
+	Ordinal  int64
 	Kind     string
 	TS       string
 	Producer string
@@ -84,6 +95,12 @@ type errorClassAgg struct {
 	// already carry start_ts; this closes the same gap for errors). Older
 	// digests folded before this field stay seq-only and degrade to page-walk.
 	SampleTSs []string `json:"sample_ts,omitempty"`
+	// SampleOrdinals is aligned 1:1 with SampleSeqs — the session_ordinal
+	// (ADR-042) of each sampled error. The session-unique anchor the Insight
+	// Navigator lands on, so an error jump resolves the right row even after a
+	// resume (seq collides across the session's agents). Older (pre-v5) digests
+	// fold without it and degrade to the seq/ts anchor.
+	SampleOrdinals []int64 `json:"sample_ordinals,omitempty"`
 	// SampleLabels is aligned 1:1 with SampleSeqs — a short headline for each
 	// sampled error. For a tool failure it is the failing tool's resolved name
 	// ("Bash", "Edit"); for an `error:<type>` it is the type; for a failed turn
@@ -161,10 +178,14 @@ func newAgentDigest(agentID, teamID string) *agentDigest {
 
 // turnRow is the in-memory shape of one agent_turns row.
 type turnRow struct {
-	TurnID     string
-	Idx        int
-	StartSeq   int64
-	StartTS    string
+	TurnID   string
+	Idx      int
+	StartSeq int64
+	// StartOrdinal is the turn's start event session_ordinal (ADR-042) — the
+	// session-unique anchor the Insight Navigator lands on. 0 for a session-less
+	// agent or a pre-v5 digest.
+	StartOrdinal int64
+	StartTS      string
 	EndSeq     int64
 	EndTS      string
 	DurationMs int64
@@ -256,11 +277,11 @@ func (f *digestFolder) step(e foldEvent) {
 			}
 			f.closeTurn("", e.TS) // unusual: a start with no prior result
 		}
-		f.openTurn(turnIDOf(e), e.Seq, e.TS)
+		f.openTurn(turnIDOf(e), e.Seq, e.Ordinal, e.TS)
 		return
 	}
 	if f.open == nil && e.Kind != "turn.result" {
-		f.openTurn(turnIDOf(e), e.Seq, e.TS)
+		f.openTurn(turnIDOf(e), e.Seq, e.Ordinal, e.TS)
 	}
 
 	// Per-event accumulation onto both the digest and the open turn.
@@ -326,7 +347,7 @@ func (f *digestFolder) step(e foldEvent) {
 		}
 		// Canonical error: a failed turn counts once.
 		if class, ok := canonicalErrorClass(e); ok {
-			f.recordError(class, e.Seq, e.TS, f.errorSampleLabel(e))
+			f.recordError(class, e.Seq, e.Ordinal, e.TS, f.errorSampleLabel(e))
 		}
 		f.closeTurn(status, e.TS)
 		return
@@ -335,7 +356,7 @@ func (f *digestFolder) step(e foldEvent) {
 	// Canonical-error classification for non-turn events (the open turn is
 	// guaranteed non-nil here because we opened one above).
 	if class, ok := canonicalErrorClass(e); ok {
-		f.recordError(class, e.Seq, e.TS, f.errorSampleLabel(e))
+		f.recordError(class, e.Seq, e.Ordinal, e.TS, f.errorSampleLabel(e))
 		if isToolFailure(e) {
 			d.ToolFailed++
 			if f.open != nil {
@@ -352,15 +373,16 @@ func (f *digestFolder) step(e foldEvent) {
 	}
 }
 
-func (f *digestFolder) openTurn(turnID string, seq int64, ts string) {
+func (f *digestFolder) openTurn(turnID string, seq, ordinal int64, ts string) {
 	if turnID == "" {
 		turnID = fmt.Sprintf("syn-%d", seq)
 	}
 	f.open = &turnRow{
-		TurnID:   turnID,
-		Idx:      f.nextIdx,
-		StartSeq: seq,
-		StartTS:  ts,
+		TurnID:       turnID,
+		Idx:          f.nextIdx,
+		StartSeq:     seq,
+		StartOrdinal: ordinal,
+		StartTS:      ts,
 	}
 	f.nextIdx++
 }
@@ -408,7 +430,7 @@ func (f *digestFolder) tool(name string) *toolAgg {
 	return t
 }
 
-func (f *digestFolder) recordError(class string, seq int64, ts, label string) {
+func (f *digestFolder) recordError(class string, seq, ordinal int64, ts, label string) {
 	f.digest.ErrorCount++
 	if f.open != nil {
 		// Every canonical error during the turn (including its failed-turn
@@ -422,7 +444,7 @@ func (f *digestFolder) recordError(class string, seq int64, ts, label string) {
 		f.digest.Errors[class] = c
 	}
 	c.Count++
-	addSampleTS(&c.SampleSeqs, &c.SampleTSs, &c.SampleLabels, seq, ts, label)
+	addSampleTS(&c.SampleSeqs, &c.SampleOrdinals, &c.SampleTSs, &c.SampleLabels, seq, ordinal, ts, label)
 }
 
 // errorSampleLabel derives the per-sample headline for an error event: the
@@ -610,16 +632,17 @@ func addSample(dst *[]int64, seq int64) {
 	*dst = append(*dst, seq)
 }
 
-// addSampleTS appends a (seq, ts, label) sample keeping the three slices
-// aligned 1:1. Used only by the error path (recordError + the session
+// addSampleTS appends a (seq, ordinal, ts, label) sample keeping the four
+// slices aligned 1:1. Used only by the error path (recordError + the session
 // error-class merge), so it caps at maxDigestErrorSeqs — the Errors lens wants
-// the whole-run list, not a 25-cap sample. A missing ts/label is appended as ""
-// so the indices never drift.
-func addSampleTS(seqs *[]int64, tss, labels *[]string, seq int64, ts, label string) {
+// the whole-run list, not a 25-cap sample. A missing ordinal/ts/label is
+// appended as 0/"" so the indices never drift.
+func addSampleTS(seqs, ords *[]int64, tss, labels *[]string, seq, ord int64, ts, label string) {
 	if len(*seqs) >= maxDigestErrorSeqs {
 		return
 	}
 	*seqs = append(*seqs, seq)
+	*ords = append(*ords, ord)
 	*tss = append(*tss, ts)
 	*labels = append(*labels, label)
 }

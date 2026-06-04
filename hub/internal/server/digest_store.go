@@ -101,18 +101,19 @@ func saveAgentDigest(ctx context.Context, q digestStore, d *agentDigest) error {
 func saveTurnRow(ctx context.Context, q digestStore, agentID, teamID string, t *turnRow) error {
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO agent_turns (
-			agent_id, turn_id, team_id, idx, start_seq, start_ts, end_seq,
+			agent_id, turn_id, team_id, idx, start_seq, start_ordinal, start_ts, end_seq,
 			end_ts, duration_ms, status, cost_usd, in_tokens, out_tokens,
 			tool_count, tool_failed, error_count
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(agent_id, turn_id) DO UPDATE SET
 			team_id=excluded.team_id, idx=excluded.idx, start_seq=excluded.start_seq,
+			start_ordinal=excluded.start_ordinal,
 			start_ts=excluded.start_ts, end_seq=excluded.end_seq, end_ts=excluded.end_ts,
 			duration_ms=excluded.duration_ms, status=excluded.status,
 			cost_usd=excluded.cost_usd, in_tokens=excluded.in_tokens,
 			out_tokens=excluded.out_tokens, tool_count=excluded.tool_count,
 			tool_failed=excluded.tool_failed, error_count=excluded.error_count`,
-		agentID, t.TurnID, teamID, t.Idx, t.StartSeq, t.StartTS, t.EndSeq,
+		agentID, t.TurnID, teamID, t.Idx, t.StartSeq, t.StartOrdinal, t.StartTS, t.EndSeq,
 		t.EndTS, t.DurationMs, t.Status, t.CostUSD, t.InTokens, t.OutTokens,
 		t.ToolCount, t.ToolFailed, t.ErrorCount,
 	)
@@ -131,18 +132,20 @@ func loadOpenTurn(ctx context.Context, q digestStore, agentID string) (*turnRow,
 	nextIdx := maxIdx + 1
 
 	t := &turnRow{}
+	var startOrd sql.NullInt64
 	err := q.QueryRowContext(ctx, `
-		SELECT turn_id, idx, start_seq, start_ts, end_seq, end_ts, duration_ms,
+		SELECT turn_id, idx, start_seq, start_ordinal, start_ts, end_seq, end_ts, duration_ms,
 		       status, cost_usd, in_tokens, out_tokens, tool_count, tool_failed,
 		       error_count
 		  FROM agent_turns
 		 WHERE agent_id = ? AND end_seq = 0
 		 ORDER BY idx DESC LIMIT 1`, agentID,
 	).Scan(
-		&t.TurnID, &t.Idx, &t.StartSeq, &t.StartTS, &t.EndSeq, &t.EndTS,
+		&t.TurnID, &t.Idx, &t.StartSeq, &startOrd, &t.StartTS, &t.EndSeq, &t.EndTS,
 		&t.DurationMs, &t.Status, &t.CostUSD, &t.InTokens, &t.OutTokens,
 		&t.ToolCount, &t.ToolFailed, &t.ErrorCount,
 	)
+	t.StartOrdinal = startOrd.Int64
 	if err == sql.ErrNoRows {
 		return nil, nextIdx, nil
 	}
@@ -228,12 +231,12 @@ func foldEventIncremental(ctx context.Context, tx digestStore, agentID, teamID s
 // Best-effort: a fold error is logged and swallowed so it can never block
 // ingestion — the digest is a derived read model and the read path repairs
 // any resulting lag via digestIsStale.
-func (s *Server) foldEventIntoDigest(ctx context.Context, team, agent string, seq int64, kind, ts, producer, payloadJSON string) {
+func (s *Server) foldEventIntoDigest(ctx context.Context, team, agent string, seq, sord int64, kind, ts, producer, payloadJSON string) {
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil || payload == nil {
 		payload = map[string]any{}
 	}
-	e := foldEvent{Seq: seq, Kind: kind, TS: ts, Producer: producer, Payload: payload}
+	e := foldEvent{Seq: seq, Ordinal: sord, Kind: kind, TS: ts, Producer: producer, Payload: payload}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -369,7 +372,7 @@ func backfillAgentDigest(ctx context.Context, db *sql.DB, agentID, teamID string
 // loadFoldEvents reads an agent's full ordered event log as foldEvents.
 func loadFoldEvents(ctx context.Context, q digestStore, agentID string) ([]foldEvent, error) {
 	return scanFoldEvents(q.QueryContext(ctx, `
-		SELECT seq, kind, ts, producer, payload_json
+		SELECT seq, session_ordinal, kind, ts, producer, payload_json
 		  FROM agent_events WHERE agent_id = ? ORDER BY seq ASC`, agentID))
 }
 
@@ -377,7 +380,7 @@ func loadFoldEvents(ctx context.Context, q digestStore, agentID string) ([]foldE
 // in-tx prefix backfill of a pre-existing agent.
 func loadFoldEventsBefore(ctx context.Context, q digestStore, agentID string, beforeSeq int64) ([]foldEvent, error) {
 	return scanFoldEvents(q.QueryContext(ctx, `
-		SELECT seq, kind, ts, producer, payload_json
+		SELECT seq, session_ordinal, kind, ts, producer, payload_json
 		  FROM agent_events WHERE agent_id = ? AND seq < ? ORDER BY seq ASC`, agentID, beforeSeq))
 }
 
@@ -390,9 +393,11 @@ func scanFoldEvents(rows *sql.Rows, err error) ([]foldEvent, error) {
 	for rows.Next() {
 		var e foldEvent
 		var payload string
-		if err := rows.Scan(&e.Seq, &e.Kind, &e.TS, &e.Producer, &payload); err != nil {
+		var ord sql.NullInt64
+		if err := rows.Scan(&e.Seq, &ord, &e.Kind, &e.TS, &e.Producer, &payload); err != nil {
 			return nil, err
 		}
+		e.Ordinal = ord.Int64 // 0 for a session-less event
 		_ = json.Unmarshal([]byte(payload), &e.Payload)
 		if e.Payload == nil {
 			e.Payload = map[string]any{}

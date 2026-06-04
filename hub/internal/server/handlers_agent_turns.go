@@ -22,22 +22,23 @@ import (
 // agents after a resume), keyed by start_ts since idx is per-agent.
 
 type turnJSON struct {
-	AgentID    string  `json:"agent_id"`
-	TurnID     string  `json:"turn_id"`
-	Idx        int     `json:"idx"`
-	StartSeq   int64   `json:"start_seq"`
-	StartTS    string  `json:"start_ts"`
-	EndSeq     int64   `json:"end_seq"`
-	EndTS      string  `json:"end_ts"`
-	DurationMs int64   `json:"duration_ms"`
-	Status     string  `json:"status"`
-	Open       bool    `json:"open"`
-	CostUSD    float64 `json:"cost_usd"`
-	InTokens   int64   `json:"in_tokens"`
-	OutTokens  int64   `json:"out_tokens"`
-	ToolCount  int64   `json:"tool_count"`
-	ToolFailed int64   `json:"tool_failed"`
-	ErrorCount int64   `json:"error_count"`
+	AgentID      string  `json:"agent_id"`
+	TurnID       string  `json:"turn_id"`
+	Idx          int     `json:"idx"`
+	StartSeq     int64   `json:"start_seq"`
+	StartOrdinal int64   `json:"start_ordinal"`
+	StartTS      string  `json:"start_ts"`
+	EndSeq       int64   `json:"end_seq"`
+	EndTS        string  `json:"end_ts"`
+	DurationMs   int64   `json:"duration_ms"`
+	Status       string  `json:"status"`
+	Open         bool    `json:"open"`
+	CostUSD      float64 `json:"cost_usd"`
+	InTokens     int64   `json:"in_tokens"`
+	OutTokens    int64   `json:"out_tokens"`
+	ToolCount    int64   `json:"tool_count"`
+	ToolFailed   int64   `json:"tool_failed"`
+	ErrorCount   int64   `json:"error_count"`
 }
 
 func (s *Server) handleListAgentTurns(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +142,7 @@ func turnLimit(r *http.Request) int {
 	return limit
 }
 
-const turnCols = `agent_id, turn_id, idx, start_seq, start_ts, end_seq, end_ts,
+const turnCols = `agent_id, turn_id, idx, start_seq, start_ordinal, start_ts, end_seq, end_ts,
 	duration_ms, status, cost_usd, in_tokens, out_tokens, tool_count,
 	tool_failed, error_count`
 
@@ -180,13 +181,15 @@ func scanTurns(rows *sql.Rows, err error) ([]turnJSON, error) {
 	out := []turnJSON{}
 	for rows.Next() {
 		var t turnJSON
+		var startOrd sql.NullInt64
 		if err := rows.Scan(
-			&t.AgentID, &t.TurnID, &t.Idx, &t.StartSeq, &t.StartTS, &t.EndSeq,
+			&t.AgentID, &t.TurnID, &t.Idx, &t.StartSeq, &startOrd, &t.StartTS, &t.EndSeq,
 			&t.EndTS, &t.DurationMs, &t.Status, &t.CostUSD, &t.InTokens,
 			&t.OutTokens, &t.ToolCount, &t.ToolFailed, &t.ErrorCount,
 		); err != nil {
 			return nil, err
 		}
+		t.StartOrdinal = startOrd.Int64 // 0 for pre-v5 / session-less rows
 		t.Open = t.EndSeq == 0
 		out = append(out, t)
 	}

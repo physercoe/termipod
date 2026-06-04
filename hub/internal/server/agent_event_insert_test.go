@@ -20,7 +20,7 @@ func TestInsertAgentEvent_MonotonicPerAgent(t *testing.T) {
 	var wantSeq int64
 	for _, body := range []string{"a", "b", "c"} {
 		wantSeq++
-		id, seq, ts, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
+		id, seq, _, ts, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
 			AgentID:     agent,
 			SessionID:   "sess-1",
 			Kind:        "text",
@@ -83,7 +83,7 @@ func TestInsertAgentEvent_EmptySessionStoresNull(t *testing.T) {
 	s, _ := newA2ATestServer(t)
 	agent := seedAgentRow(t, s, defaultTeamID, "p0-null", "claude-code")
 
-	id, _, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
+	id, _, _, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
 		AgentID:     agent,
 		SessionID:   "",
 		Kind:        "system",
@@ -159,7 +159,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 		{a, 1, 1}, {a, 2, 2}, {b, 3, 1}, {a, 4, 3}, {b, 5, 2},
 	}
 	for i, st := range steps {
-		id, seq, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
+		id, seq, sord, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
 			AgentID:     st.agent,
 			SessionID:   session,
 			Kind:        "text",
@@ -172,12 +172,16 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 		if seq != st.wantSeq {
 			t.Fatalf("insert %d (agent %s): want seq %d, got %d", i, st.agent, st.wantSeq, seq)
 		}
+		if sord != st.wantOrd {
+			t.Fatalf("insert %d (agent %s): returned session_ordinal %d, want %d", i, st.agent, sord, st.wantOrd)
+		}
+		// The returned ordinal must match what's stored.
 		var ord sql.NullInt64
 		if err := s.db.QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
 			t.Fatalf("read ordinal %d: %v", i, err)
 		}
-		if !ord.Valid || ord.Int64 != st.wantOrd {
-			t.Fatalf("insert %d (agent %s): want session_ordinal %d, got %v", i, st.agent, st.wantOrd, ord)
+		if !ord.Valid || ord.Int64 != sord {
+			t.Fatalf("insert %d (agent %s): stored session_ordinal %v != returned %d", i, st.agent, ord, sord)
 		}
 	}
 
@@ -210,7 +214,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 func TestSessionOrdinal_NullForSessionlessEvent(t *testing.T) {
 	s, _ := newA2ATestServer(t)
 	agent := seedAgentRow(t, s, defaultTeamID, "p1-null", "claude-code")
-	id, _, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
+	id, _, _, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
 		AgentID:     agent,
 		SessionID:   "",
 		Kind:        "system",
@@ -231,7 +235,7 @@ func TestSessionOrdinal_NullForSessionlessEvent(t *testing.T) {
 
 func insertSeq(t *testing.T, s *Server, agentID, session string) int64 {
 	t.Helper()
-	_, seq, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
+	_, seq, _, _, err := insertAgentEvent(context.Background(), s.db, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   session,
 		Kind:        "text",

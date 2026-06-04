@@ -33,7 +33,7 @@ func TestDigestIncrementalMatchesBrute(t *testing.T) {
 		); err != nil {
 			t.Fatalf("insert event seq %d: %v", e.Seq, err)
 		}
-		s.foldEventIntoDigest(ctx, defaultTeamID, v.AgentID, e.Seq, e.Kind, e.TS, e.Producer, string(payload))
+		s.foldEventIntoDigest(ctx, defaultTeamID, v.AgentID, e.Seq, e.Ordinal, e.Kind, e.TS, e.Producer, string(payload))
 	}
 
 	got, ok, err := loadAgentDigest(ctx, s.db, v.AgentID)
@@ -138,7 +138,7 @@ func TestDigestLazyBackfill(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert last: %v", err)
 	}
-	s.foldEventIntoDigest(ctx, defaultTeamID, v.AgentID, last.Seq, last.Kind, last.TS, last.Producer, string(payload))
+	s.foldEventIntoDigest(ctx, defaultTeamID, v.AgentID, last.Seq, last.Ordinal, last.Kind, last.TS, last.Producer, string(payload))
 
 	got, ok, err := loadAgentDigest(ctx, s.db, v.AgentID)
 	if err != nil || !ok {

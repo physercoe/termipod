@@ -1172,7 +1172,7 @@ func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind s
 	}
 
 	agentID := currentAgentID.String
-	id, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+	id, _, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID.String,
 		Kind:        "input.attention_reply",

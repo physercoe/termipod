@@ -6,7 +6,8 @@
 > Go-testable locally and land green before mobile (P4), which is CI-verified
 > (no local Flutter). Director-directed: "Option C … a clean and solid
 > foundation," full foundation, phased. **P0 done (`42a4e3d`); P1 done (column
-> + assignment, migration 0052). P2 next.**
+> + assignment, migration 0052); P2 done (digest/turns in ordinal space, digest
+> schema v5, migration 0053). P3 next.**
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.801-alpha
 

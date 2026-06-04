@@ -78,7 +78,7 @@ func (s *Server) notifyRunOwner(ctx context.Context, team, runID, toStatus strin
 		"body":       body,
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	id, seq, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+	id, seq, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
 		AgentID:     agentID.String,
 		SessionID:   sessionID,
 		Kind:        "run.notify",

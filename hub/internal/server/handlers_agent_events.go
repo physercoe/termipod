@@ -107,7 +107,7 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := s.lookupSessionForAgent(r.Context(), agent)
-	id, seq, ts, err := insertAgentEvent(r.Context(), s.db, agentEventInsert{
+	id, seq, sord, ts, err := insertAgentEvent(r.Context(), s.db, agentEventInsert{
 		AgentID:     agent,
 		SessionID:   sessionID,
 		Kind:        in.Kind,
@@ -123,7 +123,7 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	// the insert (which already committed) so a digest-fold bug can never
 	// block event ingestion — the digest is a derived read model, as-of
 	// watermark_seq, and the read path repairs any lag (see digestIsStale).
-	s.foldEventIntoDigest(r.Context(), team, agent, seq, in.Kind, ts, in.Producer, payload)
+	s.foldEventIntoDigest(r.Context(), team, agent, seq, sord, in.Kind, ts, in.Producer, payload)
 
 	s.touchSession(r.Context(), sessionID)
 	s.captureEngineSessionID(r.Context(), sessionID, in.Kind, in.Producer, payload)

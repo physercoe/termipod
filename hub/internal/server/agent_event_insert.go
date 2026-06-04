@@ -47,9 +47,14 @@ type agentEventInsert struct {
 // session spans multiple agents after a resume — the coordinate the
 // session-scoped Insight surface lands on. UNIQUE(session_id, session_ordinal)
 // backstops the race, the same way UNIQUE(agent_id, seq) backstops seq.
-func insertAgentEvent(ctx context.Context, q agentEventRower, ev agentEventInsert) (id string, seq int64, ts string, err error) {
+// The returned sord is the assigned session_ordinal (0 when the event has no
+// session). Callers that maintain the per-event digest pass it on so the
+// incremental fold records the same ordinal the brute-force fold reads back
+// from the column (the incremental==brute invariant, ADR-038).
+func insertAgentEvent(ctx context.Context, q agentEventRower, ev agentEventInsert) (id string, seq, sord int64, ts string, err error) {
 	id = NewID()
 	ts = NowUTC()
+	var sordN sql.NullInt64
 	err = q.QueryRowContext(ctx, `
 		INSERT INTO agent_events (id, agent_id, seq, session_ordinal, ts, kind, producer, payload_json, session_id)
 		SELECT ?, ?,
@@ -59,8 +64,8 @@ func insertAgentEvent(ctx context.Context, q agentEventRower, ev agentEventInser
 		       END,
 		       ?, ?, ?, ?, NULLIF(?, '')
 		  FROM agent_events WHERE agent_id = ?
-		RETURNING seq`,
+		RETURNING seq, session_ordinal`,
 		id, ev.AgentID, ev.SessionID, ev.SessionID,
-		ts, ev.Kind, ev.Producer, ev.PayloadJSON, ev.SessionID, ev.AgentID).Scan(&seq)
-	return id, seq, ts, err
+		ts, ev.Kind, ev.Producer, ev.PayloadJSON, ev.SessionID, ev.AgentID).Scan(&seq, &sordN)
+	return id, seq, sordN.Int64, ts, err
 }

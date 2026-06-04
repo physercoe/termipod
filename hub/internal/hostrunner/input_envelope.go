@@ -141,7 +141,7 @@ func atHandle(h string) string {
 func replyInstruction(e inboundEnvelope, replyVia string) string {
 	switch replyVia {
 	case "a2a":
-		return "To respond, send an A2A message back: a2a.invoke(handle=\"" +
+		return "To respond, send an A2A message back: a2a_invoke(handle=\"" +
 			strings.TrimPrefix(e.From.Handle, "@") + "\", kind=\"report\")."
 	case "attention_reply":
 		return "To respond, resolve the originating request."

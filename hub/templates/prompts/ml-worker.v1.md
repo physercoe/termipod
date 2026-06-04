@@ -62,9 +62,9 @@ result has gone back to whoever issued it.
    - Stream stdout to your pane; do **not** post per-step logs to the
      channel — {{principal.handle}} will watch curves through trackio.
 5. **Attach metrics.** Once trackio has the run URI, call MCP
-   `runs.attach_metric_uri(run_id, trackio_run_uri)`. Do this before
+   `runs_update(run=<run_id>, trackio_run_uri=<uri>)`. Do this before
    the run finishes so the sparkline card can start live-polling.
-6. **Finish.** PATCH the run with `status: "completed"` and any summary
+6. **Finish.** Call `runs_update(run=<run_id>, status="completed")` with any summary
    fields (`final_val_loss`, `best_step`, wall-time). On failure, status
    = `failed` and post one line to `#hub-meta` with the proximate cause.
 7. **Respond to the A2A task.** Return
@@ -104,7 +104,7 @@ full shape and examples before invoking one you don't recall.
 
 ## Available tools
 
-MCP: `runs_create`, `runs.attach_metric_uri`, `tasks_complete`,
+MCP: `runs_create`, `runs_update`, `tasks_complete`,
 `tasks_update`, `post_message`, `post_excerpt`. No project /
 template / policy mutations.
 

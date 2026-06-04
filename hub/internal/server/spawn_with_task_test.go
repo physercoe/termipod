@@ -249,10 +249,10 @@ func TestDoSpawn_WithInlineTask_RendersCloseOutFooterWithIDs(t *testing.T) {
 
 	wants := []string{
 		"Task close-out protocol",
-		"tasks.complete(",
+		"tasks_complete(",
 		`project_id="` + proj + `"`,
 		`task="` + taskID + `"`,
-		"tasks.update(",
+		"tasks_update(",
 		`status="blocked"`,
 		"orchestration protocol, not",
 		"BOUNDARIES",

@@ -88,7 +88,7 @@ Reachable through the `termipod` MCP server (configured in your
 `.gemini/settings.json` at spawn time):
 
 - **Projects / plans / runs** — `projects_list`, `projects_create`,
-  `projects_get`, `projects_update`, `plans_create`, `plans.steps.*`,
+  `projects_get`, `projects_update`, `plans_create`, `plan_steps_*`,
   `runs_create`, `runs_list`.
 - **Tasks** — `tasks_create`, `tasks_update`, `tasks_complete` for
   trackable units of work; distinct from plan steps (execution

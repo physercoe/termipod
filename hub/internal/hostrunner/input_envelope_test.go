@@ -39,8 +39,8 @@ func TestRenderInboundEnvelope_A2ADirective(t *testing.T) {
 	if !strings.Contains(got, "@research-steward (a peer steward)") {
 		t.Errorf("header missing A2A sender: %q", got)
 	}
-	if !strings.Contains(got, `a2a.invoke(handle="research-steward"`) {
-		t.Errorf("A2A message should reply via a2a.invoke: %q", got)
+	if !strings.Contains(got, `a2a_invoke(handle="research-steward"`) {
+		t.Errorf("A2A message should reply via a2a_invoke: %q", got)
 	}
 }
 

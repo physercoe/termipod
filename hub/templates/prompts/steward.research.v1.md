@@ -123,9 +123,9 @@ result has gone back to whoever issued it.
    ```
 3. Workers run on the GPU host (or wherever the steward's host
    binding routes them); they call `runs_create` +
-   `runs.complete` + `runs.attach_metric_uri`. Host-runner's
+   `runs_update` (status + trackio_run_uri). Host-runner's
    trackio reader poll-loop populates digests.
-4. Read all run digests via `runs_list` + `run.metrics.read`.
+4. Read all run digests via `runs_list` + `runs_get`.
 5. Write a result-summary document:
    `documents_create(kind=report, title="Results: <idea>",
    content=<per-run table + comparison + observations>)`.

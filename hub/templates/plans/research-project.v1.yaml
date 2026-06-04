@@ -6,12 +6,12 @@
 # paper) per ADR-001 D-amend-1 + research-demo-lifecycle.md §3.
 #
 # General steward usage:
-#   1. templates.plan.get(name="research-project.v1.yaml") — read
+#   1. templates_plan_get(name="research-project.v1.yaml") — read
 #      this file
 #   2. Customise the per-phase `goal` and `worker_kinds` to fit the
 #      director's idea (e.g. for a non-ML idea, swap ml-worker for
 #      a simulation-worker).
-#   3. templates.plan.create(name="research-project.<id>.yaml",
+#   3. templates_plan_create(name="research-project.<id>.yaml",
 #      content=<customised>) — write the per-project version
 #   4. plan.instantiate(template_id="research-project.<id>",
 #      parameters_json={idea: "<director's text>"}) — produces

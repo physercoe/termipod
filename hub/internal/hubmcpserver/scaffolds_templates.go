@@ -156,9 +156,9 @@ func agentWorkerScaffold(engine string) string {
 	if engine != "claude-code" {
 		model = "" // codex/gemini/kimi pick model out-of-band
 	}
-	return `# <one-line purpose>. Author with ` + "`templates.agent.create`" + `; the
+	return `# <one-line purpose>. Author with ` + "`templates_agent_create`" + `; the
 # prompt body lives separately under
-# ` + "`templates.prompt.create(name=\"<your-handle-base>.v1.md\")`" + `.
+# ` + "`templates_prompt_create(name=\"<your-handle-base>.v1.md\")`" + `.
 
 template: agents.<your-handle-base>
 version: 1
@@ -184,14 +184,14 @@ display_label: "<Display label>"
 # the canonical pattern set. Add capabilities your agent actually uses;
 # any worker.allow entry is fair game.
 default_capabilities:
-  - documents.create
+  - documents_create
   - documents.read
-  - documents.list
-  - channels.post_event
+  - documents_list
+  - channels_post_event
   - attention.create     # request_help / request_select / request_approval
-  - a2a.invoke           # parent-steward target only (ADR-016 D4)
-  - tasks.create
-  - tasks.update
+  - a2a_invoke           # parent-steward target only (ADR-016 D4)
+  - tasks_create
+  - tasks_update
   - journal_append
   - journal_read
   - get_attention
@@ -203,7 +203,7 @@ default_capabilities:
 prompt: <your-handle-base>.v1.md
 
 # A2A skills advertised on the agent card. One entry per skill the
-# parent steward can invoke via a2a.invoke(handle=..., text=...).
+# parent steward can invoke via a2a_invoke(handle=..., text=...).
 skills:
   - id: <skill-id>
     name: <skill-name>
@@ -223,7 +223,7 @@ func agentStewardScaffold(engine string) string {
 	}
 	return `# Domain-steward template. One of these is materialised per project
 # per ADR-025; the general steward delegates project work to the
-# project's steward. Author with ` + "`templates.agent.create`" + `.
+# project's steward. Author with ` + "`templates_agent_create`" + `.
 
 template: agents.steward.<your-domain>
 version: 1
@@ -253,10 +253,10 @@ default_capabilities:
   - decision.vote: significant
   - spawn.descendants: 20
   - templates.read
-  - templates.propose
-  - tasks.create
+  - templates_propose
+  - tasks_create
   - tasks.assign_others
-  - projects.create
+  - projects_create
 
 prompt: steward.<your-domain>.v1.md
 
@@ -286,8 +286,8 @@ inputs it expects from the steward, and the outputs it produces>
 ## Tools you'll reach for
 
 - ` + "`Bash` / `Edit` / `Read` / `Write`" + ` — your engine-native surface.
-- ` + "`documents.create(kind=...)`" + ` — write your output as a deliverable.
-- ` + "`a2a.invoke(handle=<parent-steward>, text=...)`" + ` — report back when
+- ` + "`documents_create(kind=...)`" + ` — write your output as a deliverable.
+- ` + "`a2a_invoke(handle=<parent-steward>, text=...)`" + ` — report back when
   done; ask for clarification when blocked.
 - ` + "`request_help(question=..., mode=clarify)`" + ` — when the principal
   needs to weigh in.
@@ -305,8 +305,8 @@ See your spawn spec for the full MCP surface.
 
 ## When you're done
 
-` + "`reports.post(status=success|partial|failed, summary_md=..., output_artifacts=[<doc_id>])`" + `.
-The steward's ` + "`agents.gather`" + ` long-poll wakes on this event.
+` + "`reports_post(status=success|partial|failed, summary_md=..., output_artifacts=[<doc_id>])`" + `.
+The steward's ` + "`agents_gather`" + ` long-poll wakes on this event.
 `
 
 const promptStewardScaffold = `# <Domain> Steward
@@ -326,15 +326,15 @@ deliverables land at each phase>
 - ` + "`<worker-handle>.v1`" + ` — <one-line purpose>
 - ` + "`<another-worker>.v1`" + ` — <one-line purpose>
 
-Spawn via ` + "`agents.spawn(kind=<worker>.v1, child_handle=@<handle>, project_id={{project_id}}, spawn_spec_yaml=<load template>)`" + `.
+Spawn via ` + "`agents_spawn(kind=<worker>.v1, child_handle=@<handle>, project_id={{project_id}}, spawn_spec_yaml=<load template>)`" + `.
 
 ## Tools you have
 
-- ` + "`agents.spawn`" + ` (project-bound only — the gate enforces D3).
-- ` + "`a2a.invoke`" + ` to your workers; ` + "`agents.gather`" + ` to wait on a fan-out.
+- ` + "`agents_spawn`" + ` (project-bound only — the gate enforces D3).
+- ` + "`a2a_invoke`" + ` to your workers; ` + "`agents_gather`" + ` to wait on a fan-out.
 - ` + "`templates.{agent,prompt,plan}.{list,get,create,update}`" + ` if you
   need to author a new worker template mid-project.
-- ` + "`documents.create`" + `, ` + "`reviews.create`" + `, ` + "`runs.register`" + ` for project
+- ` + "`documents_create`" + `, ` + "`reviews_create`" + `, ` + "`runs.register`" + ` for project
   artifacts.
 - ` + "`request_approval`" + ` / ` + "`request_select`" + ` / ` + "`request_help`" + ` to escalate
   to the principal.
@@ -356,8 +356,8 @@ Spawn via ` + "`agents.spawn(kind=<worker>.v1, child_handle=@<handle>, project_i
 `
 
 func planScaffold(phases int) string {
-	out := `# Plan template. Authored with ` + "`templates.plan.create`" + `; instantiated
-# via ` + "`plans.create(template_id=..., parameters_json={...})`" + `.
+	out := `# Plan template. Authored with ` + "`templates_plan_create`" + `; instantiated
+# via ` + "`plans_create(template_id=..., parameters_json={...})`" + `.
 
 template: plans.<your-plan-id>
 version: 1

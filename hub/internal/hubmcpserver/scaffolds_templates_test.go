@@ -45,8 +45,8 @@ func TestScaffoldAgent_StewardHasElevatedCapabilities(t *testing.T) {
 	}
 	for _, want := range []string{
 		"templates.read",
-		"templates.propose",
-		"projects.create",
+		"templates_propose",
+		"projects_create",
 		"spawn.descendants: 20", // stewards spawn workers
 		"team.coordinator",
 	} {
@@ -94,7 +94,7 @@ func TestScaffoldPrompt_HasCanonicalSections(t *testing.T) {
 		"## What you do",
 		"## Tools you'll reach for",
 		"## Behaviour",
-		"reports.post",
+		"reports_post",
 	} {
 		if !strings.Contains(worker, want) {
 			t.Errorf("worker prompt scaffold missing %q", want)

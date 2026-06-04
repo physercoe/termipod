@@ -791,7 +791,7 @@ func renderTaskInstructions(title, body, projectID, taskID string) string {
 		out.WriteString("### Task close-out protocol (system-rendered)\n\n")
 		out.WriteString("When you finish your assigned task, close it out by calling:\n\n")
 		out.WriteString("```\n")
-		out.WriteString("tasks.complete(\n")
+		out.WriteString("tasks_complete(\n")
 		out.WriteString("  project_id=\"" + projectID + "\",\n")
 		out.WriteString("  task=\"" + taskID + "\",\n")
 		out.WriteString("  summary=\"<one-line summary of what you produced>\",\n")
@@ -799,18 +799,18 @@ func renderTaskInstructions(title, body, projectID, taskID string) string {
 		out.WriteString("```\n\n")
 		out.WriteString("If you cannot complete the task, call instead:\n\n")
 		out.WriteString("```\n")
-		out.WriteString("tasks.update(\n")
+		out.WriteString("tasks_update(\n")
 		out.WriteString("  project_id=\"" + projectID + "\",\n")
 		out.WriteString("  task=\"" + taskID + "\",\n")
 		out.WriteString("  status=\"blocked\",\n")
 		out.WriteString("  body_md=\"<short note on why you are stuck>\",\n")
 		out.WriteString(")\n")
 		out.WriteString("```\n\n")
-		out.WriteString("`tasks.complete` and `tasks.update` are orchestration protocol, not\n")
+		out.WriteString("`tasks_complete` and `tasks_update` are orchestration protocol, not\n")
 		out.WriteString("domain tools — any `TOOLS:` / `BOUNDARIES:` restrictions written into\n")
 		out.WriteString("the task body above do NOT apply to them. The hub flips the task to\n")
 		out.WriteString("`done`, stamps `result_summary`, and pushes a `task.notify` event into\n")
-		out.WriteString("your assigner's session automatically when you call `tasks.complete`.\n")
+		out.WriteString("your assigner's session automatically when you call `tasks_complete`.\n")
 	}
 	return out.String()
 }
@@ -915,9 +915,9 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	// callers who have already established the host themselves.
 	if strings.TrimSpace(in.HostID) == "" {
 		writeErrHint(w, http.StatusUnprocessableEntity,
-			"host_id is required; resolve via hosts.list",
+			"host_id is required; resolve via hosts_list",
 			Hint{
-				HintText: "Call hosts.list to discover online host_ids, then retry agents.spawn with the chosen id.",
+				HintText: "Call hosts_list to discover online host_ids, then retry agents_spawn with the chosen id.",
 				SeeTool:  "hosts_list",
 			})
 		return
@@ -929,7 +929,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	if jerr := s.checkSpawnHostReachable(r.Context(), team, in.HostID); jerr != nil {
 		writeErrHint(w, http.StatusUnprocessableEntity, jerr.Error(),
 			Hint{
-				HintText: "Call hosts.list to discover online host_ids, then retry agents.spawn with one of them.",
+				HintText: "Call hosts_list to discover online host_ids, then retry agents_spawn with one of them.",
 				SeeTool:  "hosts_list",
 			})
 		return
@@ -1264,7 +1264,7 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		}
 		if taskStatus == "done" || taskStatus == "cancelled" {
 			return spawnOut{}, http.StatusConflict,
-				errors.New("task is " + taskStatus + "; call tasks.update status='in_progress' first to reopen")
+				errors.New("task is " + taskStatus + "; call tasks_update status='in_progress' first to reopen")
 		}
 		linkedTaskExistingStatus = taskStatus
 	}

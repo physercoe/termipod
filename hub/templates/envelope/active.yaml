@@ -65,7 +65,7 @@ roles:
   default:      "@{{.Handle}}"
 
 reply_instruction:
-  a2a: 'To respond, send an A2A message back: a2a.invoke(handle="{{.FromHandle}}", kind="report").'
+  a2a: 'To respond, send an A2A message back: a2a_invoke(handle="{{.FromHandle}}", kind="report").'
   attention_reply: "To respond, resolve the originating request."
   none: "Informational — no reply is routed. Act on it if it concerns work you own."
   # Softened from the pre-v1.0.648 "Reply in this chat when you have a

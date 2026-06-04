@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-04)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.800
+> **Last verified vs code:** v1.0.801
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,41 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.801-alpha — 2026-06-04
+
+**Team management from mobile + a redesigned hub-admin page.** Team CRUD
+existed server-side (ADR-037 D3) but was unreachable from the app, so a
+director on the `default` team had to drop to the `hub-server` CLI to
+provision another team. This wires the operator-gated team surface into
+the admin page and adds owner-token rotation.
+
+### Added
+- **Teams section on the admin page (ADR-037 D3)** — list every team
+  (active team pinned with a chip), provision a new team via a
+  slug-validated dialog (mirrors the hub's `teamIDRe`), and rotate a
+  team's owner token. The one-time owner token surfaces in a copy-once
+  dialog — never a snackbar, never logged. You can now create a team and
+  add a hub profile for it without leaving the app (`4e68535`).
+- **Team owner-token rotation endpoint (`dfbd460`)** —
+  `POST /v1/admin/teams/{team}/rotate-token`, operator-gated. Mints a
+  fresh `owner` token and revokes the team's prior owner tokens, returning
+  the new plaintext once. No fleet broadcast (owner tokens are held by a
+  human, not pushed to hosts). The filter is `kind='owner'`, so operator
+  and host credentials are never touched — rotating `default`, whose
+  director is the operator token, issues a dedicated owner token and
+  revokes nothing, preserving the hub root.
+- **`admin_teams_controller` seam** — the Teams ordering (active-first,
+  case-insensitive by name) extracted into a non-widget seam with a unit
+  test, following the WS2 controller-seam precedent.
+
+### Changed
+- **Hub-admin page redesigned into four tabs by kind of management** —
+  Fleet (fleet-wide + per-host lifecycle), Teams, Upkeep (host-token
+  rotation + DB vacuum), and Audit (now unfiltered, so team/token events
+  show). Replaces the prior single flat list (`4e68535`).
 
 ---
 

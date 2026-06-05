@@ -241,7 +241,7 @@ func seedBuiltinProjectTemplates(ctx context.Context, db *sql.DB, dataRoot strin
 // resolveTeamTemplatePath, W4 / ADR-037 D5) lands a `projects`-category file in
 // <dataRoot>/teams/<team>/templates/projects; project-template rows are seeded
 // under defaultTeamID, so that team's overlay is the one that backs them. The
-// legacy <dataRoot>/team/templates/projects is the pre-W4 global baseline, kept
+// pre-W4 <dataRoot>/team/templates/projects is the shared global baseline, kept
 // for back-compat. Both are scanned (per-team wins, mirroring handleGetTemplate)
 // so a template authored via the documented PUT is actually seeded + hydrated —
 // previously these readers looked only at the global path, the write/read path
@@ -272,7 +272,7 @@ func matchProjectTemplateName(data []byte, path, id string) bool {
 
 // loadProjectTemplates walks templates/projects/*.yaml in the embedded
 // FS and, on top of that, the project-template disk dirs (the per-team
-// default overlay then the legacy global baseline — see
+// default overlay then the shared global baseline — see
 // projectTemplateDiskDirs). Disk entries override embedded entries by name
 // so a user-edited copy of a built-in template takes precedence without
 // needing to delete the embedded original.

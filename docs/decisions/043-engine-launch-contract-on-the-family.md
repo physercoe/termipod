@@ -92,16 +92,21 @@ config-as-code framing are in the discussion doc.
 - **P0 — guard (Option C), DONE.** `TestBundledAgentTemplates_M2LaunchContract`
   pins the current cmd-string contract (claude-code M2 ⊇ stream-json flags;
   codex M2 ⊇ `app-server`). Closes the regression hole immediately.
-- **P1 — family data.** `launch.<mode>.mode_args` in the schema + the
-  `agentfamilies` Go struct + `LaunchArgs(mode)`; populate claude-code (M2),
-  codex (M2), gemini-cli (M2) from the values that exist today. Parse-only, no
-  behavior change; a test asserts the bundled values round-trip.
-- **P2 — compose + drop flags.** `launchM2` (and `launchM1` where relevant)
-  appends `LaunchArgs(mode)`; the 11 claude templates + codex template drop
-  their mode flags; the gemini driver reads `LaunchArgs(M2)`; the mobile
-  scaffold drops the flags too. The guard test (P0) flips to asserting the
-  composed command. This is where the launch-test ripple (≈13 files) is
-  absorbed.
+- **P1 — family data, DONE.** `launch.<mode>.mode_args` in the schema + the
+  `agentfamilies` Go struct (`LaunchMode`) + `Family.LaunchArgs(mode)`;
+  populated claude-code (M2), codex (M2), gemini-cli (M2) from the values that
+  existed in the templates / gemini driver. Parse-only; `families_test.go`
+  pins the bundled values, the nil-for-absent-mode contract, and copy-on-return.
+- **P2 — compose + drop flags, DONE.** `launchM2` composes
+  `Family.ComposeLaunchCmd("M2", cmd)` (claude-code, codex); the gemini
+  `ExecResumeDriver` reads `LaunchArgs("M2")` via a new `BaseArgs` field; the
+  11 claude templates + codex template + the mobile scaffold dropped their mode
+  flags. Composition is append-only with documented precedence — a no-op when
+  the cmd already carries the contract — so the ripple was a single test, and
+  user-authored full cmds keep working. The P0 guard flipped to asserting the
+  composed command **and** that the raw template no longer carries the flags
+  (locking the single source). `launchM1` mode args are not yet declared (M1
+  ACP carries no stream-json cmd today); add them when an M1 contract needs it.
 - **P3 — hoist `permission_modes`** onto the family the same way (separate
   change).
 

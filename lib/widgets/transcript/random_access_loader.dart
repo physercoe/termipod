@@ -1,6 +1,7 @@
-// Random-access window loader — the `(ts, seq)` compound-keyset fetch logic
+// Random-access window loader — the dense `session_ordinal` keyset fetch logic
 // for the Insights transcript (plan P2, docs/plans/agent-run-analysis-mode.md;
-// #1048 shipped it inline, #1049 extracted it here).
+// #1048 shipped it inline, #1049 extracted it here, ADR-042 P4 re-keyed it onto
+// the session ordinal).
 //
 // This is the *fetch* half of the random-access loader: the two network
 // shapes a mid-run anchor needs — fetch a window *around* an anchor, and
@@ -10,21 +11,28 @@
 // (they are inherently widget-bound); everything here is a free function of
 // its inputs.
 //
+// The cursor is the dense, per-session `session_ordinal` (ADR-042): a single
+// gap-free coordinate that is unique across the agents a resumed session spans
+// (per-agent `seq` collides there — two agents both start at 1). So the
+// window-around-anchor and page-newer/older fetches use one ordinal cursor
+// instead of the old `(ts, seq)` compound keyset — no tiebreak, no same-ts
+// sibling drop, and the loader lands on the right row after a resume.
+//
 // Keeping the keyset math standalone is the point: the "land on the wrong
 // row / page-walk to the top" class of bug (device-test passes 1–3) lived in
 // the seam between the fetch keys and the ingest, where it was invisible.
 // A directly-tested module makes the keyset contract (anchor-inclusive
-// `afterSeq: seq - 1`, half-page head/tail detection) explicit.
+// `afterOrdinal: ordinal - 1`, half-page head/tail detection) explicit.
 
 /// Narrow fetch dependency the [RandomAccessLoader] needs — the keyset subset
 /// of `HubClient.listAgentEvents`. `agentId` and `sessionId` are bound by the
 /// caller's closure; only the cursor + limit vary per call. Lets the loader be
-/// unit-tested with a canned closure instead of a live client.
+/// unit-tested with a canned closure instead of a live client. The cursor is
+/// the session ordinal (ADR-042 P4): `beforeOrdinal` pages strictly older
+/// (server DESC), `afterOrdinal` strictly newer (server ASC).
 typedef AgentEventsFetcher = Future<List<Map<String, dynamic>>> Function({
-  String? beforeTs,
-  int? beforeSeq,
-  String? afterTs,
-  int? afterSeq,
+  int? beforeOrdinal,
+  int? afterOrdinal,
   required int limit,
 });
 
@@ -121,19 +129,18 @@ class RandomAccessLoader {
   /// a sane split rather than a zero-length forward half.
   int get _lead => _leadBefore < _half ? _leadBefore : _half;
 
-  /// Fetch one block *around* the anchor `(ts, seq)`: a small backward lead
-  /// ([_lead] events strictly before the anchor key, DESC) and a large forward
+  /// Fetch one block *around* the anchor [ordinal]: a small backward lead
+  /// ([_lead] events strictly before the anchor, DESC) and a large forward
   /// remainder (the anchor and after, ASC, anchor-inclusive via
-  /// `afterSeq: seq - 1`), summing to [_pageSize]. The asymmetric split lands
-  /// the anchor near the top of the window. The two fetches run sequentially.
-  /// Returns the merged ascending window plus the head/tail-reached flags
-  /// derived from each half's length against what it requested.
-  Future<RandomAccessWindow> fetchAround(int seq, String ts) async {
+  /// `afterOrdinal: ordinal - 1`), summing to [_pageSize]. The asymmetric split
+  /// lands the anchor near the top of the window. The two fetches run
+  /// sequentially. Returns the merged ascending window plus the head/tail-
+  /// reached flags derived from each half's length against what it requested.
+  Future<RandomAccessWindow> fetchAround(int ordinal) async {
     final lead = _lead;
     final afterLimit = _pageSize - lead;
-    final older = await _fetch(beforeTs: ts, beforeSeq: seq, limit: lead);
-    final newer =
-        await _fetch(afterTs: ts, afterSeq: seq - 1, limit: afterLimit);
+    final older = await _fetch(beforeOrdinal: ordinal, limit: lead);
+    final newer = await _fetch(afterOrdinal: ordinal - 1, limit: afterLimit);
     return RandomAccessWindow(
       ascending: <Map<String, dynamic>>[...older.reversed, ...newer],
       reachedHead: older.length < lead,
@@ -142,31 +149,23 @@ class RandomAccessLoader {
   }
 
   /// Page the next [_pageSize] block *newer* than the loaded edge
-  /// `(newestTs, newestSeq)`. Returns the raw page plus whether it came back
-  /// short (the window has caught the live tail).
-  Future<ForwardPage> fetchNewer(String newestTs, int newestSeq) async {
-    final newer = await _fetch(
-      afterTs: newestTs,
-      afterSeq: newestSeq,
-      limit: _pageSize,
-    );
+  /// [newestOrdinal]. Returns the raw page plus whether it came back short (the
+  /// window has caught the live tail).
+  Future<ForwardPage> fetchNewer(int newestOrdinal) async {
+    final newer = await _fetch(afterOrdinal: newestOrdinal, limit: _pageSize);
     return ForwardPage(events: newer, reachedTail: newer.length < _pageSize);
   }
 
   /// Page the next [_pageSize] block *older* than the loaded edge
-  /// `(oldestTs, oldestSeq)` — the backward complement of [fetchNewer]. The
-  /// server returns DESC for a `before` cursor; the result is reversed to the
+  /// [oldestOrdinal] — the backward complement of [fetchNewer]. The server
+  /// returns DESC for a `before_ordinal` cursor; the result is reversed to the
   /// ascending order the buffer keeps. `reachedHead` is true when the page
   /// came back short (no older events remain). Used by the lens-as-query list
   /// (ADR-039) to scroll up through a homogeneous kind set — unlike the live
   /// Feed's load-older, every returned row is a real list item, so there is no
   /// filtered-prepend anchoring ambiguity.
-  Future<BackwardPage> fetchOlder(String oldestTs, int oldestSeq) async {
-    final older = await _fetch(
-      beforeTs: oldestTs,
-      beforeSeq: oldestSeq,
-      limit: _pageSize,
-    );
+  Future<BackwardPage> fetchOlder(int oldestOrdinal) async {
+    final older = await _fetch(beforeOrdinal: oldestOrdinal, limit: _pageSize);
     return BackwardPage(
       ascending: older.reversed.toList(),
       reachedHead: older.length < _pageSize,

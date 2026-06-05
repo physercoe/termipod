@@ -123,24 +123,27 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
         digest.maybeWhen(data: (s) => s.body, orElse: () => null);
     final totalEvents = (digestBody?['event_count'] as num?)?.toInt();
 
-    // Full-run minimap anchors: every error in the run (the digest's per-class
-    // sample seqs) + every turn start (the turn index). The minimap renders
-    // these whole-run, and a tap jumps to a seq that may not be loaded yet.
-    // seq → ts for every anchor that carries a timestamp, so a minimap tick or
-    // the Errors stat can jump via the (ts, seq) window reset (O(log n)) rather
-    // than the bounded page-walk. Turn starts carry start_ts; errors now carry
-    // sample_ts aligned 1:1 with sample_seqs (older digests are seq-only → those
-    // anchors fall back to the page-walk).
+    // Full-run navigation anchors, keyed by the dense `session_ordinal`
+    // (ADR-042): every error in the run (the digest's per-class sample
+    // ordinals) + every turn start (the turn index's start_ordinal). The
+    // ordinal is unique across the agents a resumed session spans, so an anchor
+    // never collides with another agent's same-numbered seq — the resume/
+    // navigator wrong-row bug. Pre-migration digests carry only sample_seqs /
+    // start_seq; we fall back to those so an old run still navigates (its
+    // single-agent seqs are unambiguous anyway).
+    //
+    // ordinal → ts for every anchor that carries a timestamp (turn start_ts,
+    // error sample_ts) — surfaced for the outline rows' relative-time labels.
     final runAnchorTs = <int, String>{};
-    final runErrorSeqs = <int>[];
-    // seq → error class (tool_error / failed_turn / error:<type>), so the
+    final runErrorOrdinals = <int>[];
+    // ordinal → error class (tool_error / failed_turn / error:<type>), so the
     // Errors lens can render the whole-run error list straight from the digest
     // with no event-body fetch (ADR-039 P2). Iterate entries (not values) to
     // keep the class key.
     final runErrorClasses = <int, String>{};
-    // seq → per-error headline label (the failing tool's name, the error type,
-    // or "" for a failed turn — digest schema v3 `sample_labels`). Lets the
-    // Errors lens headline a row with "Bash" instead of the generic class.
+    // ordinal → per-error headline label (the failing tool's name, the error
+    // type, or "" for a failed turn — digest schema v3 `sample_labels`). Lets
+    // the Errors lens headline a row with "Bash" instead of the generic class.
     final runErrorLabels = <int, String>{};
     final errs = digestBody?['errors'];
     if (errs is Map) {
@@ -148,23 +151,33 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
         final cls = entry.key.toString();
         final v = entry.value;
         if (v is! Map) continue;
+        // Prefer the session ordinals; fall back to the per-agent seqs for
+        // pre-ADR-042 digests. The two lists are 1:1 with sample_ts/labels.
+        final ords = v['sample_ordinals'];
         final seqs = v['sample_seqs'];
-        if (seqs is! List) continue;
         final tss = v['sample_ts'];
         final labels = v['sample_labels'];
-        for (var i = 0; i < seqs.length; i++) {
-          final s = seqs[i];
-          if (s is! num) continue;
-          final seq = s.toInt();
-          runErrorSeqs.add(seq);
-          runErrorClasses[seq] = cls;
+        final count = (ords is List)
+            ? ords.length
+            : (seqs is List ? seqs.length : 0);
+        for (var i = 0; i < count; i++) {
+          var anchor = 0;
+          if (ords is List && i < ords.length && ords[i] is num) {
+            anchor = (ords[i] as num).toInt();
+          }
+          if (anchor <= 0 && seqs is List && i < seqs.length && seqs[i] is num) {
+            anchor = (seqs[i] as num).toInt();
+          }
+          if (anchor <= 0) continue;
+          runErrorOrdinals.add(anchor);
+          runErrorClasses[anchor] = cls;
           if (tss is List && i < tss.length) {
             final ts = (tss[i] ?? '').toString();
-            if (ts.isNotEmpty) runAnchorTs[seq] = ts;
+            if (ts.isNotEmpty) runAnchorTs[anchor] = ts;
           }
           if (labels is List && i < labels.length) {
             final label = (labels[i] ?? '').toString();
-            if (label.isNotEmpty) runErrorLabels[seq] = label;
+            if (label.isNotEmpty) runErrorLabels[anchor] = label;
           }
         }
       }
@@ -173,13 +186,15 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
       data: (rows) => rows,
       orElse: () => const <Map<String, dynamic>>[],
     );
-    final runTurnSeqs = <int>[];
+    final runTurnOrdinals = <int>[];
     for (final r in turnRows) {
+      final ord = (r['start_ordinal'] as num?)?.toInt() ?? 0;
       final seq = (r['start_seq'] as num?)?.toInt() ?? 0;
-      if (seq <= 0) continue;
-      runTurnSeqs.add(seq);
+      final anchor = ord > 0 ? ord : seq; // ordinal, seq fallback (old digests)
+      if (anchor <= 0) continue;
+      runTurnOrdinals.add(anchor);
       final ts = (r['start_ts'] ?? '').toString();
-      if (ts.isNotEmpty) runAnchorTs[seq] = ts;
+      if (ts.isNotEmpty) runAnchorTs[anchor] = ts;
     }
 
     final card = digest.when(
@@ -193,9 +208,9 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
           staleSince: state.staleSince,
           live: _live,
           // Tapping the Errors stat jumps the transcript below to the first
-          // error anchor — now with the error's ts (sample_ts) so it takes the
-          // random-access reset, not the page-walk.
-          onJumpToSeq: (seq) => _seek.seekTo(seq, ts: runAnchorTs[seq]),
+          // error anchor (its session_ordinal — ADR-042), driving the dense
+          // ordinal-keyset window reset; the ts rides along for the highlight.
+          onJumpToSeq: (ord) => _seek.seekTo(ord, ts: runAnchorTs[ord]),
         );
       },
     );
@@ -228,10 +243,10 @@ class _SessionAnalysisViewState extends ConsumerState<SessionAnalysisView> {
               onNavigatorOpenChanged: _setNavigatorOpen,
               seekController: _seek,
               totalEventCount: totalEvents,
-              runErrorSeqs: runErrorSeqs,
+              runErrorOrdinals: runErrorOrdinals,
               runErrorClasses: runErrorClasses,
               runErrorLabels: runErrorLabels,
-              runTurnSeqs: runTurnSeqs,
+              runTurnOrdinals: runTurnOrdinals,
               runTurns: turnRows,
               runAnchorTs: runAnchorTs,
             ),

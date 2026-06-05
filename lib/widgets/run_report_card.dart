@@ -293,17 +293,20 @@ class _RunReportCardState extends State<RunReportCard> {
     );
   }
 
+  // The first error anchor as a session_ordinal (ADR-042) — unique across a
+  // resumed session's agents. Falls back to the per-agent sample_seqs for
+  // pre-migration digests (single-agent runs, where seq is unambiguous).
   int? _firstErrorSeq() {
     final errs = widget.digest['errors'];
     if (errs is! Map) return null;
     int? best;
     for (final v in errs.values) {
-      if (v is Map) {
-        final seqs = v['sample_seqs'];
-        if (seqs is List && seqs.isNotEmpty) {
-          final s = _numAsInt(seqs.first);
-          if (best == null || s < best) best = s;
-        }
+      if (v is! Map) continue;
+      final ords = v['sample_ordinals'];
+      final samples = (ords is List && ords.isNotEmpty) ? ords : v['sample_seqs'];
+      if (samples is List && samples.isNotEmpty) {
+        final s = _numAsInt(samples.first);
+        if (best == null || s < best) best = s;
       }
     }
     return best;

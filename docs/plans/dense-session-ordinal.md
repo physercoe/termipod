@@ -8,8 +8,9 @@
 > foundation," full foundation, phased. **P0 done (`42a4e3d`); P1 done (column
 > + assignment, migration 0052); P2 done (digest/turns in ordinal space, digest
 > schema v5, migration 0053); P3 done (events read path echoes session_ordinal +
-> before/after_ordinal keyset). All hub phases landed; P4 (mobile, CI-only)
-> next.**
+> before/after_ordinal keyset). P4 implemented (mobile: loader + anchors +
+> landing re-keyed onto session_ordinal) — CI verification pending (no local
+> Flutter), then director device-test.**
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.801-alpha
 

@@ -2,8 +2,9 @@
 //
 // The Insight surface reads a run as a *sealed dataset*, not a live
 // conversation: a snapshot taken on entry, navigated by random access. It owns
-// its own event buffer fed by the `(ts, seq)` keyset loader, the seek
-// orchestration (anchor + funnel-run jumps + "view in context"), and the
+// its own event buffer fed by the dense `session_ordinal` keyset loader
+// (ADR-042 P4), the seek orchestration (anchor + funnel-run jumps + "view in
+// context"), and the
 // lens-as-query engine (the whole-run Errors list, the turns/errors funnel, the
 // minimap, the N/M ordinal + stepper). It deliberately has **no composer, no
 // telemetry strip, and no live SSE tail** — the live feed (`live_feed.dart`,
@@ -56,30 +57,32 @@ class InsightTranscript extends ConsumerStatefulWidget {
   /// when it's off-window, then anchors + highlights the row.
   final TranscriptSeekController? seekController;
 
-  /// The run-lifetime total event count (from the digest), for the monotonic
-  /// "event N of M" position. Per-agent seq is the dense 1-based run ordinal, so
-  /// N (the viewport-top seq) is the honest position for a single-agent run.
+  /// The run-lifetime total event count (from the session digest, summed across
+  /// the session's agents), for the monotonic "event N of M" position. The dense
+  /// `session_ordinal` is the 1-based run position, so N (the viewport-top
+  /// ordinal) is the honest position across a resume too (ADR-042).
   final int? totalEventCount;
 
-  /// Full-run minimap anchors — the digest's per-class error sample seqs. The
-  /// minimap renders these whole-run (positioned by `seq / total`); a tap routes
-  /// through the random-access seek so a failure anywhere in the run is one tap
-  /// away, not just the loaded slice.
-  final List<int>? runErrorSeqs;
+  /// Full-run navigation anchors — the digest's per-class error sample
+  /// **ordinals** (`session_ordinal`, ADR-042). The minimap renders these
+  /// whole-run (positioned by `ordinal / total`); a tap routes through the
+  /// random-access seek so a failure anywhere in the run is one tap away, not
+  /// just the loaded slice. Unique across a resumed session's agents.
+  final List<int>? runErrorOrdinals;
 
-  /// `seq → error class` (tool_error / failed_turn / error:<type>) for every
+  /// `ordinal → error class` (tool_error / failed_turn / error:<type>) for every
   /// whole-run error — lets the Errors lens render the COMPLETE error list as
   /// summary rows (class + time) with no event-body fetch.
   final Map<int, String>? runErrorClasses;
 
-  /// `seq → headline label` for each whole-run error: the failing tool's name
-  /// ("Bash"), the error type, or absent for a failed turn (digest schema v3
-  /// `sample_labels`). Missing → fall back to the class label.
+  /// `ordinal → headline label` for each whole-run error: the failing tool's
+  /// name ("Bash"), the error type, or absent for a failed turn (digest schema
+  /// v3 `sample_labels`). Missing → fall back to the class label.
   final Map<int, String>? runErrorLabels;
 
-  /// Whole-run turn-start seqs (the turn index's `start_seq`s) — the turns
-  /// funnel + the minimap's turn ticks.
-  final List<int>? runTurnSeqs;
+  /// Whole-run turn-start **ordinals** (the turn index's `start_ordinal`s) —
+  /// the turns outline + the minimap's turn ticks.
+  final List<int>? runTurnOrdinals;
 
   /// The full whole-run turn rows (the `agent_turns` index: `idx`, `start_seq`,
   /// `start_ts`, `status`, `open`, `duration_ms`, `tool_count`, `tool_failed`,
@@ -90,10 +93,10 @@ class InsightTranscript extends ConsumerStatefulWidget {
   /// window.
   final List<Map<String, dynamic>>? runTurns;
 
-  /// `seq → ts` for the run anchors that carry a timestamp (turn `start_ts`,
-  /// error `sample_ts`). A jump with a ts takes the O(log n) `(ts, seq)` window
-  /// reset; a ts-less anchor (older digest) falls back to the bounded
-  /// page-walk.
+  /// `ordinal → ts` for the run anchors that carry a timestamp (turn
+  /// `start_ts`, error `sample_ts`) — used for the outline rows' relative-time
+  /// labels and the seek highlight. The window reset itself keysets on the
+  /// ordinal alone (ADR-042), so the ts is no longer load-bearing.
   final Map<int, String>? runAnchorTs;
 
   /// The right Navigator drawer's open state, **lifted to the host** so the
@@ -112,10 +115,10 @@ class InsightTranscript extends ConsumerStatefulWidget {
     this.padding = const EdgeInsets.all(12),
     this.seekController,
     this.totalEventCount,
-    this.runErrorSeqs,
+    this.runErrorOrdinals,
     this.runErrorClasses,
     this.runErrorLabels,
-    this.runTurnSeqs,
+    this.runTurnOrdinals,
     this.runTurns,
     this.runAnchorTs,
   });
@@ -134,11 +137,12 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   // Content-stable dedupe keys for replay-ingest filtering (a session/load
   // replay re-streams turns under fresh ids/seqs).
   final Set<String> _replayKeys = <String>{};
-  int _maxSeq = 0;
-  // Smallest loaded seq; the load-older floor.
-  int _minSeq = 0;
-  // Oldest loaded ts — the session-scoped load-older cursor.
-  String _oldestTs = '';
+  // The loaded window's coordinate bounds, in dense `session_ordinal` space
+  // (ADR-042) — the session-unique coordinate the keyset loader pages on, so a
+  // resumed session (whose agents' seqs collide) windows + lands correctly.
+  int _maxOrd = 0;
+  // Smallest loaded ordinal; the load-older floor (the `before_ordinal` cursor).
+  int _minOrd = 0;
   String? _error;
   bool _loading = true;
   static const int _pageSize = 200;
@@ -148,9 +152,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   // mid-run anchor sets it false, which arms the forward pager [_maybeLoadNewer].
   bool _windowHasTail = true;
   bool _loadingNewer = false;
-  // Newest loaded (ts, seq) — the forward pager's cursor.
-  String _newestTs = '';
-  int _newestSeq = 0;
+  // Newest loaded ordinal — the forward pager's `after_ordinal` cursor.
+  int _newestOrd = 0;
   // Set when the snapshot falls back to the offline cache; surfaces a banner
   // with the snapshot timestamp.
   DateTime? _staleSince;
@@ -170,8 +173,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   FeedLens? _lensLoadedFor; // which lens the buffer currently holds (null=none)
   bool _lensLoading = false;
   bool _lensAtHead = false;
-  String _lensOldestTs = '';
-  int _lensMinSeq = 0;
+  // Oldest loaded ordinal in the lens buffer — its `before_ordinal` load-older
+  // cursor.
+  int _lensMinOrd = 0;
   // Tail-follow here only governs whether a jump-to-latest control shows and
   // whether load-newer fires near the bottom; there's no live tail to follow.
   bool _followTail = true;
@@ -180,10 +184,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   // The landing engine (ADR-040 P2a): the seek GlobalKey, realized-row window
   // sentinels, and programmatic-scroll guard. Bound in initState.
   late final TranscriptSeek _seek;
-  // The seq the transcript is anchored to (the active lens match / external
+  // The ordinal the transcript is anchored to (the active lens match / external
   // jump). Null = no anchor. The matching card gets [_seek.seekKey] + a tinted
   // border while [_seekHighlight] holds.
-  int? _activeSeekSeq;
+  int? _activeSeekOrd;
   bool _seekHighlight = false;
   Timer? _seekHighlightTimer;
   // Single-select transcript CARD FILTER (All / Text / Tools). Turns and Errors
@@ -207,13 +211,23 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   int _lastSeekGeneration = 0;
   // Viewport-top position (0..1) for the minimap indicator.
   double _viewFrac = 1.0;
-  // A seq the user asked to view "in context": tapped from a filtered card, it
-  // switches to All and (in build, once the unfiltered list is back) seeks the
-  // row so the surrounding turns are visible.
-  int? _pendingContextSeq;
+  // An ordinal the user asked to view "in context": tapped from a filtered
+  // card, it switches to All and (in build, once the unfiltered list is back)
+  // seeks the row so the surrounding turns are visible.
+  int? _pendingContextOrd;
   // The Navigator outline rows' fixed extents (let the list lay out cheaply).
   static const double _kErrorRowExtent = 52.0;
   static const double _kTurnRowExtent = 52.0;
+
+  /// The session-scoped coordinate of a row: the dense `session_ordinal`
+  /// (ADR-042), unique across the agents a resumed session spans. Falls back to
+  /// the per-agent `seq` for pre-migration rows that lack an ordinal — those
+  /// degrade to the old single-agent behavior (seq is unambiguous there).
+  static int _ordOf(Map<String, dynamic> e) {
+    final o = (e['session_ordinal'] as num?)?.toInt() ?? 0;
+    if (o > 0) return o;
+    return (e['seq'] as num?)?.toInt() ?? 0;
+  }
 
   @override
   void initState() {
@@ -312,21 +326,16 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       ..addAll(filtered);
     _ids.clear();
     _replayKeys.clear();
-    _maxSeq = 0;
-    _minSeq = 0;
-    _oldestTs = '';
+    _maxOrd = 0;
+    _minOrd = 0;
     for (final e in _events) {
       final id = (e['id'] ?? '').toString();
       if (id.isNotEmpty) _ids.add(id);
       final replayKey = agentEventReplayKey(e);
       if (replayKey != null) _replayKeys.add(replayKey);
-      final seq = (e['seq'] as num?)?.toInt() ?? 0;
-      if (seq > _maxSeq) _maxSeq = seq;
-      if (_minSeq == 0 || seq < _minSeq) _minSeq = seq;
-      final ts = (e['ts'] ?? '').toString();
-      if (ts.isNotEmpty && (_oldestTs.isEmpty || ts.compareTo(_oldestTs) < 0)) {
-        _oldestTs = ts;
-      }
+      final ord = _ordOf(e);
+      if (ord > _maxOrd) _maxOrd = ord;
+      if (ord > 0 && (_minOrd == 0 || ord < _minOrd)) _minOrd = ord;
     }
   }
 
@@ -337,33 +346,31 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   RandomAccessLoader _randomAccessLoader(HubClient client) => RandomAccessLoader(
         pageSize: _pageSize,
         fetch: ({
-          String? beforeTs,
-          int? beforeSeq,
-          String? afterTs,
-          int? afterSeq,
+          int? beforeOrdinal,
+          int? afterOrdinal,
           required int limit,
         }) =>
             client.listAgentEvents(
               widget.agentId,
               sessionId: widget.sessionId,
-              beforeTs: beforeTs,
-              beforeSeq: beforeSeq,
-              afterTs: afterTs,
-              afterSeq: afterSeq,
+              beforeOrdinal: beforeOrdinal,
+              afterOrdinal: afterOrdinal,
               limit: limit,
             ),
       );
 
   /// Random-access window reset: replace the loaded window with one block
-  /// fetched *around* the anchor `(ts, seq)` — the backward half (before the
-  /// key, DESC) and the forward half (the anchor and after, ASC). After a reset
+  /// fetched *around* the anchor [ordinal] — the backward half (before the
+  /// ordinal, DESC) and the forward half (the anchor and after, ASC). The dense
+  /// `session_ordinal` is a single session-unique cursor, so this lands on the
+  /// right row even after a resume (where per-agent seqs collide). After a reset
   /// the window may not reach the tail, so [_windowHasTail] goes false (arming
   /// the forward pager).
-  Future<void> _resetWindowAround(int seq, String ts) async {
+  Future<void> _resetWindowAround(int ordinal) async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final window = await _randomAccessLoader(client).fetchAround(seq, ts);
+      final window = await _randomAccessLoader(client).fetchAround(ordinal);
       if (!mounted) return;
       if (window.isEmpty) {
         // Anchor out of range — leave the current window rather than yanking
@@ -380,8 +387,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       });
       // Land on the anchor once the new (mid-list, unrealised) window lays out —
       // route through the convergent index seek, not the ensureVisible-only
-      // [_seekToSeq] which would silently no-op here.
-      _landOnSeq(seq);
+      // [_seekToOrd] which would silently no-op here.
+      _landOnOrd(ordinal);
     } catch (_) {
       // Network blip — leave the existing window; the caller can retry.
     }
@@ -389,7 +396,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
 
   /// Replace [_events] with a fresh, contiguous [ascending] window (the
   /// random-access reset). Distinct from [_ingestSnapshot] because it also
-  /// tracks the *newest* loaded `(ts, seq)` — the forward pager's cursor.
+  /// tracks the *newest* loaded ordinal — the forward pager's cursor.
   void _ingestWindow(List<Map<String, dynamic>> ascending) {
     final filtered = <Map<String, dynamic>>[];
     for (final e in ascending) {
@@ -405,27 +412,18 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         ..addAll(filtered);
       _ids.clear();
       _replayKeys.clear();
-      _maxSeq = 0;
-      _minSeq = 0;
-      _oldestTs = '';
-      _newestTs = '';
-      _newestSeq = 0;
+      _maxOrd = 0;
+      _minOrd = 0;
+      _newestOrd = 0;
       for (final e in _events) {
         final id = (e['id'] ?? '').toString();
         if (id.isNotEmpty) _ids.add(id);
         final replayKey = agentEventReplayKey(e);
         if (replayKey != null) _replayKeys.add(replayKey);
-        final s = (e['seq'] as num?)?.toInt() ?? 0;
-        if (s > _maxSeq) _maxSeq = s;
-        if (_minSeq == 0 || s < _minSeq) _minSeq = s;
-        final t = (e['ts'] ?? '').toString();
-        if (t.isNotEmpty && (_oldestTs.isEmpty || t.compareTo(_oldestTs) < 0)) {
-          _oldestTs = t;
-        }
-        if (t.compareTo(_newestTs) > 0 || (t == _newestTs && s > _newestSeq)) {
-          _newestTs = t;
-          _newestSeq = s;
-        }
+        final o = _ordOf(e);
+        if (o > _maxOrd) _maxOrd = o;
+        if (o > 0 && (_minOrd == 0 || o < _minOrd)) _minOrd = o;
+        if (o > _newestOrd) _newestOrd = o;
       }
     });
   }
@@ -437,11 +435,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   Future<void> _maybeLoadNewer() async {
     if (_loadingNewer || _windowHasTail) return;
     final client = ref.read(hubProvider.notifier).client;
-    if (client == null || _newestTs.isEmpty) return;
+    if (client == null || _newestOrd == 0) return;
     setState(() => _loadingNewer = true);
     try {
-      final page =
-          await _randomAccessLoader(client).fetchNewer(_newestTs, _newestSeq);
+      final page = await _randomAccessLoader(client).fetchNewer(_newestOrd);
       if (!mounted) return;
       final added = <Map<String, dynamic>>[];
       for (final e in page.events) {
@@ -456,14 +453,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       setState(() {
         _events.addAll(added);
         for (final e in added) {
-          final s = (e['seq'] as num?)?.toInt() ?? 0;
-          if (s > _maxSeq) _maxSeq = s;
-          final t = (e['ts'] ?? '').toString();
-          if (t.compareTo(_newestTs) > 0 ||
-              (t == _newestTs && s > _newestSeq)) {
-            _newestTs = t;
-            _newestSeq = s;
-          }
+          final o = _ordOf(e);
+          if (o > _maxOrd) _maxOrd = o;
+          if (o > _newestOrd) _newestOrd = o;
           final replayKey = agentEventReplayKey(e);
           if (replayKey != null) _replayKeys.add(replayKey);
         }
@@ -478,21 +470,21 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
 
   Future<void> _maybeLoadOlder() async {
     if (_loadingOlder || _atHead) return;
-    if (_oldestTs.isEmpty) return;
+    if (_minOrd == 0) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     setState(() => _loadingOlder = true);
-    final priorOldestTs = _oldestTs;
+    final priorMinOrd = _minOrd;
     final priorMaxExtent =
         _scroll.hasClients ? _scroll.position.maxScrollExtent : 0.0;
     final priorPixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
     try {
       final older = await client.listAgentEvents(
         widget.agentId,
-        beforeTs: priorOldestTs,
-        // Pair the ts cursor with the seq tiebreak so same-ts events at the
-        // window floor aren't dropped (the (ts, seq) keyset).
-        beforeSeq: _minSeq,
+        // The dense `session_ordinal` keyset (ADR-042): one session-unique
+        // cursor, so the load-older floor never drops or duplicates a sibling
+        // across a resume boundary the way the (ts, seq) tiebreak could.
+        beforeOrdinal: priorMinOrd,
         limit: _pageSize,
         sessionId: widget.sessionId,
       );
@@ -511,13 +503,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       setState(() {
         _events.insertAll(0, ascending);
         for (final e in ascending) {
-          final seq = (e['seq'] as num?)?.toInt() ?? 0;
-          if (_minSeq == 0 || seq < _minSeq) _minSeq = seq;
-          final ts = (e['ts'] ?? '').toString();
-          if (ts.isNotEmpty &&
-              (_oldestTs.isEmpty || ts.compareTo(_oldestTs) < 0)) {
-            _oldestTs = ts;
-          }
+          final ord = _ordOf(e);
+          if (ord > 0 && (_minOrd == 0 || ord < _minOrd)) _minOrd = ord;
           final replayKey = agentEventReplayKey(e);
           if (replayKey != null) _replayKeys.add(replayKey);
         }
@@ -547,19 +534,15 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       RandomAccessLoader(
         pageSize: _pageSize,
         fetch: ({
-          String? beforeTs,
-          int? beforeSeq,
-          String? afterTs,
-          int? afterSeq,
+          int? beforeOrdinal,
+          int? afterOrdinal,
           required int limit,
         }) =>
             client.listAgentEvents(
               widget.agentId,
               sessionId: widget.sessionId,
-              beforeTs: beforeTs,
-              beforeSeq: beforeSeq,
-              afterTs: afterTs,
-              afterSeq: afterSeq,
+              beforeOrdinal: beforeOrdinal,
+              afterOrdinal: afterOrdinal,
               limit: limit,
               kinds: kinds,
             ),
@@ -580,8 +563,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       _lensEvents.clear();
       _lensIds.clear();
       _lensAtHead = false;
-      _lensOldestTs = '';
-      _lensMinSeq = 0;
+      _lensMinOrd = 0;
     });
     try {
       final page = await client.listAgentEvents(
@@ -630,8 +612,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         _lensEvents.addAll(add);
       }
       if (_lensEvents.isNotEmpty) {
-        _lensOldestTs = (_lensEvents.first['ts'] ?? '').toString();
-        _lensMinSeq = (_lensEvents.first['seq'] as num?)?.toInt() ?? 0;
+        _lensMinOrd = _ordOf(_lensEvents.first);
       }
     });
   }
@@ -640,7 +621,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// scrolls near its top, anchoring the viewport so the prepend doesn't jump.
   Future<void> _loadOlderLens() async {
     final lens = _lensLoadedFor;
-    if (_lensLoading || _lensAtHead || _lensOldestTs.isEmpty || lens == null) {
+    if (_lensLoading || _lensAtHead || _lensMinOrd == 0 || lens == null) {
       return;
     }
     final kindSet = feedLensKinds(lens);
@@ -653,8 +634,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     final priorPixels =
         _lensScroll.hasClients ? _lensScroll.position.pixels : 0.0;
     try {
-      final page = await _lensLoader(client, kindSet.toList())
-          .fetchOlder(_lensOldestTs, _lensMinSeq);
+      final page =
+          await _lensLoader(client, kindSet.toList()).fetchOlder(_lensMinOrd);
       if (!mounted) return;
       _ingestLensPage(page.ascending, prepend: true);
       setState(() {
@@ -677,17 +658,18 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   }
 
   /// Hand a lens-buffer card back to the main transcript "in context": clear
-  /// the buffer + lens, then land the main window on [seq] (resetting it around
-  /// the anchor if the seq isn't in the loaded slice). Fixes the old "view in
-  /// context jumps to the wrong row" when the match was outside the window.
-  void _viewInContext(int seq, String? ts) {
+  /// the buffer + lens, then land the main window on [ordinal] (resetting it
+  /// around the anchor if the ordinal isn't in the loaded slice). Fixes the old
+  /// "view in context jumps to the wrong row" when the match was outside the
+  /// window.
+  void _viewInContext(int ordinal) {
     setState(() {
       _lens = FeedLens.all;
       _lensEvents.clear();
       _lensIds.clear();
       _lensLoadedFor = null;
     });
-    _handleExternalSeek(seq, ts);
+    _handleExternalSeek(ordinal);
   }
 
   // ── Scroll / position ─────────────────────────────────────────────────────
@@ -718,7 +700,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         if (atTrueTail) {
           // Reset the turn-stepper anchor so the next `‹` starts from the
           // newest prompt rather than wherever we last jumped.
-          _activeSeekSeq = null;
+          _activeSeekOrd = null;
         }
       });
     }
@@ -726,9 +708,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   }
 
   /// The monotonic "event N of M" position. N is read straight from the
-  /// top-built row's run ordinal (the seq) — exact, monotonic, and (unlike a
-  /// viewFrac interpolation) doesn't lurch when the window grows by a page. M is
-  /// the digest's run-lifetime total.
+  /// top-built row's `session_ordinal` (ADR-042) — exact, monotonic, and
+  /// (unlike a viewFrac interpolation) doesn't lurch when the window grows by a
+  /// page, and unlike the per-agent seq it stays the true run position across a
+  /// resume. M is the session digest's run-lifetime total.
   ({int n, int m})? _logPosition() {
     final total = widget.totalEventCount;
     if (total != null && total > 0 && _seek.lastTopBuiltSeq > 0) {
@@ -736,8 +719,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       return (n: n, m: total);
     }
     return feedLogPosition(
-      minSeq: _minSeq,
-      maxSeq: _maxSeq,
+      minSeq: _minOrd,
+      maxSeq: _maxOrd,
       viewFrac: _viewFrac,
       totalEventCount: total,
     );
@@ -747,8 +730,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// turn index) — i.e. the host supplied a run total and at least one anchor.
   bool get _runAnchorMode =>
       widget.totalEventCount != null &&
-      ((widget.runErrorSeqs?.isNotEmpty ?? false) ||
-          (widget.runTurnSeqs?.isNotEmpty ?? false));
+      ((widget.runErrorOrdinals?.isNotEmpty ?? false) ||
+          (widget.runTurnOrdinals?.isNotEmpty ?? false));
 
   /// The minimap's position indicator: in whole-run anchor mode it tracks the
   /// run ordinal (N/M); otherwise the within-loaded-window fraction.
@@ -762,20 +745,27 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
 
   // ── Outline data (the Navigator's Turns / Errors tabs) ───────────────────
 
-  // The run's error seqs, ascending so the newest sits at the bottom.
-  List<int> _sortedErrorSeqs() => [...?widget.runErrorSeqs]..sort();
+  // The run's error ordinals, ascending so the newest sits at the bottom.
+  List<int> _sortedErrorOrdinals() => [...?widget.runErrorOrdinals]..sort();
 
-  // The turn rows with a real start_seq, ascending so the newest sits at the
-  // bottom like the chat transcript. The start_seq>0 filter mirrors how
-  // `runTurnSeqs` is built (the minimap anchor list), so the rendered rows stay
-  // index-aligned with the minimap ticks.
+  // The turn row's navigation anchor: its `start_ordinal` (ADR-042), falling
+  // back to the per-agent `start_seq` for pre-migration digests.
+  static int _turnAnchorOf(Map<String, dynamic> r) {
+    final o = (r['start_ordinal'] as num?)?.toInt() ?? 0;
+    if (o > 0) return o;
+    return (r['start_seq'] as num?)?.toInt() ?? 0;
+  }
+
+  // The turn rows with a real anchor, ascending so the newest sits at the
+  // bottom like the chat transcript. The anchor>0 filter mirrors how
+  // `runTurnOrdinals` is built (the minimap anchor list), so the rendered rows
+  // stay index-aligned with the minimap ticks.
   List<Map<String, dynamic>> _sortedTurnRows() {
     final rows = [
       for (final r in (widget.runTurns ?? const <Map<String, dynamic>>[]))
-        if (((r['start_seq'] as num?)?.toInt() ?? 0) > 0) r,
+        if (_turnAnchorOf(r) > 0) r,
     ];
-    rows.sort((a, b) => ((a['start_seq'] as num?)?.toInt() ?? 0)
-        .compareTo((b['start_seq'] as num?)?.toInt() ?? 0));
+    rows.sort((a, b) => _turnAnchorOf(a).compareTo(_turnAnchorOf(b)));
     return rows;
   }
 
@@ -786,46 +776,32 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     if (c == null) return;
     if (c.generation == _lastSeekGeneration) return;
     _lastSeekGeneration = c.generation;
-    final seq = c.seq;
-    if (seq != null) _handleExternalSeek(seq, c.ts);
+    final ord = c.seq; // the controller carries a session_ordinal (ADR-042)
+    if (ord != null) _handleExternalSeek(ord);
   }
 
-  /// Jump the transcript to [seq] (the dashboard / structure index). If loaded,
-  /// anchor it directly. Otherwise, with a known [ts], reset the window around
-  /// the anchor `(ts, seq)` (O(log n), reachable at any depth); a ts-less anchor
-  /// (older digest) falls back to the bounded page-walk older toward it.
-  Future<void> _handleExternalSeek(int seq, [String? ts]) async {
-    if (_seqIsLoaded(seq)) {
-      _landOnSeq(seq);
+  /// Jump the transcript to the anchor at [ordinal] (the dashboard / structure
+  /// index). If loaded, anchor it directly. Otherwise reset the window around
+  /// the ordinal — the dense `session_ordinal` keyset reaches any depth in
+  /// O(log n) and lands on the right row across a resume, so there is no
+  /// ts-fallback page-walk to mis-target.
+  Future<void> _handleExternalSeek(int ordinal) async {
+    if (_ordIsLoaded(ordinal)) {
+      _landOnOrd(ordinal);
       return;
     }
-    if (ts != null && ts.isNotEmpty) {
-      await _resetWindowAround(seq, ts);
-      return;
-    }
-    const maxPages = 12; // _pageSize(200) × 12 = 2400 events of headroom.
-    for (var i = 0; i < maxPages; i++) {
-      if (_atHead) break;
-      await _maybeLoadOlder();
-      if (!mounted) return;
-      if (_seqIsLoaded(seq)) break;
-    }
-    if (!mounted) return;
-    if (_seqIsLoaded(seq)) _landOnSeq(seq);
-    // Else: a ts-less anchor beyond the page-walk cap — leave the viewport put
-    // (yanking to the top here was the "minimap tap jumps to the top" bug).
+    await _resetWindowAround(ordinal);
   }
 
-  /// Land on [seq] robustly even when its row isn't realised: defers to the
+  /// Land on [ordinal] robustly even when its row isn't realised: defers to the
   /// convergent index seek via the pending-context mechanism (a rebuild finds
   /// the row's index in the lensed list and binary-searches onto it). The anchor
   /// may be a hidden marker (an ACP `turn.start` isn't rendered), so the
   /// consumer lands on the nearest visible row at or after it. Resets the lens
   /// to All so the landing row has its surrounding context.
-  void _landOnSeq(int seq) => _jumpToContext(seq);
+  void _landOnOrd(int ordinal) => _jumpToContext(ordinal);
 
-  bool _seqIsLoaded(int seq) =>
-      _events.any((e) => (e['seq'] as num?)?.toInt() == seq);
+  bool _ordIsLoaded(int ordinal) => _events.any((e) => _ordOf(e) == ordinal);
 
   void _scrollToTail() {
     if (!_scroll.hasClients) return;
@@ -880,12 +856,13 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         () => _scroll.jumpTo(frac.clamp(0.0, 1.0) * pos.maxScrollExtent));
   }
 
-  /// Anchor on [seq] via `ensureVisible` over the built row (cold-open style
-  /// landing). The target must already be loaded; the post-frame read no-ops
-  /// gracefully if its row isn't realised (use [_seekToLoadedIndex] for that).
-  void _seekToSeq(int seq) {
+  /// Anchor on [ordinal] via `ensureVisible` over the built row (cold-open
+  /// style landing). The target must already be loaded; the post-frame read
+  /// no-ops gracefully if its row isn't realised (use [_seekToLoadedIndex] for
+  /// that).
+  void _seekToOrd(int ordinal) {
     setState(() {
-      _activeSeekSeq = seq;
+      _activeSeekOrd = ordinal;
       _followTail = false;
       _seekHighlight = true;
     });
@@ -911,10 +888,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// to the tick's vertical fraction so every tap visibly moves the viewport
   /// (`ensureVisible` silently no-ops on a lazy, unrealised row — the exact
   /// far-away ticks the minimap exists to reach), then best-effort fine-tunes
-  /// onto the row once it's built.
-  void _seekToFrac(double frac, int seq) {
+  /// onto the row once it's built. [ordinal] is the tapped tick's coordinate.
+  void _seekToFrac(double frac, int ordinal) {
     setState(() {
-      _activeSeekSeq = seq;
+      _activeSeekOrd = ordinal;
       _followTail = false;
       _seekHighlight = true;
     });
@@ -946,16 +923,16 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   }
 
   /// Seek precisely onto the loaded row at [idx] (in the current lensed list)
-  /// identified by [seq]. Binary-searches the scroll offset using the realized-
-  /// row window (the [TranscriptSeek] landing engine) as feedback, so it lands
-  /// exactly on the target regardless of row-height variance.
-  void _seekToLoadedIndex(int idx, int seq) {
+  /// identified by [ordinal]. Binary-searches the scroll offset using the
+  /// realized-row window (the [TranscriptSeek] landing engine) as feedback, so
+  /// it lands exactly on the target regardless of row-height variance.
+  void _seekToLoadedIndex(int idx, int ordinal) {
     if (!_scroll.hasClients) {
-      _seekToSeq(seq);
+      _seekToOrd(ordinal);
       return;
     }
     setState(() {
-      _activeSeekSeq = seq;
+      _activeSeekOrd = ordinal;
       _followTail = false;
       _seekHighlight = true;
     });
@@ -976,7 +953,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   void _setLens(FeedLens lens) {
     setState(() {
       _lens = lens;
-      _activeSeekSeq = null;
+      _activeSeekOrd = null;
     });
     if (lens == FeedLens.all) {
       // Drop the buffer; the main window owns the All view.
@@ -1000,15 +977,15 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     }
   }
 
-  /// Clear the active filter and land on [seq] in the full transcript, so a
+  /// Clear the active filter and land on [ordinal] in the full transcript, so a
   /// match found in a filtered view can be read with its surrounding context.
   /// The seek runs in build once `_lens == all` has put the row back in the
   /// list.
-  void _jumpToContext(int seq) {
+  void _jumpToContext(int ordinal) {
     setState(() {
       _lens = FeedLens.all;
       _followTail = false;
-      _pendingContextSeq = seq;
+      _pendingContextOrd = ordinal;
     });
   }
 
@@ -1018,23 +995,23 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// transcript on that error in full context (ADR-041 §2). Owns its own scroll
   /// controller [ctl] — it is a drawer list, NOT the transcript window.
   Widget _buildNavErrorsList(ScrollController ctl) {
-    final seqs = _sortedErrorSeqs();
-    if (seqs.isEmpty) return _navEmpty('No errors — a clean run.');
+    final ords = _sortedErrorOrdinals();
+    if (ords.isEmpty) return _navEmpty('No errors — a clean run.');
     return ListView.builder(
       controller: ctl,
       padding: EdgeInsets.zero,
       itemExtent: _kErrorRowExtent,
-      itemCount: seqs.length,
+      itemCount: ords.length,
       itemBuilder: (ctx, i) {
-        final seq = seqs[i];
-        final ts = widget.runAnchorTs?[seq];
+        final ord = ords[i];
+        final ts = widget.runAnchorTs?[ord];
         return ErrorSummaryRow(
           ordinal: i + 1,
-          errorClass: widget.runErrorClasses?[seq] ?? 'error',
-          label: widget.runErrorLabels?[seq],
+          errorClass: widget.runErrorClasses?[ord] ?? 'error',
+          label: widget.runErrorLabels?[ord],
           ts: ts,
-          active: _activeSeekSeq == seq,
-          onTap: () => _jumpFromOutline(seq, ts),
+          active: _activeSeekOrd == ord,
+          onTap: () => _jumpFromOutline(ord),
         );
       },
     );
@@ -1055,11 +1032,11 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
       itemCount: rows.length,
       itemBuilder: (ctx, i) {
         final r = rows[i];
-        final seq = (r['start_seq'] as num?)?.toInt() ?? 0;
+        final ord = _turnAnchorOf(r);
         final ts0 = (r['start_ts'] ?? '').toString();
         // Reorder so the null-aware index sits in the false branch — `?[` right
         // after a ternary `?` trips the Dart parser.
-        final ts = ts0.isNotEmpty ? ts0 : widget.runAnchorTs?[seq];
+        final ts = ts0.isNotEmpty ? ts0 : widget.runAnchorTs?[ord];
         return TurnSummaryRow(
           // Prefer the digest's own turn ordinal (`idx`, 0-based) so the label
           // matches the run-report card; fall back to the list position.
@@ -1071,18 +1048,18 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
           toolFailed: (r['tool_failed'] as num?)?.toInt() ?? 0,
           errorCount: (r['error_count'] as num?)?.toInt() ?? 0,
           ts: ts,
-          active: _activeSeekSeq == seq,
-          onTap: () => _jumpFromOutline(seq, ts),
+          active: _activeSeekOrd == ord,
+          onTap: () => _jumpFromOutline(ord),
         );
       },
     );
   }
 
-  /// Outline-row tap (Turns / Errors): land the transcript on [seq] in full card
-  /// context. The Navigator drawer **stays open** (ADR-041 §4) so the user can
-  /// keep stepping the outline; they close it explicitly when done.
-  void _jumpFromOutline(int seq, String? ts) {
-    _handleExternalSeek(seq, ts);
+  /// Outline-row tap (Turns / Errors): land the transcript on [ordinal] in full
+  /// card context. The Navigator drawer **stays open** (ADR-041 §4) so the user
+  /// can keep stepping the outline; they close it explicitly when done.
+  void _jumpFromOutline(int ordinal) {
+    _handleExternalSeek(ordinal);
   }
 
   /// The Navigator **Map** tab — the whole-run minimap (ADR-041 §3): a vertical
@@ -1118,11 +1095,14 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                     marks: marks,
                     // Tap a tick → land on that landmark. The drawer stays open
                     // (ADR-041 §4); the user closes it explicitly.
-                    onJump: (frac, seq) {
+                    // In run-anchor mode the tick's coordinate is a
+                    // session_ordinal (ADR-042); in loaded-window mode it is the
+                    // built row's ordinal — both route through the same seek.
+                    onJump: (frac, ord) {
                       if (_runAnchorMode) {
-                        _handleExternalSeek(seq, widget.runAnchorTs?[seq]);
+                        _handleExternalSeek(ord);
                       } else {
-                        _seekToFrac(frac, seq);
+                        _seekToFrac(frac, ord);
                       }
                     },
                     // Continuous scrub only in loaded-window mode (run-anchor
@@ -1218,36 +1198,15 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     );
   }
 
-  /// Random-access jump to an arbitrary run ordinal [n] (1-based). Per-agent seq
-  /// is the dense run ordinal, so ordinal n is the event at seq == n; we fetch
-  /// that one event to recover its ts, then drive the `(ts, seq)` window reset.
+  /// Random-access jump to an arbitrary run position [n] (1-based). [n] *is* the
+  /// `session_ordinal` (ADR-042) — the dense, session-unique coordinate — so the
+  /// jump is a direct ordinal-keyset window reset, no seq→ts recovery hop.
   Future<void> _jumpToOrdinal(int n) async {
-    if (_seqIsLoaded(n)) {
-      _landOnSeq(n);
+    if (_ordIsLoaded(n)) {
+      _landOnOrd(n);
       return;
     }
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    try {
-      // `before: n + 1` (agent-scoped) → newest row with seq <= n, i.e. the
-      // event at ordinal n. One row; cheap.
-      final rows = await client.listAgentEvents(
-        widget.agentId,
-        before: n + 1,
-        limit: 1,
-      );
-      if (!mounted || rows.isEmpty) return;
-      final e = rows.first;
-      final seq = (e['seq'] as num?)?.toInt() ?? n;
-      final ts = (e['ts'] ?? '').toString();
-      if (ts.isEmpty) {
-        await _handleExternalSeek(seq);
-        return;
-      }
-      await _resetWindowAround(seq, ts);
-    } catch (_) {
-      // Network blip — leave the window in place; the user can retry.
-    }
+    await _resetWindowAround(n);
   }
 
   // ── Navigator drawer (the structural outline) ─────────────────────────────
@@ -1269,7 +1228,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     final border = isDark ? DesignColors.borderDark : DesignColors.borderLight;
     final width =
         math.min(340.0, MediaQuery.of(context).size.width * 0.86);
-    final errorCount = widget.runErrorSeqs?.length ?? 0;
+    final errorCount = widget.runErrorOrdinals?.length ?? 0;
     final turnCount = _sortedTurnRows().length;
     return Positioned.fill(
       child: Stack(
@@ -1422,26 +1381,26 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     // Consume a pending "view in context" request: now that the lens is back to
     // All (so lensed == visible), find the row's index and seek once this frame
     // lays out. Convergent index seek (height-agnostic).
-    if (_pendingContextSeq != null && _lens == FeedLens.all) {
-      final target = _pendingContextSeq!;
-      _pendingContextSeq = null;
-      var idx = lensed.indexWhere((e) => (e['seq'] as num?)?.toInt() == target);
+    if (_pendingContextOrd != null && _lens == FeedLens.all) {
+      final target = _pendingContextOrd!;
+      _pendingContextOrd = null;
+      var idx = lensed.indexWhere((e) => _ordOf(e) == target);
       if (idx < 0) {
         // No exact row — the anchor may be a hidden marker (ACP turn.start) or
         // filtered out. Land on the nearest visible row at or after it.
-        var bestSeq = 1 << 30;
+        var bestOrd = 1 << 30;
         for (var i = 0; i < lensed.length; i++) {
-          final s = (lensed[i]['seq'] as num?)?.toInt() ?? 0;
-          if (s >= target && s < bestSeq) {
-            bestSeq = s;
+          final o = _ordOf(lensed[i]);
+          if (o >= target && o < bestOrd) {
+            bestOrd = o;
             idx = i;
           }
         }
       }
       if (idx >= 0) {
-        final landSeq = (lensed[idx]['seq'] as num?)?.toInt() ?? target;
+        final landOrd = _ordOf(lensed[idx]);
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _seekToLoadedIndex(idx, landSeq);
+          if (mounted) _seekToLoadedIndex(idx, landOrd > 0 ? landOrd : target);
         });
       }
     }
@@ -1458,9 +1417,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         l: l == FeedLens.all
             ? visible.length
             : (_runAnchorMode && l == FeedLens.turns)
-                ? (widget.runTurnSeqs?.length ?? 0)
+                ? (widget.runTurnOrdinals?.length ?? 0)
                 : (_runAnchorMode && l == FeedLens.errors)
-                    ? (widget.runErrorSeqs?.length ?? 0)
+                    ? (widget.runErrorOrdinals?.length ?? 0)
                     : visible
                         .where((e) => agentEventMatchesLens(
                             e, l, toolResults, toolUpdates))
@@ -1472,10 +1431,12 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     final lensedDenom = (lensed.length - 1) <= 0 ? 1 : lensed.length - 1;
     if (_runAnchorMode) {
       // Full-run minimap: anchors come from the digest (every error) + the turn
-      // index (every turn start), positioned by their run ordinal (seq / total).
+      // index (every turn start), positioned by their run ordinal
+      // (session_ordinal / total, ADR-042). The mark's `seq` field carries the
+      // ordinal — the seek treats it as the session coordinate.
       for (final a in feedRunAnchorMarks(
-        errorSeqs: widget.runErrorSeqs ?? const <int>[],
-        turnSeqs: widget.runTurnSeqs ?? const <int>[],
+        errorSeqs: widget.runErrorOrdinals ?? const <int>[],
+        turnSeqs: widget.runTurnOrdinals ?? const <int>[],
         total: widget.totalEventCount!,
       )) {
         minimapMarks.add(FeedMinimapMark(
@@ -1500,7 +1461,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         if (!isErr && !isTool && !turnIdxSet.contains(i)) continue;
         minimapMarks.add(FeedMinimapMark(
           frac: i / lensedDenom,
-          seq: (e['seq'] as num?)?.toInt() ?? 0,
+          seq: _ordOf(e),
           isError: isErr,
           color: isErr
               ? DesignColors.error
@@ -1552,10 +1513,10 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
                   final ev = lensed[i];
-                  final builtSeq = (ev['seq'] as num?)?.toInt() ?? 0;
-                  _seek.recordBuiltRow(i, builtSeq);
-                  final isTarget = _activeSeekSeq != null &&
-                      (ev['seq'] as num?)?.toInt() == _activeSeekSeq;
+                  final builtOrd = _ordOf(ev);
+                  _seek.recordBuiltRow(i, builtOrd);
+                  final isTarget =
+                      _activeSeekOrd != null && builtOrd == _activeSeekOrd;
                   Widget card = AgentEventCard(
                     key: isTarget ? _seek.seekKey : null,
                     event: ev,
@@ -1570,9 +1531,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                   // on this row (resetting it around the anchor if the match is
                   // outside the loaded slice).
                   if (isLensView) {
-                    final seq = (ev['seq'] as num?)?.toInt();
-                    if (seq != null) {
-                      final ts = (ev['ts'] ?? '').toString();
+                    final ord = _ordOf(ev);
+                    if (ord > 0) {
                       card = Stack(
                         children: [
                           card,
@@ -1580,7 +1540,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                             top: 2,
                             left: 2,
                             child: ContextJumpButton(
-                                onTap: () => _viewInContext(seq, ts)),
+                                onTap: () => _viewInContext(ord)),
                           ),
                         ],
                       );

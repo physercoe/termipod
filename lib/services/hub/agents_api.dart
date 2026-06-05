@@ -418,24 +418,36 @@ class AgentsApi {
     String? afterTs,
     int? beforeSeq,
     int? afterSeq,
+    int? beforeOrdinal,
+    int? afterOrdinal,
     bool tail = false,
     int? limit,
     String? sessionId,
     List<String>? kinds,
   }) {
     final q = <String, String>{};
-    // Cursor precedence on the server is after_ts > before_ts > before > tail
-    // > since (handlers_agent_events.go). after_ts/before_ts are the
-    // session-scoped variants — seq is per-agent so it can't order events
-    // across the agents that one resumed session spans, but ts can. after_ts
-    // is the forward window (ADR-038 §5): the analysis-mode random-access
-    // loader uses it to page *newer* events when it relocates a window around
-    // a jump anchor (the live-tail feed only ever pages older + SSE-tails).
+    // after_ordinal / before_ordinal are the session-scoped dense keyset
+    // (ADR-042): a single gap-free coordinate that is unique across the agents
+    // a resumed session spans (per-agent seq collides there). They take the
+    // highest precedence on the server (the ordinal switch branches come before
+    // the ts/seq ones in handlers_agent_events.go) and are honored only with a
+    // session filter — so the analysis-mode loader windows around an anchor and
+    // lands on the right row after a resume, with no (ts, seq) tiebreak. Emit
+    // exactly one cursor so the server's branch selection is unambiguous.
     //
+    // Cursor precedence on the server is after_ordinal > before_ordinal >
+    // after_ts > before_ts > before > tail > since (handlers_agent_events.go).
+    // after_ts/before_ts are the older session-scoped variants — seq is
+    // per-agent so it can't order events across a resumed session, but ts can.
     // after_seq / before_seq are the `(ts, seq)` compound-keyset tiebreak,
     // sent alongside after_ts / before_ts so a window-around-anchor fetch
-    // doesn't drop same-ts siblings at the page boundary (plan P2).
-    if (afterTs != null && afterTs.isNotEmpty) {
+    // doesn't drop same-ts siblings at the page boundary (plan P2). They remain
+    // for callers that don't yet have an ordinal (e.g. pre-migration rows).
+    if (afterOrdinal != null) {
+      q['after_ordinal'] = '$afterOrdinal';
+    } else if (beforeOrdinal != null) {
+      q['before_ordinal'] = '$beforeOrdinal';
+    } else if (afterTs != null && afterTs.isNotEmpty) {
       q['after_ts'] = afterTs;
       if (afterSeq != null) q['after_seq'] = '$afterSeq';
     } else if (beforeTs != null && beforeTs.isNotEmpty) {

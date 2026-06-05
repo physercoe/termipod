@@ -735,16 +735,21 @@ func (s *Server) mcpTemplatesPropose(ctx context.Context, team, fromID string, r
 	id := NewID()
 	now := NowUTC()
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
+	// Record the proposer's session so the decide handler can fan the
+	// approve/reject outcome back to it as a fresh turn (parity with the
+	// propose path, mcpPropose). Without this the steward never learns
+	// whether its template landed.
+	sessionID := s.lookupAgentSession(ctx, fromID)
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json,
 			pending_payload_json, status, created_at,
-			actor_kind, actor_handle
+			actor_kind, actor_handle, session_id
 		) VALUES (?, NULL, 'team', NULL, 'template_proposal',
 		          ?, 'minor', '[]', ?, 'open', ?,
-		          'agent', NULLIF(?, ''))`,
-		id, summary, string(payload), now, actorHandle)
+		          'agent', NULLIF(?, ''), NULLIF(?, ''))`,
+		id, summary, string(payload), now, actorHandle, sessionID)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}

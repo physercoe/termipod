@@ -410,15 +410,20 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 		// The dispatcher arm at the bottom of this handler reads them to
 		// route through the propose-kind registry.
 		changeKind, assignedTier, changeSpecJSON, targetRefJSON string
+		// pending_payload carries the install spec for the
+		// template_proposal kind (which predates the change_spec column).
+		pendingPayload string
 	)
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT kind, COALESCE(tier, ''),
 		       decisions_json, status, COALESCE(scope_id, ''),
 		       COALESCE(change_kind, ''), COALESCE(assigned_tier, ''),
-		       COALESCE(change_spec_json, ''), COALESCE(target_ref_json, '')
+		       COALESCE(change_spec_json, ''), COALESCE(target_ref_json, ''),
+		       COALESCE(pending_payload_json, '')
 		FROM attention_items WHERE id = ?`, id).
 		Scan(&kind, &tier, &decisions, &status, &scopeID,
-			&changeKind, &assignedTier, &changeSpecJSON, &targetRefJSON)
+			&changeKind, &assignedTier, &changeSpecJSON, &targetRefJSON,
+			&pendingPayload)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "attention not found")
 		return
@@ -529,12 +534,23 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 			dispatchSpec json.RawMessage
 			dispatchTRef json.RawMessage
 		)
+		dispatchVia := "propose"
 		if kind == "propose" && changeKind != "" {
 			// change_spec / target_ref came in through W4's mcpPropose;
 			// assigned_tier is the row's tier (not the `tier` column).
 			dispatchKind = changeKind
 			dispatchSpec = json.RawMessage(changeSpecJSON)
 			dispatchTRef = json.RawMessage(targetRefJSON)
+		} else if kind == "template_proposal" {
+			// The templates_propose path (pre-ADR-030): pending_payload
+			// carries the {category, name, blob_sha256, …} install spec.
+			// Route an approve through the same template.install Apply the
+			// propose path uses, so approval actually installs — the W8
+			// refactor retired the old inline alias but never rewired this,
+			// leaving approve a no-op. target_ref is unused for installs.
+			dispatchKind = "template.install"
+			dispatchSpec = json.RawMessage(pendingPayload)
+			dispatchVia = "alias_legacy"
 		}
 
 		if dispatchKind != "" {
@@ -544,7 +560,7 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 					Team:          team,
 					AssignedTier:  assignedTier,
 					DeciderHandle: in.By,
-					Via:           "propose",
+					Via:           dispatchVia,
 				}
 				executed, applyErr := pk.Apply(r.Context(), s, ac, dispatchTRef, dispatchSpec)
 				if applyErr != nil {
@@ -573,8 +589,10 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	// MCP tool returned immediately with awaiting_response and ended
 	// its turn; this is what wakes it up. Best-effort — the resolve
 	// itself is what counts; fan-out failures don't roll back the
-	// decide. template_proposal is excluded — it has its own
-	// follow-up flow.
+	// decide. template_proposal joins the allowlist (it used to be
+	// excluded with "its own follow-up flow" — that flow was the W8
+	// alias drop, which left the proposing steward with no feedback at
+	// all); the fan-back tells it whether its template installed.
 	//
 	// permission_prompt is included as of ADR-012 D3: codex's
 	// app-server JSON-RPC protocol exposes deferrable per-tool-call
@@ -596,13 +614,20 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	if resolved && (kind == "approval_request" || kind == "select" ||
 		kind == "help_request" || kind == "permission_prompt" ||
 		kind == "elicit" || kind == "project_steward_request" ||
-		kind == "propose") {
+		kind == "propose" || kind == "template_proposal") {
 		// ADR-030 W11: propose joins the allowlist. The fan-back
 		// carries change_kind + executed so the requester's session
 		// shows what landed in addition to the decision; the ADR-032
 		// envelope rides under payload["envelope"].
+		fanChangeKind := changeKind
+		if kind == "template_proposal" {
+			// changeKind column is empty on the template_proposal row;
+			// report the effective install kind so the steward sees what
+			// landed.
+			fanChangeKind = "template.install"
+		}
 		extras := attentionReplyExtras{
-			ChangeKind: changeKind,
+			ChangeKind: fanChangeKind,
 			Executed:   out.Executed,
 		}
 		_ = s.dispatchAttentionReply(r.Context(), id, kind, &in, extras)

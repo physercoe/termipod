@@ -537,9 +537,17 @@ func TestMCP_TemplatesPropose_FilesAttentionAndBlob(t *testing.T) {
 // Approving a template_proposal installs the proposed body to
 // <dataRoot>/team/templates/<category>/<name>.yaml so the next
 // templates.list picks it up.
+// TestMCP_TemplatesPropose_ApproveInstalls drives the REAL decide
+// endpoint (not installProposedTemplate directly), which is the path a
+// reviewer actually exercises and the one that regressed: the W8
+// refactor dropped template_proposal's auto-install alias, so approve
+// became a silent no-op (issue #4) and the proposer got no feedback
+// (issue #3). This locks both: approve installs, and the proposing
+// steward receives a fan-back turn.
 func TestMCP_TemplatesPropose_ApproveInstalls(t *testing.T) {
-	s, dataRoot := newTestServer(t)
-	_, agentID := seedChannelAndAgent(t, s, "", "")
+	s, token := newA2ATestServer(t)
+	agentID := seedAgentWithKind(t, s, defaultTeamID, "steward", "claude-code", "")
+	_ = seedSessionForAgent(t, s, agentID)
 
 	body := "handle: nurse\nrole: support\n"
 	args, _ := json.Marshal(map[string]any{
@@ -553,43 +561,41 @@ func TestMCP_TemplatesPropose_ApproveInstalls(t *testing.T) {
 	}
 	attnID := firstFieldFromMCPResult(t, out, "attention_id")
 
-	// Simulate the reviewer pressing "Approve" in the mobile UI.
-	installed, err := s.installProposedTemplate(defaultTeamID, mustPendingPayload(t, s, attnID))
-	if err != nil {
-		t.Fatalf("install: %v", err)
+	// Approve via the decide endpoint — the reviewer's real action.
+	status, respBody := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/attention/"+attnID+"/decide",
+		map[string]any{"decision": "approve", "by": "@principal", "reason": "lgtm"})
+	if status != 200 {
+		t.Fatalf("decide: %d %s", status, respBody)
 	}
-	var res map[string]any
-	_ = json.Unmarshal(installed, &res)
-	path, _ := res["path"].(string)
-	if path == "" {
-		t.Fatalf("install result missing path: %s", installed)
+
+	// (#4) Approve actually installed: executed carries the written path.
+	var dr struct {
+		Executed struct {
+			Path string `json:"path"`
+		} `json:"executed"`
 	}
-	got, err := readFile(t, path)
+	_ = json.Unmarshal(respBody, &dr)
+	if dr.Executed.Path == "" {
+		t.Fatalf("approve did not install — no executed.path: %s", respBody)
+	}
+	got, err := readFile(t, dr.Executed.Path)
 	if err != nil {
 		t.Fatalf("read installed: %v", err)
 	}
 	if got != body {
 		t.Errorf("installed body mismatch:\nwant %q\ngot  %q", body, got)
 	}
-	// Sanity: file landed under the expected team templates dir.
-	if !strings.HasPrefix(path, dataRoot) {
-		t.Errorf("path outside dataRoot: %s (data=%s)", path, dataRoot)
-	}
-}
 
-func mustPendingPayload(t *testing.T, s *Server, attnID string) string {
-	t.Helper()
-	var payload string
-	if err := s.db.QueryRow(
-		`SELECT COALESCE(pending_payload_json, '') FROM attention_items WHERE id = ?`,
-		attnID,
-	).Scan(&payload); err != nil {
-		t.Fatalf("read payload: %v", err)
+	// (#3) The proposing steward got fan-back feedback: an
+	// input.attention_reply turn carrying the decision + change_kind.
+	reply := readLatestAttentionReply(t, s, agentID)
+	if reply["decision"] != "approve" {
+		t.Errorf("fan-back decision = %v; want approve", reply["decision"])
 	}
-	if payload == "" {
-		t.Fatalf("attention %s has no pending_payload_json", attnID)
+	if reply["change_kind"] != "template.install" {
+		t.Errorf("fan-back change_kind = %v; want template.install", reply["change_kind"])
 	}
-	return payload
 }
 
 func readFile(t *testing.T, path string) (string, error) {

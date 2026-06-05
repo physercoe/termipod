@@ -236,9 +236,44 @@ func seedBuiltinProjectTemplates(ctx context.Context, db *sql.DB, dataRoot strin
 	return nil
 }
 
+// projectTemplateDiskDirs lists the on-disk dirs that hold project-template
+// YAML, HIGHEST priority first. The template write path (handlePutTemplate →
+// resolveTeamTemplatePath, W4 / ADR-037 D5) lands a `projects`-category file in
+// <dataRoot>/teams/<team>/templates/projects; project-template rows are seeded
+// under defaultTeamID, so that team's overlay is the one that backs them. The
+// legacy <dataRoot>/team/templates/projects is the pre-W4 global baseline, kept
+// for back-compat. Both are scanned (per-team wins, mirroring handleGetTemplate)
+// so a template authored via the documented PUT is actually seeded + hydrated —
+// previously these readers looked only at the global path, the write/read path
+// mismatch a tester hit (the file was written to teams/default/… but read from
+// team/…).
+func projectTemplateDiskDirs(dataRoot string) []string {
+	dirs := []string{}
+	if td := teamTemplatesDir(dataRoot, defaultTeamID); td != "" {
+		dirs = append(dirs, filepath.Join(td, "projects"))
+	}
+	dirs = append(dirs, filepath.Join(dataRoot, "team", "templates", "projects"))
+	return dirs
+}
+
+// matchProjectTemplateName reports whether the YAML in `data` (loaded from
+// `path`) is the project template identified by `id`: either the file's
+// basename is `<id>.yaml`, or its `name:` field equals `id` (a versioned
+// basename like `code-migration.v1.yaml` carries `name: code-migration`).
+func matchProjectTemplateName(data []byte, path, id string) bool {
+	if filepath.Base(path) == id+".yaml" {
+		return true
+	}
+	var head struct {
+		Name string `yaml:"name"`
+	}
+	return yaml.Unmarshal(data, &head) == nil && head.Name == id
+}
+
 // loadProjectTemplates walks templates/projects/*.yaml in the embedded
-// FS and, on top of that, <dataRoot>/team/templates/projects/*.yaml if
-// the directory exists. Disk entries override embedded entries by name
+// FS and, on top of that, the project-template disk dirs (the per-team
+// default overlay then the legacy global baseline — see
+// projectTemplateDiskDirs). Disk entries override embedded entries by name
 // so a user-edited copy of a built-in template takes precedence without
 // needing to delete the embedded original.
 func loadProjectTemplates(dataRoot string) ([]projectTemplateDoc, error) {
@@ -281,8 +316,20 @@ func loadProjectTemplates(dataRoot string) ([]projectTemplateDoc, error) {
 		return nil, walkErr
 	}
 
-	diskDir := filepath.Join(dataRoot, "team", "templates", "projects")
-	if entries, err := os.ReadDir(diskDir); err == nil {
+	// Scan the disk overlays lowest-priority first (global baseline, then the
+	// per-team default overlay) so a higher-priority file wins via add()'s
+	// last-write-wins. projectTemplateDiskDirs is highest-first, so walk it
+	// reversed.
+	dirs := projectTemplateDiskDirs(dataRoot)
+	for i := len(dirs) - 1; i >= 0; i-- {
+		diskDir := dirs[i]
+		entries, err := os.ReadDir(diskDir)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
 		for _, e := range entries {
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
 				continue
@@ -303,8 +350,6 @@ func loadProjectTemplates(dataRoot string) ([]projectTemplateDoc, error) {
 			}
 			add(doc.Name, doc)
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
 	}
 
 	out := make([]projectTemplateDoc, 0, len(order))

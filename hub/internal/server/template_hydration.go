@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	hub "github.com/termipod/hub"
 	"gopkg.in/yaml.v3"
@@ -152,27 +153,37 @@ func (s *Server) readProjectTemplateYAML(templateID string) string {
 	if templateID == "" {
 		return ""
 	}
-	// Disk overlay wins (cf. loadProjectTemplates).
-	disk := filepath.Join(s.cfg.DataRoot, "team", "templates", "projects",
-		templateID+".yaml")
-	if data, err := os.ReadFile(disk); err == nil {
-		return string(data)
+	// Disk overlays win (cf. loadProjectTemplates), highest-priority team
+	// overlay first. The file may be `<id>.yaml` or a versioned basename like
+	// `code-migration.v1.yaml` carrying `name: code-migration`, so match on
+	// either (matchProjectTemplateName) rather than guessing the filename.
+	for _, dir := range projectTemplateDiskDirs(s.cfg.DataRoot) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+				continue
+			}
+			p := filepath.Join(dir, e.Name())
+			data, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			if matchProjectTemplateName(data, p, templateID) {
+				return string(data)
+			}
+		}
 	}
-	// Embedded FS — the file might be `<id>.yaml` or `<id>.<minor>.yaml`
-	// (e.g. research.v1.yaml). Walk the directory.
+	// Embedded FS — same name-or-basename match over the bundled templates.
 	matches, _ := fs.Glob(hub.TemplatesFS, "templates/projects/*.yaml")
 	for _, p := range matches {
 		data, err := fs.ReadFile(hub.TemplatesFS, p)
 		if err != nil {
 			continue
 		}
-		var head struct {
-			Name string `yaml:"name"`
-		}
-		if err := yaml.Unmarshal(data, &head); err != nil {
-			continue
-		}
-		if head.Name == templateID {
+		if matchProjectTemplateName(data, p, templateID) {
 			return string(data)
 		}
 	}

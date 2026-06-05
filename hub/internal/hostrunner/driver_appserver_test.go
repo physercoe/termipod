@@ -1972,13 +1972,19 @@ func TestAppServerDriver_TranslateRateLimitsUpdated_EmitsStatusLine(t *testing.T
 		},
 	})
 
-	// Expect: lifecycle (handshake) + status_line (this notification)
-	// + raw fallback (profile no longer emits kind=rate_limit since
-	// v1.0.714 — the misrouted profile rule was removed because
-	// mobile's legacy rate_limit chip rendered codex's numeric
-	// windowDurationMins as a literal "300" tile beside the new 5h/
-	// 7d chip pair; status_line is the authoritative path).
-	events := poster.wait(t, 3, 2*time.Second)
+	// Expect 4 posted events: lifecycle (handshake) + session.init
+	// (thread/start, added v1.0.715) + status_line (this
+	// notification) + raw fallback. status_line and raw are posted
+	// back-to-back in the same handleFrame, so wait for the full 4 —
+	// waiting for only 3 races between status_line and raw and can
+	// snapshot before raw lands.
+	//
+	// (profile no longer emits kind=rate_limit since v1.0.714 — the
+	// misrouted profile rule was removed because mobile's legacy
+	// rate_limit chip rendered codex's numeric windowDurationMins as
+	// a literal "300" tile beside the new 5h/7d chip pair; status_line
+	// is the authoritative path.)
+	events := poster.wait(t, 4, 2*time.Second)
 	var sawStatusLine, sawRateLimit, sawRaw bool
 	for _, e := range events {
 		switch e.Kind {

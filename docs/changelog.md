@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-06-04)
+> **Status:** Current (2026-06-05)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.801
+> **Last verified vs code:** v1.0.802
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,66 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.802-alpha — 2026-06-05
+
+**Insight navigation lands on the right row across a resume, a clutch of
+template/library fixes, transcript polish, and the engine-launch-contract
+guard.** The headline is [ADR-042](decisions/042-dense-session-ordinal.md): a
+resumed session spans multiple agents whose per-agent `seq` ranges overlap, so
+the session-scoped Insight Navigator landed on the wrong agent's row. A dense,
+per-session `session_ordinal` becomes the canonical session coordinate and cures
+it at the root. Alongside: project-template and worker-template fixes a tester
+surfaced, and the first phase of [ADR-043](decisions/043-engine-launch-contract-on-the-family.md).
+
+### Added
+- **Dense per-session `session_ordinal` (ADR-042)** — a gap-free, insert-time
+  coordinate unique across the agents a resumed session spans. The hub
+  centralizes event insertion and assigns it atomically (`42a4e3d`, `7004a5a`),
+  threads it onto the digest turn/error anchors (schema v5, `2eb6f84`), and
+  echoes it plus a `before/after_ordinal` keyset on the events read path
+  (`e63134f`).
+- **General-purpose claude-code M2 worker template** (`agents.worker` +
+  runbook) — a domain-agnostic worker a steward can spawn for any IC task that
+  doesn't fit a specialized template (`c97e175`).
+- **M2 launch-contract guard (ADR-043 P0)** — a test that fails CI if a bundled
+  M2 template's `backend.cmd` lacks its engine's mode-selecting flags
+  (claude-code stream-json, codex `app-server`) (`88093d2`).
+
+### Changed
+- **Insight transcript re-keyed onto `session_ordinal` (ADR-042 P4)** — anchors,
+  landing, the random-access loader keyset, and the minimap/outline all use the
+  session ordinal, so the Navigator and "event N of M" are correct across a
+  resume. `LiveFeed` is untouched (`86e4232`).
+- **Library Templates groups collapse by default** — the tab opens on a
+  one-line-per-category overview; tap to drill in (search still forces matches
+  open) (`54ac54b`).
+- **System-agent cards fold by default** in the transcript — background
+  bookkeeping (task_started/updated/notification) collapses to a one-liner;
+  tap to expand (`3309f49`).
+
+### Fixed
+- **Project templates authored via the documented PUT are now read.** Writes
+  land in the per-team overlay (`teams/<team>/templates/projects/`) but the
+  seeder + phase-criteria hydration only scanned the legacy global path, so an
+  authored template was written and never used. Both readers now scan the
+  per-team overlay first (matching by the file's `name:`) (`50c7e6a`).
+- **`ml-worker` / `briefing` M2 spawn failed** — both declared `driving_mode:
+  M2` but their `cmd` omitted the stream-json protocol flags, so `claude` ran
+  interactive and the driver never got a parseable frame. Added the flags to
+  match every other M2 claude-code template (`4a15329`).
+
+### Removed
+- **The bottom-left turn stepper on the full-screen live feed** (`a75bc73`) and
+  **the right-edge minimap** (`85023f0`) — navigation is the top-left funnel and
+  (in Insight) the Navigator drawer.
+
+### Docs
+- [ADR-042](decisions/042-dense-session-ordinal.md) (dense session ordinal,
+  with the concurrent-same-session insert caveat),
+  [ADR-043](decisions/043-engine-launch-contract-on-the-family.md) (engine
+  launch contract on the family), and the engine-launch-contract +
+  agent-infra-tooling + insight-resume-seq-identity discussions.
 
 ## v1.0.801-alpha — 2026-06-04
 

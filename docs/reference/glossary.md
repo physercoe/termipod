@@ -592,19 +592,33 @@ request). Surfaced in mobile's Attention surface.
 
 ### attention kind
 The `kind` column on `attention_items`. Values: `approval_request`,
-`select_request`, `help_request`, `permission_prompt`,
+`select_request`, `help_request`, `notice`, `permission_prompt`,
 `approval_request_external`, etc.
 - *Distinguish from:* **agent kind**, **event kind**, **input
   kind**.
+
+### notice
+The answerless attention kind — a one-way FYI an agent surfaces to the
+principal that needs no response (posted via `post_notice`). It carries
+**no `pending_payload`**, so mobile files it under the Me-page
+**Messages** slice (FYI) rather than **Requests**. Contrast the
+`request_*` family, which all await a decision.
+- *Distinguish from:* **a2a message** (agent↔agent), **channel
+  message** (deferred), and the steward's **session/chat** turns —
+  `notice` is the only one that lands in the director's Me-page inbox.
+- *Canonical:* [`reference/attention-kinds.md`](attention-kinds.md).
 
 ### decision
 The principal's response to an attention item. `POST /decide` flips
 the row to `resolved` and fans out the answer to the waiting
 driver. Outcomes: `approve` / `deny` / `cancel` / `select`.
 
-### request_approval / request_select / request_help
-The MCP tool names a steward calls to raise an attention item. Each
-maps to one `attention_kind`. ADR-011 turn-based attention delivery.
+### request_approval / request_select / request_help / post_notice
+The MCP tool names a steward calls to raise an attention item. The three
+`request_*` verbs each map to one `attention_kind` and await a response
+(ADR-011 turn-based attention delivery); `post_notice` is the answerless
+sibling — it raises a `notice` (FYI, Me-page Messages) and returns
+immediately without awaiting anything.
 
 ### severity
 Attention urgency tier: `info`, `warn`, `block`. Drives

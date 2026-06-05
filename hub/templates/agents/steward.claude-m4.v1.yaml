@@ -134,6 +134,7 @@ default_capabilities:
   - request_approval
   - request_select
   - request_help
+  - post_notice
   - decision.vote: significant
   - mobile_navigate
   - journal_append

@@ -176,6 +176,28 @@ mutate.
 
 ## 4. Conventions across tools
 
+**Tool naming — two families.** Names follow ADR-033 D-1
+(`<resource>_<verb>`) *where there is a resource*. CRUD and read tools
+that act on a named hub entity are **resource-first**: `agents_spawn`,
+`tasks_create`, `runs_update`, `deliverables_list`,
+`criteria_set_state`. Reach for this whenever the tool addresses a row
+by id — it is the default, and new entity operations join it.
+
+A second, deliberate family is **verb-first**, for *speech acts*: tools
+where the agent performs a communicative act and the `attention_items`
+row it opens is a side effect, with no resource to address by id. This
+is the `request_*` family (`request_approval` / `request_select` /
+`request_help` / `request_project_steward`), plus `post_notice`,
+`propose`, `delegate`, and `permission_prompt`. These are **not** rename
+candidates: there is no `attention_create` to CRUD, and forcing a
+resource onto a speech act reads worse, not better — ADR-033 D-1 is
+"resource-first *where there is a resource*" (see also the verb-first
+naming question in `plans/tool-catalog-w6-teardown.md` §2). New
+attention / communication tools join this family; the test is *am I
+acting on a resource, or performing an act?* A few bare verbs
+(`search`, `attach`, `pause_self`) have no clean resource either and
+stay as-is.
+
 **Path-style ids in arguments.** Tools that target one row take the
 id under a short key (`project`, `plan`, `agent`, `host`,
 `schedule`, `task`). Tools that need a project context use

@@ -376,6 +376,31 @@ func buildNativeTools() []nativeTool {
 			Handler: teamAgentArgs((*Server).mcpRequestHelp),
 		},
 		{
+			Name:  "post_notice",
+			Short: "Post a one-way informational notice to the principal (no reply).",
+			Description: "Surface a status update or FYI to the principal when you need NOTHING back. " +
+				"The answerless sibling of request_*: request_approval (binary), request_select (n-ary), and " +
+				"request_help (open) all ask for a decision; post_notice asks for nothing. It lands in the " +
+				"principal's Me-page \"Messages\" (FYI) slice, NOT \"Requests\". " +
+				"USE FOR: progress (\"phase 2 done, starting phase 3\"), heads-up (\"deployed v3 to staging\"), " +
+				"or a negative result the director may want (\"swept the logs, nothing actionable\"). " +
+				"DO NOT USE when you need an answer — use request_approval / request_select / request_help. " +
+				"Fire-and-forget: returns `{id, status: \"posted\"}` immediately. DO NOT end your turn waiting; " +
+				"no reply comes back. See docs/reference/attention-kinds.md.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"summary":    map[string]any{"type": "string", "description": "The notice text shown on the director's Me-page card (a sentence or two)."},
+					"severity":   map[string]any{"type": "string", "enum": []string{"minor", "major"}, "description": "minor (default) = routine FYI; major = worth seeing sooner. No 'critical' — a notice blocks nothing."},
+					"scope_kind": map[string]any{"type": "string"},
+					"scope_id":   map[string]any{"type": "string"},
+				},
+				"required": []string{"summary"},
+			},
+			Tier: TierRoutine, WorkerEligible: false,
+			Handler: teamAgentArgs((*Server).mcpPostNotice),
+		},
+		{
 			Name:  "request_project_steward",
 			Short: "Ask the director to assign a project steward (general-steward delegation).",
 			Description: "General-steward delegation channel (ADR-025 W4). Use when " +
@@ -681,6 +706,7 @@ var nativeToolMeta = map[string]struct {
 	"request_approval":        {false, []string{"request_select", "request_help"}},
 	"request_select":          {false, []string{"request_approval", "request_help"}},
 	"request_help":            {false, []string{"request_select", "get_attention"}},
+	"post_notice":             {false, []string{"request_help", "get_attention"}},
 	"request_project_steward": {false, []string{"agents_spawn", "delegate"}},
 	"attach":                  {false, []string{"blob_get", "artifacts_create", "documents_create"}},
 	"blob_get":                {true, []string{"attach", "artifacts_get", "documents_get"}},

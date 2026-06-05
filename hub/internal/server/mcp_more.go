@@ -297,6 +297,86 @@ func (s *Server) mcpRequestHelp(ctx context.Context, team, fromID string, raw js
 }
 
 // ---------------------------------------------------------------------
+// post_notice — one-way informational FYI for the principal.
+// ---------------------------------------------------------------------
+//
+// The answerless sibling of the request_* family. request_approval
+// (binary), request_select (n-ary), and request_help (open) all ask for
+// a response; post_notice asks for nothing — it just surfaces a status
+// line or FYI to the principal. It opens an attention_items row with
+// kind='notice' and NO pending_payload, so mobile's _filterForAttention
+// classifies it under the Me-page "Messages" slice (the FYI bucket,
+// alongside the system-raised budget_exceeded), not "Requests".
+//
+// Fire-and-forget: unlike request_*, the agent does NOT wait — there is
+// no awaiting_response, no turn to end, no reply coming back. Use it for
+// "phase 2 done, moving on", "deployed v3 to staging", "found nothing
+// actionable in the logs" — context the director may want without being
+// asked to decide anything.
+//
+// Steward-only (WorkerEligible=false): a director-facing notice is a
+// steward act. Workers report status to their parent steward via
+// tasks_complete / a2a_invoke, not straight to the director.
+
+type postNoticeArgs struct {
+	Summary   string `json:"summary"`
+	Severity  string `json:"severity"` // 'minor' (default) | 'major'
+	ScopeKind string `json:"scope_kind"`
+	ScopeID   string `json:"scope_id"`
+}
+
+func (s *Server) mcpPostNotice(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
+	var a postNoticeArgs
+	if err := json.Unmarshal(raw, &a); err != nil || a.Summary == "" {
+		return nil, &jrpcError{Code: -32602, Message: "summary required"}
+	}
+	if a.ScopeKind == "" {
+		a.ScopeKind = "team"
+	}
+	severity := a.Severity
+	if severity == "" {
+		severity = "minor"
+	}
+	// A notice is informational — there is nothing to unblock, so the
+	// blocking 'critical' tier doesn't apply. Keep the surface honest:
+	// minor (default) or major (worth seeing sooner).
+	if severity != "minor" && severity != "major" {
+		return nil, &jrpcError{Code: -32602, Message: "severity must be 'minor' or 'major'"}
+	}
+	id := NewID()
+	now := NowUTC()
+	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
+	sessionID := s.lookupAgentSession(ctx, fromID)
+	// No pending_payload_json: that column is the "structured ask" that
+	// flips an item into the Requests bucket. A notice carries none, so
+	// it lands in Messages as an FYI. Assignee is the principal so it
+	// reaches the director's inbox like the other FYI items.
+	assignees, _ := json.Marshal([]string{"@principal"})
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO attention_items (
+			id, project_id, scope_kind, scope_id, kind,
+			summary, severity, current_assignees_json, status, created_at,
+			actor_kind, actor_handle, session_id
+		) VALUES (?, NULL, ?, NULLIF(?, ''), 'notice',
+		          ?, ?, ?, 'open', ?,
+		          'agent', NULLIF(?, ''), NULLIF(?, ''))`,
+		id, a.ScopeKind, a.ScopeID, a.Summary, severity, string(assignees), now, actorHandle, sessionID)
+	if err != nil {
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	s.recordAudit(ctx, team, "notice.post", "attention", id, a.Summary,
+		map[string]any{"agent_id": fromID, "severity": severity})
+	// 'posted', not 'awaiting_response': the agent should keep working,
+	// not end its turn waiting for a reply that never comes.
+	return mcpResultJSON(map[string]any{
+		"id":        id,
+		"kind":      "notice",
+		"status":    "posted",
+		"posted_by": fromID,
+	}), nil
+}
+
+// ---------------------------------------------------------------------
 // request_project_steward — ADR-025 W4 delegation attention item.
 // ---------------------------------------------------------------------
 //

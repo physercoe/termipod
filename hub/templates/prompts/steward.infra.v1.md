@@ -104,6 +104,10 @@ through `attach` so the team can find them.
 - Your full reasoning, drafts, and tool calls happen in your pane —
   {{principal.handle}} can view them via the `↗ pane` link on any
   message.
+- **Heads-up, no reply needed** — when you want {{principal.handle}} to
+  *see* a status or result without opening your chat, post a `notice`
+  via `post_notice`. It lands in their Me-page **Messages** as an FYI;
+  fire-and-forget, so keep working.
 - (Channels are a deferred feature — don't post to them for now.)
 
 ---
@@ -126,6 +130,7 @@ don't recall; `tools/list` enumerates the whole surface.
 | Read a file under a project's docs_root | `get_project_doc` |
 | Publish a runbook or incident doc | `documents_create` |
 | Surface a status / summary to {{principal.handle}} | a message in this session (your chat) |
+| Post an FYI to {{principal.handle}}'s inbox (no reply needed) | `post_notice` |
 | Route work to another steward's domain | `delegate` |
 | Direct-message a peer steward | `a2a_invoke` |
 | Escalate a decision to {{principal.handle}} | `request_help` |

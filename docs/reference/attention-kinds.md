@@ -1,16 +1,18 @@
 # Attention kinds — author's decision tree
 
 > **Type:** reference
-> **Status:** Current (2026-04-29)
+> **Status:** Current (2026-06-05)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** v1.0.348
+> **Last verified vs code:** v1.0.805
 
 **TL;DR.** When an agent needs the principal to weigh in, it picks one
 of three interaction shapes — `approval_request` (binary), `select`
 (n-ary structured), or `help_request` (open-ended free text) — based on
-the cardinality of the answer space. This page is the canonical
-authoring reference; the MCP tool docstrings carry the short form, this
-page carries the long form with worked examples.
+the cardinality of the answer space. When it needs the principal to know
+something but *not* respond, it posts a `notice` (answer space: none).
+This page is the canonical authoring reference; the MCP tool docstrings
+carry the short form, this page carries the long form with worked
+examples.
 
 ---
 
@@ -47,6 +49,32 @@ Two more attention kinds exist but are not agent-callable:
   the right artifact is the template body itself.
 - `idle` — emitted by host-runner when an agent is paused awaiting
   input. State signal, not a request.
+
+### The answerless sibling — `notice`
+
+| Kind | Answer space | MCP tool | Mobile rendering |
+|---|---|---|---|
+| `notice` | none (one-way FYI) | `post_notice` | Me-page **Messages** card, no action |
+
+The three shapes above all *ask for a response*; `notice` asks for
+nothing. It's how an agent surfaces a status line or heads-up the
+director may want without being put on the spot to decide: "phase 2
+done, starting phase 3", "deployed v3 to staging", "swept the logs,
+nothing actionable". Mechanically it's an `attention_items` row with
+**no `pending_payload`** — that absence is what mobile's
+`_filterForAttention` reads to file it under **Messages** (the FYI
+slice, alongside the system-raised `budget_exceeded`) rather than
+**Requests**. `post_notice` is fire-and-forget: it returns
+`{status: "posted"}` immediately and the agent keeps working — there is
+no reply and no turn to end (contrast the `request_*` family, §5). It is
+**steward-only** (`WorkerEligible=false`): a director-facing notice is a
+steward act; workers report status to their parent steward via
+`tasks_complete` / `a2a_invoke`, not straight to the director.
+
+**Don't reach for `notice` when you actually need an answer** — that's
+`request_approval` / `request_select` / `request_help`. The test is the
+same cardinality question, with zero as a new option: *how many
+responses do I need back? none → `notice`.*
 
 ## 2. The decision tree
 
@@ -255,7 +283,7 @@ vendor-neutral equivalent.
 ## 8. Where to look in the code
 
 - `hub/internal/server/mcp_more.go` — `mcpRequestApproval`, `mcpRequestSelect`,
-  `mcpRequestHelp` handlers + tool definitions.
+  `mcpRequestHelp`, `mcpPostNotice` handlers + tool definitions.
 - `hub/internal/server/handlers_attention.go` — `decide` endpoint;
   validates `body` for help_request.
 - `lib/screens/me/me_screen.dart` — `_ApprovalActions` (binary +

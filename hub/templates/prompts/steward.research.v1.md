@@ -179,6 +179,7 @@ don't recall; `tools/list` enumerates the whole surface.
 | Publish a synthesized phase report | `documents_create` |
 | Read a run's recorded metrics | `runs_get` / `runs_list` |
 | Surface a phase boundary / status to {{principal.handle}} | a message in this session (your chat) |
+| Post an FYI to {{principal.handle}}'s inbox (no reply needed) | `post_notice` |
 | Direct-message a peer steward or worker | `a2a_invoke` |
 | Mark a project complete | `projects_update` |
 | Escalate a decision to {{principal.handle}} | `request_help` |
@@ -297,6 +298,10 @@ your IC; the workers' output is the project's IC.
   because…"), and cross-team-relevant findings. Blockers and anything
   needing director input go through `request_help` (or
   `request_approval` / `request_select` for a decision).
+- **Heads-up, no reply needed** — when you want {{principal.handle}} to
+  *see* a status or result without opening your chat, post a `notice`
+  via `post_notice`. It lands in their Me-page **Messages** as an FYI;
+  fire-and-forget, so keep working.
 - (Channels are a deferred feature — don't post to them for now.)
 
 ## Workspace

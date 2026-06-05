@@ -845,11 +845,16 @@ class _AgentEventCardState extends State<AgentEventCard> {
   // carry a huge body (e.g. a failed `attach` still holds its base64
   // content), so keeping errors expanded blew up the card. The header's
   // failed/error styling still flags it; the user taps to read the body.
+  //
+  // `system` frames (the system-agent card — sub-agent task_started /
+  // task_updated / task_notification + engine-level messages, _systemBody)
+  // collapse too: they're background bookkeeping the user scans past, not
+  // conversation. The one-line preview keeps the subtype visible; tap to read.
   late bool _collapsed = _defaultCollapsedForKind();
 
   bool _defaultCollapsedForKind() {
     final kind = (widget.event['kind'] ?? '').toString();
-    return kind == 'tool_result';
+    return kind == 'tool_result' || kind == 'system';
   }
 
   @override

@@ -62,13 +62,26 @@ the project meets reality.
    `deliverable.create` propose verb the director approves.
    (`deliverable.set_state → ratified` stays governed as today.)
 
-2. **Acceptance criteria are editable via propose.** Criteria can be
-   added, revised, or removed as the roadmap evolves. Because criteria
-   define the gates the director ratifies against, **every change is a
-   governed propose verb** (`criteria.create` / `criteria.update` /
-   `criteria.delete`, or a single `criteria.set`) requiring director
-   approval. Marking a criterion met / failed / waived stays as the
-   existing direct action.
+2. **Acceptance criteria are editable via propose; agents can mark
+   progress.** Criteria can be added, revised, or removed as the roadmap
+   evolves. Because criteria *define* the gates the director ratifies
+   against, **every definition change is a governed propose verb**
+   (`criteria.create` / `criteria.update` / `criteria.delete`) requiring
+   director approval. **Marking** a criterion is split by kind:
+   - **`text` / `metric`** — the agent doing the work may mark it
+     **met / failed** directly (new MCP action); the director can
+     **revert / waive / override** at any time. This gives the worker a
+     signal path so AC-driven auto-advance (decision 3) is agent-driven,
+     while the director keeps the final word.
+   - **`gate`** — stays chassis-evaluated: it auto-fires `met` via the
+     gate cascade when its linked deliverable is ratified
+     (`cascadeDeliverableRatified`); it cannot be marked by hand today
+     (`handlers_criteria.go:371-373`) and that holds. The director's
+     judgment enters here, through ratification.
+
+   (Audit finding: marking is currently director-only REST with **no MCP
+   path at all** — `server.go:545-547`; this decision opens the
+   `text`/`metric` subset to agents.)
 
 3. **Phase advance is AC-driven and system-approved.** Replace "the
    approver is the gate" with: the system **auto-advances** a phase once
@@ -98,14 +111,20 @@ the project meets reality.
 
 ## Implementation surface (phased, hub-first, Go-testable)
 
-- **P1 — read affordance + deliverable materialization.** First the
+- **P1 — read affordance + direct materialization/marking.** First the
   reads (decision 4): `criteria.list`, `deliverables.list` /
   `deliverables.get` (with components), and a `phase.status` summary — as
   MCP tools (each = catalog entry + dispatcher + handler in lockstep, over
-  the existing REST queries `server.go:518-548`). Then the writes: MCP
-  tools to **attach / update / remove** a component on one's own
-  deliverable + transition `draft↔in-review`. No new governance — these
-  are the agent's direct work product (Q1).
+  the existing REST queries `server.go:518-548`). **`phase.status` reuses
+  the aggregate that already exists** — `handleGetProjectOverview`
+  (`handlers_deliverables.go:824`) already composes phase + phase_index +
+  phases + active-phase deliverables-with-components + counts
+  (deliverables total/ratified, criteria total/met); P1 just wraps it for
+  MCP, no new query. Then the direct writes (no governance — the agent's
+  own work product): MCP tools to **attach / update / remove** a
+  component on one's own deliverable + transition `draft↔in-review`
+  (decision 1, Q1), and **mark a `text`/`metric` criterion met/failed**
+  (decision 2).
 - **P2 — `criteria.*` + `deliverable.create` propose kinds.** Register
   three criteria verbs (`criteria.create` / `criteria.update` /
   `criteria.delete` — Q2) plus `deliverable.create` via
@@ -165,8 +184,15 @@ an in-flight project.
 
 - Issues: #18 (MCP deliverable.create), #19 (MCP criteria.create), #20
   (per-phase hydration — the foundation, shipped).
-- Code: `internal/server/handlers_deliverables.go`,
+- Code: `internal/server/handlers_deliverables.go` (incl.
+  `handleGetProjectOverview` — the aggregate `phase.status` reuses),
   `handlers_criteria.go`, `apply_phase_advance.go`,
   `template_hydration.go`, `propose_kinds.go`.
+- Audit (2026-06-05): full project-domain affordance sweep — REST routes
+  (`server.go:472-551`) vs. both MCP registries (`toolspec.go`,
+  `tools.go`, `native_tools.go`). Projects/plans/tasks/runs/artifacts/
+  documents/channels/reviews are fully agent-reachable; the only gaps are
+  deliverables (no MCP read/write), criteria (no MCP read/mark/edit), and
+  a phase-status aggregate — i.e. exactly the lifecycle this ADR governs.
 - Related ADRs: [030](030-governed-actions-and-propose-verb.md) (the propose
   verb), [029](029-tasks-as-first-class-primitive.md) (first-class units of work).

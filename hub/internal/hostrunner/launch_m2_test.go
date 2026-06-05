@@ -120,8 +120,13 @@ func TestLaunchM2_TeesToLogAndStartsDriver(t *testing.T) {
 	if !strings.Contains(res.LogPath, "termipod-agent-agent-m2x.log") {
 		t.Fatalf("LogPath = %q; want contains termipod-agent-agent-m2x.log", res.LogPath)
 	}
-	if spawner.cmd != "fake-agent --stream-json" {
-		t.Fatalf("spawner.cmd = %q; want 'fake-agent --stream-json'", spawner.cmd)
+	// The persona cmd is preserved as the prefix; ADR-043 composes the
+	// claude-code family's M2 launch contract (stream-json flags) onto it.
+	if !strings.HasPrefix(spawner.cmd, "fake-agent --stream-json") {
+		t.Fatalf("spawner.cmd = %q; want prefix 'fake-agent --stream-json'", spawner.cmd)
+	}
+	if !strings.Contains(spawner.cmd, "--output-format stream-json") {
+		t.Fatalf("spawner.cmd = %q; want composed family M2 launch contract", spawner.cmd)
 	}
 	if !strings.HasPrefix(launcher.gotCmd, "tail -F ") {
 		t.Fatalf("launcher.gotCmd = %q; want tail -F …", launcher.gotCmd)

@@ -159,6 +159,37 @@ func (f Family) LaunchArgs(mode string) []string {
 	return out
 }
 
+// ComposeLaunchCmd appends this family's mode-selecting argv (ADR-043)
+// to a rendered persona command and returns the command the launcher
+// actually runs. It is the single composition rule shared by the
+// launcher (hostrunner) and the bundled-template guard test (server)
+// so they can never disagree about what gets spawned.
+//
+// Precedence: if cmd already carries the contract — its first mode arg
+// appears as a whitespace-delimited token — the template is
+// hand-authoring its own launch contract, so cmd is returned verbatim.
+// This keeps an un-migrated bundled template or a user-authored cmd
+// that still spells out the flags working, and guarantees a flag is
+// never doubled. Otherwise the mode args are appended (argv order is
+// immaterial for the flag-based CLIs). A family/mode with no declared
+// contract (M4 pane, gemini-cli which composes driver-side) returns cmd
+// unchanged.
+func (f Family) ComposeLaunchCmd(mode, cmd string) string {
+	args := f.LaunchArgs(mode)
+	if len(args) == 0 {
+		return cmd
+	}
+	for _, tok := range strings.Fields(cmd) {
+		if tok == args[0] {
+			return cmd
+		}
+	}
+	if strings.TrimSpace(cmd) == "" {
+		return strings.Join(args, " ")
+	}
+	return strings.TrimRight(cmd, " ") + " " + strings.Join(args, " ")
+}
+
 // FrameProfile is the per-engine declarative translator for stream-json
 // frames (ADR-010). Each rule is a (matcher → emit) pair; rules are
 // dispatched by most-specific match (largest match-keyset wins; ties

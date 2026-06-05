@@ -35,7 +35,12 @@ backend:
     # name host-runner writes into .mcp.json. Empty mode falls through
     # to claude's own default.
     prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
-  # cmd is what host-runner actually launches. Flags:
+  # cmd carries the bin + persona intent ({{model}}, {{permission_flag}}).
+  # The mode-selecting argv that puts claude into M2 structured stdio is
+  # NOT written here — it lives on the claude-code family's
+  # launch.M2.mode_args (ADR-043) and the launcher appends it, so a
+  # persona can't omit a flag and ship a cmd that runs interactive. Those
+  # family-owned flags, for reference:
   #   --print                          non-interactive (no TUI repl).
   #   --output-format stream-json      one JSON object per line on stdout.
   #   --input-format  stream-json      reads user turns as JSON frames on
@@ -46,7 +51,7 @@ backend:
   #                                    combining --print with stream-json
   #                                    output; without it the CLI rejects
   #                                    the flag combination.
-  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
+  cmd: "claude --model {{model}} {{permission_flag}}"
 
 default_role: team.coordinator
 display_label: "Steward"

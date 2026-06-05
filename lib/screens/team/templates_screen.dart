@@ -957,7 +957,11 @@ backend:
   permission_modes:
     skip: "--dangerously-skip-permissions"
     prompt: "--permission-prompt-tool mcp__termipod__permission_prompt"
-  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
+  # cmd carries the bin + intent only. The mode-selecting flags
+  # (--print --output-format stream-json --input-format stream-json
+  # --verbose) live on the claude-code family and the launcher appends
+  # them (ADR-043) — a custom template can't omit them and fail to launch.
+  cmd: "claude --model {{model}} {{permission_flag}}"
 
 default_role: worker.generic
 display_label: "$id"

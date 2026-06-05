@@ -89,6 +89,17 @@ type ExecResumeDriver struct {
 	// inherits the parent process's environment.
 	Env []string
 
+	// BaseArgs is the family's mode-selecting argv (ADR-043) — gemini
+	// M2's `--output-format stream-json --skip-trust`. launch_m2 sets
+	// it from agentfamilies.gemini-cli.LaunchArgs("M2") so the family
+	// is the single source of the launch contract, the same one
+	// claude/codex compose into backend.cmd. Empty falls back to the
+	// historical hardcoded default so a driver constructed directly
+	// (older callers, unit tests) still runs. The per-turn --resume
+	// and one-shot mode/model overrides are spliced on top of this in
+	// runTurn; they are runtime, not the static contract.
+	BaseArgs []string
+
 	// Yolo, when true, adds --yolo to the argv. ADR-013 D4: gemini
 	// has no in-stream approval gate, so stewards typically run
 	// auto-approve and route principal-level decisions through
@@ -347,7 +358,14 @@ func (d *ExecResumeDriver) runTurn(parent context.Context, prompt string) error 
 	// trust is intent here — adding the flag belt-and-suspenders with
 	// the GEMINI_CLI_TRUST_WORKSPACE env so a stripped-env exec or a
 	// future env-name change can't silently break the turn.
-	args := []string{"--output-format", "stream-json", "--skip-trust"}
+	// ADR-043: the base launch contract comes from the family via
+	// BaseArgs; fall back to the historical default when a driver was
+	// constructed without it (older callers / unit tests). Copy so the
+	// per-turn appends below never mutate the shared family slice.
+	args := append([]string(nil), d.BaseArgs...)
+	if len(args) == 0 {
+		args = []string{"--output-format", "stream-json", "--skip-trust"}
+	}
 	if uuid := d.SessionID(); uuid != "" {
 		args = append(args, "--resume", uuid)
 	}

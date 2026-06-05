@@ -187,6 +187,19 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	if command == "" {
 		return M2LaunchResult{}, fmt.Errorf("M2 launch: backend.cmd is empty in spawn spec")
 	}
+	// ADR-043: the mode-selecting argv (claude's stream-json flags,
+	// codex's `app-server --listen stdio://`) lives on the engine
+	// family, not the persona template. Compose it onto the rendered
+	// cmd so a persona can't ship a contract that fails to launch.
+	// ComposeLaunchCmd is a no-op when the template already carries the
+	// flags (precedence to an explicit cmd) and when the family
+	// declares none. gemini-cli is exec-per-turn — it composes in its
+	// own branch below via the driver's BaseArgs — so skip it here.
+	if cfg.Spawn.Kind != "gemini-cli" {
+		if fam, ok := agentfamilies.ByName(cfg.Spawn.Kind); ok {
+			command = fam.ComposeLaunchCmd("M2", command)
+		}
+	}
 	// `cd <workdir> && <cmd>` so the agent process inherits the right cwd.
 	// We expand ~ ourselves rather than relying on bash's tilde expansion
 	// because the launcher passes the command through `bash -c "..."` and
@@ -342,7 +355,8 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 			Bin:            resolved,
 			Workdir:        expandedWorkdir,
 			Env:            geminiEnv,
-			Yolo:           true, // ADR-013 D4 — see steward template
+			Yolo:           true,                 // ADR-013 D4 — see steward template
+			BaseArgs:       fam.LaunchArgs("M2"), // ADR-043 launch contract
 			FrameProfile:   fam.FrameProfile,
 			CommandBuilder: ExecCommandBuilder(expandedWorkdir, geminiEnv),
 		}

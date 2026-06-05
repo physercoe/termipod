@@ -27,11 +27,12 @@ backend:
   permission_modes:
     skip: "--dangerously-skip-permissions"
     prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
-  # M2 (structured stdio) needs the agent-native JSON-line flags — the
-  # StdioDriver parses --output-format stream-json and feeds --input-format
-  # stream-json. Identical to every other M2 claude-code template; dropping any
-  # of these makes claude run interactive and the spawn fails.
-  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
+  # M2 (structured stdio) speaks the agent-native JSON-line protocol. The
+  # mode-selecting flags (--print --output-format stream-json
+  # --input-format stream-json --verbose) live on the claude-code family's
+  # launch.M2.mode_args (ADR-043); the launcher appends them. This
+  # template carries only the bin + intent ({{model}}, permissions).
+  cmd: "claude --model {{model}} {{permission_flag}}"
 
 default_role: worker.generic
 display_label: "Worker"

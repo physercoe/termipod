@@ -40,12 +40,14 @@ backend:
   #       Setting CODEX_HOME bypasses codex's "trusted projects"
   #       gate so each spawn's MCP scope stays isolated to its own
   #       workdir.
-  #   codex app-server --listen stdio://
-  #     — long-lived JSON-RPC daemon, line-delimited JSON-RPC over
-  #       this process's stdin/stdout. The driver speaks initialize,
-  #       thread/start, turn/start, and routes notifications + the
-  #       slice-4 approval bridge over the same pipe.
-  cmd: "CODEX_HOME=.codex codex app-server --listen stdio://"
+  #
+  # The mode-selecting argv — `app-server --listen stdio://`, the
+  # long-lived JSON-RPC daemon the AppServerDriver speaks (initialize,
+  # thread/start, turn/start + the slice-4 approval bridge over this
+  # process's stdin/stdout) — is no longer written here: it lives on
+  # the codex family's `launch.M2.mode_args` (ADR-043) and the launcher
+  # appends it. This template carries only the env prefix + bin.
+  cmd: "CODEX_HOME=.codex codex"
 
 default_role: team.coordinator
 display_label: "Steward (codex)"

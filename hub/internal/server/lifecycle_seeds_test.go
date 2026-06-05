@@ -171,7 +171,9 @@ func TestW5SeedPrompts_NoForbiddenTokens(t *testing.T) {
 				"Phase 3",
 				"Phase 4",
 				"manager/IC invariant",
-				"plan.advance",
+				// Phase advance is AC-driven (ADR-044) — the prompt
+				// documents marking criteria met, not a `plan.advance` call.
+				"criteria_set_state",
 			},
 		},
 	}

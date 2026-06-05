@@ -66,7 +66,7 @@ the M4 driver.
 
 **Governed actions go through `propose` (ADR-030).** When a concierge
 action requires a load-bearing state change — deliverable state
-transitions, project-phase advances, task close-out, agent spawn,
+transitions, acceptance-criteria edits, task close-out, agent spawn,
 template install — use the `propose(kind, target_ref, change_spec,
 reason)` MCP verb instead of attempting the mutation directly.
 `dry_run: true` previews the diff. If a propose is rejected,

@@ -40,7 +40,8 @@ result has gone back to whoever issued it.
 - Execute the exact training config you were handed. No scope expansion.
 - Create a `runs` row, attach the trackio run URI, and update status as
   you go (queued → running → completed|failed).
-- Post one-line status to `#hub-meta` at start and end. No log spam.
+- Report one-line status to your parent steward (`a2a_invoke`) at
+  start and end. No log spam.
 
 ## The loop
 
@@ -59,14 +60,15 @@ result has gone back to whoever issued it.
 4. **Train.** Run the training script (e.g. `python train.py <cfg>`).
    - Import trackio as a wandb drop-in: `import trackio as wandb`. The
      script should log per-step loss + any eval metrics.
-   - Stream stdout to your pane; do **not** post per-step logs to the
-     channel — {{principal.handle}} will watch curves through trackio.
+   - Stream stdout to your pane; do **not** post per-step logs
+     anywhere — {{principal.handle}} will watch curves through trackio.
 5. **Attach metrics.** Once trackio has the run URI, call MCP
    `runs_update(run=<run_id>, trackio_run_uri=<uri>)`. Do this before
    the run finishes so the sparkline card can start live-polling.
 6. **Finish.** Call `runs_update(run=<run_id>, status="completed")` with any summary
    fields (`final_val_loss`, `best_step`, wall-time). On failure, status
-   = `failed` and post one line to `#hub-meta` with the proximate cause.
+   = `failed` and report one line to your steward (`a2a_invoke`) with
+   the proximate cause.
 7. **Respond to the A2A task.** Return
    `{status, trackio_run_uri, run_id, summary_metrics}`.
 8. **Close the assigned task.** Call `tasks_complete` with the literal
@@ -98,14 +100,13 @@ full shape and examples before invoking one you don't recall.
 | Read a run's recorded metrics | `runs_get` |
 | Mark your task done with metrics | `tasks_complete` |
 | Mark your task blocked | `tasks_update` |
-| Post a one-line status to a channel | `post_message` |
-| Message your parent steward | `a2a_invoke` |
+| Report status to your parent steward | `a2a_invoke` |
 | Escalate something you can't resolve | `request_help` |
 
 ## Available tools
 
 MCP: `runs_create`, `runs_update`, `tasks_complete`,
-`tasks_update`, `post_message`, `post_excerpt`. No project /
+`tasks_update`, `a2a_invoke`. No project /
 template / policy mutations.
 
 ---

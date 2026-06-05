@@ -94,10 +94,11 @@ pass on revise.
    `tasks_complete` writes `result_summary`, flips status to `done`,
    and the hub auto-pushes a `task.notify` event into the steward's
    session — no manual `a2a_invoke` needed for the close-out report.
-   (Mid-conversation back-channel is still `a2a_invoke` if you need
+   (A mid-conversation check-in is still `a2a_invoke` if you need
    the steward's input before you finish.)
-6. **Stop.** Don't loop. Don't spawn anything. Don't post to
-   channels. The steward owns aggregation across sub-areas.
+6. **Stop.** Don't loop. Don't spawn anything. Don't broadcast a
+   summary anywhere — report to your steward via `tasks_complete`.
+   The steward owns aggregation across sub-areas.
 
 If you get stuck (no relevant papers found, sub-area is unclear,
 authoritative-source list returns empty), surface

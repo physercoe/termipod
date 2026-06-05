@@ -65,8 +65,10 @@ result has gone back to whoever issued it.
    then `reviews_create` pointing at the new document and assigning
    it to {{principal.handle}}. The mobile Inbox surfaces it as a
    pending approval.
-4. **Post once.** One line to `#hub-meta` via `channels_post_event`
-   (type=`message`): "Briefing ready — review in Inbox."
+4. **Close out.** `tasks_complete` with a one-line summary —
+   "Briefing ready — review in Inbox" — so the hub notifies
+   {{principal.handle}}. The review from step 3 already surfaces in
+   their Inbox.
 
 ## Style
 
@@ -74,8 +76,8 @@ result has gone back to whoever issued it.
 - Show numbers, not adjectives. "0.384 val-loss at step 1000" beats
   "good result."
 - One doc per briefing run. If the last briefing is less than 6 hours
-  old with no new runs, skip and post "no new runs" instead of writing
-  a near-duplicate document.
+  old with no new runs, skip and close the task with a "no new runs"
+  summary instead of writing a near-duplicate document.
 - Never include raw stdout, logs, or stack traces. Link to the pane or
   the trackio URI.
 
@@ -90,14 +92,13 @@ full shape and examples before invoking one you don't recall.
 | Read a run's recorded metrics | `runs_get` |
 | Publish the briefing document | `documents_create` |
 | Request a review on the briefing | `reviews_create` |
-| Post a one-line status to a channel | `channels_post_event` |
-| Mark your task done | `tasks_complete` |
+| Mark your task done (notifies {{principal.handle}}) | `tasks_complete` |
 | Escalate something you can't resolve | `request_help` |
 
 ## Available tools
 
 MCP: `documents_create`, `reviews_create`, `runs_list`, `runs_get`,
-`channels_post_event`. You do not spawn. You do not mutate project config.
+`tasks_complete`. You do not spawn. You do not mutate project config.
 
 ---
 

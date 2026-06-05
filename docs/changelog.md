@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-05)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.802
+> **Last verified vs code:** v1.0.803
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,57 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.803-alpha — 2026-06-05
+
+**The engine launch contract moves off the persona templates and onto the
+engine family — [ADR-043](decisions/043-engine-launch-contract-on-the-family.md)
+P1–P3 complete.** The argv that selects a driving mode (claude's `--print
+--output-format stream-json …`, codex's `app-server --listen stdio://`) and the
+flag-time permission contract (`skip` / `prompt`) were re-typed byte-identically
+across ~11 persona templates — a tester hit `ml-worker`/`briefing` failing to
+launch because their cmd had drifted. Both now live on the family as data; the
+launcher composes them and the spawn resolver substitutes them, so a persona
+template carries only the engine bin + intent (`{{model}}`, `{{permission_flag}}`)
+and can no longer ship a contract that doesn't launch.
+
+### Added
+- **`launch.<mode>.mode_args` on the engine family (ADR-043 P1)** — the
+  mode-selecting argv as declarative data, the input-side mirror of
+  `frame_profile`. `Family.LaunchArgs(mode)` + `ComposeLaunchCmd(mode, cmd)`
+  expose and compose it; populated claude-code/codex/gemini-cli M2 from the
+  values that lived in the templates / gemini driver (`625dcaa`).
+- **`permission_modes` on the claude-code family (ADR-043 P3)** —
+  `Family.PermissionFlag(mode)`; the `skip`/`prompt` argv (with the
+  `mcp__…__permission_prompt` literal) the spawn resolver substitutes into
+  `{{permission_flag}}` (`b9011a6`).
+- **Guard tests** locking the single source: the bundled-template launch
+  contract now asserts the *composed* command and that raw templates no longer
+  carry the flags; a permission guard asserts every flag-dropped claude template
+  is covered by the family.
+
+### Changed
+- **The launcher composes the contract (ADR-043 P2)** — `launchM2` appends
+  `ComposeLaunchCmd("M2", cmd)` for claude/codex; the gemini `ExecResumeDriver`
+  builds its argv from `LaunchArgs("M2")` via a new `BaseArgs` field. Composition
+  is append-only with documented precedence — a no-op when the cmd already
+  carries the contract — so user-authored full cmds keep launching and the
+  ripple was a single test (`db929e3`).
+- **The spawn resolver falls back to the family** for `{{permission_flag}}` when
+  a persona template carries no `permission_modes`, sourcing the engine from the
+  merged spec's `backend.kind` (`b9011a6`).
+- **11 claude M2 templates + the codex template + both new-template scaffolds**
+  (mobile + hub-side) dropped their mode flags and permission maps;
+  `steward.claude-m4` keeps its M4-specific `skip` as a deliberate override.
+
+### Fixed
+- **Flaky codex rate-limit status_line test** — `TestAppServerDriver_Translate
+  RateLimitsUpdated_EmitsStatusLine` waited for 3 posted events but the driver
+  emits 4 (a `session.init` added in v1.0.715 after the test's `wait(3)` was
+  written); the unaccounted-for event let the wait snapshot before the `raw`
+  fallback landed. Now waits for all 4 (`11c22d0`).
 
 ---
 

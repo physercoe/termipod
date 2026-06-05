@@ -81,23 +81,31 @@ the project meets reality.
    `phase.advance` verb is **retired** (Q4); the legacy 409 condition
    becomes the auto-advance trigger.
 
-4. **Agents can read why a phase is blocked.** Blocking (decision 3) is
-   only honest if the blocked agent can see the gate. Today it cannot:
-   criteria/deliverables are REST-only (`server.go:518-548`) with **no
-   MCP tool**, and `projects.get` returns the phase but not AC state
+4. **Agents can read criteria *and* deliverables.** Blocking (decision 3)
+   is only honest if the blocked agent can see the gate — and decision 1
+   ("materialize the deliverable") is impossible if the agent can't see
+   the draft slot it must fill or confirm an attach landed. Today neither
+   is readable over MCP: criteria/deliverables are REST-only
+   (`server.go:518-548`) with **no MCP tool** and **no MCP resource** (the
+   only `termipod://…/deliverables/…` reference is the `mobile.navigate`
+   URI, `tools.go:1077` — a phone destination, not an agent read), and
+   `projects.get` returns the phase but not AC/deliverable state
    (`handlers_projects.go:67-69`). So this ADR adds an agent-facing read
-   — `criteria.list` plus a `phase.status` summary (required vs. met
-   count, the blocking criteria) — as a **prerequisite of P1**.
+   surface as a **prerequisite of P1**: `criteria.list`, `deliverables.list`
+   / `deliverables.get` (with components), and a `phase.status` summary
+   (required vs. met count, the blocking criteria, deliverable
+   ratification states).
 
 ## Implementation surface (phased, hub-first, Go-testable)
 
 - **P1 — read affordance + deliverable materialization.** First the
-  reads (decision 4): `criteria.list` and a `phase.status` summary as MCP
-  tools (each = catalog entry + dispatcher + handler in lockstep, over
-  the existing REST queries). Then the writes: MCP tools to **attach /
-  update / remove** a component on one's own deliverable + transition
-  `draft↔in-review` (mirrors `server.go:518-548`). No new governance —
-  these are the agent's direct work product (Q1).
+  reads (decision 4): `criteria.list`, `deliverables.list` /
+  `deliverables.get` (with components), and a `phase.status` summary — as
+  MCP tools (each = catalog entry + dispatcher + handler in lockstep, over
+  the existing REST queries `server.go:518-548`). Then the writes: MCP
+  tools to **attach / update / remove** a component on one's own
+  deliverable + transition `draft↔in-review`. No new governance — these
+  are the agent's direct work product (Q1).
 - **P2 — `criteria.*` + `deliverable.create` propose kinds.** Register
   three criteria verbs (`criteria.create` / `criteria.update` /
   `criteria.delete` — Q2) plus `deliverable.create` via
@@ -146,8 +154,9 @@ an in-flight project.
   lifecycle; `criteria.*` edits the *rubric* itself. (Folded into P2.)
 - **Q3 — unmet required AC.** **Block.** Never a silent skip, never
   attention-only. The blocked agent must be able to read the gate — which
-  exposed that no such read affordance exists today, so decision 4 adds
-  it. (Folded into decisions 3 + 4.)
+  exposed that no such read affordance exists today for *either* criteria
+  or deliverables (both REST-only, no MCP tool or resource), so decision 4
+  adds reads for both. (Folded into decisions 3 + 4.)
 - **Q4 — propose `phase.advance`.** **Retire it** entirely. Advance is
   now system-approved off the AC state; human judgment lives in `gate`
   criteria, not a separate override. (Folded into decision 3 + P3.)

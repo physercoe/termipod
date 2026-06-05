@@ -65,10 +65,12 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
   bool _searching = false;
   String _query = '';
   late final TextEditingController _searchCtl;
-  // Categories the user has explicitly collapsed. Default = empty
-  // (everything expanded on first open). Persists in-memory for the
-  // life of the screen; resetting requires re-opening the Library.
-  final Set<String> _collapsed = <String>{};
+  // Categories the user has explicitly expanded. Default = empty, so every
+  // group starts COLLAPSED — the user lands on a one-line-per-category
+  // overview (name + tile count) and taps a group to drill in. Persists
+  // in-memory for the life of the screen; resetting requires re-opening the
+  // Library. An active search overrides this and forces matches open.
+  final Set<String> _expanded = <String>{};
 
   @override
   void initState() {
@@ -408,16 +410,17 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
             _CategoryGroup(
               category: key,
               rows: grouped[key]!,
-              // During an active search, force every matching section
-              // open so the user sees the hits without manual taps.
-              expanded: searching || !_collapsed.contains(key),
+              // Groups start collapsed (overview-first); a tap expands one.
+              // During an active search, force every matching section open so
+              // the user sees the hits without manual taps.
+              expanded: searching || _expanded.contains(key),
               onToggle: searching
                   ? null
                   : () => setState(() {
-                        if (_collapsed.contains(key)) {
-                          _collapsed.remove(key);
+                        if (_expanded.contains(key)) {
+                          _expanded.remove(key);
                         } else {
-                          _collapsed.add(key);
+                          _expanded.add(key);
                         }
                       }),
               onChanged: _load,

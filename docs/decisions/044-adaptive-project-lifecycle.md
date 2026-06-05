@@ -125,13 +125,18 @@ the project meets reality.
   component on one's own deliverable + transition `draft↔in-review`
   (decision 1, Q1), and **mark a `text`/`metric` criterion met/failed**
   (decision 2).
-- **P2 — `criteria.*` + `deliverable.create` propose kinds.** Register
-  three criteria verbs (`criteria.create` / `criteria.update` /
-  `criteria.delete` — Q2) plus `deliverable.create` via
-  `RegisterProposeKind`, each with Validate/DryRun/Apply/Rollback.
-  `create`/`update` reuse `handleCreateCriterion`/`handlePatchCriterion`;
-  `delete` is net-new (no criteria DELETE route exists today). Policy
-  tiers default to director approval.
+- **P2 — `criteria.*` + `deliverable.create` propose kinds. (SHIPPED.)**
+  Registered four governed verbs (`criteria.create` / `criteria.update` /
+  `criteria.delete` — Q2 — plus `deliverable.create`) via
+  `RegisterProposeKind`, each with Validate/DryRun/Apply/Rollback
+  (`apply_criteria.go`, `apply_deliverable_create.go`). Apply mirrors the
+  `handleCreate*`/`handlePatch*` SQL; `criteria.delete` is net-new and its
+  Rollback re-inserts the captured row snapshot. The decide handler
+  dispatches every kind generically through the registry
+  (`LookupProposeKind`), so no per-kind wiring was needed. No bundled
+  `policy.yaml` exists, so the kinds take the permissive `KindFor` default
+  — `default_tier: principal` (director approval). Marking met/failed stays
+  the P1 direct tool, not a propose.
 - **P3 — AC-driven auto-advance.** An evaluator that, when a required
   criterion is marked met (and after hydration), checks whether the
   current phase's required criteria are all satisfied and advances

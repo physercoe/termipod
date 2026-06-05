@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -21,9 +22,9 @@ import (
 // hand-creating rows.
 
 const (
-	deliverableStateDraft     = "draft"
-	deliverableStateInReview  = "in-review"
-	deliverableStateRatified  = "ratified"
+	deliverableStateDraft    = "draft"
+	deliverableStateInReview = "in-review"
+	deliverableStateRatified = "ratified"
 )
 
 func isValidDeliverableState(s string) bool {
@@ -68,10 +69,10 @@ type deliverableOut struct {
 }
 
 type deliverableIn struct {
-	Phase      string                  `json:"phase"`
-	Kind       string                  `json:"kind"`
-	Required   *bool                   `json:"required,omitempty"`
-	Ord        *int                    `json:"ord,omitempty"`
+	Phase      string                   `json:"phase"`
+	Kind       string                   `json:"kind"`
+	Required   *bool                    `json:"required,omitempty"`
+	Ord        *int                     `json:"ord,omitempty"`
 	Components []deliverableComponentIn `json:"components,omitempty"`
 }
 
@@ -94,11 +95,17 @@ type deliverableRatifyIn struct {
 
 // projectInTeam returns sql.ErrNoRows if the project is not in the team.
 func (s *Server) projectInTeam(r *http.Request, team, project string) error {
+	return s.projectInTeamCtx(r.Context(), team, project)
+}
+
+// projectInTeamCtx is the context-only core of projectInTeam — usable from
+// propose apply functions, which have no *http.Request. Returns
+// sql.ErrNoRows when the project is absent from the team.
+func (s *Server) projectInTeamCtx(ctx context.Context, team, project string) error {
 	var found string
-	err := s.db.QueryRowContext(r.Context(),
+	return s.db.QueryRowContext(ctx,
 		`SELECT id FROM projects WHERE id = ? AND team_id = ?`,
 		project, team).Scan(&found)
-	return err
 }
 
 func (s *Server) loadDeliverableComponents(
@@ -802,19 +809,19 @@ func (s *Server) handleListProjectCriteria(w http.ResponseWriter, r *http.Reques
 
 // projectOverviewOut wraps the composed phase-aware view (A3 §9.1).
 type projectOverviewOut struct {
-	ProjectID    string                    `json:"project_id"`
-	Phase        string                    `json:"phase,omitempty"`
-	Phases       []string                  `json:"phases,omitempty"`
-	PhaseIndex   int                       `json:"phase_index"`
-	Deliverables []deliverableOut          `json:"deliverables"`
-	Counts       projectOverviewCounts     `json:"counts"`
+	ProjectID    string                `json:"project_id"`
+	Phase        string                `json:"phase,omitempty"`
+	Phases       []string              `json:"phases,omitempty"`
+	PhaseIndex   int                   `json:"phase_index"`
+	Deliverables []deliverableOut      `json:"deliverables"`
+	Counts       projectOverviewCounts `json:"counts"`
 }
 
 type projectOverviewCounts struct {
-	DeliverablesTotal     int `json:"deliverables_total"`
-	DeliverablesRatified  int `json:"deliverables_ratified"`
-	CriteriaTotal         int `json:"criteria_total"`
-	CriteriaMet           int `json:"criteria_met"`
+	DeliverablesTotal    int `json:"deliverables_total"`
+	DeliverablesRatified int `json:"deliverables_ratified"`
+	CriteriaTotal        int `json:"criteria_total"`
+	CriteriaMet          int `json:"criteria_met"`
 }
 
 // handleGetProjectOverview — GET /projects/{project}/overview. Composed
@@ -1019,10 +1026,10 @@ func (s *Server) handleSendBackDeliverable(w http.ResponseWriter, r *http.Reques
 	s.recordAudit(r.Context(), team, "deliverable.send_back",
 		"deliverable", id, summary,
 		map[string]any{
-			"project_id":         project,
-			"deliverable_id":     id,
-			"attention_item_id":  attID,
-			"annotation_count":   len(in.AnnotationIDs),
+			"project_id":        project,
+			"deliverable_id":    id,
+			"attention_item_id": attID,
+			"annotation_count":  len(in.AnnotationIDs),
 		})
 
 	row := s.db.QueryRowContext(r.Context(),

@@ -273,8 +273,16 @@ func buildNativeTools() []nativeTool {
 				"type": "object",
 				"properties": map[string]any{
 					"kind": map[string]any{
-						"type":        "string",
-						"description": "registered governed-action kind (e.g. 'deliverable.set_state', 'task.set_status')",
+						"type": "string",
+						"description": "registered governed-action kind. Lifecycle kinds: " +
+							"'deliverable.create' (add a deliverable beyond the template; " +
+							"target_ref {project_id}, change_spec {phase, kind}); " +
+							"'criteria.create' / 'criteria.update' / 'criteria.delete' (edit the " +
+							"acceptance-criteria rubric; create target_ref {project_id}, " +
+							"update/delete target_ref {project_id, criterion_id}); " +
+							"plus 'deliverable.set_state', 'task.set_status', 'phase.advance'. " +
+							"Marking a criterion met/failed is the direct 'criteria.set_state' tool, " +
+							"not a propose.",
 					},
 					"target_ref": map[string]any{
 						"type":        "object",
@@ -316,8 +324,8 @@ func buildNativeTools() []nativeTool {
 			Handler: teamAgentArgs((*Server).mcpRequestApproval),
 		},
 		{
-			Name:    "request_select",
-			Short:   "Raise a select/decision attention item for the principal.",
+			Name:  "request_select",
+			Short: "Raise a select/decision attention item for the principal.",
 			Description: "Ask for a choice between named options. Creates an " +
 				"attention_item. Returns immediately with `{id, status: " +
 				"\"awaiting_response\"}`. END YOUR TURN AFTER CALLING. The " +
@@ -547,8 +555,8 @@ func buildNativeTools() []nativeTool {
 			Handler: teamAgentArgs((*Server).mcpPermissionPrompt),
 		},
 		{
-			Name:    "agents_fanout",
-			Short:   "Spawn N workers in one orchestrator-worker fan-out.",
+			Name:  "agents_fanout",
+			Short: "Spawn N workers in one orchestrator-worker fan-out.",
 			Description: "Spawn N workers in parallel under one correlation_id. " +
 				"Each worker spec carries (handle, kind, spawn_spec_yaml, persona_seed, " +
 				"task). The hub creates N agents in one transaction with " +
@@ -581,8 +589,8 @@ func buildNativeTools() []nativeTool {
 			Handler: teamArgs((*Server).mcpAgentsFanout),
 		},
 		{
-			Name:    "agents_gather",
-			Short:   "Long-poll for the results of a fan-out's workers.",
+			Name:  "agents_gather",
+			Short: "Long-poll for the results of a fan-out's workers.",
 			Description: "Long-poll until every agent in a correlation_id either posts " +
 				"a worker_report event or reaches terminal status. Returns the per-worker " +
 				"result list; the steward synthesizes from there. Times out at " +
@@ -600,8 +608,8 @@ func buildNativeTools() []nativeTool {
 			Handler: teamArgs((*Server).mcpAgentsGather),
 		},
 		{
-			Name:    "reports_post",
-			Short:   "Post a worker's structured report back to its orchestrator.",
+			Name:  "reports_post",
+			Short: "Post a worker's structured report back to its orchestrator.",
 			Description: "Worker writes a typed completion report. Stored as an " +
 				"agent_event of kind=worker_report with structured frontmatter " +
 				"(status, summary_md, output_artifacts[], budget_used_usd, next_steps[]). " +

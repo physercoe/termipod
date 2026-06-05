@@ -411,6 +411,12 @@ func (s *Server) handleMarkCriterion(action string) http.HandlerFunc {
 				"rationale":      in.Rationale,
 				"reason":         in.Reason,
 			})
+		// AC-driven auto-advance (ADR-044 P3): satisfying this criterion may
+		// clear the current phase. Best-effort — never fail the mark on it.
+		if _, aerr := s.maybeAutoAdvancePhase(r.Context(), team, project); aerr != nil {
+			s.log.Warn("auto-advance after criterion mark failed",
+				"err", aerr, "project", project, "criterion", id)
+		}
 		writeJSON(w, http.StatusOK, out)
 	}
 }
@@ -481,6 +487,14 @@ func (s *Server) cascadeDeliverableRatified(
 				"auto":           true,
 			})
 		fired = append(fired, p.id)
+	}
+	// A ratify cascade that fired gate criteria may have cleared the phase
+	// (ADR-044 P3). Best-effort — a failure here must not fail the ratify.
+	if len(fired) > 0 {
+		if _, aerr := s.maybeAutoAdvancePhase(ctx, team, project); aerr != nil {
+			s.log.Warn("auto-advance after gate cascade failed",
+				"err", aerr, "project", project)
+		}
 	}
 	return fired, nil
 }

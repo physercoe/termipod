@@ -137,13 +137,20 @@ the project meets reality.
   `policy.yaml` exists, so the kinds take the permissive `KindFor` default
   — `default_tier: principal` (director approval). Marking met/failed stays
   the P1 direct tool, not a propose.
-- **P3 — AC-driven auto-advance.** An evaluator that, when a required
-  criterion is marked met (and after hydration), checks whether the
-  current phase's required criteria are all satisfied and advances
-  automatically (idempotent; emits `project.phase_advanced`). An unmet
-  required criterion blocks (Q3). Gate criteria are the human-gate
-  primitive. **Retire** propose `phase.advance` (Q4) — migration note for
-  any current caller. This is the load-bearing change and lands last.
+- **P3 — AC-driven auto-advance. (SHIPPED.)** `maybeAutoAdvancePhase`
+  (`phase_auto_advance.go`) fires from the criterion-satisfied paths
+  (`handleMarkCriterion` and the gate cascade `cascadeDeliverableRatified`):
+  it advances one phase when the current phase declares ≥1 required
+  criterion and all are satisfied (met or waived — `requiredCriteriaCounts`
+  total>0 && pending==0), emitting `project.phase_advanced` (via
+  `auto-advance`) + hydrating the destination. An unmet required criterion
+  blocks — the evaluator just doesn't fire (Q3); a phase with no required
+  criteria waits for a manual REST advance rather than cascading forward.
+  Gate criteria are the human-gate primitive (the ratify cascade fires
+  them). Best-effort: a failure never fails the mark. **Retired** propose
+  `phase.advance` (Q4) — deleted `apply_phase_advance.go`; the director's
+  manual REST `/phase/advance` remains for off-criteria moves. No real
+  data to migrate (alpha).
 
 ## Consequences
 

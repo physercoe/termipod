@@ -280,9 +280,11 @@ func buildNativeTools() []nativeTool {
 							"'criteria.create' / 'criteria.update' / 'criteria.delete' (edit the " +
 							"acceptance-criteria rubric; create target_ref {project_id}, " +
 							"update/delete target_ref {project_id, criterion_id}); " +
-							"plus 'deliverable.set_state', 'task.set_status', 'phase.advance'. " +
+							"plus 'deliverable.set_state' and 'task.set_status'. " +
 							"Marking a criterion met/failed is the direct 'criteria.set_state' tool, " +
-							"not a propose.",
+							"not a propose. Phase advance is NOT proposable — it is system-driven: a " +
+							"phase auto-advances once all its required criteria are met (model a human " +
+							"gate as a `gate` criterion).",
 					},
 					"target_ref": map[string]any{
 						"type":        "object",

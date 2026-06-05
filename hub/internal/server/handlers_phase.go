@@ -16,10 +16,10 @@ import (
 // be empty when the project is lifecycle-disabled (template declared no
 // phase set); callers treat phase=="" as "render the legacy Overview".
 type phaseOut struct {
-	ProjectID string             `json:"project_id"`
-	Phase     string             `json:"phase,omitempty"`
-	Phases    []string           `json:"phases,omitempty"`
-	History   []phaseTransition  `json:"history,omitempty"`
+	ProjectID string            `json:"project_id"`
+	Phase     string            `json:"phase,omitempty"`
+	Phases    []string          `json:"phases,omitempty"`
+	History   []phaseTransition `json:"history,omitempty"`
 }
 
 // phaseTransition is one entry in projects.phase_history's `transitions`
@@ -138,6 +138,26 @@ func (s *Server) requiredCriteriaPending(
 	return n, err
 }
 
+// requiredCriteriaCounts returns (total, pending) for a project + phase:
+// the number of required acceptance criteria and how many are still
+// pending or failed. The AC-driven auto-advancer (P3) fires when total>0
+// and pending==0 — i.e. the phase declares a gate AND every required
+// criterion is satisfied (met or waived; waived is excluded from pending
+// by design — the director explicitly excused it).
+func (s *Server) requiredCriteriaCounts(
+	ctx context.Context, project, phase string,
+) (total, pending int, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN state IN ('pending','failed') THEN 1 ELSE 0 END), 0)
+		FROM acceptance_criteria
+		WHERE project_id = ?
+		  AND phase = ?
+		  AND required = 1`, project, phase).Scan(&total, &pending)
+	return total, pending, err
+}
+
 func (s *Server) handleGetProjectPhase(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	project := chi.URLParam(r, "project")
@@ -220,10 +240,10 @@ func (s *Server) handleAdvanceProjectPhase(w http.ResponseWriter, r *http.Reques
 				fmt.Sprintf("%d required criteria for phase %q are not yet met",
 					pending, phase),
 				map[string]any{
-					"project_id":      project,
-					"phase":           phase,
-					"pending_count":   pending,
-					"target_phase":    to,
+					"project_id":    project,
+					"phase":         phase,
+					"pending_count": pending,
+					"target_phase":  to,
 				})
 			return
 		}
@@ -263,10 +283,10 @@ func (s *Server) handleAdvanceProjectPhase(w http.ResponseWriter, r *http.Reques
 	}
 	s.recordAudit(r.Context(), team, action, "project", project, summary,
 		map[string]any{
-			"from":          phase,
-			"to":            to,
-			"criteria_met":  []string{},
-			"reason":        in.Reason,
+			"from":         phase,
+			"to":           to,
+			"criteria_met": []string{},
+			"reason":       in.Reason,
 		})
 
 	// Hydrate the newly-entered phase's deliverables + criteria from the

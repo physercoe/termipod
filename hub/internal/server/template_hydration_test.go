@@ -508,7 +508,9 @@ func TestResearchTemplate_PhaseAdvanceHydratesDeliverables(t *testing.T) {
 		t.Fatalf("idea deliverables=%d want 0", len(got))
 	}
 
-	// Mark the idea criterion met so the advance gate passes.
+	// Mark the idea criterion met. With AC-driven auto-advance (ADR-044
+	// P3), satisfying the only required criterion in `idea` advances the
+	// project to lit-review automatically — no manual advance call.
 	cr := do(http.MethodGet, "/v1/teams/"+team+"/projects/"+p.ID+"/criteria?phase=idea", nil)
 	var crits struct {
 		Items []criterionOut `json:"items"`
@@ -523,11 +525,12 @@ func TestResearchTemplate_PhaseAdvanceHydratesDeliverables(t *testing.T) {
 		t.Fatalf("mark-met: %d %s", mr.Code, mr.Body.String())
 	}
 
-	// Advance idea → lit-review.
-	if ar := do(http.MethodPost,
-		"/v1/teams/"+team+"/projects/"+p.ID+"/phase/advance",
-		map[string]any{"to_phase": "lit-review"}); ar.Code != http.StatusOK {
-		t.Fatalf("advance: %d %s", ar.Code, ar.Body.String())
+	// The mark auto-advanced idea → lit-review.
+	pr := do(http.MethodGet, "/v1/teams/"+team+"/projects/"+p.ID+"/phase", nil)
+	var ph phaseOut
+	_ = json.Unmarshal(pr.Body.Bytes(), &ph)
+	if ph.Phase != "lit-review" {
+		t.Fatalf("phase after mark-met=%q want lit-review (auto-advanced)", ph.Phase)
 	}
 
 	// lit-review's deliverable should now be hydrated.

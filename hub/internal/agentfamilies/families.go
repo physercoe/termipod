@@ -76,6 +76,18 @@ type Family struct {
 	// intent only.
 	Launch map[string]LaunchMode `yaml:"launch,omitempty" json:"launch,omitempty"`
 
+	// PermissionModes is the family's flag-time permission contract
+	// (ADR-043 P3): the argv fragment for each permission mode (skip /
+	// prompt) the spawn resolver substitutes into a template's
+	// {{permission_flag}}. claude-code only — codex gates in-stream
+	// (item/*/requestApproval), gemini/kimi via their own flags. A
+	// persona template that omits permission_modes inherits this
+	// family default; one that declares it overrides (precedence to the
+	// explicit template — e.g. steward.claude-m4's M4-specific `skip`).
+	// Values may embed {{mcp_namespace}}; the resolver's expandVars
+	// fixed-point pass resolves it the same as a template-sourced value.
+	PermissionModes map[string]string `yaml:"permission_modes,omitempty" json:"permission_modes,omitempty"`
+
 	FrameProfile *FrameProfile `yaml:"frame_profile,omitempty" json:"frame_profile,omitempty"`
 	// FrameTranslator selects which translator the host-runner uses
 	// for this engine. Empty (default) is "legacy" — the hardcoded
@@ -190,6 +202,17 @@ func (f Family) ComposeLaunchCmd(mode, cmd string) string {
 	return strings.TrimRight(cmd, " ") + " " + strings.Join(args, " ")
 }
 
+// PermissionFlag returns the family's flag-time argv for a permission
+// mode (skip / prompt) — the value the spawn resolver substitutes into
+// {{permission_flag}} when the persona template carries no
+// permission_modes of its own (ADR-043 P3). Returns "" when the family
+// declares no contract (codex, gemini, kimi) or the mode is unknown.
+// The returned value may still contain {{mcp_namespace}}; the resolver
+// expands it.
+func (f Family) PermissionFlag(mode string) string {
+	return f.PermissionModes[mode]
+}
+
 // FrameProfile is the per-engine declarative translator for stream-json
 // frames (ADR-010). Each rule is a (matcher → emit) pair; rules are
 // dispatched by most-specific match (largest match-keyset wins; ties
@@ -291,10 +314,10 @@ type View struct {
 type Registry struct {
 	overlayDir string
 
-	mu       sync.RWMutex
-	cached   []View
+	mu        sync.RWMutex
+	cached    []View
 	cachedErr error
-	loaded   bool
+	loaded    bool
 }
 
 // New constructs a registry that reads embedded defaults first, then

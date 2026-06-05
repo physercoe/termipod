@@ -130,8 +130,9 @@ func engineCmd(engine string) string {
 	case "codex":
 		return `  # Codex picks the model server-side via app-server protocol.
   # No permission_modes map: codex's per-tool gate is in-stream
-  # (item/*/requestApproval), not flag-time.
-  cmd: "codex app-server"`
+  # (item/*/requestApproval), not flag-time. The app-server launch
+  # argv comes from the codex family (ADR-043); cmd carries the bin.
+  cmd: "codex"`
 	case "gemini-cli":
 		return `  # Gemini's --acp flag puts it into Agent Client Protocol mode
   # (Zed spec, JSON-RPC over stdio); ACPDriver speaks the rest.
@@ -143,10 +144,11 @@ func engineCmd(engine string) string {
   # gate by removing --yolo.
   cmd: "kimi --yolo acp"`
 	default: // claude-code
-		return `  permission_modes:
-    skip: "--dangerously-skip-permissions"
-    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
-  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"`
+		// The stream-json launch flags and the skip/prompt permission
+		// contract come from the claude-code family (ADR-043); a template
+		// carries only the bin + intent. Add a local permission_modes map
+		// here only to override the family default.
+		return `  cmd: "claude --model {{model}} {{permission_flag}}"`
 	}
 }
 

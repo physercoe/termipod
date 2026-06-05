@@ -21,12 +21,10 @@ fallback_modes: [M4]
 
 backend:
   kind: claude-code
-  # {{model}} expands from this field; permission_modes lets the spawn request
-  # pick a permission flag without forking the YAML.
+  # {{model}} expands from this field. {{permission_flag}} resolves from
+  # the claude-code family's permission_modes (ADR-043 P3) keyed by the
+  # spawn request's permission_mode (skip / prompt) — no per-template map.
   model: claude-sonnet-4-6
-  permission_modes:
-    skip: "--dangerously-skip-permissions"
-    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
   # M2 (structured stdio) speaks the agent-native JSON-line protocol. The
   # mode-selecting flags (--print --output-format stream-json
   # --input-format stream-json --verbose) live on the claude-code family's

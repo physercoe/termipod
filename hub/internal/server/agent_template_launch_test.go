@@ -100,3 +100,57 @@ func TestBundledAgentTemplates_M2LaunchContract(t *testing.T) {
 		t.Fatal("no M2 claude-code/codex templates checked — the invariant isn't exercising anything")
 	}
 }
+
+// TestBundledAgentTemplates_PermissionContract is the P3 analog of the
+// launch-contract guard: a claude-code persona template that references
+// {{permission_flag}} but carries no permission_modes of its own MUST be
+// covered by the claude-code family's permission_modes (ADR-043 P3), or
+// the spawn resolver expands {{permission_flag}} to "" and the agent
+// spawns unable to write files. It also asserts the inverse — a template
+// that DOES declare permission_modes is exercising the override path
+// deliberately (steward.claude-m4) — so the single source stays legible.
+func TestBundledAgentTemplates_PermissionContract(t *testing.T) {
+	type tmpl struct {
+		Backend struct {
+			Kind            string            `yaml:"kind"`
+			Cmd             string            `yaml:"cmd"`
+			PermissionModes map[string]string `yaml:"permission_modes"`
+		} `yaml:"backend"`
+	}
+	matches, err := fs.Glob(hub.TemplatesFS, "templates/agents/*.yaml")
+	if err != nil {
+		t.Fatalf("glob bundled agent templates: %v", err)
+	}
+	fam, ok := agentfamilies.ByName("claude-code")
+	if !ok {
+		t.Fatal("claude-code family not in registry")
+	}
+	checked := 0
+	for _, p := range matches {
+		data, err := fs.ReadFile(hub.TemplatesFS, p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		var d tmpl
+		if err := yaml.Unmarshal(data, &d); err != nil {
+			t.Fatalf("parse %s: %v", p, err)
+		}
+		if d.Backend.Kind != "claude-code" || !strings.Contains(d.Backend.Cmd, "{{permission_flag}}") {
+			continue
+		}
+		checked++
+		if len(d.Backend.PermissionModes) > 0 {
+			continue // deliberate override (e.g. steward.claude-m4's M4 skip)
+		}
+		// No local map → must resolve from the family for both modes.
+		for _, mode := range []string{"skip", "prompt"} {
+			if fam.PermissionFlag(mode) == "" {
+				t.Errorf("%s: drops permission_modes but family has no %q flag — "+
+					"{{permission_flag}} would resolve empty (ADR-043 P3)", p, mode)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no claude-code templates with {{permission_flag}} checked")
+	}
+}

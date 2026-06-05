@@ -107,8 +107,16 @@ config-as-code framing are in the discussion doc.
   composed command **and** that the raw template no longer carries the flags
   (locking the single source). `launchM1` mode args are not yet declared (M1
   ACP carries no stream-json cmd today); add them when an M1 contract needs it.
-- **P3 — hoist `permission_modes`** onto the family the same way (separate
-  change).
+- **P3 — hoist `permission_modes`, DONE.** Added `permission_modes` to the
+  claude-code family (`{skip, prompt}`) + `Family.PermissionFlag(mode)`; the
+  spawn resolver (`buildSpawnVars`) falls back to it when the persona spec
+  yields no `{{permission_flag}}`, sourcing the engine from the merged spec's
+  `backend.kind` (not `in.Kind`, which is the agent/template id). Dropped the
+  map from the 11 M2 claude templates + the hub-side scaffold; `steward.claude-m4`
+  keeps its M4-specific `skip` as the deliberate override (explicit wins). A
+  guard asserts every flag-dropped claude template is covered by the family.
+  The `mcp__…__permission_prompt` literal rides inside the hoisted `prompt`
+  value (with `{{mcp_namespace}}`), so it moved with it.
 
 ## Consequences
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	hub "github.com/termipod/hub"
+	"github.com/termipod/hub/internal/agentfamilies"
 	"gopkg.in/yaml.v3"
 )
 
@@ -76,6 +77,27 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 		specForVars = merged
 	}
 	model, permFlag := backendVarsFromSpec(specForVars, in.PermissionMode)
+	if permFlag == "" {
+		// ADR-043 P3: the persona template no longer carries the
+		// claude-code permission contract — it lives on the engine
+		// family. Fall back to it (empty mode → "skip", matching
+		// backendVarsFromSpec). A template that DOES declare its own
+		// permission_modes (e.g. steward.claude-m4's M4 `skip`) yields a
+		// non-empty permFlag above and never reaches this fallback, so
+		// the explicit template still wins. Empty here for codex/gemini
+		// (no family contract) is correct — their cmd carries no
+		// {{permission_flag}}.
+		pm := in.PermissionMode
+		if pm == "" {
+			pm = "skip"
+		}
+		// The engine family is the merged spec's backend.kind (claude-code),
+		// NOT in.Kind — which is the agent/template identifier (e.g.
+		// "coder.v1") when spawning via `template: agents.coder`.
+		if fam, ok := agentfamilies.ByName(backendKindFromSpec(specForVars)); ok {
+			permFlag = fam.PermissionFlag(pm)
+		}
+	}
 
 	resolvedPrincipal := firstNonEmpty(principal, "@principal")
 	vars := map[string]string{
@@ -142,6 +164,23 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 // general-steward bootstrap, and project-steward delegation all already
 // default to "skip"; making the helper match removes the foot-gun
 // without changing any explicit caller's behaviour.
+// backendKindFromSpec best-effort reads backend.kind (the engine family,
+// e.g. "claude-code") from a spawn spec. Empty when the spec isn't shaped
+// like a backend block — the caller treats that as "no family fallback".
+// Used to source the family for {{permission_flag}}'s ADR-043 P3 fallback,
+// since in.Kind carries the agent/template identifier, not the engine.
+func backendKindFromSpec(spec string) string {
+	var head struct {
+		Backend struct {
+			Kind string `yaml:"kind"`
+		} `yaml:"backend"`
+	}
+	if err := yaml.Unmarshal([]byte(spec), &head); err != nil {
+		return ""
+	}
+	return head.Backend.Kind
+}
+
 func backendVarsFromSpec(spec, mode string) (model, permFlag string) {
 	var head struct {
 		Backend struct {

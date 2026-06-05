@@ -68,7 +68,9 @@ func TestScaffoldAgent_EngineSwapsCmdLine(t *testing.T) {
 		wantCmd string
 	}{
 		{"claude-code", "claude --model"},
-		{"codex", "codex app-server"},
+		// ADR-043: the app-server launch argv comes from the codex family;
+		// the scaffold cmd carries only the bin.
+		{"codex", `cmd: "codex"`},
 		{"gemini-cli", "gemini --acp"},
 		{"kimi-code", "kimi --yolo acp"},
 	}

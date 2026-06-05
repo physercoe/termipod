@@ -326,17 +326,16 @@ func TestTemplates_GetMergeOverlay(t *testing.T) {
 		t.Errorf("raw GET smuggled in cmd: from embedded:\n%s", body)
 	}
 
-	// With merge=1 the embedded backend.cmd and permission_modes fall
-	// through, and the user's default_workdir is preserved.
+	// With merge=1 the embedded backend.cmd falls through and the user's
+	// default_workdir is preserved. (permission_modes is no longer a
+	// template field — it moved onto the claude-code family in ADR-043
+	// P3 — so it is intentionally NOT expected in the merged output.)
 	status, body = rawCall(t, c.token, mergeURL, "GET", nil)
 	if status != 200 {
 		t.Fatalf("merged GET = %d body=%s", status, body)
 	}
 	if !strings.Contains(string(body), "cmd:") {
 		t.Errorf("merged GET missing backend.cmd:\n%s", body)
-	}
-	if !strings.Contains(string(body), "permission_modes:") {
-		t.Errorf("merged GET missing permission_modes:\n%s", body)
 	}
 	if !strings.Contains(string(body), "~/hub-work") {
 		t.Errorf("merged GET dropped user's default_workdir:\n%s", body)

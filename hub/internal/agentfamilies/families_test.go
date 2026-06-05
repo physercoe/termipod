@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -486,6 +487,44 @@ func TestLaunchArgs_ReturnsCopy(t *testing.T) {
 	b := f.LaunchArgs("M2")
 	if b[0] == "MUTATED" {
 		t.Errorf("LaunchArgs returned an aliased slice; mutation leaked: %q", b)
+	}
+}
+
+// TestPermissionFlag_BundledClaude pins the family-owned permission
+// contract (ADR-043 P3). claude-code declares the skip/prompt flags the
+// spawn resolver substitutes into {{permission_flag}} when a persona
+// template carries no permission_modes of its own; codex/gemini/kimi
+// declare none (codex gates in-stream, the others via their own flags).
+// If a future edit drops the claude map, every flag-dropped persona
+// template would resolve {{permission_flag}} to "" and spawn an agent
+// that can't write files — this catches that at the source.
+func TestPermissionFlag_BundledClaude(t *testing.T) {
+	claude, ok := ByName("claude-code")
+	if !ok {
+		t.Fatal("claude-code not in registry")
+	}
+	if got := claude.PermissionFlag("skip"); got != "--dangerously-skip-permissions" {
+		t.Errorf(`claude PermissionFlag("skip") = %q; want --dangerously-skip-permissions`, got)
+	}
+	if got := claude.PermissionFlag("prompt"); !strings.Contains(got, "--permission-prompt-tool") {
+		t.Errorf(`claude PermissionFlag("prompt") = %q; want --permission-prompt-tool …`, got)
+	}
+	// {{mcp_namespace}} is left for the server resolver's expandVars pass.
+	if got := claude.PermissionFlag("prompt"); !strings.Contains(got, "{{mcp_namespace}}") {
+		t.Errorf(`claude PermissionFlag("prompt") = %q; want it to carry {{mcp_namespace}}`, got)
+	}
+	if got := claude.PermissionFlag("bogus"); got != "" {
+		t.Errorf(`claude PermissionFlag("bogus") = %q; want ""`, got)
+	}
+	// Engines with no flag-time permission contract return "".
+	for _, fam := range []string{"codex", "gemini-cli", "kimi-code"} {
+		f, ok := ByName(fam)
+		if !ok {
+			continue
+		}
+		if got := f.PermissionFlag("skip"); got != "" {
+			t.Errorf(`%s PermissionFlag("skip") = %q; want "" (no flag-time gate)`, fam, got)
+		}
 	}
 }
 

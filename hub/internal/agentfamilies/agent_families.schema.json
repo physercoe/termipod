@@ -44,6 +44,11 @@
           "propertyNames": { "enum": ["M1", "M2", "M4"] },
           "additionalProperties": { "$ref": "#/$defs/LaunchMode" }
         },
+        "permission_modes": {
+          "type": "object",
+          "description": "Flag-time permission contract (ADR-043 P3): per permission mode (skip / prompt), the argv the spawn resolver substitutes into a persona template's {{permission_flag}}. claude-code only. A persona template that omits permission_modes inherits this; one that declares its own overrides. Values may embed {{mcp_namespace}}.",
+          "additionalProperties": { "type": "string" }
+        },
         "frame_profile": {
           "$ref": "#/$defs/FrameProfile",
           "description": "Per-engine declarative translator for stream-json frames. Optional in v1; nil falls back to the legacy hardcoded translator (driver_stdio.go)."

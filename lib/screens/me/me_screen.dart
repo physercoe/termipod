@@ -350,7 +350,7 @@ class _MeItem {
 
   factory _MeItem.attention(Map<String, dynamic> a) {
     final kind = (a['kind'] ?? 'attention').toString();
-    final filter = _filterForAttention(kind);
+    final filter = _filterForAttention(a);
     // actor_kind + actor_handle are the authoritative columns stamped by
     // the hub (migration 0016). An agent-raised attention gets actor for
     // badge rendering; system/user rows stay unbadged.
@@ -372,37 +372,44 @@ class _MeItem {
     );
   }
 
-  static _Filter _filterForAttention(String kind) {
-    switch (kind) {
-      case 'approval_request':
-      case 'permission_prompt':
-      case 'select':
-      case 'help_request':
-      case 'elicit':
-      case 'template_proposal':
-      // ADR-025 W4: the principal-action on this kind is "spawn the
-      // project steward" (handled by InlineApprovalActions in v1.0.601).
-      // Promoting to the approvals filter surfaces that inline button on
-      // the Me-page card itself; without this it only renders after
-      // tapping Details, which is one tap too many for a primary action.
-      case 'project_steward_request':
-      // ADR-030 W19.5: the generic `propose` verb (deliverable.set_state,
-      // phase.advance, task.set_status, agent.spawn, template.install)
-      // is a request-the-system-is-asking. Stalled propose rows
-      // (escalation_state != 'none' but assigned_tier ≠ viewer tier)
-      // ALSO surface here — stalled is a *state*, not a kind; the per-
-      // kind W15-W18 cards decorate it with a top pill + Override
-      // affordance via the isAddressee() predicate below.
-      case 'propose':
-        return _Filter.approvals;
-      case 'idle':
-      case 'agent_error':
-        return _Filter.agents;
-      default:
-        return _Filter.messages;
-    }
-  }
+  // Known kinds whose whole point is a director action. Kept only as a
+  // belt-and-suspenders fallback so a decision kind still classifies as a
+  // Request even if a future variant ever ships without a pending payload.
+  static const _actionableKinds = {
+    'approval_request',
+    'permission_prompt',
+    'select',
+    'help_request',
+    'elicit',
+    'template_proposal',
+    // ADR-025 W4: principal-action is "spawn the project steward".
+    'project_steward_request',
+    // ADR-030: the generic governed `propose` verb (carries change_kind).
+    'propose',
+    // ADR-020 W2: a deliverable sent back for revision — actionable (the
+    // steward must resolve the redlines) but resolved through the detail
+    // screen, not the binary decide endpoint.
+    'revision_requested',
+  };
 
+  // Requests vs Messages is decided by whether the item carries an action
+  // the director must take — a `pending_payload` (the structured ask) or a
+  // governed `change_kind` — NOT by a closed kind allowlist. This
+  // property-first rule is the clear boundary: anything actionable is a
+  // Request, everything else is an FYI Message. It also means a newly
+  // introduced actionable kind can no longer silently fall into Messages
+  // and lose its inline affordance (the bug `revision_requested` exposed).
+  static _Filter _filterForAttention(Map<String, dynamic> a) {
+    final kind = (a['kind'] ?? '').toString();
+    // Agent-state items keep their own bucket.
+    if (kind == 'idle' || kind == 'agent_error') return _Filter.agents;
+    final hasPendingAction = a['pending_payload'] != null;
+    final hasChangeKind = (a['change_kind'] ?? '').toString().isNotEmpty;
+    if (hasPendingAction || hasChangeKind || _actionableKinds.contains(kind)) {
+      return _Filter.approvals;
+    }
+    return _Filter.messages;
+  }
 
   static DateTime _parseTs(String? raw) {
     if (raw == null || raw.isEmpty) return DateTime.now();
@@ -641,6 +648,13 @@ class _MeCard extends ConsumerWidget {
                   attention: item.attention!,
                   myTier: 'principal',
                 )
+              else if (item.kind == 'revision_requested')
+                // ADR-020 W2: not a binary approve/reject — the steward
+                // resolves the director's redlines. The decide endpoint
+                // doesn't accept this kind, so route to the detail screen
+                // (where _RevisionRequestedBlock renders the notes +
+                // linked annotations) via the action button below.
+                const SizedBox.shrink()
               else
                 InlineApprovalActions(
                   id: item.id,
@@ -660,8 +674,15 @@ class _MeCard extends ConsumerWidget {
                               ),
                             ),
                           ),
-                  icon: const Icon(Icons.info_outline, size: 14),
-                  label: const Text('Details'),
+                  icon: Icon(
+                    item.kind == 'revision_requested'
+                        ? Icons.rate_review_outlined
+                        : Icons.info_outline,
+                    size: 14,
+                  ),
+                  label: Text(
+                    item.kind == 'revision_requested' ? 'Review redlines' : 'Details',
+                  ),
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                     textStyle: GoogleFonts.jetBrainsMono(fontSize: 11),
@@ -669,10 +690,9 @@ class _MeCard extends ConsumerWidget {
                 ),
               ),
             ] else if (item.attention != null) ...[
-              // Non-approval attention items (revision_requested, idle,
-              // agent_error, generic messages) still have a useful detail
-              // view. Surface a Details affordance so the card's tap
-              // target isn't invisible.
+              // Non-action attention items (idle, agent_error, generic
+              // FYI messages) still have a useful detail view. Surface a
+              // Details affordance so the card's tap target isn't invisible.
               const SizedBox(height: 6),
               Align(
                 alignment: Alignment.centerRight,

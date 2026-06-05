@@ -268,6 +268,7 @@ func promptAlwaysParented(path string) bool {
 		"ml-worker.v1.md",
 		"paper-writer.v1.md",
 		"briefing.v1.md",
+		"worker.v1.md",
 		"worker_report.v1.md":
 		return true
 	}

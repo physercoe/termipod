@@ -1,9 +1,10 @@
 # 044. The project lifecycle is adaptive, not a fixed template contract
 
 > **Type:** decision
-> **Status:** Proposed (2026-06-05) — director feedback on the deliverable/
-> criteria/phase-advance model surfaced during code-migration lifecycle
-> testing (issues [#18](https://github.com/physercoe/termipod/issues/18),
+> **Status:** Accepted (2026-06-05) — director resolved the four open
+> questions (Q1–Q4 below). Director feedback on the deliverable/criteria/
+> phase-advance model surfaced during code-migration lifecycle testing
+> (issues [#18](https://github.com/physercoe/termipod/issues/18),
 > [#19](https://github.com/physercoe/termipod/issues/19), and the gating
 > discussion). Builds on the per-phase hydration foundation (issue #20,
 > shipped) and the governed-action model of [ADR-030](030-governed-actions-and-propose-verb.md).
@@ -53,12 +54,13 @@ the project meets reality.
 1. **Agents materialize deliverables; new deliverables are governed.**
    A worker/project agent fills a hydrated draft deliverable by attaching
    the components it produced and moving it `draft → in-review` for
-   director ratification. Attaching to / drafting *one's own* deliverable
-   is the agent's work product (direct MCP tool, not a propose). Creating
-   a **new** deliverable beyond the template changes the ratification
-   surface, so it is a governed `deliverable.create` propose verb the
-   director approves. (`deliverable.set_state → ratified` stays governed
-   as today.)
+   director ratification. Working *one's own* draft deliverable is the
+   agent's work product, done with **direct** MCP tools (not a propose):
+   the agent may **attach, update, and remove** components and set
+   `draft ↔ in-review` (Q1). Creating a **new** deliverable beyond the
+   template changes the ratification surface, so it is a governed
+   `deliverable.create` propose verb the director approves.
+   (`deliverable.set_state → ratified` stays governed as today.)
 
 2. **Acceptance criteria are editable via propose.** Criteria can be
    added, revised, or removed as the roadmap evolves. Because criteria
@@ -73,26 +75,43 @@ the project meets reality.
    all *required* acceptance criteria for it are met. Where a human
    decision is genuinely required, it is modelled as a **`gate`-kind
    criterion** a human marks met — so the human-in-the-loop lives *inside*
-   the criteria set, not as a separate phase-advance approval. The
-   propose `phase.advance` verb is retired (or repurposed to an explicit
-   override); the legacy 409 condition becomes the auto-advance trigger.
+   the criteria set, not as a separate phase-advance approval. An unmet
+   *required* criterion (gate or not) **blocks** the advance — never a
+   silent skip, never an attention-only nudge (Q3). The propose
+   `phase.advance` verb is **retired** (Q4); the legacy 409 condition
+   becomes the auto-advance trigger.
+
+4. **Agents can read why a phase is blocked.** Blocking (decision 3) is
+   only honest if the blocked agent can see the gate. Today it cannot:
+   criteria/deliverables are REST-only (`server.go:518-548`) with **no
+   MCP tool**, and `projects.get` returns the phase but not AC state
+   (`handlers_projects.go:67-69`). So this ADR adds an agent-facing read
+   — `criteria.list` plus a `phase.status` summary (required vs. met
+   count, the blocking criteria) — as a **prerequisite of P1**.
 
 ## Implementation surface (phased, hub-first, Go-testable)
 
-- **P1 — deliverable materialization.** An MCP tool to attach a
-  component to a deliverable + transition `draft→in-review` (catalog
-  entry + dispatcher + handler in lockstep; mirrors the REST path). No
-  new governance.
+- **P1 — read affordance + deliverable materialization.** First the
+  reads (decision 4): `criteria.list` and a `phase.status` summary as MCP
+  tools (each = catalog entry + dispatcher + handler in lockstep, over
+  the existing REST queries). Then the writes: MCP tools to **attach /
+  update / remove** a component on one's own deliverable + transition
+  `draft↔in-review` (mirrors `server.go:518-548`). No new governance —
+  these are the agent's direct work product (Q1).
 - **P2 — `criteria.*` + `deliverable.create` propose kinds.** Register
-  the verbs (`RegisterProposeKind`), with Validate/DryRun/Apply/Rollback,
-  reusing the create/patch logic in `handlers_criteria.go` /
-  `handlers_deliverables.go`. Policy tiers default to director approval.
+  three criteria verbs (`criteria.create` / `criteria.update` /
+  `criteria.delete` — Q2) plus `deliverable.create` via
+  `RegisterProposeKind`, each with Validate/DryRun/Apply/Rollback.
+  `create`/`update` reuse `handleCreateCriterion`/`handlePatchCriterion`;
+  `delete` is net-new (no criteria DELETE route exists today). Policy
+  tiers default to director approval.
 - **P3 — AC-driven auto-advance.** An evaluator that, when a required
   criterion is marked met (and after hydration), checks whether the
   current phase's required criteria are all satisfied and advances
-  automatically (idempotent; emits `project.phase_advanced`). Gate
-  criteria are the human-gate primitive. Retire/repurpose propose
-  `phase.advance`. This is the load-bearing change and lands last.
+  automatically (idempotent; emits `project.phase_advanced`). An unmet
+  required criterion blocks (Q3). Gate criteria are the human-gate
+  primitive. **Retire** propose `phase.advance` (Q4) — migration note for
+  any current caller. This is the load-bearing change and lands last.
 
 ## Consequences
 
@@ -112,15 +131,26 @@ advances today (migration note required).
 metadata, not bytes — A3); cross-phase criteria; template versioning of
 an in-flight project.
 
-## Open questions for the director
+## Resolved (director, 2026-06-05)
 
-- **Q1.** Component-attach: direct agent tool (agent owns its draft) vs.
-  governed? Recommendation: direct for attach/draft, governed for create.
-- **Q2.** `criteria.*` as three verbs or one `criteria.set`?
-- **Q3.** On auto-advance, should a *non-gate* required criterion left
-  unmet ever block silently, or always surface as an attention item?
-- **Q4.** Retire propose `phase.advance` entirely, or keep it as an
-  explicit principal override of the AC gate?
+- **Q1 — component handling.** Direct agent tools, and broader than just
+  attach: the agent owns its draft, so it may **attach, update, and
+  remove** components directly. Creating a *new* deliverable stays
+  governed. (Folded into decision 1.)
+- **Q2 — criteria verbs.** **Three verbs** — `criteria.create` /
+  `criteria.update` / `criteria.delete` — not one `criteria.set`. Keeps
+  each Apply/Rollback single-purpose, makes the director's approval card
+  state the intent, and maps `create`/`update` onto existing handlers
+  (only `delete` is net-new). Distinct from `deliverable.set_state`,
+  which moves a deliverable *instance* through its ratification
+  lifecycle; `criteria.*` edits the *rubric* itself. (Folded into P2.)
+- **Q3 — unmet required AC.** **Block.** Never a silent skip, never
+  attention-only. The blocked agent must be able to read the gate — which
+  exposed that no such read affordance exists today, so decision 4 adds
+  it. (Folded into decisions 3 + 4.)
+- **Q4 — propose `phase.advance`.** **Retire it** entirely. Advance is
+  now system-approved off the AC state; human judgment lives in `gate`
+  criteria, not a separate override. (Folded into decision 3 + P3.)
 
 ## References
 

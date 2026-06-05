@@ -691,26 +691,40 @@ class _MeCard extends ConsumerWidget {
               ),
             ] else if (item.attention != null) ...[
               // Non-action attention items (idle, agent_error, generic
-              // FYI messages) still have a useful detail view. Surface a
-              // Details affordance so the card's tap target isn't invisible.
+              // FYI messages) still have a useful detail view. Messages
+              // (notice, budget_exceeded, …) also get a Dismiss — they
+              // ask for no decision, so /resolve clears them from the
+              // inbox; without it they pile up unbounded.
               const SizedBox(height: 6),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ApprovalDetailScreen(
-                        attention: item.attention!,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (item.filter == _Filter.messages)
+                    TextButton.icon(
+                      onPressed: () => _dismiss(context, ref),
+                      icon: const Icon(Icons.check_circle_outline, size: 14),
+                      label: const Text('Dismiss'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        textStyle: GoogleFonts.jetBrainsMono(fontSize: 11),
                       ),
                     ),
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ApprovalDetailScreen(
+                          attention: item.attention!,
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.info_outline, size: 14),
+                    label: const Text('Details'),
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      textStyle: GoogleFonts.jetBrainsMono(fontSize: 11),
+                    ),
                   ),
-                  icon: const Icon(Icons.info_outline, size: 14),
-                  label: const Text('Details'),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    textStyle: GoogleFonts.jetBrainsMono(fontSize: 11),
-                  ),
-                ),
+                ],
               ),
             ],
           ],
@@ -730,6 +744,27 @@ class _MeCard extends ConsumerWidget {
           builder: (_) => ApprovalDetailScreen(attention: item.attention!),
         ),
       );
+    }
+  }
+
+  // Acknowledge / clear an FYI Message (notice, budget_exceeded, …) via
+  // the no-decision /resolve path. The hub refuses kinds that owe an
+  // agent a reply, so this is only wired for the Messages filter; on
+  // success the row drops out of the open list via _reloadAttention.
+  Future<void> _dismiss(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(hubProvider.notifier).resolve(item.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Dismissed')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Dismiss failed: $e')),
+        );
+      }
     }
   }
 

@@ -611,10 +611,7 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	// back off cleanly instead of waiting forever. session_id is recorded
 	// at request time (mcpRequestProjectSteward), so dispatchAttentionReply
 	// already knows where to deliver.
-	if resolved && (kind == "approval_request" || kind == "select" ||
-		kind == "help_request" || kind == "permission_prompt" ||
-		kind == "elicit" || kind == "project_steward_request" ||
-		kind == "propose" || kind == "template_proposal") {
+	if resolved && attentionAwaitsAgentReply(kind) {
 		// ADR-030 W11: propose joins the allowlist. The fan-back
 		// carries change_kind + executed so the requester's session
 		// shows what landed in addition to the decision; the ADR-032
@@ -997,17 +994,70 @@ func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, out)
 }
 
+// attentionAwaitsAgentReply reports whether an attention kind owes a
+// turn-based reply to a waiting agent. These are the kinds whose
+// resolution fans an `input.attention_reply` back through
+// dispatchAttentionReply (the request_* / propose / permission_prompt
+// family). They MUST be resolved through /decide so the agent is woken;
+// /resolve (the no-fan-out dismiss path) refuses them so a director
+// can't silently strand an agent that ended its turn awaiting an answer.
+func attentionAwaitsAgentReply(kind string) bool {
+	switch kind {
+	case "approval_request", "select", "help_request", "permission_prompt",
+		"elicit", "project_steward_request", "propose", "template_proposal":
+		return true
+	}
+	return false
+}
+
 type attentionResolveIn struct {
 	ResolvedBy string          `json:"resolved_by,omitempty"`
 	Decision   json.RawMessage `json:"decision,omitempty"`
 }
 
+// handleResolveAttention is the no-decision dismiss path — it flips an
+// open item to resolved without fanning a reply to any agent. It is the
+// director's "acknowledge / clear" affordance for informational rows
+// (kind='notice', 'budget_exceeded', 'agent_error', …) that surface in
+// the Me-page Messages slice and otherwise pile up unbounded.
+//
+// It refuses kinds that owe a waiting agent a reply (attentionAwaits-
+// AgentReply): those carry a parked turn and must go through /decide so
+// dispatchAttentionReply wakes the agent. Dismissing one here would
+// resolve the row while leaving the agent blocked forever.
 func (s *Server) handleResolveAttention(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "id")
 	var in attentionResolveIn
 	_ = json.NewDecoder(r.Body).Decode(&in)
 
+	var kind, status string
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT kind, status FROM attention_items WHERE id = ?`, id).
+		Scan(&kind, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "attention not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if status != "open" {
+		writeErr(w, http.StatusConflict, "attention already resolved")
+		return
+	}
+	if attentionAwaitsAgentReply(kind) {
+		writeErr(w, http.StatusConflict,
+			"kind '"+kind+"' awaits an agent reply — resolve it via /decide, not /resolve")
+		return
+	}
+
 	now := NowUTC()
+	// resolved_by REFERENCES agents(id): it names the agent that closed
+	// the row, not the director. A human dismiss leaves it NULL (the
+	// dismisser's identity is captured in the audit row via the token
+	// context, below); a caller-supplied agent id is honoured if valid.
 	res, err := s.db.ExecContext(r.Context(), `
 		UPDATE attention_items SET
 			status = 'resolved',
@@ -1021,9 +1071,13 @@ func (s *Server) handleResolveAttention(w http.ResponseWriter, r *http.Request) 
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		writeErr(w, http.StatusNotFound, "item not found or already resolved")
+		// Lost a race with a concurrent resolve/decide between the
+		// SELECT and the UPDATE.
+		writeErr(w, http.StatusConflict, "attention already resolved")
 		return
 	}
+	s.recordAudit(r.Context(), team, "attention.dismiss", "attention", id,
+		"dismissed ("+kind+")", map[string]any{"kind": kind})
 	w.WriteHeader(http.StatusNoContent)
 }
 

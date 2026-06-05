@@ -471,23 +471,6 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     });
   }
 
-  /// Jump to the oldest *loaded* row (top of the list). The transcript is
-  /// a contiguous tail-anchored window — there's no "page 1" to fetch
-  /// directly without breaking that contiguity — so "oldest" means the top
-  /// of what's loaded. We deliberately do NOT kick the pager here: letting
-  /// the load-older anchor-jump fire mid-animation was what made ⤒ flicker
-  /// and bounce. The natural top-of-scroll trigger pages more once the
-  /// animation settles at 0.
-  void _jumpToOldestLoaded() {
-    if (!_scroll.hasClients) return;
-    setState(() => _followTail = false);
-    _seek.animateProgrammatic(() => _scroll.animateTo(
-          0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        ));
-  }
-
   // Replace _events with [snapshot] (server-DESC, displayed ASC) and
   // refresh the bookkeeping (_ids, _maxSeq, _minSeq, _oldestTs).
   // Used by both the cache-paint and network-refresh halves of
@@ -906,11 +889,10 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     });
   }
 
-  /// Step the funnel cursor to match [i] of [matchSeqs] — the SINGLE entry
-  /// point shared by the top-left funnel pill (`FeedFilterControl`) AND the
-  /// bottom-left full-screen stepper (`TurnStepperPill`) so the two can never
-  /// drift onto different cursors. The match list is the loaded+lensed window;
-  /// the convergent index seek lands the row exactly (height-agnostic).
+  /// Step the funnel cursor to match [i] of [matchSeqs] — driven by the
+  /// top-left funnel pill (`FeedFilterControl`). The match list is the
+  /// loaded+lensed window; the convergent index seek lands the row exactly
+  /// (height-agnostic).
   void _funnelStep(int i, List<int> matchSeqs) {
     if (i < 0 || i >= matchSeqs.length) return;
     _seekToLoadedIndex(i, matchSeqs[i]);
@@ -1106,10 +1088,6 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     // lens bar over the WHOLE loaded transcript. Skipped in the dense
     // path so a constrained host pays nothing for it.
     Map<FeedLens, int> lensCounts = const {};
-    // Turn-nav state (full-screen only). Anchors are the inbound prompts
-    // in the rendered list; the stepper walks between them. See
-    // [turnAnchorIndices] / [isTurnAnchorEvent].
-    List<int> turnAnchorIdx = const [];
     if (!widget.dense) {
       lensCounts = {
         for (final l in FeedLens.values)
@@ -1120,38 +1098,6 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
                       agentEventMatchesLens(e, l, toolResults, toolUpdates))
                   .length,
       };
-      turnAnchorIdx = turnAnchorIndices(lensed);
-    }
-    // The bottom-left stepper steps a DIFFERENT unit per view, so `‹/›`
-    // always mean something here:
-    //   All view      → inbound prompts (turn anchors)
-    //   filtered view → the matches shown (every lensed row) — so in the
-    //                   Errors view it's prev/next error, in Text prev/next
-    //                   message, etc.
-    final stepAnchorIdx = _lens == FeedLens.all
-        ? turnAnchorIdx
-        : [for (var i = 0; i < lensed.length; i++) i];
-    final stepSeqs = [
-      for (final i in stepAnchorIdx) (lensed[i]['seq'] as num?)?.toInt() ?? 0,
-    ];
-    // Human label for the stepped unit (drives the button tooltips).
-    final stepUnit = _lens == FeedLens.all
-        ? 'prompt'
-        : (_lens == FeedLens.errors
-            ? 'error'
-            : (_lens == FeedLens.text
-                ? 'message'
-                : (_lens == FeedLens.turns ? 'turn' : 'tool')));
-    // Step relative to the last seek anchor (set by every jump). prevK =
-    // last anchor strictly older than the anchor; nextK = first strictly
-    // newer. Null at the ends → fall back (no wrap-around). With no anchor
-    // yet, `ref` is open-ended so prev lands on the newest.
-    final ref = _activeSeekSeq;
-    int? prevStepK;
-    int? nextStepK;
-    for (var k = 0; k < stepSeqs.length; k++) {
-      if (ref == null || stepSeqs[k] < ref) prevStepK = k;
-      if (nextStepK == null && ref != null && stepSeqs[k] > ref) nextStepK = k;
     }
     // Count the verbose-gated events so the toggle can advertise its
     // value — "Show debug (12)" carries more signal than a bare button.
@@ -1397,47 +1343,6 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
                   },
                 ),
               ),
-              // Full-screen stepper: floats bottom-left. ⤒ top-of-loaded,
-              // ‹/› previous/next of the current view's unit ([stepUnit] —
-              // prompt in All, error in Errors, message in Text, …). Always
-              // actionable: prev falls back to paging older (then top), next
-              // to jumping to the tail — so it never dead-ends.
-              if (!widget.dense)
-                Positioned(
-                  left: 6,
-                  bottom: 12,
-                  child: TurnStepperPill(
-                    unit: stepUnit,
-                    onOldest: _jumpToOldestLoaded,
-                    // In a filtered lens the bottom stepper IS the funnel
-                    // stepper — same matchSeqs + cursor via [_funnelStep] — so
-                    // tapping it moves the funnel's N/M and they never disagree
-                    // (the "stepper and funnel don't align" bug). Only the All
-                    // view keeps its own turn-anchor stepping (the funnel is
-                    // inactive there). At the ends it still falls back to
-                    // page-older / jump-to-tail so it never dead-ends.
-                    onPrevTurn: (_lens != FeedLens.all && matchSeqs.isNotEmpty)
-                        ? (matchIndex > 1
-                            ? () => _funnelStep(matchIndex - 2, matchSeqs)
-                            : (!_atHead
-                                ? () { _maybeLoadOlder(); }
-                                : _jumpToOldestLoaded))
-                        : (prevStepK != null
-                            ? () => _seekToLensedIndex(
-                                stepAnchorIdx[prevStepK!], lensed)
-                            : (!_atHead
-                                ? () { _maybeLoadOlder(); }
-                                : _jumpToOldestLoaded)),
-                    onNextTurn: (_lens != FeedLens.all && matchSeqs.isNotEmpty)
-                        ? (matchIndex < matchSeqs.length
-                            ? () => _funnelStep(matchIndex, matchSeqs)
-                            : _jumpToLatest)
-                        : (nextStepK != null
-                            ? () => _seekToLensedIndex(
-                                stepAnchorIdx[nextStepK!], lensed)
-                            : _jumpToLatest),
-                  ),
-                ),
               // Top-right floating controls: expand (dense only) + verbose
               // toggle, in ONE row so they can't overlap (the previous
               // fixed-offset stacking collided once the verbose chip widened
@@ -1463,21 +1368,9 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
             ],
           ),
         ),
-        // (Turn stepper now floats bottom-left inside the Stack above,
-        // replacing the old full-width footer row.)
         compose,
       ],
     );
-  }
-
-  /// Seek to the row at [idx] in the rendered [lensed] list — used by the
-  /// turn-nav stepper. Routes through the convergent index seek so it lands
-  /// exactly on the target row regardless of row-height variance (a bare
-  /// proportional offset overshoots on non-uniform transcripts).
-  void _seekToLensedIndex(int idx, List<Map<String, dynamic>> lensed) {
-    if (idx < 0 || idx >= lensed.length) return;
-    final seq = (lensed[idx]['seq'] as num?)?.toInt() ?? 0;
-    _seekToLoadedIndex(idx, seq);
   }
 
   /// ADR-021 W2.5 — find the latest mode + model state advertised by

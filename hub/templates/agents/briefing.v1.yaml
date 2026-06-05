@@ -25,7 +25,12 @@ backend:
   permission_modes:
     skip: "--dangerously-skip-permissions"
     prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
-  cmd: "claude --model {{model}} {{permission_flag}}"
+  # M2 (structured stdio) speaks the agent-native JSON-line protocol — the
+  # StdioDriver needs --print --output-format stream-json --input-format
+  # stream-json --verbose (matches coder.v1 / every other M2 claude-code
+  # template). Without these claude runs interactive and the driver never
+  # gets a parseable stream → the spawn fails.
+  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
 
 default_role: writer.briefing
 display_label: "Briefing Agent"

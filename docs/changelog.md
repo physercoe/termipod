@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-05)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.805
+> **Last verified vs code:** v1.0.806
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,45 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.806-alpha — 2026-06-05
+
+**Agents can post a one-way FYI to the director's inbox, and
+informational Messages can finally be dismissed.** This closes the gap
+left by v1.0.805: stewards had nowhere to put a proactive status the
+director should *see* without opening the chat, and FYI rows
+(`budget_exceeded`, …) piled up with no way to clear them.
+
+Added:
+- **`notice` attention kind + `post_notice` MCP tool** — the answerless
+  sibling of the `request_*` family (binary→`request_approval`,
+  n-ary→`request_select`, open→`request_help`, **none→`post_notice`**).
+  A steward posts a status/heads-up that lands in the director's Me-page
+  **Messages** slice and asks for nothing back (fire-and-forget,
+  `status:"posted"`). It carries no `pending_payload`, so it classifies
+  as an FYI, not a Request. Steward-only (`WorkerEligible=false`);
+  workers still report to their parent steward.
+- **Dismiss / acknowledge affordance** on Me-page Messages cards —
+  clears informational items (`notice`, `budget_exceeded`, …) via the
+  no-decision `POST /attention/{id}/resolve` path. That path is now
+  **guarded**: it refuses any kind that owes a waiting agent a reply
+  (the `request_*` / `propose` / `permission_prompt` family) so a
+  dismiss can't strand an agent — those still route through `/decide`.
+
+Changed:
+- All eight steward prompts now route status three ways by what's needed
+  back: in-conversation reply → the session/chat; FYI heads-up →
+  `post_notice` (Me-page Messages); decision/sign-off → `request_*`
+  (Me-page Requests).
+- Documented the two **tool-naming families** — resource-first
+  `<resource>_<verb>` CRUD vs the verb-first speech-act family
+  (`request_*`, `post_notice`, `propose`, `delegate`,
+  `permission_prompt`) — in [`reference/hub-mcp.md`](reference/hub-mcp.md)
+  §4, consistent with [ADR-033](decisions/033-tool-catalog-naming-and-registration.md)
+  D-1. `notice` added to the glossary and
+  [`reference/attention-kinds.md`](reference/attention-kinds.md).
 
 ---
 

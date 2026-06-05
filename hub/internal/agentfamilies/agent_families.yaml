@@ -62,6 +62,23 @@ families:
       - mode: M1
         billing: subscription
         reason: "M1 requires api_key billing for claude-code (Agent SDK limitation)"
+    # ─── Launch contract (ADR-043) ────────────────────────────────
+    # The argv that puts claude into M2 stream-json mode. The input-
+    # side mirror of frame_profile below: the persona template carries
+    # only `claude --model {{model}} {{permission_flag}}`; the launcher
+    # appends these so a persona can't ship a cmd that fails to launch.
+    # --print + --input/--output-format stream-json + --verbose is the
+    # non-interactive bidirectional-JSON contract the M2 StdioDriver
+    # speaks. M4 (pane) runs the interactive CLI, so it declares none.
+    launch:
+      M2:
+        mode_args:
+          - --print
+          - --output-format
+          - stream-json
+          - --input-format
+          - stream-json
+          - --verbose
     # ─── Frame profile (ADR-010) ──────────────────────────────────
     # Declarative translation of claude-code's stream-json output
     # into typed agent_events. Mirrors driver_stdio.go::translate()
@@ -312,6 +329,23 @@ families:
       M1: true
       M2: false
       M4: false
+    # ─── Launch contract (ADR-043) ────────────────────────────────
+    # gemini M2 is exec-per-turn (ADR-013): the ExecResumeDriver runs
+    # `gemini` once per turn with these base flags. Unlike claude/codex,
+    # these were injected in Go (driver_exec_resume.go) rather than
+    # carried in the template — declaring them here makes the family the
+    # single source so P2 can route the driver through LaunchArgs(M2).
+    # --output-format stream-json selects the typed-frame output the
+    # profile translates; --skip-trust runs headlessly from the hub-work
+    # workdir. The per-turn --resume <uuid> and one-shot mode/model
+    # overrides stay driver-side — they are runtime, not the static
+    # launch contract. M1 (--acp) and M4 (pane) declare none.
+    launch:
+      M2:
+        mode_args:
+          - --output-format
+          - stream-json
+          - --skip-trust
     # Gemini, like codex, uses the profile translator authoritatively:
     # there is no legacy hardcoded path for the exec-per-turn-with-resume
     # driver (ADR-013). Dispatch is on the top-level `type` field, the
@@ -467,6 +501,18 @@ families:
       M1: true
       M2: true
       M4: false
+    # ─── Launch contract (ADR-043) ────────────────────────────────
+    # codex M2 drives the app-server's JSON-RPC stdio protocol. The
+    # persona template carries the `CODEX_HOME=…` env prefix + `codex`
+    # bin; the launcher appends these mode args. `--listen stdio://`
+    # selects the line-delimited JSON-RPC framing the M2 AppServerDriver
+    # speaks. M4 (pane) runs the interactive CLI, so it declares none.
+    launch:
+      M2:
+        mode_args:
+          - app-server
+          - --listen
+          - stdio://
     # Codex uses the profile translator authoritatively — there is no
     # legacy hardcoded driver for app-server JSON-RPC the way there is
     # for claude-code's stream-json. ADR-012 D4: the dispatch field is

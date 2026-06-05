@@ -3,6 +3,7 @@ package agentfamilies
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -413,6 +414,78 @@ func TestFrameProfile_EmbeddedCodex(t *testing.T) {
 		if !seen[m] {
 			t.Errorf("codex profile missing rule for method=%s", m)
 		}
+	}
+}
+
+// TestLaunchContract_BundledModeArgs pins the per-family M2 launch
+// contract (ADR-043 P1). These are the mode-selecting argv strings that
+// used to live re-typed in every persona template (claude/codex) or
+// injected in Go (gemini); the family is now the single source. If a
+// future edit drops or mangles one of these, a spawn would fail to
+// enter the mode — this test catches it before the launcher (P2) ever
+// runs. The values must stay byte-for-byte what the templates +
+// driver_exec_resume.go carried at migration time.
+func TestLaunchContract_BundledModeArgs(t *testing.T) {
+	cases := []struct {
+		family string
+		mode   string
+		want   []string
+	}{
+		{"claude-code", "M2", []string{
+			"--print", "--output-format", "stream-json",
+			"--input-format", "stream-json", "--verbose",
+		}},
+		{"codex", "M2", []string{"app-server", "--listen", "stdio://"}},
+		{"gemini-cli", "M2", []string{"--output-format", "stream-json", "--skip-trust"}},
+	}
+	for _, c := range cases {
+		f, ok := ByName(c.family)
+		if !ok {
+			t.Errorf("%s not in registry", c.family)
+			continue
+		}
+		got := f.LaunchArgs(c.mode)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s LaunchArgs(%s) = %q; want %q", c.family, c.mode, got, c.want)
+		}
+	}
+}
+
+// TestLaunchArgs_AbsentModeIsNil asserts LaunchArgs returns nil for a
+// mode the family declares no flag-gated launch for (M4 pane launch,
+// M1 ACP) and for an unknown mode — so the launcher can treat "no
+// contract" uniformly and fall back to the template's own cmd during
+// the P1→P2 transition.
+func TestLaunchArgs_AbsentModeIsNil(t *testing.T) {
+	f, ok := ByName("claude-code")
+	if !ok {
+		t.Fatal("claude-code not in registry")
+	}
+	for _, mode := range []string{"M1", "M4", "M9"} {
+		if got := f.LaunchArgs(mode); got != nil {
+			t.Errorf("claude-code LaunchArgs(%s) = %q; want nil", mode, got)
+		}
+	}
+}
+
+// TestLaunchArgs_ReturnsCopy guards the accessor's append-safety: the
+// launcher will `append(LaunchArgs(mode), …)` onto the result, and the
+// registry caches family records, so a returned slice that aliased the
+// cached ModeArgs would let one spawn's append corrupt the next's
+// contract.
+func TestLaunchArgs_ReturnsCopy(t *testing.T) {
+	f, ok := ByName("claude-code")
+	if !ok {
+		t.Fatal("claude-code not in registry")
+	}
+	a := f.LaunchArgs("M2")
+	if len(a) == 0 {
+		t.Fatal("expected non-empty M2 launch args")
+	}
+	a[0] = "MUTATED"
+	b := f.LaunchArgs("M2")
+	if b[0] == "MUTATED" {
+		t.Errorf("LaunchArgs returned an aliased slice; mutation leaked: %q", b)
 	}
 }
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://termipod.dev/schemas/agent_families.schema.json",
   "title": "agent_families.yaml",
-  "description": "Schema for the agent families registry. Each family declares (a) launch contract — bin / version_flag / supports / incompatibilities — and (b) optional frame_profile — declarative stream-json translation rules per ADR-010. Editor LSPs use this for autocomplete + inline validation; AI agent maintainers use it as a structural reference alongside docs/reference/frame-profiles.md.",
+  "description": "Schema for the agent families registry. Each family declares (a) launch contract — bin / version_flag / supports / incompatibilities / launch (per-mode mode-selecting argv, ADR-043) — and (b) optional frame_profile — declarative stream-json translation rules per ADR-010. Editor LSPs use this for autocomplete + inline validation; AI agent maintainers use it as a structural reference alongside docs/reference/frame-profiles.md.",
   "type": "object",
   "required": ["families"],
   "properties": {
@@ -38,6 +38,12 @@
           "type": "array",
           "items": { "$ref": "#/$defs/Incompat" }
         },
+        "launch": {
+          "type": "object",
+          "description": "Per-driving-mode input/launch contract — the argv that selects the engine's mode (ADR-043). The input-side mirror of frame_profile. Keyed by driving mode (M1/M2/M4); only flag-gated modes need an entry. The launcher appends mode_args to the rendered persona command so persona templates carry bin + intent only.",
+          "propertyNames": { "enum": ["M1", "M2", "M4"] },
+          "additionalProperties": { "$ref": "#/$defs/LaunchMode" }
+        },
         "frame_profile": {
           "$ref": "#/$defs/FrameProfile",
           "description": "Per-engine declarative translator for stream-json frames. Optional in v1; nil falls back to the legacy hardcoded translator (driver_stdio.go)."
@@ -57,6 +63,17 @@
         "mode": { "type": "string", "enum": ["M1", "M2", "M4"] },
         "billing": { "type": "string" },
         "reason": { "type": "string" }
+      }
+    },
+    "LaunchMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode_args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Mode-selecting argv for this (family, mode) — e.g. claude-code M2's [--print, --output-format, stream-json, --input-format, stream-json, --verbose]. Appended to the rendered persona command by the launcher (ADR-043). Order preserved."
+        }
       }
     },
     "FrameProfile": {

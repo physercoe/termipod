@@ -39,16 +39,44 @@ type Incompat struct {
 	Reason  string `yaml:"reason" json:"reason"`
 }
 
+// LaunchMode is the per-driving-mode launch contract for a family — the
+// argv that selects the engine's mode (ADR-043). It is the input-side
+// mirror of FrameProfile (the output-side translator): just as the
+// profile owns how the engine's stream-json output maps to typed
+// events, LaunchMode owns the flags that put the engine into that mode
+// on the way in.
+type LaunchMode struct {
+	// ModeArgs is the mode-selecting argv for this (family, mode) —
+	// e.g. claude-code M2's `--print --output-format stream-json
+	// --input-format stream-json --verbose`. The launcher appends
+	// these to the rendered persona command (ADR-043 P2), so persona
+	// templates carry only the engine bin + persona intent
+	// ({{model}}, {{permission_flag}}) and never re-type the flags.
+	// Order is preserved; for the flag-based CLIs argv order relative
+	// to the persona flags is immaterial.
+	ModeArgs []string `yaml:"mode_args,omitempty" json:"mode_args,omitempty"`
+}
+
 // Family is one entry from agent_families.yaml. Field tags match the
 // YAML schema 1:1; we don't promote internal aliases to the YAML so
 // editing the file feels like editing data, not configuring a struct.
 type Family struct {
-	Family            string        `yaml:"family" json:"family"`
-	Bin               string        `yaml:"bin" json:"bin"`
-	VersionFlag       string        `yaml:"version_flag" json:"version_flag"`
-	Supports          []string      `yaml:"supports" json:"supports"`
-	Incompatibilities []Incompat    `yaml:"incompatibilities,omitempty" json:"incompatibilities,omitempty"`
-	FrameProfile      *FrameProfile `yaml:"frame_profile,omitempty" json:"frame_profile,omitempty"`
+	Family            string     `yaml:"family" json:"family"`
+	Bin               string     `yaml:"bin" json:"bin"`
+	VersionFlag       string     `yaml:"version_flag" json:"version_flag"`
+	Supports          []string   `yaml:"supports" json:"supports"`
+	Incompatibilities []Incompat `yaml:"incompatibilities,omitempty" json:"incompatibilities,omitempty"`
+
+	// Launch is the per-driving-mode input/launch contract — the argv
+	// that selects the engine's mode (ADR-043). Keyed by driving mode
+	// (M1/M2/M4); the input-side mirror of FrameProfile below. Only
+	// modes whose launch is flag-gated need an entry (M4 pane launch
+	// runs no stream-json cmd, so it stays absent). Consumed by the
+	// launcher via LaunchArgs(mode); persona templates declare bin +
+	// intent only.
+	Launch map[string]LaunchMode `yaml:"launch,omitempty" json:"launch,omitempty"`
+
+	FrameProfile *FrameProfile `yaml:"frame_profile,omitempty" json:"frame_profile,omitempty"`
 	// FrameTranslator selects which translator the host-runner uses
 	// for this engine. Empty (default) is "legacy" — the hardcoded
 	// driver_stdio.go::legacyTranslate. Operators flip to "both"
@@ -111,6 +139,24 @@ type Family struct {
 	PromptPDF   map[string]bool `yaml:"prompt_pdf,omitempty" json:"prompt_pdf,omitempty"`
 	PromptAudio map[string]bool `yaml:"prompt_audio,omitempty" json:"prompt_audio,omitempty"`
 	PromptVideo map[string]bool `yaml:"prompt_video,omitempty" json:"prompt_video,omitempty"`
+}
+
+// LaunchArgs returns the mode-selecting argv this family declares for
+// the given driving mode (ADR-043), or nil when the family declares no
+// launch contract for that mode — e.g. M4 pane launch, which runs no
+// stream-json cmd, or a family that hasn't migrated its flags onto the
+// family yet (during the P1→P2 transition the launcher falls back to
+// the flags still carried in the persona template). The slice is a
+// fresh copy so callers can append without aliasing the cached family
+// record.
+func (f Family) LaunchArgs(mode string) []string {
+	lm, ok := f.Launch[mode]
+	if !ok || len(lm.ModeArgs) == 0 {
+		return nil
+	}
+	out := make([]string, len(lm.ModeArgs))
+	copy(out, lm.ModeArgs)
+	return out
 }
 
 // FrameProfile is the per-engine declarative translator for stream-json

@@ -6,14 +6,15 @@ description: A tester hit an M2 claude-code worker that failed to start because 
 # The engine launch contract belongs to the family, not the persona
 
 > **Type:** discussion
-> **Status:** Open (2026-06-05) — raised by the director after a tester
-> reported an M2 claude-code worker that failed to start because its template's
-> `backend.cmd` lacked the stream-json flags (`ml-worker.v1.yaml`,
-> `briefing.v1.yaml`). The director's framing: "the M2 cmd option can be
-> modularized to avoid this class of error … the config and yaml/templates are
-> also like code and need a clear, well-tested spec/principle." This is a fair
-> call — the fix already landed for the two stragglers, but the *shape* that let
-> them drift is structural.
+> **Status:** Resolved (2026-06-05) → the director chose Option A (guard test
+> now + a family `launch` block), recorded as
+> [ADR-043](../decisions/043-engine-launch-contract-on-the-family.md) with the
+> phased plan. Originally raised after a tester hit an M2 claude-code worker
+> that failed to start because its `backend.cmd` lacked the stream-json flags
+> (`ml-worker.v1` / `briefing.v1`); the director's framing: "the M2 cmd option
+> can be modularized to avoid this class of error … config and yaml/templates
+> are also like code and need a clear, well-tested spec/principle." This doc is
+> the review + first-principles rationale.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.801-alpha
 

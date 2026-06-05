@@ -61,6 +61,7 @@ next sequential number — don't reserve, don't skip.
 | [040](040-transcript-surfaces-decoupled-by-mode.md) | Decouple the transcript surfaces — one file per mode (`LiveFeed` / `InsightTranscript`), additive by file | Accepted 2026-06-02 | — |
 | [041](041-insight-workbench-layout.md) | The Insight transcript workbench — card-filter lens, outline Navigator, Sessions rail (drop stepper + N/M pill) | Accepted 2026-06-03 | — |
 | [042](042-dense-session-ordinal.md) | A dense per-session event ordinal (`session_ordinal`) — canonical session-scoped identity; fixes resume/navigator wrong-row | Accepted 2026-06-04 | — |
+| [043](043-engine-launch-contract-on-the-family.md) | The engine launch contract (mode-selecting argv) lives on the family, not the persona — declarative per-mode `launch` block, launcher composes; generalizes [010](010-frame-profiles-as-data.md) to the input side | Accepted 2026-06-05 | — |
 
 ---
 

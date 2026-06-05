@@ -661,6 +661,180 @@ func buildTools() []toolDef {
 				return out, nil
 			},
 		},
+		// --- project lifecycle: deliverables + criteria + phase (ADR-044 P1) ---
+		{
+			Name:        "deliverables.list",
+			Description: "List a project's deliverables — the work products gated per phase. Required: `project`. Optional: `phase` (filter to one phase), `state` (draft|in-review|ratified). Each row carries `id`, `phase`, `kind`, `ratification_state`, `required`, `ord`, and its component refs. For one deliverable with full components, use `deliverables.get`.",
+			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"},"phase":{"type":"string"},"state":{"type":"string","enum":["draft","in-review","ratified"]}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["project"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("project is required")
+				}
+				q := url.Values{}
+				if p, ok := args["phase"].(string); ok && p != "" {
+					q.Set("phase", p)
+				}
+				if st, ok := args["state"].(string); ok && st != "" {
+					q.Set("state", st)
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/projects/"+url.PathEscape(id)+"/deliverables"), q, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "deliverables.get",
+			Description: "Fetch one deliverable by id, with its components (document / artifact / run / commit refs). Required: `project`, `deliverable`.",
+			InputSchema: schema(`{"type":"object","required":["project","deliverable"],"properties":{"project":{"type":"string"},"deliverable":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				proj, _ := args["project"].(string)
+				del, _ := args["deliverable"].(string)
+				if proj == "" || del == "" {
+					return nil, fmt.Errorf("project and deliverable are required")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/projects/"+url.PathEscape(proj)+"/deliverables/"+url.PathEscape(del)), nil, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "criteria.list",
+			Description: "List a project's acceptance criteria — the rubric the director ratifies against. Required: `project`. Optional: `phase`, `deliverable_id` (criteria gating one deliverable). Each row carries `id`, `phase`, `deliverable_id`, `kind` (text|metric|gate), `body`, `state` (pending|met|failed|waived), `required`, `ord`. Read this to see what is blocking phase advance and what you must satisfy.",
+			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"},"phase":{"type":"string"},"deliverable_id":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["project"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("project is required")
+				}
+				q := url.Values{}
+				if p, ok := args["phase"].(string); ok && p != "" {
+					q.Set("phase", p)
+				}
+				if d, ok := args["deliverable_id"].(string); ok && d != "" {
+					q.Set("deliverable_id", d)
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/projects/"+url.PathEscape(id)+"/criteria"), q, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "phase.status",
+			Description: "Project lifecycle status for the active phase: current `phase`, `phase_index`, the ordered `phases`, the phase's `deliverables` (with components), and `counts` (deliverables_total/ratified, criteria_total/met). Read this to see where the project stands and exactly what must be satisfied to advance. Required: `project`.",
+			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["project"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("project is required")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/projects/"+url.PathEscape(id)+"/overview"), nil, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "deliverables.add_component",
+			Description: "Attach a component to a deliverable you are materializing — a produced document, artifact, run, or commit. Required: `project`, `deliverable`, `kind` (document|artifact|run|commit), `ref_id` (the produced object's id). Optional: `required` (default true), `ord`. This is your direct work product; ratifying the deliverable stays the director's gesture.",
+			InputSchema: schema(`{"type":"object","required":["project","deliverable","kind","ref_id"],"properties":{"project":{"type":"string"},"deliverable":{"type":"string"},"kind":{"type":"string","enum":["document","artifact","run","commit"]},"ref_id":{"type":"string"},"required":{"type":"boolean"},"ord":{"type":"integer"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				proj, _ := args["project"].(string)
+				del, _ := args["deliverable"].(string)
+				if proj == "" || del == "" {
+					return nil, fmt.Errorf("project and deliverable are required")
+				}
+				body := map[string]any{}
+				for k, v := range args {
+					if k == "project" || k == "deliverable" {
+						continue
+					}
+					body[k] = v
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/projects/"+url.PathEscape(proj)+"/deliverables/"+url.PathEscape(del)+"/components"), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "deliverables.remove_component",
+			Description: "Remove a component you attached to a deliverable. Required: `project`, `deliverable`, `component` (the component id).",
+			InputSchema: schema(`{"type":"object","required":["project","deliverable","component"],"properties":{"project":{"type":"string"},"deliverable":{"type":"string"},"component":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				proj, _ := args["project"].(string)
+				del, _ := args["deliverable"].(string)
+				comp, _ := args["component"].(string)
+				if proj == "" || del == "" || comp == "" {
+					return nil, fmt.Errorf("project, deliverable and component are required")
+				}
+				if err := c.do("DELETE", c.teamPath("/projects/"+url.PathEscape(proj)+"/deliverables/"+url.PathEscape(del)+"/components/"+url.PathEscape(comp)), nil, nil, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "removed": comp}, nil
+			},
+		},
+		{
+			Name:        "deliverables.set_state",
+			Description: "Move your own deliverable between `draft` and `in-review` — submit it for the director to review, or pull it back to keep working. Required: `project`, `deliverable`, `state` (draft|in-review). Ratification is the director's gesture: request `ratified` via a `deliverable.set_state` proposal, not this tool.",
+			InputSchema: schema(`{"type":"object","required":["project","deliverable","state"],"properties":{"project":{"type":"string"},"deliverable":{"type":"string"},"state":{"type":"string","enum":["draft","in-review"]}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				proj, _ := args["project"].(string)
+				del, _ := args["deliverable"].(string)
+				state, _ := args["state"].(string)
+				if proj == "" || del == "" {
+					return nil, fmt.Errorf("project and deliverable are required")
+				}
+				if state != "draft" && state != "in-review" {
+					return nil, fmt.Errorf("state must be 'draft' or 'in-review' (use a deliverable.set_state proposal to ratify)")
+				}
+				body := map[string]any{"ratification_state": state}
+				var out json.RawMessage
+				if err := c.do("PATCH", c.teamPath("/projects/"+url.PathEscape(proj)+"/deliverables/"+url.PathEscape(del)), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "criteria.set_state",
+			Description: "Mark a `text` or `metric` acceptance criterion `met` or `failed` as you complete the work it measures. Required: `project`, `criterion`, `state` (met|failed). Optional: `evidence_ref` (a doc/run/commit id backing the call). `gate` criteria are evaluated by the chassis when their deliverable is ratified and cannot be marked here (mark-met returns 403); the director can revert or waive any criterion.",
+			InputSchema: schema(`{"type":"object","required":["project","criterion","state"],"properties":{"project":{"type":"string"},"criterion":{"type":"string"},"state":{"type":"string","enum":["met","failed"]},"evidence_ref":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				proj, _ := args["project"].(string)
+				crit, _ := args["criterion"].(string)
+				state, _ := args["state"].(string)
+				if proj == "" || crit == "" {
+					return nil, fmt.Errorf("project and criterion are required")
+				}
+				action := ""
+				switch state {
+				case "met":
+					action = "mark-met"
+				case "failed":
+					action = "mark-failed"
+				default:
+					return nil, fmt.Errorf("state must be 'met' or 'failed'")
+				}
+				body := map[string]any{}
+				if e, ok := args["evidence_ref"].(string); ok && e != "" {
+					body["evidence_ref"] = e
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/projects/"+url.PathEscape(proj)+"/criteria/"+url.PathEscape(crit)+"/"+action), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
 		{
 			Name:        "hosts.list",
 			Description: "List host-runners registered with the team. Each row carries `id`, `name`, `status` (online/stale/offline), `capabilities` (engines/modes the host can run), `last_seen_at`, and `ssh_hint_json`. Use this to resolve a hostname → host_id for `agents.spawn` (which requires the id, not the name).",

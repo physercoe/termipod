@@ -139,6 +139,21 @@ lifted.
 - Two coordinates now exist on each event. The split is deliberate and
   documented (agent-scoped `seq` vs session-scoped `session_ordinal`); the
   glossary gains an entry so they are not conflated.
+- **A new contention surface that `seq` never had.** `seq`'s `MAX(seq)+1` is
+  keyed on `agent_id`, and exactly one writer ever inserts for a given agent, so
+  it is structurally contention-free. `session_ordinal`'s `MAX(session_ordinal)+1`
+  is keyed on `session_id`, which **multiple agents can share** (the resume
+  shape). SQLite's single-writer serialization keeps the assignment *correct* as
+  long as inserts are serial — and the normal resume flow is serial, because the
+  prior agent is terminated/paused before the resumed one writes. The only way to
+  get two *live* agents inserting into one session concurrently is an A2A or
+  steward overlay that keeps both running; there, two in-flight inserts can
+  resolve the same `MAX+1` and the second hits `UNIQUE(session_id,
+  session_ordinal)` — which **fails the insert loudly rather than corrupting the
+  coordinate**. That is the intended failure mode (a retryable conflict, not a
+  silent collision); if such overlays become common, the insert should grow a
+  retry-on-conflict. Recorded here because it is behavior the per-agent `seq`
+  could not exhibit.
 
 **Out of scope:** the live `LiveFeed` surface (agent-scoped, single-agent
 windows) is untouched; segment-roll cadence and the Parquet/OTLP export tiers

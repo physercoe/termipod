@@ -15,7 +15,7 @@ description: Wedge-by-wedge execution plan for ADR-030 — generic `propose` MCP
 > (override on resolved rows), deferred propose kinds (criterion /
 > agent.terminate / etc — plan §5).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.798-alpha (spot-check: policy.go Kinds map + the apply_*.go handlers still present; the 793–798 releases are mobile/UI only — run-detail UI, Sessions rail, agent-surface consolidation — no governed-actions change)
+> **Last verified vs code:** v1.0.804-alpha (the W6 `phase.advance` kind was **retired** by [ADR-044](../decisions/044-adaptive-project-lifecycle.md) P3 — phase advance is now AC-driven; the registry now carries `deliverable.set_state` + `task.set_status` + `agent.spawn` + `template.install` + the four ADR-044 lifecycle kinds (`deliverable.create`, `criteria.create/update/delete`). The rollout mechanics — propose verb, 4-tier ladder, policy, override — are unchanged; the W6/W16 `phase.advance` wedges below are historical.)
 > **Freshness:** contract
 
 **TL;DR.** Close the "approve isn't load-bearing enough" gap by

@@ -14,7 +14,7 @@ description: Generalise apply-on-approve to a single MCP verb `propose(kind, tar
 > Option 2′; reconciliations with ADR-032 + ADR-034; principal vs
 > owner; line-ref drift fixed).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.798-alpha (spot-check: policy.go Kinds map + the apply_*.go handlers still present; the 793–798 releases are mobile/UI only — run-detail UI, Sessions rail, agent-surface consolidation — no governed-actions change)
+> **Last verified vs code:** v1.0.804-alpha ([ADR-044](044-adaptive-project-lifecycle.md) P3 **retired the `phase.advance` propose kind** — phase advance is now AC-driven, not proposable; P2 **added** `deliverable.create` + `criteria.create`/`criteria.update`/`criteria.delete`. The 4-tier ladder, per-(kind,tier) policy, apply-on-approve framework, and override path are unchanged — only the registered-kind set moved. The `phase.advance` rows below are historical.)
 > **Freshness:** contract
 
 **TL;DR.** Promote *apply-on-approve* from two bespoke branches

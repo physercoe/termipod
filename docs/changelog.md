@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-05)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.803
+> **Last verified vs code:** v1.0.804
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,60 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.804-alpha — 2026-06-05
+
+**The project lifecycle becomes adaptive — agents can now fully participate
+in the deliverable / criteria / phase loop, and a phase advances itself once
+its work is actually done. [ADR-044](decisions/044-adaptive-project-lifecycle.md)
+P1–P3 complete, plus the per-phase hydration (#20) and template-proposal
+(#3/#4) fixes that preceded it.** A template is a *draft roadmap*, not a
+frozen contract: agents materialize deliverables and signal progress
+directly, edit the rubric via governed proposals the director approves, and
+phases auto-advance when their required criteria are met — with the human
+gate expressed as a `gate` criterion rather than a separate approval step.
+An affordance audit found the deliverable/criterion/phase triangle was the
+one part of a project agents couldn't reach over MCP (it was REST-only);
+that gap is now closed.
+
+### Added
+- **Agent MCP affordance for the lifecycle (ADR-044 P1)** — eight
+  worker-eligible tools: reads `deliverables.list` / `deliverables.get` /
+  `criteria.list` / `phase.status` (the last reuses the existing
+  `/overview` aggregate, no new query); direct writes
+  `deliverables.add_component` / `remove_component` / `set_state`
+  (draft↔in-review) and `criteria.set_state` (mark a text/metric criterion
+  met/failed). Gate criteria stay chassis-evaluated. (`1266221`)
+- **Governed propose verbs for the roadmap (ADR-044 P2)** —
+  `deliverable.create` + `criteria.create` / `criteria.update` /
+  `criteria.delete`, each with Validate/DryRun/Apply/Rollback, dispatched
+  generically through the registry and defaulting to director approval.
+  (`9004818`)
+- **AC-driven auto-advance (ADR-044 P3)** — `maybeAutoAdvancePhase` fires
+  from the criterion-satisfied paths (manual mark, the P1 mark tool, and the
+  deliverable-ratify gate cascade): a phase with ≥1 required criterion
+  advances automatically once all are met or waived, emitting
+  `project.phase_advanced` and hydrating the destination. An unmet required
+  criterion blocks; a phase with no required criteria waits for a manual
+  advance. (`7b7cc91`)
+- **Per-phase deliverable + criteria hydration (#20)** — a phase's
+  template-declared deliverables/criteria instantiate as draft rows on phase
+  entry (project create and every advance path), idempotently. (`f7aedf1`)
+
+### Changed
+- **Propose `phase.advance` retired (ADR-044 P3, Q4)** — phase advance is
+  now system-driven off the acceptance criteria; the human gate lives in a
+  `gate` criterion. The director's manual REST `/phase/advance` remains for
+  off-criteria moves. (`7b7cc91`)
+
+### Fixed
+- **Template-proposal approve now installs and fans back (#3, #4)** — an
+  ADR-030 W8 refactor had dropped the `template_proposal → template.install`
+  alias, so approving a proposed template was a silent no-op with no feedback
+  to the steward. Restored the routing and the decide fan-back; the proposer
+  now stamps its `session_id` so the result is delivered. (`ff30e33`)
 
 ---
 

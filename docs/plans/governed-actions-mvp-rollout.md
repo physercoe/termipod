@@ -325,9 +325,12 @@ shipped as `handlers_propose.go::checkProposeScope`:
 
 **W6. Apply function — `phase.advance` (~220 LOC + ~250 LOC tests). Shipped v1.0.679-alpha.**
 
-- `hub/internal/server/apply_phase_advance.go` <!-- verify symbol hub/internal/server/apply_phase_advance.go applyPhaseAdvance --> —
-  registers `phase.advance` via `init()` with Validate / DryRun /
-  Apply.
+- `hub/internal/server/apply_phase_advance.go` <!-- verify no-file hub/internal/server/apply_phase_advance.go --> —
+  registered `phase.advance` via `init()` with Validate / DryRun /
+  Apply. **Retired by [ADR-044](../decisions/044-adaptive-project-lifecycle.md)
+  P3 (v1.0.804-alpha)** — phase advance is now AC-driven (system-approved
+  off the acceptance criteria), so the propose kind and this file were
+  deleted.
 - **Two design calls at ship time.**
   1. **Audit action: `project.phase_advanced`, not `phase_set`.**
      The legacy endpoint emits `phase_set` for NULL → first-phase

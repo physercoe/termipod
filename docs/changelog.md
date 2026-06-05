@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-05)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.804
+> **Last verified vs code:** v1.0.805
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,49 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.805-alpha — 2026-06-05
+
+**Agent prompts stop using channels, and the Me-page inbox gets a clear
+Requests-vs-Messages boundary.** Channels remain in the codebase as a deferred
+future feature, but no agent persona is told to post to them anymore: stewards
+surface summaries/status as a message in their session/chat (the director reads
+it there) and route anything needing a decision or sign-off through `request_*`
+(which lands in the Me-page **Requests** inbox); workers report status to their
+parent steward via `tasks_complete` / `a2a_invoke`. The steward/worker prompts
+are also resynced with [ADR-044](decisions/044-adaptive-project-lifecycle.md):
+the retired propose `phase.advance` is gone, the four new lifecycle propose
+verbs and direct read/mark tools are documented, and the research steward's
+phase-advance workflow is reframed around marking criteria met (AC-driven
+auto-advance) rather than a non-existent `plan.advance` call.
+
+### Changed
+
+- **Agent prompts no longer use channels** (templates only; the channel
+  tools/config stay for a future experiment). Renamed each steward's "Channel
+  etiquette" section to "Surfacing to {{principal.handle}}"; status →
+  session/chat, decisions/help → `request_*`, channels marked deferred. Worker
+  prompts (briefing, ml-worker, lit-reviewer) route status to their steward via
+  `tasks_complete` / `a2a_invoke` instead of `channels_post_event` /
+  `post_message`.
+- **Steward/worker prompts resynced with ADR-044.** Dropped the retired
+  propose `phase.advance`; documented `deliverable.create`, `criteria.create` /
+  `.update` / `.delete`, and the direct `deliverables_list`/`_get`,
+  `criteria_list`, `phase_status`, `criteria_set_state` tools; reframed the
+  research steward's phase-advance flow around AC-driven auto-advance.
+
+### Fixed
+
+- **Me-page inbox: Requests vs Messages now classifies by *action*, not a kind
+  allowlist** (`lib/screens/me/me_screen.dart`). An item is a **Request** when
+  it carries a `pending_payload` or a governed `change_kind`; everything else is
+  an FYI **Message**. This closes a class of bug where an actionable kind not on
+  the allowlist silently fell into Messages and lost its inline affordance — the
+  live instance being `revision_requested`, which now classifies as a Request
+  and gets a "Review redlines" action routing to its detail view (it resolves
+  through the redline flow, not the binary decide endpoint).
 
 ---
 

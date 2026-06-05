@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -429,5 +430,120 @@ func TestProjectPatch_OverviewWidgetOverridesRoundTrip(t *testing.T) {
 	if p3.OverviewWidget != templateHero {
 		t.Errorf("unknown-slug override produced %q; want fall-through to template %q",
 			p3.OverviewWidget, templateHero)
+	}
+}
+
+// TestResearchTemplate_PhaseAdvanceHydratesDeliverables locks issue #20:
+// a phase's template-declared deliverables are instantiated as draft rows
+// when the phase is entered. The research template's `idea` phase declares
+// no deliverables (so create hydrates none), and `lit-review` declares one
+// (kind: lit-review) — entered via a real phase advance after the idea
+// criterion is met. Also asserts hydration is idempotent.
+func TestResearchTemplate_PhaseAdvanceHydratesDeliverables(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	srv, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	const team = "deliv-team"
+	now := NowUTC()
+	if _, err := srv.db.Exec(
+		`INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
+		team, team, now); err != nil {
+		t.Fatalf("seed team: %v", err)
+	}
+	tok := mintTeamToken(t, srv, "owner", team)
+
+	do := func(method, path string, payload any) *httptest.ResponseRecorder {
+		var rdr *bytes.Reader
+		if payload != nil {
+			b, _ := json.Marshal(payload)
+			rdr = bytes.NewReader(b)
+		} else {
+			rdr = bytes.NewReader(nil)
+		}
+		req := httptest.NewRequest(method, path, rdr)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		srv.router.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// Create from research → phase idea.
+	rr := do(http.MethodPost, "/v1/teams/"+team+"/projects", map[string]any{
+		"name": "deliv-proj", "kind": "goal", "template_id": "research",
+		"goal": "x",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var p projectOut
+	_ = json.Unmarshal(rr.Body.Bytes(), &p)
+	if p.Phase != "idea" {
+		t.Fatalf("phase=%q want idea", p.Phase)
+	}
+
+	getDeliv := func(phase string) []deliverableOut {
+		r := do(http.MethodGet,
+			"/v1/teams/"+team+"/projects/"+p.ID+"/deliverables?phase="+phase, nil)
+		if r.Code != http.StatusOK {
+			t.Fatalf("list deliverables: %d %s", r.Code, r.Body.String())
+		}
+		var out struct {
+			Items []deliverableOut `json:"items"`
+		}
+		_ = json.Unmarshal(r.Body.Bytes(), &out)
+		return out.Items
+	}
+
+	// idea declares no deliverables → none hydrated at create.
+	if got := getDeliv("idea"); len(got) != 0 {
+		t.Fatalf("idea deliverables=%d want 0", len(got))
+	}
+
+	// Mark the idea criterion met so the advance gate passes.
+	cr := do(http.MethodGet, "/v1/teams/"+team+"/projects/"+p.ID+"/criteria?phase=idea", nil)
+	var crits struct {
+		Items []criterionOut `json:"items"`
+	}
+	_ = json.Unmarshal(cr.Body.Bytes(), &crits)
+	if len(crits.Items) != 1 {
+		t.Fatalf("idea criteria=%d want 1", len(crits.Items))
+	}
+	if mr := do(http.MethodPost,
+		"/v1/teams/"+team+"/projects/"+p.ID+"/criteria/"+crits.Items[0].ID+"/mark-met",
+		map[string]any{}); mr.Code != http.StatusOK {
+		t.Fatalf("mark-met: %d %s", mr.Code, mr.Body.String())
+	}
+
+	// Advance idea → lit-review.
+	if ar := do(http.MethodPost,
+		"/v1/teams/"+team+"/projects/"+p.ID+"/phase/advance",
+		map[string]any{"to_phase": "lit-review"}); ar.Code != http.StatusOK {
+		t.Fatalf("advance: %d %s", ar.Code, ar.Body.String())
+	}
+
+	// lit-review's deliverable should now be hydrated.
+	got := getDeliv("lit-review")
+	if len(got) != 1 {
+		t.Fatalf("lit-review deliverables=%d want 1; %v", len(got), got)
+	}
+	d := got[0]
+	if d.Kind != "lit-review" || d.RatificationState != "draft" || !d.Required {
+		t.Errorf("hydrated deliverable shape kind=%q state=%q required=%v",
+			d.Kind, d.RatificationState, d.Required)
+	}
+
+	// Idempotent: re-hydrating the same phase must not duplicate.
+	srv.hydratePhase(context.Background(), team, p.ID, "research", "lit-review")
+	if got := getDeliv("lit-review"); len(got) != 1 {
+		t.Fatalf("after re-hydrate lit-review deliverables=%d want 1 (idempotent)", len(got))
 	}
 }

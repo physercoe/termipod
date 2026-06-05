@@ -175,7 +175,7 @@ func applyPhaseAdvance(
 	if team == "" {
 		return nil, errors.New("phase.advance: apply context missing team")
 	}
-	curPhase, history, _, err := s.loadProjectPhaseRow(ctx, team, t.ProjectID)
+	curPhase, history, templateID, err := s.loadProjectPhaseRow(ctx, team, t.ProjectID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("project %s not found in team %s", t.ProjectID, team)
 	}
@@ -236,6 +236,11 @@ func applyPhaseAdvance(
 		meta["by_actor"] = ac.DeciderHandle
 	}
 	s.recordAudit(ctx, team, action, "project", t.ProjectID, summary, meta)
+
+	// Hydrate the newly-entered phase's deliverables + criteria from the
+	// template (issue #20). Idempotent — a re-advance or a rollback-then-
+	// readvance won't duplicate.
+	s.hydratePhase(ctx, team, t.ProjectID, templateID, c.ToPhase)
 
 	executed["audit_action"] = action
 	executed["updated_at"] = now

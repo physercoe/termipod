@@ -269,6 +269,11 @@ func (s *Server) handleAdvanceProjectPhase(w http.ResponseWriter, r *http.Reques
 			"reason":        in.Reason,
 		})
 
+	// Hydrate the newly-entered phase's deliverables + criteria from the
+	// template (issue #20). Idempotent, so the phase=="" initial-set case
+	// (already hydrated by project create) is a safe no-op.
+	s.hydratePhase(r.Context(), team, project, templateID, to)
+
 	writeJSON(w, http.StatusOK, phaseOut{
 		ProjectID: project,
 		Phase:     to,

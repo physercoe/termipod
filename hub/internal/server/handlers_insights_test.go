@@ -28,6 +28,17 @@ func insightsSetup(t *testing.T) (s *Server, token, team, project, agent, sessio
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 
+	// hubInsightsCache is a package-level global with a 30s TTL, keyed by
+	// (scope, team, since, until). insightsSetup reuses a constant team id,
+	// so a sibling insights test (or a -count iteration) that queries the
+	// same team+window within 30s can be served a prior run's cached body —
+	// whose project IDs belong to a now-gone TempDir DB. Clear it so each
+	// test starts cold. (Production teams have unique ids; this is a
+	// test-isolation guard, not a runtime bug.)
+	hubInsightsCache.mu.Lock()
+	hubInsightsCache.entries = map[string]insightsCacheEntry{}
+	hubInsightsCache.mu.Unlock()
+
 	const testTeam = "insights-test"
 	now := NowUTC()
 	if _, err := srv.db.Exec(

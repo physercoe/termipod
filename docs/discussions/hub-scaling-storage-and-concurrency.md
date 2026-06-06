@@ -332,8 +332,21 @@ Ordered cheapest-highest-value first:
 1. **Stop storing large blobs inline in `agent_events`.** Persist a
    `blob:sha256/<hex>` reference (the bytes already live in the host
    blob store, 25 MiB cap) instead of inline base64 in `payload_json`.
-   Biggest single win for the 50 MB/task case; needs a code + migration
-   look at how `tool_call`/`tool_result` payloads are written.
+   Biggest single win for the 50 MB/task case.
+   **CUT 1 SHIPPED (2026-06-06):** `payload_externalize.go` — on POST
+   `/events` ingest the hub walks `payload_json` and rewrites any string
+   leaf over 64 KiB (e.g. an `attach` tool_call's multi-MB base64) into
+   a `blob:sha256/<hex>` ref via the existing `storeBlob`
+   (`handlers_blobs.go`, content-addressed + deduped). Lossless
+   (`json.Decoder.UseNumber` so re-marshal can't corrupt a large int;
+   sha reconstructs the bytes), no-op for normal small events (single
+   length check), and it doesn't disturb the digest (its `json_extract`
+   paths are small scalars). Reads stay lazy — consumers fetch via
+   `GET /v1/blobs/<sha>` (mobile already resolves `blob:sha256/…` →
+   `/v1/blobs/…`). **FOLLOW-UPS:** (a) a one-time backfill sweep to
+   reclaim the existing inline 50 MB (cut 1 only stops new bleeding);
+   (b) a nicer mobile feed-card render of an externalized ref
+   (chip/size instead of the raw ref string) — device-tested.
 2. **Add event retention/compaction for `agent_events`** (mirroring
    the audit-event "older rows compactable" posture,
    `quality-attributes.md:79`) — a sweep, a per-team byte/age cap, or
@@ -444,9 +457,13 @@ operational tier `hub-resilience.md` explicitly defers.
    whether §6 levers suffice or option B is on the critical path.
 3. **Event rate per agent.** How chatty are the engines once token
    deltas / tool loops are counted — i.e. how much does lever 6 buy?
-4. **Blob-ref migration cost.** Is moving inline tool payloads to
-   blob-refs (lever 1) back-compatible with existing transcripts and
-   the Insight read path, or does it need a read-repair?
+4. **Blob-ref migration cost.** *Mostly answered (lever 1 cut 1,
+   2026-06-06):* new events externalize losslessly on ingest with no
+   schema change, and the read path is unaffected (lazy `blob:sha256/…`
+   refs the mobile already resolves). Still open: the **backfill** of
+   pre-existing inline payloads (a one-time sweep), and whether the
+   mobile **feed card** should render an externalized ref as a chip
+   rather than the raw ref string.
 5. **Retention policy shape.** Age-based, byte-cap, or
    terminated-agent-offload — and does any of it conflict with the
    operation-log / append-only framing (ADR-014)?

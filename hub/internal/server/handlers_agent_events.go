@@ -110,6 +110,12 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	if len(in.Payload) > 0 {
 		payload = string(in.Payload)
 	}
+	// hub-scaling lever 1: externalize any oversized string leaf (e.g. an
+	// `attach` tool_call's multi-MB base64) to the content-addressed blob
+	// store, replacing it with a blob:sha256/<hex> ref before the row is
+	// written. Lossless + deduped; keeps the transcript row small. No-op for
+	// normal small events (single length check). See payload_externalize.go.
+	payload = s.externalizeLargePayload(r.Context(), payload)
 
 	sessionID := s.lookupSessionForAgent(r.Context(), agent)
 	id, seq, _, ts, err := insertAgentEvent(r.Context(), s.writeDB, agentEventInsert{

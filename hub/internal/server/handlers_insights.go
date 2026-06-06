@@ -89,7 +89,11 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	}
 	hubInsightsCache.mu.Unlock()
 
-	out, err := buildInsightsResponse(r.Context(), s.db, scope, since, until)
+	if err := s.materializeInsightsScope(r.Context(), scope); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out, err := s.buildInsightsResponse(r.Context(), scope, since, until)
 	if err == nil &&
 		(scope.Kind == "team" || scope.Kind == "team_stewards") {
 		// project-overview-attention-redesign W3 — cross-project rollup
@@ -291,7 +295,13 @@ type insightsAgg struct {
 	Turns       int64 `json:"turns"`
 }
 
-func buildInsightsResponse(ctx context.Context, db *sql.DB, scope *scopeFilter, since, until time.Time) (*insightsResponse, error) {
+// buildInsightsResponse and its readInsights* helpers are *Server methods so
+// each can address the right store directly (ADR-045 D2): the agent_events
+// reads run on s.eventsDB, the control reads (agents / sessions /
+// attention_items / projects / deliverables / criteria) on s.db. The scope's
+// EventsClause is pre-materialized to a pure-event predicate by
+// materializeInsightsScope, so the event queries never reach into control.
+func (s *Server) buildInsightsResponse(ctx context.Context, scope *scopeFilter, since, until time.Time) (*insightsResponse, error) {
 	out := &insightsResponse{
 		Scope: insightsScope{
 			Kind:  scope.Kind,
@@ -303,22 +313,61 @@ func buildInsightsResponse(ctx context.Context, db *sql.DB, scope *scopeFilter, 
 		ByModel:  map[string]insightsAgg{},
 	}
 
-	if err := readInsightsSpendAndLatency(ctx, db, scope, since, until, out); err != nil {
+	if err := s.readInsightsSpendAndLatency(ctx, scope, since, until, out); err != nil {
 		return nil, err
 	}
-	if err := readInsightsErrors(ctx, db, scope, since, until, out); err != nil {
+	if err := s.readInsightsErrors(ctx, scope, since, until, out); err != nil {
 		return nil, err
 	}
-	if err := readInsightsConcurrency(ctx, db, scope, since, until, out); err != nil {
+	if err := s.readInsightsConcurrency(ctx, scope, since, until, out); err != nil {
 		return nil, err
 	}
-	if err := readInsightsTools(ctx, db, scope, since, until, out); err != nil {
+	if err := s.readInsightsTools(ctx, scope, since, until, out); err != nil {
 		return nil, err
 	}
-	if err := readInsightsLifecycle(ctx, db, scope, out); err != nil {
+	if err := s.readInsightsLifecycle(ctx, scope, out); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// materializeInsightsScope resolves a cross-store scope's agent set (team /
+// team_stewards / engine / host) from the control store and rewrites the
+// scope's EventsClause to a concrete agent_id IN-list, so the agent_events
+// reads stay within the event store (ADR-045 D2 — no agents subquery across
+// the store boundary). A no-op for project / agent scope (already pure-event).
+// The id set is bounded by SQLite's ~32k bound-variable limit, far beyond
+// pre-P2 scale; per-team sharding (P2) drops the filter entirely.
+func (s *Server) materializeInsightsScope(ctx context.Context, sf *scopeFilter) error {
+	if sf.agentsWhere == "" {
+		return nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM agents WHERE `+sf.agentsWhere, sf.agentsArgs...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var ids []any
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		// No agents in scope — match no events (mirrors the empty IN-subquery).
+		sf.EventsClause = "0"
+		sf.EventsArgs = nil
+		return nil
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	sf.EventsClause = "agent_id IN (" + ph + ")"
+	sf.EventsArgs = ids
+	return nil
 }
 
 // readInsightsSpendAndLatency walks every spend-bearing event in the
@@ -332,14 +381,14 @@ func buildInsightsResponse(ctx context.Context, db *sql.DB, scope *scopeFilter, 
 // in SQL without a recursive CTE, and (b) p50/p95 isn't built into
 // SQLite. At MVP scale (project-day rowcount well under 10k usually)
 // the in-process fold is faster than scaffolding both.
-func readInsightsSpendAndLatency(
-	ctx context.Context, db *sql.DB,
+func (s *Server) readInsightsSpendAndLatency(
+	ctx context.Context,
 	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
 	args := append([]any{}, scope.EventsArgs...)
 	args = append(args, since.Format(time.RFC3339), until.Format(time.RFC3339))
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.eventsDB.QueryContext(ctx, `
 		SELECT kind, payload_json, agent_id
 		  FROM agent_events
 		 WHERE `+scope.EventsClause+`
@@ -376,7 +425,7 @@ func readInsightsSpendAndLatency(
 		// pattern.
 		engine, ok := agentEngines[agentID]
 		if !ok {
-			_ = db.QueryRowContext(ctx,
+			_ = s.db.QueryRowContext(ctx,
 				`SELECT kind FROM agents WHERE id = ?`, agentID,
 			).Scan(&engine)
 			agentEngines[agentID] = engine
@@ -486,7 +535,7 @@ func readInsightsSpendAndLatency(
 	if wantByAgent && len(byAgent) > 0 {
 		for id, agg := range byAgent {
 			var handle, status string
-			_ = db.QueryRowContext(ctx,
+			_ = s.db.QueryRowContext(ctx,
 				`SELECT COALESCE(handle, ''), COALESCE(status, '')
 				   FROM agents WHERE id = ?`, id,
 			).Scan(&handle, &status)
@@ -499,7 +548,7 @@ func readInsightsSpendAndLatency(
 		// scope/range.
 		errArgs := append([]any{}, scope.EventsArgs...)
 		errArgs = append(errArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
-		errRows, err := db.QueryContext(ctx, `
+		errRows, err := s.eventsDB.QueryContext(ctx, `
 			SELECT agent_id, count(*) FROM agent_events
 			 WHERE `+scope.EventsClause+`
 			   AND ts >= ? AND ts < ?
@@ -548,15 +597,15 @@ func readInsightsSpendAndLatency(
 	return nil
 }
 
-func readInsightsErrors(
-	ctx context.Context, db *sql.DB,
+func (s *Server) readInsightsErrors(
+	ctx context.Context,
 	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
 	// Failed turns: kind=turn.result with status != 'success'.
 	failedArgs := append([]any{}, scope.EventsArgs...)
 	failedArgs = append(failedArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
-	if err := db.QueryRowContext(ctx, `
+	if err := s.eventsDB.QueryRowContext(ctx, `
 		SELECT count(*) FROM agent_events
 		 WHERE `+scope.EventsClause+`
 		   AND ts >= ? AND ts < ?
@@ -572,7 +621,7 @@ func readInsightsErrors(
 	// per-run digest. Reuses the windowed scope+range args.
 	totalArgs := append([]any{}, scope.EventsArgs...)
 	totalArgs = append(totalArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
-	if err := db.QueryRowContext(ctx, `
+	if err := s.eventsDB.QueryRowContext(ctx, `
 		SELECT count(*) FROM agent_events
 		 WHERE `+scope.EventsClause+`
 		   AND ts >= ? AND ts < ?
@@ -594,7 +643,7 @@ func readInsightsErrors(
 	// scope_kind/scope_id, team via team_id, agent via current_agent_id,
 	// engine/host via the agents subquery).
 	attArgs := append([]any{}, scope.SessionsArgs...)
-	if err := db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*) FROM attention_items ai
 		 JOIN sessions s ON s.id = ai.session_id
 		 WHERE `+scope.SessionsClause+`
@@ -606,8 +655,8 @@ func readInsightsErrors(
 	return nil
 }
 
-func readInsightsConcurrency(
-	ctx context.Context, db *sql.DB,
+func (s *Server) readInsightsConcurrency(
+	ctx context.Context,
 	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
@@ -615,7 +664,7 @@ func readInsightsConcurrency(
 	// the right column set per scope kind (see insights_scope.go).
 	_ = since
 	_ = until
-	if err := db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*) FROM sessions s
 		 WHERE `+scope.SessionsClause+`
 		   AND s.status = 'active'`,
@@ -627,7 +676,7 @@ func readInsightsConcurrency(
 	// The two subqueries do double duty — the inner SELECT finds the
 	// scoped sessions, the outer JOIN on agents.id picks the running
 	// ones. For agent-scope this is degenerate (one or zero rows).
-	if err := db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*) FROM agents
 		 WHERE id IN (
 		   SELECT s.current_agent_id FROM sessions s
@@ -656,15 +705,15 @@ func readInsightsConcurrency(
 //     Approval_request rows carry exactly one resolving decision (the
 //     code path in handlers_attention.go appends one entry on
 //     resolution), so EXISTS-on-approve is reliable.
-func readInsightsTools(
-	ctx context.Context, db *sql.DB,
+func (s *Server) readInsightsTools(
+	ctx context.Context,
 	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
 	args := append([]any{}, scope.EventsArgs...)
 	args = append(args, since.Format(time.RFC3339), until.Format(time.RFC3339))
 	var toolCalls int64
-	if err := db.QueryRowContext(ctx, `
+	if err := s.eventsDB.QueryRowContext(ctx, `
 		SELECT count(*) FROM agent_events
 		 WHERE `+scope.EventsClause+`
 		   AND ts >= ? AND ts < ?
@@ -680,7 +729,7 @@ func readInsightsTools(
 	// untouched and the count is constant-time on the (project_id, ts)
 	// index.
 	var turnCount int64
-	if err := db.QueryRowContext(ctx, `
+	if err := s.eventsDB.QueryRowContext(ctx, `
 		SELECT count(*) FROM agent_events
 		 WHERE `+scope.EventsClause+`
 		   AND ts >= ? AND ts < ?
@@ -696,7 +745,7 @@ func readInsightsTools(
 	// Approval funnel — total resolved approval_requests, plus the
 	// subset whose decisions_json contains an approve verdict.
 	approvalArgs := append([]any{}, scope.SessionsArgs...)
-	if err := db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*) FROM attention_items ai
 		 JOIN sessions s ON s.id = ai.session_id
 		 WHERE `+scope.SessionsClause+`
@@ -706,7 +755,7 @@ func readInsightsTools(
 	).Scan(&out.Tools.ApprovalsTotal); err != nil {
 		return err
 	}
-	if err := db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*) FROM attention_items ai
 		 JOIN sessions s ON s.id = ai.session_id
 		 WHERE `+scope.SessionsClause+`
@@ -739,8 +788,8 @@ func readInsightsTools(
 //   - criteria — count by state ('met' / 'failed').
 //   - stuck_count — criteria in 'failed' state (the actionable
 //     bucket); 'pending' is the normal idle state, not a problem.
-func readInsightsLifecycle(
-	ctx context.Context, db *sql.DB,
+func (s *Server) readInsightsLifecycle(
+	ctx context.Context,
 	scope *scopeFilter, out *insightsResponse,
 ) error {
 	if scope.Kind != "project" {
@@ -749,7 +798,7 @@ func readInsightsLifecycle(
 	projectID := scope.ID
 
 	var currentPhase, historyJSON string
-	if err := db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT COALESCE(phase, ''), COALESCE(phase_history, '')
 		  FROM projects WHERE id = ?`, projectID,
 	).Scan(&currentPhase, &historyJSON); err != nil {
@@ -768,7 +817,7 @@ func readInsightsLifecycle(
 		}
 	}
 
-	if err := db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*),
 		       COALESCE(SUM(CASE WHEN ratification_state = 'ratified' THEN 1 ELSE 0 END), 0)
 		  FROM deliverables WHERE project_id = ?`, projectID,
@@ -780,7 +829,7 @@ func readInsightsLifecycle(
 			float64(lc.DeliverablesRatified) / float64(lc.DeliverablesTotal)
 	}
 
-	if err := db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*),
 		       COALESCE(SUM(CASE WHEN state = 'met'    THEN 1 ELSE 0 END), 0),
 		       COALESCE(SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END), 0)
@@ -940,7 +989,7 @@ func (s *Server) fillInsightsByProject(
 	// at MVP scale; revisit if a team ever pushes past byProjectMaxRows.
 	lastActivity := map[string]string{}
 	{
-		r, err := s.db.QueryContext(ctx,
+		r, err := s.eventsDB.QueryContext(ctx,
 			`SELECT project_id, MAX(ts) FROM agent_events
 			  WHERE project_id IN (`+placeholders+`)
 			  GROUP BY project_id`, ids...)

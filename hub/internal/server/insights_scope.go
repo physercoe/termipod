@@ -61,6 +61,17 @@ type scopeFilter struct {
 	// table as `s` (e.g. `FROM sessions s WHERE …`).
 	SessionsClause string
 	SessionsArgs   []any
+
+	// agentsWhere is the WHERE predicate over the `agents` table that
+	// defines this scope's agent set, for the kinds whose event filter would
+	// otherwise reach across the control↔event store boundary (team /
+	// team_stewards / engine / host — they select agents in hub.db to filter
+	// agent_events in events.db). materializeInsightsScope resolves it to a
+	// concrete `agent_id IN (…)` list so the agent_events queries stay within
+	// the event store (ADR-045 D2). Empty for project / agent scope, whose
+	// EventsClause is already pure-event (project_id = ? / agent_id = ?).
+	agentsWhere string
+	agentsArgs  []any
 }
 
 // parseInsightsScope extracts a scope from query params. Exactly one of
@@ -144,6 +155,8 @@ func newScopeFilter(kind, id string) *scopeFilter {
 			EventsArgs:     []any{id},
 			SessionsClause: "s.team_id = ?",
 			SessionsArgs:   []any{id},
+			agentsWhere:    "team_id = ?",
+			agentsArgs:     []any{id},
 		}
 	case "team_stewards":
 		// Same team scope but narrowed to steward-handle agents. The
@@ -159,6 +172,8 @@ func newScopeFilter(kind, id string) *scopeFilter {
 				"(SELECT id FROM agents WHERE team_id = ? AND " +
 				stewardsHandlePredicate + ")",
 			SessionsArgs: []any{id, id},
+			agentsWhere:  "team_id = ? AND " + stewardsHandlePredicate,
+			agentsArgs:   []any{id},
 		}
 	case "agent":
 		return &scopeFilter{
@@ -175,6 +190,8 @@ func newScopeFilter(kind, id string) *scopeFilter {
 			EventsArgs:     []any{id},
 			SessionsClause: "s.current_agent_id IN (SELECT id FROM agents WHERE kind = ?)",
 			SessionsArgs:   []any{id},
+			agentsWhere:    "kind = ?",
+			agentsArgs:     []any{id},
 		}
 	case "host":
 		return &scopeFilter{
@@ -183,6 +200,8 @@ func newScopeFilter(kind, id string) *scopeFilter {
 			EventsArgs:     []any{id},
 			SessionsClause: "s.current_agent_id IN (SELECT id FROM agents WHERE host_id = ?)",
 			SessionsArgs:   []any{id},
+			agentsWhere:    "host_id = ?",
+			agentsArgs:     []any{id},
 		}
 	}
 	return nil

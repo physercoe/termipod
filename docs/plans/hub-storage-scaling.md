@@ -128,12 +128,17 @@ Build order (each Go-testable in `hub/internal/server`):
      - ✅ `handlers_agent_turns.go` `listSessionTurns` — resolves the
        session's agents via `sessionAgentIDs` (event store), then reads
        `agent_turns` from the digest store by `agent_id IN (…)`.
-     - ⬜ `insights_scope.go` — `team` / `team_stewards` / `engine` / `host`
-       scopes use `agent_id IN (SELECT id FROM agents WHERE …)`; resolve the
-       agent-id set from control once, bake it into `EventsClause` as an
-       IN-list. (`project` / `agent` scopes are already pure-event.)
-       Param-limit note: the event store isn't per-team-sharded yet (P2),
-       so a large team's id set needs chunking like `lastEventAtForAgents`.
+     - ✅ `insights_scope.go` / `handlers_insights.go` — `materializeInsightsScope`
+       resolves the agent-id set from control (`s.db`) once and rewrites
+       `EventsClause` to a concrete `agent_id IN (…)` list (empty → `0`), so
+       the agent_events reads stay pure-event. `buildInsightsResponse` + the
+       five `readInsights*` helpers became `*Server` methods routing event
+       reads → `s.eventsDB`, control reads (agents / sessions /
+       attention_items / projects / deliverables / criteria) → `s.db`.
+       `SessionsClause` is sessions⨝agents (both control) and stays as-is.
+       The IN-list is a single statement (SQLite's bound-var cap is ~32k,
+       far beyond pre-P2 scale; P2 sharding drops the filter entirely). All
+       24 insights tests pass — incl. team/engine/host/team_stewards.
      - ⬜ `handlers_search_sessions.go` FTS — joins `agent_events_fts` +
        `agent_events` (event) with `sessions` (control, `team_id`). Needs a
        cross-store filter-pushdown: FTS MATCH in the event store, then the

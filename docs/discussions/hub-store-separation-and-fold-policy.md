@@ -419,9 +419,22 @@ already built for it (denormalized scope columns, digest-merge-by-team).
 
 **Cross-store coupling surface — thin:**
 
-- **Write transactions crossing a boundary: zero.** Every event insert
-  is a lone statement on `writeDB`; nothing wraps an `agent_events`
-  insert and a control row in one tx.
+- **Control↔event write transactions: zero.** Every event insert is a
+  lone statement on `writeDB`; nothing wraps an `agent_events` insert and
+  a control row in one tx.
+- **Event↔digest write transactions: two, and they need restructuring.**
+  The fold worker (`foldDirtyAgent`) and read-repair
+  (`backfillAgentDigest`, `digest_store.go:353`) currently **read
+  `agent_events` and write `digest`/`turns` in one `BeginTx`**. Once
+  events and digest live in different files that tx can't span them.
+  **Fix (the core refactor of step A): read events from the events.db
+  reader → fold in memory → write digest in its own digest.db tx.** Safe
+  because the digest is idempotent from the watermark (a failed digest
+  write leaves the watermark; the next trigger/read-repair retries) — no
+  shared transaction is required. **No `ATTACH`** (it would re-couple the
+  writers and block per-team sharding); cross-store reads are app-level
+  two-query, with `session_id` denormalized onto `agent_turns` to remove
+  the one hot join.
 - **FK cascades severed: 3** — `agent_events`,
   `agent_event_digests`, `agent_turns` each `→ agents(id) ON DELETE
   CASCADE`. **All currently dormant** (nothing hard-deletes an agent;
@@ -690,12 +703,13 @@ synchronous projection, one engine) — locked in
   needs an LRU-capped connection registry to bound file descriptors at
   hundreds of teams. The migration runner already exists and would be
   parameterised per file.
-- **No cross-store atomicity — but audited to be a non-issue.** §4.4
-  verified **zero** cross-store write transactions (all 13
-  `insertAgentEvent` sites are lone `writeDB` statements). The residual
-  hazards are the 1 cross-store trigger and 1 cross-store read join,
-  both with named fixes (handler-side `project_id`; denormalize
-  `session_id` onto turns).
+- **No cross-store atomicity.** Control↔event write tx: zero (all 13
+  `insertAgentEvent` sites are lone `writeDB` statements). Event↔digest:
+  the fold + read-repair read events and write digest in one tx today —
+  restructured to read-then-write-own-tx (safe: digest is idempotent
+  from the watermark), **no `ATTACH`**. Residual: 1 cross-store trigger
+  and 1 read join, both with named fixes (handler-side `project_id`;
+  denormalize `session_id` onto turns).
 - **Fold staleness is now visible by design.** A long open turn can show
   counters up to N events / τ ms behind. Acceptable (derived data,
   reconciled at close + by read-repair) but it **is** a UX-visible

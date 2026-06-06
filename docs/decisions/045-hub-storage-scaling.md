@@ -153,9 +153,11 @@ the backend choice is per-store, so a deployment can move one store
   sharding a handle per `(team, store)` — needs an **LRU-capped
   connection registry** to bound file descriptors at hundreds of teams,
   with per-file migrations on first open.
-- **No cross-store atomicity** — audited to be a non-issue for writes;
-  the residual trigger and read-join have named fixes (handler-side
-  `project_id`; denormalize `session_id` onto `agent_turns`).
+- **No cross-store atomicity.** Control↔event writes never share a tx.
+  Event↔digest: the fold + read-repair are restructured from one tx to
+  read-then-write-own-tx (safe — digest idempotent from the watermark);
+  **no `ATTACH`**. Residual trigger + read-join have named fixes
+  (handler-side `project_id`; denormalize `session_id` onto turns).
 - **Hard-delete cascade becomes app-level** (D2) — the three dormant FK
   cascades must be reproduced in code when the hard-delete primitive
   lands; per-team file deletion makes a team-wide purge trivial.
@@ -168,11 +170,28 @@ the backend choice is per-store, so a deployment can move one store
 1. **D1 — SHIPPED** (`digest_worker.go`, `payload_externalize.go`
    prerequisite): bounded-staleness fold + lossless blob-ref ingest;
    full `go test ./internal/server` green.
-2. **D2 step A — class split** (single file per store): three pools;
-   replace `agent_events_stamp_project` with handler-side resolution;
-   add `session_id` to `agent_turns` and drop the OTLP join; app-level
-   cascade hook; `agent_events_fts` travels with `agent_events`;
-   parameterize the migration runner per file.
+2. **D2 step A — class split** (single file per store):
+   - Three pools (`hub.db` / `events.db` / `digest.db`), each with its
+     reader + 1-writer; route every read/write to the right store.
+   - **Restructure the fold + read-repair**: today both read
+     `agent_events` and write digest/turns in one tx
+     (`foldDirtyAgent`, `backfillAgentDigest` `digest_store.go:353`) —
+     split into *read from the events.db reader → fold in memory →
+     write digest in its own digest.db tx*. Safe (digest is idempotent
+     from the watermark). **No `ATTACH`** — cross-store reads are
+     app-level two-query.
+   - Replace `agent_events_stamp_project` with handler-side `project_id`
+     resolution; add `session_id` to `agent_turns` and drop the OTLP
+     cross-store join; app-level cascade hook for the 3 dormant FK
+     edges; `agent_events_fts` travels with `agent_events`.
+   - **Migration of existing data: a one-shot `hub-server db split`
+     command** (director, 2026-06-06) — copies the moving tables into
+     the new files and drops them from `hub.db`; the server **refuses to
+     serve a not-yet-split legacy DB** so a pre-split boot can't
+     mis-route writes. Each file gets its own `schema_migrations`
+     history; parameterize the migration runner per file.
+   - **Backup/restore + `db`/`doctor` tooling** must cover all three
+     files (today `backup.go` snapshots only `hub.db`).
 3. **D2 step B — per-team sharding**: a per-`(team,store)` connection
    registry (lazy open, LRU cap, first-open migration); route the fold
    worker per team.

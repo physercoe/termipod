@@ -380,11 +380,125 @@ can't reach.
 **Verdict.** SQLite is "good enough until a measured ceiling," and the
 ceiling is escapable *within SQLite* (per-file sharding) long before a
 different engine earns the cost of losing FTS5/SQL. So the sequence is:
-**fold fix (§3) → split events.db off the control-plane writer (§4.1) →
-shard events.db by team if write rate demands it → only then an external
-engine (§5).** A write-optimised LSM or a columnar store is a *real*
+**fold fix (§3) → split into control/event/digest stores (§4.4) → shard
+events.db + digest.db per team (§4.5) → only then an external engine
+(§5).** A write-optimised LSM or a columnar store is a *real*
 answer, but for *measured* multi-thousand-ev/s sustained load on one
 host, not for this demo.
+
+### 4.4 Read/write/data inventory (verified against the schema, 2026-06-06)
+
+Before splitting, the actual coupling was mapped against the 53
+migrations and the read/write sites. **Decision (director,
+2026-06-06): three stores** — control / event / digest — by data
+nature. The coupling surface turned out thin, because the schema was
+already built for it (denormalized scope columns, digest-merge-by-team).
+
+**The three data classes (37 tables):**
+
+| Class | Tables | Nature |
+|---|---|---|
+| **Control** (`hub.db`) | teams, agents, projects, tasks, sessions, runs + run_* (metrics/config/images/histograms/alerts/system), milestones, plans + plan_steps, deliverables + components, acceptance_criteria, documents + annotations, reviews, artifacts, attention_items, channels + members, **events + events_fts** (A2A/channel messages), hosts, host_commands, auth_tokens, agent_spawns, schedules, agent_schedules, audit_events, blobs | Mutable OLTP, FK-rich, low volume |
+| **Event** (`events.db`) | **agent_events** + **agent_events_fts** | Append-only, high write volume (the firehose), inserts only |
+| **Digest** (`digest.db`) | **agent_event_digests**, **agent_turns** | Materialized read-model; written only by the fold worker + read-repair; rebuildable |
+
+**Read/write patterns:**
+
+- `agent_events` — writes via **13 call sites, all through
+  `insertAgentEvent(s.writeDB, …)`, single-statement, none inside a
+  multi-table tx**. Reads: transcript paging (keyset / by-turn), FTS
+  search (same-store join to `agent_events_fts`), and the fold reading
+  raw events.
+- `digest`/`turns` — writes only `saveAgentDigest` + turn upserts
+  (`digest_store.go`), now off the insert path (§3 step 1). Reads:
+  Insights (merged **by denormalized `team_id`, no join**), turn
+  navigation, OTLP export.
+- control — ordinary CRUD; Insights' one attention count joins
+  `attention_items ⨝ sessions` — **both control, same-store**.
+
+**Cross-store coupling surface — thin:**
+
+- **Write transactions crossing a boundary: zero.** Every event insert
+  is a lone statement on `writeDB`; nothing wraps an `agent_events`
+  insert and a control row in one tx.
+- **FK cascades severed: 3** — `agent_events`,
+  `agent_event_digests`, `agent_turns` each `→ agents(id) ON DELETE
+  CASCADE`. **All currently dormant** (nothing hard-deletes an agent;
+  retention is deferred on the missing hard-delete primitive, §8-Q7 of
+  `hub-scaling`). They become an app-level cascade *when* hard-delete
+  lands.
+- **Cross-store trigger: 1** — `agent_events_stamp_project`
+  (migration 0036) fires after insert and reads `sessions` to backfill
+  `project_id`. → replace with app-level resolution at insert (the
+  handler already looks up the session).
+- **Cross-store query JOIN: 1** — OTLP's
+  `sessionsWithClosedTurnsSince` joins `agent_turns ⨝ agent_events` on
+  `agent_id`. → eliminate by **denormalizing `session_id` onto
+  `agent_turns`** (it already denormalizes `agent_id` + `team_id`).
+- **Denormalized soft-refs (no FK), already split-ready:**
+  `agent_events.session_id` / `.project_id`, `digest`/`turns.team_id`.
+
+**Why three, not two — the payoff that closes §3.5.** The fold **reads
+`events.db` and writes `digest.db`** while event inserts **write
+`events.db`**. Different writers → the fold's writes no longer contend
+with event inserts → the saturation fold-lag of §3.5 is **structurally
+fixed**, not merely bounded. Folding the digest into `events.db` would
+keep that contention; the third store is what gives the fold its own
+writer. (Alternative C — digest in `hub.db` — makes Insights' attention
+count same-store but mixes durable control with rebuildable derived data
+and routes fold writes into the system-of-record; rejected for A.)
+
+**Work items when we build:** (1) open 3 pools per file, route by store;
+(2) replace the `agent_events_stamp_project` trigger with handler-side
+`project_id` resolution; (3) add `session_id` to `agent_turns`, drop the
+OTLP cross-store join; (4) app-level cascade hook for the 3 severed FK
+edges (wired into the future hard-delete); (5) `agent_events_fts` moves
+with `agent_events`; parameterize the migration runner per DB file.
+`runs`/`run_*` stay in control for v1 (project-scoped, FK-rich, lower
+volume than the transcript firehose); the `events` envelope (A2A/channel
+log, FK-coupled to channels) stays in control too — it is not the
+firehose.
+
+### 4.5 Sharding granularity — events + digest per team, control global
+
+Splitting by *class* (§4.4) gives one writer per workload; splitting by
+*tenant* gives N writers per workload. **Decision (director,
+2026-06-06): shard `events.db` and `digest.db` per team; keep
+`hub.db` (control) global.**
+
+- **`events.db` per team** — the firehose is the write bottleneck and is
+  naturally team-isolated; the ingest route is already
+  `/v1/teams/{team}/agents/{agent}/events`, so the shard key is in hand
+  at insert time (and the file *is* the team scope, so a per-team file
+  needs no `team_id` column). N teams → N independent event writers, and
+  a team's transcript becomes self-contained files (O(1) per-team
+  retention / delete / backup — the cleanest answer yet to the
+  hard-delete gap).
+- **`digest.db` per team** — pairs with events: team T's fold reads
+  `events.db[T]` and writes `digest.db[T]`, fully per-team isolated;
+  `digest`/`turns` already carry `team_id`, and Insights already merges
+  by team.
+- **`hub.db` global (not sharded)** — control is low-volume (sharding
+  buys no concurrency) and has **inherently cross-team / global**
+  concerns: the `teams` registry itself, `auth_tokens`, the `hosts`
+  registry. One shared control DB keeps those simple; the single writer
+  is not the bottleneck there.
+
+**Honest limit — what per-team sharding does and doesn't buy.** It scales
+writers across *teams*. A single hot team with hundreds of agents still
+has one `events.db` writer for all of them, so per-team sharding does
+**not** raise that team's ceiling — for that case the win is the
+class-split + the bounded fold (§3), and the *next* granularity (per
+**session**, since `agent_events` already carries `session_id`) is the
+lever, at the cost of many more open files. So: shard per team now (the
+right multi-tenant shape, and the O(1)-retention win); reach for
+per-session only if a *single* team is measured to saturate one writer.
+
+**New cost this adds: a per-(team,store) connection registry** — open
+DB handles lazily on first use, cache them (LRU-capped to bound file
+descriptors at hundreds of teams), and run that file's migrations on
+first open. The fold worker's dirty-set already keys by agent+team, so
+routing a fold to `events.db[T]` + `digest.db[T]` is a lookup.
 
 ---
 
@@ -514,15 +628,22 @@ first:
    sweep until fold-lag stops climbing with agent count. **No schema
    change**; reversible; this alone is expected to capture lever 7's
    throughput win **without** A's debt.
-2. **Split the store into `events.db` + `hub.db` (do next; bigger,
-   reversible).** Two files, one writer each; digest/turns travel with
-   events; id-only cross-refs; audit the handlers that write an event
-   and a control row in one tx and split them (events-first, idempotent
-   control second). Keep full durability on both for now.
-3. **Shard `events.db` by team — only if write rate demands it (still
-   in-tree).** Per-file writers (§4.3); escapes the single-writer
-   ceiling without leaving SQLite or losing FTS5. The rung between the
-   file split and an external engine.
+2. **Split into three stores — control / event / digest (do next;
+   bigger, reversible).** `hub.db` (control) + `events.db`
+   (`agent_events` + `agent_events_fts`) + `digest.db`
+   (`agent_event_digests` + `agent_turns`), one writer each. The third
+   store gives the fold its own writer → structurally fixes §3.5's
+   saturation lag. Work items in §4.4: replace the
+   `agent_events_stamp_project` trigger with handler-side resolution;
+   denormalize `session_id` onto `agent_turns` to drop the one
+   cross-store join; app-level cascade hook for the 3 (dormant) FK
+   edges. Coupling is thin — **zero cross-store write transactions**.
+3. **Shard `events.db` + `digest.db` per team; keep `hub.db` global
+   (§4.5).** N teams → N event/digest writers + O(1) per-team
+   retention/delete/backup; control stays one shared low-volume DB. Adds
+   a per-(team,store) connection registry. Per-**session** is the next
+   granularity if a single hot team saturates one writer — heavier, only
+   on measurement.
 4. **Selectable Postgres backend — a first-class config axis, not a
    far-off escalation (§5).** `storage_backend = sqlite | postgres`
    *per store*: **SQLite is the zero-dependency, offline default;
@@ -539,11 +660,15 @@ first:
 - **D1 — fold trigger policy and its constants.** turn-close + N + τ;
   the tuned N/τ with the measurement cited. (Supersedes the lever-7 A/B
   framing in `hub-scaling`.)
-- **D2 — do we split the store, and on what key.** events vs control;
-  whether the FTS index and the `events` envelope log go with events;
-  the no-cross-store-transaction rule and the handler-ordering
-  invariant it imposes; and whether `events.db` shards per team (§4.3)
-  or stays single-file.
+- **D2 — the store split (LOCKED by director, 2026-06-06; §4.4–4.5).**
+  **Three stores** — control (`hub.db`) / event (`events.db`) / digest
+  (`digest.db`), by data nature (the digest's own writer is what fixes
+  §3.5). `agent_events_fts` travels with `agent_events`; the `events`
+  envelope log + `runs`/`run_*` stay in control for v1. **Shard
+  `events.db` + `digest.db` per team; `hub.db` global.** Remaining for
+  the ADR to pin: the migration sequencing, the per-(team,store)
+  connection-registry shape, and the app-level cascade contract for the
+  3 dormant FK edges.
 - **D3 — the storage-backend abstraction.** Make backend **selectable
   per store** (`sqlite | postgres`), with SQLite the offline default —
   not a one-way migration. Settles: the dialect/migration split, the
@@ -559,12 +684,17 @@ exactly the "surface it as an ADR, don't patch locally" class.
 
 ## 8. Costs and risks (honest)
 
-- **Two files = two migration sets + two backups.** Real but small; the
-  migration runner already exists and would be parameterised by path.
-- **No cross-store atomicity.** Mitigated by event/control independence
-  + handler ordering (§4.1). The one genuine hazard is a handler that
-  *relied* on a single tx spanning both; those must be found by audit,
-  not assumed absent.
+- **Three stores, per-team-sharded = many DB files.** Three migration
+  sets, and with per-team sharding (§4.5) a handle per (team, store) —
+  needs an LRU-capped connection registry to bound file descriptors at
+  hundreds of teams. The migration runner already exists and would be
+  parameterised per file.
+- **No cross-store atomicity — but audited to be a non-issue.** §4.4
+  verified **zero** cross-store write transactions (all 13
+  `insertAgentEvent` sites are lone `writeDB` statements). The residual
+  hazards are the 1 cross-store trigger and 1 cross-store read join,
+  both with named fixes (handler-side `project_id`; denormalize
+  `session_id` onto turns).
 - **Fold staleness is now visible by design.** A long open turn can show
   counters up to N events / τ ms behind. Acceptable (derived data,
   reconciled at close + by read-repair) but it **is** a UX-visible

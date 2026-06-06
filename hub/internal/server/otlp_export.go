@@ -70,7 +70,7 @@ func (s *Server) agentKind(ctx context.Context, agentID string) string {
 }
 
 func (s *Server) agentTurnsOrdered(ctx context.Context, agentID string) ([]turnJSON, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.digestDB.QueryContext(ctx,
 		`SELECT `+turnCols+` FROM agent_turns WHERE agent_id = ? ORDER BY idx ASC`, agentID)
 	return scanTurns(rows, err)
 }
@@ -278,12 +278,14 @@ func (s *Server) buildSessionSpans(ctx context.Context, session string) ([]otlpt
 // turn, each with the max end_ts across its agents' turns — the watermark the
 // export loop compares against to decide what to (re-)ship.
 func (s *Server) sessionsWithClosedTurnsSince(ctx context.Context) (map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT e.session_id, MAX(t.end_ts) AS max_end
-		  FROM agent_turns t
-		  JOIN agent_events e ON e.agent_id = t.agent_id
-		 WHERE t.end_ts != '' AND e.session_id != ''
-		 GROUP BY e.session_id`)
+	// session_id is denormalized onto agent_turns (migration 0054), so the
+	// watermark is a single-store read — no JOIN to agent_events, which lives
+	// in a separate file post-split (ADR-045 step 4).
+	rows, err := s.digestDB.QueryContext(ctx, `
+		SELECT session_id, MAX(end_ts) AS max_end
+		  FROM agent_turns
+		 WHERE end_ts != '' AND session_id != ''
+		 GROUP BY session_id`)
 	if err != nil {
 		return nil, err
 	}

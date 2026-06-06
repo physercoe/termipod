@@ -101,19 +101,19 @@ func saveAgentDigest(ctx context.Context, q digestStore, d *agentDigest) error {
 func saveTurnRow(ctx context.Context, q digestStore, agentID, teamID string, t *turnRow) error {
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO agent_turns (
-			agent_id, turn_id, team_id, idx, start_seq, start_ordinal, start_ts, end_seq,
+			agent_id, turn_id, team_id, idx, start_seq, start_ordinal, start_ts, session_id, end_seq,
 			end_ts, duration_ms, status, cost_usd, in_tokens, out_tokens,
 			tool_count, tool_failed, error_count
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(agent_id, turn_id) DO UPDATE SET
 			team_id=excluded.team_id, idx=excluded.idx, start_seq=excluded.start_seq,
-			start_ordinal=excluded.start_ordinal,
+			start_ordinal=excluded.start_ordinal, session_id=excluded.session_id,
 			start_ts=excluded.start_ts, end_seq=excluded.end_seq, end_ts=excluded.end_ts,
 			duration_ms=excluded.duration_ms, status=excluded.status,
 			cost_usd=excluded.cost_usd, in_tokens=excluded.in_tokens,
 			out_tokens=excluded.out_tokens, tool_count=excluded.tool_count,
 			tool_failed=excluded.tool_failed, error_count=excluded.error_count`,
-		agentID, t.TurnID, teamID, t.Idx, t.StartSeq, t.StartOrdinal, t.StartTS, t.EndSeq,
+		agentID, t.TurnID, teamID, t.Idx, t.StartSeq, t.StartOrdinal, t.StartTS, t.SessionID, t.EndSeq,
 		t.EndTS, t.DurationMs, t.Status, t.CostUSD, t.InTokens, t.OutTokens,
 		t.ToolCount, t.ToolFailed, t.ErrorCount,
 	)
@@ -133,19 +133,21 @@ func loadOpenTurn(ctx context.Context, q digestStore, agentID string) (*turnRow,
 
 	t := &turnRow{}
 	var startOrd sql.NullInt64
+	var sessionID sql.NullString
 	err := q.QueryRowContext(ctx, `
-		SELECT turn_id, idx, start_seq, start_ordinal, start_ts, end_seq, end_ts, duration_ms,
+		SELECT turn_id, idx, start_seq, start_ordinal, start_ts, session_id, end_seq, end_ts, duration_ms,
 		       status, cost_usd, in_tokens, out_tokens, tool_count, tool_failed,
 		       error_count
 		  FROM agent_turns
 		 WHERE agent_id = ? AND end_seq = 0
 		 ORDER BY idx DESC LIMIT 1`, agentID,
 	).Scan(
-		&t.TurnID, &t.Idx, &t.StartSeq, &startOrd, &t.StartTS, &t.EndSeq, &t.EndTS,
+		&t.TurnID, &t.Idx, &t.StartSeq, &startOrd, &t.StartTS, &sessionID, &t.EndSeq, &t.EndTS,
 		&t.DurationMs, &t.Status, &t.CostUSD, &t.InTokens, &t.OutTokens,
 		&t.ToolCount, &t.ToolFailed, &t.ErrorCount,
 	)
 	t.StartOrdinal = startOrd.Int64
+	t.SessionID = sessionID.String
 	if err == sql.ErrNoRows {
 		return nil, nextIdx, nil
 	}
@@ -387,7 +389,7 @@ func (s *Server) backfillAgentDigest(ctx context.Context, agentID, teamID string
 // loadFoldEvents reads an agent's full ordered event log as foldEvents.
 func loadFoldEvents(ctx context.Context, q digestStore, agentID string) ([]foldEvent, error) {
 	return scanFoldEvents(q.QueryContext(ctx, `
-		SELECT seq, session_ordinal, kind, ts, producer, payload_json
+		SELECT seq, session_ordinal, kind, ts, producer, session_id, payload_json
 		  FROM agent_events WHERE agent_id = ? ORDER BY seq ASC`, agentID))
 }
 
@@ -395,7 +397,7 @@ func loadFoldEvents(ctx context.Context, q digestStore, agentID string) ([]foldE
 // in-tx prefix backfill of a pre-existing agent.
 func loadFoldEventsBefore(ctx context.Context, q digestStore, agentID string, beforeSeq int64) ([]foldEvent, error) {
 	return scanFoldEvents(q.QueryContext(ctx, `
-		SELECT seq, session_ordinal, kind, ts, producer, payload_json
+		SELECT seq, session_ordinal, kind, ts, producer, session_id, payload_json
 		  FROM agent_events WHERE agent_id = ? AND seq < ? ORDER BY seq ASC`, agentID, beforeSeq))
 }
 
@@ -403,7 +405,7 @@ func loadFoldEventsBefore(ctx context.Context, q digestStore, agentID string, be
 // deferred-fold worker still has to fold past the digest watermark.
 func loadFoldEventsAfter(ctx context.Context, q digestStore, agentID string, afterSeq int64) ([]foldEvent, error) {
 	return scanFoldEvents(q.QueryContext(ctx, `
-		SELECT seq, session_ordinal, kind, ts, producer, payload_json
+		SELECT seq, session_ordinal, kind, ts, producer, session_id, payload_json
 		  FROM agent_events WHERE agent_id = ? AND seq > ? ORDER BY seq ASC`, agentID, afterSeq))
 }
 
@@ -417,10 +419,12 @@ func scanFoldEvents(rows *sql.Rows, err error) ([]foldEvent, error) {
 		var e foldEvent
 		var payload string
 		var ord sql.NullInt64
-		if err := rows.Scan(&e.Seq, &ord, &e.Kind, &e.TS, &e.Producer, &payload); err != nil {
+		var sess sql.NullString
+		if err := rows.Scan(&e.Seq, &ord, &e.Kind, &e.TS, &e.Producer, &sess, &payload); err != nil {
 			return nil, err
 		}
 		e.Ordinal = ord.Int64 // 0 for a session-less event
+		e.SessionID = sess.String
 		_ = json.Unmarshal([]byte(payload), &e.Payload)
 		if e.Payload == nil {
 			e.Payload = map[string]any{}

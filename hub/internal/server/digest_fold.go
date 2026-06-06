@@ -75,7 +75,11 @@ type foldEvent struct {
 	Kind     string
 	TS       string
 	Producer string
-	Payload  map[string]any
+	// SessionID is the event's session (denormalized onto the turn it opens so
+	// the OTLP watermark stays a single-store read post-split — ADR-045 step 4).
+	// "" for a session-less agent.
+	SessionID string
+	Payload   map[string]any
 }
 
 type byModelAgg struct {
@@ -87,8 +91,8 @@ type byModelAgg struct {
 }
 
 type errorClassAgg struct {
-	Count      int64    `json:"count"`
-	SampleSeqs []int64  `json:"sample_seqs"`
+	Count      int64   `json:"count"`
+	SampleSeqs []int64 `json:"sample_seqs"`
 	// SampleTSs is aligned 1:1 with SampleSeqs — the timestamp of each sampled
 	// error event. Lets the mobile analysis surface jump to an error via the
 	// (ts, seq) random-access reset instead of the bounded page-walk (turns
@@ -186,6 +190,9 @@ type turnRow struct {
 	// agent or a pre-v5 digest.
 	StartOrdinal int64
 	StartTS      string
+	// SessionID is the session of the turn's start event (ADR-045 step 4) — the
+	// denormalized anchor the OTLP export groups by. "" for a session-less agent.
+	SessionID  string
 	EndSeq     int64
 	EndTS      string
 	DurationMs int64
@@ -277,11 +284,11 @@ func (f *digestFolder) step(e foldEvent) {
 			}
 			f.closeTurn("", e.TS) // unusual: a start with no prior result
 		}
-		f.openTurn(turnIDOf(e), e.Seq, e.Ordinal, e.TS)
+		f.openTurn(turnIDOf(e), e.Seq, e.Ordinal, e.TS, e.SessionID)
 		return
 	}
 	if f.open == nil && e.Kind != "turn.result" {
-		f.openTurn(turnIDOf(e), e.Seq, e.Ordinal, e.TS)
+		f.openTurn(turnIDOf(e), e.Seq, e.Ordinal, e.TS, e.SessionID)
 	}
 
 	// Per-event accumulation onto both the digest and the open turn.
@@ -373,7 +380,7 @@ func (f *digestFolder) step(e foldEvent) {
 	}
 }
 
-func (f *digestFolder) openTurn(turnID string, seq, ordinal int64, ts string) {
+func (f *digestFolder) openTurn(turnID string, seq, ordinal int64, ts, sessionID string) {
 	if turnID == "" {
 		turnID = fmt.Sprintf("syn-%d", seq)
 	}
@@ -383,6 +390,7 @@ func (f *digestFolder) openTurn(turnID string, seq, ordinal int64, ts string) {
 		StartSeq:     seq,
 		StartOrdinal: ordinal,
 		StartTS:      ts,
+		SessionID:    sessionID,
 	}
 	f.nextIdx++
 }

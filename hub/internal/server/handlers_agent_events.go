@@ -399,7 +399,12 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	args = append(args, limit)
 	q := `SELECT ` + cols + ` FROM agent_events WHERE ` + where + ` ORDER BY ` + order + ` LIMIT ?`
 
-	rows, err := s.eventsReader(team).QueryContext(r.Context(), q, args...)
+	er, err := s.eventsReader(team)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := er.QueryContext(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

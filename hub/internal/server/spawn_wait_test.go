@@ -127,7 +127,7 @@ func TestWaitForSpawnOutcome_AlreadyFailedBeforeSubscribe(t *testing.T) {
 		"phase":  "failed",
 		"reason": "no backend.cmd resolved from spawn spec or template",
 	})
-	if _, err := s.eventsWriteDB.Exec(`
+	if _, err := evWForTeam(t, s, defaultTeamID).Exec(`
 		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json)
 		VALUES (?, ?, 1, ?, 'lifecycle', 'system', ?)`,
 		NewID(), agentID, NowUTC(), string(payload)); err != nil {

@@ -125,7 +125,7 @@ func TestInsights_StampsProjectIDOnInsert(t *testing.T) {
 	})
 
 	var got string
-	if err := srv.eventsDB.QueryRow(`
+	if err := evRForAgent(t, srv, agent).QueryRow(`
 		SELECT project_id FROM agent_events
 		 WHERE agent_id = ? AND kind = 'usage' LIMIT 1`,
 		agent).Scan(&got); err != nil {
@@ -156,7 +156,7 @@ func TestInsights_SkipsProjectIDForNonProjectScopes(t *testing.T) {
 	})
 
 	var got string
-	err := srv.eventsDB.QueryRow(`
+	err := evRForAgent(t, srv, agent).QueryRow(`
 		SELECT COALESCE(project_id, '') FROM agent_events
 		 WHERE agent_id = ? AND session_id = ? LIMIT 1`,
 		agent, teamSession).Scan(&got)
@@ -422,7 +422,7 @@ func TestInsights_BackfillStampsLegacyEvents(t *testing.T) {
 		"input_tokens":  100,
 		"output_tokens": 20,
 	})
-	if _, err := srv.eventsWriteDB.Exec(
+	if _, err := evWForAgent(t, srv, agent).Exec(
 		`UPDATE agent_events SET project_id = NULL WHERE agent_id = ?`, agent,
 	); err != nil {
 		t.Fatalf("clear project_id: %v", err)
@@ -438,7 +438,7 @@ func TestInsights_BackfillStampsLegacyEvents(t *testing.T) {
 	).Scan(&proj); err != nil {
 		t.Fatalf("resolve project: %v", err)
 	}
-	if _, err := srv.eventsWriteDB.Exec(
+	if _, err := evWForAgent(t, srv, agent).Exec(
 		`UPDATE agent_events SET project_id = ? WHERE session_id = ? AND project_id IS NULL`,
 		proj, session,
 	); err != nil {

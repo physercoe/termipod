@@ -591,7 +591,7 @@ func TestSessions_ResumeCarriesModeModelState(t *testing.T) {
 	// availableModels survived the carryover so mobile's
 	// modeModelStateFromEvents will hydrate the picker.
 	var carriedJSON string
-	err := s.eventsDB.QueryRow(`
+	err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'system' AND producer = 'system'
 		   AND payload_json LIKE '%currentModelId%'
@@ -710,7 +710,7 @@ func TestSessions_ResumeCarriesModeModelState_Fragmented(t *testing.T) {
 	}
 
 	var carriedJSON string
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'system' AND producer = 'system'
 		   AND payload_json LIKE '%availableModels%'

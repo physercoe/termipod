@@ -117,7 +117,7 @@ func TestDecide_HelpRequestFansOutAttentionReply(t *testing.T) {
 	// Snapshot the agent's seq before /decide so we can verify the
 	// attention_reply lands as the *next* event, not a pre-existing one.
 	var seqBefore int64
-	_ = c.s.eventsDB.QueryRow(`
+	_ = evRForTeam(t, c.s, defaultTeamID).QueryRow(`
 		SELECT COALESCE(MAX(seq), 0) FROM agent_events WHERE agent_id = ?`,
 		out.AgentID,
 	).Scan(&seqBefore)
@@ -136,7 +136,7 @@ func TestDecide_HelpRequestFansOutAttentionReply(t *testing.T) {
 	}
 
 	// Verify the input.attention_reply event was posted to the agent.
-	rows, err := c.s.eventsDB.Query(`
+	rows, err := evRForTeam(t, c.s, defaultTeamID).Query(`
 		SELECT kind, producer, payload_json
 		  FROM agent_events
 		 WHERE agent_id = ? AND seq > ?

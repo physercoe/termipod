@@ -170,44 +170,6 @@ func openStorePool(path string, writer bool) (*sql.DB, error) {
 	return db, nil
 }
 
-// ensureStoreSplit resolves the three-store layout at startup (ADR-045 P1):
-//
-//   - control still holds the moving tables and they are EMPTY → a fresh
-//     install; auto-split (zero data, zero risk) so first boot just works.
-//   - control still holds the moving tables and they are POPULATED → a real
-//     deployment that hasn't been migrated; REFUSE to serve and tell the
-//     operator to run `hub-server db split` (deliberate, backed-up). Serving
-//     would mis-route every write to the wrong file.
-//   - control no longer holds the moving tables → already split; the event +
-//     digest store files must exist (else the layout is broken — surface it
-//     rather than silently create empty stores).
-func ensureStoreSplit(controlDB *sql.DB, controlPath string) error {
-	eventsPath, digestPath := storePathsFor(controlPath)
-	has, err := controlHasMovingTables(controlDB)
-	if err != nil {
-		return fmt.Errorf("probe split state: %w", err)
-	}
-	if has {
-		n, err := movingTableRowCount(controlDB)
-		if err != nil {
-			return err
-		}
-		if n > 0 {
-			return fmt.Errorf("hub.db holds %d rows of agent-event data in the combined schema and has not been split into per-store files; back up, then run `hub-server db split` — refusing to serve to avoid mis-routing writes (ADR-045 P1)", n)
-		}
-		if err := splitStores(controlPath, eventsPath, digestPath); err != nil {
-			return fmt.Errorf("auto-split fresh hub.db: %w", err)
-		}
-		return nil
-	}
-	for _, p := range []string{eventsPath, digestPath} {
-		if _, err := os.Stat(p); err != nil {
-			return fmt.Errorf("hub.db is split but %s is missing (%v); restore it from backup or re-run the split", filepath.Base(p), err)
-		}
-	}
-	return nil
-}
-
 // ensureEventsStore opens events.db and makes sure its schema is present
 // (idempotent). Returns an open connection the caller must Close.
 func ensureEventsStore(path string) (*sql.DB, error) {

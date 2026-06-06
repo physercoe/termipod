@@ -78,7 +78,11 @@ func Backup(ctx context.Context, dbPath, dataRoot, outPath string) error {
 		}
 	}
 	if dataRoot != "" {
-		for _, sub := range []string{"team", "blobs"} {
+		// `teams` holds the per-team event/digest shards (ADR-045 P2 —
+		// teams/<team>/{events.db,digest.db}); back them up as a subtree so a
+		// running per-team hub's transcripts survive a snapshot. (`team` is the
+		// singular templates dir — a different path.)
+		for _, sub := range []string{"team", "teams", "blobs"} {
 			abs := filepath.Join(dataRoot, sub)
 			if _, err := os.Stat(abs); errors.Is(err, fs.ErrNotExist) {
 				continue

@@ -61,7 +61,7 @@ func TestDoSpawn_WithInlineTask_PostsFirstUserInput(t *testing.T) {
 	var (
 		kind, producer, payloadJSON string
 	)
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT kind, producer, payload_json
 		  FROM agent_events
 		 WHERE agent_id = ?
@@ -175,7 +175,7 @@ func TestDoSpawn_WithTaskID_PostsFirstUserInput(t *testing.T) {
 
 	// First user input fired with the existing task's body.
 	var payloadJSON string
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT payload_json
 		  FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.text' AND producer = 'user'
@@ -336,7 +336,7 @@ func TestDoSpawn_NoTask_DoesNotAutoPostInput(t *testing.T) {
 	}
 
 	var count int
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT COUNT(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.text' AND producer = 'user'`,
 		out.AgentID,

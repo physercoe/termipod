@@ -137,7 +137,7 @@ func TestExternalize_ThroughIngest(t *testing.T) {
 	}
 
 	var stored string
-	if err := c.s.eventsDB.QueryRow(
+	if err := evRForTeam(t, c.s, defaultTeamID).QueryRow(
 		`SELECT payload_json FROM agent_events WHERE agent_id = ?`, agent).Scan(&stored); err != nil {
 		t.Fatalf("read stored row: %v", err)
 	}

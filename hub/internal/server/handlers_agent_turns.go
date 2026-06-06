@@ -180,7 +180,11 @@ func (s *Server) listSessionTurns(ctx context.Context, team, session, afterTS st
 		args = append(args, id)
 	}
 	args = append(args, afterTS, afterTS, limit)
-	rows, err := s.digestReader(team).QueryContext(ctx, `
+	dr, err := s.digestReader(team)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dr.QueryContext(ctx, `
 		SELECT DISTINCT `+turnCols+`
 		  FROM agent_turns t
 		 WHERE t.agent_id IN (`+ph+`)

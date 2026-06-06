@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"sort"
@@ -89,7 +90,7 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	}
 	hubInsightsCache.mu.Unlock()
 
-	if err := s.materializeInsightsScope(r.Context(), scope); err != nil {
+	if err := s.buildInsightsShards(r.Context(), scope); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -296,16 +297,15 @@ type insightsAgg struct {
 }
 
 // buildInsightsResponse and its readInsights* helpers are *Server methods so
-// each can address the right store directly (ADR-045 D2): the agent_events
-// reads run on s.eventsDB, the control reads (agents / sessions /
-// attention_items / projects / deliverables / criteria) on s.db. The scope's
-// EventsClause is pre-materialized to a pure-event predicate by
-// materializeInsightsScope, so the event queries never reach into control.
+// each can address the right store directly (ADR-045 D2/P2): the agent_events
+// reads fan out across the scope's per-team shards (scope.shards, resolved by
+// buildInsightsShards) and merge the additive aggregates; the control reads
+// (agents / sessions / attention_items / projects / deliverables / criteria) run
+// on the global control pool s.db. forEachInsightsEvent threads the shard set
+// through each event query, so the merge is implicit.
 //
-// ADR-045 P2: insights is a cross-team consumer — the engine / host scopes can
-// span teams, so its event reads stay on the global P1 handle here and are
-// converted to a per-team-shard fan-out + merge in P2 inc 3 (the per-team store
-// split), not the simple team-keyed routing the single-shard sites use.
+// Insights is the one cross-team consumer: a single shard for project / agent /
+// team / host scope, N shards for engine scope (agents of an engine span teams).
 func (s *Server) buildInsightsResponse(ctx context.Context, scope *scopeFilter, since, until time.Time) (*insightsResponse, error) {
 	out := &insightsResponse{
 		Scope: insightsScope{
@@ -336,42 +336,117 @@ func (s *Server) buildInsightsResponse(ctx context.Context, scope *scopeFilter, 
 	return out, nil
 }
 
-// materializeInsightsScope resolves a cross-store scope's agent set (team /
-// team_stewards / engine / host) from the control store and rewrites the
-// scope's EventsClause to a concrete agent_id IN-list, so the agent_events
-// reads stay within the event store (ADR-045 D2 — no agents subquery across
-// the store boundary). A no-op for project / agent scope (already pure-event).
-// The id set is bounded by SQLite's ~32k bound-variable limit, far beyond
-// pre-P2 scale; per-team sharding (P2) drops the filter entirely.
-func (s *Server) materializeInsightsScope(ctx context.Context, sf *scopeFilter) error {
-	if sf.agentsWhere == "" {
+// buildInsightsShards resolves the per-team event-store reads an insights scope
+// fans out across (ADR-045 P2 — events.db is sharded per team). It fills
+// sf.shards before the readInsights* helpers run:
+//
+//   - project / agent scope: a single shard — the project's / agent's owning
+//     team, with the scope's already-pure-event clause (project_id = ? /
+//     agent_id = ?). An unknown project / agent yields no shards (an empty
+//     insights response, the pre-shard behaviour of a 0-row event query).
+//   - team / team_stewards / host scope: a single team (a team is one shard; a
+//     host belongs to one team), resolved by grouping the scope's agent set.
+//   - engine scope: agents of an engine span teams, so one shard per team, each
+//     with that team's agent_id IN (…) list.
+//
+// The agent set per shard is bounded by SQLite's ~32k bound-variable limit, far
+// beyond realistic per-team agent counts.
+func (s *Server) buildInsightsShards(ctx context.Context, sf *scopeFilter) error {
+	// project / agent scope: pure-event clause against one resolvable team.
+	switch sf.Kind {
+	case "project":
+		team, err := s.teamForProject(ctx, sf.ID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil // unknown project → empty
+			}
+			return err
+		}
+		r, err := s.eventsReader(team)
+		if err != nil {
+			return err
+		}
+		sf.shards = []insightsShard{{reader: r, clause: sf.EventsClause, args: sf.EventsArgs}}
+		return nil
+	case "agent":
+		team, err := s.teamForAgent(ctx, sf.ID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil // unknown agent → empty
+			}
+			return err
+		}
+		r, err := s.eventsReader(team)
+		if err != nil {
+			return err
+		}
+		sf.shards = []insightsShard{{reader: r, clause: sf.EventsClause, args: sf.EventsArgs}}
 		return nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM agents WHERE `+sf.agentsWhere, sf.agentsArgs...)
+
+	// team / team_stewards / engine / host: group the scope's agents by team.
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, team_id FROM agents WHERE `+sf.agentsWhere, sf.agentsArgs...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	var ids []any
+	byTeam := map[string][]any{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var id, team string
+		if err := rows.Scan(&id, &team); err != nil {
 			return err
 		}
-		ids = append(ids, id)
+		byTeam[team] = append(byTeam[team], id)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if len(ids) == 0 {
-		// No agents in scope — match no events (mirrors the empty IN-subquery).
-		sf.EventsClause = "0"
-		sf.EventsArgs = nil
-		return nil
+	for team, ids := range byTeam {
+		r, err := s.eventsReader(team)
+		if err != nil {
+			return err
+		}
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+		sf.shards = append(sf.shards, insightsShard{
+			reader: r, clause: "agent_id IN (" + ph + ")", args: ids,
+		})
 	}
-	ph := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
-	sf.EventsClause = "agent_id IN (" + ph + ")"
-	sf.EventsArgs = ids
+	return nil
+}
+
+// forEachInsightsEvent runs a windowed agent_events query across every shard in
+// the scope (ADR-045 P2 fan-out) and invokes scan for each row. cols is the
+// SELECT list; extraSQL is appended after the shard clause + ts window (e.g.
+// "AND kind = 'tool_call'" or a GROUP BY). The per-shard clause already
+// constrains to that team's rows, so merging is a simple accumulation in scan.
+func (s *Server) forEachInsightsEvent(
+	ctx context.Context, scope *scopeFilter, since, until time.Time,
+	cols, extraSQL string, scan func(*sql.Rows) error,
+) error {
+	sinceS, untilS := since.Format(time.RFC3339), until.Format(time.RFC3339)
+	for _, sh := range scope.shards {
+		args := append([]any{}, sh.args...)
+		args = append(args, sinceS, untilS)
+		rows, err := sh.reader.QueryContext(ctx,
+			`SELECT `+cols+` FROM agent_events
+			  WHERE `+sh.clause+`
+			    AND ts >= ? AND ts < ? `+extraSQL, args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			if err := scan(rows); err != nil {
+				rows.Close()
+				return err
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+	}
 	return nil
 }
 
@@ -391,36 +466,23 @@ func (s *Server) readInsightsSpendAndLatency(
 	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
-	args := append([]any{}, scope.EventsArgs...)
-	args = append(args, since.Format(time.RFC3339), until.Format(time.RFC3339))
-	rows, err := s.eventsDB.QueryContext(ctx, `
-		SELECT kind, payload_json, agent_id
-		  FROM agent_events
-		 WHERE `+scope.EventsClause+`
-		   AND ts >= ? AND ts < ?
-		   AND kind IN ('usage','turn.result')`,
-		args...,
-	)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
 	durations := make([]int64, 0, 64)
 	agentEngines := map[string]string{}
 	// Per-agent fold for by_agent. Skipped on agent scope (single-row
 	// view, breakdown is degenerate). The map is materialized into
-	// out.ByAgent after the loop with one agents-table JOIN per id.
+	// out.ByAgent after the fold with one agents-table JOIN per id.
 	wantByAgent := scope.Kind != "agent"
 	byAgent := map[string]*insightsAgentAgg{}
-	for rows.Next() {
+	// Fan the spend/latency fold across every team shard (ADR-045 P2); the
+	// accumulators above persist across shards, so the merge is implicit.
+	foldRow := func(rows *sql.Rows) error {
 		var kind, payloadJSON, agentID string
 		if err := rows.Scan(&kind, &payloadJSON, &agentID); err != nil {
 			return err
 		}
 		var p map[string]any
 		if err := json.Unmarshal([]byte(payloadJSON), &p); err != nil {
-			continue
+			return nil
 		}
 
 		// Engine resolution is per-agent; cache lookups across the loop.
@@ -526,8 +588,10 @@ func (s *Server) readInsightsSpendAndLatency(
 				aAgg.Turns++
 			}
 		}
+		return nil
 	}
-	if err := rows.Err(); err != nil {
+	if err := s.forEachInsightsEvent(ctx, scope, since, until,
+		"kind, payload_json, agent_id", "AND kind IN ('usage','turn.result')", foldRow); err != nil {
 		return err
 	}
 
@@ -548,31 +612,22 @@ func (s *Server) readInsightsSpendAndLatency(
 			agg.Status = status
 		}
 		// Per-agent errors — the canonical union (ADR-038 §1), matching the
-		// total above and the transcript lens, in one grouped query. Filter
-		// clause mirrors the spend window so the counts align to the same
+		// total above and the transcript lens, in one grouped query per shard.
+		// Filter clause mirrors the spend window so the counts align to the same
 		// scope/range.
-		errArgs := append([]any{}, scope.EventsArgs...)
-		errArgs = append(errArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
-		errRows, err := s.eventsDB.QueryContext(ctx, `
-			SELECT agent_id, count(*) FROM agent_events
-			 WHERE `+scope.EventsClause+`
-			   AND ts >= ? AND ts < ?
-			   AND `+canonicalErrorSQLPredicate+`
-			 GROUP BY agent_id`,
-			errArgs...,
-		)
-		if err == nil {
-			for errRows.Next() {
+		_ = s.forEachInsightsEvent(ctx, scope, since, until,
+			"agent_id, count(*)",
+			"AND "+canonicalErrorSQLPredicate+" GROUP BY agent_id",
+			func(rows *sql.Rows) error {
 				var id string
 				var n int64
-				if scanErr := errRows.Scan(&id, &n); scanErr == nil {
+				if scanErr := rows.Scan(&id, &n); scanErr == nil {
 					if agg, ok := byAgent[id]; ok {
 						agg.Errors = n
 					}
 				}
-			}
-			errRows.Close()
-		}
+				return nil
+			})
 
 		out.ByAgent = make([]insightsAgentAgg, 0, len(byAgent))
 		for _, agg := range byAgent {
@@ -607,32 +662,35 @@ func (s *Server) readInsightsErrors(
 	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
-	// Failed turns: kind=turn.result with status != 'success'.
-	failedArgs := append([]any{}, scope.EventsArgs...)
-	failedArgs = append(failedArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
-	if err := s.eventsDB.QueryRowContext(ctx, `
-		SELECT count(*) FROM agent_events
-		 WHERE `+scope.EventsClause+`
-		   AND ts >= ? AND ts < ?
-		   AND kind = 'turn.result'
+	// Failed turns: kind=turn.result with status != 'success'. Summed across
+	// every team shard (ADR-045 P2).
+	if err := s.forEachInsightsEvent(ctx, scope, since, until, "count(*)",
+		`AND kind = 'turn.result'
 		   AND COALESCE(json_extract(payload_json, '$.status'), 'success') <> 'success'`,
-		failedArgs...,
-	).Scan(&out.Errors.FailedTurns); err != nil {
+		func(rows *sql.Rows) error {
+			var n int64
+			if err := rows.Scan(&n); err != nil {
+				return err
+			}
+			out.Errors.FailedTurns += n
+			return nil
+		}); err != nil {
 		return err
 	}
 
 	// Total errors: the canonical union (ADR-038 §1) over the same window,
 	// so /v1/insights reconciles with the transcript Errors lens and the
-	// per-run digest. Reuses the windowed scope+range args.
-	totalArgs := append([]any{}, scope.EventsArgs...)
-	totalArgs = append(totalArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
-	if err := s.eventsDB.QueryRowContext(ctx, `
-		SELECT count(*) FROM agent_events
-		 WHERE `+scope.EventsClause+`
-		   AND ts >= ? AND ts < ?
-		   AND `+canonicalErrorSQLPredicate,
-		totalArgs...,
-	).Scan(&out.Errors.TotalErrors); err != nil {
+	// per-run digest.
+	if err := s.forEachInsightsEvent(ctx, scope, since, until, "count(*)",
+		"AND "+canonicalErrorSQLPredicate,
+		func(rows *sql.Rows) error {
+			var n int64
+			if err := rows.Scan(&n); err != nil {
+				return err
+			}
+			out.Errors.TotalErrors += n
+			return nil
+		}); err != nil {
 		return err
 	}
 
@@ -715,32 +773,33 @@ func (s *Server) readInsightsTools(
 	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
-	args := append([]any{}, scope.EventsArgs...)
-	args = append(args, since.Format(time.RFC3339), until.Format(time.RFC3339))
-	var toolCalls int64
-	if err := s.eventsDB.QueryRowContext(ctx, `
-		SELECT count(*) FROM agent_events
-		 WHERE `+scope.EventsClause+`
-		   AND ts >= ? AND ts < ?
-		   AND kind = 'tool_call'`,
-		args...,
-	).Scan(&toolCalls); err != nil {
+	// tool_call + turn.result counts, summed across every team shard (ADR-045
+	// P2), for the tools-per-turn ratio.
+	var toolCalls, turnCount int64
+	if err := s.forEachInsightsEvent(ctx, scope, since, until, "count(*)",
+		"AND kind = 'tool_call'",
+		func(rows *sql.Rows) error {
+			var n int64
+			if err := rows.Scan(&n); err != nil {
+				return err
+			}
+			toolCalls += n
+			return nil
+		}); err != nil {
 		return err
 	}
 	out.Tools.ToolCalls = toolCalls
 
-	// turn count for the ratio. We could fold this into the
-	// spend-and-latency loop but the extra query keeps that path
-	// untouched and the count is constant-time on the (project_id, ts)
-	// index.
-	var turnCount int64
-	if err := s.eventsDB.QueryRowContext(ctx, `
-		SELECT count(*) FROM agent_events
-		 WHERE `+scope.EventsClause+`
-		   AND ts >= ? AND ts < ?
-		   AND kind = 'turn.result'`,
-		args...,
-	).Scan(&turnCount); err != nil {
+	if err := s.forEachInsightsEvent(ctx, scope, since, until, "count(*)",
+		"AND kind = 'turn.result'",
+		func(rows *sql.Rows) error {
+			var n int64
+			if err := rows.Scan(&n); err != nil {
+				return err
+			}
+			turnCount += n
+			return nil
+		}); err != nil {
 		return err
 	}
 	if turnCount > 0 {
@@ -992,9 +1051,15 @@ func (s *Server) fillInsightsByProject(
 
 	// Aggregate fan-out: three bulk queries indexed by project_id. Cheap
 	// at MVP scale; revisit if a team ever pushes past byProjectMaxRows.
+	// byProject is team / team_stewards scope only, so every project belongs to
+	// scope.ID's team — a single event shard (ADR-045 P2).
 	lastActivity := map[string]string{}
 	{
-		r, err := s.eventsDB.QueryContext(ctx,
+		er, err := s.eventsReader(scope.ID)
+		if err != nil {
+			return err
+		}
+		r, err := er.QueryContext(ctx,
 			`SELECT project_id, MAX(ts) FROM agent_events
 			  WHERE project_id IN (`+placeholders+`)
 			  GROUP BY project_id`, ids...)

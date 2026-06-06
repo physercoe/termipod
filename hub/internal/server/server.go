@@ -59,17 +59,16 @@ type Server struct {
 	cfg     Config
 	db      *sql.DB // control reader pool — uncapped; reads + tests
 	writeDB *sql.DB // control writer pool — SetMaxOpenConns(1); all writes, see New()
-	// Store-separation handles (ADR-045 D2 — the event log + the derived
-	// digest are separate data classes from the control plane). Each store is
-	// its own file (events.db / digest.db) with its own reader + single-writer
-	// pool, so the high-volume firehose and its fold can't contend with
-	// control-plane CRUD or each other on SQLite's per-file write lock. Opened
-	// in New() via ensureStoreSplit (which auto-splits a fresh hub.db and
-	// refuses a populated un-split one).
-	eventsDB      *sql.DB // agent_events (+ _fts) reader  — events.db
-	eventsWriteDB *sql.DB // agent_events (+ _fts) writer  — events.db
-	digestDB      *sql.DB // agent_event_digests + agent_turns reader — digest.db
-	digestWriteDB *sql.DB // agent_event_digests + agent_turns writer — digest.db
+	// Store separation + per-team sharding (ADR-045 D2 — the event log + the
+	// derived digest are separate data classes from the control plane, and both
+	// are sharded per team). stores is the per-team registry: each team's
+	// events.db / digest.db live under dataRoot/teams/<team>/ with their own
+	// reader + single-writer pools, so the high-volume firehose and its fold
+	// can't contend with control-plane CRUD, each other, or other teams on
+	// SQLite's per-file write lock. All event/digest access routes through the
+	// team-keyed accessors in store_route.go; hub.db (s.db / s.writeDB) stays the
+	// global control plane.
+	stores *teamStores
 	// agentTeam caches the immutable (agent id → team) binding used to route an
 	// agent-keyed event/digest access to its shard (store_route.go, ADR-045 P2).
 	agentTeam     sync.Map
@@ -161,48 +160,21 @@ func New(cfg Config) (*Server, error) {
 	}
 	writeDB.SetMaxOpenConns(1)
 	writeDB.SetMaxIdleConns(1)
-	// Three-store split (ADR-045 D2 / plan P1 step 4): the event firehose and
-	// its derived digest are separate data classes from the control plane, each
-	// with its own file + writer so the high-volume ingest and its fold can't
-	// contend with control-plane CRUD or each other. ensureStoreSplit auto-splits
-	// a fresh hub.db and refuses to serve a populated un-split one (run
-	// `hub-server db split`). Then open a reader + 1-writer pool per store.
-	if err := ensureStoreSplit(db, cfg.DBPath); err != nil {
+	// Per-team store sharding (ADR-045 D2 / plan §P2): the event firehose and its
+	// derived digest are sharded into per-team files (dataRoot/teams/<team>/
+	// {events.db,digest.db}), each with its own reader + 1-writer pool, so
+	// cross-team ingest fans out across N writers instead of serializing on one.
+	// ensurePerTeamLayout resolves the boot state — it drops the empty moving
+	// tables from a fresh hub.db, and REFUSES to serve a populated global (P1) or
+	// un-split (pre-P1) store, telling the operator which one-shot `hub-server db`
+	// migration to run (deliberate, backed-up). The registry then opens each
+	// team's shard lazily on first access.
+	if err := ensurePerTeamLayout(cfg.DBPath); err != nil {
 		_ = writeDB.Close()
 		_ = db.Close()
 		return nil, err
 	}
-	eventsPath, digestPath := storePathsFor(cfg.DBPath)
-	eventsDB, err := openStorePool(eventsPath, false)
-	if err != nil {
-		_ = writeDB.Close()
-		_ = db.Close()
-		return nil, err
-	}
-	eventsWriteDB, err := openStorePool(eventsPath, true)
-	if err != nil {
-		_ = eventsDB.Close()
-		_ = writeDB.Close()
-		_ = db.Close()
-		return nil, err
-	}
-	digestDB, err := openStorePool(digestPath, false)
-	if err != nil {
-		_ = eventsWriteDB.Close()
-		_ = eventsDB.Close()
-		_ = writeDB.Close()
-		_ = db.Close()
-		return nil, err
-	}
-	digestWriteDB, err := openStorePool(digestPath, true)
-	if err != nil {
-		_ = digestDB.Close()
-		_ = eventsWriteDB.Close()
-		_ = eventsDB.Close()
-		_ = writeDB.Close()
-		_ = db.Close()
-		return nil, err
-	}
+	stores := newTeamStores(cfg.DataRoot, 0)
 	// Seed bundled templates that don't yet exist on disk. Init() does
 	// this once at `hub init`, but a hub upgraded across versions only
 	// runs `hub serve` on subsequent boots, so newly-shipped built-ins
@@ -220,11 +192,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	loopHooksConfig.Store(loadLoopHooks(cfg.DataRoot))
 	s := &Server{cfg: cfg, db: db, writeDB: writeDB, log: cfg.Logger, bus: newEventBus(),
-		digestDirty: map[string]*digestPending{}}
-	// The event + digest stores live in their own files (events.db / digest.db),
-	// each with a reader + single-writer pool (ADR-045 D2 — see ensureStoreSplit).
-	s.eventsDB, s.eventsWriteDB = eventsDB, eventsWriteDB
-	s.digestDB, s.digestWriteDB = digestDB, digestWriteDB
+		stores: stores, digestDirty: map[string]*digestPending{}}
 	// Operation-scope manifest (ADR-016) — load embedded + overlay so
 	// dispatchTool's role-gating middleware has a manifest to consult.
 	// Failure to parse is a hard error: without the manifest, every
@@ -287,24 +255,16 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) DB() *sql.DB { return s.db }
 
 func (s *Server) Close() error {
-	// Close each distinct *sql.DB once. The store handles point at the control
-	// pools today (New()), so the set dedups to {db, writeDB}; once the
-	// physical split opens distinct files they all close independently.
-	seen := map[*sql.DB]bool{}
-	closeOnce := func(db *sql.DB) {
-		if db == nil || seen[db] {
-			return
-		}
-		seen[db] = true
-		_ = db.Close()
+	// Close the per-team shard pools (each team's events.db / digest.db
+	// reader+writer), then the global control pools. closeAll waits for any
+	// in-flight fold tx to finish before closing a team's pool.
+	if s.stores != nil {
+		s.stores.closeAll()
 	}
-	closeOnce(s.writeDB)
-	closeOnce(s.eventsWriteDB)
-	closeOnce(s.digestWriteDB)
-	closeOnce(s.eventsDB)
-	closeOnce(s.digestDB)
-	if s.db != nil && !seen[s.db] {
-		seen[s.db] = true
+	if s.writeDB != nil {
+		_ = s.writeDB.Close()
+	}
+	if s.db != nil {
 		return s.db.Close()
 	}
 	return nil

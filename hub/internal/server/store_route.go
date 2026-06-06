@@ -10,11 +10,16 @@ import (
 //
 // Every read or write of the event store (agent_events) or the digest store
 // (agent_event_digests + agent_turns) goes through one of these accessors,
-// keyed by the owning team. Today they return the single global P1 handles
-// unchanged, so threading `team`/`agentID` through the call sites is
-// behaviour-preserving (inc 2). Inc 3 flips the bodies to the per-team registry
-// (store_registry.go) — a pure swap, because the call sites already hand in the
-// shard key.
+// keyed by the owning team. Each resolves the team's shard from the per-team
+// registry (store_registry.go): a hub with many teams keeps a bounded LRU set of
+// open files, and the first access to a team lazily opens (and schema-ensures)
+// its events.db / digest.db under dataRoot/teams/<team>/ (ADR-045 D2).
+//
+// The accessors return an error because the lazy open can fail (an invalid team
+// slug, or disk I/O on the team dir) and the fold worker / OTLP loop run in
+// background goroutines where a panic would crash the process rather than be
+// caught by the HTTP recover middleware. A team that exists as a control row is
+// always a valid slug, so at runtime the error is effectively a disk fault.
 //
 // Two key shapes, because two kinds of call site exist:
 //   - team-keyed (eventsReader(team) …) — handlers and aggregations that already
@@ -24,10 +29,37 @@ import (
 //     key from the agent (cached for the agent's lifetime — an agent never
 //     changes team).
 
-func (s *Server) eventsReader(team string) *sql.DB { return s.eventsDB }
-func (s *Server) eventsWriter(team string) *sql.DB { return s.eventsWriteDB }
-func (s *Server) digestReader(team string) *sql.DB { return s.digestDB }
-func (s *Server) digestWriter(team string) *sql.DB { return s.digestWriteDB }
+func (s *Server) eventsReader(team string) (*sql.DB, error) {
+	h, err := s.stores.get(team)
+	if err != nil {
+		return nil, err
+	}
+	return h.eventsR, nil
+}
+
+func (s *Server) eventsWriter(team string) (*sql.DB, error) {
+	h, err := s.stores.get(team)
+	if err != nil {
+		return nil, err
+	}
+	return h.eventsW, nil
+}
+
+func (s *Server) digestReader(team string) (*sql.DB, error) {
+	h, err := s.stores.get(team)
+	if err != nil {
+		return nil, err
+	}
+	return h.digestR, nil
+}
+
+func (s *Server) digestWriter(team string) (*sql.DB, error) {
+	h, err := s.stores.get(team)
+	if err != nil {
+		return nil, err
+	}
+	return h.digestW, nil
+}
 
 // teamForAgent resolves an agent's team — the per-team shard key. Cached in
 // s.agentTeam for the agent's lifetime (the (agent → team) binding is immutable:
@@ -58,7 +90,7 @@ func (s *Server) eventsReaderForAgent(ctx context.Context, agentID string) (*sql
 	if err != nil {
 		return nil, err
 	}
-	return s.eventsReader(team), nil
+	return s.eventsReader(team)
 }
 
 func (s *Server) eventsWriterForAgent(ctx context.Context, agentID string) (*sql.DB, error) {
@@ -66,7 +98,7 @@ func (s *Server) eventsWriterForAgent(ctx context.Context, agentID string) (*sql
 	if err != nil {
 		return nil, err
 	}
-	return s.eventsWriter(team), nil
+	return s.eventsWriter(team)
 }
 
 func (s *Server) digestReaderForAgent(ctx context.Context, agentID string) (*sql.DB, error) {
@@ -74,7 +106,7 @@ func (s *Server) digestReaderForAgent(ctx context.Context, agentID string) (*sql
 	if err != nil {
 		return nil, err
 	}
-	return s.digestReader(team), nil
+	return s.digestReader(team)
 }
 
 func (s *Server) digestWriterForAgent(ctx context.Context, agentID string) (*sql.DB, error) {
@@ -82,7 +114,20 @@ func (s *Server) digestWriterForAgent(ctx context.Context, agentID string) (*sql
 	if err != nil {
 		return nil, err
 	}
-	return s.digestWriter(team), nil
+	return s.digestWriter(team)
+}
+
+// teamForProject resolves a project's owning team — the per-team shard key for a
+// project-scoped event query (project_id is denormalized onto agent_events but
+// the shard is keyed by team). Projects never move team, so this is a simple
+// control lookup.
+func (s *Server) teamForProject(ctx context.Context, projectID string) (string, error) {
+	var team string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT team_id FROM projects WHERE id = ?`, projectID).Scan(&team); err != nil {
+		return "", fmt.Errorf("resolve team for project %s: %w", projectID, err)
+	}
+	return team, nil
 }
 
 // teamForSession resolves a session's team from the control store (sessions are
@@ -109,4 +154,24 @@ func (s *Server) eventsReaderForAgents(ctx context.Context, ids []string) (*sql.
 
 func (s *Server) digestReaderForAgents(ctx context.Context, ids []string) (*sql.DB, error) {
 	return s.digestReaderForAgent(ctx, ids[0])
+}
+
+// allTeams enumerates every team id from the control store — the iteration set
+// for the cross-team consumers (insights engine scope, the OTLP export scan)
+// that must fan a query out across every per-team shard and merge.
+func (s *Server) allTeams(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM teams ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

@@ -69,7 +69,7 @@ func TestOrchestrate_FanoutGatherReport(t *testing.T) {
 		{idB, "evaluate config B"},
 	} {
 		var payload string
-		_ = s.eventsDB.QueryRow(
+		_ = evRForTeam(t, s, defaultTeamID).QueryRow(
 			`SELECT payload_json FROM agent_events
 			   WHERE agent_id = ? AND kind = 'input.text'
 			   ORDER BY seq DESC LIMIT 1`,

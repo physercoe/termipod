@@ -38,7 +38,7 @@ func TestInsertAgentEvent_MonotonicPerAgent(t *testing.T) {
 		}
 		// The returned seq must match what's stored.
 		var stored int64
-		if err := s.eventsDB.QueryRow(`SELECT seq FROM agent_events WHERE id = ?`, id).Scan(&stored); err != nil {
+		if err := evRForTeam(t, s, defaultTeamID).QueryRow(`SELECT seq FROM agent_events WHERE id = ?`, id).Scan(&stored); err != nil {
 			t.Fatalf("read back %q: %v", body, err)
 		}
 		if stored != seq {
@@ -66,7 +66,7 @@ func TestInsertAgentEvent_SeqIsPerAgentNotPerSession(t *testing.T) {
 	}
 	// Both agents have a seq=1 row inside the SAME session — the collision.
 	var n int
-	if err := s.eventsDB.QueryRow(
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(
 		`SELECT COUNT(*) FROM agent_events WHERE session_id = ? AND seq = 1`, session,
 	).Scan(&n); err != nil {
 		t.Fatalf("count seq=1: %v", err)
@@ -94,7 +94,7 @@ func TestInsertAgentEvent_EmptySessionStoresNull(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 	var session sql.NullString
-	if err := s.eventsDB.QueryRow(`SELECT session_id FROM agent_events WHERE id = ?`, id).Scan(&session); err != nil {
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`SELECT session_id FROM agent_events WHERE id = ?`, id).Scan(&session); err != nil {
 		t.Fatalf("read back: %v", err)
 	}
 	if session.Valid {
@@ -177,7 +177,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 		}
 		// The returned ordinal must match what's stored.
 		var ord sql.NullInt64
-		if err := s.eventsDB.QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
+		if err := evRForTeam(t, s, defaultTeamID).QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
 			t.Fatalf("read ordinal %d: %v", i, err)
 		}
 		if !ord.Valid || ord.Int64 != sord {
@@ -186,7 +186,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 	}
 
 	// Dense + unique across the session: exactly {1,2,3,4,5}, one row each.
-	rows, err := s.eventsDB.Query(
+	rows, err := evRForTeam(t, s, defaultTeamID).Query(
 		`SELECT session_ordinal, COUNT(*) FROM agent_events WHERE session_id = ?
 		  GROUP BY session_ordinal ORDER BY session_ordinal`, session)
 	if err != nil {
@@ -225,7 +225,7 @@ func TestSessionOrdinal_NullForSessionlessEvent(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 	var ord sql.NullInt64
-	if err := s.eventsDB.QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
 		t.Fatalf("read ordinal: %v", err)
 	}
 	if ord.Valid {

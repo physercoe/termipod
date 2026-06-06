@@ -159,11 +159,11 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	sort.Slice(allLats, func(i, j int) bool { return allLats[i] < allLats[j] })
 
 	var rows int64
-	_ = c.s.eventsDB.QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&rows)
+	_ = evRForTeam(t, c.s, defaultTeamID).QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&rows)
 	// Digest fold lag: total events minus total folded (SUM of per-agent
 	// watermark). Shows whether the background worker kept up with ingest.
 	var foldedEvents, digestAgents int64
-	_ = c.s.digestDB.QueryRow(`SELECT COALESCE(SUM(watermark_seq),0), COUNT(*) FROM agent_event_digests`).
+	_ = dgRForTeam(t, c.s, defaultTeamID).QueryRow(`SELECT COALESCE(SUM(watermark_seq),0), COUNT(*) FROM agent_event_digests`).
 		Scan(&foldedEvents, &digestAgents)
 	// On-disk size across all three stores (ADR-045 P1): agent_events now lives
 	// in events.db, the digest/turns in digest.db — hub.db alone no longer

@@ -155,15 +155,33 @@ func (s *Server) runDigestFold(ctx context.Context) {
 // in-tx state). A fold error rolls the whole tx back and leaves the watermark
 // where it was — a later trigger (or a read-repair) retries.
 //
-// ADR-045 step 2: the event read and the digest write are decoupled — read
-// the events past the watermark from the event-store reader (s.eventsDB), then
-// fold them into the digest in its own digest-store tx (s.digestWriteDB), with
+// ADR-045 step 2/P2: the event read and the digest write are decoupled — read
+// the events past the watermark from the team's eventsReader, then fold them
+// into the digest in its own digest-store tx (the team's digestWriter), with
 // no ATTACH. Safe because the digest is idempotent from the watermark: any
 // event committed between the read and the write just leaves the watermark
 // behind, and the next tick (or a read-repair) folds it.
 func (s *Server) foldDirtyAgent(ctx context.Context, team, agent string) {
+	// Resolve the team's shard pools up front; the fold worker is a background
+	// goroutine, so an unroutable team is logged and skipped (the next tick or a
+	// read-repair retries).
+	dr, err := s.digestReader(team)
+	if err != nil {
+		s.log.Warn("digest worker: digest store", "agent", agent, "team", team, "err", err)
+		return
+	}
+	er, err := s.eventsReader(team)
+	if err != nil {
+		s.log.Warn("digest worker: events store", "agent", agent, "team", team, "err", err)
+		return
+	}
+	dw, err := s.digestWriter(team)
+	if err != nil {
+		s.log.Warn("digest worker: digest writer", "agent", agent, "team", team, "err", err)
+		return
+	}
 	// Watermark + events from their own stores, before opening the digest tx.
-	d, ok, err := loadAgentDigest(ctx, s.digestReader(team), agent)
+	d, ok, err := loadAgentDigest(ctx, dr, agent)
 	if err != nil {
 		s.log.Warn("digest worker: load", "agent", agent, "err", err)
 		return
@@ -172,7 +190,7 @@ func (s *Server) foldDirtyAgent(ctx context.Context, team, agent string) {
 	if ok {
 		watermark = d.WatermarkSeq
 	}
-	events, err := loadFoldEventsAfter(ctx, s.eventsReader(team), agent, watermark)
+	events, err := loadFoldEventsAfter(ctx, er, agent, watermark)
 	if err != nil {
 		s.log.Warn("digest worker: events", "agent", agent, "err", err)
 		return
@@ -181,13 +199,13 @@ func (s *Server) foldDirtyAgent(ctx context.Context, team, agent string) {
 		return
 	}
 
-	tx, err := s.digestWriter(team).BeginTx(ctx, nil)
+	tx, err := dw.BeginTx(ctx, nil)
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
 	for i := range events {
-		if ferr := foldEventIncremental(ctx, s.eventsReader(team), tx, agent, team, events[i]); ferr != nil {
+		if ferr := foldEventIncremental(ctx, er, tx, agent, team, events[i]); ferr != nil {
 			s.log.Warn("digest worker: fold", "agent", agent, "seq", events[i].Seq, "err", ferr)
 			return
 		}

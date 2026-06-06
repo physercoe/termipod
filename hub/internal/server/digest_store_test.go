@@ -26,7 +26,7 @@ func TestDigestIncrementalMatchesBrute(t *testing.T) {
 
 	for _, e := range events {
 		payload, _ := json.Marshal(e.Payload)
-		if _, err := s.eventsWriteDB.Exec(
+		if _, err := evWForTeam(t, s, defaultTeamID).Exec(
 			`INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json)
 			 VALUES (?,?,?,?,?,?,?)`,
 			NewID(), v.AgentID, e.Seq, e.TS, e.Kind, e.Producer, string(payload),
@@ -36,7 +36,7 @@ func TestDigestIncrementalMatchesBrute(t *testing.T) {
 		s.foldEventIntoDigest(ctx, defaultTeamID, v.AgentID, e.Seq, e.Ordinal, e.Kind, e.TS, e.Producer, string(payload))
 	}
 
-	got, ok, err := loadAgentDigest(ctx, s.digestDB, v.AgentID)
+	got, ok, err := loadAgentDigest(ctx, dgRForTeam(t, s, defaultTeamID), v.AgentID)
 	if err != nil || !ok {
 		t.Fatalf("load digest: ok=%v err=%v", ok, err)
 	}
@@ -84,7 +84,7 @@ func TestDigestIncrementalMatchesBrute(t *testing.T) {
 	}
 
 	// Turn rows persisted match brute force.
-	turns, err := loadAllTurns(ctx, s.digestDB, v.AgentID)
+	turns, err := loadAllTurns(ctx, dgRForTeam(t, s, defaultTeamID), v.AgentID)
 	if err != nil {
 		t.Fatalf("load turns: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestDigestLazyBackfill(t *testing.T) {
 	// Insert the whole prefix WITHOUT folding (simulates a pre-digest agent).
 	for _, e := range events[:len(events)-1] {
 		payload, _ := json.Marshal(e.Payload)
-		if _, err := s.eventsWriteDB.Exec(
+		if _, err := evWForTeam(t, s, defaultTeamID).Exec(
 			`INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json)
 			 VALUES (?,?,?,?,?,?,?)`,
 			NewID(), v.AgentID, e.Seq, e.TS, e.Kind, e.Producer, string(payload),
@@ -131,7 +131,7 @@ func TestDigestLazyBackfill(t *testing.T) {
 	// Now insert + fold the LAST event — the fold must backfill the prefix.
 	last := events[len(events)-1]
 	payload, _ := json.Marshal(last.Payload)
-	if _, err := s.eventsWriteDB.Exec(
+	if _, err := evWForTeam(t, s, defaultTeamID).Exec(
 		`INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json)
 		 VALUES (?,?,?,?,?,?,?)`,
 		NewID(), v.AgentID, last.Seq, last.TS, last.Kind, last.Producer, string(payload),
@@ -140,7 +140,7 @@ func TestDigestLazyBackfill(t *testing.T) {
 	}
 	s.foldEventIntoDigest(ctx, defaultTeamID, v.AgentID, last.Seq, last.Ordinal, last.Kind, last.TS, last.Producer, string(payload))
 
-	got, ok, err := loadAgentDigest(ctx, s.digestDB, v.AgentID)
+	got, ok, err := loadAgentDigest(ctx, dgRForTeam(t, s, defaultTeamID), v.AgentID)
 	if err != nil || !ok {
 		t.Fatalf("load digest: ok=%v err=%v", ok, err)
 	}

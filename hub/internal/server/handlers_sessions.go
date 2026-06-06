@@ -402,8 +402,10 @@ func (s *Server) clearSessionFromEvents(ctx context.Context, team, sessionID str
 	// team is threaded from the caller (not resolved from the session): this
 	// runs after the control session row is already deleted, so the session can
 	// no longer resolve its own shard.
-	_, _ = s.eventsWriter(team).ExecContext(ctx,
-		`UPDATE agent_events SET session_id = NULL WHERE session_id = ?`, sessionID)
+	if ew, err := s.eventsWriter(team); err == nil {
+		_, _ = ew.ExecContext(ctx,
+			`UPDATE agent_events SET session_id = NULL WHERE session_id = ?`, sessionID)
+	}
 }
 
 // handleForkSession creates a new session shell from an archived

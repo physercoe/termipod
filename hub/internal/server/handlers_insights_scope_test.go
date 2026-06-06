@@ -737,7 +737,7 @@ func TestInsights_ByProject_TeamScope_FiltersAndSorts(t *testing.T) {
 	// last_activity. Explicit ts overrides the helper's NowUTC() default.
 	earlier := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
 	later := time.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339)
-	if _, err := srv.eventsWriteDB.Exec(`
+	if _, err := evWForTeam(t, srv, team).Exec(`
 		INSERT INTO agent_events
 			(id, agent_id, seq, ts, kind, producer, payload_json,
 			 session_id, project_id)
@@ -747,7 +747,7 @@ func TestInsights_ByProject_TeamScope_FiltersAndSorts(t *testing.T) {
 		NewID(), agentA, earlier, sessionA, projectA, agentA); err != nil {
 		t.Fatalf("seed event A: %v", err)
 	}
-	if _, err := srv.eventsWriteDB.Exec(`
+	if _, err := evWForTeam(t, srv, team).Exec(`
 		INSERT INTO agent_events
 			(id, agent_id, seq, ts, kind, producer, payload_json,
 			 session_id, project_id)

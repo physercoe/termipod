@@ -248,12 +248,20 @@ func (s *Server) foldEventIntoDigest(ctx context.Context, team, agent string, se
 	// ADR-045 step 2: digest writes go in their own digest-store tx; the rare
 	// event reads inside the fold use the event-store reader (no shared tx).
 	// P2: both resolve to the team's shard.
-	tx, err := s.digestWriter(team).BeginTx(ctx, nil)
+	dw, err := s.digestWriter(team)
+	if err != nil {
+		return
+	}
+	er, err := s.eventsReader(team)
+	if err != nil {
+		return
+	}
+	tx, err := dw.BeginTx(ctx, nil)
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
-	if err := foldEventIncremental(ctx, s.eventsReader(team), tx, agent, team, e); err != nil {
+	if err := foldEventIncremental(ctx, er, tx, agent, team, e); err != nil {
 		return
 	}
 	_ = tx.Commit()
@@ -274,7 +282,9 @@ func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string
 		return
 	}
 	d.Outcome = outcome
-	_ = saveAgentDigest(ctx, s.digestWriter(team), d)
+	if dw, err := s.digestWriter(team); err == nil {
+		_ = saveAgentDigest(ctx, dw, d)
+	}
 }
 
 // deriveDigestOutcome resolves the agent's run outcome: the assigned task's
@@ -291,10 +301,12 @@ func (s *Server) deriveDigestOutcome(ctx context.Context, team, agentID string) 
 		return taskStatus
 	}
 	var lastTurnStatus string
-	_ = s.digestReader(team).QueryRowContext(ctx, `
+	if dr, err := s.digestReader(team); err == nil {
+		_ = dr.QueryRowContext(ctx, `
 		SELECT status FROM agent_turns
 		 WHERE agent_id = ? AND end_seq > 0 AND status != ''
 		 ORDER BY idx DESC LIMIT 1`, agentID).Scan(&lastTurnStatus)
+	}
 	if lastTurnStatus != "" {
 		return lastTurnStatus
 	}
@@ -333,13 +345,22 @@ func resolveToolName(ctx context.Context, q digestStore, agentID, id string) str
 // events but no digest row yet (the one-time lazy O(n) pass — ADR-038 §2).
 // Returns the loaded-or-backfilled digest. A no-op when the row exists.
 //
-// ADR-045 step 2: a method so it reaches each store directly — the digest read
-// from s.digestDB, the staleness probe (agent_events MAX(seq)) from s.eventsDB.
+// ADR-045 step 2/P2: a method so it reaches each store directly — the digest
+// read from the team's digestReader, the staleness probe (agent_events MAX(seq))
+// from the team's eventsReader.
 func (s *Server) ensureAgentDigest(ctx context.Context, agentID, teamID string) (*agentDigest, error) {
 	if teamID == "" {
 		_ = s.db.QueryRowContext(ctx, `SELECT team_id FROM agents WHERE id = ?`, agentID).Scan(&teamID)
 	}
-	d, ok, err := loadAgentDigest(ctx, s.digestReader(teamID), agentID)
+	dr, err := s.digestReader(teamID)
+	if err != nil {
+		return nil, err
+	}
+	d, ok, err := loadAgentDigest(ctx, dr, agentID)
+	if err != nil {
+		return nil, err
+	}
+	er, err := s.eventsReader(teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +368,7 @@ func (s *Server) ensureAgentDigest(ctx context.Context, agentID, teamID string) 
 	// ADR-039 bump that widened the error seq list) so already-sealed agents
 	// pick up the new shape, not only when the watermark lags the log.
 	if ok && d.SchemaVersion >= digestSchemaVersion &&
-		!digestIsStale(ctx, s.eventsReader(teamID), agentID, d.WatermarkSeq) {
+		!digestIsStale(ctx, er, agentID, d.WatermarkSeq) {
 		return d, nil
 	}
 	// Missing, stale, or an older schema — (re)compute.
@@ -357,21 +378,29 @@ func (s *Server) ensureAgentDigest(ctx context.Context, agentID, teamID string) 
 // backfillAgentDigest recomputes the digest + all turn rows from the full
 // event log and persists them. Used by the lazy backfill / read-repair.
 //
-// ADR-045 step 2: reads cross three stores without a shared tx — team_id from
-// control (s.db), the event log from s.eventsDB — folds in memory, then writes
-// the digest/turns in their own s.digestWriteDB tx. No ATTACH; the digest is
-// idempotent from the (here, full) recompute.
+// ADR-045 step 2/P2: reads cross three stores without a shared tx — team_id from
+// control (s.db), the event log from the team's eventsReader — folds in memory,
+// then writes the digest/turns in their own digestWriter tx. No ATTACH; the
+// digest is idempotent from the (here, full) recompute.
 func (s *Server) backfillAgentDigest(ctx context.Context, agentID, teamID string) (*agentDigest, error) {
 	if teamID == "" {
 		_ = s.db.QueryRowContext(ctx, `SELECT team_id FROM agents WHERE id = ?`, agentID).Scan(&teamID)
 	}
-	events, err := loadFoldEvents(ctx, s.eventsReader(teamID), agentID)
+	er, err := s.eventsReader(teamID)
+	if err != nil {
+		return nil, err
+	}
+	events, err := loadFoldEvents(ctx, er, agentID)
 	if err != nil {
 		return nil, err
 	}
 	d, turns := computeAgentDigest(agentID, teamID, events)
 
-	tx, err := s.digestWriter(teamID).BeginTx(ctx, nil)
+	dw, err := s.digestWriter(teamID)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := dw.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}

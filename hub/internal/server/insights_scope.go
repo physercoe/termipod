@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"errors"
 	"net/url"
 	"strings"
@@ -66,12 +67,30 @@ type scopeFilter struct {
 	// defines this scope's agent set, for the kinds whose event filter would
 	// otherwise reach across the control↔event store boundary (team /
 	// team_stewards / engine / host — they select agents in hub.db to filter
-	// agent_events in events.db). materializeInsightsScope resolves it to a
-	// concrete `agent_id IN (…)` list so the agent_events queries stay within
-	// the event store (ADR-045 D2). Empty for project / agent scope, whose
-	// EventsClause is already pure-event (project_id = ? / agent_id = ?).
+	// agent_events in events.db). buildInsightsShards resolves it to a per-team
+	// set of (reader, agent_id IN (…)) shards so the agent_events queries stay
+	// within each team's event store (ADR-045 D2/P2). Empty for project / agent
+	// scope, whose EventsClause is already pure-event (project_id = ? /
+	// agent_id = ?) against a single resolvable team.
 	agentsWhere string
 	agentsArgs  []any
+
+	// shards is the per-team set of event-store reads this scope fans out across
+	// (ADR-045 P2 — events.db is sharded per team). buildInsightsShards fills it
+	// before the readInsights* helpers run: one shard for project / agent / team
+	// / host scope (a single team), N for engine scope (agents span teams). Each
+	// readInsights event query iterates the shards and merges the (additive)
+	// aggregates.
+	shards []insightsShard
+}
+
+// insightsShard is one team's slice of an insights scope: the team's event-store
+// reader plus the pure-event predicate (and args) that selects this scope's rows
+// within that shard.
+type insightsShard struct {
+	reader *sql.DB
+	clause string
+	args   []any
 }
 
 // parseInsightsScope extracts a scope from query params. Exactly one of

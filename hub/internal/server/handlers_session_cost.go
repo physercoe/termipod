@@ -20,7 +20,11 @@ func pricingSessionCost(ctx context.Context, s *Server, team, sessionID string) 
 	// Usage events live in the event store (ADR-045 P1), sharded per team
 	// (P2) — pricing reads agent_events, so it takes the team's event reader,
 	// not the control pool.
-	return pricing.SessionCost(ctx, s.eventsReader(team), s.pricing, sessionID)
+	er, err := s.eventsReader(team)
+	if err != nil {
+		return pricing.Result{}, err
+	}
+	return pricing.SessionCost(ctx, er, s.pricing, sessionID)
 }
 
 // sessionCostOut is the wire shape of GET /v1/teams/{team}/sessions/{session}/cost

@@ -10,7 +10,7 @@ import (
 // (NowUTC) can't do.
 func seedEventAt(t *testing.T, s *Server, agentID, sessionID string, seq int, ts string) {
 	t.Helper()
-	_, err := s.eventsWriteDB.Exec(`
+	_, err := evWForAgent(t, s, agentID).Exec(`
 		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
 		VALUES (?,?,?,?,?,?,?,?)`,
 		NewID(), agentID, seq, ts, "text", "agent", `{"text":"x"}`, sessionID)
@@ -27,7 +27,7 @@ func TestListAgentEvents_CompoundKeysetWindow(t *testing.T) {
 	c := newE2E(t)
 	agentID, sessionID := seedVectorRun(t, c)
 	// Drop the vector's NowUTC-stamped events; seed a controlled timeline.
-	if _, err := c.s.eventsWriteDB.Exec(`DELETE FROM agent_events WHERE agent_id = ?`, agentID); err != nil {
+	if _, err := evWForAgent(t, c.s, agentID).Exec(`DELETE FROM agent_events WHERE agent_id = ?`, agentID); err != nil {
 		t.Fatalf("clear events: %v", err)
 	}
 	const (

@@ -35,13 +35,13 @@ func TestNotifyTaskAssigner_EmitsInputTextEvent_OnDone(t *testing.T) {
 	// task.notify (audit card) AND input.text (driver-deliverable
 	// wake event).
 	var taskNotifyCount, inputCount int
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT COUNT(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'task.notify'`,
 		stewardID).Scan(&taskNotifyCount); err != nil {
 		t.Fatalf("count task.notify: %v", err)
 	}
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT COUNT(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.text' AND producer = 'system'`,
 		stewardID).Scan(&inputCount); err != nil {
@@ -57,7 +57,7 @@ func TestNotifyTaskAssigner_EmitsInputTextEvent_OnDone(t *testing.T) {
 	// Inspect the input.text payload — body is the field every
 	// driver's `case "text"` branch reads.
 	var payload string
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.text' AND producer = 'system'
 		 ORDER BY seq DESC LIMIT 1`,
@@ -115,7 +115,7 @@ func TestNotifyTaskAssigner_BodyUsesCorrectVerb_OnBlocked(t *testing.T) {
 		"in_progress", "blocked")
 
 	var payload string
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.text' AND producer = 'system'
 		 ORDER BY seq DESC LIMIT 1`,
@@ -152,7 +152,7 @@ func TestNotifyTaskAssigner_BodyUsesCorrectVerb_OnCancelled(t *testing.T) {
 		"in_progress", "cancelled")
 
 	var payload string
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.text' AND producer = 'system'
 		 ORDER BY seq DESC LIMIT 1`,
@@ -226,7 +226,7 @@ func TestNotifyTaskAssigner_NoInputEvent_ForNonTerminalTransition(t *testing.T) 
 		"todo", "in_progress")
 
 	var inputCount int
-	if err := s.eventsDB.QueryRow(`
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
 		SELECT COUNT(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.text' AND producer = 'system'`,
 		stewardID).Scan(&inputCount); err != nil {

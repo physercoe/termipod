@@ -114,7 +114,11 @@ func (s *Server) sumTurnActiveMs(ctx context.Context, agentIDs []string) (int64,
 // here from control would add a round-trip and fail for a session with events
 // but no control row.
 func (s *Server) sessionAgentIDs(ctx context.Context, team, session string) ([]string, error) {
-	rows, err := s.eventsReader(team).QueryContext(ctx, `
+	er, err := s.eventsReader(team)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := er.QueryContext(ctx, `
 		SELECT agent_id FROM agent_events
 		 WHERE session_id = ?
 		 GROUP BY agent_id

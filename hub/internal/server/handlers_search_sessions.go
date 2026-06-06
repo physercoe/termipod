@@ -91,6 +91,11 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 		seq                                int64
 	}
 	var cands []cand
+	er, err := s.eventsReader(team)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	const chunk = 900
 	for start := 0; start < len(sessIDs); start += chunk {
 		end := start + chunk
@@ -105,7 +110,7 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 			args = append(args, id)
 		}
 		args = append(args, limit)
-		frows, err := s.eventsReader(team).QueryContext(r.Context(), `
+		frows, err := er.QueryContext(r.Context(), `
 			SELECT ae.id, COALESCE(ae.session_id, ''), ae.seq, ae.ts, ae.kind,
 			       snippet(agent_events_fts, 1, '<mark>', '</mark>', '…', 16)
 			  FROM agent_events_fts

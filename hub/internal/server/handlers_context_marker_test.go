@@ -29,7 +29,7 @@ func TestPostAgentInput_EmitsCompactMarker(t *testing.T) {
 	// system-emitted context.compacted marker. Order matters because
 	// the marker is "this is what just happened", read after the
 	// user's command in the transcript.
-	rows, err := s.eventsDB.QueryContext(context.Background(), `
+	rows, err := evRForTeam(t, s, defaultTeamID).QueryContext(context.Background(), `
 		SELECT kind, producer FROM agent_events
 		 WHERE agent_id = ? ORDER BY seq ASC`, agentID)
 	if err != nil {
@@ -83,7 +83,7 @@ func TestPostAgentInput_EmitsClearAndRewindMarkers(t *testing.T) {
 				t.Fatalf("post %s: %d %s", tc.body, status, raw)
 			}
 			var got string
-			_ = s.eventsDB.QueryRow(`
+			_ = evRForTeam(t, s, defaultTeamID).QueryRow(`
 				SELECT kind FROM agent_events
 				 WHERE agent_id = ? AND producer = 'system'
 				 ORDER BY seq DESC LIMIT 1`, agentID).Scan(&got)
@@ -110,7 +110,7 @@ func TestPostAgentInput_NoMarkerForRegularText(t *testing.T) {
 		t.Fatalf("post: %d %s", status, raw)
 	}
 	var n int
-	_ = s.eventsDB.QueryRow(
+	_ = evRForTeam(t, s, defaultTeamID).QueryRow(
 		`SELECT COUNT(*) FROM agent_events
 		   WHERE agent_id = ? AND producer = 'system'`,
 		agentID).Scan(&n)
@@ -138,7 +138,7 @@ func TestPostAgentInput_NoMarkerForNonTextInput(t *testing.T) {
 		t.Fatalf("post: %d %s", status, raw)
 	}
 	var n int
-	_ = s.eventsDB.QueryRow(
+	_ = evRForTeam(t, s, defaultTeamID).QueryRow(
 		`SELECT COUNT(*) FROM agent_events
 		   WHERE agent_id = ? AND producer = 'system'`,
 		agentID).Scan(&n)
@@ -169,7 +169,7 @@ func TestPostAgentInput_MarkerForUnsupportedEngineSilent(t *testing.T) {
 		t.Fatalf("post: %d %s", status, raw)
 	}
 	var n int
-	_ = s.eventsDB.QueryRow(
+	_ = evRForTeam(t, s, defaultTeamID).QueryRow(
 		`SELECT COUNT(*) FROM agent_events WHERE agent_id = ?`, agentID).Scan(&n)
 	if n != 1 {
 		t.Errorf("codex /compact wrote %d events; want 1 (input.text only)", n)

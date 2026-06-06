@@ -75,8 +75,12 @@ func (s *Server) agentKind(ctx context.Context, agentID string) string {
 	return kind
 }
 
-func (s *Server) agentTurnsOrdered(ctx context.Context, agentID string) ([]turnJSON, error) {
-	rows, err := s.digestDB.QueryContext(ctx,
+func (s *Server) agentTurnsOrdered(ctx context.Context, team, agentID string) ([]turnJSON, error) {
+	dr, err := s.digestReader(team)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dr.QueryContext(ctx,
 		`SELECT `+turnCols+` FROM agent_turns WHERE agent_id = ? ORDER BY idx ASC`, agentID)
 	return scanTurns(rows, err)
 }
@@ -171,9 +175,13 @@ func (s *Server) buildSessionSpans(ctx context.Context, session string) ([]otlpt
 	}
 	var spans []otlptrace.Span
 
+	er, err := s.eventsReader(team)
+	if err != nil {
+		return nil, err
+	}
 	for _, agentID := range agentIDs {
 		kind := s.agentKind(ctx, agentID)
-		turns, err := s.agentTurnsOrdered(ctx, agentID)
+		turns, err := s.agentTurnsOrdered(ctx, team, agentID)
 		if err != nil {
 			return nil, err
 		}
@@ -201,7 +209,7 @@ func (s *Server) buildSessionSpans(ctx context.Context, session string) ([]otlpt
 			refs = append(refs, turnRef{t.StartSeq, t.EndSeq, sid, len(spans) - 1})
 		}
 
-		events, err := loadFoldEvents(ctx, s.eventsDB, agentID)
+		events, err := loadFoldEvents(ctx, er, agentID)
 		if err != nil {
 			return nil, err
 		}
@@ -291,27 +299,47 @@ func (s *Server) buildSessionSpans(ctx context.Context, session string) ([]otlpt
 // turn, each with the max end_ts across its agents' turns — the watermark the
 // export loop compares against to decide what to (re-)ship.
 func (s *Server) sessionsWithClosedTurnsSince(ctx context.Context) (map[string]string, error) {
-	// session_id is denormalized onto agent_turns (migration 0054), so the
-	// watermark is a single-store read — no JOIN to agent_events, which lives
-	// in a separate file post-split (ADR-045 step 4).
-	rows, err := s.digestDB.QueryContext(ctx, `
-		SELECT session_id, MAX(end_ts) AS max_end
-		  FROM agent_turns
-		 WHERE end_ts != '' AND session_id != ''
-		 GROUP BY session_id`)
+	// The digest store is sharded per team (ADR-045 P2), so the scan fans out
+	// across every team's digest.db and merges. session_id is denormalized onto
+	// agent_turns (migration 0054), so each shard's watermark is a single-store
+	// read — no JOIN to agent_events, which lives in a separate file.
+	teams, err := s.allTeams(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := map[string]string{}
-	for rows.Next() {
-		var session, maxEnd string
-		if err := rows.Scan(&session, &maxEnd); err != nil {
+	for _, team := range teams {
+		dr, err := s.digestReader(team)
+		if err != nil {
 			return nil, err
 		}
-		out[session] = maxEnd
+		rows, err := dr.QueryContext(ctx, `
+			SELECT session_id, MAX(end_ts) AS max_end
+			  FROM agent_turns
+			 WHERE end_ts != '' AND session_id != ''
+			 GROUP BY session_id`)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var session, maxEnd string
+			if err := rows.Scan(&session, &maxEnd); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			// A session belongs to one team, so there's no cross-team key
+			// collision; the max guard is just defensive.
+			if cur, ok := out[session]; !ok || maxEnd > cur {
+				out[session] = maxEnd
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // runOTLPExport is the export loop (ADR-038 §4). On each tick it ships every

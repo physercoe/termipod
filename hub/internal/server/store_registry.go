@@ -192,6 +192,74 @@ func (r *teamStores) openCount() int {
 	return r.lru.Len()
 }
 
+// ensurePerTeamLayout resolves the per-team store layout at startup (ADR-045
+// P2). Unlike P1's ensureStoreSplit it opens NO global store — the registry
+// opens each team's shard lazily — so its only job is to validate the boot state
+// and refuse to serve a deployment that still holds data in an un-sharded layout
+// (which would silently mis-route writes), pointing the operator at the one-shot
+// migration to run. The states:
+//
+//   - a populated global events.db (a P1-split deployment) → REFUSE; run
+//     `hub-server db split-teams` to fan it into per-team shards.
+//   - an EMPTY global events.db (a fresh P1 install that never ingested) →
+//     retire it aside (zero data, zero risk) and proceed per-team.
+//   - hub.db still holds the moving tables, POPULATED (a pre-P1 deployment) →
+//     REFUSE; run `hub-server db split` then `db split-teams`.
+//   - hub.db holds EMPTY moving tables (a fresh install — the migration chain
+//     just created them) → drop them so hub.db is purely the control plane.
+//   - already sharded (no global store, no moving tables in hub.db) → nothing.
+func ensurePerTeamLayout(controlPath string) error {
+	eventsPath, digestPath := storePathsFor(controlPath)
+
+	if _, err := os.Stat(eventsPath); err == nil {
+		n, cerr := countTableRows(eventsPath, "agent_events")
+		if cerr != nil {
+			return fmt.Errorf("probe global events store: %w", cerr)
+		}
+		if n > 0 {
+			return fmt.Errorf("a global events.db with %d agent_events rows is present but the store is now sharded per team; back up, then run `hub-server db split-teams` — refusing to serve to avoid mis-routing writes (ADR-045 P2)", n)
+		}
+		// Empty global store from a fresh P1 install — retire both files aside so
+		// the registry starts clean. Recoverable (renamed, not deleted).
+		for _, p := range []string{eventsPath, digestPath} {
+			if _, err := os.Stat(p); err == nil {
+				if err := os.Rename(p, p+".pre-shard"); err != nil {
+					return fmt.Errorf("retire empty global %s: %w", filepath.Base(p), err)
+				}
+			}
+		}
+		return nil
+	}
+
+	// No global store. Check whether hub.db still holds the moving tables.
+	ctl, err := sql.Open("sqlite", dsnFKOff(controlPath))
+	if err != nil {
+		return fmt.Errorf("open control for layout probe: %w", err)
+	}
+	defer ctl.Close()
+	has, err := controlHasMovingTables(ctl)
+	if err != nil {
+		return fmt.Errorf("probe split state: %w", err)
+	}
+	if !has {
+		return nil // already sharded
+	}
+	n, err := movingTableRowCount(ctl)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return fmt.Errorf("hub.db holds %d rows of agent-event data in the combined schema and has not been sharded per team; back up, then run `hub-server db split` followed by `hub-server db split-teams` — refusing to serve to avoid mis-routing writes (ADR-045 P2)", n)
+	}
+	// Fresh install: drop the empty moving tables so hub.db is control-only.
+	for _, tbl := range []string{"agent_events_fts", "agent_events", "agent_event_digests", "agent_turns"} {
+		if _, err := ctl.Exec(`DROP TABLE IF EXISTS ` + tbl); err != nil {
+			return fmt.Errorf("drop empty moving table %s: %w", tbl, err)
+		}
+	}
+	return nil
+}
+
 // ensureEventsSchema runs the events.db DDL (real table + indexes + FTS) on an
 // already-open pool. Idempotent (CREATE … IF NOT EXISTS), so it's safe on both a
 // fresh file and a populated one.

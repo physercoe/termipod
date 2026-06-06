@@ -285,10 +285,12 @@ func (s *Server) fanoutResults(
 		// Look up the latest worker_report event for this agent (if any).
 		var reportPayload sql.NullString
 		var reportTS sql.NullString
-		_ = s.eventsReader(team).QueryRowContext(ctx, `
+		if er, err := s.eventsReader(team); err == nil {
+			_ = er.QueryRowContext(ctx, `
 			SELECT payload_json, ts FROM agent_events
 			 WHERE agent_id = ? AND kind = 'worker_report'
 			 ORDER BY seq DESC LIMIT 1`, r.agentID).Scan(&reportPayload, &reportTS)
+		}
 
 		hasReport := reportPayload.Valid
 		terminal := r.agentStatus.Valid &&

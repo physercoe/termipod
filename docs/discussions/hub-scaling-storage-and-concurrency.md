@@ -377,7 +377,15 @@ Ordered cheapest-highest-value first:
    synchronous-fold decision to eventually-consistent (bounded by the
    worker tick), so it needs an ADR amendment + director sign-off**
    before building — the live Insight view would see aggregates lag by
-   one tick. Biggest remaining throughput lever by far.
+   one tick. Biggest remaining throughput lever by far. **Update
+   (2026-06-06):** a first cut ("A", per-event deferred worker) measured
+   ~1.5–1.75× but the worker **can't drain under saturation** (fold debt
+   grows). The fix — fold on **turn-close OR every N events OR every τ
+   ms** (bounded-staleness), plus the deeper question of splitting the
+   event log off the control plane's writer entirely — is worked through
+   in
+   [`hub-store-separation-and-fold-policy.md`](hub-store-separation-and-fold-policy.md),
+   which supersedes this lever's A/B framing.
 5. **Batch / coalesce event ingest** — group rapid same-agent events
    (esp. text deltas) into one transaction; fold the digest in the same
    tx instead of a second one. **TRIED, NOT SHIPPED (2026-06-06).**
@@ -466,6 +474,10 @@ operational tier `hub-resilience.md` explicitly defers.
   all (§4 names write amplification + event compression).
 - `../reference/quality-attributes.md` — the documented scale targets
   (§3 capacity) and the unmeasured TBDs this doc leans on.
+- `hub-store-separation-and-fold-policy.md` — the deeper follow-up: the
+  bounded-staleness fold trigger (supersedes lever 7's A/B) and whether
+  to split the append-only event log onto its own SQLite writer,
+  separate from the control-plane CRUD.
 - ADR-038 — the per-run digest fold that adds a second write per event.
 - ADR-002 — the single-binary, zero-dependency deployment an external
   DB/Redis would trade away.

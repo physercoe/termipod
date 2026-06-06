@@ -368,6 +368,53 @@ signal either way. **Verdict: a free, zero-complexity headroom buffer for
 the saturated tail — but the real bursty agent workload lives in the
 "wash" regime, so this is not the lever that moves the common case.**
 
+**Cache-size sweep (n=800, the saturated regime; medians):** the writer
+cache is operator-tunable via `HUB_SQLITE_WRITER_CACHE_KB` (default 64 MiB):
+
+| Writer cache | Throughput (ev/s) |
+|---:|---:|
+| 2 MiB (sqlite default) | ~647 |
+| 16 MiB | ~790 |
+| 64 MiB (default) | ~878 |
+| 256 MiB | ~905 |
+
+Monotonic with diminishing returns: the knee is ~16–64 MiB; 256 MiB edges
+higher but at 4× the per-writer RAM. 64 MiB is a sound default, not
+over-tuned. (Caveat: a 5 s run's DB is only ~3–4 MiB, so this micro-
+benchmark can't fully resolve the cache-vs-DB-size curve — a definitive
+value wants a realistically-sized store; the env knob exists to tune it
+per VPS. `cache_size` is a *cap*, not an allocation — an append-mostly
+writer only fills the pages it touches, so a hot team's real writer RSS is
+usually a few MiB, well under the 64 MiB cap.)
+
+### 4.6 The VPS ceiling — per-team sharding raises it to the core count (2026-06-06)
+
+Fixing the offered load at 800 agents and fanning them across N teams
+(`HUB_LOADTEST_TEAMS`) — each team its own `events.db`/`digest.db` writer
+(ADR-045 P2) — measures whether sharding lifts the **aggregate** ingest
+ceiling on this 2-vCPU box. Flat-out, 5 s, fold worker on:
+
+| Teams | Agents/team | Aggregate (ev/s) | Fold lag |
+|---:|---:|---:|---:|
+| 1 | 800 | ~810 | ~30 % |
+| 2 | 400 | **~1080** | ~58 % |
+| 4 | 200 | ~1075 | ~71 % |
+| 8 | 100 | ~775 | ~91 % |
+
+0 `SQLITE_BUSY` at every point. **Sharding raises the ceiling ~+33 % (one
+writer → two), then plateaus at ~1100 ev/s by 2–4 teams (≈ the 2 cores),
+then *regresses* at 8.** So the ceiling on a 2-vCPU box is **CPU-bound at
+~1100 ev/s flat-out**, not writer- or RAM-bound, once sharded to ≈ core
+count. Past the core count, extra teams buy **isolation** (a busy team no
+longer lock-contends its neighbours) but no throughput, and they stress the
+**single** background fold worker — lag climbs to 91 % at 8 teams (every
+un-folded event stays read-repair-backed, so a stale digest is never
+*wrong*, only lazily recomputed). **Practical rule: teams ≈ core count for
+throughput; more only for isolation; the ~1100 ev/s figure scales with
+cores, and real bursty agents (think/tool/wait between events) sit far
+below it** — at ~0.5 ev/s/agent the ingest ceiling is ~2000+ concurrently
+active agents, well beyond any single demo.
+
 ---
 
 ## 5. "Is a Redis-like service needed?"

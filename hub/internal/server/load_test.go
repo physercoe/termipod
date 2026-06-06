@@ -56,19 +56,43 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	// the flat-out test pins ingest throughput, this one pins whether the
 	// fold keeps up when it realistically can.
 	thinkMs := loadEnvInt("HUB_LOADTEST_THINK_MS", 0)
+	// HUB_LOADTEST_TEAMS distributes the agents round-robin across this many
+	// teams (default 1). Each team is its own events.db/digest.db shard with its
+	// own writer (ADR-045 P2), so >1 measures whether per-team sharding raises
+	// the aggregate ingest ceiling on this box, or whether it's CPU-bound.
+	nTeams := loadEnvInt("HUB_LOADTEST_TEAMS", 1)
 
 	c := newE2E(t)
 
-	// Seed N agents directly — bypass the spawn machinery, we only need a
-	// row handlePostAgentEvent's agentBelongsToTeam check accepts.
+	// Build the team set. team[0] is the default team (newE2E's owner token);
+	// extra teams are provisioned with their own owner token (the W1 path-team
+	// auth gate requires each team's events be posted with that team's token).
+	teams := []string{c.teamID}
+	teamTok := map[string]string{c.teamID: c.token}
+	for i := 1; i < nTeams; i++ {
+		tid := fmt.Sprintf("loadteam-%d", i)
+		tok, _, _, err := ProvisionTeam(context.Background(), c.s.writeDB, tid, tid, "")
+		if err != nil {
+			t.Fatalf("provision team %s: %v", tid, err)
+		}
+		teams = append(teams, tid)
+		teamTok[tid] = tok
+	}
+
+	// Seed N agents distributed round-robin across the teams — bypass the spawn
+	// machinery, we only need a row handlePostAgentEvent's agentBelongsToTeam
+	// check accepts. Each agent's events route to its team's shard.
 	agentIDs := make([]string, nAgents)
+	agentTeams := make([]string, nAgents)
 	for i := 0; i < nAgents; i++ {
 		id := NewID()
 		agentIDs[i] = id
+		team := teams[i%len(teams)]
+		agentTeams[i] = team
 		if _, err := c.s.db.Exec(
 			`INSERT INTO agents (id, team_id, handle, kind, status, created_at)
 			 VALUES (?, ?, ?, ?, 'running', ?)`,
-			id, c.teamID, fmt.Sprintf("load-%d", i), "claude-code", NowUTC(),
+			id, team, fmt.Sprintf("load-%d", i), "claude-code", NowUTC(),
 		); err != nil {
 			t.Fatalf("seed agent %d: %v", i, err)
 		}
@@ -110,15 +134,15 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	start := time.Now()
 	for i := 0; i < nAgents; i++ {
 		wg.Add(1)
-		go func(agentID string) {
+		go func(agentID, team, tok string) {
 			defer wg.Done()
 			reqBody := body(agentID)
-			path := "/v1/teams/" + c.teamID + "/agents/" + agentID + "/events"
+			path := "/v1/teams/" + team + "/agents/" + agentID + "/events"
 			local := make([]time.Duration, 0, 4096)
 			localStatus := map[int]int64{}
 			for time.Now().Before(deadline) {
 				req := httptest.NewRequest("POST", path, bytes.NewReader(reqBody))
-				req.Header.Set("Authorization", "Bearer "+c.token)
+				req.Header.Set("Authorization", "Bearer "+tok)
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
 				t0 := time.Now()
@@ -146,7 +170,7 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 				statuses[code] += n
 			}
 			statusMu.Unlock()
-		}(agentIDs[i])
+		}(agentIDs[i], agentTeams[i], teamTok[agentTeams[i]])
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
@@ -158,30 +182,29 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	evps := float64(total) / elapsed.Seconds()
 	sort.Slice(allLats, func(i, j int) bool { return allLats[i] < allLats[j] })
 
-	var rows int64
-	_ = evRForTeam(t, c.s, defaultTeamID).QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&rows)
-	// Digest fold lag: total events minus total folded (SUM of per-agent
-	// watermark). Shows whether the background worker kept up with ingest.
-	var foldedEvents, digestAgents int64
-	_ = dgRForTeam(t, c.s, defaultTeamID).QueryRow(`SELECT COALESCE(SUM(watermark_seq),0), COUNT(*) FROM agent_event_digests`).
-		Scan(&foldedEvents, &digestAgents)
-	// On-disk size across all stores (ADR-045 P2): agent_events now lives in the
-	// team's events.db shard, the digest/turns in its digest.db, both under
-	// teams/<team>/ — hub.db alone no longer reflects transcript growth.
-	var dbBytes int64
-	for _, p := range []string{
-		"hub.db",
-		filepath.Join("teams", c.teamID, "events.db"),
-		filepath.Join("teams", c.teamID, "digest.db"),
-	} {
-		if fi, err := os.Stat(filepath.Join(c.dataRoot, p)); err == nil {
-			dbBytes += fi.Size()
+	// Row + fold + storage totals summed across every team shard (ADR-045 P2).
+	var rows, foldedEvents, digestAgents, dbBytes int64
+	for _, team := range teams {
+		var r, fe, da int64
+		_ = evRForTeam(t, c.s, team).QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&r)
+		_ = dgRForTeam(t, c.s, team).QueryRow(`SELECT COALESCE(SUM(watermark_seq),0), COUNT(*) FROM agent_event_digests`).
+			Scan(&fe, &da)
+		rows += r
+		foldedEvents += fe
+		digestAgents += da
+		for _, p := range []string{"events.db", "digest.db"} {
+			if fi, err := os.Stat(filepath.Join(c.dataRoot, "teams", team, p)); err == nil {
+				dbBytes += fi.Size()
+			}
 		}
+	}
+	if fi, err := os.Stat(filepath.Join(c.dataRoot, "hub.db")); err == nil {
+		dbBytes += fi.Size()
 	}
 
 	t.Logf("──────── hub event-ingest load result ────────")
-	t.Logf("agents=%d  duration=%s  payload≈%dB  think=%dms  GOMAXPROCS=%d",
-		nAgents, elapsed.Round(time.Millisecond), payloadBytes, thinkMs, runtime.GOMAXPROCS(0))
+	t.Logf("agents=%d  teams=%d  duration=%s  payload≈%dB  think=%dms  GOMAXPROCS=%d",
+		nAgents, len(teams), elapsed.Round(time.Millisecond), payloadBytes, thinkMs, runtime.GOMAXPROCS(0))
 	t.Logf("events: total=%d  ok(201)=%d  err=%d", total, okN, errN)
 	t.Logf("THROUGHPUT: %.0f events/sec", evps)
 	t.Logf("latency: p50=%s  p90=%s  p99=%s  max=%s",

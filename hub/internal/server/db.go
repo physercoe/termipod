@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 
 	hub "github.com/termipod/hub"
 
@@ -26,10 +28,23 @@ import (
 //     big reader cache would multiply across many concurrent readers and exhaust
 //     RAM on a small VPS. Measured ~+20% ingest throughput at writer saturation
 //     (≥800 concurrent agents, internal/server/load_test.go), a wash below it.
-const (
-	pragmaCommon      = "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=temp_store(2)&_pragma=mmap_size(268435456)"
-	pragmaWriterCache = "&_pragma=cache_size(-65536)"
-)
+const pragmaCommon = "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=temp_store(2)&_pragma=mmap_size(268435456)"
+
+// pragmaWriterCache is resolved once at startup. Default 64 MiB; the size (in
+// KiB) is operator-tunable per VPS via HUB_SQLITE_WRITER_CACHE_KB (also used to
+// sweep the value in load tests). Applied only to the bounded single-conn writer
+// pools, never the uncapped readers — see the cache_size note above.
+var pragmaWriterCache = writerCachePragma()
+
+func writerCachePragma() string {
+	kb := 65536
+	if v := os.Getenv("HUB_SQLITE_WRITER_CACHE_KB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			kb = n
+		}
+	}
+	return fmt.Sprintf("&_pragma=cache_size(-%d)", kb)
+}
 
 // OpenDB opens the SQLite database at path and runs pending migrations.
 // Callers must Close the returned *sql.DB.

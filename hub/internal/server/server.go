@@ -56,9 +56,27 @@ type Config struct {
 }
 
 type Server struct {
-	cfg           Config
-	db            *sql.DB // general/reader pool — uncapped; all reads + tests
-	writeDB       *sql.DB // writer pool — SetMaxOpenConns(1); all writes, see New()
+	cfg     Config
+	db      *sql.DB // control reader pool — uncapped; reads + tests
+	writeDB *sql.DB // control writer pool — SetMaxOpenConns(1); all writes, see New()
+	// Store-separation handles (ADR-045 D2 — the event log + the derived
+	// digest are separate data classes from the control plane). Each store
+	// gets its own reader + single-writer pool so the high-volume firehose
+	// and its fold can't contend with control-plane CRUD or each other.
+	//
+	// Until the physical file split lands (plan P1 step 4), these ALIAS the
+	// control pools above — so writes still serialize through the one writer
+	// (lever 3) and the fold/backfill stay single-file. Call sites already
+	// address the right logical store, so the eventual split is localized to
+	// New() (open distinct files) + the `db split` migration. Pure reads are
+	// routed alongside the writes as their queries are decomposed for the
+	// split; cross-store joins (insights team/engine/host subqueries, the
+	// agents⨝events last_event_at correlated subquery, the OTLP turns⨝events
+	// join) stay on s.db until step 3 rewrites them as app-level two-query.
+	eventsDB      *sql.DB // agent_events (+ _fts) reader
+	eventsWriteDB *sql.DB // agent_events (+ _fts) writer
+	digestDB      *sql.DB // agent_event_digests + agent_turns reader
+	digestWriteDB *sql.DB // agent_event_digests + agent_turns writer
 	router        chi.Router
 	log           *slog.Logger
 	bus           *eventBus
@@ -165,6 +183,10 @@ func New(cfg Config) (*Server, error) {
 	loopHooksConfig.Store(loadLoopHooks(cfg.DataRoot))
 	s := &Server{cfg: cfg, db: db, writeDB: writeDB, log: cfg.Logger, bus: newEventBus(),
 		digestDirty: map[string]*digestPending{}}
+	// Store handles alias the control pools until the physical file split
+	// (plan P1 step 4). See the Server struct field comments.
+	s.eventsDB, s.eventsWriteDB = db, writeDB
+	s.digestDB, s.digestWriteDB = db, writeDB
 	// Operation-scope manifest (ADR-016) — load embedded + overlay so
 	// dispatchTool's role-gating middleware has a manifest to consult.
 	// Failure to parse is a hard error: without the manifest, every
@@ -227,10 +249,27 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) DB() *sql.DB { return s.db }
 
 func (s *Server) Close() error {
-	if s.writeDB != nil {
-		_ = s.writeDB.Close()
+	// Close each distinct *sql.DB once. The store handles alias the control
+	// pools today (New()), so the set dedups to {db, writeDB}; once the
+	// physical split opens distinct files they all close independently.
+	seen := map[*sql.DB]bool{}
+	closeOnce := func(db *sql.DB) {
+		if db == nil || seen[db] {
+			return
+		}
+		seen[db] = true
+		_ = db.Close()
 	}
-	return s.db.Close()
+	closeOnce(s.writeDB)
+	closeOnce(s.eventsWriteDB)
+	closeOnce(s.digestWriteDB)
+	closeOnce(s.eventsDB)
+	closeOnce(s.digestDB)
+	if s.db != nil && !seen[s.db] {
+		seen[s.db] = true
+		return s.db.Close()
+	}
+	return nil
 }
 
 func (s *Server) Serve(ctx context.Context) error {

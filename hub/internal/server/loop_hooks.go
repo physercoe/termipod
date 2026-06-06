@@ -173,7 +173,7 @@ func (s *Server) emitSystemNotification(ctx context.Context, agentID, text, caus
 		return
 	}
 	payload, _ := json.Marshal(env.PayloadMap())
-	id, seq, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
+	id, seq, _, ts, err := insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        "input.text",

@@ -154,6 +154,14 @@ func (s *Server) runDigestFold(ctx context.Context) {
 // reuses foldEventIncremental per new event (each sees the prior step's
 // in-tx state). A fold error rolls the whole tx back and leaves the watermark
 // where it was — a later trigger (or a read-repair) retries.
+//
+// ADR-045 step 2 (cross-store): this tx both READS agent_events
+// (loadFoldEventsAfter) and WRITES agent_event_digests/agent_turns — the one
+// event↔digest write tx. At the physical file split it must become: read from
+// the events.db reader → fold in memory → write the digest in its own
+// digest.db tx (no ATTACH). Safe because the digest is idempotent from the
+// watermark. The s.writeDB here becomes s.digestWriteDB; the event read moves
+// to s.eventsDB.
 func (s *Server) foldDirtyAgent(ctx context.Context, team, agent string) {
 	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {

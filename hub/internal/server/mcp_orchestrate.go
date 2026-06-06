@@ -169,7 +169,7 @@ func (s *Server) postSyntheticUserInput(ctx context.Context, agentID, body strin
 		return fmt.Errorf("synthetic input envelope rejected: %s", ae.Error())
 	}
 	payload, _ := json.Marshal(env.PayloadMap())
-	id, _, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
+	id, _, _, ts, err := insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        "input.text",
@@ -360,7 +360,7 @@ func (s *Server) mcpReportsPost(ctx context.Context, agentID string, raw json.Ra
 		"next_steps":       a.NextSteps,
 	})
 	sessionID := s.lookupSessionForAgent(ctx, agentID)
-	id, _, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
+	id, _, _, ts, err := insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        "worker_report",

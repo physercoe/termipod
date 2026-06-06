@@ -238,6 +238,8 @@ func (s *Server) foldEventIntoDigest(ctx context.Context, team, agent string, se
 	}
 	e := foldEvent{Seq: seq, Ordinal: sord, Kind: kind, TS: ts, Producer: producer, Payload: payload}
 
+	// ADR-045 step 2 (cross-store): digest-only write (the event is in hand,
+	// no agent_events read here) — becomes s.digestWriteDB at the file split.
 	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
 		return
@@ -255,7 +257,7 @@ func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string
 	if agentID == "" {
 		return
 	}
-	d, err := ensureAgentDigest(ctx, s.writeDB, agentID, team)
+	d, err := ensureAgentDigest(ctx, s.digestWriteDB, agentID, team)
 	if err != nil {
 		return
 	}
@@ -264,7 +266,7 @@ func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string
 		return
 	}
 	d.Outcome = outcome
-	_ = saveAgentDigest(ctx, s.writeDB, d)
+	_ = saveAgentDigest(ctx, s.digestWriteDB, d)
 }
 
 // deriveDigestOutcome resolves the agent's run outcome: the assigned task's
@@ -340,6 +342,11 @@ func ensureAgentDigest(ctx context.Context, db *sql.DB, agentID, teamID string) 
 
 // backfillAgentDigest recomputes the digest + all turn rows from the full
 // event log and persists them. Used by the lazy backfill.
+//
+// ADR-045 step 2 (cross-store): the read-repair sibling of foldDirtyAgent —
+// reads agents (control) + agent_events (event) and writes the digest/turns in
+// one tx. At the file split it splits the same way: resolve team_id +
+// loadFoldEvents from their stores, then write the digest in a digest.db tx.
 func backfillAgentDigest(ctx context.Context, db *sql.DB, agentID, teamID string) (*agentDigest, error) {
 	if teamID == "" {
 		_ = db.QueryRowContext(ctx, `SELECT team_id FROM agents WHERE id = ?`, agentID).Scan(&teamID)

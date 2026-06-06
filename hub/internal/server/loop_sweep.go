@@ -357,7 +357,7 @@ func (s *Server) wakeStewardForStall(ctx context.Context, e LoopEntity) {
 		return
 	}
 	payload, _ := json.Marshal(env.PayloadMap())
-	id, seq, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
+	id, seq, _, ts, err := insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
 		AgentID:     e.CreatedByID,
 		SessionID:   sessionID,
 		Kind:        "input.text",

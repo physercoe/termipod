@@ -118,7 +118,7 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	payload = s.externalizeLargePayload(r.Context(), payload)
 
 	sessionID := s.lookupSessionForAgent(r.Context(), agent)
-	id, seq, _, ts, err := insertAgentEvent(r.Context(), s.writeDB, agentEventInsert{
+	id, seq, _, ts, err := insertAgentEvent(r.Context(), s.eventsWriteDB, agentEventInsert{
 		AgentID:     agent,
 		SessionID:   sessionID,
 		Kind:        in.Kind,

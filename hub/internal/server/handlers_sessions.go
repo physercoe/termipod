@@ -351,6 +351,14 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 
 	// Single tx so partial deletes can't leak references to a
 	// soft-deleted session if one of the unlinks fails.
+	//
+	// ADR-045 step 3 (cross-store write tx): this tx updates sessions +
+	// audit_events + attention_items (control) AND agent_events (event) in
+	// one shot — the one control↔event write tx. At the file split the
+	// agent_events session_id clear moves to an s.eventsWriteDB statement
+	// outside this control tx; the unlink is an idempotent soft-clear, so a
+	// crash between the two stores leaves only a harmless dangling ref the
+	// next delete (idempotent) or a read-side COALESCE absorbs.
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -949,7 +957,7 @@ func (s *Server) carryModeModelStateAcrossResume(ctx context.Context, priorAgent
 	}
 	sessionID := s.lookupSessionForAgent(ctx, newAgentID)
 	// Best-effort marker; the carried mode/model state already applied.
-	_, _, _, _, _ = insertAgentEvent(ctx, s.writeDB, agentEventInsert{
+	_, _, _, _, _ = insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
 		AgentID:     newAgentID,
 		SessionID:   sessionID,
 		Kind:        "system",
@@ -1005,7 +1013,7 @@ func (s *Server) maybeEmitContextMutationMarker(
 	if err != nil {
 		return
 	}
-	id, seq, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
+	id, seq, _, ts, err := insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        mut.Kind,

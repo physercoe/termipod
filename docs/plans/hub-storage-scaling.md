@@ -1,22 +1,21 @@
 # Hub storage scaling — deferred fold, store separation, selectable backend
 
 > **Type:** plan
-> **Status:** In progress (2026-06-06) — **P0 shipped** (writer/reader
-> pool split, bounded-staleness fold, blob-ref externalization); **P1
-> steps 1–3 shipped** (store-handle seam aliased to the control pools; all
-> moving-table writes + pure reads routed; the fold/read-repair decoupled to
-> read events / write the digest through separate handles; and every
-> cross-store read-join + the one write-tx rewritten as app-level
-> two-query/two-statement forms. The schema edges — `stamp_project` trigger,
-> `agent_turns.session_id` denorm, FTS move — are folded into step 4's
-> physical-split migration). The
-> phased implementation of [ADR-045](../decisions/045-hub-storage-scaling.md)
-> (D1–D3), which locks the *what/why*; this plan owns the *how/when*.
-> Backed by the analysis in
-> [`discussions/hub-scaling-storage-and-concurrency.md`](../discussions/hub-scaling-storage-and-concurrency.md)
-> and [`discussions/hub-store-separation-and-fold-policy.md`](../discussions/hub-store-separation-and-fold-policy.md).
+> **Status:** In progress (2026-06-06) — **P0 + P1 shipped.** P0: writer/reader
+> pool split, bounded-staleness fold, blob-ref externalization. P1 (D2 step A,
+> the class split): `events.db` + `digest.db` are now their own files with their
+> own writers; `New()` opens all three (auto-split a fresh hub.db, refuse a
+> populated un-split one), the one-shot `hub-server db split` migrates existing
+> DBs, and backup/doctor cover all three. **Next: P2** (per-team sharding),
+> gated on a measured event rate. (Per-step detail in the P1 section below.)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.807-alpha
+>
+> The phased implementation of [ADR-045](../decisions/045-hub-storage-scaling.md)
+> (D1–D3) locks the *what/why*; this plan owns the *how/when*. Backed by the
+> analysis in
+> [`discussions/hub-scaling-storage-and-concurrency.md`](../discussions/hub-scaling-storage-and-concurrency.md)
+> and [`discussions/hub-store-separation-and-fold-policy.md`](../discussions/hub-store-separation-and-fold-policy.md).
 
 **TL;DR.** A tester on a 2 GB VPS hit ~50 MB/task and asked how many
 concurrent agents the hub supports. Two axes — storage growth (inline
@@ -59,7 +58,7 @@ External Postgres is a per-store opt-in (D3), not the default.
   `payload_externalize.go`: oversized `payload_json` string leaves →
   `blob:sha256/<hex>` on ingest, losslessly (`ba644e5`).
 
-### P1 — D2 step A: class split (single file per store) — 🔶 IN PROGRESS (steps 1–3 done; 4–5 next)
+### P1 — D2 step A: class split (single file per store) — ✅ SHIPPED
 
 Build order (each Go-testable in `hub/internal/server`):
 
@@ -180,24 +179,35 @@ Build order (each Go-testable in `hub/internal/server`):
      - `agent_events_fts` + its triggers move with `agent_events`; the 3
        dormant `→ agents ON DELETE CASCADE` edges become an app-level cascade
        hook only *when* an agent hard-delete exists (no-op today).
-4. **Existing-DB migration: a one-shot `hub-server db split` command.**
-   Copies the moving tables (`agent_events` + `_fts`, `agent_event_digests`,
-   `agent_turns`) into the new files and drops them from `hub.db`; each file
-   gets its own `schema_migrations`. The server **refuses to serve a
-   not-yet-split legacy DB** so a pre-split boot can't mis-route writes.
-   Parameterize the migration runner per file. **Bundles the deferred
-   schema edges from step 3** (they can't survive the split): drop the
-   `agent_events_stamp_project` trigger + land handler-side `project_id` in
-   `insertAgentEvent`; add `agent_turns.session_id` + thread/backfill it and
-   drop the OTLP join; move `agent_events_fts` + triggers with the table.
-   Update the raw-insert test helpers (`c.s.eventsDB`/`c.s.digestDB`
-   accessors) in the same pass.
-5. **Backup/restore + tooling.** `backup.go` (today snapshots only
-   `hub.db` via `VACUUM INTO`) and `db_cmd.go`/`doctor.go` must cover
-   all three files.
+   The schema edges are split into two behaviour-preserving commits first
+   (single-file, the suite proves them): **4a-i** denormalizes
+   `agent_turns.session_id` (migration 0054 + threaded through the fold) and
+   drops the OTLP `turns ⨝ events` join; **4a-ii** drops the
+   `agent_events_stamp_project` trigger (migration 0055) and resolves
+   `project_id` handler-side in `insertAgentEvent` (now a `*Server` method).
+4. **Physical split — ✅ DONE.** The migration chain stays a single
+   **control-store** authority — its 55 migrations are mixed-concern and
+   can't be cleanly repartitioned, and editing applied migrations would break
+   every deployed `schema_migrations`. Instead the event/digest store schemas
+   are defined as DDL (`store_split.go`, the post-migration shape with the
+   dormant `agents` FK dropped — the parent stays in `hub.db`). `splitStores`
+   copies the moving tables out via a transient offline `ATTACH` (no runtime
+   ATTACH — that re-couples writers and blocks the P2 shard), rebuilds FTS, and
+   drops them from `hub.db`. `New()` opens the three files via `ensureStoreSplit`:
+   a fresh hub.db auto-splits; a populated un-split one is **refused** (run
+   `hub-server db split`); an already-split one requires the store files. The
+   one-shot `hub-server db split` command (`RunStoreSplit`) is the migration for
+   existing populated DBs. The test harness is swept (~30 files →
+   `c.s.eventsDB` / `c.s.digestDB`; the shared seed helpers route through the
+   store writers).
+5. **Backup/restore + tooling — ✅ DONE.** `Backup` snapshots all three stores
+   (`events.db.snapshot` / `digest.db.snapshot` beside `hub.db.snapshot`; absent
+   for an un-split DB) and `Restore` maps them back; `db_cmd.go` gains
+   `db split`; `doctor.go` gains a store-layout check (split / single-file /
+   inconsistent).
 
-Independent of P2 and of the real-rate measurement — worth building now
-(delivers control-isolation + the fold's own writer).
+Independent of P2 and of the real-rate measurement — delivers
+control-isolation + the fold's own writer.
 
 ### P2 — D2 step B: per-team sharding — ⬜ Later (gated on measured rate)
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -100,6 +101,76 @@ func TestBackup_RestoreRoundTrip(t *testing.T) {
 	got, err = os.ReadFile(filepath.Join(dst, "blobs", "ab", "cd", "abcd1234"))
 	if err != nil || string(got) != "blob payload" {
 		t.Errorf("blobs roundtrip mismatch: %q err=%v", got, err)
+	}
+}
+
+// A split deployment (ADR-045 P1) keeps the event + digest stores in their own
+// files; Backup must snapshot all three and Restore must put them back, or a
+// restored hub loses its whole transcript history. Build a combined DB, split
+// it, then round-trip and assert the events survive in the restored events.db.
+func TestBackup_RestoreRoundTrip_Split(t *testing.T) {
+	src := t.TempDir()
+	dbPath := filepath.Join(src, "hub.db")
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("init src db: %v", err)
+	}
+	db.Close()
+
+	// Seed two events + a digest + a turn through a foreign-keys-off connection
+	// (no need to materialize agents), then split into events.db / digest.db.
+	seed, err := sql.Open("sqlite", dsnFKOff(dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const ts = "2026-06-06T00:00:00Z"
+	if _, err := seed.Exec(`INSERT INTO agent_events
+		(id, agent_id, seq, session_ordinal, ts, kind, producer, payload_json, session_id)
+		VALUES ('e1','a1',1,1,?,'text','agent','{"text":"hello"}','s1'),
+		       ('e2','a1',2,2,?,'text','agent','{"text":"world"}','s1')`, ts, ts); err != nil {
+		t.Fatalf("seed events: %v", err)
+	}
+	if _, err := seed.Exec(`INSERT INTO agent_event_digests (agent_id, team_id, updated_at, event_count)
+		VALUES ('a1','default',?,2)`, ts); err != nil {
+		t.Fatalf("seed digest: %v", err)
+	}
+	seed.Close()
+
+	eventsPath, digestPath := storePathsFor(dbPath)
+	if err := splitStores(dbPath, eventsPath, digestPath); err != nil {
+		t.Fatalf("split: %v", err)
+	}
+
+	archive := filepath.Join(t.TempDir(), "hub.tar.gz")
+	if err := Backup(context.Background(), dbPath, src, archive); err != nil {
+		t.Fatalf("backup: %v", err)
+	}
+
+	dst := t.TempDir()
+	if err := Restore(context.Background(), archive, dst, false); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	// The restored event store must hold both events.
+	rev, err := sql.Open("sqlite", dsnFKOff(filepath.Join(dst, "events.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rev.Close()
+	var n int
+	if err := rev.QueryRow(`SELECT COUNT(*) FROM agent_events WHERE session_id = 's1'`).Scan(&n); err != nil {
+		t.Fatalf("count restored events: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("restored events.db event count = %d; want 2", n)
+	}
+	// And the restored hub.db must NOT carry the moving tables (it was split).
+	rhub, err := sql.Open("sqlite", dsnFKOff(filepath.Join(dst, "hub.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rhub.Close()
+	if has, err := controlHasMovingTables(rhub); err != nil || has {
+		t.Fatalf("restored hub.db still has moving tables=%v err=%v", has, err)
 	}
 }
 

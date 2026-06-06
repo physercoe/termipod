@@ -283,7 +283,7 @@ func (s *Server) deriveDigestOutcome(ctx context.Context, agentID string) string
 		return taskStatus
 	}
 	var lastTurnStatus string
-	_ = s.db.QueryRowContext(ctx, `
+	_ = s.digestDB.QueryRowContext(ctx, `
 		SELECT status FROM agent_turns
 		 WHERE agent_id = ? AND end_seq > 0 AND status != ''
 		 ORDER BY idx DESC LIMIT 1`, agentID).Scan(&lastTurnStatus)

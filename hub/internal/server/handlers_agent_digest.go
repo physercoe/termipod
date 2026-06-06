@@ -98,14 +98,14 @@ func (s *Server) sumTurnActiveMs(ctx context.Context, agentIDs []string) (int64,
 	q := `SELECT COALESCE(SUM(duration_ms), 0) FROM agent_turns
 	       WHERE duration_ms > 0 AND agent_id IN (` + strings.Join(placeholders, ",") + `)`
 	var ms int64
-	err := s.db.QueryRowContext(ctx, q, args...).Scan(&ms)
+	err := s.digestDB.QueryRowContext(ctx, q, args...).Scan(&ms)
 	return ms, err
 }
 
 // sessionAgentIDs returns the agents that produced events in a session,
 // ordered by first activity (the ts order the session transcript uses).
 func (s *Server) sessionAgentIDs(ctx context.Context, session string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.eventsDB.QueryContext(ctx, `
 		SELECT agent_id FROM agent_events
 		 WHERE session_id = ?
 		 GROUP BY agent_id

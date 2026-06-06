@@ -147,7 +147,7 @@ const turnCols = `agent_id, turn_id, idx, start_seq, start_ordinal, start_ts, en
 	tool_failed, error_count`
 
 func (s *Server) listAgentTurns(ctx context.Context, agent string, after, limit int) ([]turnJSON, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.digestDB.QueryContext(ctx, `
 		SELECT `+turnCols+`
 		  FROM agent_turns
 		 WHERE agent_id = ? AND idx > ?

@@ -3,8 +3,8 @@
 > **Type:** plan
 > **Status:** In progress (2026-06-06) — **P0 shipped** (writer/reader
 > pool split, bounded-staleness fold, blob-ref externalization); **P1
-> step 1a shipped** (store-handle seam, aliased to the control pools, with
-> all moving-table writes routed). The
+> step 1 shipped** (store-handle seam, aliased to the control pools, with
+> all moving-table writes + pure single-store reads routed). The
 > phased implementation of [ADR-045](../decisions/045-hub-storage-scaling.md)
 > (D1–D3), which locks the *what/why*; this plan owns the *how/when*.
 > Backed by the analysis in
@@ -54,7 +54,7 @@ External Postgres is a per-store opt-in (D3), not the default.
   `payload_externalize.go`: oversized `payload_json` string leaves →
   `blob:sha256/<hex>` on ingest, losslessly (`ba644e5`).
 
-### P1 — D2 step A: class split (single file per store) — 🔶 IN PROGRESS
+### P1 — D2 step A: class split (single file per store) — 🔶 IN PROGRESS (step 1 done; 2–5 next)
 
 Build order (each Go-testable in `hub/internal/server`):
 
@@ -74,10 +74,27 @@ Build order (each Go-testable in `hub/internal/server`):
      `s.digestWriteDB`. The entangled fold/backfill/session-delete tx
      sites carry inline `ADR-045 step 2/3` markers. `Close()` dedups the
      aliased handles. Full `go test ./internal/server` green.
-   - **1b — read routing — ⬜ NEXT.** Route the *pure* single-store reads
-     to `s.eventsDB` / `s.digestDB` and add the test-harness accessors.
-     Cross-store joins are **not** routed here — they're decomposed in
-     step 3 (see the corrected inventory below).
+   - **1b — read routing — ✅ DONE.** Routed the verified *pure*
+     single-store reads: event reads (`handleListAgentEvents` ×2 +
+     stream backfill, `lookupRecentLifecycleReason`, the mode/model
+     compose, the `worker_report` lookup, attention-context, the two
+     steward-strip reads, `sessionAgentIDs`) → `s.eventsDB`; digest reads
+     (`listAgentTurns`, `sumTurnActiveMs`, `deriveDigestOutcome`'s turns
+     read) → `s.digestDB`. **Cross-store joins stay on `s.db`** — verified
+     and *not* routed: the FTS search (joins `sessions`, filters
+     `team_id`), `listSessionTurns` (`agent_turns` ⨝ `agent_events`
+     subquery), the insights reads (the `scopeFilter` makes them
+     *conditionally* cross-store — pure for project/agent scope, an
+     `agents` subquery for team/engine/host), the `last_event_at`
+     correlated subquery, and OTLP's `turns ⨝ events`. They're decomposed
+     in step 3. The shared digest-helper reads (`loadAgentDigest`,
+     `loadFoldEvents*`, `digestIsStale`, `resolveToolName`) take a `db`
+     param shared with the fold tx, so they route in step 2. Full
+     `go test ./internal/server` green.
+   - **Test-harness accessors** move to **step 4** (the physical split):
+     while the handles alias `s.db`, the ~36 tests that read the moving
+     tables via `c.s.db` keep resolving; they only need `c.s.eventsDB` /
+     `c.s.digestDB` once the files are distinct.
 2. **Restructure the fold + read-repair** (the correctness-critical
    change). `foldDirtyAgent` (`digest_worker.go`) and `backfillAgentDigest`
    (`digest_store.go`) today read `agent_events` and write digest/turns

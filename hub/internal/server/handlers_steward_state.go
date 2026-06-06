@@ -179,7 +179,7 @@ func (s *Server) stewardCurrentAction(
 ) *stewardAction {
 	cutoff := time.Now().UTC().Add(-stewardWorkingWindow).Format(time.RFC3339)
 	var ts, kind string
-	err := s.db.QueryRowContext(ctx, `
+	err := s.eventsDB.QueryRowContext(ctx, `
 		SELECT ts, kind
 		FROM agent_events
 		WHERE agent_id = ? AND ts >= ?
@@ -199,7 +199,7 @@ func (s *Server) recentStewardHandoff(
 ) *stewardHandoff {
 	cutoff := time.Now().UTC().Add(-stewardHandoffWindow).Format(time.RFC3339)
 	var ts, payload string
-	err := s.db.QueryRowContext(ctx, `
+	err := s.eventsDB.QueryRowContext(ctx, `
 		SELECT ts, payload_json
 		FROM agent_events
 		WHERE agent_id = ?

@@ -904,7 +904,7 @@ func (s *Server) carryModeModelStateAcrossResume(ctx context.Context, priorAgent
 	// gate requires the list to be non-empty. Composing across events
 	// mirrors the mobile-side reducer, so the picker survives any
 	// fragmentation of the underlying event stream.
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.eventsDB.QueryContext(ctx, `
 		SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'system' AND producer = 'system'
 		   AND (payload_json LIKE '%currentModeId%'

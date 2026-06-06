@@ -1074,7 +1074,7 @@ func (s *Server) lookupAgentStatus(ctx context.Context, agentID string) string {
 // "" when no such event exists or on any decode error.
 func (s *Server) lookupRecentLifecycleReason(ctx context.Context, agentID string) string {
 	var payload string
-	err := s.db.QueryRowContext(ctx,
+	err := s.eventsDB.QueryRowContext(ctx,
 		`SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'lifecycle'
 		 ORDER BY seq DESC LIMIT 1`, agentID).Scan(&payload)

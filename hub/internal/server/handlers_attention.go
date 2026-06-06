@@ -960,7 +960,7 @@ func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) 
 
 	// Pull the last 10 events from this session up to the attention's
 	// created_at. Newest-first so the caller can slice without sorting.
-	rows, err := s.db.QueryContext(r.Context(), `
+	rows, err := s.eventsDB.QueryContext(r.Context(), `
 		SELECT id, agent_id, seq, ts, kind, producer, payload_json
 		  FROM agent_events
 		 WHERE session_id = ?

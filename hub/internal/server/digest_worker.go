@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -142,11 +143,48 @@ func (s *Server) runDigestFold(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
-			for _, t := range s.collectFoldable(now, maxEvents, maxAge) {
-				s.foldDirtyAgent(ctx, t.team, t.agent)
-			}
+			s.foldDueByTeam(ctx, s.collectFoldable(now, maxEvents, maxAge))
 		}
 	}
+}
+
+// foldDueByTeam folds the tick's due agents, parallelising ACROSS teams while
+// keeping a single team's agents serial. Each team has its own digest.db writer
+// (ADR-045 P2), so cross-team folds run on independent write locks and cores —
+// the single global worker was the next bottleneck once the stores sharded (fold
+// lag climbed with team count under load, hub-scaling §4.6). Agents of one team
+// share that team's one writer, so folding them serially costs nothing.
+//
+// One goroutine per team with due work this tick; the caller's tick waits for
+// foldDueByTeam to return before the next scan, so a team is never folded by two
+// goroutines at once (and the goroutine count is bounded by the live team
+// count). The single-team case — the overwhelmingly common one — folds inline,
+// with no goroutine or WaitGroup overhead.
+func (s *Server) foldDueByTeam(ctx context.Context, due []foldTarget) {
+	if len(due) == 0 {
+		return
+	}
+	byTeam := make(map[string][]string, 4)
+	for _, t := range due {
+		byTeam[t.team] = append(byTeam[t.team], t.agent)
+	}
+	if len(byTeam) == 1 {
+		for _, t := range due {
+			s.foldDirtyAgent(ctx, t.team, t.agent)
+		}
+		return
+	}
+	var wg sync.WaitGroup
+	for team, agents := range byTeam {
+		wg.Add(1)
+		go func(team string, agents []string) {
+			defer wg.Done()
+			for _, agent := range agents {
+				s.foldDirtyAgent(ctx, team, agent)
+			}
+		}(team, agents)
+	}
+	wg.Wait()
 }
 
 // foldDirtyAgent folds every event past the agent's digest watermark in one

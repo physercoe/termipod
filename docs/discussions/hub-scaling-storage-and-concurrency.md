@@ -406,14 +406,27 @@ writer → two), then plateaus at ~1100 ev/s by 2–4 teams (≈ the 2 cores),
 then *regresses* at 8.** So the ceiling on a 2-vCPU box is **CPU-bound at
 ~1100 ev/s flat-out**, not writer- or RAM-bound, once sharded to ≈ core
 count. Past the core count, extra teams buy **isolation** (a busy team no
-longer lock-contends its neighbours) but no throughput, and they stress the
-**single** background fold worker — lag climbs to 91 % at 8 teams (every
-un-folded event stays read-repair-backed, so a stale digest is never
-*wrong*, only lazily recomputed). **Practical rule: teams ≈ core count for
-throughput; more only for isolation; the ~1100 ev/s figure scales with
-cores, and real bursty agents (think/tool/wait between events) sit far
-below it** — at ~0.5 ev/s/agent the ingest ceiling is ~2000+ concurrently
-active agents, well beyond any single demo.
+longer lock-contends its neighbours) but no throughput. **Practical rule:
+teams ≈ core count for throughput; more only for isolation; the ~1100 ev/s
+figure scales with cores, and real bursty agents (think/tool/wait between
+events) sit far below it** — at ~0.5 ev/s/agent the ingest ceiling is
+~2000+ concurrently active agents, well beyond any single demo.
+
+**Follow-up — the per-team fold worker (SHIPPED).** The table above ran
+with the *single* global fold worker, and it was the next bottleneck the
+sharding exposed: one goroutine drained every team's dirty agents serially,
+so fold lag climbed *with team count* — 30 % @1 → 71 % @4 → **91 % @8**
+(correctness preserved throughout by read-repair; only freshness suffered).
+`foldDueByTeam` (digest_worker.go) now fans each tick's due agents out
+**per team** — one goroutine per team with work, parallel across the
+independent per-team digest writers and cores, serial within a team (which
+shares one writer). The single-team common case still folds inline.
+Re-measured: lag is roughly **halved and no longer grows with team count**
+— **71 % → ~45 % @4, 91 % → ~48 % @8** (now flat across team count, bounded
+by cores rather than teams). Ingest throughput is unchanged — the fan-out
+buys digest *freshness* under many teams, not a higher ingest ceiling
+(that's still CPU-bound). Under realistic bursty load (cores with slack)
+the parallel drain does even better.
 
 ---
 

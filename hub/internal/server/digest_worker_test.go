@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -112,4 +113,50 @@ func TestCollectFoldable_RemovesOnlyDue(t *testing.T) {
 	if got := s2.collectFoldable(now, maxEvents, maxAge); got != nil {
 		t.Fatalf("empty collectFoldable=%v want nil", got)
 	}
+}
+
+// foldDueByTeam folds agents from DIFFERENT teams in one tick — each into its
+// own per-team digest shard (ADR-045 P2), proving the per-team fan-out routes
+// correctly and no team's fold lands in another team's store.
+func TestFoldDueByTeam_FoldsAcrossTeams(t *testing.T) {
+	c := newE2E(t)
+	ctx := context.Background()
+	teamB := "team-b"
+	if _, _, _, err := ProvisionTeam(ctx, c.s.writeDB, teamB, teamB, ""); err != nil {
+		t.Fatalf("provision team-b: %v", err)
+	}
+	a := seedAgentRow(t, c.s, c.teamID, "fold-a", "claude-code")
+	b := seedAgentRow(t, c.s, teamB, "fold-b", "claude-code")
+	seed := func(agent string, n int) {
+		for i := 0; i < n; i++ {
+			if _, _, _, _, err := c.s.insertAgentEvent(ctx, agentEventInsert{
+				AgentID: agent, SessionID: "s-" + agent, Kind: "text",
+				Producer: "agent", PayloadJSON: `{"text":"x"}`,
+			}); err != nil {
+				t.Fatalf("seed event for %s: %v", agent, err)
+			}
+		}
+	}
+	seed(a, 3)
+	seed(b, 5)
+
+	// One fan-out folds both teams (the multi-team path: len(byTeam) > 1).
+	c.s.foldDueByTeam(ctx, []foldTarget{{agent: a, team: c.teamID}, {agent: b, team: teamB}})
+
+	check := func(team, agent string, want int64) {
+		t.Helper()
+		dr, err := c.s.digestReader(team)
+		if err != nil {
+			t.Fatalf("digest reader %s: %v", team, err)
+		}
+		d, ok, err := loadAgentDigest(ctx, dr, agent)
+		if err != nil || !ok {
+			t.Fatalf("load digest %s/%s: ok=%v err=%v", team, agent, ok, err)
+		}
+		if d.EventCount != want {
+			t.Errorf("%s/%s event_count=%d, want %d", team, agent, d.EventCount, want)
+		}
+	}
+	check(c.teamID, a, 3)
+	check(teamB, b, 5)
 }

@@ -3,8 +3,9 @@
 > **Type:** plan
 > **Status:** In progress (2026-06-06) — **P0 shipped** (writer/reader
 > pool split, bounded-staleness fold, blob-ref externalization); **P1
-> step 1 shipped** (store-handle seam, aliased to the control pools, with
-> all moving-table writes + pure single-store reads routed). The
+> steps 1–2 shipped** (store-handle seam aliased to the control pools, all
+> moving-table writes + pure reads routed, and the fold/read-repair
+> decoupled to read events / write the digest through separate handles). The
 > phased implementation of [ADR-045](../decisions/045-hub-storage-scaling.md)
 > (D1–D3), which locks the *what/why*; this plan owns the *how/when*.
 > Backed by the analysis in
@@ -54,7 +55,7 @@ External Postgres is a per-store opt-in (D3), not the default.
   `payload_externalize.go`: oversized `payload_json` string leaves →
   `blob:sha256/<hex>` on ingest, losslessly (`ba644e5`).
 
-### P1 — D2 step A: class split (single file per store) — 🔶 IN PROGRESS (step 1 done; 2–5 next)
+### P1 — D2 step A: class split (single file per store) — 🔶 IN PROGRESS (steps 1–2 done; 3–5 next)
 
 Build order (each Go-testable in `hub/internal/server`):
 
@@ -95,13 +96,23 @@ Build order (each Go-testable in `hub/internal/server`):
      while the handles alias `s.db`, the ~36 tests that read the moving
      tables via `c.s.db` keep resolving; they only need `c.s.eventsDB` /
      `c.s.digestDB` once the files are distinct.
-2. **Restructure the fold + read-repair** (the correctness-critical
-   change). `foldDirtyAgent` (`digest_worker.go`) and `backfillAgentDigest`
-   (`digest_store.go`) today read `agent_events` and write digest/turns
-   in **one tx** — split into *read from the events.db reader → fold in
-   memory → write digest in its own digest.db tx*. Safe: the digest is
-   idempotent from the watermark. **No `ATTACH`.** Both sites are marked
-   in code.
+2. **Restructure the fold + read-repair — ✅ DONE.** The
+   correctness-critical change. `foldEventIncremental` now threads two
+   handles — an **event reader** (`eventsR`) for the rare in-fold event
+   reads (`loadFoldEventsBefore`, `resolveToolName`) and a **digest tx**
+   (`digestTx`) for all digest/turn writes — instead of one shared tx.
+   `foldDirtyAgent` reads the watermark from `s.digestDB` + the events
+   from `s.eventsDB`, then folds into an `s.digestWriteDB` tx.
+   `ensureAgentDigest` / `backfillAgentDigest` became `*Server` methods
+   that reach each store directly (digest read from `s.digestDB`, the
+   staleness probe + full event log from `s.eventsDB`, `team_id` from
+   `s.db` control, writes in an `s.digestWriteDB` tx). `foldEventIntoDigest`
+   (now test-only — production ingest defers to the worker) + the OTLP
+   `loadFoldEvents` follow suit. **No `ATTACH`**; the event reads see
+   already-committed rows and the digest is idempotent from the watermark,
+   so the two stores need no shared transaction. Behaviour-preserving
+   while the handles alias one file; correct across files post-split. Full
+   `go test ./internal/server` green.
 3. **Sever the remaining cross-store edges.** The 2026-06-06
    implementation audit found the documented coupling surface
    **understated in two ways** (the earlier "zero cross-store write tx +

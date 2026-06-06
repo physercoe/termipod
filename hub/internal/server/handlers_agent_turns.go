@@ -56,7 +56,7 @@ func (s *Server) handleListAgentTurns(w http.ResponseWriter, r *http.Request) {
 	// Ensure the turn index is materialized (and current) before listing —
 	// same lazy backfill the digest read does, so a never-folded agent or a
 	// best-effort fold that lagged still lists every turn.
-	if _, err := ensureAgentDigest(r.Context(), s.digestWriteDB, agent, team); err != nil {
+	if _, err := s.ensureAgentDigest(r.Context(), agent, team); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -92,7 +92,7 @@ func (s *Server) handleListSessionTurns(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	for _, aid := range agentIDs {
-		if _, derr := ensureAgentDigest(r.Context(), s.digestWriteDB, aid, team); derr != nil {
+		if _, derr := s.ensureAgentDigest(r.Context(), aid, team); derr != nil {
 			writeErr(w, http.StatusInternalServerError, derr.Error())
 			return
 		}

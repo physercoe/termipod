@@ -156,34 +156,39 @@ func loadOpenTurn(ctx context.Context, q digestStore, agentID string) (*turnRow,
 }
 
 // foldEventIncremental folds one freshly-inserted event into the agent's
-// digest + turn index, inside the caller's transaction. The digest row is
-// assumed to exist (the POST path calls ensureAgentDigest first).
-func foldEventIncremental(ctx context.Context, tx digestStore, agentID, teamID string, e foldEvent) error {
-	d, ok, err := loadAgentDigest(ctx, tx, agentID)
+// digest + turn index. The digest writes go through digestTx (the caller's
+// digest-store transaction); the rare event-log reads (the prefix backfill +
+// tool-name resolution) go through eventsR (the event-store reader). Splitting
+// the two handles is what lets the digest live in its own store/file: the
+// event reads see already-committed rows, so they need no shared transaction
+// (ADR-045 step 2). The digest row is assumed to exist (the POST path calls
+// ensureAgentDigest first).
+func foldEventIncremental(ctx context.Context, eventsR, digestTx digestStore, agentID, teamID string, e foldEvent) error {
+	d, ok, err := loadAgentDigest(ctx, digestTx, agentID)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		// No digest yet. A brand-new agent's first event (seq 1) starts
 		// fresh; a pre-existing agent (events but no digest — the migration
-		// window) is backfilled from its prefix [1, e.Seq) inside this same
-		// transaction so the fold doesn't undercount. This is the one-time
-		// lazy O(n) pass (ADR-038 §2); the row exists for every later event.
+		// window) is backfilled from its prefix [1, e.Seq) so the fold
+		// doesn't undercount. This is the one-time lazy O(n) pass
+		// (ADR-038 §2); the row exists for every later event.
 		if e.Seq > 1 {
-			prior, perr := loadFoldEventsBefore(ctx, tx, agentID, e.Seq)
+			prior, perr := loadFoldEventsBefore(ctx, eventsR, agentID, e.Seq)
 			if perr != nil {
 				return perr
 			}
 			pd, turns := computeAgentDigest(agentID, teamID, prior)
-			if serr := saveAgentDigest(ctx, tx, pd); serr != nil {
+			if serr := saveAgentDigest(ctx, digestTx, pd); serr != nil {
 				return serr
 			}
 			for i := range turns {
-				if serr := saveTurnRow(ctx, tx, agentID, teamID, &turns[i]); serr != nil {
+				if serr := saveTurnRow(ctx, digestTx, agentID, teamID, &turns[i]); serr != nil {
 					return serr
 				}
 			}
-			d, _, err = loadAgentDigest(ctx, tx, agentID)
+			d, _, err = loadAgentDigest(ctx, digestTx, agentID)
 			if err != nil {
 				return err
 			}
@@ -195,7 +200,7 @@ func foldEventIncremental(ctx context.Context, tx digestStore, agentID, teamID s
 	if d.TeamID == "" {
 		d.TeamID = teamID
 	}
-	open, nextIdx, err := loadOpenTurn(ctx, tx, agentID)
+	open, nextIdx, err := loadOpenTurn(ctx, digestTx, agentID)
 	if err != nil {
 		return err
 	}
@@ -204,22 +209,22 @@ func foldEventIncremental(ctx context.Context, tx digestStore, agentID, teamID s
 	f.open = open
 	f.nextIdx = nextIdx
 	f.callName = nil // incremental resolves tool names from the DB, not memory
-	f.resolve = func(id string) string { return resolveToolName(ctx, tx, agentID, id) }
+	f.resolve = func(id string) string { return resolveToolName(ctx, eventsR, agentID, id) }
 
 	f.step(e)
 
-	if err := saveAgentDigest(ctx, tx, d); err != nil {
+	if err := saveAgentDigest(ctx, digestTx, d); err != nil {
 		return err
 	}
 	// At most one turn closed this step, and at most one is open.
 	for i := range f.closed {
 		t := f.closed[i]
-		if err := saveTurnRow(ctx, tx, agentID, teamID, &t); err != nil {
+		if err := saveTurnRow(ctx, digestTx, agentID, teamID, &t); err != nil {
 			return err
 		}
 	}
 	if f.open != nil {
-		if err := saveTurnRow(ctx, tx, agentID, teamID, f.open); err != nil {
+		if err := saveTurnRow(ctx, digestTx, agentID, teamID, f.open); err != nil {
 			return err
 		}
 	}
@@ -238,14 +243,14 @@ func (s *Server) foldEventIntoDigest(ctx context.Context, team, agent string, se
 	}
 	e := foldEvent{Seq: seq, Ordinal: sord, Kind: kind, TS: ts, Producer: producer, Payload: payload}
 
-	// ADR-045 step 2 (cross-store): digest-only write (the event is in hand,
-	// no agent_events read here) — becomes s.digestWriteDB at the file split.
-	tx, err := s.writeDB.BeginTx(ctx, nil)
+	// ADR-045 step 2: digest writes go in their own digest-store tx; the rare
+	// event reads inside the fold use the event-store reader (no shared tx).
+	tx, err := s.digestWriteDB.BeginTx(ctx, nil)
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
-	if err := foldEventIncremental(ctx, tx, agent, team, e); err != nil {
+	if err := foldEventIncremental(ctx, s.eventsDB, tx, agent, team, e); err != nil {
 		return
 	}
 	_ = tx.Commit()
@@ -257,7 +262,7 @@ func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string
 	if agentID == "" {
 		return
 	}
-	d, err := ensureAgentDigest(ctx, s.digestWriteDB, agentID, team)
+	d, err := s.ensureAgentDigest(ctx, agentID, team)
 	if err != nil {
 		return
 	}
@@ -324,8 +329,11 @@ func resolveToolName(ctx context.Context, q digestStore, agentID, id string) str
 // ensureAgentDigest backfills the digest + turn index for an agent that has
 // events but no digest row yet (the one-time lazy O(n) pass — ADR-038 §2).
 // Returns the loaded-or-backfilled digest. A no-op when the row exists.
-func ensureAgentDigest(ctx context.Context, db *sql.DB, agentID, teamID string) (*agentDigest, error) {
-	d, ok, err := loadAgentDigest(ctx, db, agentID)
+//
+// ADR-045 step 2: a method so it reaches each store directly — the digest read
+// from s.digestDB, the staleness probe (agent_events MAX(seq)) from s.eventsDB.
+func (s *Server) ensureAgentDigest(ctx context.Context, agentID, teamID string) (*agentDigest, error) {
+	d, ok, err := loadAgentDigest(ctx, s.digestDB, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -333,31 +341,31 @@ func ensureAgentDigest(ctx context.Context, db *sql.DB, agentID, teamID string) 
 	// ADR-039 bump that widened the error seq list) so already-sealed agents
 	// pick up the new shape, not only when the watermark lags the log.
 	if ok && d.SchemaVersion >= digestSchemaVersion &&
-		!digestIsStale(ctx, db, agentID, d.WatermarkSeq) {
+		!digestIsStale(ctx, s.eventsDB, agentID, d.WatermarkSeq) {
 		return d, nil
 	}
 	// Missing, stale, or an older schema — (re)compute.
-	return backfillAgentDigest(ctx, db, agentID, teamID)
+	return s.backfillAgentDigest(ctx, agentID, teamID)
 }
 
 // backfillAgentDigest recomputes the digest + all turn rows from the full
-// event log and persists them. Used by the lazy backfill.
+// event log and persists them. Used by the lazy backfill / read-repair.
 //
-// ADR-045 step 2 (cross-store): the read-repair sibling of foldDirtyAgent —
-// reads agents (control) + agent_events (event) and writes the digest/turns in
-// one tx. At the file split it splits the same way: resolve team_id +
-// loadFoldEvents from their stores, then write the digest in a digest.db tx.
-func backfillAgentDigest(ctx context.Context, db *sql.DB, agentID, teamID string) (*agentDigest, error) {
+// ADR-045 step 2: reads cross three stores without a shared tx — team_id from
+// control (s.db), the event log from s.eventsDB — folds in memory, then writes
+// the digest/turns in their own s.digestWriteDB tx. No ATTACH; the digest is
+// idempotent from the (here, full) recompute.
+func (s *Server) backfillAgentDigest(ctx context.Context, agentID, teamID string) (*agentDigest, error) {
 	if teamID == "" {
-		_ = db.QueryRowContext(ctx, `SELECT team_id FROM agents WHERE id = ?`, agentID).Scan(&teamID)
+		_ = s.db.QueryRowContext(ctx, `SELECT team_id FROM agents WHERE id = ?`, agentID).Scan(&teamID)
 	}
-	events, err := loadFoldEvents(ctx, db, agentID)
+	events, err := loadFoldEvents(ctx, s.eventsDB, agentID)
 	if err != nil {
 		return nil, err
 	}
 	d, turns := computeAgentDigest(agentID, teamID, events)
 
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := s.digestWriteDB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -25,10 +25,10 @@ func TestSessionTurns_StartOrdinalDisambiguatesResumedAgents(t *testing.T) {
 
 	// Materialize the turn index for both agents (the lazy backfill reads
 	// session_ordinal off the events).
-	if _, err := ensureAgentDigest(ctx, s.db, a, defaultTeamID); err != nil {
+	if _, err := s.ensureAgentDigest(ctx, a, defaultTeamID); err != nil {
 		t.Fatalf("backfill a: %v", err)
 	}
-	if _, err := ensureAgentDigest(ctx, s.db, b, defaultTeamID); err != nil {
+	if _, err := s.ensureAgentDigest(ctx, b, defaultTeamID); err != nil {
 		t.Fatalf("backfill b: %v", err)
 	}
 

@@ -25,7 +25,7 @@ func (s *Server) handleGetAgentDigest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "agent not found")
 		return
 	}
-	d, err := ensureAgentDigest(r.Context(), s.digestWriteDB, agent, team)
+	d, err := s.ensureAgentDigest(r.Context(), agent, team)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -61,7 +61,7 @@ func (s *Server) handleGetSessionDigest(w http.ResponseWriter, r *http.Request) 
 	}
 	rollup := newAgentDigest("", team)
 	for _, aid := range agentIDs {
-		d, derr := ensureAgentDigest(r.Context(), s.digestWriteDB, aid, team)
+		d, derr := s.ensureAgentDigest(r.Context(), aid, team)
 		if derr != nil {
 			writeErr(w, http.StatusInternalServerError, derr.Error())
 			return

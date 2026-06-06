@@ -64,7 +64,7 @@ type Server struct {
 	// gets its own reader + single-writer pool so the high-volume firehose
 	// and its fold can't contend with control-plane CRUD or each other.
 	//
-	// Until the physical file split lands (plan P1 step 4), these ALIAS the
+	// Until the physical file split lands (plan P1 step 4), these point at the
 	// control pools above — so writes still serialize through the one writer
 	// (lever 3) and the fold/backfill stay single-file. Call sites already
 	// address the right logical store, so the eventual split is localized to
@@ -183,7 +183,7 @@ func New(cfg Config) (*Server, error) {
 	loopHooksConfig.Store(loadLoopHooks(cfg.DataRoot))
 	s := &Server{cfg: cfg, db: db, writeDB: writeDB, log: cfg.Logger, bus: newEventBus(),
 		digestDirty: map[string]*digestPending{}}
-	// Store handles alias the control pools until the physical file split
+	// Store handles point at the control pools until the physical file split
 	// (plan P1 step 4). See the Server struct field comments.
 	s.eventsDB, s.eventsWriteDB = db, writeDB
 	s.digestDB, s.digestWriteDB = db, writeDB
@@ -249,7 +249,7 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) DB() *sql.DB { return s.db }
 
 func (s *Server) Close() error {
-	// Close each distinct *sql.DB once. The store handles alias the control
+	// Close each distinct *sql.DB once. The store handles point at the control
 	// pools today (New()), so the set dedups to {db, writeDB}; once the
 	// physical split opens distinct files they all close independently.
 	seen := map[*sql.DB]bool{}

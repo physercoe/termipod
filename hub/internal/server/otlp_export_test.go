@@ -33,7 +33,7 @@ func TestBuildSessionSpans_ProjectsTurnsAndTools(t *testing.T) {
 	agentID, sessionID := seedVectorRun(t, c)
 	ctx := context.Background()
 	// Backfill the turn index the projection reads from.
-	if _, err := ensureAgentDigest(ctx, c.s.db, agentID, defaultTeamID); err != nil {
+	if _, err := c.s.ensureAgentDigest(ctx, agentID, defaultTeamID); err != nil {
 		t.Fatalf("ensureAgentDigest: %v", err)
 	}
 
@@ -149,7 +149,7 @@ func TestSessionsWithClosedTurnsSince(t *testing.T) {
 	c := newE2E(t)
 	agentID, sessionID := seedVectorRun(t, c)
 	ctx := context.Background()
-	if _, err := ensureAgentDigest(ctx, c.s.db, agentID, defaultTeamID); err != nil {
+	if _, err := c.s.ensureAgentDigest(ctx, agentID, defaultTeamID); err != nil {
 		t.Fatalf("ensureAgentDigest: %v", err)
 	}
 	due, err := c.s.sessionsWithClosedTurnsSince(ctx)
@@ -174,7 +174,7 @@ func TestExportDueSessions_ShipsThenWatermarks(t *testing.T) {
 	c := newE2E(t)
 	agentID, sessionID := seedVectorRun(t, c)
 	ctx := context.Background()
-	if _, err := ensureAgentDigest(ctx, c.s.db, agentID, defaultTeamID); err != nil {
+	if _, err := c.s.ensureAgentDigest(ctx, agentID, defaultTeamID); err != nil {
 		t.Fatalf("ensureAgentDigest: %v", err)
 	}
 

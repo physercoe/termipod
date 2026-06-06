@@ -188,7 +188,7 @@ func (s *Server) buildSessionSpans(ctx context.Context, session string) ([]otlpt
 			refs = append(refs, turnRef{t.StartSeq, t.EndSeq, sid, len(spans) - 1})
 		}
 
-		events, err := loadFoldEvents(ctx, s.db, agentID)
+		events, err := loadFoldEvents(ctx, s.eventsDB, agentID)
 		if err != nil {
 			return nil, err
 		}

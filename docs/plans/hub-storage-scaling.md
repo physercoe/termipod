@@ -113,38 +113,48 @@ Build order (each Go-testable in `hub/internal/server`):
    so the two stores need no shared transaction. Behaviour-preserving
    while the handles alias one file; correct across files post-split. Full
    `go test ./internal/server` green.
-3. **Sever the remaining cross-store edges.** The 2026-06-06
-   implementation audit found the documented coupling surface
+3. **Sever the remaining cross-store edges — 🔶 IN PROGRESS.** The
+   2026-06-06 implementation audit found the documented coupling surface
    **understated in two ways** (the earlier "zero cross-store write tx +
-   one OTLP read join" framing was wrong):
-   - **Cross-store *read* joins (more than the OTLP join).** Verified
-     sites that join/subquery `agent_events` (or digest tables) against
-     control tables, all of which must become app-level two-query at the
-     split (resolve the id set from `hub.db` first, then filter the event
-     store by `… IN (?,?,…)`):
-     - `insights_scope.go` — `team` / `team_stewards` / `engine` / `host`
-       scopes use `agent_id IN (SELECT id FROM agents WHERE …)`. (`project`
-       / `agent` scopes are pure-event — `project_id = ?` / `agent_id = ?`.)
-     - `handlers_agents.go` — the `last_event_at` correlated subquery
-       `(SELECT MAX(ts) FROM agent_events WHERE agent_id = agents.id)` over
-       the `agents` list (two sites).
-     - `digest_store.go` `backfillAgentDigest` — reads `agents` for
-       `team_id`; `deriveDigestOutcome` reads `tasks` (control) **and**
-       `agent_turns` (digest).
-     - `otlp_export.go` — the `turns ⨝ events` join (the one already
-       documented); fix by denormalizing `session_id` onto `agent_turns`.
-   - **A cross-store *write* tx.** `handleDeleteSession`
-     (`handlers_sessions.go`) updates `sessions` + `audit_events` +
-     `attention_items` (control) **and** `agent_events` (event) in one
-     tx. The `agent_events` session_id clear moves to an `s.eventsWriteDB`
-     statement outside the control tx; the unlink is an idempotent
-     soft-clear, so a crash between stores leaves only a harmless dangling
-     ref (marked in code).
-   - **Structural edges (as before).** Replace the
-     `agent_events_stamp_project` trigger with handler-side `project_id`
-     resolution; add an app-level cascade hook for the 3 dormant
-     `→ agents ON DELETE CASCADE` edges; `agent_events_fts` moves with
-     `agent_events`.
+   one OTLP read join" framing was wrong). Each edge becomes an app-level
+   two-query / two-statement form (resolve the id set from `hub.db` /
+   `events.db` first, then query the other store by `… IN (?,?,…)`), no
+   `ATTACH`, behaviour-preserving while the handles still alias one file.
+   - **Cross-store *read* joins (more than the OTLP join):**
+     - ✅ `handlers_agents.go` `last_event_at` — dropped the correlated
+       subquery; `lastEventAtForAgents` post-fetches `MAX(ts)` from the
+       event store over the (chunked) page of agent ids. (`handleListAgents`
+       + `handleGetAgent`.)
+     - ✅ `handlers_agent_turns.go` `listSessionTurns` — resolves the
+       session's agents via `sessionAgentIDs` (event store), then reads
+       `agent_turns` from the digest store by `agent_id IN (…)`.
+     - ⬜ `insights_scope.go` — `team` / `team_stewards` / `engine` / `host`
+       scopes use `agent_id IN (SELECT id FROM agents WHERE …)`; resolve the
+       agent-id set from control once, bake it into `EventsClause` as an
+       IN-list. (`project` / `agent` scopes are already pure-event.)
+       Param-limit note: the event store isn't per-team-sharded yet (P2),
+       so a large team's id set needs chunking like `lastEventAtForAgents`.
+     - ⬜ `handlers_search_sessions.go` FTS — joins `agent_events_fts` +
+       `agent_events` (event) with `sessions` (control, `team_id`). Needs a
+       cross-store filter-pushdown: FTS MATCH in the event store, then the
+       team/`status!='deleted'` filter from control. (Watch the LIMIT — the
+       team filter must apply before truncation.)
+     - ⬜ `otlp_export.go` — the `turns ⨝ events` join; fix by denormalizing
+       `session_id` onto `agent_turns` (needs a migration + populate).
+     - (`backfillAgentDigest` `agents`-read + `deriveDigestOutcome`
+       `tasks`+`agent_turns` were already split into separate queries in
+       step 2 / 1b — not joins.)
+   - ✅ **The cross-store *write* tx.** `handleDeleteSession` — the
+     `agent_events` session_id clear is now `clearSessionFromEvents`
+     (`s.eventsWriteDB`), run *after* the control tx commits + on the
+     already-deleted idempotent path, so a crash between stores self-heals
+     on retry.
+   - ⬜ **Structural edges.** Replace the `agent_events_stamp_project`
+     trigger with handler-side `project_id` resolution (drop trigger =
+     migration); the 3 dormant `→ agents ON DELETE CASCADE` edges become an
+     app-level cascade hook *when hard-delete lands* (no-op today — there is
+     no agent hard-delete); `agent_events_fts` moves with `agent_events`
+     (step-4 migration).
 4. **Existing-DB migration: a one-shot `hub-server db split` command.**
    Copies the moving tables into the new files and drops them from
    `hub.db`; each file gets its own `schema_migrations`. The server

@@ -344,21 +344,20 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if status == "deleted" {
 		// Already deleted — idempotent success is friendlier than 404
-		// for users who tap delete twice.
+		// for users who tap delete twice. Re-run the event-store unlink in
+		// case a prior delete crashed between the two stores (below).
+		s.clearSessionFromEvents(r.Context(), id)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	// Single tx so partial deletes can't leak references to a
-	// soft-deleted session if one of the unlinks fails.
-	//
-	// ADR-045 step 3 (cross-store write tx): this tx updates sessions +
-	// audit_events + attention_items (control) AND agent_events (event) in
-	// one shot — the one control↔event write tx. At the file split the
-	// agent_events session_id clear moves to an s.eventsWriteDB statement
-	// outside this control tx; the unlink is an idempotent soft-clear, so a
-	// crash between the two stores leaves only a harmless dangling ref the
-	// next delete (idempotent) or a read-side COALESCE absorbs.
+	// The control unlinks share one tx so a partial failure can't leave a
+	// soft-deleted session half-referenced. The agent_events unlink lives in
+	// the event store, so it runs as its own statement after the control tx
+	// commits (ADR-045 step 3 — no cross-store tx, no ATTACH). The unlink is
+	// an idempotent soft-clear, and running it last means a crash between the
+	// stores leaves at worst a dangling agent_events.session_id pointing at an
+	// already-deleted (so unlisted) session, which the next delete heals.
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -374,7 +373,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, table := range []string{
-		"agent_events", "audit_events", "attention_items",
+		"audit_events", "attention_items",
 	} {
 		if _, err := tx.ExecContext(r.Context(),
 			`UPDATE `+table+` SET session_id = NULL WHERE session_id = ?`,
@@ -387,9 +386,21 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.clearSessionFromEvents(r.Context(), id)
 	s.recordAudit(r.Context(), team, "session.delete", "session", id,
 		"session deleted", nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// clearSessionFromEvents unlinks a deleted session from the event store
+// (agent_events.session_id -> NULL). Separate from the control-plane unlink tx
+// because agent_events lives in its own store (ADR-045 D2). Idempotent and
+// best-effort: the events are the agent's history, owned by audit, not the
+// session, so a transient failure only leaves a harmless dangling ref a later
+// delete re-clears.
+func (s *Server) clearSessionFromEvents(ctx context.Context, sessionID string) {
+	_, _ = s.eventsWriteDB.ExecContext(ctx,
+		`UPDATE agent_events SET session_id = NULL WHERE session_id = ?`, sessionID)
 }
 
 // handleForkSession creates a new session shell from an archived

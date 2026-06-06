@@ -157,19 +157,31 @@ func (s *Server) listAgentTurns(ctx context.Context, agent string, after, limit 
 }
 
 func (s *Server) listSessionTurns(ctx context.Context, session, afterTS string, limit int) ([]turnJSON, error) {
-	// The session's turns are the union of its agents' turns. Join through
-	// agent_events to resolve the session's agents, ordered by the
-	// cross-agent total order (start_ts). DISTINCT because an agent has many
-	// events; we only need the turn rows once.
-	rows, err := s.db.QueryContext(ctx, `
+	// The session's turns are the union of its agents' turns. Resolve the
+	// session's agents from the event store, then read their turn rows from
+	// the digest store (ADR-045 D2 — the two are separate stores, so the old
+	// agent_turns⨝agent_events subquery is now a two-step lookup). DISTINCT
+	// keeps the turn rows unique; ordered by the cross-agent total order.
+	ids, err := s.sessionAgentIDs(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []turnJSON{}, nil
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids)+3)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	args = append(args, afterTS, afterTS, limit)
+	rows, err := s.digestDB.QueryContext(ctx, `
 		SELECT DISTINCT `+turnCols+`
 		  FROM agent_turns t
-		 WHERE t.agent_id IN (
-		           SELECT DISTINCT agent_id FROM agent_events WHERE session_id = ?
-		       )
+		 WHERE t.agent_id IN (`+ph+`)
 		   AND (? = '' OR t.start_ts > ?)
 		 ORDER BY t.start_ts ASC, t.agent_id, t.idx ASC
-		 LIMIT ?`, session, afterTS, afterTS, limit)
+		 LIMIT ?`, args...)
 	return scanTurns(rows, err)
 }
 

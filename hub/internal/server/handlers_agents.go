@@ -109,11 +109,10 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
-	// last_event_at: correlated MAX(ts) over agent_events. The
-	// (agent_id, ts) index already exists, so this stays cheap on rows
-	// with hundreds of events; we accept the per-row scalar subquery
-	// rather than a GROUP BY join because the agents list is bounded
-	// (one steward + a few children) at MVP scale.
+	// last_event_at (MAX(ts) over agent_events) is fetched separately from
+	// the event store after the agent rows are read — a correlated subquery
+	// would cross the control↔event store boundary (ADR-045 D2). lastEventAtForAgents
+	// batches the lookup over the (bounded) page of agent ids.
 	q := `
 		SELECT id, team_id, handle, kind, backend_json, capabilities_json,
 		       COALESCE(parent_agent_id, ''), COALESCE(host_id, ''),
@@ -122,8 +121,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
 		       created_at, terminated_at, COALESCE(driving_mode, ''),
-		       archived_at,
-		       (SELECT MAX(ts) FROM agent_events WHERE agent_id = agents.id)
+		       archived_at
 		FROM agents WHERE team_id = ?`
 	args := []any{team}
 	if host := r.URL.Query().Get("host_id"); host != "" {
@@ -178,7 +176,60 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, a)
 	}
+	// Hydrate last_event_at from the event store (ADR-045 D2 cross-store read).
+	ids := make([]string, len(out))
+	for i := range out {
+		ids[i] = out[i].ID
+	}
+	if lastEv, err := s.lastEventAtForAgents(r.Context(), ids); err == nil {
+		for i := range out {
+			if ts, ok := lastEv[out[i].ID]; ok {
+				out[i].LastEventAt = &ts
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// lastEventAtForAgents returns agent_id -> MAX(agent_events.ts) for the given
+// agents, read from the event store. Agents with no events are absent from the
+// map (their last_event_at stays nil), matching the old correlated subquery's
+// NULL. Chunked so a large team's id list can't exceed SQLite's bound-variable
+// limit (ADR-045 D2 — the event store isn't per-team-sharded yet, P2).
+func (s *Server) lastEventAtForAgents(ctx context.Context, ids []string) (map[string]string, error) {
+	out := make(map[string]string, len(ids))
+	const chunk = 900
+	for start := 0; start < len(ids); start += chunk {
+		end := start + chunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch := ids[start:end]
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			args[i] = id
+		}
+		rows, err := s.eventsDB.QueryContext(ctx,
+			`SELECT agent_id, MAX(ts) FROM agent_events
+			  WHERE agent_id IN (`+ph+`) GROUP BY agent_id`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var aid string
+			var ts sql.NullString
+			if err := rows.Scan(&aid, &ts); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if ts.Valid {
+				out[aid] = ts.String
+			}
+		}
+		rows.Close()
+	}
+	return out, nil
 }
 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
@@ -192,8 +243,7 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
 		       created_at, terminated_at, COALESCE(driving_mode, ''),
-		       archived_at,
-		       (SELECT MAX(ts) FROM agent_events WHERE agent_id = agents.id)
+		       archived_at
 		FROM agents WHERE team_id = ? AND id = ?`, team, id)
 	a, err := scanAgent(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -203,6 +253,12 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// last_event_at from the event store (ADR-045 D2 cross-store read).
+	if lastEv, lerr := s.lastEventAtForAgents(r.Context(), []string{a.ID}); lerr == nil {
+		if ts, ok := lastEv[a.ID]; ok {
+			a.LastEventAt = &ts
+		}
 	}
 	// Pull the original spawn spec so the UI can show and reuse it. Agents
 	// created outside the spawn flow (e.g. via handleCreateAgent) have no
@@ -1668,16 +1724,16 @@ type rowScanner interface {
 
 func scanAgent(r rowScanner) (agentOut, error) {
 	var (
-		a                                   agentOut
-		backend, caps                       string
-		budget                              sql.NullInt64
-		idleSince, termAt, archAt, lastEvAt sql.NullString
+		a                         agentOut
+		backend, caps             string
+		budget                    sql.NullInt64
+		idleSince, termAt, archAt sql.NullString
 	)
 	if err := r.Scan(&a.ID, &a.TeamID, &a.Handle, &a.Kind, &backend, &caps,
 		&a.ParentID, &a.HostID, &a.ProjectID, &a.Status, &a.PaneID,
 		&a.WorktreePath, &a.JournalPath,
 		&budget, &a.SpentCents, &a.PauseState, &idleSince,
-		&a.CreatedAt, &termAt, &a.Mode, &archAt, &lastEvAt); err != nil {
+		&a.CreatedAt, &termAt, &a.Mode, &archAt); err != nil {
 		return a, err
 	}
 	a.Backend = json.RawMessage(backend)
@@ -1694,9 +1750,6 @@ func scanAgent(r rowScanner) (agentOut, error) {
 	}
 	if archAt.Valid {
 		a.ArchivedAt = &archAt.String
-	}
-	if lastEvAt.Valid {
-		a.LastEventAt = &lastEvAt.String
 	}
 	return a, nil
 }

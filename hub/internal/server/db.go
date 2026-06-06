@@ -13,6 +13,24 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// SQLite connection pragmas (hub-scaling Tier-1 tuning, ADR-045). Two profiles:
+//
+//   - pragmaCommon goes on EVERY pool — WAL + synchronous=NORMAL +
+//     busy_timeout, plus temp_store=MEMORY (temp b-trees for ORDER BY / GROUP BY
+//     / FTS merges in RAM) and a 256 MiB mmap (shared OS page cache, not heap —
+//     fewer read() syscalls). Both are cheap and safe to fan out.
+//   - pragmaWriterCache adds a large 64 MiB per-connection page cache, applied
+//     ONLY to the single-connection writer pools (one control writer + one
+//     events + one digest writer per open team — a bounded set). It is kept OFF
+//     the UNCAPPED reader pools on purpose: cache_size is per-connection, so a
+//     big reader cache would multiply across many concurrent readers and exhaust
+//     RAM on a small VPS. Measured ~+20% ingest throughput at writer saturation
+//     (≥800 concurrent agents, internal/server/load_test.go), a wash below it.
+const (
+	pragmaCommon      = "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=temp_store(2)&_pragma=mmap_size(268435456)"
+	pragmaWriterCache = "&_pragma=cache_size(-65536)"
+)
+
 // OpenDB opens the SQLite database at path and runs pending migrations.
 // Callers must Close the returned *sql.DB.
 func OpenDB(path string) (*sql.DB, error) {
@@ -23,7 +41,7 @@ func OpenDB(path string) (*sql.DB, error) {
 	// dependent rows. PRAGMA foreign_keys is a no-op inside a transaction,
 	// so we set it via DSN and use a separate sql.DB that's discarded
 	// after migrations finish.
-	migrateDSN := path + "?_pragma=foreign_keys(0)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+	migrateDSN := path + "?_pragma=foreign_keys(0)&" + pragmaCommon
 	migrateDB, err := sql.Open("sqlite", migrateDSN)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite (migrations): %w", err)
@@ -40,7 +58,9 @@ func OpenDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("close migrations db: %w", err)
 	}
 
-	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+	// The general/reader pool is uncapped, so it gets pragmaCommon WITHOUT the
+	// big writer cache (cache_size is per-connection — see the const doc).
+	dsn := path + "?_pragma=foreign_keys(1)&" + pragmaCommon
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -59,7 +79,8 @@ func OpenDB(path string) (*sql.DB, error) {
 // see New() for the read/write split and
 // docs/discussions/hub-scaling-storage-and-concurrency.md §6.
 func OpenWriterDB(path string) (*sql.DB, error) {
-	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+	// Single-connection writer pool (bounded) → gets the big writer cache.
+	dsn := path + "?_pragma=foreign_keys(1)&" + pragmaCommon + pragmaWriterCache
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite (writer): %w", err)

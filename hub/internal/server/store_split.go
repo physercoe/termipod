@@ -138,7 +138,9 @@ CREATE INDEX IF NOT EXISTS idx_agent_turns_session       ON agent_turns(session_
 // dsnFKOff opens a connection with foreign keys OFF (the table-recreate /
 // DROP pattern — DROP TABLE must not fire dormant cascades) and WAL.
 func dsnFKOff(path string) string {
-	return path + "?_pragma=foreign_keys(0)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+	// Transient/offline connections (split, vacuum, probes) — pragmaCommon only,
+	// no big per-connection cache.
+	return path + "?_pragma=foreign_keys(0)&" + pragmaCommon
 }
 
 // storePathsFor derives the event + digest store paths that sit alongside the
@@ -153,8 +155,15 @@ func storePathsFor(controlPath string) (eventsPath, digestPath string) {
 // OpenWriterDB): writes serialize through one connection so they queue in Go
 // instead of colliding on SQLite's per-file write lock. The moving tables carry
 // no foreign keys post-split, but foreign_keys(1) is harmless and consistent.
+//
+// The big writer cache (pragmaWriterCache) is applied only to the single-conn
+// writer pool — the uncapped reader pool gets pragmaCommon, so a per-connection
+// cache can't multiply across concurrent readers (db.go const doc).
 func openStorePool(path string, writer bool) (*sql.DB, error) {
-	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+	dsn := path + "?_pragma=foreign_keys(1)&" + pragmaCommon
+	if writer {
+		dsn += pragmaWriterCache
+	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open store %s: %w", filepath.Base(path), err)

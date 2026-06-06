@@ -165,11 +165,15 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	var foldedEvents, digestAgents int64
 	_ = dgRForTeam(t, c.s, defaultTeamID).QueryRow(`SELECT COALESCE(SUM(watermark_seq),0), COUNT(*) FROM agent_event_digests`).
 		Scan(&foldedEvents, &digestAgents)
-	// On-disk size across all three stores (ADR-045 P1): agent_events now lives
-	// in events.db, the digest/turns in digest.db — hub.db alone no longer
-	// reflects transcript growth.
+	// On-disk size across all stores (ADR-045 P2): agent_events now lives in the
+	// team's events.db shard, the digest/turns in its digest.db, both under
+	// teams/<team>/ — hub.db alone no longer reflects transcript growth.
 	var dbBytes int64
-	for _, p := range []string{"hub.db", "events.db", "digest.db"} {
+	for _, p := range []string{
+		"hub.db",
+		filepath.Join("teams", c.teamID, "events.db"),
+		filepath.Join("teams", c.teamID, "digest.db"),
+	} {
 		if fi, err := os.Stat(filepath.Join(c.dataRoot, p)); err == nil {
 			dbBytes += fi.Size()
 		}

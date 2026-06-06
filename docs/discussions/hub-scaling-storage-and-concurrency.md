@@ -338,6 +338,36 @@ up**, not a different single-writer shape for *ingest* itself. Giving
 ingest more than one writer is **P2** (per-team sharding → N event-store
 writers), gated on a real demo actually reaching this ceiling.
 
+### 4.5 After Tier-1 PRAGMA tuning (SHIPPED, 2026-06-06)
+
+Connection-string pragmas only, no code-path change: `temp_store=MEMORY`
++ a 256 MiB `mmap_size` on **every** pool, plus a 64 MiB
+`cache_size` on the **single-connection writer pools only** (`cache_size`
+is per-connection, so a big cache on the *uncapped* reader pools would
+multiply across concurrent readers and exhaust RAM on a 2 GB VPS — the
+writer pools are a bounded set: one control writer + one events + one
+digest writer per open team). Same box / harness / methodology as §4.4.
+
+| Agents | Baseline (ev/s) | Tier-1 (ev/s) | Δ |
+|---:|---:|---:|---:|
+| 100 | 861 | 844 | wash |
+| 400 | 888 | 841 | wash |
+| 800 | ~690 (med of 4) | ~890 (med of 7) | **+~25 %** |
+| 1000 | ~700 (med) | noisy | inconclusive |
+
+0 `SQLITE_BUSY` at every level, both configs. **The win is real but
+narrow: ~20–29 % at writer saturation (≥800 agents), a wash below it.**
+Mechanism: under sustained saturation the WAL grows and
+checkpoints/page-faults stall the writer; the bigger writer cache + mmap +
+in-RAM temp cut that I/O. Below the ceiling the working set already fits
+the default ~2 MB cache, so there's nothing to save — the bottleneck there
+is SQL work + writer serialization, the **same finding as the rejected
+batched-insert lever** (§6 #5). The 1000-agent column is dominated by
+run-to-run variance on a 2-core box under full flood and isn't a reliable
+signal either way. **Verdict: a free, zero-complexity headroom buffer for
+the saturated tail — but the real bursty agent workload lives in the
+"wash" regime, so this is not the lever that moves the common case.**
+
 ---
 
 ## 5. "Is a Redis-like service needed?"

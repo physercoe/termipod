@@ -1,0 +1,200 @@
+package server
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// TestLoad_AgentEventIngest measures the hub's agent-event ingest ceiling:
+// how many events/sec the single SQLite writer sustains when N synthetic
+// agents POST events concurrently, and what the per-request latency looks
+// like under that contention. It exercises the REAL write path
+// (handlePostAgentEvent: insert with the MAX(seq)+1 read-modify-write +
+// digest fold + session touches + in-process publish) by driving s.router
+// in-process — no real socket, so the http.DefaultClient connection pool
+// can't masquerade as the bottleneck; what's measured is the server.
+//
+// Grounds docs/discussions/hub-scaling-storage-and-concurrency.md §4 ("how
+// many concurrent agents?") and §8-Q1 (the load test that turns every TBD
+// into a number).
+//
+// Skipped unless HUB_LOADTEST=1 so it never runs in CI. Knobs (env):
+//
+//	HUB_LOADTEST_AGENTS         concurrent agents (default 100)
+//	HUB_LOADTEST_SECONDS        run duration (default 5)
+//	HUB_LOADTEST_PAYLOAD_BYTES  approx payload_json size per event (default 256)
+//
+// Run, e.g.:
+//
+//	HUB_LOADTEST=1 HUB_LOADTEST_AGENTS=200 HUB_LOADTEST_SECONDS=10 \
+//	  go test ./internal/server -run TestLoad_AgentEventIngest -v -timeout 5m
+func TestLoad_AgentEventIngest(t *testing.T) {
+	if os.Getenv("HUB_LOADTEST") == "" {
+		t.Skip("set HUB_LOADTEST=1 to run the event-ingest load test")
+	}
+	nAgents := loadEnvInt("HUB_LOADTEST_AGENTS", 100)
+	durSec := loadEnvInt("HUB_LOADTEST_SECONDS", 5)
+	payloadBytes := loadEnvInt("HUB_LOADTEST_PAYLOAD_BYTES", 256)
+
+	c := newE2E(t)
+
+	// Seed N agents directly — bypass the spawn machinery, we only need a
+	// row handlePostAgentEvent's agentBelongsToTeam check accepts.
+	agentIDs := make([]string, nAgents)
+	for i := 0; i < nAgents; i++ {
+		id := NewID()
+		agentIDs[i] = id
+		if _, err := c.s.db.Exec(
+			`INSERT INTO agents (id, team_id, handle, kind, status, created_at)
+			 VALUES (?, ?, ?, ?, 'running', ?)`,
+			id, c.teamID, fmt.Sprintf("load-%d", i), "claude-code", NowUTC(),
+		); err != nil {
+			t.Fatalf("seed agent %d: %v", i, err)
+		}
+	}
+
+	// A representative text event with a payload of ~payloadBytes.
+	body := func(agentID string) []byte {
+		filler := strings.Repeat("x", maxInt(0, payloadBytes-32))
+		b, _ := json.Marshal(map[string]any{
+			"kind":     "text",
+			"producer": "agent",
+			"payload":  map[string]any{"text": filler},
+		})
+		return b
+	}
+
+	var (
+		okN, errN int64
+		statusMu  sync.Mutex
+		statuses  = map[int]int64{}
+		sampleErr atomic.Value // string
+		latsMu    sync.Mutex
+		allLats   []time.Duration
+	)
+
+	deadline := time.Now().Add(time.Duration(durSec) * time.Second)
+	var wg sync.WaitGroup
+	start := time.Now()
+	for i := 0; i < nAgents; i++ {
+		wg.Add(1)
+		go func(agentID string) {
+			defer wg.Done()
+			reqBody := body(agentID)
+			path := "/v1/teams/" + c.teamID + "/agents/" + agentID + "/events"
+			local := make([]time.Duration, 0, 4096)
+			localStatus := map[int]int64{}
+			for time.Now().Before(deadline) {
+				req := httptest.NewRequest("POST", path, bytes.NewReader(reqBody))
+				req.Header.Set("Authorization", "Bearer "+c.token)
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				t0 := time.Now()
+				c.s.router.ServeHTTP(rec, req)
+				local = append(local, time.Since(t0))
+				localStatus[rec.Code]++
+				if rec.Code == 201 {
+					atomic.AddInt64(&okN, 1)
+				} else {
+					atomic.AddInt64(&errN, 1)
+					if sampleErr.Load() == nil {
+						sampleErr.Store(fmt.Sprintf("status=%d body=%s",
+							rec.Code, strings.TrimSpace(rec.Body.String())))
+					}
+				}
+			}
+			latsMu.Lock()
+			allLats = append(allLats, local...)
+			latsMu.Unlock()
+			statusMu.Lock()
+			for code, n := range localStatus {
+				statuses[code] += n
+			}
+			statusMu.Unlock()
+		}(agentIDs[i])
+	}
+	wg.Wait()
+	elapsed := time.Since(start)
+
+	total := okN + errN
+	evps := float64(total) / elapsed.Seconds()
+	sort.Slice(allLats, func(i, j int) bool { return allLats[i] < allLats[j] })
+
+	var rows int64
+	_ = c.s.db.QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&rows)
+	var dbBytes int64
+	if fi, err := os.Stat(filepath.Join(c.dataRoot, "hub.db")); err == nil {
+		dbBytes = fi.Size()
+	}
+
+	t.Logf("──────── hub event-ingest load result ────────")
+	t.Logf("agents=%d  duration=%s  payload≈%dB  GOMAXPROCS=%d",
+		nAgents, elapsed.Round(time.Millisecond), payloadBytes, runtime.GOMAXPROCS(0))
+	t.Logf("events: total=%d  ok(201)=%d  err=%d", total, okN, errN)
+	t.Logf("THROUGHPUT: %.0f events/sec", evps)
+	t.Logf("latency: p50=%s  p90=%s  p99=%s  max=%s",
+		pctl(allLats, 0.50), pctl(allLats, 0.90), pctl(allLats, 0.99), pctl(allLats, 1.0))
+	t.Logf("status codes: %s", fmtStatuses(statuses))
+	if s, _ := sampleErr.Load().(string); s != "" {
+		t.Logf("first error: %s", s)
+	}
+	t.Logf("storage: agent_events rows=%d  hub.db=%.1f MB  (=%.2f KB/event)",
+		rows, float64(dbBytes)/1e6, float64(dbBytes)/1024/float64(maxInt64(1, rows)))
+	t.Logf("──────────────────────────────────────────────")
+}
+
+func loadEnvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+func pctl(sorted []time.Duration, q float64) time.Duration {
+	if len(sorted) == 0 {
+		return 0
+	}
+	idx := int(q * float64(len(sorted)-1))
+	return sorted[idx].Round(time.Microsecond)
+}
+
+func fmtStatuses(m map[int]int64) string {
+	codes := make([]int, 0, len(m))
+	for c := range m {
+		codes = append(codes, c)
+	}
+	sort.Ints(codes)
+	parts := make([]string, 0, len(codes))
+	for _, c := range codes {
+		parts = append(parts, fmt.Sprintf("%d×%d", c, m[c]))
+	}
+	return strings.Join(parts, " ")
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}

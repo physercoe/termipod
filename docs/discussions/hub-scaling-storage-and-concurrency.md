@@ -165,9 +165,68 @@ rows inflate every write. The practical limit is therefore
   loops, big inline payloads) — the single writer becomes the queue;
   latency climbs and `busy_timeout` errors appear.
 
-We can't quote a number honestly without a load test (§8). What we
-*can* say: the bottleneck is **serialized writes**, and several of the
-§6 levers raise that ceiling without any new infrastructure.
+The bottleneck is **serialized writes**, and several of the §6 levers
+raise that ceiling without any new infrastructure.
+
+### 4.1 Measured (2026-06-06)
+
+Run with the in-tree harness `internal/server/load_test.go`
+(`TestLoad_AgentEventIngest`, env-gated `HUB_LOADTEST=1`, skipped in
+CI). It seeds N agents and drives the **real** `POST .../events`
+handler in-process via `s.router.ServeHTTP` — no socket, so the
+HTTP-client pool can't masquerade as the bottleneck. Box: **2 vCPU**
+(`GOMAXPROCS=2`) — a deliberate small-VPS proxy. 256 B payloads, agents
+posting as fast as they can for 5 s each:
+
+| Agents | Throughput (ev/s) | p50 | p99 | max | errors |
+|---:|---:|---:|---:|---:|---:|
+| 1 | **639** | 1.2 ms | 11 ms | 21 ms | 0 |
+| 10 | 610 | 4.2 ms | 194 ms | 1.28 s | 0 |
+| 50 | 537 | 11 ms | 1.42 s | 2.52 s | 0 |
+| 100 | 460 | 16 ms | 2.50 s | 5.10 s | 0 |
+| 200 | 332 | 42 ms | 4.51 s | 5.74 s | 0 |
+| 400 | 221 | 350 ms | 5.80 s | 6.80 s | **1× `SQLITE_BUSY` 500** |
+| 800 | 133 | 5.27 s | 7.74 s | 8.06 s | 0\* |
+
+Reading the curve — it is the textbook single-writer signature:
+
+- **Throughput does not scale with agents; it _declines_.** Peak is
+  **~640 ev/s at one agent**; adding agents *reduces* aggregate
+  throughput (congestion collapse: 460 @100 → 332 @200 → 221 @400 →
+  133 @800). There is no concurrency win to be had from the write path
+  as built — the writer is a single lane.
+- **Latency degrades super-linearly.** p99 climbs from **11 ms → 4.5 s**
+  between 1 and 200 agents (~400×). By 200 agents `max` (5.74 s) already
+  exceeds `busy_timeout(5000)`.
+- **The error cliff is ~400 saturating agents** — the first
+  `500 {"error":"database is locked (5) (SQLITE_BUSY)"}` appears there
+  (`busy_timeout` exhausted). (\*At 800 the run logged 0 errors only
+  because requests serialize so hard that fewer reach the timeout window
+  in the 5 s — p50 is already 5.3 s; the system is effectively stalled,
+  not healthy.)
+- **Storage amplification confirmed:** ~**1.1 KB on disk per event** for
+  a 256 B payload (~4× — indexes + the ADR-038 digest fold + WAL). At a
+  sustained ~600 ev/s that is ~0.65 MB/s ≈ **2.3 GB/hour** of transcript
+  if agents stream continuously — the same dynamic behind the tester's
+  50 MB/task.
+
+**Caveats.** (1) 2 vCPU — a bigger box lifts the absolute ceiling
+(more cores for the Go side, digest fold, SSE) but **not the
+single-writer shape**; throughput-declines-under-contention persists.
+(2) In-process driver excludes real network/TLS/HTTP-client cost, so
+these are an **upper bound** on the server's own ingest — a networked
+deployment is lower. (3) Saturating load; real agents are bursty, so a
+given agent *count* tolerates more when per-agent event *rates* are low
+— which is why the honest axis is **events/sec, not agents**.
+
+**Translation for the tester's demo.** Dozens of *calm* agents (≤ ~1
+event/s each) fit under the ~600 ev/s ceiling — but already with
+multi-second tail latency. *Hundreds* of *streaming* agents (token
+deltas, chatty tool loops) saturate the single writer and then return
+`SQLITE_BUSY` 500s. A managed DB or Redis changes none of this curve;
+the §6 levers (cap the writer pool so requests queue cheaply in Go;
+kill the `MAX(seq)+1` read-modify-write; batch ingest; fold the digest
+in the same tx) are what move the cliff.
 
 ---
 
@@ -262,10 +321,12 @@ operational tier `hub-resilience.md` explicitly defers.
 
 ## 8. Open questions
 
-1. **Load test.** What is the actual events/sec ceiling of the single
-   writer on representative VPS hardware, and at what agent-count ×
-   event-rate does p99 ingest latency or `busy_timeout` error rate
-   break? Nothing is measured today; this gates every number in §4.
+1. **Load test.** *Partially answered (§4.1, 2026-06-06):* on a 2-vCPU
+   box the single-writer ceiling is ~640 ev/s, throughput declines under
+   contention, and `SQLITE_BUSY` 500s begin ~400 saturating agents. Open:
+   re-run on representative production hardware, and re-measure after the
+   §6 levers land to quantify each one's lift. Harness:
+   `internal/server/load_test.go`.
 2. **Target scale.** Is "hundreds of concurrent agents per hub" an
    actual requirement, or is the demo really dozens? The answer decides
    whether §6 levers suffice or option B is on the critical path.

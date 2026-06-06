@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-06)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.807
+> **Last verified vs code:** v1.0.808
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,52 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.808-alpha — 2026-06-06
+
+**ADR-045 P2 — the event + digest stores are now sharded per team**, plus
+the SQLite tuning and a parallel fold worker the capacity study called
+for. The high-volume firehose (`agent_events`) and its derived digest no
+longer live in one global file each: they shard into
+`<dataRoot>/teams/<team>/{events.db,digest.db}`, so cross-team ingest fans
+out across N SQLite writers while `hub.db` stays the global control plane.
+Measured on a 2-vCPU box: the aggregate ingest ceiling rises ~+33 % once
+sharded to ≈ the core count (~1100 ev/s flat-out), and per-team fold
+parallelism roughly halves digest lag at high team counts. Hub-only; no
+mobile change.
+
+Changed:
+- **Per-team store sharding** (ADR-045 P2 — `fd53b5a`): the four
+  event/digest accessors resolve each team's shard from a lazy-open,
+  LRU-bounded connection registry; cross-team consumers (`/v1/insights`
+  engine scope, the OTLP export) fan out across shards and merge. The
+  `ensurePerTeamLayout` boot guard refuses an un-migrated layout and
+  names the one-shot migration to run.
+- **Per-team fold worker** (`bcd6c0a`): the background digest fold fans
+  each tick's due agents out per team — parallel across the independent
+  per-team writers and cores, serial within a team — so fold lag is
+  bounded by core count, not team count (was 91 % at 8 teams, now ~48 %).
+  Correctness is unchanged (read-repair recomputes any lagging digest).
+- **Tier-1 SQLite pragma tuning** (`4513a9a`): `temp_store=MEMORY` + a
+  256 MiB `mmap_size` on every pool, and a 64 MiB `cache_size` on the
+  single-connection writer pools only (per-connection cache, kept off the
+  uncapped readers). ~+20–29 % ingest at writer saturation, a wash below
+  it. Writer cache size is operator-tunable via
+  `HUB_SQLITE_WRITER_CACHE_KB`.
+
+Added:
+- **`hub-server db split-teams`** (`aad5957`): the one-shot offline
+  migration that fans a P1 global store into per-team shards (verifies the
+  per-team total against the source before retiring the global file).
+- **Per-team backup / doctor / vacuum** (`9acdafc`): backup
+  VACUUM-INTO-snapshots each `teams/<team>/{events,digest}.db`; `doctor`
+  reports the per-team layout; `db vacuum` reclaims space across the
+  shards.
+- **Capacity tooling** (`4caefd2`): a multi-team load harness
+  (`HUB_LOADTEST_TEAMS`) and the tunable writer cache; findings recorded
+  in `discussions/hub-scaling-storage-and-concurrency.md` §4.5–4.6.
 
 ---
 

@@ -88,7 +88,7 @@ func TestPostAgentInput_HappyPath_AllKinds(t *testing.T) {
 			// Verify the row exists with producer='user' and the expected
 			// kind prefix.
 			var producer, kind string
-			if err := s.db.QueryRow(
+			if err := s.eventsDB.QueryRow(
 				`SELECT producer, kind FROM agent_events WHERE id = ?`,
 				out["id"],
 			).Scan(&producer, &kind); err != nil {
@@ -186,7 +186,7 @@ func TestPostAgentInput_ApprovalOptionID(t *testing.T) {
 			_ = json.Unmarshal(raw, &out)
 
 			var payloadRaw string
-			if err := s.db.QueryRow(
+			if err := s.eventsDB.QueryRow(
 				`SELECT payload_json FROM agent_events WHERE id = ?`,
 				out["id"],
 			).Scan(&payloadRaw); err != nil {
@@ -287,7 +287,7 @@ func TestPostAgentInput_ProducerAttribution(t *testing.T) {
 			var out map[string]any
 			_ = json.Unmarshal(raw, &out)
 			var producer string
-			if err := s.db.QueryRow(
+			if err := s.eventsDB.QueryRow(
 				`SELECT producer FROM agent_events WHERE id = ?`,
 				out["id"],
 			).Scan(&producer); err != nil {
@@ -336,7 +336,7 @@ func TestPostAgentInput_SetModeRouting_RPC(t *testing.T) {
 	_ = json.Unmarshal(raw, &out)
 
 	var kind, payloadRaw string
-	if err := s.db.QueryRow(
+	if err := s.eventsDB.QueryRow(
 		`SELECT kind, payload_json FROM agent_events WHERE id = ?`,
 		out["id"]).Scan(&kind, &payloadRaw); err != nil {
 		t.Fatalf("select row: %v", err)
@@ -368,7 +368,7 @@ func TestPostAgentInput_SetModelRouting_PerTurnArgv(t *testing.T) {
 	_ = json.Unmarshal(raw, &out)
 
 	var kind, payloadRaw string
-	if err := s.db.QueryRow(
+	if err := s.eventsDB.QueryRow(
 		`SELECT kind, payload_json FROM agent_events WHERE id = ?`,
 		out["id"]).Scan(&kind, &payloadRaw); err != nil {
 		t.Fatalf("select row: %v", err)
@@ -405,7 +405,7 @@ func TestPostAgentInput_SetModelRouting_Respawn_NoSession(t *testing.T) {
 	// row — the helper rolls back via DoSpawn's tx; for the
 	// no-session path no DB work landed at all.
 	var n int
-	_ = s.db.QueryRow(
+	_ = s.eventsDB.QueryRow(
 		`SELECT COUNT(1) FROM agent_events WHERE agent_id = ? AND kind LIKE 'input.set_%'`,
 		agentID).Scan(&n)
 	if n != 0 {
@@ -505,7 +505,7 @@ func TestPostAgentInput_ImagesHappyPath(t *testing.T) {
 	_ = json.Unmarshal(raw, &out)
 
 	var payloadRaw string
-	if err := s.db.QueryRow(
+	if err := s.eventsDB.QueryRow(
 		`SELECT payload_json FROM agent_events WHERE id = ?`,
 		out["id"]).Scan(&payloadRaw); err != nil {
 		t.Fatalf("select payload: %v", err)
@@ -648,7 +648,7 @@ func TestPostAgentInput_PdfHappyPath(t *testing.T) {
 	var out map[string]any
 	_ = json.Unmarshal(raw, &out)
 	var payloadRaw string
-	if err := s.db.QueryRow(
+	if err := s.eventsDB.QueryRow(
 		`SELECT payload_json FROM agent_events WHERE id = ?`,
 		out["id"]).Scan(&payloadRaw); err != nil {
 		t.Fatalf("select payload: %v", err)
@@ -824,7 +824,7 @@ func TestPostAgentInput_RenderedTextStamped(t *testing.T) {
 		var out map[string]any
 		_ = json.Unmarshal(raw, &out)
 		var payloadJSON string
-		_ = s.db.QueryRow(
+		_ = s.eventsDB.QueryRow(
 			`SELECT payload_json FROM agent_events WHERE id = ?`,
 			out["id"],
 		).Scan(&payloadJSON)
@@ -874,7 +874,7 @@ func TestPostAgentInput_RenderedTextStamped(t *testing.T) {
 		var out map[string]any
 		_ = json.Unmarshal(raw, &out)
 		var payloadJSON string
-		_ = s.db.QueryRow(
+		_ = s.eventsDB.QueryRow(
 			`SELECT payload_json FROM agent_events WHERE id = ?`,
 			out["id"],
 		).Scan(&payloadJSON)
@@ -945,7 +945,7 @@ fallbacks:
 	var out map[string]any
 	_ = json.Unmarshal(raw, &out)
 	var payloadJSON string
-	_ = s.db.QueryRow(
+	_ = s.eventsDB.QueryRow(
 		`SELECT payload_json FROM agent_events WHERE id = ?`,
 		out["id"],
 	).Scan(&payloadJSON)
@@ -1008,7 +1008,7 @@ func TestPostAgentInput_RawSlashCommand_BypassesEnvelope(t *testing.T) {
 		var out map[string]any
 		_ = json.Unmarshal(raw, &out)
 		var payloadJSON string
-		if err := s.db.QueryRow(
+		if err := s.eventsDB.QueryRow(
 			`SELECT payload_json FROM agent_events WHERE id = ?`,
 			out["id"],
 		).Scan(&payloadJSON); err != nil {
@@ -1046,7 +1046,7 @@ func TestPostAgentInput_RawSlashCommand_BypassesEnvelope(t *testing.T) {
 		var out map[string]any
 		_ = json.Unmarshal(raw, &out)
 		var payloadJSON string
-		_ = s.db.QueryRow(
+		_ = s.eventsDB.QueryRow(
 			`SELECT payload_json FROM agent_events WHERE id = ?`,
 			out["id"],
 		).Scan(&payloadJSON)
@@ -1082,7 +1082,7 @@ func TestPostAgentInput_RawSlashCommand_BypassesEnvelope(t *testing.T) {
 		var out map[string]any
 		_ = json.Unmarshal(raw, &out)
 		var payloadJSON string
-		_ = s.db.QueryRow(
+		_ = s.eventsDB.QueryRow(
 			`SELECT payload_json FROM agent_events WHERE id = ?`,
 			out["id"],
 		).Scan(&payloadJSON)
@@ -1114,7 +1114,7 @@ func TestPostAgentInput_RawSlashCommand_BypassesEnvelope(t *testing.T) {
 		var out map[string]any
 		_ = json.Unmarshal(raw, &out)
 		var payloadJSON string
-		_ = s.db.QueryRow(
+		_ = s.eventsDB.QueryRow(
 			`SELECT payload_json FROM agent_events WHERE id = ?`,
 			out["id"],
 		).Scan(&payloadJSON)

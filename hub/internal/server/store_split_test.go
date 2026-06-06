@@ -1,25 +1,51 @@
 package server
 
 import (
-	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
 )
 
 // TestSplitStores_RelocatesMovingTables drives the offline physical split end
-// to end: seed a realistic run (events + a folded digest + turns) into a
-// combined hub.db, run splitStores, and assert the moving tables — with their
-// rows and a rebuilt FTS index — now live in events.db / digest.db and are gone
-// from hub.db.
+// to end: build a combined hub.db (OpenDB migrates the full schema), seed the
+// moving tables directly, run splitStores, and assert the rows — with a rebuilt
+// FTS index — now live in events.db / digest.db and are gone from hub.db. Seeds
+// through a foreign-keys-off connection so it needn't materialize agents rows.
 func TestSplitStores_RelocatesMovingTables(t *testing.T) {
-	c := newE2E(t)
-	ctx := context.Background()
-	agentID, _ := seedVectorRun(t, c)
-	// Materialize the digest + turn rows so digest.db has data to move.
-	if _, err := c.s.ensureAgentDigest(ctx, agentID, defaultTeamID); err != nil {
-		t.Fatalf("ensureAgentDigest: %v", err)
+	dir := t.TempDir()
+	hubPath := filepath.Join(dir, "hub.db")
+	eventsPath := filepath.Join(dir, "events.db")
+	digestPath := filepath.Join(dir, "digest.db")
+
+	db, err := OpenDB(hubPath) // migrate → combined schema (all tables in hub.db)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
 	}
+	db.Close()
+
+	seed, err := sql.Open("sqlite", dsnFKOff(hubPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const ts = "2026-06-06T00:00:00Z"
+	// Two events (the FTS insert trigger populates agent_events_fts as we go).
+	if _, err := seed.Exec(`INSERT INTO agent_events
+		(id, agent_id, seq, session_ordinal, ts, kind, producer, payload_json, session_id, project_id)
+		VALUES ('e1','a1',1,1,?,'text','agent','{"body":"hello"}','s1',NULL),
+		       ('e2','a1',2,2,?,'text','agent','{"body":"world"}','s1',NULL)`, ts, ts); err != nil {
+		t.Fatalf("seed events: %v", err)
+	}
+	if _, err := seed.Exec(`INSERT INTO agent_event_digests
+		(agent_id, team_id, updated_at, watermark_seq, event_count)
+		VALUES ('a1','team-1',?,2,2)`, ts); err != nil {
+		t.Fatalf("seed digest: %v", err)
+	}
+	if _, err := seed.Exec(`INSERT INTO agent_turns
+		(agent_id, turn_id, team_id, idx, start_seq, start_ts, session_id)
+		VALUES ('a1','t1','team-1',0,1,?,'s1')`, ts); err != nil {
+		t.Fatalf("seed turn: %v", err)
+	}
+	seed.Close()
 
 	count := func(db *sql.DB, table string) int64 {
 		t.Helper()
@@ -29,22 +55,7 @@ func TestSplitStores_RelocatesMovingTables(t *testing.T) {
 		}
 		return n
 	}
-	wantEvents := count(c.s.db, "agent_events")
-	wantDigests := count(c.s.db, "agent_event_digests")
-	wantTurns := count(c.s.db, "agent_turns")
-	if wantEvents == 0 || wantDigests == 0 || wantTurns == 0 {
-		t.Fatalf("fixture must seed all moving tables; got events=%d digests=%d turns=%d",
-			wantEvents, wantDigests, wantTurns)
-	}
-
-	hubPath := filepath.Join(c.dataRoot, "hub.db")
-	eventsPath := filepath.Join(c.dataRoot, "events.db")
-	digestPath := filepath.Join(c.dataRoot, "digest.db")
-
-	// The split is offline — release the server's file handles first.
-	if err := c.s.Close(); err != nil {
-		t.Fatalf("close server: %v", err)
-	}
+	const wantEvents, wantDigests, wantTurns = 2, 1, 1
 
 	// Guard sees the un-split, populated control DB.
 	ctl, err := sql.Open("sqlite", dsnFKOff(hubPath))

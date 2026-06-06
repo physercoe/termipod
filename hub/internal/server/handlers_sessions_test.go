@@ -232,7 +232,7 @@ func TestSessions_StampsAgentEvents(t *testing.T) {
 	}
 
 	var stamped string
-	_ = s.db.QueryRow(
+	_ = s.eventsDB.QueryRow(
 		`SELECT COALESCE(session_id, '') FROM agent_events
 		   WHERE agent_id = ? ORDER BY seq DESC LIMIT 1`,
 		agentID,
@@ -689,7 +689,7 @@ func TestSessions_Delete(t *testing.T) {
 
 	// session_id on the prior agent_event should be NULL.
 	var stamped sql.NullString
-	_ = s.db.QueryRow(
+	_ = s.eventsDB.QueryRow(
 		`SELECT session_id FROM agent_events
 		   WHERE agent_id = ? ORDER BY seq DESC LIMIT 1`,
 		agentID).Scan(&stamped)
@@ -1034,7 +1034,7 @@ func TestSessions_SwapAgentInSession(t *testing.T) {
 		})
 
 	var transcriptCount int
-	_ = s.db.QueryRow(
+	_ = s.eventsDB.QueryRow(
 		`SELECT COUNT(*) FROM agent_events WHERE session_id = ?`,
 		ses.ID,
 	).Scan(&transcriptCount)
@@ -1425,7 +1425,7 @@ func TestSessions_NoSession_NullSessionID(t *testing.T) {
 	}
 
 	var nullCount int
-	_ = s.db.QueryRow(
+	_ = s.eventsDB.QueryRow(
 		`SELECT COUNT(*) FROM agent_events
 		   WHERE agent_id = ? AND session_id IS NULL`, agentID,
 	).Scan(&nullCount)

@@ -48,6 +48,7 @@ func runDoctor(args []string, log *slog.Logger) {
 	checks := []srvCheck{
 		checkDataRootWritable(*dataRoot),
 		checkDBReachable(*dbPath),
+		checkStoreLayout(*dbPath),
 		checkDiskSpace(*dataRoot),
 		checkListenAddr(*listen),
 	}
@@ -89,6 +90,30 @@ func checkDBReachable(dbPath string) srvCheck {
 	}
 	return srvCheck{Name: name, OK: true,
 		Detail: fmt.Sprintf("%s (%d tables)", dbPath, tables)}
+}
+
+// checkStoreLayout reports the three-store split state (ADR-045 P1): a split
+// deployment has events.db + digest.db beside hub.db; a pre-split one has
+// neither. Exactly one present is an inconsistent layout the operator must
+// resolve (restore the missing file, or move the stray one aside and re-split).
+func checkStoreLayout(dbPath string) srvCheck {
+	const name = "store layout"
+	dir := filepath.Dir(dbPath)
+	eventsPath := filepath.Join(dir, "events.db")
+	digestPath := filepath.Join(dir, "digest.db")
+	_, eErr := os.Stat(eventsPath)
+	_, dErr := os.Stat(digestPath)
+	switch {
+	case eErr == nil && dErr == nil:
+		return srvCheck{Name: name, OK: true, Detail: "split (events.db + digest.db present)"}
+	case errors.Is(eErr, os.ErrNotExist) && errors.Is(dErr, os.ErrNotExist):
+		return srvCheck{Name: name, OK: true,
+			Detail: "single-file (not yet split) — run `hub-server db split` to separate the event + digest stores"}
+	default:
+		return srvCheck{Name: name, OK: false,
+			Detail: fmt.Sprintf("inconsistent: events.db err=%v digest.db err=%v", eErr, dErr),
+			Hint:   "restore the missing store from backup, or move the stray file aside and re-run `hub-server db split`"}
+	}
 }
 
 // checkDiskSpace confirms at least 1 GiB is free under the data root —

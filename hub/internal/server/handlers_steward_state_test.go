@@ -193,7 +193,7 @@ func TestStewardState_WorkerDispatchedWhenChildAgentRunning(t *testing.T) {
 func TestStewardState_WorkingWhenRecentEvent(t *testing.T) {
 	srv, tok, team, project, agent := stewardStateSetup(t)
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := srv.db.Exec(`
+	if _, err := srv.eventsWriteDB.Exec(`
 		INSERT INTO agent_events
 			(id, agent_id, seq, ts, kind, producer, payload_json)
 		VALUES (?, ?, 1, ?, 'tool.use', 'agent', '{}')`,
@@ -213,7 +213,7 @@ func TestStewardState_HandoffWhenA2AInvokedRecently(t *testing.T) {
 	srv, tok, team, project, agent := stewardStateSetup(t)
 	now := time.Now().UTC().Format(time.RFC3339)
 	payload := `{"to_agent_id":"agent-general","purpose":"team-info"}`
-	if _, err := srv.db.Exec(`
+	if _, err := srv.eventsWriteDB.Exec(`
 		INSERT INTO agent_events
 			(id, agent_id, seq, ts, kind, producer, payload_json)
 		VALUES (?, ?, 1, ?, 'a2a.invoke', 'agent', ?)`,

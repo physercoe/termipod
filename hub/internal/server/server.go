@@ -60,23 +60,16 @@ type Server struct {
 	db      *sql.DB // control reader pool — uncapped; reads + tests
 	writeDB *sql.DB // control writer pool — SetMaxOpenConns(1); all writes, see New()
 	// Store-separation handles (ADR-045 D2 — the event log + the derived
-	// digest are separate data classes from the control plane). Each store
-	// gets its own reader + single-writer pool so the high-volume firehose
-	// and its fold can't contend with control-plane CRUD or each other.
-	//
-	// Until the physical file split lands (plan P1 step 4), these point at the
-	// control pools above — so writes still serialize through the one writer
-	// (lever 3) and the fold/backfill stay single-file. Call sites already
-	// address the right logical store, so the eventual split is localized to
-	// New() (open distinct files) + the `db split` migration. Pure reads are
-	// routed alongside the writes as their queries are decomposed for the
-	// split; cross-store joins (insights team/engine/host subqueries, the
-	// agents⨝events last_event_at correlated subquery, the OTLP turns⨝events
-	// join) stay on s.db until step 3 rewrites them as app-level two-query.
-	eventsDB      *sql.DB // agent_events (+ _fts) reader
-	eventsWriteDB *sql.DB // agent_events (+ _fts) writer
-	digestDB      *sql.DB // agent_event_digests + agent_turns reader
-	digestWriteDB *sql.DB // agent_event_digests + agent_turns writer
+	// digest are separate data classes from the control plane). Each store is
+	// its own file (events.db / digest.db) with its own reader + single-writer
+	// pool, so the high-volume firehose and its fold can't contend with
+	// control-plane CRUD or each other on SQLite's per-file write lock. Opened
+	// in New() via ensureStoreSplit (which auto-splits a fresh hub.db and
+	// refuses a populated un-split one).
+	eventsDB      *sql.DB // agent_events (+ _fts) reader  — events.db
+	eventsWriteDB *sql.DB // agent_events (+ _fts) writer  — events.db
+	digestDB      *sql.DB // agent_event_digests + agent_turns reader — digest.db
+	digestWriteDB *sql.DB // agent_event_digests + agent_turns writer — digest.db
 	router        chi.Router
 	log           *slog.Logger
 	bus           *eventBus
@@ -165,6 +158,48 @@ func New(cfg Config) (*Server, error) {
 	}
 	writeDB.SetMaxOpenConns(1)
 	writeDB.SetMaxIdleConns(1)
+	// Three-store split (ADR-045 D2 / plan P1 step 4): the event firehose and
+	// its derived digest are separate data classes from the control plane, each
+	// with its own file + writer so the high-volume ingest and its fold can't
+	// contend with control-plane CRUD or each other. ensureStoreSplit auto-splits
+	// a fresh hub.db and refuses to serve a populated un-split one (run
+	// `hub-server db split`). Then open a reader + 1-writer pool per store.
+	if err := ensureStoreSplit(db, cfg.DBPath); err != nil {
+		_ = writeDB.Close()
+		_ = db.Close()
+		return nil, err
+	}
+	eventsPath, digestPath := storePathsFor(cfg.DBPath)
+	eventsDB, err := openStorePool(eventsPath, false)
+	if err != nil {
+		_ = writeDB.Close()
+		_ = db.Close()
+		return nil, err
+	}
+	eventsWriteDB, err := openStorePool(eventsPath, true)
+	if err != nil {
+		_ = eventsDB.Close()
+		_ = writeDB.Close()
+		_ = db.Close()
+		return nil, err
+	}
+	digestDB, err := openStorePool(digestPath, false)
+	if err != nil {
+		_ = eventsWriteDB.Close()
+		_ = eventsDB.Close()
+		_ = writeDB.Close()
+		_ = db.Close()
+		return nil, err
+	}
+	digestWriteDB, err := openStorePool(digestPath, true)
+	if err != nil {
+		_ = digestDB.Close()
+		_ = eventsWriteDB.Close()
+		_ = eventsDB.Close()
+		_ = writeDB.Close()
+		_ = db.Close()
+		return nil, err
+	}
 	// Seed bundled templates that don't yet exist on disk. Init() does
 	// this once at `hub init`, but a hub upgraded across versions only
 	// runs `hub serve` on subsequent boots, so newly-shipped built-ins
@@ -183,10 +218,10 @@ func New(cfg Config) (*Server, error) {
 	loopHooksConfig.Store(loadLoopHooks(cfg.DataRoot))
 	s := &Server{cfg: cfg, db: db, writeDB: writeDB, log: cfg.Logger, bus: newEventBus(),
 		digestDirty: map[string]*digestPending{}}
-	// Store handles point at the control pools until the physical file split
-	// (plan P1 step 4). See the Server struct field comments.
-	s.eventsDB, s.eventsWriteDB = db, writeDB
-	s.digestDB, s.digestWriteDB = db, writeDB
+	// The event + digest stores live in their own files (events.db / digest.db),
+	// each with a reader + single-writer pool (ADR-045 D2 — see ensureStoreSplit).
+	s.eventsDB, s.eventsWriteDB = eventsDB, eventsWriteDB
+	s.digestDB, s.digestWriteDB = digestDB, digestWriteDB
 	// Operation-scope manifest (ADR-016) — load embedded + overlay so
 	// dispatchTool's role-gating middleware has a manifest to consult.
 	// Failure to parse is a hard error: without the manifest, every

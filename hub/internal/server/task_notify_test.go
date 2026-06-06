@@ -87,7 +87,7 @@ func TestNotifyTaskAssigner_SkipsNonTerminalTransitions(t *testing.T) {
 		"todo", "in_progress")
 
 	var count int
-	if err := s.db.QueryRow(`
+	if err := s.eventsDB.QueryRow(`
 		SELECT COUNT(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'task.notify'`, stewardID,
 	).Scan(&count); err != nil {
@@ -330,7 +330,7 @@ type notifyEvent struct {
 func lastTaskNotifyEvent(t *testing.T, s *Server, agentID string) notifyEvent {
 	t.Helper()
 	var ev notifyEvent
-	err := s.db.QueryRow(`
+	err := s.eventsDB.QueryRow(`
 		SELECT kind, producer, payload_json
 		  FROM agent_events
 		 WHERE agent_id = ? AND kind = 'task.notify'

@@ -70,7 +70,7 @@ func TestDecide_PermissionPromptFansOutAttentionReply(t *testing.T) {
 
 	// Snapshot agent seq, then /decide.
 	var seqBefore int64
-	_ = c.s.db.QueryRow(`
+	_ = c.s.eventsDB.QueryRow(`
 		SELECT COALESCE(MAX(seq), 0) FROM agent_events WHERE agent_id = ?`,
 		out.AgentID,
 	).Scan(&seqBefore)
@@ -90,7 +90,7 @@ func TestDecide_PermissionPromptFansOutAttentionReply(t *testing.T) {
 	// pointing at the attention, kind=permission_prompt so the
 	// codex driver routes to its JSON-RPC response path instead of
 	// the user-text turn path.
-	rows, err := c.s.db.Query(`
+	rows, err := c.s.eventsDB.Query(`
 		SELECT kind, producer, payload_json
 		  FROM agent_events
 		 WHERE agent_id = ? AND seq > ?

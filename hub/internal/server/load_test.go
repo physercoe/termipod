@@ -159,11 +159,11 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	sort.Slice(allLats, func(i, j int) bool { return allLats[i] < allLats[j] })
 
 	var rows int64
-	_ = c.s.db.QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&rows)
+	_ = c.s.eventsDB.QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&rows)
 	// Digest fold lag: total events minus total folded (SUM of per-agent
 	// watermark). Shows whether the background worker kept up with ingest.
 	var foldedEvents, digestAgents int64
-	_ = c.s.db.QueryRow(`SELECT COALESCE(SUM(watermark_seq),0), COUNT(*) FROM agent_event_digests`).
+	_ = c.s.digestDB.QueryRow(`SELECT COALESCE(SUM(watermark_seq),0), COUNT(*) FROM agent_event_digests`).
 		Scan(&foldedEvents, &digestAgents)
 	var dbBytes int64
 	if fi, err := os.Stat(filepath.Join(c.dataRoot, "hub.db")); err == nil {

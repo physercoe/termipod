@@ -20,7 +20,7 @@ func TestInsertAgentEvent_MonotonicPerAgent(t *testing.T) {
 	var wantSeq int64
 	for _, body := range []string{"a", "b", "c"} {
 		wantSeq++
-		id, seq, _, ts, err := s.insertAgentEvent(context.Background(), s.db, agentEventInsert{
+		id, seq, _, ts, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
 			AgentID:     agent,
 			SessionID:   "sess-1",
 			Kind:        "text",
@@ -38,7 +38,7 @@ func TestInsertAgentEvent_MonotonicPerAgent(t *testing.T) {
 		}
 		// The returned seq must match what's stored.
 		var stored int64
-		if err := s.db.QueryRow(`SELECT seq FROM agent_events WHERE id = ?`, id).Scan(&stored); err != nil {
+		if err := s.eventsDB.QueryRow(`SELECT seq FROM agent_events WHERE id = ?`, id).Scan(&stored); err != nil {
 			t.Fatalf("read back %q: %v", body, err)
 		}
 		if stored != seq {
@@ -66,7 +66,7 @@ func TestInsertAgentEvent_SeqIsPerAgentNotPerSession(t *testing.T) {
 	}
 	// Both agents have a seq=1 row inside the SAME session — the collision.
 	var n int
-	if err := s.db.QueryRow(
+	if err := s.eventsDB.QueryRow(
 		`SELECT COUNT(*) FROM agent_events WHERE session_id = ? AND seq = 1`, session,
 	).Scan(&n); err != nil {
 		t.Fatalf("count seq=1: %v", err)
@@ -83,7 +83,7 @@ func TestInsertAgentEvent_EmptySessionStoresNull(t *testing.T) {
 	s, _ := newA2ATestServer(t)
 	agent := seedAgentRow(t, s, defaultTeamID, "p0-null", "claude-code")
 
-	id, _, _, _, err := s.insertAgentEvent(context.Background(), s.db, agentEventInsert{
+	id, _, _, _, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
 		AgentID:     agent,
 		SessionID:   "",
 		Kind:        "system",
@@ -94,7 +94,7 @@ func TestInsertAgentEvent_EmptySessionStoresNull(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 	var session sql.NullString
-	if err := s.db.QueryRow(`SELECT session_id FROM agent_events WHERE id = ?`, id).Scan(&session); err != nil {
+	if err := s.eventsDB.QueryRow(`SELECT session_id FROM agent_events WHERE id = ?`, id).Scan(&session); err != nil {
 		t.Fatalf("read back: %v", err)
 	}
 	if session.Valid {
@@ -159,7 +159,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 		{a, 1, 1}, {a, 2, 2}, {b, 3, 1}, {a, 4, 3}, {b, 5, 2},
 	}
 	for i, st := range steps {
-		id, seq, sord, _, err := s.insertAgentEvent(context.Background(), s.db, agentEventInsert{
+		id, seq, sord, _, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
 			AgentID:     st.agent,
 			SessionID:   session,
 			Kind:        "text",
@@ -177,7 +177,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 		}
 		// The returned ordinal must match what's stored.
 		var ord sql.NullInt64
-		if err := s.db.QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
+		if err := s.eventsDB.QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
 			t.Fatalf("read ordinal %d: %v", i, err)
 		}
 		if !ord.Valid || ord.Int64 != sord {
@@ -186,7 +186,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 	}
 
 	// Dense + unique across the session: exactly {1,2,3,4,5}, one row each.
-	rows, err := s.db.Query(
+	rows, err := s.eventsDB.Query(
 		`SELECT session_ordinal, COUNT(*) FROM agent_events WHERE session_id = ?
 		  GROUP BY session_ordinal ORDER BY session_ordinal`, session)
 	if err != nil {
@@ -214,7 +214,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 func TestSessionOrdinal_NullForSessionlessEvent(t *testing.T) {
 	s, _ := newA2ATestServer(t)
 	agent := seedAgentRow(t, s, defaultTeamID, "p1-null", "claude-code")
-	id, _, _, _, err := s.insertAgentEvent(context.Background(), s.db, agentEventInsert{
+	id, _, _, _, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
 		AgentID:     agent,
 		SessionID:   "",
 		Kind:        "system",
@@ -225,7 +225,7 @@ func TestSessionOrdinal_NullForSessionlessEvent(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 	var ord sql.NullInt64
-	if err := s.db.QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
+	if err := s.eventsDB.QueryRow(`SELECT session_ordinal FROM agent_events WHERE id = ?`, id).Scan(&ord); err != nil {
 		t.Fatalf("read ordinal: %v", err)
 	}
 	if ord.Valid {
@@ -235,7 +235,7 @@ func TestSessionOrdinal_NullForSessionlessEvent(t *testing.T) {
 
 func insertSeq(t *testing.T, s *Server, agentID, session string) int64 {
 	t.Helper()
-	_, seq, _, _, err := s.insertAgentEvent(context.Background(), s.db, agentEventInsert{
+	_, seq, _, _, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   session,
 		Kind:        "text",

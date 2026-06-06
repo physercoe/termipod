@@ -42,7 +42,7 @@ func seedSessionForAgent(t *testing.T, s *Server, agentID string) string {
 func readLatestAttentionReply(t *testing.T, s *Server, agentID string) map[string]any {
 	t.Helper()
 	var payload string
-	if err := s.db.QueryRow(`
+	if err := s.eventsDB.QueryRow(`
 		SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.attention_reply'
 		 ORDER BY seq DESC LIMIT 1`, agentID).Scan(&payload); err != nil {
@@ -189,7 +189,7 @@ func TestFanBack_DryRunNoInsert_NoFanBack(t *testing.T) {
 		t.Fatalf("mcpPropose dry_run: %v", jerr)
 	}
 	var n int
-	if err := s.db.QueryRow(`
+	if err := s.eventsDB.QueryRow(`
 		SELECT count(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.attention_reply'`, agentID,
 	).Scan(&n); err != nil {
@@ -288,7 +288,7 @@ func TestFanBack_Override_FansBackRollback(t *testing.T) {
 
 	// Count fan-back events: should be 2 (approve + override).
 	var n int
-	_ = s.db.QueryRow(`
+	_ = s.eventsDB.QueryRow(`
 		SELECT count(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.attention_reply'`, agentID).Scan(&n)
 	if n != 2 {

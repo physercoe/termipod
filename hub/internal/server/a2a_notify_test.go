@@ -23,7 +23,7 @@ func TestNotifyA2ASent_DeliversWithReceiverAttribution(t *testing.T) {
 	var (
 		kind, producer, payloadJSON string
 	)
-	if err := s.db.QueryRow(`
+	if err := s.eventsDB.QueryRow(`
 		SELECT kind, producer, payload_json
 		  FROM agent_events
 		 WHERE agent_id = ? AND kind = 'a2a.sent'
@@ -68,7 +68,7 @@ func TestNotifyA2ASent_UnknownSenderSilent(t *testing.T) {
 	// No prior agent_events for any agent; expect no rows added.
 	s.notifyA2ASent(context.Background(), "", []byte(`{}`), "worker.recv", "agent-recv-1")
 	var count int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM agent_events WHERE kind = 'a2a.sent'`).Scan(&count); err != nil {
+	if err := s.eventsDB.QueryRow(`SELECT COUNT(*) FROM agent_events WHERE kind = 'a2a.sent'`).Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if count != 0 {
@@ -90,7 +90,7 @@ func TestNotifyA2ASent_NoLiveSessionSilent(t *testing.T) {
 	}
 	s.notifyA2ASent(context.Background(), id, []byte(`{}`), "worker.recv", "agent-recv-1")
 	var count int
-	if err := s.db.QueryRow(`
+	if err := s.eventsDB.QueryRow(`
 		SELECT COUNT(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'a2a.sent'`, id,
 	).Scan(&count); err != nil {

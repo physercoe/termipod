@@ -3,6 +3,8 @@ package server
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	_ "modernc.org/sqlite"
 )
@@ -139,6 +141,73 @@ func dsnFKOff(path string) string {
 	return path + "?_pragma=foreign_keys(0)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
 }
 
+// storePathsFor derives the event + digest store paths that sit alongside the
+// control DB (hub.db → events.db / digest.db in the same directory).
+func storePathsFor(controlPath string) (eventsPath, digestPath string) {
+	dir := filepath.Dir(controlPath)
+	return filepath.Join(dir, "events.db"), filepath.Join(dir, "digest.db")
+}
+
+// openStorePool opens a reader (uncapped) or single-writer pool against an
+// already-schema'd store file. Mirrors the control reader/writer split (New(),
+// OpenWriterDB): writes serialize through one connection so they queue in Go
+// instead of colliding on SQLite's per-file write lock. The moving tables carry
+// no foreign keys post-split, but foreign_keys(1) is harmless and consistent.
+func openStorePool(path string, writer bool) (*sql.DB, error) {
+	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open store %s: %w", filepath.Base(path), err)
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ping store %s: %w", filepath.Base(path), err)
+	}
+	if writer {
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+	}
+	return db, nil
+}
+
+// ensureStoreSplit resolves the three-store layout at startup (ADR-045 P1):
+//
+//   - control still holds the moving tables and they are EMPTY → a fresh
+//     install; auto-split (zero data, zero risk) so first boot just works.
+//   - control still holds the moving tables and they are POPULATED → a real
+//     deployment that hasn't been migrated; REFUSE to serve and tell the
+//     operator to run `hub-server db split` (deliberate, backed-up). Serving
+//     would mis-route every write to the wrong file.
+//   - control no longer holds the moving tables → already split; the event +
+//     digest store files must exist (else the layout is broken — surface it
+//     rather than silently create empty stores).
+func ensureStoreSplit(controlDB *sql.DB, controlPath string) error {
+	eventsPath, digestPath := storePathsFor(controlPath)
+	has, err := controlHasMovingTables(controlDB)
+	if err != nil {
+		return fmt.Errorf("probe split state: %w", err)
+	}
+	if has {
+		n, err := movingTableRowCount(controlDB)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			return fmt.Errorf("hub.db holds %d rows of agent-event data in the combined schema and has not been split into per-store files; back up, then run `hub-server db split` — refusing to serve to avoid mis-routing writes (ADR-045 P1)", n)
+		}
+		if err := splitStores(controlPath, eventsPath, digestPath); err != nil {
+			return fmt.Errorf("auto-split fresh hub.db: %w", err)
+		}
+		return nil
+	}
+	for _, p := range []string{eventsPath, digestPath} {
+		if _, err := os.Stat(p); err != nil {
+			return fmt.Errorf("hub.db is split but %s is missing (%v); restore it from backup or re-run the split", filepath.Base(p), err)
+		}
+	}
+	return nil
+}
+
 // ensureEventsStore opens events.db and makes sure its schema is present
 // (idempotent). Returns an open connection the caller must Close.
 func ensureEventsStore(path string) (*sql.DB, error) {
@@ -200,6 +269,57 @@ func movingTableRowCount(db *sql.DB) (int64, error) {
 		total += n
 	}
 	return total, nil
+}
+
+// SplitReport is the outcome of the one-shot `hub-server db split` command.
+type SplitReport struct {
+	AlreadySplit bool
+	Events       int64
+	Digests      int64
+	Turns        int64
+	EventsPath   string
+	DigestPath   string
+}
+
+// RunStoreSplit is the offline `hub-server db split` entry point: migrate the
+// control DB to current, then (if not already split) relocate the moving tables
+// into events.db / digest.db beside it. It refuses to clobber pre-existing
+// store files. The server must not be running. Returns a report for the CLI.
+func RunStoreSplit(controlPath string) (SplitReport, error) {
+	var rep SplitReport
+	rep.EventsPath, rep.DigestPath = storePathsFor(controlPath)
+
+	// OpenDB applies any pending migrations so the moving tables are at their
+	// current schema before we copy them.
+	db, err := OpenDB(controlPath)
+	if err != nil {
+		return rep, err
+	}
+	has, err := controlHasMovingTables(db)
+	if err != nil {
+		db.Close()
+		return rep, err
+	}
+	if !has {
+		db.Close()
+		rep.AlreadySplit = true
+		return rep, nil
+	}
+	// Record what we're about to move (for the CLI summary).
+	_ = db.QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&rep.Events)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM agent_event_digests`).Scan(&rep.Digests)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM agent_turns`).Scan(&rep.Turns)
+	db.Close() // release the control handle before the offline copy/drop
+
+	for _, p := range []string{rep.EventsPath, rep.DigestPath} {
+		if _, err := os.Stat(p); err == nil {
+			return rep, fmt.Errorf("%s already exists; refusing to overwrite — move it aside first", filepath.Base(p))
+		}
+	}
+	if err := splitStores(controlPath, rep.EventsPath, rep.DigestPath); err != nil {
+		return rep, err
+	}
+	return rep, nil
 }
 
 // splitStores performs the one-shot physical split: it copies the moving tables

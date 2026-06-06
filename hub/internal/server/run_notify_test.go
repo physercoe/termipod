@@ -36,7 +36,7 @@ func TestNotifyRunOwner_DeliversOnTerminal(t *testing.T) {
 	var (
 		kind, producer, payloadJSON string
 	)
-	if err := s.db.QueryRow(`
+	if err := s.eventsDB.QueryRow(`
 		SELECT kind, producer, payload_json
 		  FROM agent_events
 		 WHERE agent_id = ? AND kind = 'run.notify'
@@ -80,7 +80,7 @@ func TestNotifyRunOwner_SkipsNonTerminal(t *testing.T) {
 	}
 	s.notifyRunOwner(context.Background(), defaultTeamID, runID, "running")
 	var count int
-	if err := s.db.QueryRow(`
+	if err := s.eventsDB.QueryRow(`
 		SELECT COUNT(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'run.notify'`, workerID,
 	).Scan(&count); err != nil {

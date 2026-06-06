@@ -17,7 +17,9 @@ import (
 // to stub costs can replace this single function via build tags or a
 // vars-only override later.
 func pricingSessionCost(ctx context.Context, s *Server, sessionID string) (pricing.Result, error) {
-	return pricing.SessionCost(ctx, s.db, s.pricing, sessionID)
+	// Usage events live in the event store (ADR-045 P1) — pricing reads
+	// agent_events, so it takes the event reader, not the control pool.
+	return pricing.SessionCost(ctx, s.eventsDB, s.pricing, sessionID)
 }
 
 // sessionCostOut is the wire shape of GET /v1/teams/{team}/sessions/{session}/cost
@@ -26,13 +28,13 @@ func pricingSessionCost(ctx context.Context, s *Server, sessionID string) (prici
 // for: …" disclaimer; snapshot_date + origin tell the user how fresh
 // (and from which tier) their pricing table is.
 type sessionCostOut struct {
-	SessionID    string                  `json:"session_id"`
-	TotalUSD     float64                 `json:"total_usd"`
-	Breakdown    map[string]float64      `json:"breakdown_by_model,omitempty"`
-	Tokens       map[string]tokenCounts  `json:"tokens_by_model,omitempty"`
-	Missing      []string                `json:"missing_models,omitempty"`
-	SnapshotDate string                  `json:"snapshot_date,omitempty"`
-	Origin       string                  `json:"origin,omitempty"`
+	SessionID    string                 `json:"session_id"`
+	TotalUSD     float64                `json:"total_usd"`
+	Breakdown    map[string]float64     `json:"breakdown_by_model,omitempty"`
+	Tokens       map[string]tokenCounts `json:"tokens_by_model,omitempty"`
+	Missing      []string               `json:"missing_models,omitempty"`
+	SnapshotDate string                 `json:"snapshot_date,omitempty"`
+	Origin       string                 `json:"origin,omitempty"`
 	// Imputed is always true today — every value in this payload is
 	// derived from a public-API rate sheet, NOT from per-token billing
 	// data. Mobile surfaces this as a tooltip disclaimer so users on

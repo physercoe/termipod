@@ -17,7 +17,7 @@ import (
 // process, no tunnel — so they are safe to run as an offline preflight.
 func runDB(args []string, log *slog.Logger) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: hub-server db <vacuum|migrate> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: hub-server db <vacuum|migrate|split> [flags]")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -25,10 +25,42 @@ func runDB(args []string, log *slog.Logger) {
 		runDBVacuum(args[1:], log)
 	case "migrate":
 		runDBMigrate(args[1:], log)
+	case "split":
+		runDBSplit(args[1:], log)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown db subcommand: %s\n", args[0])
 		os.Exit(2)
 	}
+}
+
+// runDBSplit performs the one-shot three-store split (ADR-045 P1 step 4):
+// relocate the high-volume agent_events / agent_event_digests / agent_turns
+// tables out of hub.db into events.db / digest.db beside it, so each gets its
+// own SQLite writer. Offline — the server must be stopped (and a backup taken)
+// first; the server refuses to serve a populated un-split hub.db. Idempotent: a
+// no-op once the split has run.
+func runDBSplit(args []string, log *slog.Logger) {
+	fs := flag.NewFlagSet("db split", flag.ExitOnError)
+	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
+	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
+	_ = fs.Parse(args)
+	if *dbPath == "" {
+		*dbPath = filepath.Join(*dataRoot, "hub.db")
+	}
+
+	rep, err := server.RunStoreSplit(*dbPath)
+	if err != nil {
+		log.Error("db split failed", "err", err)
+		os.Exit(1)
+	}
+	if rep.AlreadySplit {
+		fmt.Printf("db split: %s is already split — nothing to do\n", *dbPath)
+		return
+	}
+	fmt.Printf("db split: %s\n", *dbPath)
+	fmt.Printf("  events.db: %d agent_events\n", rep.Events)
+	fmt.Printf("  digest.db: %d agent_event_digests, %d agent_turns\n", rep.Digests, rep.Turns)
+	fmt.Printf("  paths:     %s, %s\n", rep.EventsPath, rep.DigestPath)
 }
 
 // vacuumResult is the before/after accounting `db vacuum` reports.

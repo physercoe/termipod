@@ -16,7 +16,7 @@ import (
 func seedEventFull(t *testing.T, s *Server, agentID, sessionID string,
 	seq int, ts, kind, payloadJSON string) {
 	t.Helper()
-	if _, err := s.db.Exec(`
+	if _, err := s.eventsWriteDB.Exec(`
 		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
 		VALUES (?,?,?,?,?,?,?,?)`,
 		NewID(), agentID, seq, ts, kind, "agent", payloadJSON, sessionID,
@@ -67,7 +67,7 @@ func TestErrorEventsKeyset_FiltersCanonicalErrors(t *testing.T) {
 	c := newE2E(t)
 	agentID, sessionID := seedVectorRun(t, c)
 	// Replace the vector's events with a controlled mix.
-	if _, err := c.s.db.Exec(
+	if _, err := c.s.eventsWriteDB.Exec(
 		`DELETE FROM agent_events WHERE agent_id = ?`, agentID); err != nil {
 		t.Fatalf("clear events: %v", err)
 	}

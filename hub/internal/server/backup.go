@@ -16,6 +16,8 @@ import (
 
 // Backup writes a tar.gz to outPath containing:
 //   - hub.db.snapshot — a consistent SQLite snapshot taken with VACUUM INTO
+//   - events.db.snapshot / digest.db.snapshot — the event + digest stores
+//     (ADR-045 P1), each snapshotted the same way; absent for an un-split DB
 //   - team/   — templates, policy YAML, agent_families overlay (if present)
 //   - blobs/  — content-addressed attached files (if present)
 //
@@ -23,6 +25,12 @@ import (
 // live: SQLite serializes the export against ongoing writes inside a
 // single transaction, the archive captures the committed state, and
 // new mutations after the snapshot starts go to a later backup.
+//
+// The three stores are snapshotted independently (no cross-file
+// transaction), so a write landing in events.db between the hub.db and
+// events.db snapshots is captured by the next backup — the same
+// eventual-consistency the live split already has (a derived digest is
+// recomputable from the event log via read-repair).
 //
 // dbPath, dataRoot and outPath must all resolve to absolute paths the
 // process can read (and outPath must be writable). dataRoot may be empty
@@ -39,18 +47,6 @@ func Backup(ctx context.Context, dbPath, dataRoot, outPath string) error {
 		return fmt.Errorf("ensure out dir: %w", err)
 	}
 
-	// VACUUM INTO needs a path that doesn't exist yet; place it next
-	// to dbPath so it's on the same filesystem (avoids cross-fs rename
-	// issues on weird mounts) and is removed after we stream it into
-	// the archive.
-	tmpSnap := dbPath + ".backup-tmp"
-	_ = os.Remove(tmpSnap)
-	defer os.Remove(tmpSnap)
-
-	if err := vacuumInto(ctx, dbPath, tmpSnap); err != nil {
-		return fmt.Errorf("snapshot db: %w", err)
-	}
-
 	out, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("create archive: %w", err)
@@ -61,8 +57,25 @@ func Backup(ctx context.Context, dbPath, dataRoot, outPath string) error {
 	tw := tar.NewWriter(gz)
 	defer tw.Close()
 
-	if err := addFile(tw, tmpSnap, "hub.db.snapshot"); err != nil {
-		return err
+	// Snapshot each store that exists. hub.db is always present; events.db /
+	// digest.db exist only on a split deployment (ADR-045 P1 step 4).
+	eventsPath, digestPath := storePathsFor(dbPath)
+	stores := []struct{ path, snapName string }{
+		{dbPath, "hub.db.snapshot"},
+		{eventsPath, "events.db.snapshot"},
+		{digestPath, "digest.db.snapshot"},
+	}
+	for _, st := range stores {
+		if st.path != dbPath {
+			if _, err := os.Stat(st.path); errors.Is(err, fs.ErrNotExist) {
+				continue
+			} else if err != nil {
+				return fmt.Errorf("stat %s: %w", st.snapName, err)
+			}
+		}
+		if err := snapshotInto(ctx, tw, st.path, st.snapName); err != nil {
+			return err
+		}
 	}
 	if dataRoot != "" {
 		for _, sub := range []string{"team", "blobs"} {
@@ -78,6 +91,19 @@ func Backup(ctx context.Context, dbPath, dataRoot, outPath string) error {
 		}
 	}
 	return nil
+}
+
+// snapshotInto VACUUMs dbPath into a temp file next to it (same filesystem),
+// streams that consistent snapshot into the archive under snapName, and removes
+// the temp.
+func snapshotInto(ctx context.Context, tw *tar.Writer, dbPath, snapName string) error {
+	tmp := dbPath + ".backup-tmp"
+	_ = os.Remove(tmp)
+	defer os.Remove(tmp)
+	if err := vacuumInto(ctx, dbPath, tmp); err != nil {
+		return fmt.Errorf("snapshot %s: %w", snapName, err)
+	}
+	return addFile(tw, tmp, snapName)
 }
 
 // vacuumInto opens dbPath read-only, runs VACUUM INTO 'dst' which writes
@@ -152,8 +178,13 @@ func Restore(ctx context.Context, archivePath, dataRoot string, force bool) erro
 			return fmt.Errorf("unsafe entry in archive: %q", hdr.Name)
 		}
 		dst := filepath.Join(dataRoot, hdr.Name)
-		if hdr.Name == "hub.db.snapshot" {
+		switch hdr.Name {
+		case "hub.db.snapshot":
 			dst = dbPath
+		case "events.db.snapshot":
+			dst = filepath.Join(dataRoot, "events.db")
+		case "digest.db.snapshot":
+			dst = filepath.Join(dataRoot, "digest.db")
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:

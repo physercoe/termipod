@@ -125,7 +125,7 @@ func TestInsights_StampsProjectIDOnInsert(t *testing.T) {
 	})
 
 	var got string
-	if err := srv.db.QueryRow(`
+	if err := srv.eventsDB.QueryRow(`
 		SELECT project_id FROM agent_events
 		 WHERE agent_id = ? AND kind = 'usage' LIMIT 1`,
 		agent).Scan(&got); err != nil {
@@ -156,7 +156,7 @@ func TestInsights_SkipsProjectIDForNonProjectScopes(t *testing.T) {
 	})
 
 	var got string
-	err := srv.db.QueryRow(`
+	err := srv.eventsDB.QueryRow(`
 		SELECT COALESCE(project_id, '') FROM agent_events
 		 WHERE agent_id = ? AND session_id = ? LIMIT 1`,
 		agent, teamSession).Scan(&got)
@@ -422,22 +422,26 @@ func TestInsights_BackfillStampsLegacyEvents(t *testing.T) {
 		"input_tokens":  100,
 		"output_tokens": 20,
 	})
-	if _, err := srv.db.Exec(
+	if _, err := srv.eventsWriteDB.Exec(
 		`UPDATE agent_events SET project_id = NULL WHERE agent_id = ?`, agent,
 	); err != nil {
 		t.Fatalf("clear project_id: %v", err)
 	}
 
-	// Now run the same backfill query the migration runs.
-	if _, err := srv.db.Exec(`
-		UPDATE agent_events
-		   SET project_id = (
-		     SELECT s.scope_id FROM sessions s
-		      WHERE s.id = agent_events.session_id
-		        AND s.scope_kind = 'project'
-		   )
-		 WHERE session_id IS NOT NULL
-		   AND project_id IS NULL`); err != nil {
+	// Run the backfill as an app-level two-step: post-split agent_events (event
+	// store) and sessions (control store) live in different files, so the
+	// migration's in-SQL join is impossible — resolve the session's project from
+	// control, then stamp it onto the event store.
+	var proj string
+	if err := srv.db.QueryRow(
+		`SELECT scope_id FROM sessions WHERE id = ? AND scope_kind = 'project'`, session,
+	).Scan(&proj); err != nil {
+		t.Fatalf("resolve project: %v", err)
+	}
+	if _, err := srv.eventsWriteDB.Exec(
+		`UPDATE agent_events SET project_id = ? WHERE session_id = ? AND project_id IS NULL`,
+		proj, session,
+	); err != nil {
 		t.Fatalf("backfill: %v", err)
 	}
 

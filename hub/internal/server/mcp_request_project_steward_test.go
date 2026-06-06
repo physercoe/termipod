@@ -179,7 +179,7 @@ func TestDecide_ProjectStewardRequestFansOutAttentionReply(t *testing.T) {
 	}
 
 	var seqBefore int64
-	_ = c.s.db.QueryRow(`
+	_ = c.s.eventsDB.QueryRow(`
 		SELECT COALESCE(MAX(seq), 0) FROM agent_events WHERE agent_id = ?`,
 		out.AgentID,
 	).Scan(&seqBefore)
@@ -196,7 +196,7 @@ func TestDecide_ProjectStewardRequestFansOutAttentionReply(t *testing.T) {
 		t.Fatalf("decide = %d", status)
 	}
 
-	rows, err := c.s.db.Query(`
+	rows, err := c.s.eventsDB.Query(`
 		SELECT kind, producer, payload_json
 		  FROM agent_events
 		 WHERE agent_id = ? AND seq > ?
@@ -281,7 +281,7 @@ func TestDecide_ProjectStewardRequestRejectFansOut(t *testing.T) {
 	}
 
 	var seqBefore int64
-	_ = c.s.db.QueryRow(`
+	_ = c.s.eventsDB.QueryRow(`
 		SELECT COALESCE(MAX(seq), 0) FROM agent_events WHERE agent_id = ?`,
 		out.AgentID,
 	).Scan(&seqBefore)
@@ -297,7 +297,7 @@ func TestDecide_ProjectStewardRequestRejectFansOut(t *testing.T) {
 		t.Fatalf("decide = %d", status)
 	}
 
-	rows, err := c.s.db.Query(`
+	rows, err := c.s.eventsDB.Query(`
 		SELECT kind, payload_json FROM agent_events
 		 WHERE agent_id = ? AND seq > ?
 		 ORDER BY seq ASC`, out.AgentID, seqBefore)

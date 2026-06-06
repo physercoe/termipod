@@ -36,7 +36,7 @@ func TestSumTurnActiveMs(t *testing.T) {
 
 	save := func(agentID, turnID string, idx int, durMs int64) {
 		t.Helper()
-		if err := saveTurnRow(ctx, c.s.db, agentID, defaultTeamID, &turnRow{
+		if err := saveTurnRow(ctx, c.s.digestWriteDB, agentID, defaultTeamID, &turnRow{
 			TurnID:     turnID,
 			Idx:        idx,
 			StartSeq:   int64(idx*10 + 1),

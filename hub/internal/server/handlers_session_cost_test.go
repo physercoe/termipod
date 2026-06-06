@@ -181,7 +181,7 @@ func insertUsageEvent(t *testing.T, s *Server, agentID, sesID string, seq int, p
 
 func insertEventRow(t *testing.T, s *Server, agentID, sesID string, seq int, kind, payload string) {
 	t.Helper()
-	if _, err := s.db.Exec(
+	if _, err := s.eventsWriteDB.Exec(
 		`INSERT INTO agent_events
 		   (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
 		 VALUES (?, ?, ?, ?, ?, 'agent', ?, ?)`,

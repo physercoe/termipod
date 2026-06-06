@@ -55,7 +55,7 @@ func TestLoadLoopHooks_Overlay(t *testing.T) {
 func systemInputCount(t *testing.T, s *Server, agentID string) int {
 	t.Helper()
 	var n int
-	if err := s.db.QueryRow(`
+	if err := s.eventsDB.QueryRow(`
 		SELECT COUNT(*) FROM agent_events
 		 WHERE agent_id = ? AND kind = 'input.text' AND producer = 'system'`,
 		agentID).Scan(&n); err != nil {

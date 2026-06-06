@@ -22,10 +22,14 @@ type agentEventRower interface {
 // agentEventInsert is the per-call shape: everything that varies between the
 // insert sites. The id, seq, and ts are assigned by insertAgentEvent.
 type agentEventInsert struct {
-	AgentID     string
-	SessionID   string // "" → stored as NULL (an event without a session)
-	Kind        string
-	Producer    string // 'agent' | 'user' | 'system' | 'a2a'
+	AgentID   string
+	SessionID string // "" → stored as NULL (an event without a session)
+	Kind      string
+	Producer  string // 'agent' | 'user' | 'system' | 'a2a'
+	// ProjectID is normally left "" — insertAgentEvent resolves it from the
+	// session's project scope (replacing the agent_events_stamp_project trigger).
+	// Set it only to override that resolution.
+	ProjectID   string
 	PayloadJSON string
 }
 
@@ -51,21 +55,37 @@ type agentEventInsert struct {
 // session). Callers that maintain the per-event digest pass it on so the
 // incremental fold records the same ordinal the brute-force fold reads back
 // from the column (the incremental==brute invariant, ADR-038).
-func insertAgentEvent(ctx context.Context, q agentEventRower, ev agentEventInsert) (id string, seq, sord int64, ts string, err error) {
+//
+// project_id is resolved here from the session's project scope when the caller
+// leaves ev.ProjectID empty — the handler-side replacement for the
+// agent_events_stamp_project trigger (dropped in migration 0055 because it read
+// sessions, which lives in the control store, so it can't survive agent_events
+// moving to its own file — ADR-045 step 4). The sessions read goes through
+// s.db (control); the insert through q (the event store). They need no shared
+// transaction: the session is already committed by the time its agent posts
+// events. A method (not a free function) so it reaches the control store.
+func (s *Server) insertAgentEvent(ctx context.Context, q agentEventRower, ev agentEventInsert) (id string, seq, sord int64, ts string, err error) {
+	if ev.ProjectID == "" && ev.SessionID != "" {
+		var pid sql.NullString
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT scope_id FROM sessions WHERE id = ? AND scope_kind = 'project'`,
+			ev.SessionID).Scan(&pid)
+		ev.ProjectID = pid.String
+	}
 	id = NewID()
 	ts = NowUTC()
 	var sordN sql.NullInt64
 	err = q.QueryRowContext(ctx, `
-		INSERT INTO agent_events (id, agent_id, seq, session_ordinal, ts, kind, producer, payload_json, session_id)
+		INSERT INTO agent_events (id, agent_id, seq, session_ordinal, ts, kind, producer, payload_json, session_id, project_id)
 		SELECT ?, ?,
 		       COALESCE(MAX(seq), 0) + 1,
 		       CASE WHEN NULLIF(?, '') IS NULL THEN NULL
 		            ELSE COALESCE((SELECT MAX(session_ordinal) FROM agent_events WHERE session_id = ?), 0) + 1
 		       END,
-		       ?, ?, ?, ?, NULLIF(?, '')
+		       ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, '')
 		  FROM agent_events WHERE agent_id = ?
 		RETURNING seq, session_ordinal`,
 		id, ev.AgentID, ev.SessionID, ev.SessionID,
-		ts, ev.Kind, ev.Producer, ev.PayloadJSON, ev.SessionID, ev.AgentID).Scan(&seq, &sordN)
+		ts, ev.Kind, ev.Producer, ev.PayloadJSON, ev.SessionID, ev.ProjectID, ev.AgentID).Scan(&seq, &sordN)
 	return id, seq, sordN.Int64, ts, err
 }

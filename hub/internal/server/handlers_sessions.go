@@ -968,7 +968,7 @@ func (s *Server) carryModeModelStateAcrossResume(ctx context.Context, priorAgent
 	}
 	sessionID := s.lookupSessionForAgent(ctx, newAgentID)
 	// Best-effort marker; the carried mode/model state already applied.
-	_, _, _, _, _ = insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
+	_, _, _, _, _ = s.insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
 		AgentID:     newAgentID,
 		SessionID:   sessionID,
 		Kind:        "system",
@@ -1024,7 +1024,7 @@ func (s *Server) maybeEmitContextMutationMarker(
 	if err != nil {
 		return
 	}
-	id, seq, _, ts, err := insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
+	id, seq, _, ts, err := s.insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        mut.Kind,

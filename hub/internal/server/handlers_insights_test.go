@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -75,12 +76,17 @@ func insightsSetup(t *testing.T) (s *Server, token, team, project, agent, sessio
 func insertEvent(t *testing.T, srv *Server, agent, session, kind string, payload map[string]any) {
 	t.Helper()
 	body, _ := json.Marshal(payload)
-	if _, err := srv.db.Exec(`
-		INSERT INTO agent_events
-			(id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, 'agent', ?, ?
-		  FROM agent_events WHERE agent_id = ?`,
-		NewID(), agent, NowUTC(), kind, string(body), session, agent); err != nil {
+	// Route through insertAgentEvent so project_id is stamped from the session's
+	// project scope (the handler-side replacement for the dropped
+	// agent_events_stamp_project trigger — ADR-045 step 4), exactly as a live
+	// POST does.
+	if _, _, _, _, err := srv.insertAgentEvent(context.Background(), srv.eventsWriteDB, agentEventInsert{
+		AgentID:     agent,
+		SessionID:   session,
+		Kind:        kind,
+		Producer:    "agent",
+		PayloadJSON: string(body),
+	}); err != nil {
 		t.Fatalf("seed event: %v", err)
 	}
 }
@@ -105,12 +111,12 @@ func callInsights(t *testing.T, srv *Server, token, project string, since, until
 	return rr.Code, &out
 }
 
-// TestInsights_TriggerStampsProjectID validates the migration 0036
-// trigger: any agent_events INSERT whose session is project-scoped
-// must auto-populate project_id without the caller setting it. This is
-// the contract that lets the seven existing INSERT INTO agent_events
-// sites stay untouched.
-func TestInsights_TriggerStampsProjectID(t *testing.T) {
+// TestInsights_StampsProjectIDOnInsert validates the handler-side project_id
+// resolution in insertAgentEvent (which replaced the agent_events_stamp_project
+// trigger in ADR-045 step 4): any insert whose session is project-scoped must
+// auto-populate project_id without the caller setting it, so the insert sites
+// stay untouched.
+func TestInsights_StampsProjectIDOnInsert(t *testing.T) {
 	srv, _, _, project, agent, session := insightsSetup(t)
 
 	insertEvent(t, srv, agent, session, "usage", map[string]any{
@@ -126,14 +132,14 @@ func TestInsights_TriggerStampsProjectID(t *testing.T) {
 		t.Fatalf("read project_id: %v", err)
 	}
 	if got != project {
-		t.Errorf("project_id=%q want=%q (trigger should have stamped from sessions(scope_kind=project))", got, project)
+		t.Errorf("project_id=%q want=%q (insert should have stamped from sessions(scope_kind=project))", got, project)
 	}
 }
 
-// TestInsights_TriggerSkipsNonProjectScopes covers the negative — a
+// TestInsights_SkipsProjectIDForNonProjectScopes covers the negative — a
 // session with a non-project scope must NOT stamp project_id, even
 // though the column would otherwise admit any string.
-func TestInsights_TriggerSkipsNonProjectScopes(t *testing.T) {
+func TestInsights_SkipsProjectIDForNonProjectScopes(t *testing.T) {
 	srv, _, team, _, agent, _ := insightsSetup(t)
 
 	teamSession := NewID()
@@ -396,13 +402,12 @@ func TestInsights_RequiresAuth(t *testing.T) {
 
 // TestInsights_BackfillStampsLegacyEvents exercises migration 0036's
 // one-shot UPDATE: events that existed before the column was added must
-// pick up project_id when their session's scope_kind='project'. Because
-// the migration ran at OpenDB time we re-create the legacy state by
-// inserting an event with project_id explicitly NULL via a direct row
-// touch, then verify the trigger doesn't override (covers the negative
-// of the trigger path). The migration path is implicitly verified by
-// every other test: they all read events that were inserted post-migration
-// and rely on the trigger to keep project_id consistent.
+// pick up project_id when their session's scope_kind='project'. We re-create
+// the legacy state by inserting an event and then clearing its project_id to
+// NULL, mirroring a row that pre-dated the column, then run the same backfill
+// UPDATE and verify the event aggregates. The live stamping path is verified by
+// every other test: they all read events whose project_id was stamped by
+// insertAgentEvent at insert time.
 //
 // At MVP scale (<100k rows) the up-migration finishes well under the
 // plan's 5s budget — that's an integration concern, not a unit one;
@@ -411,8 +416,8 @@ func TestInsights_RequiresAuth(t *testing.T) {
 func TestInsights_BackfillStampsLegacyEvents(t *testing.T) {
 	srv, tok, _, project, agent, session := insightsSetup(t)
 
-	// Force a row to exist with a NULL project_id by clearing the trigger
-	// stamp post-insert. Mirrors a row that pre-dated the migration.
+	// Force a row to exist with a NULL project_id by clearing the stamp
+	// post-insert. Mirrors a row that pre-dated the column.
 	insertEvent(t, srv, agent, session, "usage", map[string]any{
 		"input_tokens":  100,
 		"output_tokens": 20,

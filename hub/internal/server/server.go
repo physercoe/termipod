@@ -70,6 +70,9 @@ type Server struct {
 	eventsWriteDB *sql.DB // agent_events (+ _fts) writer  — events.db
 	digestDB      *sql.DB // agent_event_digests + agent_turns reader — digest.db
 	digestWriteDB *sql.DB // agent_event_digests + agent_turns writer — digest.db
+	// agentTeam caches the immutable (agent id → team) binding used to route an
+	// agent-keyed event/digest access to its shard (store_route.go, ADR-045 P2).
+	agentTeam     sync.Map
 	router        chi.Router
 	log           *slog.Logger
 	bus           *eventBus

@@ -54,7 +54,7 @@ func (s *Server) handleGetSessionDigest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	agentIDs, err := s.sessionAgentIDs(r.Context(), session)
+	agentIDs, err := s.sessionAgentIDs(r.Context(), team, session)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -97,15 +97,24 @@ func (s *Server) sumTurnActiveMs(ctx context.Context, agentIDs []string) (int64,
 	}
 	q := `SELECT COALESCE(SUM(duration_ms), 0) FROM agent_turns
 	       WHERE duration_ms > 0 AND agent_id IN (` + strings.Join(placeholders, ",") + `)`
+	dr, err := s.digestReaderForAgents(ctx, agentIDs)
+	if err != nil {
+		return 0, err
+	}
 	var ms int64
-	err := s.digestDB.QueryRowContext(ctx, q, args...).Scan(&ms)
+	err = dr.QueryRowContext(ctx, q, args...).Scan(&ms)
 	return ms, err
 }
 
 // sessionAgentIDs returns the agents that produced events in a session,
 // ordered by first activity (the ts order the session transcript uses).
-func (s *Server) sessionAgentIDs(ctx context.Context, session string) ([]string, error) {
-	rows, err := s.eventsDB.QueryContext(ctx, `
+// sessionAgentIDs is team-keyed (ADR-045 P2): the session's events live in its
+// team's shard, and the caller always knows the team — the /v1/teams/{team}/…
+// URL, or (the OTLP export) by resolving it from the session row. Resolving it
+// here from control would add a round-trip and fail for a session with events
+// but no control row.
+func (s *Server) sessionAgentIDs(ctx context.Context, team, session string) ([]string, error) {
+	rows, err := s.eventsReader(team).QueryContext(ctx, `
 		SELECT agent_id FROM agent_events
 		 WHERE session_id = ?
 		 GROUP BY agent_id

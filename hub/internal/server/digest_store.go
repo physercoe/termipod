@@ -247,12 +247,13 @@ func (s *Server) foldEventIntoDigest(ctx context.Context, team, agent string, se
 
 	// ADR-045 step 2: digest writes go in their own digest-store tx; the rare
 	// event reads inside the fold use the event-store reader (no shared tx).
-	tx, err := s.digestWriteDB.BeginTx(ctx, nil)
+	// P2: both resolve to the team's shard.
+	tx, err := s.digestWriter(team).BeginTx(ctx, nil)
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
-	if err := foldEventIncremental(ctx, s.eventsDB, tx, agent, team, e); err != nil {
+	if err := foldEventIncremental(ctx, s.eventsReader(team), tx, agent, team, e); err != nil {
 		return
 	}
 	_ = tx.Commit()
@@ -268,18 +269,18 @@ func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string
 	if err != nil {
 		return
 	}
-	outcome := s.deriveDigestOutcome(ctx, agentID)
+	outcome := s.deriveDigestOutcome(ctx, team, agentID)
 	if outcome == "" || outcome == d.Outcome {
 		return
 	}
 	d.Outcome = outcome
-	_ = saveAgentDigest(ctx, s.digestWriteDB, d)
+	_ = saveAgentDigest(ctx, s.digestWriter(team), d)
 }
 
 // deriveDigestOutcome resolves the agent's run outcome: the assigned task's
 // terminal state when it has one (done > blocked > cancelled), else the last
 // closed turn's status, else "terminated".
-func (s *Server) deriveDigestOutcome(ctx context.Context, agentID string) string {
+func (s *Server) deriveDigestOutcome(ctx context.Context, team, agentID string) string {
 	var taskStatus string
 	_ = s.db.QueryRowContext(ctx, `
 		SELECT status FROM tasks
@@ -290,7 +291,7 @@ func (s *Server) deriveDigestOutcome(ctx context.Context, agentID string) string
 		return taskStatus
 	}
 	var lastTurnStatus string
-	_ = s.digestDB.QueryRowContext(ctx, `
+	_ = s.digestReader(team).QueryRowContext(ctx, `
 		SELECT status FROM agent_turns
 		 WHERE agent_id = ? AND end_seq > 0 AND status != ''
 		 ORDER BY idx DESC LIMIT 1`, agentID).Scan(&lastTurnStatus)
@@ -335,7 +336,10 @@ func resolveToolName(ctx context.Context, q digestStore, agentID, id string) str
 // ADR-045 step 2: a method so it reaches each store directly — the digest read
 // from s.digestDB, the staleness probe (agent_events MAX(seq)) from s.eventsDB.
 func (s *Server) ensureAgentDigest(ctx context.Context, agentID, teamID string) (*agentDigest, error) {
-	d, ok, err := loadAgentDigest(ctx, s.digestDB, agentID)
+	if teamID == "" {
+		_ = s.db.QueryRowContext(ctx, `SELECT team_id FROM agents WHERE id = ?`, agentID).Scan(&teamID)
+	}
+	d, ok, err := loadAgentDigest(ctx, s.digestReader(teamID), agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +347,7 @@ func (s *Server) ensureAgentDigest(ctx context.Context, agentID, teamID string) 
 	// ADR-039 bump that widened the error seq list) so already-sealed agents
 	// pick up the new shape, not only when the watermark lags the log.
 	if ok && d.SchemaVersion >= digestSchemaVersion &&
-		!digestIsStale(ctx, s.eventsDB, agentID, d.WatermarkSeq) {
+		!digestIsStale(ctx, s.eventsReader(teamID), agentID, d.WatermarkSeq) {
 		return d, nil
 	}
 	// Missing, stale, or an older schema — (re)compute.
@@ -361,13 +365,13 @@ func (s *Server) backfillAgentDigest(ctx context.Context, agentID, teamID string
 	if teamID == "" {
 		_ = s.db.QueryRowContext(ctx, `SELECT team_id FROM agents WHERE id = ?`, agentID).Scan(&teamID)
 	}
-	events, err := loadFoldEvents(ctx, s.eventsDB, agentID)
+	events, err := loadFoldEvents(ctx, s.eventsReader(teamID), agentID)
 	if err != nil {
 		return nil, err
 	}
 	d, turns := computeAgentDigest(agentID, teamID, events)
 
-	tx, err := s.digestWriteDB.BeginTx(ctx, nil)
+	tx, err := s.digestWriter(teamID).BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -232,7 +232,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	// a missing cost must NEVER prevent the session GET from returning
 	// (the chip self-gates on a null field per D9).
 	if s.pricing != nil {
-		if res, err := pricingSessionCost(r.Context(), s, id); err == nil {
+		if res, err := pricingSessionCost(r.Context(), s, team, id); err == nil {
 			if res.TotalUSD > 0 || len(res.Breakdown) > 0 {
 				v := res.TotalUSD
 				ses.SessionCostUSDImputed = &v
@@ -346,7 +346,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		// Already deleted — idempotent success is friendlier than 404
 		// for users who tap delete twice. Re-run the event-store unlink in
 		// case a prior delete crashed between the two stores (below).
-		s.clearSessionFromEvents(r.Context(), id)
+		s.clearSessionFromEvents(r.Context(), team, id)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -386,7 +386,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.clearSessionFromEvents(r.Context(), id)
+	s.clearSessionFromEvents(r.Context(), team, id)
 	s.recordAudit(r.Context(), team, "session.delete", "session", id,
 		"session deleted", nil)
 	w.WriteHeader(http.StatusNoContent)
@@ -398,8 +398,11 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 // best-effort: the events are the agent's history, owned by audit, not the
 // session, so a transient failure only leaves a harmless dangling ref a later
 // delete re-clears.
-func (s *Server) clearSessionFromEvents(ctx context.Context, sessionID string) {
-	_, _ = s.eventsWriteDB.ExecContext(ctx,
+func (s *Server) clearSessionFromEvents(ctx context.Context, team, sessionID string) {
+	// team is threaded from the caller (not resolved from the session): this
+	// runs after the control session row is already deleted, so the session can
+	// no longer resolve its own shard.
+	_, _ = s.eventsWriter(team).ExecContext(ctx,
 		`UPDATE agent_events SET session_id = NULL WHERE session_id = ?`, sessionID)
 }
 
@@ -915,7 +918,11 @@ func (s *Server) carryModeModelStateAcrossResume(ctx context.Context, priorAgent
 	// gate requires the list to be non-empty. Composing across events
 	// mirrors the mobile-side reducer, so the picker survives any
 	// fragmentation of the underlying event stream.
-	rows, err := s.eventsDB.QueryContext(ctx, `
+	er, rerr := s.eventsReaderForAgent(ctx, priorAgentID)
+	if rerr != nil {
+		return
+	}
+	rows, err := er.QueryContext(ctx, `
 		SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'system' AND producer = 'system'
 		   AND (payload_json LIKE '%currentModeId%'
@@ -968,7 +975,7 @@ func (s *Server) carryModeModelStateAcrossResume(ctx context.Context, priorAgent
 	}
 	sessionID := s.lookupSessionForAgent(ctx, newAgentID)
 	// Best-effort marker; the carried mode/model state already applied.
-	_, _, _, _, _ = s.insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
+	_, _, _, _, _ = s.insertAgentEvent(ctx, agentEventInsert{
 		AgentID:     newAgentID,
 		SessionID:   sessionID,
 		Kind:        "system",
@@ -1024,7 +1031,7 @@ func (s *Server) maybeEmitContextMutationMarker(
 	if err != nil {
 		return
 	}
-	id, seq, _, ts, err := s.insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
+	id, seq, _, ts, err := s.insertAgentEvent(ctx, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        mut.Kind,

@@ -163,7 +163,7 @@ func (s *Server) runDigestFold(ctx context.Context) {
 // behind, and the next tick (or a read-repair) folds it.
 func (s *Server) foldDirtyAgent(ctx context.Context, team, agent string) {
 	// Watermark + events from their own stores, before opening the digest tx.
-	d, ok, err := loadAgentDigest(ctx, s.digestDB, agent)
+	d, ok, err := loadAgentDigest(ctx, s.digestReader(team), agent)
 	if err != nil {
 		s.log.Warn("digest worker: load", "agent", agent, "err", err)
 		return
@@ -172,7 +172,7 @@ func (s *Server) foldDirtyAgent(ctx context.Context, team, agent string) {
 	if ok {
 		watermark = d.WatermarkSeq
 	}
-	events, err := loadFoldEventsAfter(ctx, s.eventsDB, agent, watermark)
+	events, err := loadFoldEventsAfter(ctx, s.eventsReader(team), agent, watermark)
 	if err != nil {
 		s.log.Warn("digest worker: events", "agent", agent, "err", err)
 		return
@@ -181,13 +181,13 @@ func (s *Server) foldDirtyAgent(ctx context.Context, team, agent string) {
 		return
 	}
 
-	tx, err := s.digestWriteDB.BeginTx(ctx, nil)
+	tx, err := s.digestWriter(team).BeginTx(ctx, nil)
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
 	for i := range events {
-		if ferr := foldEventIncremental(ctx, s.eventsDB, tx, agent, team, events[i]); ferr != nil {
+		if ferr := foldEventIncremental(ctx, s.eventsReader(team), tx, agent, team, events[i]); ferr != nil {
 			s.log.Warn("digest worker: fold", "agent", agent, "seq", events[i].Seq, "err", ferr)
 			return
 		}

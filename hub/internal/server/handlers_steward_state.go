@@ -178,8 +178,12 @@ func (s *Server) stewardCurrentAction(
 	ctx context.Context, agentID string,
 ) *stewardAction {
 	cutoff := time.Now().UTC().Add(-stewardWorkingWindow).Format(time.RFC3339)
+	er, rerr := s.eventsReaderForAgent(ctx, agentID)
+	if rerr != nil {
+		return nil
+	}
 	var ts, kind string
-	err := s.eventsDB.QueryRowContext(ctx, `
+	err := er.QueryRowContext(ctx, `
 		SELECT ts, kind
 		FROM agent_events
 		WHERE agent_id = ? AND ts >= ?
@@ -198,8 +202,12 @@ func (s *Server) recentStewardHandoff(
 	ctx context.Context, agentID string,
 ) *stewardHandoff {
 	cutoff := time.Now().UTC().Add(-stewardHandoffWindow).Format(time.RFC3339)
+	er, rerr := s.eventsReaderForAgent(ctx, agentID)
+	if rerr != nil {
+		return nil
+	}
 	var ts, payload string
-	err := s.eventsDB.QueryRowContext(ctx, `
+	err := er.QueryRowContext(ctx, `
 		SELECT ts, payload_json
 		FROM agent_events
 		WHERE agent_id = ?

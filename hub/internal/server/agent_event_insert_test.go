@@ -20,7 +20,7 @@ func TestInsertAgentEvent_MonotonicPerAgent(t *testing.T) {
 	var wantSeq int64
 	for _, body := range []string{"a", "b", "c"} {
 		wantSeq++
-		id, seq, _, ts, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
+		id, seq, _, ts, err := s.insertAgentEvent(context.Background(), agentEventInsert{
 			AgentID:     agent,
 			SessionID:   "sess-1",
 			Kind:        "text",
@@ -83,7 +83,7 @@ func TestInsertAgentEvent_EmptySessionStoresNull(t *testing.T) {
 	s, _ := newA2ATestServer(t)
 	agent := seedAgentRow(t, s, defaultTeamID, "p0-null", "claude-code")
 
-	id, _, _, _, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
+	id, _, _, _, err := s.insertAgentEvent(context.Background(), agentEventInsert{
 		AgentID:     agent,
 		SessionID:   "",
 		Kind:        "system",
@@ -159,7 +159,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 		{a, 1, 1}, {a, 2, 2}, {b, 3, 1}, {a, 4, 3}, {b, 5, 2},
 	}
 	for i, st := range steps {
-		id, seq, sord, _, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
+		id, seq, sord, _, err := s.insertAgentEvent(context.Background(), agentEventInsert{
 			AgentID:     st.agent,
 			SessionID:   session,
 			Kind:        "text",
@@ -214,7 +214,7 @@ func TestSessionOrdinal_DenseAcrossResumedAgents(t *testing.T) {
 func TestSessionOrdinal_NullForSessionlessEvent(t *testing.T) {
 	s, _ := newA2ATestServer(t)
 	agent := seedAgentRow(t, s, defaultTeamID, "p1-null", "claude-code")
-	id, _, _, _, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
+	id, _, _, _, err := s.insertAgentEvent(context.Background(), agentEventInsert{
 		AgentID:     agent,
 		SessionID:   "",
 		Kind:        "system",
@@ -235,7 +235,7 @@ func TestSessionOrdinal_NullForSessionlessEvent(t *testing.T) {
 
 func insertSeq(t *testing.T, s *Server, agentID, session string) int64 {
 	t.Helper()
-	_, seq, _, _, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
+	_, seq, _, _, err := s.insertAgentEvent(context.Background(), agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   session,
 		Kind:        "text",

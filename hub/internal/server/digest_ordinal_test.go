@@ -32,7 +32,7 @@ func TestSessionTurns_StartOrdinalDisambiguatesResumedAgents(t *testing.T) {
 		t.Fatalf("backfill b: %v", err)
 	}
 
-	turns, err := s.listSessionTurns(ctx, session, "", 50)
+	turns, err := s.listSessionTurns(ctx, defaultTeamID, session, "", 50)
 	if err != nil {
 		t.Fatalf("listSessionTurns: %v", err)
 	}

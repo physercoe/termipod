@@ -169,7 +169,7 @@ func (s *Server) postSyntheticUserInput(ctx context.Context, agentID, body strin
 		return fmt.Errorf("synthetic input envelope rejected: %s", ae.Error())
 	}
 	payload, _ := json.Marshal(env.PayloadMap())
-	id, _, _, ts, err := s.insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
+	id, _, _, ts, err := s.insertAgentEvent(ctx, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        "input.text",
@@ -285,7 +285,7 @@ func (s *Server) fanoutResults(
 		// Look up the latest worker_report event for this agent (if any).
 		var reportPayload sql.NullString
 		var reportTS sql.NullString
-		_ = s.eventsDB.QueryRowContext(ctx, `
+		_ = s.eventsReader(team).QueryRowContext(ctx, `
 			SELECT payload_json, ts FROM agent_events
 			 WHERE agent_id = ? AND kind = 'worker_report'
 			 ORDER BY seq DESC LIMIT 1`, r.agentID).Scan(&reportPayload, &reportTS)
@@ -360,7 +360,7 @@ func (s *Server) mcpReportsPost(ctx context.Context, agentID string, raw json.Ra
 		"next_steps":       a.NextSteps,
 	})
 	sessionID := s.lookupSessionForAgent(ctx, agentID)
-	id, _, _, ts, err := s.insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
+	id, _, _, ts, err := s.insertAgentEvent(ctx, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        "worker_report",

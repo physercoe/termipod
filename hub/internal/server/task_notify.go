@@ -85,7 +85,7 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 		"body":           body,
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	id, seq, _, ts, err := s.insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
+	id, seq, _, ts, err := s.insertAgentEvent(ctx, agentEventInsert{
 		AgentID:     assignerID.String,
 		SessionID:   sessionID,
 		Kind:        "task.notify",
@@ -157,7 +157,7 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 	inputPayload["from_status"] = fromStatus
 	inputPayload["to_status"] = toStatus
 	inputBytes, _ := json.Marshal(inputPayload)
-	inputID, inputSeq, _, inputTS, err := s.insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
+	inputID, inputSeq, _, inputTS, err := s.insertAgentEvent(ctx, agentEventInsert{
 		AgentID:     assignerID.String,
 		SessionID:   sessionID,
 		Kind:        "input.text",

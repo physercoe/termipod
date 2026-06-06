@@ -105,7 +105,7 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 			args = append(args, id)
 		}
 		args = append(args, limit)
-		frows, err := s.eventsDB.QueryContext(r.Context(), `
+		frows, err := s.eventsReader(team).QueryContext(r.Context(), `
 			SELECT ae.id, COALESCE(ae.session_id, ''), ae.seq, ae.ts, ae.kind,
 			       snippet(agent_events_fts, 1, '<mark>', '</mark>', '…', 16)
 			  FROM agent_events_fts

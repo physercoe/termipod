@@ -165,7 +165,7 @@ func TestAttentionContext_NoSessionPointerReturnsEmpty(t *testing.T) {
 func seedAgentEvent(t *testing.T, s *Server, agentID, sessionID, kind string, payload map[string]any) {
 	t.Helper()
 	pj, _ := json.Marshal(payload)
-	if _, _, _, _, err := s.insertAgentEvent(context.Background(), s.eventsWriteDB, agentEventInsert{
+	if _, _, _, _, err := s.insertAgentEvent(context.Background(), agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        kind,

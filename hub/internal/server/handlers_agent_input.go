@@ -585,7 +585,7 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	payload := string(payloadBytes)
 
 	kind := "input." + in.Kind
-	id, seq, _, ts, err := s.insertAgentEvent(r.Context(), s.eventsWriteDB, agentEventInsert{
+	id, seq, _, ts, err := s.insertAgentEvent(r.Context(), agentEventInsert{
 		AgentID:     agent,
 		SessionID:   sessionID,
 		Kind:        kind,

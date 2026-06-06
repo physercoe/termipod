@@ -16,10 +16,11 @@ import (
 // the pricing import surface stays one file deep and tests that want
 // to stub costs can replace this single function via build tags or a
 // vars-only override later.
-func pricingSessionCost(ctx context.Context, s *Server, sessionID string) (pricing.Result, error) {
-	// Usage events live in the event store (ADR-045 P1) — pricing reads
-	// agent_events, so it takes the event reader, not the control pool.
-	return pricing.SessionCost(ctx, s.eventsDB, s.pricing, sessionID)
+func pricingSessionCost(ctx context.Context, s *Server, team, sessionID string) (pricing.Result, error) {
+	// Usage events live in the event store (ADR-045 P1), sharded per team
+	// (P2) — pricing reads agent_events, so it takes the team's event reader,
+	// not the control pool.
+	return pricing.SessionCost(ctx, s.eventsReader(team), s.pricing, sessionID)
 }
 
 // sessionCostOut is the wire shape of GET /v1/teams/{team}/sessions/{session}/cost
@@ -94,7 +95,7 @@ func (s *Server) handleGetSessionCost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := pricingSessionCost(r.Context(), s, id)
+	res, err := pricingSessionCost(r.Context(), s, team, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

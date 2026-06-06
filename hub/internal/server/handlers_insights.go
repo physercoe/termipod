@@ -301,6 +301,11 @@ type insightsAgg struct {
 // attention_items / projects / deliverables / criteria) on s.db. The scope's
 // EventsClause is pre-materialized to a pure-event predicate by
 // materializeInsightsScope, so the event queries never reach into control.
+//
+// ADR-045 P2: insights is a cross-team consumer — the engine / host scopes can
+// span teams, so its event reads stay on the global P1 handle here and are
+// converted to a per-team-shard fan-out + merge in P2 inc 3 (the per-team store
+// split), not the simple team-keyed routing the single-shard sites use.
 func (s *Server) buildInsightsResponse(ctx context.Context, scope *scopeFilter, since, until time.Time) (*insightsResponse, error) {
 	out := &insightsResponse{
 		Scope: insightsScope{

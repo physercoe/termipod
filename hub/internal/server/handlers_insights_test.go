@@ -80,7 +80,7 @@ func insertEvent(t *testing.T, srv *Server, agent, session, kind string, payload
 	// project scope (the handler-side replacement for the dropped
 	// agent_events_stamp_project trigger — ADR-045 step 4), exactly as a live
 	// POST does.
-	if _, _, _, _, err := srv.insertAgentEvent(context.Background(), srv.eventsWriteDB, agentEventInsert{
+	if _, _, _, _, err := srv.insertAgentEvent(context.Background(), agentEventInsert{
 		AgentID:     agent,
 		SessionID:   session,
 		Kind:        kind,

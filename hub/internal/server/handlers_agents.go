@@ -198,6 +198,13 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 // limit (ADR-045 D2 — the event store isn't per-team-sharded yet, P2).
 func (s *Server) lastEventAtForAgents(ctx context.Context, ids []string) (map[string]string, error) {
 	out := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	er, err := s.eventsReaderForAgents(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	const chunk = 900
 	for start := 0; start < len(ids); start += chunk {
 		end := start + chunk
@@ -210,7 +217,7 @@ func (s *Server) lastEventAtForAgents(ctx context.Context, ids []string) (map[st
 		for i, id := range batch {
 			args[i] = id
 		}
-		rows, err := s.eventsDB.QueryContext(ctx,
+		rows, err := er.QueryContext(ctx,
 			`SELECT agent_id, MAX(ts) FROM agent_events
 			  WHERE agent_id IN (`+ph+`) GROUP BY agent_id`, args...)
 		if err != nil {
@@ -1129,8 +1136,12 @@ func (s *Server) lookupAgentStatus(ctx context.Context, agentID string) string {
 // recent lifecycle.failed agent_event for the given agent. Returns
 // "" when no such event exists or on any decode error.
 func (s *Server) lookupRecentLifecycleReason(ctx context.Context, agentID string) string {
+	er, rerr := s.eventsReaderForAgent(ctx, agentID)
+	if rerr != nil {
+		return ""
+	}
 	var payload string
-	err := s.eventsDB.QueryRowContext(ctx,
+	err := er.QueryRowContext(ctx,
 		`SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'lifecycle'
 		 ORDER BY seq DESC LIMIT 1`, agentID).Scan(&payload)

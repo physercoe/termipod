@@ -86,7 +86,7 @@ func (s *Server) handleListSessionTurns(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	agentIDs, err := s.sessionAgentIDs(r.Context(), session)
+	agentIDs, err := s.sessionAgentIDs(r.Context(), team, session)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -99,7 +99,7 @@ func (s *Server) handleListSessionTurns(w http.ResponseWriter, r *http.Request) 
 	}
 
 	afterTS, limit := turnSessionQueryParams(r)
-	turns, err := s.listSessionTurns(r.Context(), session, afterTS, limit)
+	turns, err := s.listSessionTurns(r.Context(), team, session, afterTS, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -147,7 +147,11 @@ const turnCols = `agent_id, turn_id, idx, start_seq, start_ordinal, start_ts, en
 	tool_failed, error_count`
 
 func (s *Server) listAgentTurns(ctx context.Context, agent string, after, limit int) ([]turnJSON, error) {
-	rows, err := s.digestDB.QueryContext(ctx, `
+	dr, err := s.digestReaderForAgent(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dr.QueryContext(ctx, `
 		SELECT `+turnCols+`
 		  FROM agent_turns
 		 WHERE agent_id = ? AND idx > ?
@@ -156,13 +160,14 @@ func (s *Server) listAgentTurns(ctx context.Context, agent string, after, limit 
 	return scanTurns(rows, err)
 }
 
-func (s *Server) listSessionTurns(ctx context.Context, session, afterTS string, limit int) ([]turnJSON, error) {
+func (s *Server) listSessionTurns(ctx context.Context, team, session, afterTS string, limit int) ([]turnJSON, error) {
 	// The session's turns are the union of its agents' turns. Resolve the
 	// session's agents from the event store, then read their turn rows from
 	// the digest store (ADR-045 D2 — the two are separate stores, so the old
 	// agent_turns⨝agent_events subquery is now a two-step lookup). DISTINCT
-	// keeps the turn rows unique; ordered by the cross-agent total order.
-	ids, err := s.sessionAgentIDs(ctx, session)
+	// keeps the turn rows unique; ordered by the cross-agent total order. Both
+	// stores are the team's shard (ADR-045 P2).
+	ids, err := s.sessionAgentIDs(ctx, team, session)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +180,7 @@ func (s *Server) listSessionTurns(ctx context.Context, session, afterTS string, 
 		args = append(args, id)
 	}
 	args = append(args, afterTS, afterTS, limit)
-	rows, err := s.digestDB.QueryContext(ctx, `
+	rows, err := s.digestReader(team).QueryContext(ctx, `
 		SELECT DISTINCT `+turnCols+`
 		  FROM agent_turns t
 		 WHERE t.agent_id IN (`+ph+`)

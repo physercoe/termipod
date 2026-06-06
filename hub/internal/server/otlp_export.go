@@ -12,6 +12,12 @@ package server
 // synthesis — so it is purely a read. Deterministic IDs make re-export
 // idempotent: re-emitting a grown prefix at each idle just updates the
 // trace, which is how a long-running agent exports without live streaming.
+//
+// ADR-045 P2: the export loop scans the digest/event stores globally
+// (sessionsWithClosedTurnsSince, loadFoldEvents, agentTurnsOrdered), so it stays
+// on the global P1 handles here. It is converted to a per-team-shard iteration
+// in P2 inc 3 (the per-team store split) — enumerate teams, scan each shard —
+// rather than the simple team-keyed routing the single-shard sites use.
 
 import (
 	"context"
@@ -152,7 +158,14 @@ type toolResultInfo struct {
 // tick picks them up. Output order is deterministic (events in seq order).
 func (s *Server) buildSessionSpans(ctx context.Context, session string) ([]otlptrace.Span, error) {
 	trace := traceIDForSession(session)
-	agentIDs, err := s.sessionAgentIDs(ctx, session)
+	// OTLP only ever exports a real (control-row-backed) session, so its shard
+	// resolves from the session row (ADR-045 P2). The per-team-shard fan-out of
+	// the surrounding export loop lands in P2 inc 3.
+	team, err := s.teamForSession(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	agentIDs, err := s.sessionAgentIDs(ctx, team, session)
 	if err != nil {
 		return nil, err
 	}

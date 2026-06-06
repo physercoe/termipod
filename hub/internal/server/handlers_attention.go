@@ -960,7 +960,7 @@ func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) 
 
 	// Pull the last 10 events from this session up to the attention's
 	// created_at. Newest-first so the caller can slice without sorting.
-	rows, err := s.eventsDB.QueryContext(r.Context(), `
+	rows, err := s.eventsReader(team).QueryContext(r.Context(), `
 		SELECT id, agent_id, seq, ts, kind, producer, payload_json
 		  FROM agent_events
 		 WHERE session_id = ?
@@ -1251,7 +1251,7 @@ func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind s
 	}
 
 	agentID := currentAgentID.String
-	id, _, _, ts, err := s.insertAgentEvent(ctx, s.eventsWriteDB, agentEventInsert{
+	id, _, _, ts, err := s.insertAgentEvent(ctx, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID.String,
 		Kind:        "input.attention_reply",

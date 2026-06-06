@@ -13,12 +13,6 @@ import (
 // session-unique one. Centralizing the write gives a single, correct
 // assignment site for seq today and `session_ordinal` (ADR-042 P1) next.
 
-// agentEventRower is the minimal slice of *sql.DB / *sql.Tx the insert needs,
-// so callers can pass either (a plain write or one inside a transaction).
-type agentEventRower interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 // agentEventInsert is the per-call shape: everything that varies between the
 // insert sites. The id, seq, and ts are assigned by insertAgentEvent.
 type agentEventInsert struct {
@@ -61,10 +55,19 @@ type agentEventInsert struct {
 // agent_events_stamp_project trigger (dropped in migration 0055 because it read
 // sessions, which lives in the control store, so it can't survive agent_events
 // moving to its own file — ADR-045 step 4). The sessions read goes through
-// s.db (control); the insert through q (the event store). They need no shared
+// s.db (control); the insert through the event-store writer. They need no shared
 // transaction: the session is already committed by the time its agent posts
 // events. A method (not a free function) so it reaches the control store.
-func (s *Server) insertAgentEvent(ctx context.Context, q agentEventRower, ev agentEventInsert) (id string, seq, sord int64, ts string, err error) {
+//
+// The event-store writer is resolved here from ev.AgentID (ADR-045 P2 — the
+// per-team shard the agent belongs to), so every insert site routes to the
+// right store without threading a handle. teamForAgent is cached; an
+// unresolvable team (no such agent) is returned as an error.
+func (s *Server) insertAgentEvent(ctx context.Context, ev agentEventInsert) (id string, seq, sord int64, ts string, err error) {
+	w, err := s.eventsWriterForAgent(ctx, ev.AgentID)
+	if err != nil {
+		return "", 0, 0, "", err
+	}
 	if ev.ProjectID == "" && ev.SessionID != "" {
 		var pid sql.NullString
 		_ = s.db.QueryRowContext(ctx,
@@ -75,7 +78,7 @@ func (s *Server) insertAgentEvent(ctx context.Context, q agentEventRower, ev age
 	id = NewID()
 	ts = NowUTC()
 	var sordN sql.NullInt64
-	err = q.QueryRowContext(ctx, `
+	err = w.QueryRowContext(ctx, `
 		INSERT INTO agent_events (id, agent_id, seq, session_ordinal, ts, kind, producer, payload_json, session_id, project_id)
 		SELECT ?, ?,
 		       COALESCE(MAX(seq), 0) + 1,

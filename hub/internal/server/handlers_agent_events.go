@@ -118,7 +118,7 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	payload = s.externalizeLargePayload(r.Context(), payload)
 
 	sessionID := s.lookupSessionForAgent(r.Context(), agent)
-	id, seq, _, ts, err := s.insertAgentEvent(r.Context(), s.eventsWriteDB, agentEventInsert{
+	id, seq, _, ts, err := s.insertAgentEvent(r.Context(), agentEventInsert{
 		AgentID:     agent,
 		SessionID:   sessionID,
 		Kind:        in.Kind,
@@ -399,7 +399,7 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	args = append(args, limit)
 	q := `SELECT ` + cols + ` FROM agent_events WHERE ` + where + ` ORDER BY ` + order + ` LIMIT ?`
 
-	rows, err := s.eventsDB.QueryContext(r.Context(), q, args...)
+	rows, err := s.eventsReader(team).QueryContext(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -460,6 +460,11 @@ func (s *Server) respondErrorEvents(w http.ResponseWriter, r *http.Request,
 	}
 	kindPH := strings.TrimSuffix(strings.Repeat("?,", len(errorCandidateKinds)), ",")
 
+	er, rerr := s.eventsReaderForAgent(r.Context(), agent)
+	if rerr != nil {
+		writeErr(w, http.StatusInternalServerError, rerr.Error())
+		return
+	}
 	out := []agentEventOut{}
 	for len(out) < limit {
 		where := "agent_id = ?"
@@ -487,7 +492,7 @@ func (s *Server) respondErrorEvents(w http.ResponseWriter, r *http.Request,
 		args = append(args, scanBatch)
 		q := "SELECT " + cols + " FROM agent_events WHERE " + where +
 			" ORDER BY " + order + " LIMIT ?"
-		rows, err := s.eventsDB.QueryContext(r.Context(), q, args...)
+		rows, err := er.QueryContext(r.Context(), q, args...)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -626,7 +631,11 @@ func (s *Server) backfillAgentEvents(
 		args = append(args, sessionFilter)
 	}
 	q += " ORDER BY seq ASC LIMIT 500"
-	rows, err := s.eventsDB.QueryContext(r.Context(), q, args...)
+	er, rerr := s.eventsReaderForAgent(r.Context(), agent)
+	if rerr != nil {
+		return
+	}
+	rows, err := er.QueryContext(r.Context(), q, args...)
 	if err != nil {
 		return
 	}

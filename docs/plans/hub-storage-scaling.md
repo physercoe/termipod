@@ -1,13 +1,16 @@
 # Hub storage scaling — deferred fold, store separation, selectable backend
 
 > **Type:** plan
-> **Status:** In progress (2026-06-06) — **P0 + P1 shipped.** P0: writer/reader
-> pool split, bounded-staleness fold, blob-ref externalization. P1 (D2 step A,
-> the class split): `events.db` + `digest.db` are now their own files with their
-> own writers; `New()` opens all three (auto-split a fresh hub.db, refuse a
-> populated un-split one), the one-shot `hub-server db split` migrates existing
-> DBs, and backup/doctor cover all three. **Next: P2** (per-team sharding),
-> gated on a measured event rate. (Per-step detail in the P1 section below.)
+> **Status:** In progress (2026-06-06) — **P0 + P1 + P2 shipped.** P0:
+> writer/reader pool split, bounded-staleness fold, blob-ref externalization.
+> P1 (D2 step A, the class split): `events.db` + `digest.db` became their own
+> files with their own writers. **P2 (D2 step B, per-team sharding): those two
+> stores are now per-team files under `dataRoot/teams/<team>/`; `hub.db` stays
+> global, so cross-team ingest fans out across N writers.** `New()` lazy-opens
+> each team's shard via a connection registry; the one-shot `hub-server db
+> split-teams` migrates a P1 global store; backup/doctor/`db vacuum` cover the
+> per-team files. **Next: P3** (selectable Postgres backend), gated on a
+> multi-hub / off-box need. (Per-step detail in the P1/P2 sections below.)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.807-alpha
 >
@@ -209,16 +212,58 @@ Build order (each Go-testable in `hub/internal/server`):
 Independent of P2 and of the real-rate measurement — delivers
 control-isolation + the fold's own writer.
 
-### P2 — D2 step B: per-team sharding — ⬜ Later (gated on measured rate)
+### P2 — D2 step B: per-team sharding — ✅ SHIPPED
 
-`events.db` + `digest.db` become per-team files
-(`dataRoot/teams/<team>/…`); `hub.db` stays global. Add a per-(team,
-store) **connection registry** — lazy open, LRU-capped to bound file
-descriptors, first-open migration. Route the fold worker per team (the
-dirty-set already keys by agent+team). N teams → N writers + O(1)
-per-team retention/delete/backup. Per-**session** is the next
+`events.db` + `digest.db` are now per-team files
+(`dataRoot/teams/<team>/…`); `hub.db` stays global. N teams → N writers
++ O(1) per-team retention/delete/backup. Per-**session** is the next
 granularity only if a single hot team is measured to saturate one
-writer.
+writer. Built in five increments, each behaviour-preserving and CI-green:
+
+- **inc 1 — connection registry** (`store_registry.go` `teamStores`):
+  lazy-opens a team's four pools (events R/W + digest R/W) on first
+  access, LRU-capped to bound file descriptors
+  (`HUB_MAX_OPEN_TEAM_STORES`, default 128), validates the team slug
+  against `teamIDRe` (path-traversal guard).
+- **inc 2 — team-keyed accessor seam** (`store_route.go`): every event /
+  digest read+write routes through `eventsReader/Writer(team)` +
+  `digestReader/Writer(team)` (or the agent-keyed `…ForAgent`, which
+  resolves the team from the immutable agent→team binding). Introduced
+  behaviour-preserving (the accessors returned the global P1 handles),
+  then inc 3b flipped the bodies.
+- **inc 3a — upgrade migration** (`store_shard_split.go`
+  `RunTeamShardSplit`, CLI `hub-server db split-teams`): fans a P1 global
+  store into per-team shards — events JOIN `agents.team_id` (the event
+  store has no team column), digest/turns filter by `team_id`, verify the
+  per-team total equals the source before retiring the global file to
+  `*.pre-shard`.
+- **inc 3b — the flip**: the four accessors resolve the team's shard from
+  the registry and return `(*sql.DB, error)` (the lazy open can fail, and
+  the fold worker / OTLP loop are background goroutines where a panic
+  would crash the process). `New()` drops the global pools for the
+  registry; the `ensurePerTeamLayout` boot guard refuses a populated
+  global (P1) or un-split (pre-P1) store, naming the one-shot migration to
+  run. The cross-team consumers fan out + merge: `/v1/insights` resolves
+  per-team shards (one for project/agent/team/host scope, N for engine
+  scope) and the OTLP export scans every team's `digest.db`. The fold
+  worker already carried the team, so it just works.
+- **inc 4 — operator surface**: backup VACUUM-INTO-snapshots each
+  `teams/<team>/{events,digest}.db` (restore strips the `.snapshot`
+  suffix uniformly); `doctor` reports the per-team layout (and the P1
+  global / inconsistent states with the migration to run); `db vacuum`
+  reclaims space across the per-team shards.
+
+**Boot-state model (director decision, like P1): REFUSE + one-shot CLI,
+not auto-migrate.** A fresh `hub.db` drops its empty moving tables and the
+registry creates each team's shard lazily on first event; a populated
+global / un-split store is refused with the `db split-teams` (or `db
+split` then `db split-teams`) guidance.
+
+**Caveat (unchanged from the design):** per-team sharding helps
+**cross-team** fan-out, not a single hot team with many agents — that team
+still funnels through one `events.db` writer. Per-session sharding is the
+next lever if a single team is measured to saturate, but it is heavier
+(many more files) and deferred until a real measurement demands it.
 
 ### P3 — D3: selectable Postgres backend — ⬜ Later (gated on multi-hub / off-box need)
 

@@ -164,6 +164,64 @@ func runDBVacuum(args []string, log *slog.Logger) {
 	fmt.Printf("  size:      %.2f MiB -> %.2f MiB (reclaimed %.2f MiB)\n",
 		float64(res.BeforeBytes)/mib, float64(res.AfterBytes)/mib,
 		float64(res.BeforeBytes-res.AfterBytes)/mib)
+
+	// The high-volume transcript data lives in the per-team event/digest shards
+	// (ADR-045 P2), not hub.db — VACUUM each so a `db vacuum` actually reclaims
+	// the space that retention/deletes free there.
+	reclaimed, files, err := vacuumTeamStores(*dataRoot)
+	if err != nil {
+		log.Error("db vacuum (team shards) failed", "err", err)
+		os.Exit(1)
+	}
+	if files > 0 {
+		fmt.Printf("  shards:    vacuumed %d per-team store file(s), reclaimed %.2f MiB\n",
+			files, float64(reclaimed)/mib)
+	}
+}
+
+// vacuumTeamStores VACUUMs every per-team event + digest shard under
+// <data>/teams/<team>/ (ADR-045 P2) and reports the bytes reclaimed across them.
+// Offline, like the rest of `db vacuum` — the server must be stopped.
+func vacuumTeamStores(dataRoot string) (reclaimed int64, files int, err error) {
+	teamsRoot := filepath.Join(dataRoot, "teams")
+	ents, rerr := os.ReadDir(teamsRoot)
+	if os.IsNotExist(rerr) {
+		return 0, 0, nil
+	}
+	if rerr != nil {
+		return 0, 0, rerr
+	}
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		for _, store := range []string{"events.db", "digest.db"} {
+			p := filepath.Join(teamsRoot, e.Name(), store)
+			fi, statErr := os.Stat(p)
+			if statErr != nil {
+				continue // shard not materialized for this team yet
+			}
+			if verr := vacuumFile(p); verr != nil {
+				return reclaimed, files, fmt.Errorf("vacuum %s: %w", p, verr)
+			}
+			files++
+			if after, serr := os.Stat(p); serr == nil {
+				reclaimed += fi.Size() - after.Size()
+			}
+		}
+	}
+	return reclaimed, files, nil
+}
+
+// vacuumFile runs a whole-database VACUUM on a single sqlite store file.
+func vacuumFile(path string) error {
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(10000)")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.ExecContext(context.Background(), "VACUUM")
+	return err
 }
 
 // schemaVersion opens the DB (which applies any pending migrations as a

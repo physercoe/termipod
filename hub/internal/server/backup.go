@@ -16,8 +16,11 @@ import (
 
 // Backup writes a tar.gz to outPath containing:
 //   - hub.db.snapshot — a consistent SQLite snapshot taken with VACUUM INTO
-//   - events.db.snapshot / digest.db.snapshot — the event + digest stores
-//     (ADR-045 P1), each snapshotted the same way; absent for an un-split DB
+//   - events.db.snapshot / digest.db.snapshot — the GLOBAL event + digest
+//     stores (ADR-045 P1), each snapshotted the same way; present only on a
+//     P1 deployment that hasn't yet been sharded per team
+//   - teams/<team>/{events.db,digest.db}.snapshot — the per-team event +
+//     digest shards (ADR-045 P2), each VACUUM-INTO-snapshotted
 //   - team/   — templates, policy YAML, agent_families overlay (if present)
 //   - blobs/  — content-addressed attached files (if present)
 //
@@ -78,11 +81,18 @@ func Backup(ctx context.Context, dbPath, dataRoot, outPath string) error {
 		}
 	}
 	if dataRoot != "" {
-		// `teams` holds the per-team event/digest shards (ADR-045 P2 —
-		// teams/<team>/{events.db,digest.db}); back them up as a subtree so a
-		// running per-team hub's transcripts survive a snapshot. (`team` is the
-		// singular templates dir — a different path.)
-		for _, sub := range []string{"team", "teams", "blobs"} {
+		// Per-team shards (ADR-045 P2): teams/<team>/{events.db,digest.db}. Each
+		// is snapshotted with VACUUM INTO (a consistent single file) under
+		// teams/<team>/<store>.snapshot, NOT raw-copied — a raw copy of a live
+		// WAL database can capture a torn -wal and restore inconsistently.
+		if err := snapshotTeamShards(ctx, tw, dataRoot); err != nil {
+			return err
+		}
+		// `team` is the singular templates dir (policy/agent_families overlay);
+		// `blobs` is the content-addressed attachment store. Both are
+		// raw-copyable (immutable / rarely written). (`teams`, the shard dir, is
+		// handled above via per-store snapshots.)
+		for _, sub := range []string{"team", "blobs"} {
 			abs := filepath.Join(dataRoot, sub)
 			if _, err := os.Stat(abs); errors.Is(err, fs.ErrNotExist) {
 				continue
@@ -90,6 +100,39 @@ func Backup(ctx context.Context, dbPath, dataRoot, outPath string) error {
 				return fmt.Errorf("stat %s: %w", sub, err)
 			}
 			if err := addDir(tw, abs, sub); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// snapshotTeamShards VACUUM-INTO-snapshots every per-team event + digest store
+// under dataRoot/teams/<team>/ into the archive at teams/<team>/<store>.snapshot
+// (ADR-045 P2). A missing teams/ dir (a deployment that never ingested) is fine.
+func snapshotTeamShards(ctx context.Context, tw *tar.Writer, dataRoot string) error {
+	teamsRoot := filepath.Join(dataRoot, "teams")
+	ents, err := os.ReadDir(teamsRoot)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read teams dir: %w", err)
+	}
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		team := e.Name()
+		for _, store := range []string{"events.db", "digest.db"} {
+			p := filepath.Join(teamsRoot, team, store)
+			if _, err := os.Stat(p); errors.Is(err, fs.ErrNotExist) {
+				continue
+			} else if err != nil {
+				return fmt.Errorf("stat %s: %w", p, err)
+			}
+			snapName := "teams/" + team + "/" + store + ".snapshot"
+			if err := snapshotInto(ctx, tw, p, snapName); err != nil {
 				return err
 			}
 		}
@@ -182,13 +225,12 @@ func Restore(ctx context.Context, archivePath, dataRoot string, force bool) erro
 			return fmt.Errorf("unsafe entry in archive: %q", hdr.Name)
 		}
 		dst := filepath.Join(dataRoot, hdr.Name)
-		switch hdr.Name {
-		case "hub.db.snapshot":
-			dst = dbPath
-		case "events.db.snapshot":
-			dst = filepath.Join(dataRoot, "events.db")
-		case "digest.db.snapshot":
-			dst = filepath.Join(dataRoot, "digest.db")
+		// A *.snapshot entry restores to its path with the suffix stripped:
+		// hub.db.snapshot → hub.db, events.db.snapshot → events.db, and the
+		// per-team teams/<team>/events.db.snapshot → teams/<team>/events.db
+		// (ADR-045 P1/P2). One uniform rule covers global + per-team stores.
+		if strings.HasSuffix(hdr.Name, ".snapshot") {
+			dst = filepath.Join(dataRoot, strings.TrimSuffix(hdr.Name, ".snapshot"))
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:

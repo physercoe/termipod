@@ -8,8 +8,9 @@
 > [`discussions/hub-scaling-storage-and-concurrency.md`](../discussions/hub-scaling-storage-and-concurrency.md)
 > and [`discussions/hub-store-separation-and-fold-policy.md`](../discussions/hub-store-separation-and-fold-policy.md).
 > **Amends [ADR-038](038-per-run-event-digest.md) §2** (synchronous
-> digest fold → bounded-staleness deferred fold). D1 is shipped; D2/D3
-> are decided, not yet built.
+> digest fold → bounded-staleness deferred fold). D1 + D2 are shipped (D2
+> via the P1 class split and the P2 per-team shard — see the
+> [plan](../plans/hub-storage-scaling.md)); D3 is decided, not yet built.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.807-alpha
 

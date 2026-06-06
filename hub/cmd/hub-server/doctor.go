@@ -92,27 +92,48 @@ func checkDBReachable(dbPath string) srvCheck {
 		Detail: fmt.Sprintf("%s (%d tables)", dbPath, tables)}
 }
 
-// checkStoreLayout reports the three-store split state (ADR-045 P1): a split
-// deployment has events.db + digest.db beside hub.db; a pre-split one has
-// neither. Exactly one present is an inconsistent layout the operator must
-// resolve (restore the missing file, or move the stray one aside and re-split).
+// checkStoreLayout reports the store layout state (ADR-045). The target is the
+// per-team sharded layout (P2): teams/<team>/{events.db,digest.db}. Earlier
+// states are reported with the migration to run: a P1 global split (events.db +
+// digest.db beside hub.db) → `db split-teams`; a fresh hub with no shards yet is
+// fine (the registry creates each team's shard lazily on first event). Exactly
+// one global store present is an inconsistent layout the operator must resolve.
 func checkStoreLayout(dbPath string) srvCheck {
 	const name = "store layout"
 	dir := filepath.Dir(dbPath)
-	eventsPath := filepath.Join(dir, "events.db")
-	digestPath := filepath.Join(dir, "digest.db")
-	_, eErr := os.Stat(eventsPath)
-	_, dErr := os.Stat(digestPath)
+	_, eErr := os.Stat(filepath.Join(dir, "events.db"))
+	_, dErr := os.Stat(filepath.Join(dir, "digest.db"))
+
+	// Count per-team shards (a team dir holding an events.db).
+	teamShards := 0
+	if ents, err := os.ReadDir(filepath.Join(dir, "teams")); err == nil {
+		for _, e := range ents {
+			if !e.IsDir() {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(dir, "teams", e.Name(), "events.db")); err == nil {
+				teamShards++
+			}
+		}
+	}
+
 	switch {
 	case eErr == nil && dErr == nil:
-		return srvCheck{Name: name, OK: true, Detail: "split (events.db + digest.db present)"}
-	case errors.Is(eErr, os.ErrNotExist) && errors.Is(dErr, os.ErrNotExist):
+		// A P1 global split that hasn't been sharded per team yet.
 		return srvCheck{Name: name, OK: true,
-			Detail: "single-file (not yet split) — run `hub-server db split` to separate the event + digest stores"}
-	default:
+			Detail: "global split (P1) — run `hub-server db split-teams` to shard the event + digest stores per team (ADR-045 P2)"}
+	case eErr == nil || dErr == nil:
 		return srvCheck{Name: name, OK: false,
-			Detail: fmt.Sprintf("inconsistent: events.db err=%v digest.db err=%v", eErr, dErr),
+			Detail: fmt.Sprintf("inconsistent global store: events.db err=%v digest.db err=%v", eErr, dErr),
 			Hint:   "restore the missing store from backup, or move the stray file aside and re-run `hub-server db split`"}
+	case teamShards > 0:
+		return srvCheck{Name: name, OK: true,
+			Detail: fmt.Sprintf("sharded per team (%d shard(s) under teams/)", teamShards)}
+	default:
+		// No global store, no per-team shards — a fresh hub (or one that hasn't
+		// ingested): the registry creates each team's shard on first event.
+		return srvCheck{Name: name, OK: true,
+			Detail: "per-team sharding (no shards yet — created lazily on first event)"}
 	}
 }
 

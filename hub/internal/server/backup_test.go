@@ -174,6 +174,76 @@ func TestBackup_RestoreRoundTrip_Split(t *testing.T) {
 	}
 }
 
+// A per-team sharded deployment (ADR-045 P2) keeps each team's event + digest
+// store under teams/<team>/. Backup must VACUUM-INTO-snapshot every shard and
+// Restore must put them back at teams/<team>/, with each team's rows intact and
+// no cross-team leak — or a restored hub loses its transcript history.
+func TestBackup_RestoreRoundTrip_PerTeamShards(t *testing.T) {
+	src := t.TempDir()
+	dbPath := filepath.Join(src, "hub.db")
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("init src db: %v", err)
+	}
+	db.Close()
+
+	const ts = "2026-06-06T00:00:00Z"
+	mkShard := func(team string, n int) {
+		dir := filepath.Join(src, "teams", team)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", team, err)
+		}
+		ev, err := ensureEventsStore(filepath.Join(dir, "events.db"))
+		if err != nil {
+			t.Fatalf("events store %s: %v", team, err)
+		}
+		for i := 0; i < n; i++ {
+			if _, err := ev.Exec(`INSERT INTO agent_events
+				(id, agent_id, seq, ts, kind, producer, payload_json, session_id)
+				VALUES (?,?,?,?,?,?,?,?)`,
+				NewID(), "a-"+team, i+1, ts, "text", "agent", `{"text":"x"}`, "s-"+team); err != nil {
+				t.Fatalf("seed event %s: %v", team, err)
+			}
+		}
+		ev.Close()
+		dg, err := ensureDigestStore(filepath.Join(dir, "digest.db"))
+		if err != nil {
+			t.Fatalf("digest store %s: %v", team, err)
+		}
+		dg.Close()
+	}
+	want := map[string]int{"default": 2, "team-b": 4}
+	for team, n := range want {
+		mkShard(team, n)
+	}
+
+	archive := filepath.Join(t.TempDir(), "hub.tar.gz")
+	if err := Backup(context.Background(), dbPath, src, archive); err != nil {
+		t.Fatalf("backup: %v", err)
+	}
+
+	dst := t.TempDir()
+	if err := Restore(context.Background(), archive, dst, false); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	for team, n := range want {
+		p := filepath.Join(dst, "teams", team, "events.db")
+		rev, err := sql.Open("sqlite", dsnFKOff(p))
+		if err != nil {
+			t.Fatalf("open restored %s: %v", team, err)
+		}
+		var got int
+		if err := rev.QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&got); err != nil {
+			rev.Close()
+			t.Fatalf("count restored %s: %v", team, err)
+		}
+		rev.Close()
+		if got != n {
+			t.Errorf("team %s restored events = %d; want %d (cross-team leak?)", team, got, n)
+		}
+	}
+}
+
 // Restore refuses to overwrite a non-empty data root unless force=true.
 // This is the load-bearing safety check — clobbering a half-built hub
 // because the operator dragged the wrong path is exactly what backup is

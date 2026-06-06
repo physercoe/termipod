@@ -192,15 +192,18 @@ bottleneck** while staleness stays imperceptible:
   `c·D·(E_total/N)` is **small relative to insert write volume**. Since
   one fold rewrites a multi-KB blob and one insert writes ~one row,
   `N≈20–40` already makes fold writes a **minor fraction** of total
-  writes — the regime where the worker can drain at saturation.
+  writes — so the worker drains comfortably *whenever the writer has
+  spare capacity*. (§3.5 measures the limit of that "whenever": at full
+  saturation there is no spare capacity and N stops mattering.)
 - **Upper bound (freshness):** a live transcript reads as "live" at
   ≲ ~1 s. At an active streaming rate of ~5–50 events/s, `N≈20–40` and
   `τ≈300–1000 ms` keep open-turn staleness sub-second.
-- **Empirical test:** re-run the load sweep (`load_test.go`) with the
-  hybrid worker and find the N where **fold-lag stays bounded** (does
-  not climb with agent count) at saturation. That N — likely in the
-  20–40 band — is the answer; bake it as a tuned constant (or a config
-  knob) with the measurement cited inline, the way lever 3 is.
+- **Empirical test:** re-run the load sweep (`load_test.go`) below the
+  writer ceiling (the bursty regime, `HUB_LOADTEST_THINK_MS>0`) and pick
+  the N that keeps **open-turn staleness sub-second without over-folding**.
+  N≈20–40 holds; baked as an env-tunable constant
+  (`HUB_DIGEST_FOLD_MAX_EVENTS`) with §3.5's measurement cited. (At/above
+  the ceiling, N is moot — see §3.5.)
 
 > **Failure modes to keep in mind.** N too small → back toward A's
 > debt. N too large → a long goal-mode turn shows stale tool/token
@@ -208,6 +211,49 @@ bottleneck** while staleness stays imperceptible:
 > `turn.result` still reconcile). Neither corrupts data: the digest is
 > **derived**, and `ensureAgentDigest → backfillAgentDigest` remains the
 > correctness backstop regardless of trigger.
+
+### 3.5 Measured (2026-06-06) — the trigger matches the model; **lag tracks the writer ceiling, not the trigger**
+
+Step 1 is implemented (`digest_worker.go`: `markDigestDirty` →
+per-agent `digestPending{count, turnClosed, firstDirty}`;
+`collectFoldable` folds on the §3.3 trigger; watermark-based fold, so
+triggers never skip an event; N=32 / τ=750 ms / tick=100 ms,
+env-tunable) and swept on the 2-vCPU harness (`load_test.go`, with a new
+`HUB_LOADTEST_THINK_MS` to model bursty agents).
+
+**Throughput rose to ~1.5–1.85× the synchronous-fold baseline** (1131
+ev/s at 200 agents vs ~617; nearing the ~1330 no-fold ceiling) — the
+ingest win the lever promised. **But the §3.4 hope that fold-lag would
+"stay bounded at saturation" was wrong, and the measurement says why.**
+At a *fixed* 200 agents, varying only think-time:
+
+| Offered load (200 agents) | Throughput | Fold-lag |
+|---|---|---|
+| flat-out (think=0) | 1106 ev/s | 88.8 % |
+| think=100 ms | 749 ev/s | 83.9 % |
+| **think=250 ms** | **601 ev/s** | **18.5 %** |
+| **think=500 ms** | 343 ev/s | **3.1 %** |
+
+Lag does **not** depend on N/τ in this regime — it tracks **offered load
+vs the single-writer ceiling (~600–650 ev/s)**. Above the ceiling
+(synthetic flat-out), inserts consume ~100 % of the one writer and the
+fold starves **no matter how few passes the trigger schedules** — it
+defers to read-repair (correct, just lagged). Below the ceiling — the
+**bursty regime real agents live in** (think → tool → wait) — the writer
+has spare capacity and **the fold keeps up; lag collapses to single
+digits.**
+
+**So the corrected framing:** the bounded-staleness trigger's job is
+**(1)** to match the data model (fold at turn boundaries + bounded
+staleness, not per-event) and **(2)** to keep each fold cheap so the
+realistic regime stays fresh — **not** to win a flat-out saturation
+test. Beating saturation lag is **structural**, and belongs to §4/§5
+(give the fold its own writer by splitting/sharding the store, or accept
+that a genuinely writer-saturated single host folds lazily via
+read-repair) — not to the fold *policy*. This is the same
+"insert and fold share one writer" wall that sank "A" (§3.2),
+re-confirmed from the other side: shrinking the fold raises the ceiling
+but does not change that a *saturated* writer has nothing left for it.
 
 ---
 

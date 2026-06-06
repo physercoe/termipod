@@ -88,6 +88,13 @@ type Server struct {
 	otlp          *otlptrace.Client
 	otlpMu        sync.Mutex
 	otlpWatermark map[string]string
+	// digestDirty tracks agents with events past their digest watermark and
+	// the bounded-staleness trigger accounting (count / turn-closed / age),
+	// scanned by the background fold worker (runDigestFold, ADR-038 amendment
+	// / store-separation step 1). The ingest hot path only marks dirty; the
+	// fold runs off-path. agentID -> pending state.
+	digestDirtyMu sync.Mutex
+	digestDirty   map[string]*digestPending
 }
 
 func New(cfg Config) (*Server, error) {
@@ -156,7 +163,8 @@ func New(cfg Config) (*Server, error) {
 		cfg.Logger.Warn("seed loop-hooks.yaml", "err", err)
 	}
 	loopHooksConfig.Store(loadLoopHooks(cfg.DataRoot))
-	s := &Server{cfg: cfg, db: db, writeDB: writeDB, log: cfg.Logger, bus: newEventBus()}
+	s := &Server{cfg: cfg, db: db, writeDB: writeDB, log: cfg.Logger, bus: newEventBus(),
+		digestDirty: map[string]*digestPending{}}
 	// Operation-scope manifest (ADR-016) — load embedded + overlay so
 	// dispatchTool's role-gating middleware has a manifest to consult.
 	// Failure to parse is a hard error: without the manifest, every
@@ -243,6 +251,11 @@ func (s *Server) Serve(ctx context.Context) error {
 	// Loop-closure reconcile sweep: detect stalled loop-entities and
 	// escalate / time them out (ADR-034). Same ctx lifetime.
 	go s.runLoopSweep(ctx)
+	// Deferred digest fold (ADR-038 amendment, hub-scaling lever 7): the
+	// ingest path marks agents dirty; this worker folds them off the hot
+	// path. Read-repair (ensureAgentDigest) is the backstop, so a missed
+	// pass is never wrong — just lazily recomputed on read.
+	go s.runDigestFold(ctx)
 	// Operator OTLP trace export (ADR-038 §4) — only when configured.
 	// Idle/terminal batch cadence; same ctx lifetime, no Stop handle.
 	if s.otlp != nil {

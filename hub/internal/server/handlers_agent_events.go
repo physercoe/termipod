@@ -112,7 +112,7 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := s.lookupSessionForAgent(r.Context(), agent)
-	id, seq, sord, ts, err := insertAgentEvent(r.Context(), s.writeDB, agentEventInsert{
+	id, seq, _, ts, err := insertAgentEvent(r.Context(), s.writeDB, agentEventInsert{
 		AgentID:     agent,
 		SessionID:   sessionID,
 		Kind:        in.Kind,
@@ -123,12 +123,14 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// ADR-038 §2: fold the freshly-inserted event into the per-agent digest
-	// + turn index. Best-effort and in its own transaction immediately after
-	// the insert (which already committed) so a digest-fold bug can never
-	// block event ingestion — the digest is a derived read model, as-of
-	// watermark_seq, and the read path repairs any lag (see digestIsStale).
-	s.foldEventIntoDigest(r.Context(), team, agent, seq, sord, in.Kind, ts, in.Producer, payload)
+	// ADR-038 (amended 2026-06-06, store-separation step 1): the digest fold
+	// is the heaviest per-event write (~half the cost), so it runs OFF this
+	// hot path. Mark trigger accounting (O(1), in-memory) and return;
+	// runDigestFold folds the agent on a bounded-staleness trigger (turn
+	// close, N events, or tau). Passing the kind lets a turn.result fold
+	// promptly. The digest is eventually consistent; the read path repairs
+	// any lag (digestIsStale).
+	s.markDigestDirty(team, agent, in.Kind)
 
 	s.touchSession(r.Context(), sessionID)
 	s.captureEngineSessionID(r.Context(), sessionID, in.Kind, in.Producer, payload)

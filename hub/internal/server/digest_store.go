@@ -384,6 +384,14 @@ func loadFoldEventsBefore(ctx context.Context, q digestStore, agentID string, be
 		  FROM agent_events WHERE agent_id = ? AND seq < ? ORDER BY seq ASC`, agentID, beforeSeq))
 }
 
+// loadFoldEventsAfter reads the ordered suffix (afterSeq, ∞) — the events the
+// deferred-fold worker still has to fold past the digest watermark.
+func loadFoldEventsAfter(ctx context.Context, q digestStore, agentID string, afterSeq int64) ([]foldEvent, error) {
+	return scanFoldEvents(q.QueryContext(ctx, `
+		SELECT seq, session_ordinal, kind, ts, producer, payload_json
+		  FROM agent_events WHERE agent_id = ? AND seq > ? ORDER BY seq ASC`, agentID, afterSeq))
+}
+
 func scanFoldEvents(rows *sql.Rows, err error) ([]foldEvent, error) {
 	if err != nil {
 		return nil, err

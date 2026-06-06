@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
@@ -47,6 +48,14 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	nAgents := loadEnvInt("HUB_LOADTEST_AGENTS", 100)
 	durSec := loadEnvInt("HUB_LOADTEST_SECONDS", 5)
 	payloadBytes := loadEnvInt("HUB_LOADTEST_PAYLOAD_BYTES", 256)
+	// HUB_LOADTEST_THINK_MS models BURSTY real agents: each agent sleeps this
+	// long between events (think/tool/wait), so aggregate write rate stays
+	// below the single-writer ceiling and the writer has spare capacity for
+	// the deferred fold. 0 (default) = the flat-out ceiling test. This is the
+	// regime the bounded-staleness fold (digest_worker.go) actually targets —
+	// the flat-out test pins ingest throughput, this one pins whether the
+	// fold keeps up when it realistically can.
+	thinkMs := loadEnvInt("HUB_LOADTEST_THINK_MS", 0)
 
 	c := newE2E(t)
 
@@ -85,6 +94,17 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 		allLats   []time.Duration
 	)
 
+	// Realistic A (lever 7): run the deferred-fold worker so the fold work
+	// still happens — off the request path, competing for the single writer.
+	// Without HUB_LOADTEST_WORKER set, the worker is inert → pure request-path
+	// ceiling (events inserted + marked dirty, never folded).
+	var wCancel context.CancelFunc
+	if os.Getenv("HUB_LOADTEST_WORKER") != "" {
+		var wctx context.Context
+		wctx, wCancel = context.WithCancel(context.Background())
+		go c.s.runDigestFold(wctx)
+	}
+
 	deadline := time.Now().Add(time.Duration(durSec) * time.Second)
 	var wg sync.WaitGroup
 	start := time.Now()
@@ -114,6 +134,9 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 							rec.Code, strings.TrimSpace(rec.Body.String())))
 					}
 				}
+				if thinkMs > 0 {
+					time.Sleep(time.Duration(thinkMs) * time.Millisecond)
+				}
 			}
 			latsMu.Lock()
 			allLats = append(allLats, local...)
@@ -127,6 +150,9 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
+	if wCancel != nil {
+		wCancel()
+	}
 
 	total := okN + errN
 	evps := float64(total) / elapsed.Seconds()
@@ -134,14 +160,19 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 
 	var rows int64
 	_ = c.s.db.QueryRow(`SELECT COUNT(*) FROM agent_events`).Scan(&rows)
+	// Digest fold lag: total events minus total folded (SUM of per-agent
+	// watermark). Shows whether the background worker kept up with ingest.
+	var foldedEvents, digestAgents int64
+	_ = c.s.db.QueryRow(`SELECT COALESCE(SUM(watermark_seq),0), COUNT(*) FROM agent_event_digests`).
+		Scan(&foldedEvents, &digestAgents)
 	var dbBytes int64
 	if fi, err := os.Stat(filepath.Join(c.dataRoot, "hub.db")); err == nil {
 		dbBytes = fi.Size()
 	}
 
 	t.Logf("──────── hub event-ingest load result ────────")
-	t.Logf("agents=%d  duration=%s  payload≈%dB  GOMAXPROCS=%d",
-		nAgents, elapsed.Round(time.Millisecond), payloadBytes, runtime.GOMAXPROCS(0))
+	t.Logf("agents=%d  duration=%s  payload≈%dB  think=%dms  GOMAXPROCS=%d",
+		nAgents, elapsed.Round(time.Millisecond), payloadBytes, thinkMs, runtime.GOMAXPROCS(0))
 	t.Logf("events: total=%d  ok(201)=%d  err=%d", total, okN, errN)
 	t.Logf("THROUGHPUT: %.0f events/sec", evps)
 	t.Logf("latency: p50=%s  p90=%s  p99=%s  max=%s",
@@ -152,6 +183,9 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	}
 	t.Logf("storage: agent_events rows=%d  hub.db=%.1f MB  (=%.2f KB/event)",
 		rows, float64(dbBytes)/1e6, float64(dbBytes)/1024/float64(maxInt64(1, rows)))
+	t.Logf("fold: worker=%v  folded=%d/%d events  digests=%d  lag=%d (%.1f%%)",
+		os.Getenv("HUB_LOADTEST_WORKER") != "", foldedEvents, rows, digestAgents,
+		rows-foldedEvents, 100*float64(rows-foldedEvents)/float64(maxInt64(1, rows)))
 	t.Logf("──────────────────────────────────────────────")
 }
 

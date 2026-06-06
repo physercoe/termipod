@@ -3,9 +3,13 @@
 > **Type:** plan
 > **Status:** In progress (2026-06-06) — **P0 shipped** (writer/reader
 > pool split, bounded-staleness fold, blob-ref externalization); **P1
-> steps 1–2 shipped** (store-handle seam aliased to the control pools, all
-> moving-table writes + pure reads routed, and the fold/read-repair
-> decoupled to read events / write the digest through separate handles). The
+> steps 1–3 shipped** (store-handle seam aliased to the control pools; all
+> moving-table writes + pure reads routed; the fold/read-repair decoupled to
+> read events / write the digest through separate handles; and every
+> cross-store read-join + the one write-tx rewritten as app-level
+> two-query/two-statement forms. The schema edges — `stamp_project` trigger,
+> `agent_turns.session_id` denorm, FTS move — are folded into step 4's
+> physical-split migration). The
 > phased implementation of [ADR-045](../decisions/045-hub-storage-scaling.md)
 > (D1–D3), which locks the *what/why*; this plan owns the *how/when*.
 > Backed by the analysis in
@@ -55,7 +59,7 @@ External Postgres is a per-store opt-in (D3), not the default.
   `payload_externalize.go`: oversized `payload_json` string leaves →
   `blob:sha256/<hex>` on ingest, losslessly (`ba644e5`).
 
-### P1 — D2 step A: class split (single file per store) — 🔶 IN PROGRESS (steps 1–2 done; 3–5 next)
+### P1 — D2 step A: class split (single file per store) — 🔶 IN PROGRESS (steps 1–3 done; 4–5 next)
 
 Build order (each Go-testable in `hub/internal/server`):
 
@@ -113,8 +117,12 @@ Build order (each Go-testable in `hub/internal/server`):
    so the two stores need no shared transaction. Behaviour-preserving
    while the handles alias one file; correct across files post-split. Full
    `go test ./internal/server` green.
-3. **Sever the remaining cross-store edges — 🔶 IN PROGRESS.** The
-   2026-06-06 implementation audit found the documented coupling surface
+3. **Sever the remaining cross-store edges — ✅ DONE (code edges); schema
+   edges deferred to step 4.** All app-level read-join / write-tx rewrites
+   are shipped; the trigger / `session_id`-denorm / FTS-move are schema
+   edges folded into the step-4 migration (they only break once the files
+   physically split). The 2026-06-06
+   implementation audit found the documented coupling surface
    **understated in two ways** (the earlier "zero cross-store write tx +
    one OTLP read join" framing was wrong). Each edge becomes an app-level
    two-query / two-statement form (resolve the id set from `hub.db` /
@@ -156,17 +164,34 @@ Build order (each Go-testable in `hub/internal/server`):
      (`s.eventsWriteDB`), run *after* the control tx commits + on the
      already-deleted idempotent path, so a crash between stores self-heals
      on retry.
-   - ⬜ **Structural edges.** Replace the `agent_events_stamp_project`
-     trigger with handler-side `project_id` resolution (drop trigger =
-     migration); the 3 dormant `→ agents ON DELETE CASCADE` edges become an
-     app-level cascade hook *when hard-delete lands* (no-op today — there is
-     no agent hard-delete); `agent_events_fts` moves with `agent_events`
-     (step-4 migration).
+   - ⬜ **Structural / schema edges — moved to step 4 (the physical split
+     migration).** These only *break* once the tables are in different files,
+     and they all touch schema + the raw-insert test helpers, so they belong
+     with the migration that moves the tables — not piecemeal now:
+     - `agent_events_stamp_project` trigger → handler-side `project_id`
+       (resolve the session's project from control in `insertAgentEvent`).
+       The trigger works fine while aliased; dropping it forces ~15 raw-insert
+       test helpers (`insertEvent`, `seedEventFull`, the scope tests) + 6
+       direct `insertAgentEvent` callers to stamp `project_id` themselves —
+       exactly the helpers that must change anyway when the table moves.
+     - `session_id` denormalized onto `agent_turns` (add-column migration +
+       thread it through the fold + backfill) to drop the OTLP
+       `turns ⨝ events` join (OTLP is opt-in/default-off — lowest stakes).
+     - `agent_events_fts` + its triggers move with `agent_events`; the 3
+       dormant `→ agents ON DELETE CASCADE` edges become an app-level cascade
+       hook only *when* an agent hard-delete exists (no-op today).
 4. **Existing-DB migration: a one-shot `hub-server db split` command.**
-   Copies the moving tables into the new files and drops them from
-   `hub.db`; each file gets its own `schema_migrations`. The server
-   **refuses to serve a not-yet-split legacy DB** so a pre-split boot
-   can't mis-route writes. Parameterize the migration runner per file.
+   Copies the moving tables (`agent_events` + `_fts`, `agent_event_digests`,
+   `agent_turns`) into the new files and drops them from `hub.db`; each file
+   gets its own `schema_migrations`. The server **refuses to serve a
+   not-yet-split legacy DB** so a pre-split boot can't mis-route writes.
+   Parameterize the migration runner per file. **Bundles the deferred
+   schema edges from step 3** (they can't survive the split): drop the
+   `agent_events_stamp_project` trigger + land handler-side `project_id` in
+   `insertAgentEvent`; add `agent_turns.session_id` + thread/backfill it and
+   drop the OTLP join; move `agent_events_fts` + triggers with the table.
+   Update the raw-insert test helpers (`c.s.eventsDB`/`c.s.digestDB`
+   accessors) in the same pass.
 5. **Backup/restore + tooling.** `backup.go` (today snapshots only
    `hub.db` via `VACUUM INTO`) and `db_cmd.go`/`doctor.go` must cover
    all three files.

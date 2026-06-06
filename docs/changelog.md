@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-06-05)
+> **Status:** Current (2026-06-06)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.806
+> **Last verified vs code:** v1.0.807
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,27 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.807-alpha — 2026-06-06
+
+**"Reset to default" on an agent template no longer fails with
+`template not found`.** The editor's reset flow does delete → get → put;
+the DELETE 404s when there's no per-team disk override to clear, which
+is exactly the case after the W4 multi-team move (`80be64b`) relocated
+overrides from a global path to `<dataRoot>/teams/<team>/templates/…`.
+A missing override is the goal state (the template is already served
+from the bundled built-in), not a failure.
+
+Fixed:
+- **Idempotent template reset** (`lib/screens/team/templates_screen.dart`)
+  — `_resetToDefault` now swallows a 404 from `deleteTemplate` and
+  proceeds to re-seed the embedded copy (GET falls through to the
+  bundled default, PUT writes it back). Any non-404 error still
+  surfaces. No hub change: DELETE intentionally 404s to distinguish
+  "already gone" from "never existed"; the fix belongs in the reset
+  semantics.
 
 ---
 

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/hub_client.dart' show HubApiError;
 import '../../theme/design_colors.dart';
 import '../projects/project_create_sheet.dart';
 import 'agent_families_screen.dart';
@@ -702,7 +703,17 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
     if (client == null) return;
     setState(() => _saving = true);
     try {
-      await client.deleteTemplate(widget.category, _name);
+      // The delete only clears a per-team disk override so the next GET
+      // falls through to the embedded built-in. A 404 means there's no
+      // override to clear (the template is already served from the bundled
+      // default — e.g. it was never customized, or its old global override
+      // predates the per-team override move in W4). That's the goal state,
+      // not a failure: swallow it and proceed to re-seed the embedded copy.
+      try {
+        await client.deleteTemplate(widget.category, _name);
+      } on HubApiError catch (e) {
+        if (e.status != 404) rethrow;
+      }
       final embedded = await client.getTemplate(widget.category, _name);
       await client.putTemplate(widget.category, _name, embedded);
       if (!mounted) return;

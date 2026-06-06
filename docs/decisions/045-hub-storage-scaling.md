@@ -165,38 +165,15 @@ the backend choice is per-store, so a deployment can move one store
   codebase does not have today; deferred until a measured multi-hub /
   off-box requirement.
 
-## Implementation surface (phased, hub-first, Go-testable)
+## Implementation
 
-1. **D1 — SHIPPED** (`digest_worker.go`, `payload_externalize.go`
-   prerequisite): bounded-staleness fold + lossless blob-ref ingest;
-   full `go test ./internal/server` green.
-2. **D2 step A — class split** (single file per store):
-   - Three pools (`hub.db` / `events.db` / `digest.db`), each with its
-     reader + 1-writer; route every read/write to the right store.
-   - **Restructure the fold + read-repair**: today both read
-     `agent_events` and write digest/turns in one tx
-     (`foldDirtyAgent`, `backfillAgentDigest` `digest_store.go:353`) —
-     split into *read from the events.db reader → fold in memory →
-     write digest in its own digest.db tx*. Safe (digest is idempotent
-     from the watermark). **No `ATTACH`** — cross-store reads are
-     app-level two-query.
-   - Replace `agent_events_stamp_project` with handler-side `project_id`
-     resolution; add `session_id` to `agent_turns` and drop the OTLP
-     cross-store join; app-level cascade hook for the 3 dormant FK
-     edges; `agent_events_fts` travels with `agent_events`.
-   - **Migration of existing data: a one-shot `hub-server db split`
-     command** (director, 2026-06-06) — copies the moving tables into
-     the new files and drops them from `hub.db`; the server **refuses to
-     serve a not-yet-split legacy DB** so a pre-split boot can't
-     mis-route writes. Each file gets its own `schema_migrations`
-     history; parameterize the migration runner per file.
-   - **Backup/restore + `db`/`doctor` tooling** must cover all three
-     files (today `backup.go` snapshots only `hub.db`).
-3. **D2 step B — per-team sharding**: a per-`(team,store)` connection
-   registry (lazy open, LRU cap, first-open migration); route the fold
-   worker per team.
-4. **D3 — selectable backend**: gated on a measured multi-hub / off-box
-   requirement; not before.
+The phased, Go-testable rollout (P0 shipped → P1 class split → P2
+per-team sharding → P3 selectable backend), the build order, and the
+resolved mechanics (the fold/backfill tx restructure, the one-shot
+`db split`, no `ATTACH`, backup/restore) live in the plan,
+[`plans/hub-storage-scaling.md`](../plans/hub-storage-scaling.md) — not
+here. This ADR records the *decisions*; the plan owns the *how/when* and
+tracks status.
 
 ## Alternatives considered
 
@@ -228,6 +205,8 @@ the backend choice is per-store, so a deployment can move one store
 
 ## References
 
+- [`plans/hub-storage-scaling.md`](../plans/hub-storage-scaling.md) —
+  the phased implementation of these decisions (status, build order).
 - [`discussions/hub-scaling-storage-and-concurrency.md`](../discussions/hub-scaling-storage-and-concurrency.md)
   — the two axes, measured numbers, the in-tree levers.
 - [`discussions/hub-store-separation-and-fold-policy.md`](../discussions/hub-store-separation-and-fold-policy.md)

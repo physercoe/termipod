@@ -10,7 +10,8 @@ description: A tester running a multi-agent demo (dozens-to-hundreds of agents) 
 > running a multi-agent demo on a small VPS. Companion to
 > [`hub-resilience.md`](hub-resilience.md) (durability/HA) and
 > [`transcript-source-of-truth.md`](transcript-source-of-truth.md)
-> (why the hub stores transcripts at all). No ADR locked.
+> (why the hub stores transcripts at all). Decisions locked in
+> [ADR-045](../decisions/045-hub-storage-scaling.md).
 > **Audience:** contributors · principal
 > **Last verified vs code:** v1.0.807-alpha
 

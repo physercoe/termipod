@@ -12,8 +12,9 @@ description: A deeper follow-up to hub-scaling-storage-and-concurrency.md. Two q
 > measured a worker that can't keep up under saturation. Companion to
 > [`hub-resilience.md`](hub-resilience.md) (durability/HA) and
 > [`transcript-source-of-truth.md`](transcript-source-of-truth.md)
-> (why the hub stores transcripts at all). **No ADR locked** — §7 names
-> the decisions an ADR would have to settle.
+> (why the hub stores transcripts at all). **Decisions now locked in
+> [ADR-045](../decisions/045-hub-storage-scaling.md)** (D1 shipped, D2/D3
+> decided not yet built); this doc remains the working design record.
 > **Audience:** contributors · principal
 > **Last verified vs code:** v1.0.807-alpha
 
@@ -655,7 +656,7 @@ first:
    does **not** shrink bytes (blob-refs still needed). Redis/NATS enter
    only at **2+ hub processes**, independent of the DB choice.
 
-**Decisions an ADR would have to lock** (none locked yet):
+**Decisions — now locked in [ADR-045](../decisions/045-hub-storage-scaling.md):**
 
 - **D1 — fold trigger policy and its constants.** turn-close + N + τ;
   the tuned N/τ with the measurement cited. (Supersedes the lever-7 A/B
@@ -676,9 +677,9 @@ first:
   managed-Postgres option targets. (Director-set direction,
   2026-06-06.)
 
-These three are **ADR-worthy** because they change a system-wide
-invariant (one store, one writer, synchronous projection, one engine) —
-exactly the "surface it as an ADR, don't patch locally" class.
+These three change a system-wide invariant (one store, one writer,
+synchronous projection, one engine) — locked in
+[ADR-045](../decisions/045-hub-storage-scaling.md).
 
 ---
 

@@ -17,7 +17,7 @@ import (
 // process, no tunnel — so they are safe to run as an offline preflight.
 func runDB(args []string, log *slog.Logger) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: hub-server db <vacuum|migrate|split> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: hub-server db <vacuum|migrate|split|split-teams> [flags]")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -27,6 +27,8 @@ func runDB(args []string, log *slog.Logger) {
 		runDBMigrate(args[1:], log)
 	case "split":
 		runDBSplit(args[1:], log)
+	case "split-teams":
+		runDBSplitTeams(args[1:], log)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown db subcommand: %s\n", args[0])
 		os.Exit(2)
@@ -61,6 +63,38 @@ func runDBSplit(args []string, log *slog.Logger) {
 	fmt.Printf("  events.db: %d agent_events\n", rep.Events)
 	fmt.Printf("  digest.db: %d agent_event_digests, %d agent_turns\n", rep.Digests, rep.Turns)
 	fmt.Printf("  paths:     %s, %s\n", rep.EventsPath, rep.DigestPath)
+}
+
+// runDBSplitTeams performs the one-shot per-team shard migration (ADR-045 P2):
+// fan the P1 global events.db / digest.db out into per-team files under
+// <data>/teams/<team>/. Offline — the server must be stopped (and a backup
+// taken) first; the server refuses to serve a populated global store once P2
+// lands. Run `db split` first if hub.db has not been split yet.
+func runDBSplitTeams(args []string, log *slog.Logger) {
+	fs := flag.NewFlagSet("db split-teams", flag.ExitOnError)
+	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
+	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
+	_ = fs.Parse(args)
+	if *dbPath == "" {
+		*dbPath = filepath.Join(*dataRoot, "hub.db")
+	}
+
+	rep, err := server.RunTeamShardSplit(*dbPath)
+	if err != nil {
+		log.Error("db split-teams failed", "err", err)
+		os.Exit(1)
+	}
+	if rep.AlreadySharded {
+		fmt.Printf("db split-teams: no global store at %s — already sharded (nothing to do)\n", *dbPath)
+		return
+	}
+	fmt.Printf("db split-teams: %s\n", *dbPath)
+	fmt.Printf("  %d agent_events fanned across %d team(s):\n", rep.TotalEvents, len(rep.Teams))
+	for _, team := range rep.Teams {
+		fmt.Printf("    %s: %d events -> %s\n", team, rep.EventsByTeam[team],
+			filepath.Join(*dataRoot, "teams", team))
+	}
+	fmt.Printf("  retired global store to events.db.pre-shard / digest.db.pre-shard\n")
 }
 
 // vacuumResult is the before/after accounting `db vacuum` reports.

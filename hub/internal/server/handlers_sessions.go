@@ -117,7 +117,7 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 	}
 	id := NewID()
 	now := NowUTC()
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO sessions (
 			id, team_id, title, scope_kind, scope_id, current_agent_id,
 			status, opened_at, last_active_at, worktree_path, spawn_spec_yaml
@@ -250,7 +250,7 @@ func (s *Server) handleArchiveSession(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "session")
 	now := NowUTC()
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE sessions
 		   SET status = 'archived', closed_at = ?, last_active_at = ?
 		 WHERE team_id = ? AND id = ? AND status != 'archived'`,
@@ -291,7 +291,7 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "no editable fields in body")
 		return
 	}
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE sessions SET title = NULLIF(?, '')
 		 WHERE team_id = ? AND id = ? AND status != 'deleted'`,
 		*in.Title, team, id)
@@ -351,7 +351,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 
 	// Single tx so partial deletes can't leak references to a
 	// soft-deleted session if one of the unlinks fails.
-	tx, err := s.db.BeginTx(r.Context(), nil)
+	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -503,7 +503,7 @@ func (s *Server) handleForkSession(w http.ResponseWriter, r *http.Request) {
 
 	newID := NewID()
 	now := NowUTC()
-	_, err = s.db.ExecContext(r.Context(), `
+	_, err = s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO sessions (
 			id, team_id, title, scope_kind, scope_id, current_agent_id,
 			status, opened_at, last_active_at,
@@ -673,7 +673,7 @@ func (s *Server) resumePausedSession(ctx context.Context, team, id string) (map[
 
 	// Stamp the new agent onto the session and flip back to active.
 	now := NowUTC()
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.writeDB.ExecContext(ctx, `
 		UPDATE sessions
 		   SET current_agent_id = ?, status = 'active', last_active_at = ?
 		 WHERE team_id = ? AND id = ?`,
@@ -786,7 +786,7 @@ func (s *Server) touchSession(ctx context.Context, sessionID string) {
 	if s.db == nil || sessionID == "" {
 		return
 	}
-	_, _ = s.db.ExecContext(ctx,
+	_, _ = s.writeDB.ExecContext(ctx,
 		`UPDATE sessions SET last_active_at = ? WHERE id = ?`,
 		NowUTC(), sessionID)
 }
@@ -818,7 +818,7 @@ func (s *Server) captureEngineSessionID(ctx context.Context, sessionID, kind, pr
 	if p.SessionID == "" {
 		return
 	}
-	_, _ = s.db.ExecContext(ctx,
+	_, _ = s.writeDB.ExecContext(ctx,
 		`UPDATE sessions SET engine_session_id = ? WHERE id = ?`,
 		p.SessionID, sessionID)
 }
@@ -863,7 +863,7 @@ func (s *Server) captureSessionNameHint(ctx context.Context, sessionID, kind, pr
 	if p.SessionName == "" {
 		return
 	}
-	_, _ = s.db.ExecContext(ctx,
+	_, _ = s.writeDB.ExecContext(ctx,
 		`UPDATE sessions SET session_name_hint = ?
 		  WHERE id = ?
 		    AND COALESCE(session_name_hint, '') != ?`,
@@ -949,7 +949,7 @@ func (s *Server) carryModeModelStateAcrossResume(ctx context.Context, priorAgent
 	}
 	sessionID := s.lookupSessionForAgent(ctx, newAgentID)
 	// Best-effort marker; the carried mode/model state already applied.
-	_, _, _, _, _ = insertAgentEvent(ctx, s.db, agentEventInsert{
+	_, _, _, _, _ = insertAgentEvent(ctx, s.writeDB, agentEventInsert{
 		AgentID:     newAgentID,
 		SessionID:   sessionID,
 		Kind:        "system",
@@ -1005,7 +1005,7 @@ func (s *Server) maybeEmitContextMutationMarker(
 	if err != nil {
 		return
 	}
-	id, seq, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+	id, seq, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        mut.Kind,

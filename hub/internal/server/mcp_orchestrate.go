@@ -109,7 +109,7 @@ func (s *Server) mcpAgentsFanout(ctx context.Context, team string, raw json.RawM
 		// auto-open path; locate it via lookupSessionForAgent.
 		sessionID := s.lookupSessionForAgent(ctx, spawn.AgentID)
 		if sessionID != "" {
-			_, _ = s.db.ExecContext(ctx, `
+			_, _ = s.writeDB.ExecContext(ctx, `
 				UPDATE sessions SET correlation_id = ?
 				 WHERE team_id = ? AND id = ?`,
 				a.CorrelationID, team, sessionID)
@@ -169,7 +169,7 @@ func (s *Server) postSyntheticUserInput(ctx context.Context, agentID, body strin
 		return fmt.Errorf("synthetic input envelope rejected: %s", ae.Error())
 	}
 	payload, _ := json.Marshal(env.PayloadMap())
-	id, _, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+	id, _, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        "input.text",
@@ -360,7 +360,7 @@ func (s *Server) mcpReportsPost(ctx context.Context, agentID string, raw json.Ra
 		"next_steps":       a.NextSteps,
 	})
 	sessionID := s.lookupSessionForAgent(ctx, agentID)
-	id, _, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+	id, _, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID,
 		Kind:        "worker_report",

@@ -203,7 +203,7 @@ func (s *Server) handleCreateCriterion(w http.ResponseWriter, r *http.Request) {
 	if in.DeliverableID != "" {
 		deliv = in.DeliverableID
 	}
-	if _, err := s.db.ExecContext(r.Context(), `
+	if _, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO acceptance_criteria (id, project_id, phase, deliverable_id,
 			kind, body, state, required, ord, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
@@ -287,7 +287,7 @@ func (s *Server) handlePatchCriterion(w http.ResponseWriter, r *http.Request) {
 	}
 	q += ` WHERE id = ? AND project_id = ?`
 	args = append(args, id, project)
-	if _, err := s.db.ExecContext(r.Context(), q, args...); err != nil {
+	if _, err := s.writeDB.ExecContext(r.Context(), q, args...); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -310,7 +310,7 @@ func (s *Server) transitionCriterion(
 	}
 	now := NowUTC()
 	if newState == criterionStateMet {
-		_, err := s.db.ExecContext(ctx, `
+		_, err := s.writeDB.ExecContext(ctx, `
 			UPDATE acceptance_criteria
 			   SET state = ?, met_at = ?, met_by_actor = ?,
 			       evidence_ref = COALESCE(NULLIF(?, ''), evidence_ref),
@@ -321,7 +321,7 @@ func (s *Server) transitionCriterion(
 			return criterionOut{}, err
 		}
 	} else {
-		_, err := s.db.ExecContext(ctx, `
+		_, err := s.writeDB.ExecContext(ctx, `
 			UPDATE acceptance_criteria
 			   SET state = ?, met_at = NULL, met_by_actor = NULL,
 			       evidence_ref = COALESCE(NULLIF(?, ''), evidence_ref),

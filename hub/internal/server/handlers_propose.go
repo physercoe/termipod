@@ -180,7 +180,7 @@ func (s *Server) mcpPropose(ctx context.Context, team, fromID string, raw json.R
 		"proposed_by":    fromID,
 	})
 
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json,

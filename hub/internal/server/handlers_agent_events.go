@@ -112,7 +112,7 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := s.lookupSessionForAgent(r.Context(), agent)
-	id, seq, sord, ts, err := insertAgentEvent(r.Context(), s.db, agentEventInsert{
+	id, seq, sord, ts, err := insertAgentEvent(r.Context(), s.writeDB, agentEventInsert{
 		AgentID:     agent,
 		SessionID:   sessionID,
 		Kind:        in.Kind,

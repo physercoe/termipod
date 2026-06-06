@@ -96,7 +96,7 @@ func (s *Server) handleAdminKillAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.db.ExecContext(r.Context(),
+	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE agents SET status = 'terminated', terminated_at = ? WHERE id = ?`,
 		NowUTC(), id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

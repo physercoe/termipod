@@ -238,7 +238,7 @@ func (s *Server) foldEventIntoDigest(ctx context.Context, team, agent string, se
 	}
 	e := foldEvent{Seq: seq, Ordinal: sord, Kind: kind, TS: ts, Producer: producer, Payload: payload}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
 		return
 	}
@@ -255,7 +255,7 @@ func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string
 	if agentID == "" {
 		return
 	}
-	d, err := ensureAgentDigest(ctx, s.db, agentID, team)
+	d, err := ensureAgentDigest(ctx, s.writeDB, agentID, team)
 	if err != nil {
 		return
 	}
@@ -264,7 +264,7 @@ func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string
 		return
 	}
 	d.Outcome = outcome
-	_ = saveAgentDigest(ctx, s.db, d)
+	_ = saveAgentDigest(ctx, s.writeDB, d)
 }
 
 // deriveDigestOutcome resolves the agent's run outcome: the assigned task's

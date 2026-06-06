@@ -131,7 +131,7 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 		configStr = string(in.ConfigJSON)
 	}
 
-	_, err = s.db.ExecContext(r.Context(), `
+	_, err = s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO runs (
 			id, project_id, agent_id, config_json, seed, status,
 			started_at, trackio_host_id, trackio_run_uri, parent_run_id,
@@ -294,7 +294,7 @@ func (s *Server) handleCompleteRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := NowUTC()
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE runs SET status = ?, finished_at = ?
 		WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
 		in.Status, now, runID, team)
@@ -416,7 +416,7 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	vals = append(vals, runID, team)
 	q := "UPDATE runs SET " + joinComma(sets) +
 		" WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)"
-	res, err := s.db.ExecContext(r.Context(), q, vals...)
+	res, err := s.writeDB.ExecContext(r.Context(), q, vals...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -465,7 +465,7 @@ func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := s.db.BeginTx(r.Context(), nil)
+	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -503,7 +503,7 @@ func (s *Server) handleDetachRunArtifact(w http.ResponseWriter, r *http.Request)
 	runID := chi.URLParam(r, "run")
 	artID := chi.URLParam(r, "artifact")
 
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE artifacts SET run_id = NULL
 		WHERE id = ? AND run_id = ?
 		  AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
@@ -535,7 +535,7 @@ func (s *Server) handleAttachMetricURI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE runs SET trackio_host_id = ?, trackio_run_uri = ?
 		WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
 		in.TrackioHostID, in.TrackioRunURI, runID, team)

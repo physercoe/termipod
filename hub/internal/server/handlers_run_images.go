@@ -84,7 +84,7 @@ func (s *Server) handlePostRunImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := s.db.BeginTx(r.Context(), nil)
+	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

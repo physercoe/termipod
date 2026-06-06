@@ -82,7 +82,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	caps := defaultRawArray(in.Capabilities)
 	id := NewID()
 	now := NowUTC()
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO agents (
 			id, team_id, handle, kind, backend_json, capabilities_json,
 			parent_agent_id, host_id, budget_cents, worktree_path, journal_path,
@@ -286,7 +286,7 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, team, id)
 	q := "UPDATE agents SET " + joinComma(sets) + " WHERE team_id = ? AND id = ?"
-	res, err := s.db.ExecContext(r.Context(), q, args...)
+	res, err := s.writeDB.ExecContext(r.Context(), q, args...)
 	if err != nil {
 		// SQLite raises constraint failures as a generic error string —
 		// recognise the unique-handle case so the mobile UX can show
@@ -326,14 +326,14 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 		s.applyAgentTerminationEffects(r.Context(), team, id, "agent stopped via PATCH", false)
 	} else if in.Status != nil &&
 		(*in.Status == "crashed" || *in.Status == "failed") {
-		_, _ = s.db.ExecContext(r.Context(), `
+		_, _ = s.writeDB.ExecContext(r.Context(), `
 			UPDATE sessions
 			   SET status = 'paused', last_active_at = ?
 			 WHERE team_id = ?
 			   AND current_agent_id = ?
 			   AND status = 'active'`,
 			NowUTC(), team, id)
-		_, _ = auth.RevokeAgentTokens(r.Context(), s.db, id, NowUTC())
+		_, _ = auth.RevokeAgentTokens(r.Context(), s.writeDB, id, NowUTC())
 	}
 	// ADR-029 D-3: auto-derive the linked task's status from the
 	// agent's terminal transition. Most-recent-spawn drives; older
@@ -372,7 +372,7 @@ func (s *Server) applyAgentTerminationEffects(ctx context.Context, team, id, rea
 			StopSessionOpts{Reason: reason, Archive: archive})
 		return
 	}
-	_, _ = auth.RevokeAgentTokens(ctx, s.db, id, NowUTC())
+	_, _ = auth.RevokeAgentTokens(ctx, s.writeDB, id, NowUTC())
 	var hostID, paneID sql.NullString
 	var handle string
 	qerr := s.db.QueryRowContext(ctx,
@@ -423,7 +423,7 @@ func (s *Server) stopOrTerminateAgent(w http.ResponseWriter, r *http.Request, ar
 	// Flip to terminated unless already in a terminal agent state — the
 	// session-fate side effect still runs so a re-issued verb is idempotent.
 	if cur != "terminated" && cur != "crashed" && cur != "failed" {
-		if _, err := s.db.ExecContext(r.Context(),
+		if _, err := s.writeDB.ExecContext(r.Context(),
 			`UPDATE agents SET status = 'terminated', terminated_at = ?
 			  WHERE team_id = ? AND id = ?`, NowUTC(), team, id); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
@@ -515,7 +515,7 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 	}
 	now := NowUTC()
 	if newStatus == "done" {
-		if _, err := s.db.ExecContext(ctx, `
+		if _, err := s.writeDB.ExecContext(ctx, `
 			UPDATE tasks
 			   SET status = 'done', completed_at = ?, updated_at = ?
 			 WHERE id = ?`, now, now, taskID); err != nil {
@@ -525,14 +525,14 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 		// Stamp completed_at on cancellation too so the time line on
 		// the Tasks tab reads "cancelled <N>m ago" without falling back
 		// to updated_at (which moves on every patch).
-		if _, err := s.db.ExecContext(ctx, `
+		if _, err := s.writeDB.ExecContext(ctx, `
 			UPDATE tasks
 			   SET status = 'cancelled', completed_at = ?, updated_at = ?
 			 WHERE id = ?`, now, now, taskID); err != nil {
 			return err
 		}
 	} else {
-		if _, err := s.db.ExecContext(ctx, `
+		if _, err := s.writeDB.ExecContext(ctx, `
 			UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`,
 			newStatus, now, taskID); err != nil {
 			return err
@@ -592,7 +592,7 @@ func (s *Server) handleArchiveAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := NowUTC()
-	if _, err := s.db.ExecContext(r.Context(),
+	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE agents SET archived_at = ? WHERE team_id = ? AND id = ?`,
 		now, team, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1110,7 +1110,7 @@ func (s *Server) createSpawnApproval(ctx context.Context, team, tier string, app
 	}
 	summary := "spawn " + in.ChildHandle + " (" + in.Kind + ")"
 	_, actorKind, actorHandle := actorFromContext(ctx)
-	_, err = s.db.ExecContext(ctx, `
+	_, err = s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, tier,
@@ -1306,7 +1306,7 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		}
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
 		return spawnOut{}, http.StatusInternalServerError, err
 	}

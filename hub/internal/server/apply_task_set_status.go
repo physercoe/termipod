@@ -184,7 +184,7 @@ func applyTaskSetStatus(
 	}
 	q += ` WHERE id = ? AND project_id = ?`
 	args = append(args, t.TaskID, t.ProjectID)
-	if _, err := s.db.ExecContext(ctx, q, args...); err != nil {
+	if _, err := s.writeDB.ExecContext(ctx, q, args...); err != nil {
 		return nil, fmt.Errorf("update task: %w", err)
 	}
 
@@ -254,7 +254,7 @@ func rollbackTaskSetStatus(
 	}
 	q += ` WHERE id = ? AND project_id = ?`
 	args = append(args, orig.TaskID, orig.ProjectID)
-	if _, err := s.db.ExecContext(ctx, q, args...); err != nil {
+	if _, err := s.writeDB.ExecContext(ctx, q, args...); err != nil {
 		return nil, fmt.Errorf("rollback update: %w", err)
 	}
 

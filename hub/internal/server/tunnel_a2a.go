@@ -470,7 +470,7 @@ func (s *Server) recordA2ARelayAudit(r *http.Request, body []byte, hostID, recvA
 	if b, err := json.Marshal(meta); err == nil {
 		metaJSON = string(b)
 	}
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO audit_events (
 			id, team_id, ts, actor_token_id, actor_kind, actor_handle,
 			action, target_kind, target_id, summary, meta_json

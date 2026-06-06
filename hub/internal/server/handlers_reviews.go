@@ -65,7 +65,7 @@ func (s *Server) handleCreateReview(w http.ResponseWriter, r *http.Request) {
 	}
 	id := NewID()
 	now := NowUTC()
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO reviews (
 			id, project_id, target_kind, target_id,
 			requester_agent_id, state, comment, created_at
@@ -174,7 +174,7 @@ func (s *Server) handleDecideReview(w http.ResponseWriter, r *http.Request) {
 	// Only transition from pending — idempotency / prevent double-decide.
 	// COALESCE preserves the original comment if the decider didn't supply one;
 	// otherwise the decision comment replaces it.
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE reviews SET state = ?, decided_by_user_id = NULLIF(?, ''),
 		                   decided_at = ?, comment = COALESCE(NULLIF(?, ''), comment)
 		WHERE id = ? AND state = 'pending'`,

@@ -134,7 +134,7 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 
 	id := NewID()
 	now := NowUTC()
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO documents (
 			id, project_id, kind, schema_id, title, version, prev_version_id,
 			content_inline, artifact_id, author_agent_id, created_at

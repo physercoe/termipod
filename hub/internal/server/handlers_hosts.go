@@ -114,7 +114,7 @@ func (s *Server) handleRegisterHost(w http.ResponseWriter, r *http.Request) {
 	} else {
 		hintArg = hint
 	}
-	_, err = s.db.ExecContext(r.Context(), `
+	_, err = s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO hosts (id, team_id, name, status, last_seen_at, capabilities_json, ssh_hint_json, created_at)
 		VALUES (?, ?, ?, 'online', ?, ?, ?, ?)
 		ON CONFLICT(team_id, name) DO UPDATE SET
@@ -235,13 +235,13 @@ func (s *Server) handleHostHeartbeat(w http.ResponseWriter, r *http.Request) {
 		if in.RunnerModified {
 			modified = 1
 		}
-		res, err = s.db.ExecContext(r.Context(), `
+		res, err = s.writeDB.ExecContext(r.Context(), `
 			UPDATE hosts SET status='online', last_seen_at = ?,
 			    runner_commit = ?, runner_build_time = ?, runner_modified = ?
 			WHERE team_id = ? AND id = ?`,
 			now, in.RunnerCommit, in.RunnerBuildTime, modified, team, host)
 	} else {
-		res, err = s.db.ExecContext(r.Context(), `
+		res, err = s.writeDB.ExecContext(r.Context(), `
 			UPDATE hosts SET status='online', last_seen_at = ?
 			WHERE team_id = ? AND id = ?`, now, team, host)
 	}
@@ -281,7 +281,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	var name string
 	_ = s.db.QueryRowContext(r.Context(),
 		`SELECT name FROM hosts WHERE team_id = ? AND id = ?`, team, host).Scan(&name)
-	res, err := s.db.ExecContext(r.Context(),
+	res, err := s.writeDB.ExecContext(r.Context(),
 		`DELETE FROM hosts WHERE team_id = ? AND id = ?`, team, host)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -372,7 +372,7 @@ func (s *Server) handleUpdateHostSSHHint(w http.ResponseWriter, r *http.Request)
 	} else {
 		hintArg = hint
 	}
-	res, err := s.db.ExecContext(r.Context(),
+	res, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE hosts SET ssh_hint_json = ? WHERE team_id = ? AND id = ?`,
 		hintArg, team, host)
 	if err != nil {
@@ -411,7 +411,7 @@ func (s *Server) handleUpdateHostCapabilities(w http.ResponseWriter, r *http.Req
 		writeErr(w, http.StatusBadRequest, "capabilities_json must be valid JSON")
 		return
 	}
-	res, err := s.db.ExecContext(r.Context(),
+	res, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE hosts SET capabilities_json = ?, capabilities_probed_at = ?
 		 WHERE team_id = ? AND id = ?`,
 		payload, NowUTC(), team, host)

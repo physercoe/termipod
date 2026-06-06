@@ -124,7 +124,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 	if in.Size != nil {
 		size = sql.NullInt64{Int64: *in.Size, Valid: true}
 	}
-	_, err = s.db.ExecContext(r.Context(), `
+	_, err = s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO artifacts (
 			id, project_id, run_id, kind, name, uri, sha256, size, mime,
 			producer_agent_id, lineage_json, created_at

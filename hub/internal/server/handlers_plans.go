@@ -140,7 +140,7 @@ func (s *Server) handleCreatePlan(w http.ResponseWriter, r *http.Request) {
 	spec := normalizeObjectJSON(in.SpecJSON)
 	id := NewID()
 	now := NowUTC()
-	_, err = s.db.ExecContext(r.Context(), `
+	_, err = s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO plans (id, project_id, template_id, version, spec_json, status, created_at)
 		VALUES (?, ?, NULLIF(?, ''), ?, ?, 'draft', ?)`,
 		id, in.ProjectID, in.TemplateID, version, spec, now)
@@ -277,7 +277,7 @@ func (s *Server) handleUpdatePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, plan)
 	q := "UPDATE plans SET " + strings.Join(sets, ", ") + " WHERE id = ?"
-	res, err := s.db.ExecContext(r.Context(), q, args...)
+	res, err := s.writeDB.ExecContext(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -327,7 +327,7 @@ func (s *Server) handleCreatePlanStep(w http.ResponseWriter, r *http.Request) {
 	}
 	spec := normalizeObjectJSON(in.SpecJSON)
 	id := NewID()
-	tx, err := s.db.BeginTx(r.Context(), nil)
+	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -458,7 +458,7 @@ func (s *Server) handleUpdatePlanStep(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, step, plan)
 	q := "UPDATE plan_steps SET " + strings.Join(sets, ", ") + " WHERE id = ? AND plan_id = ?"
-	tx, err := s.db.BeginTx(r.Context(), nil)
+	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

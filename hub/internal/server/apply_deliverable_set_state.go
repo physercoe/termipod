@@ -173,7 +173,7 @@ func applyDeliverableSetState(
 		if actor == "" {
 			actor = "propose"
 		}
-		_, execErr = s.db.ExecContext(ctx, `
+		_, execErr = s.writeDB.ExecContext(ctx, `
 			UPDATE deliverables
 			SET ratification_state = 'ratified',
 			    ratified_at = ?,
@@ -184,7 +184,7 @@ func applyDeliverableSetState(
 		action = "deliverable.ratified"
 	case fromState == deliverableStateRatified:
 		// ratified → draft. Mirrors handleUnratifyDeliverable.
-		_, execErr = s.db.ExecContext(ctx, `
+		_, execErr = s.writeDB.ExecContext(ctx, `
 			UPDATE deliverables
 			SET ratification_state = ?,
 			    ratified_at = NULL,
@@ -197,7 +197,7 @@ func applyDeliverableSetState(
 		// draft ↔ in-review. Mirrors the PATCH path. We don't allow
 		// PATCH-into-ratified there; here we'd never reach this branch
 		// for the ratified target because the first case handles it.
-		_, execErr = s.db.ExecContext(ctx, `
+		_, execErr = s.writeDB.ExecContext(ctx, `
 			UPDATE deliverables
 			SET ratification_state = ?,
 			    updated_at = ?

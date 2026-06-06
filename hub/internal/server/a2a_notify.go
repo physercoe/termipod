@@ -71,7 +71,7 @@ func (s *Server) notifyA2ASent(ctx context.Context, senderAgentID string, body [
 		"body":        rendered,
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	id, seq, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+	id, seq, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
 		AgentID:     senderAgentID,
 		SessionID:   sessionID,
 		Kind:        "a2a.sent",

@@ -268,7 +268,7 @@ func (s *Server) handleAdvanceProjectPhase(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if _, err := s.db.ExecContext(r.Context(),
+	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE projects SET phase = ?, phase_history = ? WHERE team_id = ? AND id = ?`,
 		to, string(historyJSON), team, project); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -347,7 +347,7 @@ func (s *Server) handleSetProjectPhase(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if _, err := s.db.ExecContext(r.Context(),
+	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE projects SET phase = ?, phase_history = ? WHERE team_id = ? AND id = ?`,
 		in.Phase, string(historyJSON), team, project); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

@@ -91,7 +91,7 @@ func (s *Server) stopSessionInternal(ctx context.Context, team, sessionID string
 	// 1. Agent → terminated (idempotent: skip if already in a terminal state).
 	terminal := agentState == "terminated" || agentState == "crashed" || agentState == "failed"
 	if !terminal {
-		_, err = s.db.ExecContext(ctx,
+		_, err = s.writeDB.ExecContext(ctx,
 			`UPDATE agents SET status = 'terminated', terminated_at = ?
 			  WHERE team_id = ? AND id = ?`, now, team, aid)
 		if err != nil {
@@ -103,13 +103,13 @@ func (s *Server) stopSessionInternal(ctx context.Context, team, sessionID string
 	// the active-only WHERE. Archive also stamps closed_at; a stopped
 	// (paused) session has no close time because it can still be resumed.
 	if opts.Archive {
-		_, err = s.db.ExecContext(ctx, `
+		_, err = s.writeDB.ExecContext(ctx, `
 			UPDATE sessions
 			   SET status = 'archived', closed_at = ?, last_active_at = ?
 			 WHERE team_id = ? AND current_agent_id = ? AND status = 'active'`,
 			now, now, team, aid)
 	} else {
-		_, err = s.db.ExecContext(ctx, `
+		_, err = s.writeDB.ExecContext(ctx, `
 			UPDATE sessions
 			   SET status = 'paused', last_active_at = ?
 			 WHERE team_id = ? AND current_agent_id = ? AND status = 'active'`,
@@ -120,7 +120,7 @@ func (s *Server) stopSessionInternal(ctx context.Context, team, sessionID string
 	}
 
 	// 3. MCP bearer revoke (no-op if there were no tokens).
-	_, _ = auth.RevokeAgentTokens(ctx, s.db, aid, now)
+	_, _ = auth.RevokeAgentTokens(ctx, s.writeDB, aid, now)
 
 	// 4. Host-runner terminate command. force_kill rides in args so the
 	// host-side terminate handler can escalate straight to SIGKILL.

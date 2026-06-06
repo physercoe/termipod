@@ -128,7 +128,7 @@ func (s *Server) handleAppendJournal(w http.ResponseWriter, r *http.Request) {
 	}
 	// Cache the handle's last-known journal path on the agent row so the
 	// mobile UI can link directly to it without repeating the lookup.
-	_, _ = s.db.ExecContext(r.Context(),
+	_, _ = s.writeDB.ExecContext(r.Context(),
 		`UPDATE agents SET journal_path = ? WHERE team_id = ? AND id = ?`,
 		path, team, agent)
 

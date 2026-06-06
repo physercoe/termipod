@@ -161,7 +161,7 @@ func (e *Escalator) apply(
 	if err != nil {
 		return err
 	}
-	res, err := e.s.db.ExecContext(ctx, `
+	res, err := e.s.writeDB.ExecContext(ctx, `
 		UPDATE attention_items
 		SET current_assignees_json = ?, escalation_history_json = ?
 		WHERE id = ? AND status = 'open' AND escalation_history_json = ?`,

@@ -266,7 +266,7 @@ func (s *Server) hydratePhaseCriteria(
 		}
 		id := NewID()
 		now := NowUTC()
-		_, err := s.db.ExecContext(ctx, `
+		_, err := s.writeDB.ExecContext(ctx, `
 			INSERT INTO acceptance_criteria (id, project_id, phase, kind, body,
 				state, required, ord, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
@@ -344,7 +344,7 @@ func (s *Server) hydratePhaseDeliverables(
 		}
 		id := NewID()
 		now := NowUTC()
-		_, err := s.db.ExecContext(ctx, `
+		_, err := s.writeDB.ExecContext(ctx, `
 			INSERT INTO deliverables (id, project_id, phase, kind,
 				ratification_state, required, ord, created_at, updated_at)
 			VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,

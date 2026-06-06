@@ -67,7 +67,7 @@ func (s *Server) maybeAutoAdvancePhase(
 	if err != nil {
 		return false, err
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.writeDB.ExecContext(ctx,
 		`UPDATE projects SET phase = ?, phase_history = ? WHERE team_id = ? AND id = ?`,
 		to, string(historyJSON), team, project); err != nil {
 		return false, err

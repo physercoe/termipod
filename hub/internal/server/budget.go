@@ -14,7 +14,7 @@ import (
 // line" check sees the committed total — important when multiple events
 // land concurrently.
 func (s *Server) accumulateSpend(ctx context.Context, agentID string, deltaCents int) {
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.writeDB.ExecContext(ctx,
 		`UPDATE agents SET spent_cents = spent_cents + ? WHERE id = ?`,
 		deltaCents, agentID); err != nil {
 		s.log.Warn("accumulate spend failed", "agent", agentID, "err", err)
@@ -37,7 +37,7 @@ func (s *Server) accumulateSpend(ctx context.Context, agentID string, deltaCents
 		return
 	}
 	// Mark agent as paused locally and enqueue the host-side pause.
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.writeDB.ExecContext(ctx,
 		`UPDATE agents SET pause_state = 'paused' WHERE id = ?`, agentID); err != nil {
 		s.log.Warn("budget auto-pause update failed", "agent", agentID, "err", err)
 	}
@@ -47,7 +47,7 @@ func (s *Server) accumulateSpend(ctx context.Context, agentID string, deltaCents
 	}
 	// Raise an attention item so an operator sees why the agent went quiet.
 	assignees, _ := json.Marshal([]string{"@principal"})
-	_, _ = s.db.ExecContext(ctx, `
+	_, _ = s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, tier,

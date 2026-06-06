@@ -70,7 +70,7 @@ func (sc *Scheduler) Register(id, team, cronExpr string) error {
 	sc.ids[id] = entryID
 
 	next := sc.cron.Entry(entryID).Next
-	_, _ = sc.s.db.Exec(`UPDATE schedules SET next_run_at = ? WHERE id = ?`,
+	_, _ = sc.s.writeDB.Exec(`UPDATE schedules SET next_run_at = ? WHERE id = ?`,
 		next.UTC().Format("2006-01-02T15:04:05.000000000Z07:00"), id)
 	return nil
 }
@@ -103,7 +103,7 @@ func (sc *Scheduler) updateRunStamps(id, planID string) {
 	if ok {
 		next = sc.cron.Entry(entryID).Next.UTC().Format("2006-01-02T15:04:05.000000000Z07:00")
 	}
-	_, err := sc.s.db.Exec(`
+	_, err := sc.s.writeDB.Exec(`
 		UPDATE schedules
 		   SET last_run_at = ?, last_plan_id = ?, next_run_at = ?
 		 WHERE id = ?`, now, nullIfEmpty(planID), nullIfEmpty(next), id)
@@ -160,14 +160,14 @@ func (s *Server) fireSchedule(ctx context.Context, scheduleID string) (string, e
 	planID := NewID()
 	now := NowUTC()
 	specJSON := `{"parameters":` + params + `}`
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO plans (
 			id, project_id, template_id, version, spec_json, status, created_at
 		) VALUES (?, ?, ?, ?, ?, 'ready', ?)`,
 		planID, projectID, templateID, 1, specJSON, now); err != nil {
 		return "", err
 	}
-	_, _ = s.db.ExecContext(ctx, `
+	_, _ = s.writeDB.ExecContext(ctx, `
 		UPDATE schedules SET last_run_at = ?, last_plan_id = ? WHERE id = ?`,
 		now, planID, scheduleID)
 	return planID, nil

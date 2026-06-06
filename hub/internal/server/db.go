@@ -52,6 +52,25 @@ func OpenDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// OpenWriterDB opens the dedicated single-writer connection pool against an
+// already-migrated database. It runs NO migrations (OpenDB owns schema). The
+// caller caps it to one connection (New()) so every write serializes through
+// one lane and queues in Go rather than colliding on SQLite's write lock —
+// see New() for the read/write split and
+// docs/discussions/hub-scaling-storage-and-concurrency.md §6.
+func OpenWriterDB(path string) (*sql.DB, error) {
+	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite (writer): %w", err)
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ping sqlite (writer): %w", err)
+	}
+	return db, nil
+}
+
 func runMigrations(db *sql.DB) error {
 	src, err := iofs.New(hub.MigrationsFS, "migrations")
 	if err != nil {

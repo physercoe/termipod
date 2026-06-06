@@ -47,7 +47,7 @@ func (s *Server) recordAudit(
 	if actorTokenID != "" {
 		tokenArg = actorTokenID
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO audit_events (
 			id, team_id, ts, actor_token_id, actor_kind, actor_handle,
 			action, target_kind, target_id, summary, meta_json

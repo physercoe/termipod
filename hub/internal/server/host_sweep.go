@@ -36,7 +36,7 @@ func (s *Server) runHostSweep(ctx context.Context) {
 func (s *Server) sweepHostsOnce(ctx context.Context) {
 	cutoff := time.Now().UTC().Add(-HostStaleThreshold).
 		Format("2006-01-02T15:04:05.000000000Z07:00")
-	res, err := s.db.ExecContext(ctx, `
+	res, err := s.writeDB.ExecContext(ctx, `
 		UPDATE hosts SET status='offline'
 		WHERE status='online'
 		  AND last_seen_at IS NOT NULL

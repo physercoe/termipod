@@ -138,7 +138,7 @@ func (s *Server) loopBudgets(ctx context.Context, projectID string) (inactivity,
 func (s *Server) stampLoopDeadlines(ctx context.Context, e LoopEntity) {
 	now := time.Now().UTC()
 	inactivity, absoluteCap := s.loopBudgets(ctx, e.ProjectID)
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		UPDATE `+loopTable(e.Source)+`
 		   SET opened_at = ?, last_progress_at = ?,
 		       inactivity_deadline = ?, absolute_cap = ?
@@ -181,7 +181,7 @@ func (s *Server) bumpLoopProgress(ctx context.Context, agentID string) {
 	now := time.Now().UTC()
 	for _, r := range refs {
 		inactivity, _ := s.loopBudgets(ctx, r.projectID)
-		if _, err := s.db.ExecContext(ctx, `
+		if _, err := s.writeDB.ExecContext(ctx, `
 			UPDATE tasks
 			   SET last_progress_at = ?, inactivity_deadline = ?, escalation_state = 'none'
 			 WHERE id = ?`,
@@ -207,7 +207,7 @@ func (s *Server) escalateStall(ctx context.Context, e LoopEntity) {
 		return // already escalated to the principal — nothing further.
 	}
 	inactivity, _ := s.loopBudgets(ctx, e.ProjectID)
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		UPDATE `+loopTable(e.Source)+`
 		   SET escalation_state = ?, inactivity_deadline = ?
 		 WHERE id = ?`,
@@ -305,12 +305,12 @@ func truncateChangeSpecPreview(spec string, n int) string {
 func (s *Server) terminateLoopTimedOut(ctx context.Context, e LoopEntity) {
 	var err error
 	if e.Source == LoopSourceQuestion {
-		_, err = s.db.ExecContext(ctx, `
+		_, err = s.writeDB.ExecContext(ctx, `
 			UPDATE attention_items
 			   SET status = 'resolved', terminal_reason = ?, resolved_at = ?
 			 WHERE id = ?`, TerminalTimedOut, NowUTC(), e.ID)
 	} else {
-		_, err = s.db.ExecContext(ctx, `
+		_, err = s.writeDB.ExecContext(ctx, `
 			UPDATE tasks
 			   SET status = 'cancelled', terminal_reason = ?,
 			       completed_at = ?, updated_at = ?
@@ -357,7 +357,7 @@ func (s *Server) wakeStewardForStall(ctx context.Context, e LoopEntity) {
 		return
 	}
 	payload, _ := json.Marshal(env.PayloadMap())
-	id, seq, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+	id, seq, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
 		AgentID:     e.CreatedByID,
 		SessionID:   sessionID,
 		Kind:        "input.text",

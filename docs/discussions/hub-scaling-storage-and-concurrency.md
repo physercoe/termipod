@@ -228,6 +228,44 @@ the §6 levers (cap the writer pool so requests queue cheaply in Go;
 kill the `MAX(seq)+1` read-modify-write; batch ingest; fold the digest
 in the same tx) are what move the cliff.
 
+### 4.2 After the writer/reader pool split (lever 3 — SHIPPED)
+
+Implemented the read/write pool split (§6 lever 3). **Same box, same
+harness, 2 vCPU:**
+
+| Agents | Before ev/s | After ev/s | Before p99 | After p99 | Before err | After err |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 639 | 617 | 11 ms | 12 ms | 0 | 0 |
+| 100 | 460 | **650** | 2.50 s | **0.51 s** | 0 | 0 |
+| 200 | 332 | **617** | 4.51 s | **1.04 s** | 0 | 0 |
+| 400 | 221 | **576** | 5.80 s | **2.07 s** | 1× BUSY | **0** |
+| 800 | 133 | **454** | 7.74 s | **4.51 s** | stalled | **0** |
+
+- **Congestion collapse eliminated.** Throughput is now flat at
+  ~580–650 ev/s from 100→400 agents (was 460→332→221). The writer is
+  still one lane, but requests queue cheaply in Go instead of thrashing
+  the SQLite lock.
+- **The SQLITE_BUSY cliff is gone.** 0 errors at 400 *and* 800 agents
+  (was the first `SQLITE_BUSY` 500 at ~400, stalled at 800).
+- **p99 latency 2–4× better** across the contended range (400 agents:
+  5.8 s → 2.1 s).
+
+**Design note — why a *dedicated writer pool*, not just
+`SetMaxOpenConns(1)` on the shared pool.** The naïve cap (one pool, one
+connection) deadlocks: any goroutine holding an open `*sql.Rows` across
+another query on that pool starves for the single connection — and the
+codebase does this routinely (the insights aggregator's nested
+per-row lookups; hundreds of test verification queries). The shipped
+shape sidesteps it entirely: `s.db` stays the **uncapped reader** pool
+(all `Query*`, all tests — unchanged), and a **separate `s.writeDB`**
+pool capped to one connection takes **all** writes (`Exec`/`BeginTx`,
+plus the write/mixed helpers `insertAgentEvent`/`ensureAgentDigest`/…).
+The writer pool only ever runs `Exec`/`BeginTx` — it never holds an
+open `Rows` — so the 1-connection cap cannot deadlock, and the 13
+`BeginTx` blocks are tx-local (audited) so none nest-acquires. Reads
+and writes are on different pools, so an open read cursor can never
+block a write. Full `go test ./internal/server` stays green.
+
 ---
 
 ## 5. "Is a Redis-like service needed?"
@@ -278,10 +316,14 @@ Ordered cheapest-highest-value first:
    the audit-event "older rows compactable" posture,
    `quality-attributes.md:79`) — a sweep, a per-team byte/age cap, or
    cold-storage offload of terminated-agent transcripts.
-3. **Cap and split the connection pool intentionally** —
-   `SetMaxOpenConns(1)` for the writer path (queue in Go, not on the
-   SQLite lock) with a separate **reader** pool for `GET`/SSE backfill.
-   Turns lock contention into cheap goroutine queueing.
+3. **Cap and split the connection pool intentionally — SHIPPED (§4.2).**
+   A dedicated single-connection **writer** pool (`s.writeDB`) takes all
+   writes so they queue in Go instead of thrashing the SQLite lock; the
+   uncapped **reader** pool (`s.db`) serves all `Query*` + tests. Turned
+   the congestion-collapse + `SQLITE_BUSY` cliff into flat throughput
+   with 0 errors at 800 agents. (Crucially a *separate* writer pool, not
+   `SetMaxOpenConns(1)` on the shared pool — see §4.2 design note for the
+   deadlock that avoids.)
 4. **Replace the `MAX(seq)+1` read-modify-write** (§3.2) with a real
    per-agent monotonic counter (a dedicated table row or an
    autoincrement keyed by agent) so inserts stop scanning and stop

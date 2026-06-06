@@ -290,7 +290,7 @@ func (s *Server) handleCreateDeliverable(w http.ResponseWriter, r *http.Request)
 
 	id := NewID()
 	now := NowUTC()
-	tx, err := s.db.BeginTx(r.Context(), nil)
+	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -436,7 +436,7 @@ func (s *Server) handlePatchDeliverable(w http.ResponseWriter, r *http.Request) 
 	}
 	q += ` WHERE id = ? AND project_id = ?`
 	args = append(args, id, project)
-	if _, err := s.db.ExecContext(r.Context(), q, args...); err != nil {
+	if _, err := s.writeDB.ExecContext(r.Context(), q, args...); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -506,7 +506,7 @@ func (s *Server) handleRatifyDeliverable(w http.ResponseWriter, r *http.Request)
 	if actorHandle != "" {
 		actor = actorKind + ":" + actorHandle
 	}
-	if _, err := s.db.ExecContext(r.Context(), `
+	if _, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE deliverables
 		SET ratification_state = 'ratified',
 		    ratified_at = ?,
@@ -582,7 +582,7 @@ func (s *Server) handleUnratifyDeliverable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	now := NowUTC()
-	if _, err := s.db.ExecContext(r.Context(), `
+	if _, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE deliverables
 		SET ratification_state = 'draft',
 		    ratified_at = NULL,
@@ -663,7 +663,7 @@ func (s *Server) handleAddDeliverableComponent(w http.ResponseWriter, r *http.Re
 	}
 	id := NewID()
 	now := NowUTC()
-	if _, err := s.db.ExecContext(r.Context(), `
+	if _, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO deliverable_components (id, deliverable_id, kind, ref_id,
 			required, ord, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -701,7 +701,7 @@ func (s *Server) handleRemoveDeliverableComponent(w http.ResponseWriter, r *http
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		DELETE FROM deliverable_components
 		 WHERE id = ?
 		   AND deliverable_id = ?
@@ -985,7 +985,7 @@ func (s *Server) handleSendBackDeliverable(w http.ResponseWriter, r *http.Reques
 
 	now := NowUTC()
 	if curState != deliverableStateInReview {
-		if _, err := s.db.ExecContext(r.Context(), `
+		if _, err := s.writeDB.ExecContext(r.Context(), `
 			UPDATE deliverables
 			SET ratification_state = 'in-review', updated_at = ?
 			WHERE id = ? AND project_id = ?`,
@@ -1008,7 +1008,7 @@ func (s *Server) handleSendBackDeliverable(w http.ResponseWriter, r *http.Reques
 	attID := NewID()
 	summary := fmt.Sprintf("Revision requested · %s",
 		truncateForAudit(note, 80))
-	if _, err := s.db.ExecContext(r.Context(), `
+	if _, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind, summary, severity,
 			current_assignees_json, status, created_at,

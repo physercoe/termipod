@@ -81,7 +81,7 @@ func (s *Server) handleAdminTokensRotate(w http.ResponseWriter, r *http.Request)
 	// Issue the replacement token.
 	plain := auth.NewToken()
 	newID := NewID()
-	if err := auth.InsertToken(r.Context(), s.db, "host", templateScope,
+	if err := auth.InsertToken(r.Context(), s.writeDB, "host", templateScope,
 		plain, newID, NowUTC()); err != nil {
 		writeErr(w, http.StatusInternalServerError, "issue new token: "+err.Error())
 		return
@@ -134,7 +134,7 @@ func (s *Server) handleAdminTokensRotate(w http.ResponseWriter, r *http.Request)
 		out.Note = "one or more hosts did not ack — old tokens were NOT revoked " +
 			"so those hosts keep working. Fix them and re-run, or pass force_revoke."
 	default:
-		rev, rerr := s.db.ExecContext(r.Context(),
+		rev, rerr := s.writeDB.ExecContext(r.Context(),
 			`UPDATE auth_tokens SET revoked_at = ?
 			  WHERE kind = 'host' AND id != ? AND revoked_at IS NULL`,
 			NowUTC(), newID)

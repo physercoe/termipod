@@ -126,7 +126,7 @@ func (s *Server) writeStructuredDocument(
 	if len(encoded) > maxInlineDocBytes {
 		return fmt.Errorf("structured body exceeds %d bytes", maxInlineDocBytes)
 	}
-	_, err = s.db.ExecContext(ctx,
+	_, err = s.writeDB.ExecContext(ctx,
 		`UPDATE documents SET content_inline = ? WHERE id = ?`,
 		string(encoded), docID)
 	return err

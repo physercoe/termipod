@@ -57,7 +57,7 @@ func (s *Server) mcpDelegate(ctx context.Context, fromID string, raw json.RawMes
 
 	now := time.Now().UTC()
 	id := NewID()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO events (
 			id, schema_version, ts, received_ts, channel_id, type,
 			from_id, to_ids_json, parts_json, metadata_json
@@ -117,7 +117,7 @@ func (s *Server) mcpRequestApproval(ctx context.Context, team, fromID string, ra
 	now := NowUTC()
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
 	sessionID := s.lookupAgentSession(ctx, fromID)
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
@@ -173,7 +173,7 @@ func (s *Server) mcpRequestSelect(ctx context.Context, team, fromID string, raw 
 	// `request_select` (the agent-facing verb) so existing prompts
 	// don't break, but the resolver UI reads `select` which is sharper
 	// than the generic "decision".
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
@@ -265,7 +265,7 @@ func (s *Server) mcpRequestHelp(ctx context.Context, team, fromID string, raw js
 	})
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
 	sessionID := s.lookupAgentSession(ctx, fromID)
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
@@ -352,7 +352,7 @@ func (s *Server) mcpPostNotice(ctx context.Context, team, fromID string, raw jso
 	// it lands in Messages as an FYI. Assignee is the principal so it
 	// reaches the director's inbox like the other FYI items.
 	assignees, _ := json.Marshal([]string{"@principal"})
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
@@ -420,7 +420,7 @@ func (s *Server) mcpRequestProjectSteward(ctx context.Context, team, fromID stri
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
 	sessionID := s.lookupAgentSession(ctx, fromID)
 	summary := "Spawn a project steward: " + a.Reason
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
@@ -531,7 +531,7 @@ func (s *Server) mcpAttach(ctx context.Context, raw json.RawMessage) (any, *jrpc
 	if mime == "" {
 		mime = "application/octet-stream"
 	}
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.writeDB.ExecContext(ctx, `
 		INSERT OR IGNORE INTO blobs (sha256, scope_path, size, mime, created_at)
 		VALUES (?, ?, ?, ?, ?)`,
 		sha, path, len(body), mime, NowUTC()); err != nil {
@@ -748,7 +748,7 @@ func (s *Server) mcpUpdateOwnTaskStatus(ctx context.Context, agentID string, raw
 		return nil, &jrpcError{Code: -32000, Message: "task is not assigned to this agent"}
 	}
 	now := NowUTC()
-	_, err = s.db.ExecContext(ctx,
+	_, err = s.writeDB.ExecContext(ctx,
 		`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`,
 		a.Status, now, a.TaskID)
 	if err != nil {
@@ -791,7 +791,7 @@ func (s *Server) mcpTemplatesPropose(ctx context.Context, team, fromID string, r
 			return nil, &jrpcError{Code: -32000, Message: err.Error()}
 		}
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT OR IGNORE INTO blobs (sha256, scope_path, size, mime, created_at)
 		VALUES (?, ?, ?, 'text/yaml', ?)`,
 		sha, path, len(body), NowUTC())
@@ -820,7 +820,7 @@ func (s *Server) mcpTemplatesPropose(ctx context.Context, team, fromID string, r
 	// propose path, mcpPropose). Without this the steward never learns
 	// whether its template landed.
 	sessionID := s.lookupAgentSession(ctx, fromID)
-	_, err = s.db.ExecContext(ctx, `
+	_, err = s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json,
@@ -1018,7 +1018,7 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 		assignedTier = sql.NullString{String: GovTierProjectSteward, Valid: true}
 	}
 
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
@@ -1046,7 +1046,7 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 		// resolved so it doesn't loiter in the inbox forever; the audit
 		// trail captures the no-decision outcome.
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			_, _ = s.db.ExecContext(context.Background(), `
+			_, _ = s.writeDB.ExecContext(context.Background(), `
 				UPDATE attention_items
 				   SET status = 'resolved', resolved_at = ?
 				 WHERE id = ? AND status = 'open'`, NowUTC(), id)

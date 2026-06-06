@@ -211,7 +211,7 @@ func (s *Server) handleCreateAnnotation(w http.ResponseWriter, r *http.Request) 
 	if actorHandle != "" {
 		handleArg = actorHandle
 	}
-	_, ierr := s.db.ExecContext(r.Context(), `
+	_, ierr := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO document_annotations (
 			id, document_id, section_slug, char_start, char_end,
 			kind, body, status, author_kind, author_handle,
@@ -372,7 +372,7 @@ func (s *Server) handlePatchAnnotation(w http.ResponseWriter, r *http.Request) {
 		}
 		kind = in.Kind
 	}
-	if _, err := s.db.ExecContext(r.Context(),
+	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE document_annotations SET body = ?, kind = ? WHERE id = ?`,
 		body, kind, id,
 	); err != nil {
@@ -433,7 +433,7 @@ func (s *Server) transitionAnnotation(
 		resolvedAt = NowUTC()
 		resolvedBy = actor
 	}
-	if _, err := s.db.ExecContext(r.Context(),
+	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE document_annotations
 		    SET status = ?, resolved_at = ?, resolved_by_actor = ?
 		  WHERE id = ?`,

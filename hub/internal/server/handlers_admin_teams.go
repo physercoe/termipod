@@ -43,7 +43,7 @@ func (s *Server) handleAdminCreateTeam(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = in.TeamID
 	}
-	token, tokenID, createdAt, err := ProvisionTeam(r.Context(), s.db, in.TeamID, in.Name, in.Handle)
+	token, tokenID, createdAt, err := ProvisionTeam(r.Context(), s.writeDB, in.TeamID, in.Name, in.Handle)
 	switch {
 	case errors.Is(err, ErrTeamExists):
 		writeErr(w, http.StatusConflict, "team already exists")
@@ -160,7 +160,7 @@ func (s *Server) handleAdminRotateTeamToken(w http.ResponseWriter, r *http.Reque
 		scopeMap["handle"] = handle
 	}
 	scope, _ := json.Marshal(scopeMap)
-	if err := auth.InsertToken(r.Context(), s.db, "owner", string(scope), plain, newID, now); err != nil {
+	if err := auth.InsertToken(r.Context(), s.writeDB, "owner", string(scope), plain, newID, now); err != nil {
 		writeErr(w, http.StatusInternalServerError, "issue new token: "+err.Error())
 		return
 	}
@@ -169,7 +169,7 @@ func (s *Server) handleAdminRotateTeamToken(w http.ResponseWriter, r *http.Reque
 	// never in staleIDs (collected before the insert), so it survives.
 	revoked := 0
 	for _, id := range staleIDs {
-		res, rerr := s.db.ExecContext(r.Context(),
+		res, rerr := s.writeDB.ExecContext(r.Context(),
 			`UPDATE auth_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
 			now, id)
 		if rerr != nil {

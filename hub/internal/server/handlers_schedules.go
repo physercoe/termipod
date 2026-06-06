@@ -80,7 +80,7 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	id := NewID()
 	now := NowUTC()
-	_, err = s.db.ExecContext(r.Context(), `
+	_, err = s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO schedules (
 			id, project_id, template_id, trigger_kind, cron_expr,
 			parameters_json, enabled, created_at
@@ -96,7 +96,7 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	// on_create are fired explicitly (by /run endpoint or project create).
 	if enabled && in.TriggerKind == "cron" && s.sched != nil {
 		if err := s.sched.Register(id, team, in.CronExpr); err != nil {
-			_, _ = s.db.ExecContext(r.Context(),
+			_, _ = s.writeDB.ExecContext(r.Context(),
 				`DELETE FROM schedules WHERE id = ?`, id)
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
@@ -227,7 +227,7 @@ func (s *Server) handlePatchSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, id)
 	q := `UPDATE schedules SET ` + joinCSV(sets) + ` WHERE id = ?`
-	if _, err := s.db.ExecContext(r.Context(), q, args...); err != nil {
+	if _, err := s.writeDB.ExecContext(r.Context(), q, args...); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -245,7 +245,7 @@ func (s *Server) handlePatchSchedule(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "schedule")
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		DELETE FROM schedules
 		 WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
 		id, team)

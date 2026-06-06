@@ -31,7 +31,7 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	id := NewID()
 	now := NowUTC()
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO channels (id, team_id, project_id, scope_kind, name, created_at)
 		VALUES (?, ?, ?, 'project', ?, ?)`, id, team, proj, in.Name, now)
 	if err != nil {
@@ -129,7 +129,7 @@ func (s *Server) handleCreateTeamChannel(w http.ResponseWriter, r *http.Request)
 	}
 	id := NewID()
 	now := NowUTC()
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO channels (id, team_id, project_id, scope_kind, name, created_at)
 		VALUES (?, ?, NULL, 'team', ?, ?)`, id, team, in.Name, now)
 	if err != nil {

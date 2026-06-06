@@ -112,7 +112,7 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 	// agent, so a forged usage_tokens block cannot pause a victim.
 	fromID, spendAgentID := eventSender(r, in.FromID)
 
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO events (
 			id, schema_version, ts, received_ts, channel_id, type,
 			from_id, to_ids_json, parts_json, task_id, correlation_id,

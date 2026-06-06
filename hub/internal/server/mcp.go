@@ -484,7 +484,7 @@ func (s *Server) mcpPostMessage(ctx context.Context, fromID string, raw json.Raw
 	partsJSON, _ := json.Marshal(parts)
 	now := time.Now().UTC()
 	id := NewID()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO events (
 			id, schema_version, ts, received_ts, channel_id, type,
 			from_id, to_ids_json, parts_json, metadata_json
@@ -639,7 +639,7 @@ func (s *Server) mcpJournalAppend(ctx context.Context, team, agentID string, raw
 	if err := appendJournal(path, a.Header, a.Entry); err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
-	_, _ = s.db.ExecContext(ctx,
+	_, _ = s.writeDB.ExecContext(ctx,
 		`UPDATE agents SET journal_path = ? WHERE team_id = ? AND id = ?`,
 		path, team, agentID)
 	return mcpResultText("appended"), nil
@@ -783,7 +783,7 @@ func (s *Server) mcpPostExcerpt(ctx context.Context, agentID string, raw json.Ra
 	paneRefJSON, _ := json.Marshal(paneRef)
 
 	id := NewID()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO events (
 			id, schema_version, ts, received_ts, channel_id, type,
 			from_id, to_ids_json, parts_json, pane_ref_json, metadata_json

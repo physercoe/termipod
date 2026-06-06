@@ -70,7 +70,7 @@ func (s *Server) handlePutRunConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// One row per run — upsert.
-	if _, err := s.db.ExecContext(r.Context(), `
+	if _, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO run_config (run_id, config_json, updated_at)
 		VALUES (?, ?, ?)
 		ON CONFLICT(run_id) DO UPDATE SET
@@ -152,7 +152,7 @@ func (s *Server) handlePutRunSystemMetrics(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	tx, err := s.db.BeginTx(r.Context(), nil)
+	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -293,7 +293,7 @@ func (s *Server) handlePutRunAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := s.db.BeginTx(r.Context(), nil)
+	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

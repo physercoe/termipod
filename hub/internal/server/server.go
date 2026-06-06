@@ -57,7 +57,8 @@ type Config struct {
 
 type Server struct {
 	cfg           Config
-	db            *sql.DB
+	db            *sql.DB // general/reader pool — uncapped; all reads + tests
+	writeDB       *sql.DB // writer pool — SetMaxOpenConns(1); all writes, see New()
 	router        chi.Router
 	log           *slog.Logger
 	bus           *eventBus
@@ -121,6 +122,24 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Writer/reader pool split — docs/discussions/hub-scaling-storage-and-
+	// concurrency.md §6 lever 3. SQLite is a single-writer store. s.db stays
+	// the uncapped general/reader pool (WAL lets readers run concurrently);
+	// s.writeDB is a dedicated ONE-connection writer pool that ALL writes go
+	// through, so writes queue cheaply in Go instead of colliding on the
+	// write lock and exhausting busy_timeout under many concurrent agents
+	// (the SQLITE_BUSY cliff measured at ~400 agents, §4.1). The writer pool
+	// only ever runs Exec/BeginTx — it never holds an open *sql.Rows — so the
+	// 1-connection cap can't deadlock on a read held across another acquire
+	// (the BeginTx blocks are tx-local, audited). Reads (incl. tests) keep
+	// using s.db unchanged.
+	writeDB, err := OpenWriterDB(cfg.DBPath)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	writeDB.SetMaxOpenConns(1)
+	writeDB.SetMaxIdleConns(1)
 	// Seed bundled templates that don't yet exist on disk. Init() does
 	// this once at `hub init`, but a hub upgraded across versions only
 	// runs `hub serve` on subsequent boots, so newly-shipped built-ins
@@ -137,7 +156,7 @@ func New(cfg Config) (*Server, error) {
 		cfg.Logger.Warn("seed loop-hooks.yaml", "err", err)
 	}
 	loopHooksConfig.Store(loadLoopHooks(cfg.DataRoot))
-	s := &Server{cfg: cfg, db: db, log: cfg.Logger, bus: newEventBus()}
+	s := &Server{cfg: cfg, db: db, writeDB: writeDB, log: cfg.Logger, bus: newEventBus()}
 	// Operation-scope manifest (ADR-016) — load embedded + overlay so
 	// dispatchTool's role-gating middleware has a manifest to consult.
 	// Failure to parse is a hard error: without the manifest, every
@@ -199,7 +218,12 @@ func New(cfg Config) (*Server, error) {
 
 func (s *Server) DB() *sql.DB { return s.db }
 
-func (s *Server) Close() error { return s.db.Close() }
+func (s *Server) Close() error {
+	if s.writeDB != nil {
+		_ = s.writeDB.Close()
+	}
+	return s.db.Close()
+}
 
 func (s *Server) Serve(ctx context.Context) error {
 	srv := &http.Server{

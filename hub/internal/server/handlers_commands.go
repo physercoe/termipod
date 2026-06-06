@@ -84,7 +84,7 @@ func (s *Server) handleListHostCommands(w http.ResponseWriter, r *http.Request) 
 		q := "UPDATE host_commands SET status = 'delivered', delivered_at = ? WHERE id IN (?" +
 			strings_repeat(",?", len(ids)-1) + ")"
 		args := append([]any{now}, ids...)
-		if _, err := s.db.ExecContext(r.Context(), q, args...); err != nil {
+		if _, err := s.writeDB.ExecContext(r.Context(), q, args...); err != nil {
 			// Non-fatal: worst case host-runner re-reads the same command next tick,
 			// and its PATCH is idempotent.
 			s.log.Warn("mark delivered failed", "err", err)
@@ -133,7 +133,7 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 	if result == "" {
 		result = "{}"
 	}
-	if _, err := s.db.ExecContext(r.Context(), `
+	if _, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE host_commands SET
 			status = ?, result_json = ?, error = NULLIF(?, ''), completed_at = ?
 		WHERE id = ?`,
@@ -147,7 +147,7 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 			Text string `json:"text"`
 		}
 		if err := json.Unmarshal(in.Result, &payload); err == nil && payload.Text != "" {
-			_, _ = s.db.ExecContext(r.Context(),
+			_, _ = s.writeDB.ExecContext(r.Context(),
 				`UPDATE agents SET last_capture = ?, last_capture_at = ? WHERE id = ?`,
 				payload.Text, now, agentID)
 		}
@@ -157,10 +157,10 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 	if in.Status == "done" && agentID != "" {
 		switch kind {
 		case "pause":
-			_, _ = s.db.ExecContext(r.Context(),
+			_, _ = s.writeDB.ExecContext(r.Context(),
 				`UPDATE agents SET pause_state = 'paused' WHERE id = ?`, agentID)
 		case "resume":
-			_, _ = s.db.ExecContext(r.Context(),
+			_, _ = s.writeDB.ExecContext(r.Context(),
 				`UPDATE agents SET pause_state = 'running' WHERE id = ?`, agentID)
 		}
 	}
@@ -179,7 +179,7 @@ func (s *Server) enqueueHostCommand(ctx context.Context, hostID, agentID, kind s
 		argsJSON = b
 	}
 	id := NewID()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO host_commands (id, host_id, agent_id, kind, args_json, status, created_at)
 		VALUES (?, ?, NULLIF(?, ''), ?, ?, 'pending', ?)`,
 		id, hostID, agentID, kind, string(argsJSON), NowUTC())

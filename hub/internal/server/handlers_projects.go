@@ -308,7 +308,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO projects (
 			id, team_id, name, config_yaml, docs_root, created_at,
 			goal, kind, parent_project_id, template_id, parameters_json,
@@ -519,7 +519,7 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleArchiveProject(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	proj := chi.URLParam(r, "project")
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE projects SET status='archived', archived_at=?
 		WHERE team_id = ? AND id = ? AND status != 'archived'`,
 		NowUTC(), team, proj)
@@ -651,7 +651,7 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args = append(args, team, proj)
-	res, err := s.db.ExecContext(r.Context(),
+	res, err := s.writeDB.ExecContext(r.Context(),
 		"UPDATE projects SET "+strings.Join(sets, ", ")+
 			" WHERE team_id = ? AND id = ?", args...)
 	if err != nil {

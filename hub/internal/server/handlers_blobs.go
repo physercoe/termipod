@@ -49,7 +49,7 @@ func (s *Server) handleUploadBlob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// INSERT OR IGNORE — same hash = same bytes, keep first row.
-	_, err = s.db.ExecContext(r.Context(), `
+	_, err = s.writeDB.ExecContext(r.Context(), `
 		INSERT OR IGNORE INTO blobs (sha256, scope_path, size, mime, created_at)
 		VALUES (?, ?, ?, ?, ?)`,
 		sha, path, len(body), mime, NowUTC())

@@ -161,13 +161,13 @@ func (s *Server) handleIssueToken(w http.ResponseWriter, r *http.Request) {
 	plain := auth.NewToken()
 	id := NewID()
 	now := NowUTC()
-	if err := auth.InsertToken(r.Context(), s.db, in.Kind, string(scope),
+	if err := auth.InsertToken(r.Context(), s.writeDB, in.Kind, string(scope),
 		plain, id, now); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if in.ExpiresAt != "" {
-		if _, err := s.db.ExecContext(r.Context(),
+		if _, err := s.writeDB.ExecContext(r.Context(),
 			`UPDATE auth_tokens SET expires_at = ? WHERE id = ?`,
 			in.ExpiresAt, id); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
@@ -211,7 +211,7 @@ func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := NowUTC()
-	if _, err := s.db.ExecContext(r.Context(),
+	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE auth_tokens SET revoked_at = ? WHERE id = ?`, now, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

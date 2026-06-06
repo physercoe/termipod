@@ -110,7 +110,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	id := NewID()
 	now := NowUTC()
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO tasks (id, project_id, parent_task_id, title, body_md, status, priority,
 		                   assignee_id, created_by_id, milestone_id, created_at, updated_at)
 		VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?,
@@ -334,7 +334,7 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 	sets = append(sets, "updated_at = ?")
 	args = append(args, NowUTC(), proj, id)
 	q := "UPDATE tasks SET " + strings.Join(sets, ", ") + " WHERE project_id = ? AND id = ?"
-	res, err := s.db.ExecContext(r.Context(), q, args...)
+	res, err := s.writeDB.ExecContext(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -396,7 +396,7 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRowContext(r.Context(),
 		`SELECT title FROM tasks WHERE project_id = ? AND id = ?`,
 		proj, id).Scan(&title)
-	res, err := s.db.ExecContext(r.Context(),
+	res, err := s.writeDB.ExecContext(r.Context(),
 		`DELETE FROM tasks WHERE project_id = ? AND id = ?`, proj, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

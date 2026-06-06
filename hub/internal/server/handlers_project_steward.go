@@ -177,7 +177,7 @@ func (s *Server) handleEnsureProjectSteward(w http.ResponseWriter, r *http.Reque
 	// pre-ADR pointer; updating it avoids divergence and lets
 	// existing readers (steward_state, mobile project overview) keep
 	// working without joining through `agents`.
-	if _, perr := s.db.ExecContext(ctx,
+	if _, perr := s.writeDB.ExecContext(ctx,
 		`UPDATE projects SET steward_agent_id = ?
 		   WHERE team_id = ? AND id = ?`,
 		out.AgentID, team, project); perr != nil {

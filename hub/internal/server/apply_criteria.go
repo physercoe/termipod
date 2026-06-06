@@ -178,7 +178,7 @@ func applyCriteriaCreate(
 	if c.DeliverableID != "" {
 		deliv = c.DeliverableID
 	}
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO acceptance_criteria (id, project_id, phase, deliverable_id,
 			kind, body, state, required, ord, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
@@ -211,7 +211,7 @@ func rollbackCriteriaCreate(
 	if orig.CriterionID == "" {
 		return nil, errors.New("rollback: original_executed missing criterion_id")
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.writeDB.ExecContext(ctx,
 		`DELETE FROM acceptance_criteria WHERE id = ? AND project_id = ?`,
 		orig.CriterionID, orig.ProjectID); err != nil {
 		return nil, err
@@ -325,7 +325,7 @@ func applyCriteriaUpdate(
 	}
 	q += ` WHERE id = ? AND project_id = ?`
 	args = append(args, t.CriterionID, t.ProjectID)
-	if _, err := s.db.ExecContext(ctx, q, args...); err != nil {
+	if _, err := s.writeDB.ExecContext(ctx, q, args...); err != nil {
 		return nil, err
 	}
 	s.recordAudit(ctx, ac.Team, "criterion.updated", "criterion", t.CriterionID,
@@ -372,7 +372,7 @@ func rollbackCriteriaUpdate(
 	if orig.Before.Required {
 		req = 1
 	}
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.writeDB.ExecContext(ctx, `
 		UPDATE acceptance_criteria
 		   SET body = ?, required = ?, ord = ?, updated_at = ?
 		 WHERE id = ? AND project_id = ?`,
@@ -429,7 +429,7 @@ func applyCriteriaDelete(
 		}
 		return nil, err
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.writeDB.ExecContext(ctx,
 		`DELETE FROM acceptance_criteria WHERE id = ? AND project_id = ?`,
 		t.CriterionID, t.ProjectID); err != nil {
 		return nil, err
@@ -483,7 +483,7 @@ func rollbackCriteriaDelete(
 		evid = c.EvidenceRef
 	}
 	now := NowUTC()
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO acceptance_criteria (id, project_id, phase, deliverable_id,
 			kind, body, state, met_at, met_by_actor, evidence_ref,
 			required, ord, created_at, updated_at)

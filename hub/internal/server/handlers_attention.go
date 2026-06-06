@@ -124,7 +124,7 @@ func (s *Server) handleCreateAttention(w http.ResponseWriter, r *http.Request) {
 	if pending == "" || pending == "null" {
 		pending = ""
 	}
-	_, err := s.db.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			ref_event_id, ref_task_id, summary, severity,
@@ -504,14 +504,14 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	// resolved_by has a FK to agents(id); in.By is a handle used only for
 	// the decision trail, so it lands in decisions_json, not the FK column.
 	if resolved {
-		_, err = s.db.ExecContext(r.Context(), `
+		_, err = s.writeDB.ExecContext(r.Context(), `
 			UPDATE attention_items SET
 				decisions_json = ?,
 				status = 'resolved',
 				resolved_at = ?
 			WHERE id = ?`, string(newDecisions), now, id)
 	} else {
-		_, err = s.db.ExecContext(r.Context(), `
+		_, err = s.writeDB.ExecContext(r.Context(), `
 			UPDATE attention_items SET
 				decisions_json = ?
 			WHERE id = ?`, string(newDecisions), id)
@@ -576,7 +576,7 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 		// queries on the attention row see what landed. Best-effort —
 		// failure here doesn't roll back the decision.
 		if len(out.Executed) > 0 {
-			if _, err := s.db.ExecContext(r.Context(),
+			if _, err := s.writeDB.ExecContext(r.Context(),
 				`UPDATE attention_items SET executed_json = ? WHERE id = ?`,
 				string(out.Executed), id); err != nil {
 				s.log.Warn("update executed_json", "attention_id", id, "err", err)
@@ -764,7 +764,7 @@ func (s *Server) handleAttentionOverride(w http.ResponseWriter, r *http.Request,
 	}
 	list = append(list, overrideEntry)
 	newDecisions, _ := json.Marshal(list)
-	if _, err := s.db.ExecContext(r.Context(), `
+	if _, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE attention_items
 		   SET decisions_json = ?,
 		       executed_json  = ?
@@ -1058,7 +1058,7 @@ func (s *Server) handleResolveAttention(w http.ResponseWriter, r *http.Request) 
 	// the row, not the director. A human dismiss leaves it NULL (the
 	// dismisser's identity is captured in the audit row via the token
 	// context, below); a caller-supplied agent id is honoured if valid.
-	res, err := s.db.ExecContext(r.Context(), `
+	res, err := s.writeDB.ExecContext(r.Context(), `
 		UPDATE attention_items SET
 			status = 'resolved',
 			resolved_at = ?,
@@ -1251,7 +1251,7 @@ func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind s
 	}
 
 	agentID := currentAgentID.String
-	id, _, _, ts, err := insertAgentEvent(ctx, s.db, agentEventInsert{
+	id, _, _, ts, err := insertAgentEvent(ctx, s.writeDB, agentEventInsert{
 		AgentID:     agentID,
 		SessionID:   sessionID.String,
 		Kind:        "input.attention_reply",

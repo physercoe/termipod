@@ -46,7 +46,7 @@ func (s *Server) handleAdminDBVacuum(w http.ResponseWriter, r *http.Request) {
 	}
 	before := s.dbSizeBytes(r.Context())
 	// VACUUM cannot run inside a transaction; a bare Exec satisfies that.
-	if _, err := s.db.ExecContext(r.Context(), "VACUUM"); err != nil {
+	if _, err := s.writeDB.ExecContext(r.Context(), "VACUUM"); err != nil {
 		writeErr(w, http.StatusInternalServerError, "vacuum: "+err.Error())
 		return
 	}

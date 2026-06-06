@@ -114,7 +114,7 @@ func applyDeliverableCreate(
 	}
 	id := NewID()
 	now := NowUTC()
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO deliverables (id, project_id, phase, kind,
 			ratification_state, required, ord, created_at, updated_at)
 		VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
@@ -165,11 +165,11 @@ func rollbackDeliverableCreate(
 	if orig.DeliverableID == "" {
 		return nil, errors.New("rollback: original_executed missing deliverable_id")
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.writeDB.ExecContext(ctx,
 		`DELETE FROM deliverable_components WHERE deliverable_id = ?`, orig.DeliverableID); err != nil {
 		return nil, err
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.writeDB.ExecContext(ctx,
 		`DELETE FROM deliverables WHERE id = ? AND project_id = ?`,
 		orig.DeliverableID, orig.ProjectID); err != nil {
 		return nil, err

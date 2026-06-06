@@ -41,9 +41,15 @@ is **per database**, so two files = **two independent writers** with
 **zero new operational surface**. That lock caps write *throughput*, not
 read concurrency, and it is escapable **within SQLite** by **sharding
 the event store per team** (N files = N writers, keeping FTS5/SQL)
-*before* any engine swap. An **external engine** (Postgres / columnar /
-Redis-NATS) is the **multi-hub** tier (per `hub-resilience.md` option
-B), justified by horizontal scale, **not** by a single-VPS demo.
+*before* any engine swap. Beyond that, the **direction (director,
+2026-06-06) is a *selectable* storage backend** — `sqlite | postgres`
+*per store* — with **local/offline SQLite the zero-dependency default**
+and an **external (managed/remote) Postgres an opt-in** for HA, an
+off-box RAM-starved host, or high write-concurrency (Postgres' MVCC
+dissolves the single-writer ceiling; **managed/remote ≠ Postgres on the
+box** — it *removes* load from the VPS rather than adding it). Postgres
+does **not** shrink the bytes (blob-refs still needed); Redis/NATS enter
+only at multi-hub.
 
 ---
 
@@ -270,9 +276,10 @@ serves well; DuckDB would *regress* the control-plane CRUD. A single
 **Postgres** would give one writer with real MVCC (no single-writer
 lock at all) and solve concurrency outright — but it adds a **process,
 a dependency, and ops** to a **2 GB single-VPS** target, which is
-exactly what the tester can't afford. So: **not one fancier engine —
-two right-sized files**, and Postgres re-enters only at the multi-hub
-tier (§5).
+exactly what the tester can't afford. So at MVP: **not one fancier
+engine — two right-sized files**. Postgres re-enters in §5, but as a
+**selectable opt-in** (and only in its *managed/remote* form for a small
+host) — not the default, and not on the box.
 
 ### 4.3 Is SQLite even *good* for an append-only event log?
 
@@ -335,29 +342,93 @@ host, not for this demo.
 
 ---
 
-## 5. When an *external* engine is actually warranted
+## 5. The external tier — a *selectable* Postgres backend
 
-The split in §4 is in-process. An external service earns its keep only
-when a requirement crosses a process/host boundary — i.e. **multi-hub**
-(`hub-resilience.md` option B), not a single-VPS demo. The three pieces
-decouple:
+The split in §4 is in-process. An external service earns its keep when a
+requirement crosses a process/host boundary — HA, horizontal scale, or a
+RAM-starved host that wants the DB *off the box*. **Direction
+(director, 2026-06-06): the hub should offer the storage backend as an
+option** — **local/offline SQLite is the default**, **external Postgres
+is an opt-in** — rather than picking one for everyone. The two serve
+different deployments, not different quality levels.
 
-| Need that triggers it | External tier | Why SQLite can't |
+### 5.1 Managed/remote Postgres ≠ Postgres-on-the-box
+
+An earlier draft dismissed Postgres as "adds a process + ops to a 2 GB
+VPS." That is true for **self-hosting Postgres on the same box** and
+false for a **managed/remote provider** — the distinction matters for
+exactly the RAM-constrained tester who raised this:
+
+| | **Self-hosted on the VPS** | **Managed/remote provider** (Neon, Supabase, RDS, Cloud SQL) |
 |---|---|---|
-| **Two+ hub processes share the control plane** (HA, horizontal scale) | **Postgres** for `hub.db` | A SQLite file has one writer **per host**; two hubs can't both write it safely. |
-| **Event volume / cross-run analytics beyond one box** | **Columnar / log store** (ClickHouse, DuckDB-over-object-store, or a log bus) for `events.db` | Range-scan SQLite is fine to large; *analytical* scale across millions of events wants columnar. |
-| **SSE fan-out across processes** | **Redis / NATS** pub-sub replacing the in-process `eventbus.go` | The current bus is one Go process; cross-process subscribers need a broker. |
+| Effect on the box | **Adds** a memory-hungry process to the constrained host — worse | **Removes** the DB from the host; bytes + write load move off-box — better |
+| Cost it trades in | Ops + RAM on the same machine | A **network hop per query** (vs SQLite's in-process µs reads) + a **hard dependency** on a reachable service |
+| Offline / airgapped | Possible | **No** — breaks the zero-dependency single binary (ADR-002) |
 
-The split in §4 is what **makes this tier cheap when it comes**: because
-`events.db` and `hub.db` are already separate stores with id-only
-coupling, you can migrate **one** of them (e.g. control plane →
-Postgres) without touching the other. Splitting now is also the
-**migration seam** for later — not just a perf fix.
+So "use Postgres" is a *legitimate* answer to "my VPS is too small" —
+**but only the managed/remote form**, and only by accepting the network
+hop and the external dependency. Self-hosting it on the 2 GB box is
+still the wrong move.
 
-**Redis specifically:** still **not** needed at single-hub (answered in
-`hub-scaling` §5). Its role is **cross-process pub-sub and shared
-ephemeral state**, both of which only exist once there's more than one
-hub process. It is not a fix for the single-writer or the storage axis.
+### 5.2 Why Postgres fits the event log (not just the control plane)
+
+It is genuinely strong where SQLite is weak, so the opt-in covers
+*both* stores, not only `hub.db`:
+
+- **MVCC → no single global write lock.** Concurrent writers via
+  row-level locking + WAL — **dissolves the single-writer ceiling**
+  outright, without per-file sharding (§4.3). (Caveat: single-threaded
+  per-row insert is *slower* than local SQLite; Postgres wins on
+  *concurrent* writes and ops features — batch with `COPY` for ingest.)
+- **Declarative partitioning** of `agent_events` by time/agent —
+  **dropping an old partition is O(1)**, which answers retention/
+  compaction (lever 2) and the missing hard-delete (`hub-scaling`
+  §8-Q7) far more cleanly than `DELETE`.
+- **BRIN indexes** are tailor-made for append-only, naturally-ordered
+  `seq`/`ts` — tiny index, cheap range scans.
+- **TimescaleDB** (if the provider offers it) adds hypertables,
+  compression, and **continuous aggregates that could subsume the
+  digest fold** (§3) into a DB-maintained rollup.
+
+**What Postgres does *not* fix:** the **bytes** are unchanged — the
+50 MB/task is inline 25 MiB `attach` blobs, which Postgres also stores
+(TOAST, out-of-line, but still stored). **Blob-refs (lever 1) is still
+needed**; Postgres relocates and concurrency-fixes, it does not
+compress. Nor is it as specialised as ClickHouse/Kafka at
+millions-of-events analytics — it is the **"one engine, both
+workloads"** sweet spot for the hundreds-of-agents range, not the
+extreme-scale tier.
+
+### 5.3 Cost of making it selectable, and what stays local-only
+
+A pluggable backend is a real port, not a driver flag — `database/sql`
+abstracts the *driver*, not the *dialect*:
+
+- **Two migration sets** — the 53 migrations are SQLite-flavoured (the
+  `db.go` table-recreate ALTER pattern, `PRAGMA foreign_keys` handling,
+  dynamic typing); Postgres needs a parallel set (real `ALTER`, strict
+  types, `IDENTITY`, `$1` placeholders).
+- **FTS5 → `tsvector`/GIN** — search (`handlers_search_sessions.go`,
+  `mcp.go`, migration 0031) is a rewrite; `MATCH`/`snippet()` are
+  SQLite-only.
+- **DSN/pragmas** — the `_pragma=…` knobs are SQLite-only; Postgres
+  wants connection pooling at scale.
+- **Redis/NATS for SSE** — only once there are **2+ hub processes**;
+  the in-process `eventbus.go` is fine for a single hub *even with an
+  external Postgres* (one hub, remote DB ≠ multi-hub). Not a fix for the
+  single-writer or storage axis. (`hub-scaling` §5.)
+
+The §4 split is what makes the option **affordable**: because
+`events.db` and `hub.db` are separate stores with id-only coupling, a
+deployment can put **one** of them (e.g. the control plane) on Postgres
+and keep the other on SQLite, or move both — the backend choice is
+per-store, and the seam already exists.
+
+> **Implication for §7:** "external engine" stops being a far-off
+> escalation and becomes a **first-class configuration axis** the hub
+> exposes — `storage_backend = sqlite | postgres` (per store) — with
+> SQLite the zero-dependency default and Postgres the opt-in for HA /
+> off-box / high-concurrency deployments.
 
 ---
 
@@ -406,9 +477,16 @@ first:
    in-tree).** Per-file writers (§4.3); escapes the single-writer
    ceiling without leaving SQLite or losing FTS5. The rung between the
    file split and an external engine.
-4. **External tier — only on a measured multi-hub requirement.**
-   Postgres for `hub.db`, columnar/log + Redis/NATS for `events.db` and
-   fan-out, per `hub-resilience.md` option B. Not before.
+4. **Selectable Postgres backend — a first-class config axis, not a
+   far-off escalation (§5).** `storage_backend = sqlite | postgres`
+   *per store*: **SQLite is the zero-dependency, offline default;
+   external (managed/remote) Postgres is the opt-in** for HA, off-box
+   on a RAM-starved host, or high write-concurrency. Postgres' MVCC
+   dissolves the single-writer ceiling and its partitioning answers
+   retention; the §4 split makes the choice per-store and affordable.
+   Cost: a parallel migration set + FTS5→`tsvector` rewrite (§5.3); it
+   does **not** shrink bytes (blob-refs still needed). Redis/NATS enter
+   only at **2+ hub processes**, independent of the DB choice.
 
 **Decisions an ADR would have to lock** (none locked yet):
 
@@ -420,13 +498,16 @@ first:
   the no-cross-store-transaction rule and the handler-ordering
   invariant it imposes; and whether `events.db` shards per team (§4.3)
   or stays single-file.
-- **D3 — the migration seam.** Two SQLite files now as the explicit
-  seam toward Postgres-for-control-plane later, so the split is designed
-  for that and not just for today's contention.
+- **D3 — the storage-backend abstraction.** Make backend **selectable
+  per store** (`sqlite | postgres`), with SQLite the offline default —
+  not a one-way migration. Settles: the dialect/migration split, the
+  FTS abstraction (FTS5 vs `tsvector`), and which deployments the
+  managed-Postgres option targets. (Director-set direction,
+  2026-06-06.)
 
 These three are **ADR-worthy** because they change a system-wide
-invariant (one store, one writer, synchronous projection) — exactly the
-"surface it as an ADR, don't patch locally" class.
+invariant (one store, one writer, synchronous projection, one engine) —
+exactly the "surface it as an ADR, don't patch locally" class.
 
 ---
 

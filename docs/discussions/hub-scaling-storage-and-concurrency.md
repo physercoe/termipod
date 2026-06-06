@@ -266,6 +266,28 @@ open `Rows` — so the 1-connection cap cannot deadlock, and the 13
 and writes are on different pools, so an open read cursor can never
 block a write. Full `go test ./internal/server` stays green.
 
+### 4.3 Where the remaining per-event cost is (2026-06-06)
+
+After lever 3, the writer is one lane at ~600 ev/s; the question is what
+each event *does* on that lane. Two diagnostics on the same harness:
+
+- **The insert is cheap.** Both `MAX()` lookups in the insert are
+  index-backed (`idx_agent_events_agent_seq`,
+  `ux_agent_events_session_ordinal`) — rightmost-entry reads, not scans.
+  So lever 4 (MAX→counter) has little throughput to give.
+- **The synchronous digest fold (ADR-038) is ~half the cost.** Bypassing
+  the fold ~doubles ingest:
+
+  | Agents | with fold | without fold |
+  |---:|---:|---:|
+  | 1 | 649 ev/s | **1202 ev/s** (+85%) |
+  | 200 | 586 ev/s | **1382 ev/s** (+136%) |
+
+  The fold runs ~5 statements/event (load digest + load open turn + save
+  digest + save turn). That, not the insert, is the ceiling — which is
+  why **lever 7 (defer the fold off the hot path)** is the real next
+  lever, and levers 4–5 are marginal.
+
 ---
 
 ## 5. "Is a Redis-like service needed?"
@@ -334,12 +356,43 @@ Ordered cheapest-highest-value first:
    `SetMaxOpenConns(1)` on the shared pool — see §4.2 design note for the
    deadlock that avoids.)
 4. **Replace the `MAX(seq)+1` read-modify-write** (§3.2) with a real
-   per-agent monotonic counter (a dedicated table row or an
-   autoincrement keyed by agent) so inserts stop scanning and stop
-   *requiring* global serialization for correctness.
+   per-agent monotonic counter. **LOW VALUE — superseded by lever 7.**
+   Verified the two aggregate lookups are already **index-backed**
+   (`idx_agent_events_agent_seq(agent_id, seq)` and the partial unique
+   `ux_agent_events_session_ordinal(session_id, session_ordinal)`), so
+   each is a rightmost-entry index read (O(log n)), *not* a scan — there
+   is no scan to remove. A counter would still let us drop the
+   correctness-dependency on global serialization (a prerequisite for
+   >1 writer) but buys little throughput today. Diagnostic (§4.3) shows
+   the insert is cheap; the cost is the fold.
+
+7. **Move the per-event digest fold OFF the ingest hot path (lever 7,
+   the real one).** §4.3 measured the synchronous ADR-038 fold at
+   **~half the per-event cost** (bypassing it ~doubles throughput:
+   649→1202 ev/s at 1 agent, 586→1382 at 200). Fold in a **background
+   worker** instead — ingest marks the agent dirty (cheap, in-memory)
+   and returns; a debounced goroutine folds new events incrementally
+   from `watermark_seq`, with the existing read-repair (`digestIsStale`
+   → backfill) as the crash/lag backstop. **Changes ADR-038's
+   synchronous-fold decision to eventually-consistent (bounded by the
+   worker tick), so it needs an ADR amendment + director sign-off**
+   before building — the live Insight view would see aggregates lag by
+   one tick. Biggest remaining throughput lever by far.
 5. **Batch / coalesce event ingest** — group rapid same-agent events
    (esp. text deltas) into one transaction; fold the digest in the same
-   tx instead of a second one.
+   tx instead of a second one. **TRIED, NOT SHIPPED (2026-06-06).**
+   Folding insert + session touches + digest into one tx (with a
+   SAVEPOINT to keep the fold best-effort) measured a config-dependent
+   *wash*: **−20% at 1 agent (682→543 ev/s), +10% at 200 agents
+   (517→571).** Root cause: the hub runs SQLite at `synchronous=NORMAL`
+   + WAL, where commits **don't fsync** (only checkpoints do) — so
+   consolidating commits saves almost nothing while the explicit
+   `BeginTx`/`SAVEPOINT`/`RELEASE` *adds* statements, regressing the
+   common low-concurrency case. The +10% under contention came from
+   fewer writer-connection *acquisitions*, not fewer commits. Lesson:
+   **the per-event bottleneck is SQL *work*, not commit count** —
+   pursue lever 4 (less work per insert), not commit batching, unless
+   `synchronous` is ever raised to FULL.
 6. **Reduce event volume at the source** — coalesce token-delta events
    in the driver before they ever hit `POST /events`.
 

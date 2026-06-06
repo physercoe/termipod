@@ -289,6 +289,55 @@ each event *does* on that lane. Two diagnostics on the same harness:
   why **lever 7 (defer the fold off the hot path)** is the real next
   lever, and levers 4–5 are marginal.
 
+### 4.4 After the three-store split (ADR-045 P1 — SHIPPED, 2026-06-06)
+
+The store separation (ADR-045 P1 / `plans/hub-storage-scaling.md`):
+`agent_events` (now `events.db`) and the derived digest + turns
+(`digest.db`) move to their own files, each with its **own**
+single-writer pool, and the bounded-staleness fold runs in the
+background worker writing to the *digest* writer — so ingest and fold no
+longer share a write lock. **Same box, same harness, 2 vCPU, flat-out,
+5 s, with the fold worker running** (`HUB_LOADTEST_WORKER=1`):
+
+| Agents | Throughput (ev/s) | p50 | p99 | max | errors | fold lag |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | **995** | 0.7 ms | 4.9 ms | 10 ms | 0 | 2 % |
+| 100 | **1017** | 66 ms | 457 ms | 774 ms | 0 | 11 % |
+| 200 | **1018** | 131 ms | 870 ms | 1.36 s | 0 | 10 % |
+| 400 | 860 | 292 ms | 2.35 s | 4.16 s | 0 | 21 % |
+| 800 | 764 | 740 ms | 3.98 s | 5.52 s | 0 | 24 % |
+| 1000 | 846 | 864 ms | 4.05 s | 5.58 s | **0** | 34 % |
+
+- **The error cliff is gone all the way to 1000 agents.** 0 `SQLITE_BUSY`
+  at *every* level (was the first 500 at ~400 pre-everything; lever 3
+  alone carried it past 800). A separate writer per store means an ingest
+  write and a fold write never contend for the same lock.
+- **Throughput ~1000 ev/s through 200 agents, ~760–850 under deep
+  saturation** — roughly **double** the lever-3 synchronous-fold baseline
+  (§4.2: 650 @100, 617 @200, 576 @400, 454 @800), *and the fold is still
+  running*. The deferred fold is off the ingest hot path and on its own
+  writer, so the two pipelines run in parallel across the two cores.
+- **Fold freshness is the real win of the split.** The earlier deferred
+  cut on the *shared* writer couldn't drain under load (lag **90 % @200,
+  99 % @800** — the worker starved for the one writer). With its own
+  writer the lag collapses to **2–24 % through 800 agents**, 34 % at the
+  synthetic 1000-agent flat-out — and every un-folded event is
+  read-repair-backed (`digestIsStale` → backfill), so a lagging digest is
+  never *wrong*, only lazily recomputed on read. The residual lag at
+  800–1000 is simply one fold writer not draining a 2-core box's full
+  flat-out ingest flood; it falls to single digits once offered load
+  drops below the ceiling — the bursty regime real agents live in.
+- **Storage** held at ~0.2–0.3 KB on-disk per 256 B event summed across
+  the three store files (WAL-dependent in a 5 s window; the inline-blob
+  amplification the tester hit is a separate axis — lever 1).
+
+**Caveats unchanged:** 2 vCPU upper bound, in-process driver, saturating
+load — the honest axis is still events/sec, not agents. What the split
+buys is **headroom (no error cliff to 1000 agents) + a fold that keeps
+up**, not a different single-writer shape for *ingest* itself. Giving
+ingest more than one writer is **P2** (per-team sharding → N event-store
+writers), gated on a real demo actually reaching this ceiling.
+
 ---
 
 ## 5. "Is a Redis-like service needed?"

@@ -165,9 +165,14 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	var foldedEvents, digestAgents int64
 	_ = c.s.digestDB.QueryRow(`SELECT COALESCE(SUM(watermark_seq),0), COUNT(*) FROM agent_event_digests`).
 		Scan(&foldedEvents, &digestAgents)
+	// On-disk size across all three stores (ADR-045 P1): agent_events now lives
+	// in events.db, the digest/turns in digest.db — hub.db alone no longer
+	// reflects transcript growth.
 	var dbBytes int64
-	if fi, err := os.Stat(filepath.Join(c.dataRoot, "hub.db")); err == nil {
-		dbBytes = fi.Size()
+	for _, p := range []string{"hub.db", "events.db", "digest.db"} {
+		if fi, err := os.Stat(filepath.Join(c.dataRoot, p)); err == nil {
+			dbBytes += fi.Size()
+		}
 	}
 
 	t.Logf("──────── hub event-ingest load result ────────")
@@ -181,7 +186,7 @@ func TestLoad_AgentEventIngest(t *testing.T) {
 	if s, _ := sampleErr.Load().(string); s != "" {
 		t.Logf("first error: %s", s)
 	}
-	t.Logf("storage: agent_events rows=%d  hub.db=%.1f MB  (=%.2f KB/event)",
+	t.Logf("storage: agent_events rows=%d  stores(hub+events+digest)=%.1f MB  (=%.2f KB/event)",
 		rows, float64(dbBytes)/1e6, float64(dbBytes)/1024/float64(maxInt64(1, rows)))
 	t.Logf("fold: worker=%v  folded=%d/%d events  digests=%d  lag=%d (%.1f%%)",
 		os.Getenv("HUB_LOADTEST_WORKER") != "", foldedEvents, rows, digestAgents,

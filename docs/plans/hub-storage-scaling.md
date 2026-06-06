@@ -139,11 +139,13 @@ Build order (each Go-testable in `hub/internal/server`):
        The IN-list is a single statement (SQLite's bound-var cap is ~32k,
        far beyond pre-P2 scale; P2 sharding drops the filter entirely). All
        24 insights tests pass — incl. team/engine/host/team_stewards.
-     - ⬜ `handlers_search_sessions.go` FTS — joins `agent_events_fts` +
-       `agent_events` (event) with `sessions` (control, `team_id`). Needs a
-       cross-store filter-pushdown: FTS MATCH in the event store, then the
-       team/`status!='deleted'` filter from control. (Watch the LIMIT — the
-       team filter must apply before truncation.)
+     - ✅ `handlers_search_sessions.go` FTS — now two steps: fetch the team's
+       non-deleted sessions from control (`s.db`) — that set is both the
+       result-row metadata and the event-store filter — then FTS MATCH in the
+       event store (`s.eventsDB`) filtered by `ae.session_id IN (…)`, chunked
+       so each chunk is independently top-`limit` by ts (merge → global
+       top-`limit` is exact filter-before-limit). All search tests pass
+       (incl. deleted-session exclusion + cross-team isolation).
      - ⬜ `otlp_export.go` — the `turns ⨝ events` join; fix by denormalizing
        `session_id` onto `agent_turns` (needs a migration + populate).
      - (`backfillAgentDigest` `agents`-read + `deriveDigestOutcome`

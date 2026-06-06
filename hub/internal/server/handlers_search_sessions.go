@@ -1,8 +1,8 @@
 package server
 
 import (
-	"database/sql"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -26,10 +26,14 @@ import (
 //     seq, ts, kind, snippet
 //   }
 //
-// Sessions soft-deleted via the delete handler have their event
-// session_id NULLed (handlers_sessions.go:_handleDeleteSession),
-// so deleted-session events fall out of this query naturally — the
-// LEFT JOIN sees NULL and the WHERE filter on s.team_id rejects.
+// FTS (agent_events_fts + agent_events) lives in the event store, but the
+// team scope + result metadata come from `sessions` in the control store, so
+// the old single JOIN is now two steps (ADR-045 D2): resolve the team's
+// non-deleted sessions from control — that set doubles as both the result-row
+// metadata and the event-store filter (agent_events has no team_id) — then FTS
+// MATCH in the event store filtered to those session ids. Sessions soft-deleted
+// via the delete handler also have their event session_id NULLed
+// (clearSessionFromEvents), so deleted-session events drop out twice over.
 func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -44,61 +48,118 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rows, err := s.db.QueryContext(r.Context(), `
-		SELECT
-		    ae.id,
-		    COALESCE(ae.session_id, '')      AS session_id,
-		    COALESCE(s.scope_kind, '')        AS scope_kind,
-		    COALESCE(s.scope_id, '')          AS scope_id,
-		    COALESCE(s.title, '')             AS session_title,
-		    COALESCE(s.session_name_hint, '') AS session_name_hint,
-		    ae.seq,
-		    ae.ts,
-		    ae.kind,
-		    snippet(agent_events_fts, 1, '<mark>', '</mark>', '…', 16) AS snippet
-		FROM agent_events_fts
-		JOIN agent_events ae ON ae.id = agent_events_fts.event_id
-		JOIN sessions       s  ON ae.session_id = s.id
-		WHERE agent_events_fts MATCH ?
-		  AND s.team_id = ?
-		  AND s.status != 'deleted'
-		ORDER BY ae.ts DESC
-		LIMIT ?`, q, team, limit)
+	// 1. The team's non-deleted sessions (control) — id set + per-session
+	//    metadata for the result rows.
+	type sessMeta struct{ scopeKind, scopeID, title, hint string }
+	metaByID := map[string]sessMeta{}
+	var sessIDs []string
+	srows, err := s.db.QueryContext(r.Context(), `
+		SELECT id, COALESCE(scope_kind, ''), COALESCE(scope_id, ''),
+		       COALESCE(title, ''), COALESCE(session_name_hint, '')
+		  FROM sessions WHERE team_id = ? AND status != 'deleted'`, team)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer rows.Close()
-
-	out := []map[string]any{}
-	for rows.Next() {
-		var (
-			eventID, sessionID, scopeKind, scopeID, title, hint, ts, kind, snip string
-			seq                                                                  int64
-		)
-		if err := rows.Scan(
-			&eventID, &sessionID, &scopeKind, &scopeID, &title, &hint,
-			&seq, &ts, &kind, &snip,
-		); err != nil {
+	for srows.Next() {
+		var id string
+		var m sessMeta
+		if err := srows.Scan(&id, &m.scopeKind, &m.scopeID, &m.title, &m.hint); err != nil {
+			srows.Close()
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		out = append(out, map[string]any{
-			"event_id":          eventID,
-			"session_id":        sessionID,
-			"scope_kind":        scopeKind,
-			"scope_id":          scopeID,
-			"session_title":     title,
-			"session_name_hint": hint,
-			"seq":               seq,
-			"ts":                ts,
-			"kind":              kind,
-			"snippet":           snip,
-		})
+		metaByID[id] = m
+		sessIDs = append(sessIDs, id)
 	}
-	if err := rows.Err(); err != nil && err != sql.ErrNoRows {
+	srows.Close()
+	if err := srows.Err(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if len(sessIDs) == 0 {
+		writeJSON(w, http.StatusOK, []map[string]any{})
+		return
+	}
+
+	// 2. FTS MATCH in the event store, filtered to those sessions. Chunked so
+	//    a large team can't exceed SQLite's bound-variable limit; each chunk
+	//    is independently top-`limit` by ts, so the global top-`limit` is a
+	//    subset of the merged chunk results — exact filter-before-limit.
+	type cand struct {
+		eventID, sessionID, ts, kind, snip string
+		seq                                int64
+	}
+	var cands []cand
+	const chunk = 900
+	for start := 0; start < len(sessIDs); start += chunk {
+		end := start + chunk
+		if end > len(sessIDs) {
+			end = len(sessIDs)
+		}
+		batch := sessIDs[start:end]
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+		args := make([]any, 0, len(batch)+2)
+		args = append(args, q)
+		for _, id := range batch {
+			args = append(args, id)
+		}
+		args = append(args, limit)
+		frows, err := s.eventsDB.QueryContext(r.Context(), `
+			SELECT ae.id, COALESCE(ae.session_id, ''), ae.seq, ae.ts, ae.kind,
+			       snippet(agent_events_fts, 1, '<mark>', '</mark>', '…', 16)
+			  FROM agent_events_fts
+			  JOIN agent_events ae ON ae.id = agent_events_fts.event_id
+			 WHERE agent_events_fts MATCH ?
+			   AND ae.session_id IN (`+ph+`)
+			 ORDER BY ae.ts DESC
+			 LIMIT ?`, args...)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for frows.Next() {
+			var c cand
+			if err := frows.Scan(&c.eventID, &c.sessionID, &c.seq, &c.ts, &c.kind, &c.snip); err != nil {
+				frows.Close()
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			cands = append(cands, c)
+		}
+		frows.Close()
+		if err := frows.Err(); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	// 3. Global top-`limit` by ts DESC (seq DESC tiebreak for stable order
+	//    across chunks), then hydrate session metadata from step 1.
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].ts != cands[j].ts {
+			return cands[i].ts > cands[j].ts
+		}
+		return cands[i].seq > cands[j].seq
+	})
+	if len(cands) > limit {
+		cands = cands[:limit]
+	}
+	out := []map[string]any{}
+	for _, c := range cands {
+		m := metaByID[c.sessionID]
+		out = append(out, map[string]any{
+			"event_id":          c.eventID,
+			"session_id":        c.sessionID,
+			"scope_kind":        m.scopeKind,
+			"scope_id":          m.scopeID,
+			"session_title":     m.title,
+			"session_name_hint": m.hint,
+			"seq":               c.seq,
+			"ts":                c.ts,
+			"kind":              c.kind,
+			"snippet":           c.snip,
+		})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

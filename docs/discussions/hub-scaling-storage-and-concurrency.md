@@ -316,6 +316,15 @@ Ordered cheapest-highest-value first:
    the audit-event "older rows compactable" posture,
    `quality-attributes.md:79`) — a sweep, a per-team byte/age cap, or
    cold-storage offload of terminated-agent transcripts.
+   **DEFERRED (director, 2026-06-06)** — blocked on a real hard-delete
+   primitive. Today every entity "delete" is a **soft archive**
+   (`handleArchiveProject`, `handleArchiveAgent` flip status; the only
+   `DELETE FROM projects` is demo-seed cleanup), and there is **no
+   cascade purge** of a project's rows across the ~57 `project_id`-scoped
+   columns. A retention sweep that actually reclaims disk needs that
+   delete primitive first — otherwise pruning `agent_events` alone
+   orphans digests/turns/runs/attention and never frees project-scoped
+   data. Build the cascade hard-delete (see §8-Q7) before this lever.
 3. **Cap and split the connection pool intentionally — SHIPPED (§4.2).**
    A dedicated single-connection **writer** pool (`s.writeDB`) takes all
    writes so they queue in Go instead of thrashing the SQLite lock; the
@@ -382,6 +391,19 @@ operational tier `hub-resilience.md` explicitly defers.
    operation-log / append-only framing (ADR-014)?
 6. **When does multi-hub actually arrive?** That, not this demo, is the
    real trigger for Redis/Postgres; is it on any roadmap horizon?
+7. **The missing hard-delete primitive (blocks lever 2).** Every entity
+   "delete" today is a soft archive — `handleArchiveProject` /
+   `handleArchiveAgent` flip status, no row is removed, and there is no
+   cascade purge of a project's data across the ~57 `project_id`-scoped
+   columns (digests, turns, runs, attention, deliverables, criteria,
+   documents, metrics, images, histograms, …). Some FK `ON DELETE
+   CASCADE` constraints exist (42 in migrations) but nothing *triggers*
+   a hard project delete. A real retention/compaction story — and
+   GDPR-style "purge this project" — needs that primitive first.
+   This is a system-wide gap, not specific to scaling; it likely
+   deserves its own discussion/ADR (soft-vs-hard delete semantics,
+   what cascades, audit trail of a purge, append-only-log tension with
+   ADR-014). Director deferred lever 2 on it (2026-06-06).
 
 ## 9. Cross-links
 

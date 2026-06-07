@@ -183,9 +183,35 @@ A row in the `agents` table; identifies a spawned engine process or
 peer entity. Multiple meanings layered: the row, the live process,
 the conceptual actor in mobile UX.
 - *Distinguish from:* **engine** (the bin/process), **steward** /
-  **worker** (agent roles).
+  **worker** (agent roles), **intra-engine agent** (not a hub row).
 - *Canonical:* [`spine/agent-lifecycle.md`](../spine/agent-lifecycle.md),
   ADR-009.
+
+### inter-engine agent
+A hub-managed agent: its own engine process, **hub session**, tmux
+pane, and governance envelope, spawned via `agents.spawn` /
+`agents.fanout`. The default meaning of **agent**. Reach across hosts
+and engines; durable across respawn. Reserve a spawn for work that
+warrants a director-visible, governed, or cross-host unit — see the
+ADR-016 delegation-tier promotion triggers.
+- *Distinguish from:* **intra-engine agent** (engine-internal,
+  ungoverned, ephemeral).
+- *Canonical:* ADR-016 (Amendment 2026-06-07),
+  [`discussions/intra-vs-inter-engine-delegation.md`](../discussions/intra-vs-inter-engine-delegation.md).
+
+### intra-engine agent
+An engine-internal subagent — claude-code's `Task` tool, codex's
+parallel subagents, kimi-code's `Agent` tool — that runs *inside* a
+parent agent's process. Not a hub row; shares the parent's MCP client
+and inherits its **operation scope** by construction (ADR-016 D5); not
+separately monitored. Cheap (tokens only); the steward's preferred tier
+for same-engine, same-host, ephemeral parallelism. (antigravity's
+`agy invoke_subagent` is the exception — it runs on a private bus and
+its steward prompt disallows it.)
+- *Distinguish from:* **inter-engine agent** (a hub worker), **agent**
+  (a hub row).
+- *Canonical:* ADR-016 D5 + Amendment 2026-06-07,
+  [`discussions/intra-vs-inter-engine-delegation.md`](../discussions/intra-vs-inter-engine-delegation.md).
 
 ### agent kind
 The `kind` column on `agents` row. Values: `claude-code`, `codex`,

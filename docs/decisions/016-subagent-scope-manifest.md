@@ -1,7 +1,7 @@
 # 016. Subagent operation-scope manifest
 
 > **Type:** decision
-> **Status:** Accepted (2026-04-30)
+> **Status:** Accepted (2026-04-30) · **Amended (2026-06-07)** — see [§Amendment](#amendment-2026-06-07)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.349
 
@@ -249,3 +249,75 @@ Three steps:
 - [ADR-005](005-owner-authority-model.md) — principal/director authority model the manifest enforces
 - [Plan: research-demo-lifecycle wedges](../plans/research-demo-lifecycle-wedges.md) — W1 implements the middleware
 - Existing infra: `hub/internal/server/mcp_authority.go`, `hub/internal/hubmcpserver/tools.go`
+
+---
+
+## Amendment (2026-06-07)
+
+Triggered by tester feedback: a `claude-code` steward spawned **dozens
+of hub workers** for small tasks instead of doing the cheap work itself
+or fanning out *inside its own engine*. D5 settled that engine-internal
+subagents are out of *governance* scope; it did not say *when the
+steward should prefer one primitive over the other*. That silence let
+the steward route all parallelism to the heavyweight inter-engine
+primitive. The full reasoning — cost hierarchy, well-tested practice,
+the governance argument — is in
+[`discussions/intra-vs-inter-engine-delegation.md`](../discussions/intra-vs-inter-engine-delegation.md).
+
+**D-amend-1. Prefer the cheapest delegation tier; the inter-engine
+boundary is the unit of director attention and governance, not of
+compute.**
+
+D5 stays as written (engine-internal subagents are not enumerated,
+restricted, or monitored). This amendment adds the *preference* the
+steward prompt must encode. Three tiers, cheapest first:
+
+| Tier | Primitive | Marginal cost |
+|---|---|---|
+| 1 | **Inline** — the steward's own turn | ~0 |
+| 2 | **Intra-engine subagent** — claude-code `Task`, codex app-server child | tokens only (a separate context window) |
+| 3 | **Inter-engine hub worker** — `agents.spawn` / `agents.fanout` | a process + [hub session](../reference/glossary.md#hub-session) + cold-start context + RAM + a slot of director attention |
+
+The steward **defaults to the lowest tier** and promotes a unit to a
+tier-3 hub worker only when at least one **promotion trigger** holds:
+it crosses a host; it needs a different engine; it is a durable,
+director-visible deliverable (a tracked [task](../reference/glossary.md#task));
+it must outlive the steward's turn; it needs its own budget/policy/
+permission envelope; it needs a hard failure-isolation boundary; or it
+is large enough that the spawn overhead amortizes. If none hold —
+same engine, same host, small, ephemeral, no separate deliverable —
+the work stays inline or intra-engine.
+
+The governance line is unchanged and load-bearing: an engine-internal
+subagent runs its `hub://*` calls through the parent's MCP client
+(D5), so every *consequential action* still crosses the hub boundary
+under the steward's identity and is audited there. Reifying a hub
+worker per micro-step buys **no** extra governance — it only floods
+the director's attention (IA axiom A1) and the host's memory. Govern
+**actions and deliverables**, not compute decomposition.
+
+**Scope of this amendment.** Prompt-level only — no schema, middleware,
+or `roles.yaml` change. D1–D7 enforcement is untouched. Implemented
+across all five steward prompts in the same arc — and the tier-2
+mechanism genuinely differs per engine, so each got an engine-correct
+pass, not a copy:
+
+- `steward.v1` (claude-code) — full "Delegation ladder" section; `Task`
+  affirmed as the tier-2 mechanism (inherits parent MCP scope, D5).
+- `steward.codex` — codex's native **parallel subagents** (invoked in
+  plain language; ephemeral, codex-orchestrated; `/agent` to inspect)
+  named as tier-2.
+- `steward.kimi` — kimi-code's **`Agent` tool** (`explore`/`plan`/`coder`
+  built-ins; isolated context, ephemeral) named as tier-2.
+- `steward.gemini` — deprecated engine (retires 2026-06-18), not
+  re-verified; universal promotion-trigger guard only, no tier-2 tool
+  named.
+- `steward.antigravity` — keeps its existing ban on `agy`'s native
+  `invoke_subagent` (private bus, ungovernable); the guard routes
+  parallel exploration inline instead.
+
+The codex/kimi subagent facts are from the engines' own docs (verified
+2026-06), not the codebase — the per-engine prompts had simply omitted
+them. Their docs don't confirm MCP-connection sharing, so the prompts
+stay conservative: native subagents for *ephemeral* compute only, never
+as a substitute for a governed worker.

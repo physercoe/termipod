@@ -190,6 +190,21 @@ termipod-managed process; engine-internal subagents are an engine
 concern. See `decisions/016-subagent-scope-manifest.md` D5 for the
 formal exemption.
 
+This split also fixes a *delegation* axiom, not just a governance one:
+the inter-engine boundary is the unit of director attention and
+governance, **not the unit of compute**. A steward decomposes compute
+as cheaply as it can — inline, or via its engine's internal subagent
+mechanism where one exists and is governable — and reifies a
+termipod-managed worker only when a unit crosses a host or engine, must
+be governed/durable/director-visible, or must outlive the parent. Per
+engine the cheap tier differs: claude-code's `Task` subagents inherit
+the parent's scope and are fine for ephemeral fan-out; antigravity's
+`agy invoke_subagent` runs on a private bus and is disallowed, so its
+stewards keep parallel exploration inline. Reasoning and the
+promotion-trigger test:
+`decisions/016-subagent-scope-manifest.md` (Amendment 2026-06-07) and
+`discussions/intra-vs-inter-engine-delegation.md`.
+
 ### 3.4 Why the three-layer separation is load-bearing
 
 The repeated question: *why three layers? Why not collapse host-runner into hub (one less moving piece) or agent into host-runner (one less process)?* The answer comes from three distinct concerns each layer addresses; collapsing any pair re-introduces a failure mode the split was designed to prevent.

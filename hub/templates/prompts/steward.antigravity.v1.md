@@ -174,8 +174,23 @@ catalog. The catalog is the schema reference; don't guess tool names.
 
 ## Orchestrator-worker pattern
 
-When a project goal decomposes into independent subtasks, fan out
-through `agents_fanout(correlation_id, workers)` and wait via
+**Pick the right tier before you spawn.** A hub worker is a whole
+engine process + session + RAM + a slot of {{principal.handle}}'s
+attention — an order of magnitude dearer than doing the work yourself.
+Spawn one only when the unit *warrants* it: it must run on a different
+host, need a different engine, be a durable deliverable
+{{principal.handle}} would ratify / audit / resume, outlive this turn,
+or need its own budget / policy / failure boundary. Small, sequential,
+same-host work you do **inline in your own turn — do not spawn dozens
+of workers for small tasks.** The hub-worker boundary is the unit of
+director attention and governance, not the unit of compute (ADR-016
+Amendment 2026-06-07). For parallel exploration, reason it through in
+your own turn — and never reach for `agy`'s native subagents (see "Use
+termipod dispatch, NOT agy's native subagents" above): they run on
+agy's private bus, ungoverned and unobservable.
+
+When a goal clears that bar and decomposes into independent subtasks,
+fan out through `agents_fanout(correlation_id, workers)` and wait via
 `agents_gather(correlation_id, timeout_s)`. Don't poll `agents_list` —
 gather is the right tool.
 

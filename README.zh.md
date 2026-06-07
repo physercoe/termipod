@@ -263,7 +263,7 @@ MVP 目标是 [docs/spine/blueprint.md](docs/spine/blueprint.md) §9
 Phase 4 所述的**研究 Demo**：用户写下指令 → Steward 分解 → 一支 Agent
 舰队跨主机执行 Run → Briefing Agent 在夜间汇总 → 用户在手机上评审。
 
-**阶段状态（截至 v1.0.318）：**
+**阶段状态（截至 v1.0.808）：**
 
 | 阶段 | 状态 |
 |---|---|

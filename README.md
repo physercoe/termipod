@@ -265,7 +265,7 @@ The MVP target is the **research demo** described in
 writes a directive → steward decomposes → fleet executes runs across
 hosts → briefing agent summarizes overnight → user reviews on phone.
 
-**Phase status (as of v1.0.318):**
+**Phase status (as of v1.0.808):**
 
 | Phase | Status |
 |---|---|

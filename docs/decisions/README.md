@@ -1,9 +1,9 @@
 # Decisions (ADRs)
 
 > **Type:** axiom
-> **Status:** Current (2026-05-18)
+> **Status:** Current (2026-06-07)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.630
+> **Last verified vs code:** v1.0.808
 
 **TL;DR.** The decision log. Each numbered file records one
 architectural choice, why we made it, and what followed. Append-only:
@@ -63,6 +63,7 @@ next sequential number — don't reserve, don't skip.
 | [042](042-dense-session-ordinal.md) | A dense per-session event ordinal (`session_ordinal`) — canonical session-scoped identity; fixes resume/navigator wrong-row | Accepted 2026-06-04 | — |
 | [043](043-engine-launch-contract-on-the-family.md) | The engine launch contract (mode-selecting argv) lives on the family, not the persona — declarative per-mode `launch` block, launcher composes; generalizes [010](010-frame-profiles-as-data.md) to the input side | Accepted 2026-06-05 | — |
 | [044](044-adaptive-project-lifecycle.md) | The project lifecycle is adaptive, not a fixed template contract — agents materialize deliverables, criteria editable via propose, AC-driven system-approved phase advance (human gating = `gate` criterion) | Accepted 2026-06-05 | — |
+| [045](045-hub-storage-scaling.md) | Hub storage scaling — deferred bounded-staleness fold, event/digest store separation (per-class + per-team shards), selectable sqlite\|postgres backend (D3 decided, not built) | Accepted 2026-06-06 | (amends [038](038-per-run-event-digest.md) §2) |
 
 ---
 

@@ -1,9 +1,9 @@
 # Roadmap
 
 > **Type:** vision
-> **Status:** Current (2026-05-25)
+> **Status:** Current (2026-06-07)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.703
+> **Last verified vs code:** v1.0.808
 
 **TL;DR.** The MVP target is the research demo from `blueprint.md` §9
 Phase 4: a user writes a directive on phone → steward decomposes →
@@ -68,7 +68,7 @@ run is the actual milestone).
 
 ## Phases (big picture)
 
-The blueprint defines five phases. Status as of v1.0.610:
+The blueprint defines five phases. Status as of v1.0.808:
 
 | Phase | Title | Status |
 |---|---|---|
@@ -116,7 +116,7 @@ working list — what's actually moving this week or next.
 
 | Item | Why | Where |
 |---|---|---|
-| **Multi-team isolation (promoted from post-MVP)** | External testers are being onboarded — each gets a `team_id` and different teams MUST isolate (no cross-team read/write/control, no on-host workdir collision). Today the data queries are team-scoped by URL path but nothing authorizes that path team against the caller's token, `owner` is a hub-wide root, there's no team-provisioning endpoint, and templates + workdirs are team-blind. Gap analysis + wedge plan written; spawns an auth-model ADR. (`discussions/multi-team-isolation.md`) | Pending: auth path-team gate (W1) + operator/principal split (W2) |
+| **Multi-team isolation — on-device verification** | Implementation shipped (ADR-037 W1–W6, v1.0.760-765: path-team authorization gate, operator/principal split, team-provisioning endpoint, per-team template overrides, team-scoped workdir; mobile team management v1.0.801). Storage isolation extended physically in v1.0.808 (per-team event/digest shards, ADR-045). ADR-037 stays `Proposed` until an on-device multi-tester pass confirms no cross-team read/write/control or workdir collision. (`decisions/037-multi-team-isolation-and-operator-principal-split.md`) | Pending: device walkthrough with two tester teams |
 | **Reliability hardening from device walkthroughs** | Hardware-demo gate is "two consecutive walkthroughs without principal-blocking bugs" | per-version commits as device tests surface issues |
 | **On-device verification of v1.0.624-630** | Seven follow-on releases closing spawn / wake / routing / UX gaps surfaced by 2026-05-18 smoke test. Each wedge unit-tested at its boundary; end-to-end on-device pass pending (especially the `search` MCP SQL error needs exact error string to diagnose). | Pending: device walkthrough with smoke task |
 | **ADR-027 §11 on-device verification** | LocalLogTailDriver shipped v1.0.592 and is the M4 default for claude-code, but plan §11 verification scenarios (21-24 in the lifecycle test doc — idle/streaming pill, hook delivery, AskUserQuestion picker, /compact compaction card) still need a hardware pass with claude 2.1.x. (`decisions/027-local-log-tail-driver.md`, `plans/local-log-tail-driver.md` §11) | Pending: tester device with claude 2.1.x installed |
@@ -163,6 +163,13 @@ prioritized after the demo lands.
 - **Sandbox-style worker isolation** — bwrap/Seatbelt + microVM
 - **Cache eviction by bytes** — switch HubSnapshotCache from row-cap
   to byte-cap
+- **Selectable Postgres storage backend (ADR-045 D3)** — the
+  scale-out path beyond a single-box SQLite hub. Decided, not built;
+  gated on a real multi-hub / high-team-count need. Sharding (D2,
+  shipped v1.0.808) is the single-box win that makes this a
+  *choice* rather than a forced migration.
+  (`decisions/045-hub-storage-scaling.md`,
+  `plans/hub-storage-scaling.md`)
 - **iOS TestFlight distribution** — Android APK suffices for demo
 - **Cloud sync of mobile data** — single-device works; cross-device
   is a transfer flow today
@@ -175,6 +182,14 @@ Most recent first. Major work units only — bug-fix releases roll up.
 
 | Version | What |
 |---|---|
+| v1.0.808 | **ADR-045 P2 — hub storage scaling.** Event + digest stores shard per team (`<dataRoot>/teams/<team>/{events.db,digest.db}`) behind an LRU-bounded connection registry; `hub.db` stays the global control plane. Per-team parallel fold worker (fold lag bounded by core count, not team count); Tier-1 SQLite pragma tuning (`temp_store=MEMORY`, 256 MiB mmap, writer-only cache); `hub-server db split-teams` offline migration. Measured ~+33 % aggregate ingest when sharded to core count (~1100 ev/s flat-out on 2 vCPU); ~1000 concurrent agents on a 2 GB VPS with no SQLITE_BUSY cliff. Follow-on probe-driven fixes (`4407e12`): insights cache-key + bounded per-team writer cache. ADR-045 Accepted (D1+D2 shipped; D3 selectable Postgres backend decided, not built) |
+| v1.0.805-806 | **Channel-free agent comms + Me-page action boundary.** Channels deferred to a future experiment (tools stay in tree, no prompt instructs their use); steward status routes 3 ways — chat reply / `post_notice` FYI (new answerless tool → Me-page Messages) / `request_*` decision → Requests. Me-page classifies Requests-vs-Messages by action (`pending_payload`); dismissable Messages via guarded `/attention/{id}/resolve` |
+| v1.0.804 | **ADR-044 adaptive project lifecycle (P1–P3).** The project lifecycle is a roadmap, not a fixed template contract: agents materialize deliverables, criteria editable via `propose`, AC-driven system-approved phase advance (human gating = `gate` criterion). P1 added `criteria.list`/`phase.status` MCP reads; P2 the propose verbs; P3 AC auto-advance. ADR-044 Accepted |
+| v1.0.803 | **ADR-043 engine launch contract on the family (P1–P3).** Mode-selecting argv moves off the persona onto the engine family — declarative per-mode `launch` block, launcher composes. Generalizes ADR-010 (frame-profiles-as-data) to the input side. ADR-043 Accepted |
+| v1.0.800-802 | **Tech-debt cleanup + ADR-042 dense session ordinal + team management from mobile.** WS1–WS3 internal cleanup; `session_ordinal` as canonical session-scoped identity (fixes resume/navigator wrong-row); operator team CRUD from the mobile app |
+| v1.0.784-799 | **ADR-038/039/040/041 — the Insight workbench arc.** Per-run event digest + `agent_turns` turn index (ADR-038) + OTLP trace export (P3); Insight transcript lens as a server keyset query (ADR-039); transcript surfaces decoupled by mode into `LiveFeed` + `InsightTranscript` (ADR-040); the card-filter / Navigator-outline / Sessions-rail workbench layout (ADR-041, R1–R4). Plus run-detail UI (trackio/wandb-style Overview/System/Config) and agent-surface consolidation onto one full-screen `SessionChatScreen` (retired the project-agent bottom sheet). Preceded by the v1.0.768-783 transcript-navigation arc (lens bar, minimap, turn stepper) that motivated the rebuild |
+| v1.0.752-767 | **ADR-037 multi-team isolation W1–W6 + stop/terminate naming split.** Path-team authorization gate (W1); operator/principal split (W2); team provisioning endpoint (W3); per-team template overrides (W5); team-scoped agent workdir (W6); cross-cutting isolation sweep. Naming: `stop` (resumable, paused) split from `terminate` (permanent, archived); `agents.resume` is the inverse of `terminate`. ADR-037 D1–D7 |
+| v1.0.704-728 | **ADR-036 Phase B polish + multi-engine telemetry parity + security hardening.** statusLine cost/rate-limit/200K chips polished on-device; codex M2 + antigravity statusLine parity with claude-code M4; configurable principal-directive envelope templates with mobile hot-reload. Security sweep: agent-kind tokens refused as REST bearers, principal-override identity bound to the authenticated token, filesystem path-traversal closed on template install + project docs, cross-host blob read path hardened |
 | v1.0.696-703 | **ADR-036 claude-code statusLine as authoritative M4 telemetry channel.** Phase A (hub-side, v1.0.696-698): host-runner `status-fire` shim + UDS gateway `status_line` tool + adapter caches latest frame for in-process overrides + session_id rotation handler (fixes /clear blindness). Phase A.5 (v1.0.699): cold-open mobile bubble + busy-state regression fixed via testable kind-list sets. Phase B (v1.0.700-703): hub-side pricing infrastructure (operator-override YAML + //go:embed default, mtime hot-reload) + GET /sessions/{id}/cost endpoint + 5 mobile chips landing on the agent telemetry strip (process cost · session cost · 5h rate-limit · 7d rate-limit · 200K alarm) + AppBar `session_name` fallback. ~5,840 LOC + ~117 tests across 9 wedges. ADR-036 Accepted |
 | v1.0.674-695 | **ADR-030 governed actions + `propose` verb — all phases complete.** Generalises apply-on-approve from two bespoke branches to one MCP verb across 5 propose kinds (deliverable.set_state, phase.advance, task.set_status, agent.spawn, template.install) with Validate/DryRun/Apply/Rollback. 22 wedges across 24 commits: Phase 1 (hub, 11 wedges, ~2,775 LOC + ~85 tests) → Phase 2 (steward prompts + 3 scenarios) → Phase 3 (mobile cards + propose inbox + override sheet + policy viewer + stalled digest). ADR-030/032/033/034 all landed (envelope on fan-back, unified tool registry, questionAttentionKinds extension). Loop-closure audit catches every governed-action mutation. ADR-030 Accepted |
 | v1.0.624-630 | Seven-release follow-on series after the v1.0.620-623 spawn-robustness bundle: buildSpawnVars sibling-boundary fix (un-merged read); unbound `{{project_id}}` + `{{parent.handle}}` prompt refs + Layer-4 startup audit; steward wake never reached engine (unhandled `input.task_completed` kind across all drivers) → unified on `input.text`; worker/steward prompt blocked-protocol + validate-before-delegate; preserve blocked verdict on manual stop; mobile archive agent gets Feed tab; `documents.get` MCP tool + A2A sender attribution in relay body. Plus design landings: discussions + plans + ADRs 031/032 (Proposed) for the agent-tool-ergonomics and message-routing-envelope work the band-aids in this series motivated |

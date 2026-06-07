@@ -1,9 +1,9 @@
 # Positioning & business analysis
 
 > **Type:** discussion
-> **Status:** Open (extended 2026-05-01 §1.5 strategic frame; reconciled 2026-05-18 — §5 multi-tenant contradiction fixed, §7 README-refresh marked shipped; reconciled 2026-05-21 — engine list corrected (no Aider; claude-code/codex/gemini-cli/kimi-code), single-session differentiator softened as competitors gained multi-session)
+> **Status:** Open (extended 2026-05-01 §1.5 strategic frame; reconciled 2026-05-18 — §5 multi-tenant contradiction fixed, §7 README-refresh marked shipped; reconciled 2026-05-21 — engine list corrected (no Aider; claude-code/codex/gemini-cli/kimi-code), single-session differentiator softened as competitors gained multi-session; extended 2026-06-07 — §3 cheap-hardware scale axis added after ADR-045 storage scaling shipped)
 > **Audience:** principal, reviewers, partners
-> **Last verified vs code:** v1.0.640
+> **Last verified vs code:** v1.0.808
 
 **TL;DR.** Business-side framing. Answers seven positioning
 questions (what is termipod / buyer / differentiator / competitive
@@ -94,6 +94,16 @@ something distinct from "single-engine remote-control app." A solo
 director with a VPS and a GPU box should feel the architecture working
 for them, not for some imagined enterprise.
 
+The scaling work (ADR-045, shipped v1.0.808) is the personal-tool frame
+made concrete on the *capacity* axis: per-team SQLite sharding + a
+deferred digest fold let a single 2 GB / 2-vCPU VPS sustain ~1000
+concurrent agents with no Redis and no managed database. A solo director
+does not graduate into SaaS-grade ops to run a real fleet — the cheap box
+they already own is enough, and the selectable Postgres backend (ADR-045
+D3, decided not built) stays an *opt-in* escape hatch for HA, not a forced
+migration. "Personal tool" therefore does not mean "small": it means the
+director keeps owning their infrastructure all the way up.
+
 **Implications for ADRs and roadmap.**
 
 - ADR-005 (owner authority) has *one* owner — the principal/director.
@@ -164,6 +174,7 @@ Decomposed:
 | Data ownership | Vendor cloud or laptop-only | Hub holds names/events; hosts hold bytes; blueprint §4 law |
 | Offline | Requires a live connection | SQLite snapshot cache; last-known-good on every list |
 | Open source | Mixed (Happy: yes; others: no) | Apache 2.0, self-hosted Go hub |
+| Scale economics | Vendor pays for their cloud; you pay their plan | One cheap VPS runs the whole fleet — ~1000 agents on a 2 GB / 2-vCPU box, no Redis/managed-DB (ADR-045) |
 
 **The thing none of them can copy cheaply:** TermiPod's three-layer split (hub = names, host-runner = deterministic deputy, agent = stochastic executor) plus A2A routing. Remote Control *can't* add multi-host or multi-vendor without becoming a different product. Happy can't add governance without a hub. OpenHands can't become a mobile director-cockpit without rebuilding its UX top-to-bottom. TermiPod is what you get when you start from "the phone is the cockpit and the agents are distributed" as first principles.
 

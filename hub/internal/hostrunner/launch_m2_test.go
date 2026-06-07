@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -16,15 +17,41 @@ import (
 // log + driver; reads from `input` would be the child seeing stdin (we don't
 // exercise input here).
 type fakeProcSpawner struct {
-	cmd       string
-	child     *io.PipeWriter // test writes here to simulate child stdout
-	childErr  *io.PipeWriter // test writes here to simulate child stderr (split-stream mode only)
-	input     *io.PipeReader // test reads here to see what host-runner wrote
-	killed    chan struct{}
+	cmd      string
+	child    *io.PipeWriter // test writes here to simulate child stdout
+	childErr *io.PipeWriter // test writes here to simulate child stderr (split-stream mode only)
+	input    *io.PipeReader // test reads here to see what host-runner wrote
+	killed   chan struct{}
+
+	// ready is closed once Spawn/SpawnWithStderr has wired the pipe fields.
+	// Tests that run launch in a goroutine wait on it instead of spin-reading
+	// cmd/child/input — those plain fields are written by the launch goroutine,
+	// so a bare `for spawner.child == nil` read races the write (caught by -race).
+	// The channel close establishes happens-before, so every field read that
+	// follows <-ready sees the wired pipes safely with no per-field lock.
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 func newFakeProcSpawner() *fakeProcSpawner {
-	return &fakeProcSpawner{killed: make(chan struct{})}
+	return &fakeProcSpawner{killed: make(chan struct{}), ready: make(chan struct{})}
+}
+
+// signalReady publishes the wired pipe fields to any waiter. Idempotent: a
+// test calls exactly one of Spawn/SpawnWithStderr, but guard against a double
+// close defensively.
+func (f *fakeProcSpawner) signalReady() { f.readyOnce.Do(func() { close(f.ready) }) }
+
+// waitReady blocks until the spawner has been invoked. Call only from the
+// test's own goroutine — it uses t.Fatal, which is illegal off the test
+// goroutine. Helper goroutines should select on <-f.ready directly.
+func (f *fakeProcSpawner) waitReady(t *testing.T) {
+	t.Helper()
+	select {
+	case <-f.ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("spawner never invoked")
+	}
 }
 
 func (f *fakeProcSpawner) Spawn(_ context.Context, command string) (io.ReadCloser, io.WriteCloser, func(), error) {
@@ -33,6 +60,7 @@ func (f *fakeProcSpawner) Spawn(_ context.Context, command string) (io.ReadClose
 	inR, inW := io.Pipe()
 	f.child = outW
 	f.input = inR
+	f.signalReady()
 	kill := func() {
 		select {
 		case <-f.killed:
@@ -57,6 +85,7 @@ func (f *fakeProcSpawner) SpawnWithStderr(_ context.Context, command string) (io
 	f.child = outW
 	f.childErr = errW
 	f.input = inR
+	f.signalReady()
 	kill := func() {
 		select {
 		case <-f.killed:

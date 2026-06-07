@@ -121,14 +121,13 @@ func TestLaunchM2_CodexFamily_WiresAppServerDriver(t *testing.T) {
 // but the launchM2 fakeProcSpawner uses io.Pipe ends laid out
 // differently from newPipePair, hence the small duplicate.
 func fakeCodexAppServer(t *testing.T, spawner *fakeProcSpawner) {
-	// Wait for the spawner to have wired its pipes. The Spawn call
-	// in launchM2 is what populates spawner.child / spawner.input;
-	// poll briefly so the goroutine doesn't race the launcher.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && (spawner.child == nil || spawner.input == nil) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if spawner.child == nil || spawner.input == nil {
+	// Wait for the spawner to have wired its pipes. The Spawn call in
+	// launchM2 populates spawner.child / spawner.input then closes ready;
+	// this runs in a helper goroutine, so select on the channel directly
+	// (t.Fatal is illegal off the test goroutine) and bail on timeout.
+	select {
+	case <-spawner.ready:
+	case <-time.After(2 * time.Second):
 		return
 	}
 	dec := json.NewDecoder(spawner.input)

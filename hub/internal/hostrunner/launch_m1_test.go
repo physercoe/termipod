@@ -53,14 +53,7 @@ func TestLaunchM1_WiresACPDriverAndPane(t *testing.T) {
 	}()
 
 	// Wait for the spawner to be exercised.
-	deadline := time.After(2 * time.Second)
-	for spawner.child == nil {
-		select {
-		case <-deadline:
-			t.Fatal("spawner never invoked")
-		case <-time.After(5 * time.Millisecond):
-		}
-	}
+	spawner.waitReady(t)
 
 	// Drive the fakeACPAgent on the child end of the pipes. It reads
 	// what the driver wrote (spawner.input) and writes back into the
@@ -180,14 +173,7 @@ func TestLaunchM1_StderrLandsInSiblingLog(t *testing.T) {
 		done <- result{r, e}
 	}()
 
-	deadline := time.After(2 * time.Second)
-	for spawner.child == nil {
-		select {
-		case <-deadline:
-			t.Fatal("spawner never invoked")
-		case <-time.After(5 * time.Millisecond):
-		}
-	}
+	spawner.waitReady(t)
 
 	// Drive the JSON-RPC handshake on stdout while emitting a stderr
 	// line that resembles what gemini writes when it can't reach the
@@ -282,14 +268,7 @@ func TestLaunchM1_ResolvesAuthMethodFromSpecOverFamilyDefault(t *testing.T) {
 		done <- result{r, e}
 	}()
 
-	deadline := time.After(2 * time.Second)
-	for spawner.child == nil {
-		select {
-		case <-deadline:
-			t.Fatal("spawner never invoked")
-		case <-time.After(5 * time.Millisecond):
-		}
-	}
+	spawner.waitReady(t)
 
 	agent := newFakeACPAgent(t, spawner.input, spawner.child, "sess-auth-spec")
 	agent.authMethods = []map[string]any{
@@ -356,14 +335,7 @@ func TestLaunchM1_FallsBackToFamilyDefaultAuthMethod(t *testing.T) {
 		done <- result{r, e}
 	}()
 
-	deadline := time.After(2 * time.Second)
-	for spawner.child == nil {
-		select {
-		case <-deadline:
-			t.Fatal("spawner never invoked")
-		case <-time.After(5 * time.Millisecond):
-		}
-	}
+	spawner.waitReady(t)
 
 	agent := newFakeACPAgent(t, spawner.input, spawner.child, "sess-auth-fam")
 	// Advertise oauth-personal as non-interactive so the family-default

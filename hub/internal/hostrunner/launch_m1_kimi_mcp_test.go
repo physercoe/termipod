@@ -234,14 +234,7 @@ func TestLaunchM1_KimiSplicesMCPConfigFlag(t *testing.T) {
 
 	// Wait for the spawner to be exercised; drive the fake ACP agent
 	// on the child end so launch_m1 actually returns.
-	deadline := time.After(2 * time.Second)
-	for spawner.child == nil {
-		select {
-		case <-deadline:
-			t.Fatal("spawner never invoked")
-		case <-time.After(5 * time.Millisecond):
-		}
-	}
+	spawner.waitReady(t)
 	agent := newFakeACPAgent(t, spawner.input, spawner.child, "sess-kimi-launchm1")
 	go agent.serve()
 

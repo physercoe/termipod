@@ -337,6 +337,65 @@ func TestAdapter_StopDrainsRunLoop(t *testing.T) {
 //     assistant frame, and the workdir
 //   - subsequent usage frames in the same session DO NOT re-emit
 //     session.init (would be benign but adds noise)
+// TestAdapter_ConcurrentStopAndStatusLine drives the data race fixed
+// alongside this test: resolveAndRun (the Start goroutine) writes a.tailer
+// and a.engineSessionID, while Stop and the gateway-goroutine OnStatusLine
+// read them. Pre-fix those reads/writes were unsynchronized (caught by
+// `go test -race`: adapter.go Start vs Stop on a.tailer). Run this under
+// -race; it asserts only that Stop drains within the deadline (the real
+// signal is the race detector staying silent).
+func TestAdapter_ConcurrentStopAndStatusLine(t *testing.T) {
+	cwd := "/home/test/proj-race"
+	homeDir, projectDir := makeFakeHome(t, cwd)
+	const sessUUID = "11111111-2222-3333-4444-555555555555"
+	jsonl := filepath.Join(projectDir, sessUUID+".jsonl")
+	writeJSONL(t, jsonl,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`,
+	)
+
+	p := &capturingPoster{}
+	a, _ := NewAdapter(Config{AgentID: "ag", Workdir: cwd, Poster: p})
+	a.HomeDir = homeDir
+	a.SessionCutoff = time.Time{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := a.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	_ = waitForN(t, p, 1, 1*time.Second)
+
+	// Hammer OnStatusLine (reads engineSessionID, may Stop the tailer on a
+	// rotation) concurrently with Stop (reads the tailer). A different
+	// session_id each iteration exercises the rotation branch that touches
+	// a.tailer and pendingTranscriptPath.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			a.OnStatusLine(ctx, map[string]any{
+				"version":         "2.1.150",
+				"session_id":      sessUUID + "-rot",
+				"transcript_path": jsonl,
+			})
+		}
+	}()
+
+	stopped := make(chan struct{})
+	go func() {
+		a.Stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not return within 2s under concurrent OnStatusLine")
+	}
+	wg.Wait()
+	a.Stop() // idempotent
+}
+
 func TestAdapter_SynthesisesSessionInitFromFirstUsage(t *testing.T) {
 	cwd := "/home/test/proj-sinit"
 	homeDir, projectDir := makeFakeHome(t, cwd)

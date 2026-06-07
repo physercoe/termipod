@@ -331,12 +331,29 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 	// re-enters for every /clear; pre-W3 it runs exactly once and
 	// exits when the tailer closes its lines channel naturally.
 	for {
-		a.tailer = &Tailer{Path: jsonlPath, Mode: tailMode}
-		lines, err := a.tailer.Start(ctx)
+		// Start the tailer BEFORE publishing it to a.tailer. t.Start sets
+		// the tailer's cancel/done, which Stop()/OnStatusLine read after
+		// snapshotting a.tailer under a.mu to call tailer.Stop(); publishing
+		// a not-yet-Started tailer would let those readers race t.Start's
+		// writes. After Start, re-check a.stopped under the lock: if Stop
+		// ran during Start it never saw this tailer, so stop it here rather
+		// than leak the goroutine. a.tailer was previously written WITHOUT
+		// the lock while Stop/OnStatusLine read it under a.mu — a data race
+		// (-race, claude_code adapter.go Start vs Stop).
+		t := &Tailer{Path: jsonlPath, Mode: tailMode}
+		lines, err := t.Start(ctx)
 		if err != nil {
 			a.noteFailure(ctx, "tailer start", err)
 			return
 		}
+		a.mu.Lock()
+		if a.stopped {
+			a.mu.Unlock()
+			t.Stop()
+			return
+		}
+		a.tailer = t
+		a.mu.Unlock()
 
 		// Capture the engine session UUID from the JSONL filename
 		// (`<uuid>.jsonl`). claude-code itself uses this same id as the
@@ -347,13 +364,16 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 		// carries `session_id`, which the hub's captureEngineSessionID
 		// then stamps onto `sessions.engine_session_id` for the resume
 		// path to consume. v1.0.672.
-		a.engineSessionID = strings.TrimSuffix(filepath.Base(jsonlPath), ".jsonl")
+		sid := strings.TrimSuffix(filepath.Base(jsonlPath), ".jsonl")
+		a.mu.Lock()
+		a.engineSessionID = sid
+		a.mu.Unlock()
 
 		a.Log.Info("claude-code adapter started",
 			"agent_id", a.AgentID,
 			"workdir", a.Workdir,
 			"jsonl", jsonlPath,
-			"engine_session_id", a.engineSessionID,
+			"engine_session_id", sid,
 			"replay", tailMode == StartFromBeginning)
 
 		a.runLoop(ctx, lines)
@@ -439,8 +459,8 @@ func (a *Adapter) maybeEmitSessionInit(ctx context.Context, ev MappedEvent) {
 	// `sessions.engine_session_id`, which the resume path then threads
 	// back into the respawn cmd as `--resume <uuid>`. Without this
 	// field every M4 claude-code resume cold-started. v1.0.672.
-	if a.engineSessionID != "" {
-		payload["session_id"] = a.engineSessionID
+	if sid := a.currentEngineSessionID(); sid != "" {
+		payload["session_id"] = sid
 	}
 	if err := a.Poster.PostAgentEvent(ctx, a.AgentID, "session.init", "agent", payload); err != nil {
 		a.Log.Warn("claude-code adapter: session.init post failed",
@@ -601,6 +621,16 @@ func (a *Adapter) Stop() {
 	a.wg.Wait()
 }
 
+// currentEngineSessionID reads engineSessionID under a.mu. resolveAndRun
+// writes it (under a.mu) when a session JSONL resolves; OnStatusLine (gateway
+// goroutine) and maybeEmitSessionInit read it — the cross-goroutine pair was
+// previously unsynchronized.
+func (a *Adapter) currentEngineSessionID() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.engineSessionID
+}
+
 // HandleInput is now implemented in sendkeys.go (W2h).
 
 // OnStatusLine is the gateway-side seam for claude-code statusLine
@@ -639,7 +669,7 @@ func (a *Adapter) OnStatusLine(_ context.Context, payload map[string]any) {
 	if newSID == "" || newPath == "" {
 		return
 	}
-	curSID := a.engineSessionID
+	curSID := a.currentEngineSessionID()
 	if curSID == "" || newSID == curSID {
 		return
 	}

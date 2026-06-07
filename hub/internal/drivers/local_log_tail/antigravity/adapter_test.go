@@ -97,7 +97,11 @@ func TestAdapter_StartResolvesAndPosts(t *testing.T) {
 				sawText = true
 			}
 		}
+		// Read under a.mu — resolveAndRun writes ConversationID under the
+		// same lock (adapter.go), so a bare read here races it (-race).
+		a.mu.Lock()
 		gotConvID := a.ConversationID
+		a.mu.Unlock()
 		if sawInit && sawText && gotConvID == convID {
 			return
 		}

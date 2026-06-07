@@ -77,14 +77,26 @@ func (h *hubMock) handleCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *hubMock) handleGet(w http.ResponseWriter, _ *http.Request, id string) {
+	// Snapshot the row UNDER the lock, then encode the copy outside it.
+	// resolve() mutates the stored row's top-level keys under h.mu; encoding
+	// the shared map after unlocking (as this did) races those writes
+	// (-race: json.Encode in handleGet vs resolve()'s row[...] = ...). A
+	// shallow copy suffices — resolve only reassigns top-level keys.
 	h.mu.Lock()
 	row, ok := h.rows[id]
+	var cp map[string]any
+	if ok {
+		cp = make(map[string]any, len(row))
+		for k, v := range row {
+			cp[k] = v
+		}
+	}
 	h.mu.Unlock()
 	if !ok {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(row)
+	_ = json.NewEncoder(w).Encode(cp)
 }
 
 func (h *hubMock) resolve(id, decision, reason string) {

@@ -62,6 +62,73 @@ See [docs/discussions/positioning.md](docs/discussions/positioning.md) for the f
 
 ---
 
+## A look inside
+
+A tour of the director's cockpit, captured on a real foldable (the same
+preliminary build as the demo above — UX still in flight).
+
+**The cockpit — a five-tab home for the director**
+
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/screens/app/projects.jpg" width="240" alt="Projects tab — project list with progress and open acceptance criteria"><br><sub><b>Projects</b> · directed work, progress, open ACs</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/activity.jpg" width="240" alt="Activity tab — team-wide event and audit stream"><br><sub><b>Activity</b> · the team-wide event &amp; audit stream</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/me.jpg" width="240" alt="Me tab — your steward, requests, and team spend"><br><sub><b>Me</b> · your steward, requests &amp; team spend</sub></td>
+</tr>
+</table>
+
+**Directed work — tasks and deliverables**
+
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/screens/app/tasks.jpg" width="240" alt="Tasks board grouped by status"><br><sub><b>Tasks</b> · the steward's work board (blocked / done)</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/documents.jpg" width="240" alt="Documents list — plans, memos, reports, reviews"><br><sub><b>Documents</b> · plans, memos, reports, reviews</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/document-report.jpg" width="240" alt="A deliverable report rendered with its final-metrics table"><br><sub><b>Deliverable</b> · a report with its metrics, in-app</sub></td>
+</tr>
+</table>
+
+**Watching the agents — the Insights workbench**
+
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/screens/app/session-feed.jpg" width="240" alt="A live agent session transcript with an artifact table"><br><sub><b>Session</b> · a live agent transcript + artifacts</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/insights-run.jpg" width="240" alt="Run report card — turns, cost, tools, errors, models"><br><sub><b>Run report</b> · turns, cost, tools, errors, models</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/insights-navigator.jpg" width="240" alt="Insights Navigator — jump by turn, error, or map"><br><sub><b>Navigator</b> · jump by turn, error, or map</sub></td>
+</tr>
+</table>
+
+**Fleet cost &amp; experiment tracking**
+
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/screens/app/insights-by-agent.jpg" width="240" alt="Token spend broken down by agent across the fleet"><br><sub><b>By agent</b> · token spend across the fleet</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/experiments.jpg" width="240" alt="Experiments list — runs grouped by hyperparameters"><br><sub><b>Experiments</b> · runs by hyperparameters</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/run-detail.jpg" width="240" alt="Run detail — live metric sparklines, config, outputs"><br><sub><b>Run detail</b> · live metrics, config, outputs</sub></td>
+</tr>
+</table>
+
+<details>
+<summary><b>More views</b> — task detail, the sessions rail, more deliverables, full run config</summary>
+
+<br>
+
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/screens/app/task-detail.jpg" width="240" alt="Task detail — goal, status, assignee, result summary"><br><sub><b>Task detail</b> · goal, status, result summary</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/sessions-rail.jpg" width="240" alt="Sessions rail — every steward and run across the team"><br><sub><b>Sessions rail</b> · every steward + run, team-wide</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/run-config.jpg" width="240" alt="Run config — the full filterable hyperparameter set"><br><sub><b>Run config</b> · the full hyperparameter set</sub></td>
+</tr>
+<tr>
+<td align="center" width="33%"><img src="docs/screens/app/document-plan.jpg" width="240" alt="A multi-phase method plan deliverable"><br><sub><b>Method plan</b> · a multi-phase draft</sub></td>
+<td align="center" width="33%"><img src="docs/screens/app/document-notes.jpg" width="240" alt="A method-notes memo with an environment table"><br><sub><b>Method notes</b> · environment + config memo</sub></td>
+<td align="center" width="33%"></td>
+</tr>
+</table>
+
+</details>
+
+---
+
 ## Why TermiPod?
 
 AI agents produce ten times more output than any human can review. The moment you run **more than one** agent, or span **more than one machine**, the existing mobile tools show their seams. Session-bridge apps (Claude Code Remote Control, Happy, Tactic Remote, the Codex app) put a session — or now several — in your pocket, but each is still a window onto agents *you* launch and babysit; messenger-bridge agents (OpenClaw, Hermes, Claude Code Channels) give you one chat-style assistant across your chat apps. Neither decomposes a goal, dispatches a fleet across your own machines, and governs what those agents may do. TermiPod is built on a different axiom: the human is a **director**, not an operator.

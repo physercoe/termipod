@@ -173,11 +173,7 @@ func ReadRun(ctx context.Context, dbPath string, runName string) (map[string]met
 		return nil, fmt.Errorf("stat %s: %w", dbPath, err)
 	}
 
-	// mode=ro keeps us honest — we never want the poller to accidentally
-	// mutate the trackio store. immutable=1 would skip the WAL, but the
-	// worker is actively writing, so read-only + shared is correct.
-	dsn := fmt.Sprintf("file:%s?mode=ro", dbPath)
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite", roDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", dbPath, err)
 	}
@@ -261,11 +257,27 @@ func openRO(dbPath string) (*sql.DB, error) {
 		}
 		return nil, fmt.Errorf("stat %s: %w", dbPath, err)
 	}
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	db, err := sql.Open("sqlite", roDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", dbPath, err)
 	}
 	return db, nil
+}
+
+// roDSN builds the read-only DSN the poller uses for a trackio project DB.
+//
+//   - mode=ro keeps us honest — the poller must never mutate the trackio
+//     store (immutable=1 would skip the WAL, but the worker is actively
+//     writing, so read-only + shared is correct).
+//   - busy_timeout(5000) is load-bearing: the training worker writes this
+//     same DB continuously, so a poll that lands mid-write would otherwise
+//     get an INSTANT "database is locked (SQLITE_BUSY)" and fail the tick.
+//     The 5 s busy handler makes the reader wait out the transient writer
+//     lock instead, which is how every other SQLite open in the hub behaves
+//     (internal/server/db.go pragmaCommon). Trackio writes are short upserts,
+//     so 5 s is ample headroom.
+func roDSN(dbPath string) string {
+	return fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", dbPath)
 }
 
 // isNoSuchTable reports whether err is sqlite's "no such table" — an older

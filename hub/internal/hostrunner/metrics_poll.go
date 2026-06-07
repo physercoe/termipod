@@ -46,12 +46,55 @@ func (a *Runner) metricsTick(ctx context.Context, r metrics.Reader, maxPoints in
 		if !strings.HasPrefix(run.TrackioRunURI, prefix) {
 			continue
 		}
-		if err := a.metricsPollOne(ctx, r, run, maxPoints); err != nil {
-			// One failing run shouldn't abort the whole sweep.
-			a.Log.Warn("metric poll failed",
-				"scheme", r.Scheme(), "run", run.ID,
-				"uri", run.TrackioRunURI, "err", err)
-		}
+		err := a.metricsPollOne(ctx, r, run, maxPoints)
+		// One failing run shouldn't abort the whole sweep. Report the
+		// outcome edge-triggered (see notePollOutcome) so a persistently
+		// failing run — or a transient lock that the busy_timeout didn't
+		// fully absorb — logs once on the falling edge and once on
+		// recovery, never identically every tick.
+		a.notePollOutcome(r.Scheme(), run.ID, run.TrackioRunURI, err)
+	}
+}
+
+// notePollOutcome edge-triggers the metric-poll log. A run that keeps
+// failing logs a single WARN on the first failure (the falling edge) and a
+// single INFO when it next succeeds (recovery); the steady-state — whether
+// healthy or stuck — is silent. This is the same dedup discipline the idle
+// detector uses (runner.go tickIdle), applied to the poll loop that the
+// tester saw spamming an identical SQLITE_BUSY WARN every interval.
+//
+// A poll-failure is host-runner operational health, NOT a director- or
+// steward-facing signal: it is most often transient (a writer lock) or
+// benign (a malformed run URI), so it stays in the local log and is not
+// raised as an attention item. Genuinely director-meaningful run health
+// surfaces through the run's own alerts digest (pollRunExtras → PutRunAlerts).
+func (a *Runner) notePollOutcome(scheme, runID, uri string, err error) {
+	key := scheme + "\x00" + runID
+	a.pollMu.Lock()
+	if a.pollFail == nil {
+		a.pollFail = map[string]bool{}
+	}
+	wasFailing := a.pollFail[key]
+	switch {
+	case err != nil && !wasFailing:
+		a.pollFail[key] = true
+	case err == nil && wasFailing:
+		delete(a.pollFail, key)
+	}
+	a.pollMu.Unlock()
+
+	switch {
+	case err != nil && !wasFailing:
+		a.Log.Warn("metric poll failed",
+			"scheme", scheme, "run", runID, "uri", uri, "err", err)
+	case err != nil:
+		// Still failing — already logged on the falling edge. Keep the
+		// detail available at debug for anyone tailing -v, but off the
+		// default WARN stream.
+		a.Log.Debug("metric poll still failing",
+			"scheme", scheme, "run", runID, "err", err)
+	case wasFailing:
+		a.Log.Info("metric poll recovered", "scheme", scheme, "run", runID)
 	}
 }
 

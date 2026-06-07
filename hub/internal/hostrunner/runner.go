@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	hub "github.com/termipod/hub"
@@ -103,6 +104,14 @@ type Runner struct {
 
 	idle      *IdleDetector
 	panes     map[string]paneState    // keyed by agent id
+
+	// pollFail edge-triggers the metric-poll-failure log so a run that
+	// keeps failing logs once on the falling edge (and once on recovery),
+	// not on every tick. Keyed by "<scheme>\x00<runID>". Guarded by pollMu
+	// because the per-backend poll loops (trackio/wandb/tb) run as separate
+	// goroutines that share this map.
+	pollMu   sync.Mutex
+	pollFail map[string]bool
 	tailers   map[string]*Tailer      // keyed by agent id
 	drivers   map[string]Driver       // keyed by agent id (P1.1)
 	gateways  map[string]*McpGateway  // keyed by agent id (ADR-027 W5a)

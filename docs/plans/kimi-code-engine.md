@@ -576,6 +576,57 @@ follow-up once a real corpus exists; not on the W1–W5 critical path.
   upgrade, the engine is unusable until upstream ships a fix.
   Version floor (§7.3) lets us fail-fast at probe time.
 
+### 9.1. Watch: kimi-cli (Python) → kimi-code (TypeScript) tech-stack fork — HOLD (2026-06-07)
+
+Upstream is mid-fork and we should **not** adapt yet. Two parallel
+lines now exist:
+
+- **`MoonshotAI/kimi-cli`** — the Python CLI this integration was built
+  and tested against (floor 1.43.0). Still actively patched —
+  changelog shows **v1.47.0 (2026-06-05)**. Our integration targets
+  this line and keeps working.
+- **`MoonshotAI/kimi-code`** — a "next-gen" successor rewritten in
+  **TypeScript / Node.js** (npm-distributed), with a migration guide
+  off the Python CLI. A separate **Rust** runtime
+  (`MoonshotAI/kimi-agent-rs`, binary `kimi-agent`) is wire-compatible.
+
+Note a source conflict: one secondary article claimed kimi-cli froze at
+1.44.0 (2026-05-13), but the official changelog contradicts that
+(1.47.0, 2026-06-05). So the Python line is *not* dead and the TS
+rewrite is *not* a forced cutover yet — which is exactly why we hold.
+
+**Drift risk for termipod when we eventually move to kimi-code (TS):**
+
+- ✅ Likely safe — binary stays `kimi`, the `kimi acp` subcommand
+  survives (our M1 ACP driving mode holds), and `kimi login` is still
+  the OAuth device-code auth path.
+- ⚠️ **Load-bearing unknown** — the new kimi-code command reference no
+  longer lists `--mcp-config-file`, and the TS build reportedly
+  configures MCP *conversationally via `/mcp-config`, not raw JSON*. Our
+  entire MCP wiring (`launch_m1.go` / `launch_m2.go` writing
+  `.kimi/mcp.json` via `--mcp-config-file`, ADR-026 D5) depends on that
+  flag. If it's gone, kimi spawns lose their hub MCP tools until we
+  rework the config injection.
+- ⚠️ Minor — `--thinking` (referenced in the family-row comment) isn't
+  in the new flag set (now `--yolo` / `--auto` / `--plan`); repo name
+  and version floor in our comments point at the Python line.
+
+**Decision: HOLD.** Do not change `launch_m1/m2`, the family row, or
+ADR-026 until the TS kimi-code stabilizes and we can confirm on a host
+whether it still honors `--mcp-config-file` / `.kimi/mcp.json` (or what
+replaces it). A summary can't settle that — it needs the real binary.
+Re-open this when (a) the TS line is declared the supported default, or
+(b) the Python kimi-cli stops receiving patches. Verification step when
+we do: run `kimi acp --help` on the new build and diff the flag set
+against `agent_families.yaml:847` + the two launchers.
+
+Sources (2026-06): kimi-cli changelog v1.47.0
+(`moonshotai.github.io/kimi-cli/en/release-notes/changelog.html`);
+kimi-code command reference
+(`moonshotai.github.io/kimi-code/en/reference/kimi-command.html`);
+`github.com/MoonshotAI/kimi-agent-rs`; migration guide
+`github.com/MoonshotAI/kimi-code` issue #44.
+
 ## 10. References
 
 - [ADR-010](../decisions/010-frame-profiles-as-data.md) — frame profile

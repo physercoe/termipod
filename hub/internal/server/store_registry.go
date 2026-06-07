@@ -72,6 +72,11 @@ func (h *teamHandles) close() {
 type teamStores struct {
 	root    string // dataRoot/teams
 	maxOpen int
+	// writerCachePragma is the budget-divided page-cache pragma applied to each
+	// per-team writer pool, sized once from maxOpen so the aggregate per-team
+	// writer cache stays bounded by RAM regardless of team count (db.go
+	// perTeamWriterCachePragma; scaling_probe_test.go Probe C).
+	writerCachePragma string
 
 	mu     sync.Mutex
 	lru    *list.List               // *teamHandles, front = most-recently used
@@ -90,10 +95,11 @@ func newTeamStores(dataRoot string, maxOpen int) *teamStores {
 		}
 	}
 	return &teamStores{
-		root:    filepath.Join(dataRoot, "teams"),
-		maxOpen: maxOpen,
-		lru:     list.New(),
-		byTeam:  map[string]*list.Element{},
+		root:              filepath.Join(dataRoot, "teams"),
+		maxOpen:           maxOpen,
+		writerCachePragma: perTeamWriterCachePragma(maxOpen),
+		lru:               list.New(),
+		byTeam:            map[string]*list.Element{},
 	}
 }
 
@@ -152,22 +158,22 @@ func (r *teamStores) openTeam(team string) (*teamHandles, error) {
 		return nil, err
 	}
 	var err error
-	if h.eventsW, err = openStorePool(eventsPath, true); err != nil {
+	if h.eventsW, err = openStorePool(eventsPath, true, r.writerCachePragma); err != nil {
 		return fail(err)
 	}
 	if err = ensureEventsSchema(h.eventsW); err != nil {
 		return fail(err)
 	}
-	if h.eventsR, err = openStorePool(eventsPath, false); err != nil {
+	if h.eventsR, err = openStorePool(eventsPath, false, ""); err != nil {
 		return fail(err)
 	}
-	if h.digestW, err = openStorePool(digestPath, true); err != nil {
+	if h.digestW, err = openStorePool(digestPath, true, r.writerCachePragma); err != nil {
 		return fail(err)
 	}
 	if err = ensureDigestSchema(h.digestW); err != nil {
 		return fail(err)
 	}
-	if h.digestR, err = openStorePool(digestPath, false); err != nil {
+	if h.digestR, err = openStorePool(digestPath, false, ""); err != nil {
 		return fail(err)
 	}
 	return h, nil

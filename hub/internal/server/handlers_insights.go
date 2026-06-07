@@ -57,7 +57,16 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	// endpoint is read by mobile widgets that build the timestamps
 	// themselves.
 	now := time.Now().UTC()
-	until := now
+	// Quantize the DEFAULT until to insightsTTL buckets. The cache key below is
+	// (scope, since, until); a raw now() is unique to the nanosecond, so every
+	// param-less request (the common mobile case — Project Detail refresh sends
+	// no time window) produced a fresh key and a 0% cache hit rate, re-scanning
+	// agent_events every call. Truncating to the TTL boundary makes repeated
+	// param-less reads within a bucket share one key (and one query window), so
+	// the cache actually fires. Explicit `until` is honored exactly. The window
+	// trails wall-clock by up to insightsTTL, which is precisely the staleness
+	// the TTL already permits.
+	until := now.Truncate(insightsTTL)
 	if v := strings.TrimSpace(q.Get("until")); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			until = t.UTC()
@@ -424,6 +433,19 @@ func (s *Server) forEachInsightsEvent(
 	ctx context.Context, scope *scopeFilter, since, until time.Time,
 	cols, extraSQL string, scan func(*sql.Rows) error,
 ) error {
+	// Serial across shards. A concurrent per-shard fan-out was implemented and
+	// load-tested (scaling_probe_test.go Probe A, NOCACHE) and REJECTED: the
+	// target is a 2-vCPU VPS that is CPU-bound under write load, and modernc
+	// SQLite is pure-Go CPU work, so parallelism adds no throughput when there
+	// are no spare cores — it only adds goroutine/lock overhead and shuffles
+	// latency between requests (engine-scope p50 measured WORSE: 231ms parallel
+	// vs 135ms serial under saturation). The real win for the slow case was the
+	// response-cache fix in handleInsights (a per-request now() defeated the 30s
+	// TTL, forcing a full re-scan every call); with the cache firing, engine-
+	// scope insights drops to ~50µs. Keep this serial and simple. Revisit only
+	// if a deployment is both many-core AND routinely cache-missing on wide
+	// engine scope — then per-shard partials with a lock-free merge (not a
+	// mutex-guarded shared accumulator) would be the shape to measure.
 	sinceS, untilS := since.Format(time.RFC3339), until.Format(time.RFC3339)
 	for _, sh := range scope.shards {
 		args := append([]any{}, sh.args...)

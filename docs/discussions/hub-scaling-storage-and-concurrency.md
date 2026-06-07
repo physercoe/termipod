@@ -428,6 +428,76 @@ buys digest *freshness* under many teams, not a higher ingest ceiling
 (that's still CPU-bound). Under realistic bursty load (cores with slack)
 the parallel drain does even better.
 
+### 4.7 Read-path, SSE and memory probes — the other three axes (2026-06-07)
+
+The load test above measures only the **ingest write path**. Three
+companion probes (`internal/server/scaling_probe_test.go`, gated behind
+`HUB_SCALEPROBE=1`, CI-skipped, with a live `MemAvailable` floor guard so
+they're safe on a shared box) cover the axes it doesn't: read latency under
+write load, SSE fan-out, and process memory. Run on the same 2-vCPU / ~2 GB
+box.
+
+**A — read latency under write contention.** 4 team shards, 40 writers
+flat-out, 6 readers hammering three shapes. Two findings, one a real bug:
+
+- The `/v1/insights` **response cache was defeated**. Its key is
+  `(scope, since, until)`, and an absent `until` defaulted to
+  `time.Now()` formatted to the nanosecond — so every param-less request
+  (the common mobile case: Project Detail refresh sends no window) had a
+  unique key → **0 % hit rate**, re-scanning `agent_events` every call
+  (engine-scope p50 **135 ms**). Fix: quantize the default `until` to the
+  30 s TTL boundary so repeated param-less reads share a key. Measured
+  after: engine-scope p50 **135 ms → ~50 µs** (cache now fires).
+- The keyset event-page reader is healthy under load (sub-ms p50; p99
+  spikes are writer-lock contention).
+
+A concurrent per-shard **insights fan-out** was implemented and tested
+here too, and **rejected**: on a CPU-bound 2-vCPU box, parallelism adds no
+throughput (no spare cores; modernc SQLite is pure-Go CPU work) and
+measured a *worse* engine-scope p50 (231 ms parallel vs 135 ms serial)
+plus goroutine/lock overhead. The fan-out stays serial; the cache fix is
+the real win. (Revisit only for a many-core deployment that also routinely
+cache-misses on wide engine scope — then per-shard partials with a
+lock-free merge, not a mutex-guarded accumulator, is the shape to measure.)
+
+**B — SSE eventBus fan-out + drop.** The bus is a 32-deep per-subscriber
+buffer that drops on overflow. Paced at a realistic 1000 ev/s on one
+channel (thundering-herd: many directors tailing one busy run):
+
+| Subscribers | Publish p50 | p99 | Fast-drainer drop | Slow-drainer drop (500 ev/s) |
+|---:|---:|---:|---:|---:|
+| 50 | 9 µs | 27 µs | 0 % | 55 % |
+| 200 | 33 µs | 100 µs | 0 % | 58 % |
+| 800 | 127 µs | 342 µs | 0 % | 61 % |
+
+A subscriber that keeps up loses nothing; only one draining slower than
+the publish rate sheds the excess, then recovers via `?since=` backfill
+(every drop converts into read load — back to axis A). Fan-out is **O(N)
+under the bus lock**: ~127 µs/publish at 800 subscribers ≈ 13 % of one
+core at the 1000 ev/s ceiling, negligible at ≤ 200. No change needed at
+MVP scale; the number to watch is concurrent live-tail count, not agents.
+
+**C — process RSS vs. open per-team store count.** Opening team shards one
+at a time and sampling RSS: fixed overhead is **~0.75 MiB per open store**
+(~123 MiB projected at the 128-store LRU cap) — trivial on 2 GB. But the
+real lever is the **writer cache**: the prior design gave every per-team
+writer pool a flat 64 MiB, and with 2 pools/team (events + digest) × up to
+128 open teams that product was **unbounded** (a 2 GB-box hazard). Fix:
+`perTeamWriterCachePragma` (db.go) divides a single budget
+(`HUB_SQLITE_WRITER_CACHE_BUDGET_MB`, default 256) across `2 × maxOpen`
+pools, clamped to `[1 MiB, HUB_SQLITE_WRITER_CACHE_KB]`, so the aggregate
+per-team writer cache stays ≈ the budget regardless of team count (fewer
+teams ⇒ a bigger cache per pool, same total). The global `hub.db` control
+writer keeps its full cache (it's a single pool). A/B load test confirmed
+**no ingest regression** from the smaller default per-pool cache (878 vs
+894 ev/s, within noise) — the write path is CPU-bound with a small working
+set, so cache size barely moves it.
+
+**Net:** two shipped fixes (insights cache key; bounded per-team writer
+cache) and one measured-and-rejected (parallel fan-out). The recurring
+lesson, consistent with §4.6: on a small CPU-bound box, the wins are
+**doing less work** (cache hits, bounded memory), not **more parallelism**.
+
 ---
 
 ## 5. "Is a Redis-like service needed?"

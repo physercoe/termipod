@@ -32,18 +32,68 @@ const pragmaCommon = "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pra
 
 // pragmaWriterCache is resolved once at startup. Default 64 MiB; the size (in
 // KiB) is operator-tunable per VPS via HUB_SQLITE_WRITER_CACHE_KB (also used to
-// sweep the value in load tests). Applied only to the bounded single-conn writer
-// pools, never the uncapped readers — see the cache_size note above.
+// sweep the value in load tests). Applied to the SINGLE global control writer
+// (hub.db, OpenWriterDB) — there is exactly one, so its cache is unbounded by
+// team count. The PER-TEAM writer pools use perTeamWriterCachePragma instead,
+// which divides a global budget across the open-store cap (see below).
 var pragmaWriterCache = writerCachePragma()
 
-func writerCachePragma() string {
+// writerCacheKB is the per-connection writer cache size in KiB — the default
+// (64 MiB) and the operator override. It doubles as the per-pool CEILING for
+// the budget-divided per-team caches.
+func writerCacheKB() int {
 	kb := 65536
 	if v := os.Getenv("HUB_SQLITE_WRITER_CACHE_KB"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			kb = n
 		}
 	}
-	return fmt.Sprintf("&_pragma=cache_size(-%d)", kb)
+	return kb
+}
+
+func writerCachePragma() string {
+	return fmt.Sprintf("&_pragma=cache_size(-%d)", writerCacheKB())
+}
+
+// perTeamWriterCachePragma sizes the page cache for ONE per-team writer pool so
+// that the aggregate writer cache across every open team stays bounded by RAM,
+// regardless of team count. The earlier design put a flat 64 MiB on every
+// per-team writer pool; with 2 writer pools per team (events.db + digest.db)
+// and up to HUB_MAX_OPEN_TEAM_STORES open teams, that product was unbounded —
+// a measured hazard on a 2 GB VPS (scaling_probe_test.go Probe C).
+//
+// Instead a single budget (HUB_SQLITE_WRITER_CACHE_BUDGET_MB, default 256 MiB)
+// is divided across the maximum number of concurrently-open per-team writer
+// pools (2 × maxOpen), then clamped to [1 MiB, writerCacheKB()]. So:
+//
+//   - the aggregate per-team writer cache never exceeds ~the budget;
+//   - fewer teams (a lower cap) ⇒ a larger cache per pool, same total — the
+//     operator trades breadth for depth by tuning HUB_MAX_OPEN_TEAM_STORES;
+//   - the global control writer (hub.db) keeps its full writerCacheKB() cache
+//     and is NOT counted here (it is a single pool).
+//
+// To restore the old flat-64 MiB behaviour, raise the budget (e.g. set
+// HUB_SQLITE_WRITER_CACHE_BUDGET_MB high enough that budget/(2·maxOpen) ≥ 64
+// MiB) — the clamp to writerCacheKB() then governs.
+func perTeamWriterCachePragma(maxOpen int) string {
+	budgetMB := 256
+	if v := os.Getenv("HUB_SQLITE_WRITER_CACHE_BUDGET_MB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			budgetMB = n
+		}
+	}
+	if maxOpen < 1 {
+		maxOpen = 1
+	}
+	const floorKB = 1024 // 1 MiB — keep the cache useful even at a large cap
+	perKB := budgetMB * 1024 / (2 * maxOpen)
+	if perKB < floorKB {
+		perKB = floorKB
+	}
+	if ceil := writerCacheKB(); perKB > ceil {
+		perKB = ceil
+	}
+	return fmt.Sprintf("&_pragma=cache_size(-%d)", perKB)
 }
 
 // OpenDB opens the SQLite database at path and runs pending migrations.

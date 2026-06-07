@@ -156,13 +156,15 @@ func storePathsFor(controlPath string) (eventsPath, digestPath string) {
 // instead of colliding on SQLite's per-file write lock. The moving tables carry
 // no foreign keys post-split, but foreign_keys(1) is harmless and consistent.
 //
-// The big writer cache (pragmaWriterCache) is applied only to the single-conn
-// writer pool — the uncapped reader pool gets pragmaCommon, so a per-connection
-// cache can't multiply across concurrent readers (db.go const doc).
-func openStorePool(path string, writer bool) (*sql.DB, error) {
+// The writer cache (cachePragma) is applied only to the single-conn writer pool
+// — the uncapped reader pool gets pragmaCommon, so a per-connection cache can't
+// multiply across concurrent readers (db.go const doc). cachePragma is the
+// budget-divided per-team value (perTeamWriterCachePragma) threaded in by the
+// registry; an empty string means no extra cache (reader pools pass "").
+func openStorePool(path string, writer bool, cachePragma string) (*sql.DB, error) {
 	dsn := path + "?_pragma=foreign_keys(1)&" + pragmaCommon
 	if writer {
-		dsn += pragmaWriterCache
+		dsn += cachePragma
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

@@ -113,3 +113,5 @@ references).
   [030](030-governed-actions-and-propose-verb.md),
   [025](025-project-steward-accountability.md),
   [017](017-layered-stewards.md).
+- Plan: [`plans/projects-from-inline-spec.md`](../plans/projects-from-inline-spec.md)
+  (the WS0–WS5 implementation program).

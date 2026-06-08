@@ -238,6 +238,40 @@ func (s *Server) projectPhases(configYAML, templateID string) []string {
 	return s.templatePhases(templateID)
 }
 
+// projectSpecOnCreateTemplateID extracts the `on_create_template_id:` field
+// (the bound domain steward, ADR-046) from a project's inline config_yaml.
+// Returns "" when the spec is empty or declares no steward; callers fall back
+// to the request field or leave the column NULL.
+func projectSpecOnCreateTemplateID(configYAML string) string {
+	if strings.TrimSpace(configYAML) == "" {
+		return ""
+	}
+	var doc struct {
+		OnCreateTemplateID string `yaml:"on_create_template_id"`
+	}
+	if yaml.Unmarshal([]byte(configYAML), &doc) != nil {
+		return ""
+	}
+	return strings.TrimSpace(doc.OnCreateTemplateID)
+}
+
+// projectSpecGoal extracts the `goal:` text from a project's inline
+// config_yaml (ADR-046 — the spec carries its own goal). Returns "" when the
+// spec is empty or declares no goal; the create path then falls back to the
+// named template's goal.
+func projectSpecGoal(configYAML string) string {
+	if strings.TrimSpace(configYAML) == "" {
+		return ""
+	}
+	var doc struct {
+		Goal string `yaml:"goal"`
+	}
+	if yaml.Unmarshal([]byte(configYAML), &doc) != nil {
+		return ""
+	}
+	return strings.TrimSpace(doc.Goal)
+}
+
 // readProjectTemplateYAML loads the raw YAML for a project template. The
 // loader resolution order matches loadProjectTemplates: disk overlay
 // first, then the embedded FS. Returns "" when the template doesn't

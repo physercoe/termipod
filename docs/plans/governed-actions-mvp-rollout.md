@@ -735,15 +735,16 @@ exercise each MVP kind end-to-end.
 
 **W12. Re-propose rule in 9 bundled steward templates (~30 LOC prose × 9 files). Shipped v1.0.686-alpha.**
 
-- Each of the nine bundled steward templates gained a
+- Each bundled steward template carries a
   `### Governed actions — use the `propose` verb (ADR-030)`
-  subsection under Authority. The full set as of v1.0.686
-  (verified against `hub/templates/prompts/` <!-- verify glob hub/templates/prompts/steward.*.md 9 -->):
+  subsection under Authority. The full set
+  (verified against `hub/templates/prompts/` <!-- verify glob hub/templates/prompts/steward.*.md 10 -->):
   `steward.v1.md`, `steward.general.v1.md`,
   `steward.claude-m4.v1.md`, `steward.codex.v1.md`,
   `steward.gemini.v1.md`, `steward.kimi.v1.md`,
   `steward.research.v1.md`, `steward.infra.v1.md`,
-  `steward.antigravity.v1.md` (added at v1.0.641 by ADR-035).
+  `steward.antigravity.v1.md` (added at v1.0.641 by ADR-035),
+  `steward.code-migration.v1.md` (added by ADR-046).
 
   Each gets the same canonical three-paragraph block (the
   governed-actions gate, `dry_run`, the re-propose discipline)
@@ -865,9 +866,9 @@ exercise each MVP kind end-to-end.
 
 ### 3.3 Acceptance
 
-- All nine bundled steward templates carry the canonical
+- All bundled steward templates carry the canonical
   `Governed actions — use the `propose` verb` block under
-  Authority / Concierge mode <!-- verify glob hub/templates/prompts/steward.*.md 9 -->.
+  Authority / Concierge mode <!-- verify glob hub/templates/prompts/steward.*.md 10 -->.
 - `docs/how-to/test-steward-lifecycle.md` lists Scenarios 33-42
   with reproducible steps + diagnostic ladders + failure modes.
 - Seed-demo comment is in place; no behavioural change to the

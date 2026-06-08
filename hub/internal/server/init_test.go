@@ -39,10 +39,11 @@ func TestInit_RetiredTemplatesAreGone(t *testing.T) {
 	}
 }
 
-// TestInit_SeedsWriteMemoTemplate confirms the write-memo template is
-// seeded with the expected parameter keys (topic, context_doc_ids,
-// length).
-func TestInit_SeedsWriteMemoTemplate(t *testing.T) {
+// TestInit_SeedsCodeMigrationTemplate confirms the code-migration preset
+// (WS3) is seeded as a complete is_template row with its bound domain steward
+// and its typed parameter keys. (The old write-memo / reproduce-paper stub
+// templates were removed in WS3 — they were phase-less empty shells.)
+func TestInit_SeedsCodeMigrationTemplate(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "hub.db")
 	if _, err := Init(dir, dbPath); err != nil {
@@ -55,62 +56,31 @@ func TestInit_SeedsWriteMemoTemplate(t *testing.T) {
 	defer db.Close()
 
 	var (
-		isTemplate     int
-		goal, params   string
-		onCreate, kind string
+		isTemplate int
+		params     string
+		onCreate   string
 	)
 	err = db.QueryRowContext(context.Background(), `
-		SELECT kind, goal, is_template, parameters_json, on_create_template_id
+		SELECT is_template, parameters_json, on_create_template_id
 		FROM projects WHERE team_id = ? AND name = ?`,
-		defaultTeamID, "write-memo").
-		Scan(&kind, &goal, &isTemplate, &params, &onCreate)
+		defaultTeamID, "code-migration").
+		Scan(&isTemplate, &params, &onCreate)
 	if err != nil {
-		t.Fatalf("lookup write-memo template: %v", err)
+		t.Fatalf("lookup code-migration template: %v", err)
 	}
 	if isTemplate != 1 {
 		t.Errorf("is_template = %d, want 1", isTemplate)
 	}
-	if onCreate != "agents.steward" {
-		t.Errorf("on_create = %q, want agents.steward", onCreate)
+	if onCreate != "agents.steward.code-migration" {
+		t.Errorf("on_create = %q, want agents.steward.code-migration", onCreate)
 	}
 	var p map[string]any
 	if err := json.Unmarshal([]byte(params), &p); err != nil {
 		t.Fatalf("parse parameters_json %q: %v", params, err)
 	}
-	for _, k := range []string{"topic", "context_doc_ids", "length"} {
+	for _, k := range []string{"source_repo", "source_framework", "target_framework"} {
 		if _, ok := p[k]; !ok {
-			t.Errorf("write-memo parameters missing %q: %s", k, params)
-		}
-	}
-}
-
-// TestInit_SeedsReproducePaperTemplate confirms the reproduce-paper
-// template lands with its expected parameter keys.
-func TestInit_SeedsReproducePaperTemplate(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "hub.db")
-	if _, err := Init(dir, dbPath); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
-	db, err := OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	defer db.Close()
-
-	var params string
-	if err := db.QueryRowContext(context.Background(), `
-		SELECT parameters_json FROM projects WHERE team_id = ? AND name = ?`,
-		defaultTeamID, "reproduce-paper").Scan(&params); err != nil {
-		t.Fatalf("lookup: %v", err)
-	}
-	var p map[string]any
-	if err := json.Unmarshal([]byte(params), &p); err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	for _, k := range []string{"paper_arxiv_id", "repo_url", "target_metric", "tolerance_pct"} {
-		if _, ok := p[k]; !ok {
-			t.Errorf("missing key %q in %s", k, params)
+			t.Errorf("code-migration parameters missing %q: %s", k, params)
 		}
 	}
 }
@@ -241,11 +211,12 @@ on_create_template_id: agents.steward
 		t.Errorf("normalized missing = %q, want %q", got, overviewWidgetDefault)
 	}
 
-	// Built-in templates ship with the expected hero kinds.
-	// (ablation-sweep + benchmark-comparison retired in v1.0.507.)
+	// Built-in templates resolve to a valid hero. The shipped presets
+	// (research, code-migration) declare per-phase heroes and no
+	// project-level overview_widget, so both normalize to the default.
 	wantBuiltin := map[string]string{
-		"reproduce-paper": "recent_artifacts",
-		"write-memo":      "task_milestone_list",
+		"research":       overviewWidgetDefault,
+		"code-migration": overviewWidgetDefault,
 	}
 	for name, want := range wantBuiltin {
 		got := normalizeOverviewWidget(byName[name].OverviewWidget)
@@ -296,7 +267,7 @@ func TestInit_SeedIsIdempotent(t *testing.T) {
 	}
 	defer db.Close()
 
-	for _, name := range []string{"write-memo", "reproduce-paper"} {
+	for _, name := range []string{"research", "code-migration"} {
 		var count int
 		if err := db.QueryRowContext(context.Background(),
 			`SELECT COUNT(*) FROM projects WHERE team_id = ? AND name = ?`,

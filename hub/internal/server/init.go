@@ -106,7 +106,7 @@ func ensureTeam(ctx context.Context, db *sql.DB, id, name string) error {
 
 // projectTemplateDoc mirrors a templates/projects/*.yaml file. The hub
 // is domain-agnostic — it does not know the difference between
-// `reproduce-paper` and `write-memo`, and it should not. To register
+// `research` and `code-migration`, and it should not. To register
 // another template, drop a YAML file with this shape into
 // `hub/templates/projects/` (for built-ins shipped with the binary) or
 // into `<dataRoot>/team/templates/projects/` (for user-authored ones,

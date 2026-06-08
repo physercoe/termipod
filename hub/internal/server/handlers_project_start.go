@@ -52,6 +52,16 @@ func (s *Server) handleStartProject(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	ctx := r.Context()
 
+	// Path-safety barrier: this handler feeds `team` into filesystem path
+	// construction (team-overlay template + prompt dirs, via readAgentTemplate
+	// and the spawn renderer). Reject a team id that could traverse out of the
+	// data root before it reaches any path join — defence-in-depth at the HTTP
+	// edge even though the token is already team-scoped.
+	if !safePathSegment(team) {
+		writeErr(w, http.StatusBadRequest, "invalid team")
+		return
+	}
+
 	// Resolve the bound steward kind + ensure the project exists in-team.
 	var boundKind sql.NullString
 	var status string
@@ -177,6 +187,20 @@ func (s *Server) handleStartProject(w http.ResponseWriter, r *http.Request) {
 		AlreadyRan: false,
 		ProjectID:  project,
 	})
+}
+
+// safePathSegment reports whether s is safe to use as a single path segment
+// in a filesystem join — no separators, no parent-directory escape, no
+// leading dot, non-empty. Used as a path-injection barrier where a
+// request-scoped identifier (team id) feeds template/prompt directory paths.
+func safePathSegment(s string) bool {
+	if s == "" || strings.ContainsAny(s, `/\`) || strings.HasPrefix(s, ".") {
+		return false
+	}
+	if strings.Contains(s, "..") {
+		return false
+	}
+	return true
 }
 
 // stewardKindFromTemplateID maps a bound steward template id to the agent

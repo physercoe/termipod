@@ -39,5 +39,19 @@ func validateProjectConfigYAML(configYAML string, isTemplate bool) string {
 		return "config_yaml: project templates must declare `phases:` " +
 			"with at least one phase entry"
 	}
+	// Validate the typed-parameter schema when present (#32). The block is
+	// optional and the bare `key: value` form is always accepted; only a
+	// typed spec is checked — for a sane range (min <= max) and for a
+	// declared default that satisfies its own spec. Values supplied per
+	// project are validated separately on create (validateProjectParams).
+	specs, err := parseProjectParamSpecs(configYAML)
+	if err != nil {
+		return fmt.Sprintf("config_yaml: %v", err)
+	}
+	for _, name := range sortedParamNames(specs) {
+		if reason := specs[name].validateSchema(); reason != "" {
+			return "config_yaml: " + reason
+		}
+	}
 	return ""
 }

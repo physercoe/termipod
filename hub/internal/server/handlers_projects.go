@@ -51,6 +51,13 @@ type projectOut struct {
 	StewardAgentID      string          `json:"steward_agent_id,omitempty"`
 	OnCreateTemplateID  string          `json:"on_create_template_id,omitempty"`
 
+	// ParametersSchema is the typed-parameter schema (#32) derived from the
+	// project's own config_yaml at read time, so mobile can render an input
+	// form without re-parsing YAML. Empty when the spec declares no
+	// `parameters:` block. Read-only on the wire (the schema is authored in
+	// config_yaml).
+	ParametersSchema []paramSchemaOut `json:"parameters_schema,omitempty"`
+
 	// Per-project loop-closure deadline override (ADR-034 amendment).
 	// nil = the project uses the hub default budget.
 	LoopInactivityMinutes  *int64 `json:"loop_inactivity_minutes,omitempty"`
@@ -233,6 +240,28 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if reason := validateProjectConfigYAML(in.ConfigYML, in.IsTemplate); reason != "" {
 		writeErr(w, http.StatusUnprocessableEntity, reason)
 		return
+	}
+	// Validate supplied parameter values against the spec's typed
+	// `parameters:` block (#32). A concrete project carries its values in
+	// parameters_json; the schema lives in its own config_yaml (the
+	// inline-spec model, ADR-046). Templates declare the schema but are not
+	// themselves parameterised, so only concrete projects are checked.
+	if !in.IsTemplate && in.ConfigYML != "" {
+		specs, _ := parseProjectParamSpecs(in.ConfigYML)
+		if len(specs) > 0 {
+			var values map[string]any
+			if len(in.ParametersJSON) > 0 {
+				if err := json.Unmarshal(in.ParametersJSON, &values); err != nil {
+					writeErr(w, http.StatusUnprocessableEntity,
+						"parameters_json: invalid JSON")
+					return
+				}
+			}
+			if reason := validateProjectParams(specs, values); reason != "" {
+				writeErr(w, http.StatusUnprocessableEntity, reason)
+				return
+			}
+		}
 	}
 	// Same shape check on policy_overrides_json — keep the column
 	// queryable by rejecting non-object JSON before insert.
@@ -453,6 +482,10 @@ func scanProjectRow(sc interface {
 	if overviewWidgetOverrides.Valid && overviewWidgetOverrides.String != "" {
 		p.OverviewWidgetOverrides = json.RawMessage(overviewWidgetOverrides.String)
 	}
+	// Derive the typed-parameter schema (#32) from the project's own
+	// config_yaml so mobile can render a typed input form. Best-effort; an
+	// empty / parameter-less spec leaves the field omitted.
+	p.ParametersSchema = projectParamsSchemaOut(p.ConfigYAML)
 	return nil
 }
 

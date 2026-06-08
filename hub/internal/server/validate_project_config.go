@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -53,5 +54,42 @@ func validateProjectConfigYAML(configYAML string, isTemplate bool) string {
 			return "config_yaml: " + reason
 		}
 	}
+	// Every materialized phase needs a deliverable. The deliverable is the
+	// phase's ratification surface — its acceptance criteria bind to it
+	// (#56) and it is the unit the director ratifies to clear the phase. A
+	// phase_specs entry with zero deliverables is a meaningless phase: its
+	// criteria can't bind and there is nothing to ratify. Enforced for any
+	// spec that declares phase_specs (templates and concrete inline-spec
+	// projects alike).
+	for _, ph := range phasesMissingDeliverable(configYAML) {
+		return fmt.Sprintf("config_yaml: phase %q declares no deliverable — "+
+			"every phase needs at least one (its acceptance criteria bind to "+
+			"it, and it is what the director ratifies)", ph)
+	}
 	return ""
+}
+
+// phasesMissingDeliverable returns the sorted names of phase_specs
+// entries that declare no deliverable. Empty when the spec has no
+// phase_specs (lifecycle-less project) or every phase has one.
+func phasesMissingDeliverable(configYAML string) []string {
+	var doc struct {
+		PhaseSpecs map[string]struct {
+			Deliverables []struct {
+				ID string `yaml:"id"`
+			} `yaml:"deliverables"`
+		} `yaml:"phase_specs"`
+	}
+	if err := yaml.Unmarshal([]byte(configYAML), &doc); err != nil {
+		// Malformed YAML is already rejected upstream; treat as no-op here.
+		return nil
+	}
+	var missing []string
+	for ph, spec := range doc.PhaseSpecs {
+		if len(spec.Deliverables) == 0 {
+			missing = append(missing, ph)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }

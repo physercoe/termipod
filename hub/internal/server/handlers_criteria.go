@@ -373,6 +373,21 @@ func (s *Server) handleMarkCriterion(action string) http.HandlerFunc {
 				"gate criteria are evaluated by the chassis; cannot be marked manually")
 			return
 		}
+		// Completion gating (WS1): a criterion may only be marked *met* in the
+		// project's current phase. Its definition stays editable in any phase,
+		// and waive / mark-failed (admin reverts) are not gated. Lifecycle-
+		// disabled projects and unphased criteria pass through.
+		if action == "mark-met" {
+			cur, blocked, gerr := s.phaseCompletionGate(r.Context(), project, c.Phase)
+			if gerr != nil {
+				writeErr(w, http.StatusInternalServerError, gerr.Error())
+				return
+			}
+			if blocked {
+				writeErr(w, http.StatusConflict, phaseCompletionGateMsg(c.Phase, cur))
+				return
+			}
+		}
 		newState := ""
 		auditKind := ""
 		switch action {

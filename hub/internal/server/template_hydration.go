@@ -201,6 +201,43 @@ type phaseDeliverableSpec struct {
 	} `yaml:"components"`
 }
 
+// projectSpecYAML returns the YAML spec that defines a project's phases,
+// deliverables, criteria, and tasks. In the inline-spec model (ADR-046) the
+// authoritative source is the project's OWN config_yaml; when that carries
+// no `phase_specs:` we fall back to the named template file (the
+// template-by-id path) so already-created projects keep hydrating. Empty on
+// both sides → "" (caller skips hydration).
+func (s *Server) projectSpecYAML(ctx context.Context, project, templateID string) string {
+	if project != "" {
+		var cfg sql.NullString
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT config_yaml FROM projects WHERE id = ?`, project).Scan(&cfg); err == nil &&
+			cfg.Valid && strings.TrimSpace(cfg.String) != "" {
+			var head phaseSpecsHead
+			if yaml.Unmarshal([]byte(cfg.String), &head) == nil && len(head.PhaseSpecs) > 0 {
+				return cfg.String
+			}
+		}
+	}
+	return s.readProjectTemplateYAML(templateID)
+}
+
+// projectPhases resolves a project's ordered phase set, preferring the
+// inline spec's own `phases:` (ADR-046) and falling back to the named
+// template's phase list. Used at create to decide the initial phase and to
+// drive early-bind materialization of every phase.
+func (s *Server) projectPhases(configYAML, templateID string) []string {
+	if strings.TrimSpace(configYAML) != "" {
+		var doc struct {
+			Phases phaseNameList `yaml:"phases"`
+		}
+		if yaml.Unmarshal([]byte(configYAML), &doc) == nil && len(doc.Phases) > 0 {
+			return []string(doc.Phases)
+		}
+	}
+	return s.templatePhases(templateID)
+}
+
 // readProjectTemplateYAML loads the raw YAML for a project template. The
 // loader resolution order matches loadProjectTemplates: disk overlay
 // first, then the embedded FS. Returns "" when the template doesn't
@@ -262,7 +299,7 @@ func (s *Server) readProjectTemplateYAML(templateID string) string {
 func (s *Server) hydratePhaseCriteria(
 	ctx context.Context, team, project, templateID, phase string,
 ) {
-	body := s.readProjectTemplateYAML(templateID)
+	body := s.projectSpecYAML(ctx, project, templateID)
 	if body == "" {
 		return
 	}
@@ -416,11 +453,75 @@ func (s *Server) resolveGateDeliverableRef(
 // a rollback, or a repair, won't duplicate. Best-effort: a hydration
 // failure is logged inside each helper, never fatal to the transition.
 func (s *Server) hydratePhase(ctx context.Context, team, project, templateID, phase string) {
-	if templateID == "" || phase == "" {
+	// templateID may be empty for an inline-spec project (ADR-046): the spec
+	// then lives in the project's own config_yaml, which projectSpecYAML
+	// resolves. Only an empty phase is a hard no-op.
+	if phase == "" {
 		return
 	}
 	s.hydratePhaseDeliverables(ctx, team, project, templateID, phase)
 	s.hydratePhaseCriteria(ctx, team, project, templateID, phase)
+	s.hydratePhaseTasks(ctx, team, project, templateID, phase)
+}
+
+// hydratePhaseTasks walks the spec's phase_specs[<phase>].tasks and creates
+// a first-class `tasks` row per entry (ADR-029), stamped with the phase
+// (#22). Mirrors hydratePhaseDeliverables: only the columns the table
+// carries are written; the template-local task id is kept in the audit meta.
+// Idempotent — skips the phase when phase-stamped task rows already exist.
+func (s *Server) hydratePhaseTasks(
+	ctx context.Context, team, project, templateID, phase string,
+) {
+	body := s.projectSpecYAML(ctx, project, templateID)
+	if body == "" {
+		return
+	}
+	var head phaseSpecsHead
+	if err := yaml.Unmarshal([]byte(body), &head); err != nil {
+		s.log.Warn("phase_specs unmarshal", "err", err, "template", templateID)
+		return
+	}
+	specs, ok := head.PhaseSpecs[phase]
+	if !ok || len(specs.Tasks) == 0 {
+		return
+	}
+	if n, err := s.countRowsForPhase(ctx, "tasks", project, phase); err == nil && n > 0 {
+		return
+	}
+	params := s.projectParams(ctx, project)
+	for _, t := range specs.Tasks {
+		title := substituteTemplateParams(t.Title, params)
+		if strings.TrimSpace(title) == "" {
+			continue
+		}
+		ord := 0
+		if t.Ord != nil {
+			ord = *t.Ord
+		}
+		id := NewID()
+		now := NowUTC()
+		// priority defaults via the column DEFAULT; we order tasks within a
+		// phase by reusing the milestone-free `body_md` only for the title.
+		_, err := s.writeDB.ExecContext(ctx, `
+			INSERT INTO tasks (id, project_id, title, status, phase,
+				created_at, updated_at)
+			VALUES (?, ?, ?, 'todo', ?, ?, ?)`,
+			id, project, title, phase, now, now)
+		if err != nil {
+			s.log.Warn("hydrate task: insert", "err", err,
+				"template", templateID, "phase", phase, "task", t.ID)
+			continue
+		}
+		s.recordAudit(ctx, team, "task.created", "task", id,
+			fmt.Sprintf("hydrated task %q in phase %s", title, phase),
+			map[string]any{
+				"project_id":       project,
+				"phase":            phase,
+				"hydrated_from":    templateID,
+				"template_task_id": t.ID,
+				"ord":              ord,
+			})
+	}
 }
 
 // hydratePhaseDeliverables walks the template's
@@ -433,7 +534,7 @@ func (s *Server) hydratePhase(ctx context.Context, team, project, templateID, ph
 func (s *Server) hydratePhaseDeliverables(
 	ctx context.Context, team, project, templateID, phase string,
 ) {
-	body := s.readProjectTemplateYAML(templateID)
+	body := s.projectSpecYAML(ctx, project, templateID)
 	if body == "" {
 		return
 	}

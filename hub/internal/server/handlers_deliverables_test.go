@@ -99,6 +99,7 @@ func TestDeliverable_CreateListGet(t *testing.T) {
 func TestDeliverable_RatifyAndUnratify(t *testing.T) {
 	phases := []string{"idea", "lit-review"}
 	s, tok, team, project := phaseTestSetup(t, phases)
+	setTestProjectPhase(t, s, project, "lit-review")
 
 	rr := authedJSON(t, s, http.MethodPost, tok,
 		"/v1/teams/"+team+"/projects/"+project+"/deliverables",
@@ -446,6 +447,7 @@ func TestDeliverable_SendBackFromInReviewIsIdempotent(t *testing.T) {
 func TestDeliverable_SendBackFromRatifiedReturns409(t *testing.T) {
 	phases := []string{"idea", "lit-review"}
 	s, tok, team, project := phaseTestSetup(t, phases)
+	setTestProjectPhase(t, s, project, "lit-review")
 	d, _, _ := createDeliverableForSendBack(t, s, tok, team, project)
 
 	if r := authedJSON(t, s, http.MethodPost, tok,

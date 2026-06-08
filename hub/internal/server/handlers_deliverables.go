@@ -485,9 +485,10 @@ func (s *Server) handleRatifyDeliverable(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	var curState string
+	var curPhase sql.NullString
 	err := s.db.QueryRowContext(r.Context(),
-		`SELECT ratification_state FROM deliverables WHERE id = ? AND project_id = ?`,
-		id, project).Scan(&curState)
+		`SELECT ratification_state, phase FROM deliverables WHERE id = ? AND project_id = ?`,
+		id, project).Scan(&curState, &curPhase)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "deliverable not found")
 		return
@@ -498,6 +499,18 @@ func (s *Server) handleRatifyDeliverable(w http.ResponseWriter, r *http.Request)
 	}
 	if curState == deliverableStateRatified {
 		writeErr(w, http.StatusConflict, "deliverable already ratified")
+		return
+	}
+	// Completion gating (WS1): a deliverable may only be ratified in the
+	// project's current phase. Lifecycle-disabled projects and unphased
+	// deliverables pass through.
+	cur, blocked, gerr := s.phaseCompletionGate(r.Context(), project, curPhase.String)
+	if gerr != nil {
+		writeErr(w, http.StatusInternalServerError, gerr.Error())
+		return
+	}
+	if blocked {
+		writeErr(w, http.StatusConflict, phaseCompletionGateMsg(curPhase.String, cur))
 		return
 	}
 	now := NowUTC()
@@ -605,6 +618,14 @@ func (s *Server) handleUnratifyDeliverable(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// Re-pend any gate criterion this deliverable's ratification had auto-
+	// fired (WS1): unratifying must reopen the phase gate it cleared.
+	// Best-effort — logged, never fails the unratify.
+	if _, cerr := s.cascadeDeliverableUnratified(
+		r.Context(), team, project, id, d.Phase); cerr != nil {
+		s.log.Warn("criterion gate re-pend", "err", cerr,
+			"deliverable_id", id, "project_id", project)
 	}
 	comps, err := s.loadDeliverableComponents(r, id)
 	if err != nil {

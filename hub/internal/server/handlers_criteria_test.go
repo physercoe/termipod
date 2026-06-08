@@ -57,6 +57,7 @@ func TestCriterion_CreateAndPatch(t *testing.T) {
 func TestCriterion_MarkMetTextEmitsAudit(t *testing.T) {
 	phases := []string{"idea", "method"}
 	s, tok, team, project := phaseTestSetup(t, phases)
+	setTestProjectPhase(t, s, project, "method")
 
 	rr := authedJSON(t, s, http.MethodPost, tok,
 		"/v1/teams/"+team+"/projects/"+project+"/criteria",
@@ -152,6 +153,7 @@ func TestCriterion_GateRejectsManualMark(t *testing.T) {
 func TestCriterion_DeliverableRatifyCascadesGate(t *testing.T) {
 	phases := []string{"idea", "method"}
 	s, tok, team, project := phaseTestSetup(t, phases)
+	setTestProjectPhase(t, s, project, "method")
 
 	// Create a deliverable in phase=method.
 	delivRR := authedJSON(t, s, http.MethodPost, tok,
@@ -201,6 +203,7 @@ func TestCriterion_DeliverableRatifyCascadesGate(t *testing.T) {
 func TestCriterion_GateScopedByParamsDoesNotFireForOtherDeliverable(t *testing.T) {
 	phases := []string{"idea", "method"}
 	s, tok, team, project := phaseTestSetup(t, phases)
+	setTestProjectPhase(t, s, project, "method")
 
 	// Two deliverables.
 	d1RR := authedJSON(t, s, http.MethodPost, tok,

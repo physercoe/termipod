@@ -139,14 +139,28 @@ func applyDeliverableSetState(
 		return nil, err
 	}
 	var fromState string
+	var phase sql.NullString
 	err = s.db.QueryRowContext(ctx,
-		`SELECT ratification_state FROM deliverables WHERE id = ? AND project_id = ?`,
-		t.DeliverableID, t.ProjectID).Scan(&fromState)
+		`SELECT ratification_state, phase FROM deliverables WHERE id = ? AND project_id = ?`,
+		t.DeliverableID, t.ProjectID).Scan(&fromState, &phase)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("deliverable %s not found in project %s", t.DeliverableID, t.ProjectID)
 	}
 	if err != nil {
 		return nil, err
+	}
+	// Completion gating (WS1): ratification is only allowed in the project's
+	// current phase. Lifecycle-disabled projects and unphased deliverables
+	// pass through. Other transitions (draft ↔ in-review, unratify) are not
+	// gated — only the act of *completing* the phase item is.
+	if c.State == deliverableStateRatified {
+		cur, blocked, gerr := s.phaseCompletionGate(ctx, t.ProjectID, phase.String)
+		if gerr != nil {
+			return nil, gerr
+		}
+		if blocked {
+			return nil, fmt.Errorf("%s", phaseCompletionGateMsg(phase.String, cur))
+		}
 	}
 
 	executed := map[string]any{
@@ -229,6 +243,17 @@ func applyDeliverableSetState(
 	}
 	s.recordAudit(ctx, team, action, "deliverable", t.DeliverableID,
 		fmt.Sprintf("%s → %s via propose", fromState, c.State), meta)
+
+	// On unratify (ratified → draft) re-pend any gate criterion the prior
+	// ratification auto-fired (WS1), mirroring the REST /unratify path.
+	// Best-effort — logged, never fails the apply.
+	if action == "deliverable.unratified" {
+		if _, cerr := s.cascadeDeliverableUnratified(
+			ctx, team, t.ProjectID, t.DeliverableID, phase.String); cerr != nil {
+			s.log.Warn("criterion gate re-pend (propose)", "err", cerr,
+				"deliverable_id", t.DeliverableID, "project_id", t.ProjectID)
+		}
+	}
 
 	executed["audit_action"] = action
 	executed["updated_at"] = now

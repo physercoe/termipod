@@ -586,6 +586,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 					// per W4 rather than calling this directly).
 					r.Post("/ensure", s.handleEnsureProjectSteward)
 				})
+				// ADR-046 / WS4 — explicit Start: spawn the project's
+				// bound domain steward (create binds it; this spawns
+				// it). 409 if a steward is already running.
+				r.Post("/start", s.handleStartProject)
 				// W5b — Deliverables + components (A3 §4 + §5). Templates
 				// hydrate these on phase entry; the runtime here ships the
 				// CRUD + ratify + composed-overview surface.

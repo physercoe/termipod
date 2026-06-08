@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -50,6 +51,14 @@ type projectOut struct {
 	PolicyOverridesJSON json.RawMessage `json:"policy_overrides_json,omitempty"`
 	StewardAgentID      string          `json:"steward_agent_id,omitempty"`
 	OnCreateTemplateID  string          `json:"on_create_template_id,omitempty"`
+
+	// StewardStarted is the ADR-046 / WS4 derived "has the bound steward been
+	// spawned?" flag. True iff a live steward is currently bound to the
+	// project (findRunningProjectSteward). The mobile project surface uses it
+	// to choose between the "Not started — review & Start" affordance and the
+	// running-steward view. Always present on read (never on create — a freshly
+	// materialized project is bound but not started). Read-only on the wire.
+	StewardStarted bool `json:"steward_started"`
 
 	// ParametersSchema is the typed-parameter schema (#32) derived from the
 	// project's own config_yaml at read time, so mobile can render an input
@@ -230,16 +239,38 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name required")
 		return
 	}
+	out, status, err := s.createProjectCore(r.Context(), team, in)
+	if err != nil {
+		writeErr(w, status, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+// createProjectCore validates a project-create request, inserts the row, and
+// early-binds (ADR-046) every phase's deliverables/criteria/tasks. It is the
+// single materialization path shared by the REST create handler
+// (handleCreateProject) and the governed `project.create` propose Apply
+// (apply_project_create.go) — so a director-direct create and an
+// approved-steward create produce byte-identical projects.
+//
+// On success it returns the created projectOut and (http.StatusCreated, nil).
+// On failure it returns the zero projectOut, the HTTP status the REST path
+// should surface, and a non-nil error whose message is the failure reason.
+// The propose path maps that error into its own envelope and ignores the
+// status code.
+func (s *Server) createProjectCore(ctx context.Context, team string, in projectIn) (projectOut, int, error) {
+	if in.Name == "" {
+		return projectOut{}, http.StatusBadRequest, errors.New("name required")
+	}
 	kind, ok := validKind(in.Kind)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "kind must be 'goal' or 'standing'")
-		return
+		return projectOut{}, http.StatusBadRequest, errors.New("kind must be 'goal' or 'standing'")
 	}
 	// Reject malformed config_yaml early. Empty/absent is OK (simple
 	// ad-hoc projects); is_template requires `phases:` ≥ 1.
 	if reason := validateProjectConfigYAML(in.ConfigYML, in.IsTemplate); reason != "" {
-		writeErr(w, http.StatusUnprocessableEntity, reason)
-		return
+		return projectOut{}, http.StatusUnprocessableEntity, errors.New(reason)
 	}
 	// Validate supplied parameter values against the spec's typed
 	// `parameters:` block (#32). A concrete project carries its values in
@@ -252,22 +283,19 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			var values map[string]any
 			if len(in.ParametersJSON) > 0 {
 				if err := json.Unmarshal(in.ParametersJSON, &values); err != nil {
-					writeErr(w, http.StatusUnprocessableEntity,
-						"parameters_json: invalid JSON")
-					return
+					return projectOut{}, http.StatusUnprocessableEntity,
+						errors.New("parameters_json: invalid JSON")
 				}
 			}
 			if reason := validateProjectParams(specs, values); reason != "" {
-				writeErr(w, http.StatusUnprocessableEntity, reason)
-				return
+				return projectOut{}, http.StatusUnprocessableEntity, errors.New(reason)
 			}
 		}
 	}
 	// Same shape check on policy_overrides_json — keep the column
 	// queryable by rejecting non-object JSON before insert.
 	if reason := validatePolicyOverridesJSON(in.PolicyOverridesJSON); reason != "" {
-		writeErr(w, http.StatusUnprocessableEntity, reason)
-		return
+		return projectOut{}, http.StatusUnprocessableEntity, errors.New(reason)
 	}
 	// F-07: docs_root is served as a filesystem directory, so bound it
 	// to the hub data root at the door. An absolute path, a ~/-relative
@@ -276,9 +304,8 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	// under the hub UID.
 	if in.DocsRoot != "" {
 		if _, ok := s.boundDocsRoot(in.DocsRoot); !ok {
-			writeErr(w, http.StatusBadRequest,
-				"docs_root must resolve within the hub data root")
-			return
+			return projectOut{}, http.StatusBadRequest,
+				errors.New("docs_root must resolve within the hub data root")
 		}
 	}
 	// Enforce max tree depth = 2 (Blueprint §6.1 / IA §6.2 W5). A sub-project
@@ -288,26 +315,22 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if in.ParentProjectID != "" {
 		var parentTeam string
 		var parentParent sql.NullString
-		err := s.db.QueryRowContext(r.Context(),
+		err := s.db.QueryRowContext(ctx,
 			`SELECT team_id, parent_project_id FROM projects
 			 WHERE id = ?`, in.ParentProjectID).Scan(&parentTeam, &parentParent)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				writeErr(w, http.StatusBadRequest, "parent_project_id does not exist")
-				return
+				return projectOut{}, http.StatusBadRequest, errors.New("parent_project_id does not exist")
 			}
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
+			return projectOut{}, http.StatusInternalServerError, err
 		}
 		if parentTeam != team {
-			writeErr(w, http.StatusBadRequest,
-				"parent_project_id belongs to a different team")
-			return
+			return projectOut{}, http.StatusBadRequest,
+				errors.New("parent_project_id belongs to a different team")
 		}
 		if parentParent.Valid && parentParent.String != "" {
-			writeErr(w, http.StatusBadRequest,
-				"max sub-project depth is 2: parent is already a sub-project")
-			return
+			return projectOut{}, http.StatusBadRequest,
+				errors.New("max sub-project depth is 2: parent is already a sub-project")
 		}
 	}
 	id := NewID()
@@ -317,14 +340,31 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		isTpl = 1
 	}
 
+	// Resolve the bound domain steward (ADR-046). The steward id may arrive
+	// out-of-band on the request, but in the inline-spec model it is normally
+	// declared inside the project's own config_yaml as `on_create_template_id:`
+	// — so fall back to the spec value when the field is absent. This keeps the
+	// project self-contained: the column WS4's `/start` reads is populated
+	// straight from the approved spec.
+	onCreateTpl := in.OnCreateTemplateID
+	if onCreateTpl == "" {
+		onCreateTpl = projectSpecOnCreateTemplateID(in.ConfigYML)
+	}
+
 	// Resolve the project goal (#29). A concrete project created from a
 	// template with no explicit goal inherits the template's goal text; then
 	// {placeholder} tokens in whatever goal we have are substituted from
 	// parameters_json. Templates keep their own goal verbatim (it is the
 	// source the placeholders come from). Unknown placeholders are left as-is.
 	resolvedGoal := in.Goal
-	if resolvedGoal == "" && !in.IsTemplate && in.TemplateID != "" {
-		resolvedGoal = s.templateGoal(in.TemplateID)
+	if resolvedGoal == "" && !in.IsTemplate {
+		// Inline spec carries its own goal (ADR-046); named template is the
+		// fallback for already-templated projects.
+		if g := projectSpecGoal(in.ConfigYML); g != "" {
+			resolvedGoal = g
+		} else if in.TemplateID != "" {
+			resolvedGoal = s.templateGoal(in.TemplateID)
+		}
 	}
 	if !in.IsTemplate {
 		var paramsMap map[string]any
@@ -360,7 +400,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err := s.writeDB.ExecContext(r.Context(), `
+	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO projects (
 			id, team_id, name, config_yaml, docs_root, created_at,
 			goal, kind, parent_project_id, template_id, parameters_json,
@@ -376,18 +416,17 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		nullStringIfEmpty(resolvedGoal), kind, nullStringIfEmpty(in.ParentProjectID),
 		nullStringIfEmpty(in.TemplateID), nullRawJSON(in.ParametersJSON),
 		isTpl, nullInt64(in.BudgetCents), nullRawJSON(in.PolicyOverridesJSON),
-		nullStringIfEmpty(in.StewardAgentID), nullStringIfEmpty(in.OnCreateTemplateID),
+		nullStringIfEmpty(in.StewardAgentID), nullStringIfEmpty(onCreateTpl),
 		nullStringIfEmpty(initPhase), initPhaseHistory,
 	)
 	if err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
+		return projectOut{}, http.StatusConflict, err
 	}
-	s.recordAudit(r.Context(), team, "project.create", "project", id,
+	s.recordAudit(ctx, team, "project.create", "project", id,
 		"create project "+in.Name,
 		map[string]any{"kind": kind, "is_template": in.IsTemplate})
 	if initPhase != "" {
-		s.recordAudit(r.Context(), team, "project.phase_set", "project", id,
+		s.recordAudit(ctx, team, "project.phase_set", "project", id,
 			"set initial phase "+initPhase,
 			map[string]any{"phase": initPhase, "by_template": in.TemplateID})
 		// Early-bind (ADR-046 / ADR-044 amendment 2026-06-08): materialize
@@ -400,7 +439,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		// config_yaml. The chassis is happy with no rows hydrated, so a spec
 		// that declares neither still creates cleanly.
 		for _, ph := range projectPhaseList {
-			s.hydratePhase(r.Context(), team, id, in.TemplateID, ph)
+			s.hydratePhase(ctx, team, id, in.TemplateID, ph)
 		}
 	}
 	out := projectOut{
@@ -410,19 +449,20 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		ParentProjectID: in.ParentProjectID, TemplateID: in.TemplateID,
 		ParametersJSON: in.ParametersJSON, IsTemplate: in.IsTemplate,
 		BudgetCents: in.BudgetCents, PolicyOverridesJSON: in.PolicyOverridesJSON,
-		StewardAgentID: in.StewardAgentID, OnCreateTemplateID: in.OnCreateTemplateID,
+		StewardAgentID: in.StewardAgentID, OnCreateTemplateID: onCreateTpl,
 		OverviewWidget:         s.resolveOverviewWidget(in.TemplateID, initPhase, nil),
 		Phase:                  initPhase,
 		Phases:                 s.projectPhases(in.ConfigYML, in.TemplateID),
 		PhaseTilesTemplate:     s.phaseTemplateTiles(in.TemplateID),
 		OverviewWidgetTemplate: s.phaseTemplateOverviewWidgets(in.TemplateID),
 	}
+	out.ParametersSchema = projectParamsSchemaOut(in.ConfigYML)
 	if initPhase != "" {
 		out.PhaseHistory = []phaseTransition{{
 			From: "", To: initPhase, At: now, ByActor: "system",
 		}}
 	}
-	writeJSON(w, http.StatusCreated, out)
+	return out, http.StatusCreated, nil
 }
 
 // scanProjectRow reads one row selected via projectSelectCols into p.
@@ -549,6 +589,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		p.Phases = s.templatePhases(p.TemplateID)
 		p.PhaseTilesTemplate = s.phaseTemplateTiles(p.TemplateID)
 		p.OverviewWidgetTemplate = s.phaseTemplateOverviewWidgets(p.TemplateID)
+		p.StewardStarted = s.projectStewardStarted(r.Context(), team, p.ID)
 		out = append(out, p)
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -574,7 +615,16 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 	p.Phases = s.templatePhases(p.TemplateID)
 	p.PhaseTilesTemplate = s.phaseTemplateTiles(p.TemplateID)
 	p.OverviewWidgetTemplate = s.phaseTemplateOverviewWidgets(p.TemplateID)
+	p.StewardStarted = s.projectStewardStarted(r.Context(), team, p.ID)
 	writeJSON(w, http.StatusOK, p)
+}
+
+// projectStewardStarted reports whether the project's bound steward has been
+// spawned and is still live (ADR-046 / WS4). Best-effort: a lookup error is
+// treated as "not started" so a project read never 500s on this derived field.
+func (s *Server) projectStewardStarted(ctx context.Context, team, project string) bool {
+	id, err := s.findRunningProjectSteward(ctx, team, project)
+	return err == nil && id != ""
 }
 
 func (s *Server) handleArchiveProject(w http.ResponseWriter, r *http.Request) {

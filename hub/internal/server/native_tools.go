@@ -275,6 +275,12 @@ func buildNativeTools() []nativeTool {
 					"kind": map[string]any{
 						"type": "string",
 						"description": "registered governed-action kind. Lifecycle kinds: " +
+							"'project.create' (materialize a whole project from an inline spec, " +
+							"ADR-046; change_spec carries the spec inline " +
+							"{name, config_yaml, parameters_json, goal?, kind?, on_create_template_id?}, " +
+							"empty target_ref — on approve the project is created with its phases " +
+							"early-bound and its steward bound-but-not-spawned; an explicit Start " +
+							"spawns it); " +
 							"'deliverable.create' (add a deliverable beyond the template; " +
 							"target_ref {project_id}, change_spec {phase, kind}); " +
 							"'criteria.create' / 'criteria.update' / 'criteria.delete' (edit the " +

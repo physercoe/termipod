@@ -304,7 +304,7 @@ func mappingHasKey(n *yaml.Node, key string) bool {
 	return false
 }
 
-// normalizeParamType folds the accepted type aliases onto a canonical set.
+// normalizeParamType folds the accepted type spellings onto a canonical set.
 // Unknown values pass through verbatim (treated as untyped by validateValue).
 func normalizeParamType(t string) string {
 	switch t {

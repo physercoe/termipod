@@ -311,6 +311,16 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
         children: [
           if (parentId.isNotEmpty)
             _ParentBreadcrumb(parentProjectId: parentId),
+          // ADR-046 / WS4 — a project bound to a steward but not yet started
+          // shows the "review & Start" affordance. Start spawns the bound
+          // steward (create binds, Start spawns).
+          _StartBanner(
+            project: _project,
+            onStarted: (updated) {
+              if (!mounted) return;
+              setState(() => _project = updated);
+            },
+          ),
           Expanded(
             child: PageView(
               controller: _pager,
@@ -1831,6 +1841,127 @@ class _Placeholder extends StatelessWidget {
                   ? DesignColors.textMuted
                   : DesignColors.textMutedLight,
             )),
+      ),
+    );
+  }
+}
+
+/// ADR-046 / WS4 — "Not started — review & Start" banner.
+///
+/// A project is created bound to a domain steward (`on_create_template_id`)
+/// but the steward is not spawned. This banner shows while the project is
+/// bound-but-not-started (`steward_started == false`) and offers Start, which
+/// POSTs to `/projects/{id}/start` to spawn the bound steward. Once a steward
+/// is running (or no steward is bound, or the project is archived) the banner
+/// collapses to nothing.
+class _StartBanner extends ConsumerStatefulWidget {
+  final Map<String, dynamic> project;
+  final void Function(Map<String, dynamic> updated) onStarted;
+
+  const _StartBanner({required this.project, required this.onStarted});
+
+  @override
+  ConsumerState<_StartBanner> createState() => _StartBannerState();
+}
+
+class _StartBannerState extends ConsumerState<_StartBanner> {
+  bool _busy = false;
+
+  bool get _shouldShow {
+    final p = widget.project;
+    final started = p['steward_started'] == true;
+    final bound = (p['on_create_template_id'] ?? '').toString().isNotEmpty;
+    final archived = (p['status'] ?? '').toString() == 'archived';
+    return bound && !started && !archived;
+  }
+
+  Future<void> _start() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final id = (widget.project['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await client.projects.startProject(id);
+      // Re-read the project so steward_started flips and the banner clears.
+      final updated = await client.projects.getProject(id);
+      if (!mounted) return;
+      widget.onStarted(updated);
+      await ref.read(hubProvider.notifier).refreshAll();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Project started — steward spawning')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      // A 409 (already running) is benign — refresh so the banner clears.
+      try {
+        final updated = await client.projects.getProject(id);
+        if (mounted) widget.onStarted(updated);
+      } catch (_) {}
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Start: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_shouldShow) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final steward =
+        (widget.project['on_create_template_id'] ?? '').toString();
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Container(
+      width: double.infinity,
+      color: bg,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Icon(Icons.play_circle_outline, size: 18, color: muted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Not started',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  steward.isEmpty
+                      ? 'Review the project, then Start its steward.'
+                      : 'Review the project, then Start to spawn $steward.',
+                  style: GoogleFonts.spaceGrotesk(fontSize: 11, color: muted),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: _busy ? null : _start,
+            icon: _busy
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.play_arrow, size: 18),
+            label: const Text('Start'),
+          ),
+        ],
       ),
     );
   }

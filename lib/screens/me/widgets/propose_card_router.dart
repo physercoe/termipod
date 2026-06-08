@@ -4,6 +4,7 @@ import '../inline_actions.dart';
 import 'propose_card_agent_spawn.dart';
 import 'propose_card_deliverable.dart';
 import 'propose_card_phase.dart';
+import 'propose_card_project_create.dart';
 import 'propose_card_task.dart';
 import 'propose_card_template_install.dart';
 
@@ -70,7 +71,15 @@ class ProposeCardRouter extends StatelessWidget {
             myTier: myTier,
             onResolved: onResolved,
           );
-        // All 5 MVP propose kinds covered; unknown change_kinds fall
+        case 'project.create':
+          // WS4 / ADR-046 — review the proposed inline project spec before
+          // approving (approval materializes the project).
+          return ProposeCardProjectCreate(
+            attention: attention,
+            myTier: myTier,
+            onResolved: onResolved,
+          );
+        // All MVP propose kinds covered; unknown change_kinds fall
         // through to the legacy InlineApprovalActions below.
         default:
           break;

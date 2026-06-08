@@ -686,6 +686,28 @@ func (s *Server) handleResetBundledTemplates(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Reconcile: remove baseline project templates the bundle no longer
+	// ships. Seeding (boot + the overwrite pass above) is additive, so a
+	// preset removed from the binary in a release (e.g. write-memo /
+	// reproduce-paper retired by ADR-046 WS3) lingers on every existing
+	// hub's data root forever — listed by the mobile picker, undeletable
+	// via the per-team DELETE (which only touches the overlay, 404s on a
+	// baseline file). Reset is the operator's escape hatch, so make it
+	// reconcile, not just overwrite.
+	//
+	// Scoped to the `projects` category on purpose: baseline project
+	// templates are declarative bundle presets (a project carries its own
+	// spec in config_yaml since ADR-046, so nothing references the preset
+	// file at runtime) and the baseline is written only by the seeder /
+	// reset. Agent / prompt / policy baselines are left untouched — they
+	// can hold agent-installed content via the team-less template.install
+	// fallback, so pruning by "no embedded counterpart" is not safe there.
+	pruned, pruneErr := pruneOrphanedBaselineProjectTemplates(base)
+	if pruneErr != nil {
+		writeErr(w, http.StatusInternalServerError, pruneErr.Error())
+		return
+	}
+
 	actor := ""
 	if tok, ok := auth.FromContext(r.Context()); ok {
 		actor = principalFromScope(tok.ScopeJSON)
@@ -695,10 +717,58 @@ func (s *Server) handleResetBundledTemplates(w http.ResponseWriter, r *http.Requ
 		map[string]any{
 			"overwritten": overwritten,
 			"created":     created,
+			"pruned":      pruned,
 			"by":          actor,
 		})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"overwritten": overwritten,
 		"created":     created,
+		"pruned":      pruned,
 	})
+}
+
+// pruneOrphanedBaselineProjectTemplates deletes files under
+// <base>/projects whose name no longer exists in the embedded
+// templates/projects bundle, and reports how many it removed. <base> is
+// the global operator baseline (<dataRoot>/team). Returns (0, nil) when
+// the baseline projects dir does not exist yet (fresh install).
+//
+// Only the baseline is touched — per-team overlay project templates are
+// user content and are removed through the normal DELETE path.
+func pruneOrphanedBaselineProjectTemplates(base string) (int, error) {
+	dir := filepath.Join(base, "templates", "projects")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	bundled := map[string]struct{}{}
+	embedded, err := fs.ReadDir(hub.TemplatesFS, "templates/projects")
+	if err != nil {
+		return 0, err
+	}
+	for _, e := range embedded {
+		if !e.IsDir() {
+			bundled[e.Name()] = struct{}{}
+		}
+	}
+	pruned := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if _, ok := bundled[e.Name()]; ok {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return pruned, err
+		}
+		pruned++
+	}
+	return pruned, nil
 }

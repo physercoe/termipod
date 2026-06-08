@@ -480,3 +480,60 @@ func TestTemplates_ResetPreservesUserOnlyFiles(t *testing.T) {
 		t.Errorf("custom file body altered:\n%s", got)
 	}
 }
+
+// A bundled project preset that was removed from the binary in a later
+// release (e.g. write-memo / reproduce-paper retired by ADR-046 WS3)
+// lingers on existing hubs' data roots because seeding is additive.
+// Reset reconciles the baseline projects/ dir to the current bundle,
+// pruning the orphan — while leaving baseline files in other categories
+// and per-team overlay project templates untouched.
+func TestTemplates_ResetPrunesOrphanedProjectTemplates(t *testing.T) {
+	c := newE2E(t)
+
+	// 1. A stale baseline preset the bundle no longer ships.
+	orphan := filepath.Join(c.dataRoot, "team", "templates", "projects", "write-memo.yaml")
+	if err := os.WriteFile(orphan, []byte("name: write-memo\nphases: []\n"), 0o600); err != nil {
+		t.Fatalf("seed orphan: %v", err)
+	}
+	// 2. A baseline file in another category with no embedded counterpart
+	//    must NOT be pruned (it can be agent-installed content).
+	agentOnly := filepath.Join(c.dataRoot, "team", "templates", "agents", "custom-agent.v1.yaml")
+	if err := os.WriteFile(agentOnly, []byte("# custom agent\n"), 0o600); err != nil {
+		t.Fatalf("seed agent-only: %v", err)
+	}
+	// 3. A per-team OVERLAY project template (user content) must survive.
+	overlayDir := filepath.Join(c.dataRoot, "teams", c.teamID, "templates", "projects")
+	if err := os.MkdirAll(overlayDir, 0o700); err != nil {
+		t.Fatalf("mk overlay: %v", err)
+	}
+	overlay := filepath.Join(overlayDir, "my-project.v1.yaml")
+	if err := os.WriteFile(overlay, []byte("name: my-project\nphases: []\n"), 0o600); err != nil {
+		t.Fatalf("seed overlay: %v", err)
+	}
+
+	url := c.srv.URL + "/v1/teams/" + c.teamID + "/templates/reset"
+	status, raw := rawCallRaw(t, c.token, url, "POST", "", nil)
+	if status != 200 {
+		t.Fatalf("reset = %d body=%s", status, raw)
+	}
+	if !bytes.Contains(raw, []byte(`"pruned":1`)) {
+		t.Errorf("expected pruned:1 in response, got: %s", raw)
+	}
+
+	// Orphan baseline project preset removed.
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Errorf("orphaned project preset survived reset (err=%v)", err)
+	}
+	// Bundled presets restored / present.
+	if _, err := os.Stat(filepath.Join(c.dataRoot, "team", "templates", "projects", "research.v1.yaml")); err != nil {
+		t.Errorf("bundled research preset missing after reset: %v", err)
+	}
+	// Cross-category baseline file untouched.
+	if _, err := os.Stat(agentOnly); err != nil {
+		t.Errorf("baseline agent file pruned (must not be): %v", err)
+	}
+	// Per-team overlay project template untouched.
+	if _, err := os.Stat(overlay); err != nil {
+		t.Errorf("overlay project template pruned (must not be): %v", err)
+	}
+}

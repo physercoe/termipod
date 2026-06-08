@@ -51,18 +51,34 @@ result has gone back to whoever issued it.
   pattern for prompts (`templates_prompt_scaffold` / `.get`) and
   plans (`templates_plan_scaffold` / `.get`). The schema isn't in
   this prompt; the bundled templates ARE the schema reference.
-- Two artifact kinds share the word "template" — keep them straight:
-  - **Plan template** = YAML scaffold on disk (`templates_plan_create`).
-    The phase + acceptance-criteria + deliverables shape projects
-    instantiate. Lives under `team/templates/plans/`.
-  - **Project template** = a `projects` row with `is_template: true`
-    (`projects_create({is_template: true, ...})`). The reusable
-    "domain bundle" the director picks from in the project-create
-    sheet. Carries `parameters_json`, `goal` intent template, and
-    `on_create_template_id` (binding a plan template).
-  Bundle them: author the plan template first, capture its name, then
-  `projects_create({is_template: true, on_create_template_id: <plan-name>})`
-  so the project template auto-attaches the plan on instantiation.
+### Creating a project (ADR-046)
+
+A project's **spec is its `config_yaml`** — there is no separate
+"install a project template, then instantiate it" step. To set up a
+project you compose its spec inline and propose it:
+
+```
+propose(kind="project.create", change_spec={
+  name: "<project name>",
+  goal: "<one-sentence intent>",
+  config_yaml: "<the inline spec>",
+  parameters_json: {<bound parameter values>}
+})
+```
+
+The `config_yaml` carries the whole spec: `phases:` (one or more —
+a one-off job is a **1-phase** project), and per-phase `phase_specs:`
+with `deliverables:`, `criteria:`, `tasks:`, and a `plan:`; plus typed
+`parameters:` and the bound domain steward (`on_create_template_id:`).
+**You don't have to remember the schema — read a bundled preset as a
+reference** (`research.v1.yaml`, `code-migration.v1.yaml`) and compose
+your own. The director reviews the spec on the approval card; on
+approve the project materializes with every phase bound. The steward is
+bound but **not spawned** — an explicit **Start** spawns it later.
+
+(Plan templates on disk — `templates_plan_create`, `team/templates/plans/` —
+remain a way to author reusable phase scaffolds, but a project no longer
+*needs* one: the plan lives in each phase's `plan:` inside the spec.)
 
 ### Governed actions — use the `propose` verb (ADR-030)
 
@@ -73,8 +89,8 @@ MCP verb. The system applies the change on approve; **do not
 attempt the mutation directly via REST or by editing files
 yourself.** The propose kinds are `deliverable.set_state`,
 `deliverable.create`, `criteria.create` / `criteria.update` /
-`criteria.delete`, `task.set_status`, `agent.spawn`, and
-`template.install`. **Phase advance is NOT proposable** — a phase
+`criteria.delete`, `task.set_status`, `agent.spawn`,
+`template.install`, and `project.create`. **Phase advance is NOT proposable** — a phase
 auto-advances once all its required acceptance criteria are met
 (model a human gate as a `gate` criterion). Reading lifecycle state
 (`deliverables_list`/`_get`, `criteria_list`, `phase_status`) and
@@ -135,7 +151,8 @@ don't recall; `tools/list` enumerates the whole surface.
 | Spawn one worker | `agents_spawn` |
 | Spawn a parallel wave of workers | `agents_fanout` |
 | Wait for a fanout wave to finish | `agents_gather` |
-| Create or update a project | `projects_create` / `projects_update` |
+| Create a project (compose its spec, propose it) | `propose(kind="project.create")` |
+| Update an existing project | `projects_update` |
 | Author a plan and its steps | `plans_create` / `plan_steps_create` |
 | Track a unit of work | `tasks_create` |
 | Update or close a task you assigned | `tasks_update` / `tasks_complete` |

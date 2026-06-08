@@ -198,6 +198,27 @@ acting on a resource, or performing an act?* A few bare verbs
 (`search`, `attach`, `pause_self`) have no clean resource either and
 stay as-is.
 
+**Governed-action kinds (`propose`).** The verb-first `propose` tool
+(ADR-030) carries a `kind` naming the governed action; on approve the
+hub applies it via the registered apply function. The registered kinds
+are `deliverable.set_state`, `deliverable.create`, `criteria.create` /
+`criteria.update` / `criteria.delete`, `task.set_status`, `agent.spawn`,
+`template.install`, and `project.create`. Two notes:
+
+- **`project.create`** (ADR-046) carries a whole project **spec inline**
+  in its `change_spec` (`{name, config_yaml, parameters_json, goal?,
+  kind?, on_create_template_id?}`) — a project's spec *is* its
+  `config_yaml`. On approve the project materializes with every phase
+  early-bound and its domain steward **bound but not spawned**; an
+  explicit `POST …/projects/{id}/start` spawns it. This is how an agent
+  creates a project — there is no install-a-project-template step.
+- **`template.install`** stays a normal agent-proposes / principal-
+  approves action (it authors agent / prompt / plan templates). It is
+  *not* the project-creation path; `project.create` is.
+
+`phase.advance` is intentionally **not** a propose kind — a phase
+auto-advances once its required criteria are met.
+
 **Path-style ids in arguments.** Tools that target one row take the
 id under a short key (`project`, `plan`, `agent`, `host`,
 `schedule`, `task`). Tools that need a project context use

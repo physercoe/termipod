@@ -24,8 +24,13 @@ func validateProjectConfigYAML(configYAML string, isTemplate bool) string {
 	if strings.TrimSpace(configYAML) == "" {
 		return ""
 	}
+	// phaseNameList accepts both the scalar (`- env-setup`) and mapping
+	// (`- name: env-setup`) forms — the same tolerant parse the template
+	// loader uses (#38). The previous `[]map[string]any` shape here only
+	// accepted the mapping form and silently REJECTED the canonical scalar
+	// form every shipped template uses — the inverse of the loader bug.
 	var doc struct {
-		Phases []map[string]any `yaml:"phases"`
+		Phases phaseNameList `yaml:"phases"`
 	}
 	if err := yaml.Unmarshal([]byte(configYAML), &doc); err != nil {
 		return fmt.Sprintf("config_yaml: invalid YAML: %v", err)

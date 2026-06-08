@@ -288,6 +288,23 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		isTpl = 1
 	}
 
+	// Resolve the project goal (#29). A concrete project created from a
+	// template with no explicit goal inherits the template's goal text; then
+	// {placeholder} tokens in whatever goal we have are substituted from
+	// parameters_json. Templates keep their own goal verbatim (it is the
+	// source the placeholders come from). Unknown placeholders are left as-is.
+	resolvedGoal := in.Goal
+	if resolvedGoal == "" && !in.IsTemplate && in.TemplateID != "" {
+		resolvedGoal = s.templateGoal(in.TemplateID)
+	}
+	if !in.IsTemplate {
+		var paramsMap map[string]any
+		if len(in.ParametersJSON) > 0 {
+			_ = json.Unmarshal(in.ParametersJSON, &paramsMap)
+		}
+		resolvedGoal = substituteTemplateParams(resolvedGoal, paramsMap)
+	}
+
 	// Hydrate the initial phase from the template's phase set (D1).
 	// Concrete projects (is_template=0) created from a phase-declaring
 	// template land on phases[0]; everything else stays NULL so the UI
@@ -321,7 +338,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			?, ?,
 			?, ?)`,
 		id, team, in.Name, in.ConfigYML, in.DocsRoot, now,
-		nullStringIfEmpty(in.Goal), kind, nullStringIfEmpty(in.ParentProjectID),
+		nullStringIfEmpty(resolvedGoal), kind, nullStringIfEmpty(in.ParentProjectID),
 		nullStringIfEmpty(in.TemplateID), nullRawJSON(in.ParametersJSON),
 		isTpl, nullInt64(in.BudgetCents), nullRawJSON(in.PolicyOverridesJSON),
 		nullStringIfEmpty(in.StewardAgentID), nullStringIfEmpty(in.OnCreateTemplateID),
@@ -349,7 +366,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	out := projectOut{
 		ID: id, TeamID: team, Name: in.Name, Status: "active",
 		DocsRoot: in.DocsRoot, ConfigYAML: in.ConfigYML, CreatedAt: now,
-		Goal: in.Goal, Kind: kind,
+		Goal: resolvedGoal, Kind: kind,
 		ParentProjectID: in.ParentProjectID, TemplateID: in.TemplateID,
 		ParametersJSON: in.ParametersJSON, IsTemplate: in.IsTemplate,
 		BudgetCents: in.BudgetCents, PolicyOverridesJSON: in.PolicyOverridesJSON,

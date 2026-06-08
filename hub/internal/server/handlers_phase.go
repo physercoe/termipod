@@ -98,7 +98,64 @@ func (s *Server) templatePhases(templateID string) []string {
 			return d.Phases
 		}
 	}
+	// The caller may have passed the template's DB-row ULID (what
+	// projects_list / projects.create surface) instead of its YAML `name:`.
+	// Resolve it to the name and retry once before giving up — otherwise a
+	// project created with template_id=<ULID> lands with no phases, no
+	// hydration, and no error (#41).
+	if name := s.templateNameForID(templateID); name != "" && name != templateID {
+		for _, d := range docs {
+			if d.Name == name {
+				return d.Phases
+			}
+		}
+	}
 	return nil
+}
+
+// templateNameForID resolves a project-template DB row id to the canonical
+// YAML `name:` the loaders (loadProjectTemplates, readProjectTemplateYAML)
+// match on. Returns "" when id names no is_template row. This is the bridge
+// for #41: a ULID passed as template_id resolves to its name so phase
+// resolution + hydration work either way. Best-effort and read-only — it
+// uses context.Background() to match the uncancellable disk reads its
+// callers already perform.
+func (s *Server) templateNameForID(id string) string {
+	if id == "" {
+		return ""
+	}
+	var name sql.NullString
+	err := s.db.QueryRowContext(context.Background(),
+		`SELECT name FROM projects WHERE id = ? AND is_template = 1`, id).Scan(&name)
+	if err == nil && name.Valid {
+		return name.String
+	}
+	return ""
+}
+
+// templateGoal returns the goal text declared by a project template,
+// resolving templateID as either the YAML `name:` or the DB-row ULID (#41).
+// Empty when the template doesn't exist or declares no goal. Used to let a
+// concrete project inherit its template's goal when the caller passed none
+// (#29).
+func (s *Server) templateGoal(templateID string) string {
+	if templateID == "" {
+		return ""
+	}
+	docs, err := loadProjectTemplates(s.cfg.DataRoot)
+	if err != nil {
+		return ""
+	}
+	name := templateID
+	if n := s.templateNameForID(templateID); n != "" {
+		name = n
+	}
+	for _, d := range docs {
+		if d.Name == templateID || d.Name == name {
+			return d.Goal
+		}
+	}
+	return ""
 }
 
 // nextPhase returns the phase following current in phases, or "" when

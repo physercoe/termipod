@@ -126,8 +126,65 @@ type projectTemplateDoc struct {
 	// project lifecycle-disabled — projects.phase stays NULL and the
 	// mobile UI falls back to the pre-lifecycle Overview. The full
 	// per-phase deliverable / criterion / section spec lands in W7;
-	// W1 only consumes the phase list.
-	Phases []string `yaml:"phases"`
+	// W1 only consumes the phase list. phaseNameList tolerates both the
+	// scalar form (`- env-setup`) and the mapping form (`- name: env-setup`)
+	// so a misformatted template no longer silently hydrates nothing (#38).
+	Phases phaseNameList `yaml:"phases"`
+}
+
+// phaseNameList is an ordered list of phase names that accepts two YAML
+// shapes for the same data:
+//
+//	phases:            phases:
+//	  - env-setup        - {name: env-setup}
+//	  - port             - {name: port}
+//
+// yaml.v3 decoding a mapping node into a plain `[]string` silently drops
+// every element (the elements fail string-decode, the slice ends up empty,
+// and no error is surfaced) — the trap behind #38, where a template's whole
+// phase set vanished and the project hydrated 0 criteria / 0 deliverables
+// with no log line. We normalize both forms to names here instead of
+// rejecting one, mirroring the degrade-and-carry-on posture used for
+// overview_widget: an existing misformatted template keeps working, and the
+// loud "empty phase set" case is caught separately in loadProjectTemplates.
+type phaseNameList []string
+
+func (p *phaseNameList) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode && value.Tag == "!!null" {
+		*p = nil
+		return nil
+	}
+	if value.Kind != yaml.SequenceNode {
+		return fmt.Errorf("phases must be a list, got %s", value.Tag)
+	}
+	out := make(phaseNameList, 0, len(value.Content))
+	for _, n := range value.Content {
+		switch n.Kind {
+		case yaml.ScalarNode:
+			if n.Value != "" {
+				out = append(out, n.Value)
+			}
+		case yaml.MappingNode:
+			// Tolerate the mapping forms `- name: env-setup` (#38) and
+			// `- id: env-setup` (the config_yaml phase shape) — different
+			// authors and code paths used different keys for the phase
+			// identifier; normalize both to the name.
+			var m struct {
+				Name string `yaml:"name"`
+				ID   string `yaml:"id"`
+			}
+			if err := n.Decode(&m); err == nil {
+				switch {
+				case m.Name != "":
+					out = append(out, m.Name)
+				case m.ID != "":
+					out = append(out, m.ID)
+				}
+			}
+		}
+	}
+	*p = out
+	return nil
 }
 
 // overviewWidgetDefault is returned when a template doesn't specify one
@@ -160,6 +217,43 @@ func warnOverviewWidgetOnce(template, widget string) {
 	slog.Warn("unknown overview_widget, falling back to default",
 		"template", template, "overview_widget", widget,
 		"default", overviewWidgetDefault)
+}
+
+// emptyPhasesWarnSeen dedupes the #38 "declares phase_specs but parsed no
+// phases" warning the same way overviewWidgetWarnSeen does — once per
+// template name, reset on restart.
+var (
+	emptyPhasesWarnMu   sync.Mutex
+	emptyPhasesWarnSeen = map[string]struct{}{}
+)
+
+// noteProjectTemplateShape logs once when a template declares per-phase
+// content (`phase_specs:`) but its `phases:` list parsed empty. That is
+// the residual #38 failure mode: a project created from such a template
+// hydrates 0 criteria and 0 deliverables and never advances, previously
+// with no log line at all. phaseNameList already salvages the common
+// `- name: x` mapping form; this catches the rest (e.g. a `phases:` key
+// that is missing, null, or otherwise yields nothing) and turns the
+// silent no-op into an actionable warning for the template author.
+func noteProjectTemplateShape(name string, data []byte, phases phaseNameList) {
+	if len(phases) > 0 {
+		return
+	}
+	var head struct {
+		PhaseSpecs map[string]any `yaml:"phase_specs"`
+	}
+	if yaml.Unmarshal(data, &head) != nil || len(head.PhaseSpecs) == 0 {
+		return
+	}
+	emptyPhasesWarnMu.Lock()
+	defer emptyPhasesWarnMu.Unlock()
+	if _, ok := emptyPhasesWarnSeen[name]; ok {
+		return
+	}
+	emptyPhasesWarnSeen[name] = struct{}{}
+	slog.Warn("project template declares phase_specs but no phases — "+
+		"project will hydrate nothing; check the `phases:` list shape",
+		"template", name, "phase_specs_count", len(head.PhaseSpecs))
 }
 
 // validOverviewWidgets is the closed set of pluggable hero kinds shipped
@@ -309,6 +403,7 @@ func loadProjectTemplates(dataRoot string) ([]projectTemplateDoc, error) {
 			warnOverviewWidgetOnce(doc.Name, doc.OverviewWidget)
 			doc.OverviewWidget = ""
 		}
+		noteProjectTemplateShape(doc.Name, data, doc.Phases)
 		add(doc.Name, doc)
 		return nil
 	})
@@ -348,6 +443,7 @@ func loadProjectTemplates(dataRoot string) ([]projectTemplateDoc, error) {
 					"default", overviewWidgetDefault)
 				doc.OverviewWidget = ""
 			}
+			noteProjectTemplateShape(doc.Name, data, doc.Phases)
 			add(doc.Name, doc)
 		}
 	}

@@ -94,6 +94,11 @@ func TestShippedProjectPresets_AreStructurallyComplete(t *testing.T) {
 					t.Errorf("%s: phase %q has no phase_spec (empty shell)", d.Name, ph)
 					continue
 				}
+				if len(spec.Deliverables) == 0 {
+					t.Errorf("%s/%s: no deliverable — every phase needs one "+
+						"(its criteria bind to it and it is what the director ratifies)",
+						d.Name, ph)
+				}
 				if len(spec.Criteria) == 0 {
 					t.Errorf("%s/%s: no acceptance criteria", d.Name, ph)
 				}

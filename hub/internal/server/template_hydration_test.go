@@ -131,14 +131,20 @@ func TestResearchTemplate_ProjectCreateHydratesIdeaCriterion(t *testing.T) {
 			len(crits.Items), crits.Items)
 	}
 	c := crits.Items[0]
-	if c.Kind != "text" || c.State != "pending" {
+	// idea's criterion is the gate that ratifies the idea-memo deliverable
+	// (every phase now has a deliverable + a ratification gate).
+	if c.Kind != "gate" || c.State != "pending" {
 		t.Errorf("hydrated criterion shape kind=%q state=%q", c.Kind, c.State)
 	}
-	if c.Body["text"] == nil {
-		t.Errorf("hydrated body missing text: %v", c.Body)
+	if c.Body["gate"] != "deliverable.ratified" {
+		t.Errorf("hydrated gate body missing gate=deliverable.ratified: %v", c.Body)
 	}
 	if !c.Required {
 		t.Errorf("hydrated criterion not required")
+	}
+	// #56: the criterion is bound to the phase deliverable.
+	if c.DeliverableID == "" {
+		t.Errorf("hydrated criterion has no deliverable_id (must bind to idea-memo)")
 	}
 }
 
@@ -508,34 +514,27 @@ func TestResearchTemplate_PhaseAdvanceHydratesDeliverables(t *testing.T) {
 		return out.Items
 	}
 
-	// idea declares no deliverables → none hydrated at create.
-	if got := getDeliv("idea"); len(got) != 0 {
-		t.Fatalf("idea deliverables=%d want 0", len(got))
+	// idea now declares one deliverable (idea-memo) → hydrated at create.
+	ideaDelivs := getDeliv("idea")
+	if len(ideaDelivs) != 1 {
+		t.Fatalf("idea deliverables=%d want 1", len(ideaDelivs))
 	}
 
-	// Mark the idea criterion met. With AC-driven auto-advance (ADR-044
-	// P3), satisfying the only required criterion in `idea` advances the
-	// project to lit-review automatically — no manual advance call.
-	cr := do(http.MethodGet, "/v1/teams/"+team+"/projects/"+p.ID+"/criteria?phase=idea", nil)
-	var crits struct {
-		Items []criterionOut `json:"items"`
-	}
-	_ = json.Unmarshal(cr.Body.Bytes(), &crits)
-	if len(crits.Items) != 1 {
-		t.Fatalf("idea criteria=%d want 1", len(crits.Items))
-	}
+	// idea's only criterion is the gate that fires when its deliverable is
+	// ratified. Ratifying idea-memo fires the gate → AC-driven auto-advance
+	// (ADR-044 P3) moves the project to lit-review with no manual advance.
 	if mr := do(http.MethodPost,
-		"/v1/teams/"+team+"/projects/"+p.ID+"/criteria/"+crits.Items[0].ID+"/mark-met",
+		"/v1/teams/"+team+"/projects/"+p.ID+"/deliverables/"+ideaDelivs[0].ID+"/ratify",
 		map[string]any{}); mr.Code != http.StatusOK {
-		t.Fatalf("mark-met: %d %s", mr.Code, mr.Body.String())
+		t.Fatalf("ratify idea-memo: %d %s", mr.Code, mr.Body.String())
 	}
 
-	// The mark auto-advanced idea → lit-review.
+	// The ratification fired the gate and auto-advanced idea → lit-review.
 	pr := do(http.MethodGet, "/v1/teams/"+team+"/projects/"+p.ID+"/phase", nil)
 	var ph phaseOut
 	_ = json.Unmarshal(pr.Body.Bytes(), &ph)
 	if ph.Phase != "lit-review" {
-		t.Fatalf("phase after mark-met=%q want lit-review (auto-advanced)", ph.Phase)
+		t.Fatalf("phase after ratify=%q want lit-review (auto-advanced)", ph.Phase)
 	}
 
 	// lit-review's deliverable should now be hydrated.

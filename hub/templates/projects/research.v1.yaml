@@ -64,12 +64,23 @@ phase_specs:
     # phase_tile_overrides) can shrink this further if needed.
     tiles: [Documents]
     steward_spawn: eager
-    deliverables: []
+    deliverables:
+      - id: idea-memo
+        kind: idea-memo
+        display_name: "Idea memo"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: document
+            ref: idea-memo-sections
+            required: true
     criteria:
       - id: scope-ratified
-        kind: text
+        kind: gate
         body:
-          text: "Director ratifies overall scope and direction."
+          gate: deliverable.ratified
+          params: { deliverable_id: idea-memo }
+        deliverable_ref: idea-memo
         required: true
         ord: 0
     tasks:
@@ -312,6 +323,14 @@ phase_specs:
 # initial content_inline JSON ships an empty section list keyed by these
 # slugs. See A6 §9 for guidance text per section.
 section_schemas:
+  idea-memo-sections:
+    schema_id: research-idea-memo-v1
+    sections:
+      - { slug: question,        title: "Research question",  required: true }
+      - { slug: motivation,      title: "Motivation",         required: true }
+      - { slug: scope,           title: "Scope & approach",   required: true }
+      - { slug: success-criteria, title: "Success criteria",  required: true }
+
   lit-review-sections:
     schema_id: research-lit-review-v1
     sections:

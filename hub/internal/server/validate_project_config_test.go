@@ -61,3 +61,40 @@ phases: []
 		t.Errorf("template with empty phases array should be rejected: %q", reason)
 	}
 }
+
+func TestValidateProjectConfigYAML_PhaseWithoutDeliverableRejected(t *testing.T) {
+	// A phase_specs entry that declares criteria but no deliverable is a
+	// meaningless phase — its criteria have nothing to bind to and there
+	// is nothing for the director to ratify.
+	spec := `phases:
+  - build
+phase_specs:
+  build:
+    criteria:
+      - id: c
+        kind: text
+        body: {text: x}
+`
+	reason := validateProjectConfigYAML(spec, false)
+	if !strings.Contains(reason, "build") || !strings.Contains(reason, "deliverable") {
+		t.Errorf("phase without deliverable should be rejected naming the phase + deliverable, got: %q", reason)
+	}
+}
+
+func TestValidateProjectConfigYAML_PhaseWithDeliverablePasses(t *testing.T) {
+	spec := `phases:
+  - build
+phase_specs:
+  build:
+    deliverables:
+      - id: build-out
+        kind: build
+    criteria:
+      - id: c
+        kind: gate
+        body: {gate: deliverable.ratified, params: {deliverable_id: build-out}}
+`
+	if reason := validateProjectConfigYAML(spec, false); reason != "" {
+		t.Errorf("phase with a deliverable should pass: %q", reason)
+	}
+}

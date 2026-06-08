@@ -35,7 +35,37 @@ type phaseSpecsHead struct {
 		Criteria       []phaseCriterionSpec   `yaml:"criteria"`
 		Deliverables   []phaseDeliverableSpec `yaml:"deliverables"`
 		Tiles          []string               `yaml:"tiles"`
+		// Tasks + Plan are part of the inline project spec (ADR-046). They
+		// are parsed here so the schema validates and so WS1 can materialize
+		// them at create (a `tasks.phase`-stamped row per task; a draft
+		// `plans`/`plan_steps` row from the plan). The chassis does not act
+		// on them directly — the steward does, post-Start.
+		Tasks []phaseTaskSpec `yaml:"tasks"`
+		Plan  *phasePlanSpec  `yaml:"plan"`
 	} `yaml:"phase_specs"`
+}
+
+// phaseTaskSpec is one `phase_specs[<phase>].tasks[]` entry — a first-class
+// task (ADR-029) seeded at project create. Only title/ord are load-bearing;
+// id is the template-local handle (audit + future cross-references).
+type phaseTaskSpec struct {
+	ID    string `yaml:"id"`
+	Title string `yaml:"title"`
+	Ord   *int   `yaml:"ord"`
+}
+
+// phasePlanSpec is the `phase_specs[<phase>].plan` block — an ordered set of
+// steps WS1 seeds as a draft `plans` + `plan_steps` row (tables exist,
+// migration 0009). The steward owns execution semantics post-Start.
+type phasePlanSpec struct {
+	Title string              `yaml:"title"`
+	Steps []phasePlanStepSpec `yaml:"steps"`
+}
+
+// phasePlanStepSpec is one ordered step of a phase plan.
+type phasePlanStepSpec struct {
+	Title string `yaml:"title"`
+	Ord   *int   `yaml:"ord"`
 }
 
 // phaseTemplateTiles returns the per-phase tile slugs declared in the

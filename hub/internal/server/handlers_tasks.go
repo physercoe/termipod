@@ -62,12 +62,12 @@ type taskOut struct {
 	// just to render a chip. All four are LEFT-JOIN derived and may be
 	// empty when the assignee/assigner agent row is missing or the
 	// task hasn't started/completed yet.
-	StartedAt       string `json:"started_at,omitempty"`
-	CompletedAt     string `json:"completed_at,omitempty"`
-	ResultSummary   string `json:"result_summary,omitempty"`
-	AssigneeHandle  string `json:"assignee_handle,omitempty"`
-	AssigneeStatus  string `json:"assignee_status,omitempty"`
-	AssignerHandle  string `json:"assigner_handle,omitempty"`
+	StartedAt      string `json:"started_at,omitempty"`
+	CompletedAt    string `json:"completed_at,omitempty"`
+	ResultSummary  string `json:"result_summary,omitempty"`
+	AssigneeHandle string `json:"assignee_handle,omitempty"`
+	AssigneeStatus string `json:"assignee_status,omitempty"`
+	AssignerHandle string `json:"assigner_handle,omitempty"`
 }
 
 // taskPriorities is the closed enum accepted on create/update. Mirrors
@@ -94,6 +94,17 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	var in taskIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Title == "" {
 		writeErr(w, http.StatusBadRequest, "title required")
+		return
+	}
+	// Validate the project exists in this team before the INSERT, so a
+	// bad project_id returns a clean 404 instead of leaking the raw
+	// SQLite FOREIGN KEY constraint error as a 500 (#55).
+	if err := s.projectInTeam(r, teamFromProject(r), proj); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "project not found: "+proj)
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	status := in.Status

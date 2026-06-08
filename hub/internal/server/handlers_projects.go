@@ -341,9 +341,15 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	// §7.2 we also persist the first transition into phase_history and
 	// emit a project.phase_set audit row.
 	var initPhase string
+	var projectPhaseList []string
 	var initPhaseHistory sql.NullString
 	if !in.IsTemplate {
-		if phases := s.templatePhases(in.TemplateID); len(phases) > 0 {
+		// Phases come from the project's own inline spec (config_yaml) when
+		// present, else the named template (ADR-046). The full list drives
+		// early-bind materialization below; phases[0] is where the project
+		// lands.
+		if phases := s.projectPhases(in.ConfigYML, in.TemplateID); len(phases) > 0 {
+			projectPhaseList = phases
 			initPhase = phases[0]
 			doc := phaseHistoryDoc{Transitions: []phaseTransition{{
 				From: "", To: initPhase, At: now, ByActor: "system",
@@ -384,13 +390,18 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		s.recordAudit(r.Context(), team, "project.phase_set", "project", id,
 			"set initial phase "+initPhase,
 			map[string]any{"phase": initPhase, "by_template": in.TemplateID})
-		// First-phase hydration (issue #20): instantiate the template's
-		// phase_specs[<initPhase>].deliverables + criteria as DB rows so a
-		// new project's panels reflect its template instead of starting
-		// empty. Per-phase-advance hydration is wired into both phase-
-		// advance paths. The chassis is happy with no rows hydrated, so a
-		// template that declares neither still creates cleanly.
-		s.hydratePhase(r.Context(), team, id, in.TemplateID, initPhase)
+		// Early-bind (ADR-046 / ADR-044 amendment 2026-06-08): materialize
+		// EVERY phase's deliverables + criteria + tasks at create, not just
+		// the first. This lets the director review the whole plan up front,
+		// lets gates that reference a later phase's deliverable resolve, and
+		// keeps definitions editable in any phase (completion stays gated to
+		// the active phase — see the deliverable-ratify / criterion-mark
+		// paths). Hydrators are idempotent and read the project's own
+		// config_yaml. The chassis is happy with no rows hydrated, so a spec
+		// that declares neither still creates cleanly.
+		for _, ph := range projectPhaseList {
+			s.hydratePhase(r.Context(), team, id, in.TemplateID, ph)
+		}
 	}
 	out := projectOut{
 		ID: id, TeamID: team, Name: in.Name, Status: "active",
@@ -402,7 +413,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		StewardAgentID: in.StewardAgentID, OnCreateTemplateID: in.OnCreateTemplateID,
 		OverviewWidget:         s.resolveOverviewWidget(in.TemplateID, initPhase, nil),
 		Phase:                  initPhase,
-		Phases:                 s.templatePhases(in.TemplateID),
+		Phases:                 s.projectPhases(in.ConfigYML, in.TemplateID),
 		PhaseTilesTemplate:     s.phaseTemplateTiles(in.TemplateID),
 		OverviewWidgetTemplate: s.phaseTemplateOverviewWidgets(in.TemplateID),
 	}

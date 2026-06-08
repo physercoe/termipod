@@ -85,6 +85,20 @@ func phaseTestSetup(t *testing.T, phases []string) (s *Server, token, team, proj
 	return srv, tok, testTeam, p.ID
 }
 
+// setTestProjectPhase positions a project in a given phase directly, so a
+// test can exercise completion actions (ratify / mark-met) on items of that
+// phase under the WS1 completion-gating invariant (definitions are editable
+// in any phase, but completion is gated to the active phase). It bypasses the
+// criteria-gated /phase/advance endpoint on purpose — the fixture's intent is
+// to be *in* the phase, not to test the transition.
+func setTestProjectPhase(t *testing.T, s *Server, project, phase string) {
+	t.Helper()
+	if _, err := s.writeDB.Exec(
+		`UPDATE projects SET phase = ? WHERE id = ?`, phase, project); err != nil {
+		t.Fatalf("set test project phase: %v", err)
+	}
+}
+
 func TestPhase_GetReportsCurrentPhaseAndTemplateOrder(t *testing.T) {
 	phases := []string{"idea", "lit-review", "method"}
 	s, tok, team, project := phaseTestSetup(t, phases)

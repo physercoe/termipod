@@ -215,6 +215,13 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		q += " AND t.priority = ?"
 		args = append(args, priority)
 	}
+	// WS1: tasks carry a phase (#22) — filter to one phase's tasks so mobile
+	// can group the early-bound task set the same way it groups deliverables
+	// and criteria. Absent = all phases (including unphased ad-hoc tasks).
+	if phase := r.URL.Query().Get("phase"); phase != "" {
+		q += " AND t.phase = ?"
+		args = append(args, phase)
+	}
 	// W3 default sort: urgent → low, then newest-first within a bucket.
 	// Callers that explicitly want reverse-chronological (e.g. an
 	// "activity-style" view) pass `?sort=updated` to opt out.

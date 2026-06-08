@@ -218,6 +218,27 @@ class ProjectsApi {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Starts a project (ADR-046 / WS4): spawns the project's bound domain
+  /// steward. A project is created bound to a steward but not started; this
+  /// is the explicit "begin work" gesture. Idempotent on the hub — a second
+  /// call while the steward is already running returns HTTP 409 (surfaced as
+  /// [HubApiError]) with the live agent in the body. Throws 422 when no
+  /// steward is bound. The returned map is `{agent_id, spawn_id?, status,
+  /// already_running, project_id}`.
+  Future<Map<String, dynamic>> startProject(
+    String projectId, {
+    String? hostId,
+  }) async {
+    final body = <String, dynamic>{};
+    if (hostId != null && hostId.isNotEmpty) body['host_id'] = hostId;
+    final out = await _t.post(
+      '/v1/teams/${_t.cfg.teamId}/projects/$projectId/start',
+      body,
+    );
+    await _t.invalidate('/v1/teams/${_t.cfg.teamId}/projects');
+    return (out as Map).cast<String, dynamic>();
+  }
+
   /// Reads the project steward's live state (lifecycle W3 — A3 §10.1).
   /// Cache-Control on the response is `private, no-cache`, so this
   /// always hits the network rather than the snapshot cache.

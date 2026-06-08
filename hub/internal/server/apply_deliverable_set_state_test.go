@@ -195,6 +195,41 @@ func TestDeliverableSetState_Apply_InReviewToRatified(t *testing.T) {
 	}
 }
 
+// Apply: ratify via the propose path auto-fires a pending gate criterion
+// referencing the deliverable, mirroring the REST /ratify cascade (#53).
+func TestDeliverableSetState_Apply_RatifyFiresGateCascade(t *testing.T) {
+	s, _ := newTestServer(t)
+	pk, _ := LookupProposeKind("deliverable.set_state")
+	proj := seedProject(t, s, defaultTeamID)
+	delID := seedDeliverable(t, s, proj, "design", "research_plan", deliverableStateInReview)
+	// A pending gate criterion in the same phase, bound to this deliverable.
+	gateID := seedCriterion(t, s, proj, "design", "gate", map[string]any{
+		"gate":   "deliverable.ratified",
+		"params": map[string]any{"deliverable_id": delID},
+	})
+
+	target, _ := json.Marshal(map[string]any{"project_id": proj, "deliverable_id": delID})
+	spec, _ := json.Marshal(map[string]any{"state": deliverableStateRatified})
+	ac := ProposeApplyContext{
+		AttentionID: "att-gate", Team: defaultTeamID, AssignedTier: GovTierPrincipal,
+		DeciderHandle: "@principal",
+	}
+	if _, err := pk.Apply(context.Background(), s, ac, target, spec); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	// The gate must have auto-fired to met (was pending before the apply).
+	var gateState string
+	if err := s.db.QueryRow(
+		`SELECT state FROM acceptance_criteria WHERE id = ?`, gateID).Scan(&gateState); err != nil {
+		t.Fatalf("read gate state: %v", err)
+	}
+	if gateState != criterionStateMet {
+		t.Errorf("gate criterion state = %q; want %q (propose ratify did not cascade)",
+			gateState, criterionStateMet)
+	}
+}
+
 // 5. Apply: ratified → draft clears the ratified stamps, emits
 // deliverable.unratified.
 func TestDeliverableSetState_Apply_RatifiedToDraft(t *testing.T) {

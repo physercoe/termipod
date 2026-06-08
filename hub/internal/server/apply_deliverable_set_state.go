@@ -119,13 +119,13 @@ func dryRunDeliverableSetState(ctx context.Context, s *Server, targetRef, change
 // endpoints:
 //
 //   - X       → ratified : sets ratification_state, stamps
-//                          ratified_at + ratified_by_actor.
-//                          Audit action: deliverable.ratified.
+//     ratified_at + ratified_by_actor.
+//     Audit action: deliverable.ratified.
 //   - ratified → draft   : clears the ratified stamps.
-//                          Audit action: deliverable.unratified.
+//     Audit action: deliverable.unratified.
 //   - other transitions  : pure state update; clears stale ratified
-//                          stamps if leaving 'ratified' (defensive).
-//                          Audit action: deliverable.updated.
+//     stamps if leaving 'ratified' (defensive).
+//     Audit action: deliverable.updated.
 //
 // No-op (from == to) returns the no_op marker in `executed` without
 // touching the row — matches the "already ratified" 409 the legacy
@@ -244,10 +244,20 @@ func applyDeliverableSetState(
 	s.recordAudit(ctx, team, action, "deliverable", t.DeliverableID,
 		fmt.Sprintf("%s → %s via propose", fromState, c.State), meta)
 
-	// On unratify (ratified → draft) re-pend any gate criterion the prior
-	// ratification auto-fired (WS1), mirroring the REST /unratify path.
-	// Best-effort — logged, never fails the apply.
-	if action == "deliverable.unratified" {
+	// Gate cascade, mirroring the REST /ratify and /unratify paths. On
+	// ratify, auto-fire any pending gate criterion referencing this
+	// deliverable; on unratify (ratified → draft) re-pend those the prior
+	// ratification fired (WS1). Without the ratify arm a propose-approved
+	// ratification leaves the gate stuck `pending` (#53). Best-effort —
+	// logged, never fails the apply (the audit row is already in).
+	switch action {
+	case "deliverable.ratified":
+		if _, cerr := s.cascadeDeliverableRatified(
+			ctx, team, t.ProjectID, t.DeliverableID, phase.String); cerr != nil {
+			s.log.Warn("criterion gate cascade (propose)", "err", cerr,
+				"deliverable_id", t.DeliverableID, "project_id", t.ProjectID)
+		}
+	case "deliverable.unratified":
 		if _, cerr := s.cascadeDeliverableUnratified(
 			ctx, team, t.ProjectID, t.DeliverableID, phase.String); cerr != nil {
 			s.log.Warn("criterion gate re-pend (propose)", "err", cerr,

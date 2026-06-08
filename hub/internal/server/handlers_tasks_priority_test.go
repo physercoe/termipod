@@ -182,3 +182,47 @@ func TestTasks_PriorityEnumAndSort(t *testing.T) {
 		t.Errorf("bad-priority patch = %d, want 400", rr.Code)
 	}
 }
+
+// Creating a task under a non-existent project returns a clean 404 with a
+// helpful message, not the raw SQLite FOREIGN KEY constraint error as a
+// 500 (#55).
+func TestTasks_CreateUnknownProjectIs404(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	const team = "fk-team"
+	now := NowUTC()
+	if _, err := s.db.Exec(
+		`INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
+		team, team, now); err != nil {
+		t.Fatalf("seed team: %v", err)
+	}
+	token := mintTeamToken(t, s, "owner", team)
+
+	body, _ := json.Marshal(map[string]any{"title": "orphan"})
+	r := httptest.NewRequest("POST",
+		"/v1/teams/"+team+"/projects/NONEXISTENT-ID/tasks", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	s.router.ServeHTTP(rr, r)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("create under unknown project = %d %s; want 404",
+			rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("project not found")) {
+		t.Errorf("body = %q; want a 'project not found' message", rr.Body.String())
+	}
+	if bytes.Contains(rr.Body.Bytes(), []byte("FOREIGN KEY")) {
+		t.Errorf("raw FK constraint leaked to client: %q", rr.Body.String())
+	}
+}

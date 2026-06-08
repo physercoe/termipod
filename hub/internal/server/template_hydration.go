@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -178,39 +179,49 @@ func (s *Server) readProjectTemplateYAML(templateID string) string {
 	if templateID == "" {
 		return ""
 	}
-	// Disk overlays win (cf. loadProjectTemplates), highest-priority team
-	// overlay first. The file may be `<id>.yaml` or a versioned basename like
-	// `code-migration.v1.yaml` carrying `name: code-migration`, so match on
-	// either (matchProjectTemplateName) rather than guessing the filename.
-	for _, dir := range projectTemplateDiskDirs(s.cfg.DataRoot) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
-				continue
-			}
-			p := filepath.Join(dir, e.Name())
-			data, err := os.ReadFile(p)
+	// find scans the disk overlays (highest-priority team overlay first, cf.
+	// loadProjectTemplates) then the embedded FS for a file whose basename is
+	// `<id>.yaml` or whose `name:` field equals id (matchProjectTemplateName).
+	find := func(id string) string {
+		for _, dir := range projectTemplateDiskDirs(s.cfg.DataRoot) {
+			entries, err := os.ReadDir(dir)
 			if err != nil {
 				continue
 			}
-			if matchProjectTemplateName(data, p, templateID) {
+			for _, e := range entries {
+				if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+					continue
+				}
+				p := filepath.Join(dir, e.Name())
+				data, err := os.ReadFile(p)
+				if err != nil {
+					continue
+				}
+				if matchProjectTemplateName(data, p, id) {
+					return string(data)
+				}
+			}
+		}
+		matches, _ := fs.Glob(hub.TemplatesFS, "templates/projects/*.yaml")
+		for _, p := range matches {
+			data, err := fs.ReadFile(hub.TemplatesFS, p)
+			if err != nil {
+				continue
+			}
+			if matchProjectTemplateName(data, p, id) {
 				return string(data)
 			}
 		}
+		return ""
 	}
-	// Embedded FS — same name-or-basename match over the bundled templates.
-	matches, _ := fs.Glob(hub.TemplatesFS, "templates/projects/*.yaml")
-	for _, p := range matches {
-		data, err := fs.ReadFile(hub.TemplatesFS, p)
-		if err != nil {
-			continue
-		}
-		if matchProjectTemplateName(data, p, templateID) {
-			return string(data)
-		}
+	if body := find(templateID); body != "" {
+		return body
+	}
+	// #41: templateID may be the template's DB-row ULID rather than its
+	// YAML name. Resolve and retry once so hydration reads the right file
+	// regardless of which form the project stored.
+	if name := s.templateNameForID(templateID); name != "" && name != templateID {
+		return find(name)
 	}
 	return ""
 }
@@ -240,6 +251,18 @@ func (s *Server) hydratePhaseCriteria(
 	if n, err := s.countRowsForPhase(ctx, "acceptance_criteria", project, phase); err == nil && n > 0 {
 		return
 	}
+	// Resolved once for the whole phase: the project's parameters (for
+	// {placeholder} substitution in criteria bodies, #27) and a map from
+	// each template deliverable id → its kind (to rewrite gate references
+	// onto the runtime deliverable ULID, #21). Deliverables are hydrated
+	// before criteria (see hydratePhase), so their rows already exist.
+	params := s.projectParams(ctx, project)
+	kindByTemplateDeliverableID := map[string]string{}
+	for _, d := range specs.Deliverables {
+		if d.ID != "" && d.Kind != "" {
+			kindByTemplateDeliverableID[d.ID] = d.Kind
+		}
+	}
 	for _, c := range specs.Criteria {
 		if c.Kind == "" {
 			continue
@@ -259,6 +282,13 @@ func (s *Server) hydratePhaseCriteria(
 		}
 		bodyJSON := "{}"
 		if len(c.Body) > 0 {
+			// Resolve {placeholder} tokens in the body text (#27) and, for
+			// gate criteria, rewrite body.params.deliverable_id from the
+			// template-level id to the runtime deliverable ULID (#21).
+			substituteParamsInMap(c.Body, params)
+			if c.Kind == "gate" {
+				s.resolveGateDeliverableRef(ctx, project, phase, c.Body, kindByTemplateDeliverableID)
+			}
 			b, err := json.Marshal(c.Body)
 			if err == nil {
 				bodyJSON = string(b)
@@ -287,6 +317,65 @@ func (s *Server) hydratePhaseCriteria(
 			})
 	}
 	_ = errors.New // keep errors imported in case callers want it later
+}
+
+// projectParams reads a project's parameters_json as a decoded map for
+// {placeholder} substitution. Returns nil (not an error) when the project
+// has no parameters or the JSON is unreadable — substitution is best-effort.
+func (s *Server) projectParams(ctx context.Context, project string) map[string]any {
+	var raw sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT parameters_json FROM projects WHERE id = ?`, project).Scan(&raw)
+	if err != nil || !raw.Valid || raw.String == "" {
+		return nil
+	}
+	m := map[string]any{}
+	if json.Unmarshal([]byte(raw.String), &m) != nil {
+		return nil
+	}
+	return m
+}
+
+// resolveGateDeliverableRef rewrites a hydrated gate criterion's
+// body.params.deliverable_id from a template-level deliverable id (e.g.
+// "env-setup-report") to the runtime deliverable ULID, bridged by kind (#21).
+//
+// The template criterion names the deliverable by its template id, but
+// hydratePhaseDeliverables minted a fresh ULID for the runtime row and kept
+// only its kind. cascadeDeliverableRatified fires a gate when
+// body.params.deliverable_id == the just-ratified deliverable's ULID — so an
+// un-rewritten gate (still holding the template id) would never match and the
+// phase would never auto-advance. We resolve template-id → kind → the runtime
+// row's ULID in the same phase and patch the reference in place.
+//
+// No-op when the body has no params.deliverable_id, the id isn't one this
+// template declared (so it's already a ULID or points elsewhere), or no
+// runtime deliverable of that kind exists yet.
+func (s *Server) resolveGateDeliverableRef(
+	ctx context.Context, project, phase string,
+	body map[string]any, kindByTemplateDeliverableID map[string]string,
+) {
+	params, ok := body["params"].(map[string]any)
+	if !ok {
+		return
+	}
+	ref, ok := params["deliverable_id"].(string)
+	if !ok || ref == "" {
+		return
+	}
+	kind, ok := kindByTemplateDeliverableID[ref]
+	if !ok {
+		return
+	}
+	var ulid string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id FROM deliverables
+		 WHERE project_id = ? AND phase = ? AND kind = ?
+		 ORDER BY created_at LIMIT 1`, project, phase, kind).Scan(&ulid)
+	if err != nil || ulid == "" {
+		return
+	}
+	params["deliverable_id"] = ulid
 }
 
 // hydratePhase instantiates a phase's template-declared deliverables and

@@ -285,7 +285,9 @@ func buildNativeTools() []nativeTool {
 							"target_ref {project_id}, change_spec {phase, kind}); " +
 							"'criteria.create' / 'criteria.update' / 'criteria.delete' (edit the " +
 							"acceptance-criteria rubric; create target_ref {project_id}, " +
-							"update/delete target_ref {project_id, criterion_id}); " +
+							"change_spec {phase, kind, deliverable_id, body?} — bind every " +
+							"criterion to the deliverable it gates so the deliverable viewer " +
+							"surfaces it (#56); update/delete target_ref {project_id, criterion_id}); " +
 							"plus 'deliverable.set_state' and 'task.set_status'. " +
 							"Marking a criterion met/failed is the direct 'criteria.set_state' tool, " +
 							"not a propose. Phase advance is NOT proposable — it is system-driven: a " +

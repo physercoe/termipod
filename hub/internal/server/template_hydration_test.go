@@ -554,4 +554,27 @@ func TestResearchTemplate_PhaseAdvanceHydratesDeliverables(t *testing.T) {
 	if got := getDeliv("lit-review"); len(got) != 1 {
 		t.Fatalf("after re-hydrate lit-review deliverables=%d want 1 (idempotent)", len(got))
 	}
+
+	// #56: lit-review's criteria must be bound to that deliverable, so the
+	// deliverable viewer (which filters by deliverable_id) finds them.
+	// research.v1 declares two lit-review criteria, both deliverable_ref
+	// lit-review-doc.
+	cr2 := do(http.MethodGet,
+		"/v1/teams/"+team+"/projects/"+p.ID+"/criteria?deliverable_id="+d.ID, nil)
+	if cr2.Code != http.StatusOK {
+		t.Fatalf("list criteria by deliverable: %d %s", cr2.Code, cr2.Body.String())
+	}
+	var byDeliv struct {
+		Items []criterionOut `json:"items"`
+	}
+	_ = json.Unmarshal(cr2.Body.Bytes(), &byDeliv)
+	if len(byDeliv.Items) != 2 {
+		t.Fatalf("criteria bound to lit-review deliverable=%d want 2 (deliverable_id not set on hydration)",
+			len(byDeliv.Items))
+	}
+	for _, c := range byDeliv.Items {
+		if c.DeliverableID != d.ID {
+			t.Errorf("criterion %s deliverable_id=%q want %q", c.ID, c.DeliverableID, d.ID)
+		}
+	}
 }

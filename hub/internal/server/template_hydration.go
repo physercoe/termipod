@@ -395,13 +395,23 @@ func (s *Server) hydratePhaseCriteria(
 				bodyJSON = string(b)
 			}
 		}
+		// Bind the criterion to its deliverable so the deliverable viewer
+		// (which filters by deliverable_id) can find it (#56). Prefer the
+		// template `deliverable_ref`; fall back to the phase's sole
+		// deliverable. NULL only when the phase has no deliverable (e.g. an
+		// idea phase) — nothing to bind to.
+		var deliv any
+		if d := s.resolveCriterionDeliverableID(
+			ctx, project, phase, c.DeliverableRef, kindByTemplateDeliverableID); d != "" {
+			deliv = d
+		}
 		id := NewID()
 		now := NowUTC()
 		_, err := s.writeDB.ExecContext(ctx, `
-			INSERT INTO acceptance_criteria (id, project_id, phase, kind, body,
-				state, required, ord, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
-			id, project, phase, c.Kind, bodyJSON, required, ord, now, now)
+			INSERT INTO acceptance_criteria (id, project_id, phase, deliverable_id,
+				kind, body, state, required, ord, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+			id, project, phase, deliv, c.Kind, bodyJSON, required, ord, now, now)
 		if err != nil {
 			s.log.Warn("hydrate criterion: insert", "err", err,
 				"template", templateID, "phase", phase, "criterion_id", c.ID)
@@ -468,15 +478,67 @@ func (s *Server) resolveGateDeliverableRef(
 	if !ok {
 		return
 	}
+	if ulid := s.deliverableULIDForKind(ctx, project, phase, kind); ulid != "" {
+		params["deliverable_id"] = ulid
+	}
+}
+
+// resolveCriterionDeliverableID returns the runtime deliverable ULID a
+// hydrated criterion belongs to, for the deliverable_id column (#56).
+// Preference order: the template `deliverable_ref` (mapped
+// template-id → kind → ULID, like gate refs), then the phase's sole
+// deliverable. Returns "" when the phase has no deliverable (e.g. an idea
+// phase) or the ref can't be resolved — the column then stays NULL.
+func (s *Server) resolveCriterionDeliverableID(
+	ctx context.Context, project, phase, ref string,
+	kindByTemplateDeliverableID map[string]string,
+) string {
+	if ref != "" {
+		if kind, ok := kindByTemplateDeliverableID[ref]; ok {
+			if ulid := s.deliverableULIDForKind(ctx, project, phase, kind); ulid != "" {
+				return ulid
+			}
+		}
+	}
+	return s.solePhaseDeliverableULID(ctx, project, phase)
+}
+
+// deliverableULIDForKind returns the ULID of the (first, by created_at)
+// deliverable of `kind` in this project+phase, or "" if none.
+func (s *Server) deliverableULIDForKind(ctx context.Context, project, phase, kind string) string {
 	var ulid string
-	err := s.db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT id FROM deliverables
 		 WHERE project_id = ? AND phase = ? AND kind = ?
-		 ORDER BY created_at LIMIT 1`, project, phase, kind).Scan(&ulid)
-	if err != nil || ulid == "" {
-		return
+		 ORDER BY created_at LIMIT 1`, project, phase, kind).Scan(&ulid); err != nil {
+		return ""
 	}
-	params["deliverable_id"] = ulid
+	return ulid
+}
+
+// solePhaseDeliverableULID returns the ULID of the phase's deliverable
+// when the phase has exactly one, else "". Used as the fallback binding
+// for criteria that don't name a deliverable_ref.
+func (s *Server) solePhaseDeliverableULID(ctx context.Context, project, phase string) string {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id FROM deliverables
+		 WHERE project_id = ? AND phase = ? LIMIT 2`, project, phase)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return ""
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 1 {
+		return ids[0]
+	}
+	return ""
 }
 
 // hydratePhase instantiates a phase's template-declared deliverables and

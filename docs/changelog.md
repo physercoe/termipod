@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-06-06)
+> **Status:** Current (2026-06-08)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.808
+> **Last verified vs code:** v1.0.809
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,68 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.809-alpha — 2026-06-08
+
+**The project-lifecycle surface becomes inline-spec (ADR-046): a project's
+spec *is* its `config_yaml`, and a steward creates one through a single
+governed `project.create` proposal the director reviews and approves.** This
+is the WS0–WS5 program off the code-migration lifecycle review (#21–#41):
+phases, deliverables, criteria, tasks, plan, typed parameters, and the bound
+domain steward all live inline; approval materializes the project with every
+phase early-bound; an explicit Start spawns the bound steward. Presets
+(`research`, `code-migration`) become reference examples, not an installed
+library. Plus the pre-program template root-cause fixes and a batch of M4 /
+host-runner race + log-spam fixes.
+
+Added:
+- **Governed `project.create` + Start** (WS4-hub, #49 `01749c1`): new
+  `project.create` propose kind — the spec rides inline in `change_spec`, so
+  the approval card shows the real project, not a blob hash (#40); shared
+  `createProjectCore` so a steward-proposed and a director-direct create are
+  byte-identical; `POST …/projects/{id}/start` spawns the bound steward
+  (idempotent, 409 if already running); derived `steward_started` on read.
+- **Mobile spec-review + Start** (WS4-mobile, #50 `4b3ef34`):
+  `ProposeCardProjectCreate` (review the inline spec, "View spec" sheet) and a
+  project-detail "Not started — review & Start" banner. *Awaits an on-device
+  test against a deployed hub.*
+- **Typed project parameters + richer phase specs** (WS2, #46 `a17cdd5`):
+  `parameters:` with `{type, required, default, description, min/max/enum}`;
+  per-phase `tasks:` / `plan:`; the param schema is exposed on project read.
+- **Preset reference specs** (WS3, #48 `2753437`): a full `code-migration.v1`
+  spec, an upgraded `research.v1`, and their domain stewards; the empty
+  `write-memo` / `reproduce-paper` stub templates were removed.
+
+Changed:
+- **Materialize from the project's own `config_yaml`** (WS1, #47 `f0fd673`):
+  early-bind every phase at create; completion (ratify / mark-met) is gated to
+  the active phase; tasks gain a `phase` column (migration 0056); unratify
+  re-pends the gate it fired.
+- **Steward prompts + docs** (WS5, #51 `42307f4`): create a project via
+  `project.create` (not install-a-project-template-then-instantiate) across all
+  nine steward prompts; ADR-046 Accepted, with an amendment recording that
+  `template.install` stays a normal agent-proposes / principal-approves action
+  (only *project* creation moved to `project.create`); glossary +
+  `hub-mcp.md §4` reconciled.
+- **ADRs + plan** (WS0, #44/#45 `f5cb633` / `83abc78`): ADR-044 amendment
+  (early-bind + completion-gating) + ADR-046 + the WS0–WS5 rollout plan.
+- **Intra- vs inter-engine delegation boundary** (`84e1630`): the 3-tier
+  delegation ladder (inline → native subagent → hub worker) + per-engine
+  tier-2 guidance.
+
+Fixed:
+- **Four project-template root causes** (#43 `d91268b`): tolerant `phases:`
+  parse (#38), template-id ULID resolution (#41), per-phase gate-ref rewrite
+  (#21), goal-placeholder substitution (#27 / #29).
+- **M4 / host-runner races + log spam**: claude-code adapter tailer +
+  `engineSessionID` synchronisation (`7442607`) and two test-only data races in
+  `local_log_tail` / `fakeProcSpawner` (`fc74e34`, `6a1f8f5`); trackio
+  metric-poll WARN spam (busy_timeout + edge-triggered logging, `28b9591`).
+
+Docs:
+- Kimi `kimi-cli → kimi-code` tech-stack fork captured as a watch/hold item
+  (`462a6cf`); README hub-scaling note + an in-app screenshot gallery
+  (`e5bd982`, `480d935`).
 
 ## v1.0.808-alpha — 2026-06-06
 

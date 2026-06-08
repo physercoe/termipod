@@ -1,0 +1,377 @@
+name: code-migration
+kind: goal
+goal: |-
+  Migrate {source_repo} from {source_framework} to {target_framework},
+  preserving behaviour to within the {parity_metric} parity threshold. The
+  director directs; the bound code-migration steward orchestrates a worker
+  fleet across the five phases (env-setup, port, integrate, experiment,
+  deliver). The specifics of the system being migrated go in this project's
+  `goal` text; this spec is migration-agnostic and is a worked **reference
+  example** of the inline project spec (ADR-046) — read it to learn the
+  schema, then compose your own.
+
+# Typed parameters (ADR-046 / WS2). A bare `key: value` would still work, but
+# the typed form documents each input and lets the create form validate it.
+parameters:
+  source_repo:
+    type: string
+    required: true
+    description: "URL or path of the repository being migrated."
+  source_framework:
+    type: string
+    required: true
+    description: "Framework/runtime the code is migrated FROM (e.g. IsaacGym)."
+  target_framework:
+    type: string
+    required: true
+    description: "Framework/runtime the code is migrated TO (e.g. IsaacLab)."
+  parity_metric:
+    type: string
+    default: eval_reward
+    description: "Behavioural metric used to judge source/target parity."
+  parity_threshold:
+    type: number
+    default: 0.95
+    min: 0
+    max: 1
+    description: "Minimum target/source parity ratio the experiment gate accepts."
+  gpu_hours_budget:
+    type: int
+    default: 48
+    min: 1
+    description: "Compute budget for the migration's experiment phase."
+
+# The project's bound domain steward (ADR-046). Create binds it; an explicit
+# Start spawns it (WS4).
+on_create_template_id: agents.steward.code-migration
+
+phases:
+  - env-setup
+  - port
+  - integrate
+  - experiment
+  - deliver
+
+phase_specs:
+  env-setup:
+    display_name: "Environment setup"
+    abbrev: "Env"
+    overview_widget: deliverable_focus
+    tiles: [Documents, Outputs]
+    deliverables:
+      - id: env-report
+        kind: report
+        display_name: "Environment report"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: document
+            ref: env-report-sections
+            required: true
+    criteria:
+      - id: env-ratified
+        kind: gate
+        body:
+          gate: deliverable.ratified
+          params: {deliverable_id: env-report}
+        deliverable_ref: env-report
+        required: true
+        ord: 0
+      - id: target-installed
+        kind: text
+        body:
+          text: "{target_framework} installed and importable; a source-side smoke run reproduces."
+        deliverable_ref: env-report
+        required: true
+        ord: 1
+    tasks:
+      - id: clone
+        title: "Clone {source_repo} and inventory entry points"
+        ord: 0
+      - id: install-target
+        title: "Install the {target_framework} toolchain"
+        ord: 1
+      - id: smoke
+        title: "Reproduce a {source_framework} smoke run as the baseline"
+        ord: 2
+    plan:
+      title: "Stand up the migration environment"
+      steps:
+        - title: "Provision host + GPU access"
+          ord: 0
+        - title: "Install source and target frameworks"
+          ord: 1
+        - title: "Capture a source-side baseline run"
+          ord: 2
+
+  port:
+    display_name: "Port"
+    abbrev: "Port"
+    overview_widget: deliverable_focus
+    tiles: [Documents, Plans]
+    deliverables:
+      - id: port-map
+        kind: port-map
+        display_name: "Port map"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: document
+            ref: port-map-sections
+            required: true
+    criteria:
+      - id: port-ratified
+        kind: gate
+        body:
+          gate: deliverable.ratified
+          params: {deliverable_id: port-map}
+        deliverable_ref: port-map
+        required: true
+        ord: 0
+      - id: api-coverage
+        kind: metric
+        body:
+          metric: port.api_coverage
+          operator: ">="
+          threshold: 0.9
+          evaluation: auto
+        deliverable_ref: port-map
+        required: false
+        ord: 1
+    tasks:
+      - id: map-apis
+        title: "Map every {source_framework} API call to its {target_framework} equivalent"
+        ord: 0
+      - id: port-modules
+        title: "Port modules in dependency order"
+        ord: 1
+    plan:
+      title: "Translate the source to the target framework"
+      steps:
+        - title: "Enumerate source APIs and find target equivalents"
+          ord: 0
+        - title: "Port leaf modules first, then their dependents"
+          ord: 1
+        - title: "Flag unmapped APIs for a design decision"
+          ord: 2
+
+  integrate:
+    display_name: "Integrate"
+    abbrev: "Integ"
+    overview_widget: deliverable_focus
+    tiles: [Outputs, Documents]
+    deliverables:
+      - id: integration-build
+        kind: build
+        display_name: "Integration build"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: artifact
+            ref: ci-run
+            required: true
+    criteria:
+      - id: integrate-ratified
+        kind: gate
+        body:
+          gate: deliverable.ratified
+          params: {deliverable_id: integration-build}
+        deliverable_ref: integration-build
+        required: true
+        ord: 0
+      - id: ci-green
+        kind: text
+        body:
+          text: "The ported system builds and its test suite is green on {target_framework}."
+        deliverable_ref: integration-build
+        required: true
+        ord: 1
+    tasks:
+      - id: wire-ci
+        title: "Wire CI for the {target_framework} build"
+        ord: 0
+      - id: fix-breaks
+        title: "Resolve integration breakages until the suite is green"
+        ord: 1
+    plan:
+      title: "Make the ported system build and pass tests"
+      steps:
+        - title: "Stand up a CI pipeline on the target"
+          ord: 0
+        - title: "Drive the test suite to green"
+          ord: 1
+
+  experiment:
+    display_name: "Experiment"
+    abbrev: "Exp"
+    overview_widget: experiment_dash
+    tiles: [Outputs, Experiments, Documents]
+    deliverables:
+      - id: parity-results
+        kind: experiment-results
+        display_name: "Parity results"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: document
+            ref: parity-report-sections
+            required: true
+            ord: 0
+          - kind: artifact
+            ref: parity-eval-aggregated
+            required: true
+            ord: 1
+          - kind: run
+            ref: parity-sweep-run
+            required: true
+            ord: 2
+    criteria:
+      - id: parity-threshold
+        kind: metric
+        body:
+          # Reference example hardcodes the 0.95 default; parity_threshold
+          # drives the goal text + the director's review.
+          metric: migration.parity_ratio
+          operator: ">="
+          threshold: 0.95
+          evaluation: auto
+        deliverable_ref: parity-results
+        required: true
+        ord: 0
+      - id: parity-ratified
+        kind: gate
+        body:
+          gate: deliverable.ratified
+          params: {deliverable_id: parity-results}
+        deliverable_ref: parity-results
+        required: true
+        ord: 1
+      - id: director-signoff
+        kind: text
+        body:
+          text: "Director reviews the parity evidence and signs off."
+        deliverable_ref: parity-results
+        required: true
+        ord: 2
+    tasks:
+      - id: run-sweep
+        title: "Run the parity sweep within the {gpu_hours_budget} GPU-hour budget"
+        ord: 0
+      - id: compare
+        title: "Compare target {parity_metric} to the source baseline"
+        ord: 1
+    plan:
+      title: "Prove behavioural parity"
+      steps:
+        - title: "Define the parity sweep + eval harness"
+          ord: 0
+        - title: "Run the sweep and aggregate the series"
+          ord: 1
+        - title: "Report the parity ratio vs the threshold"
+          ord: 2
+
+  deliver:
+    display_name: "Deliver"
+    abbrev: "Ship"
+    overview_widget: recent_artifacts
+    tiles: [Outputs, Documents]
+    deliverables:
+      - id: migration-report
+        kind: report
+        display_name: "Migration report"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: document
+            ref: migration-report-sections
+            required: true
+    criteria:
+      - id: deliver-ratified
+        kind: gate
+        body:
+          gate: deliverable.ratified
+          params: {deliverable_id: migration-report}
+        deliverable_ref: migration-report
+        required: true
+        ord: 0
+      - id: director-accepts
+        kind: text
+        body:
+          text: "Director accepts the migrated system and the migration report."
+        deliverable_ref: migration-report
+        required: true
+        ord: 1
+    tasks:
+      - id: write-report
+        title: "Write the migration report (decisions, gaps, parity evidence)"
+        ord: 0
+      - id: open-pr
+        title: "Open the delivery PR against {source_repo}"
+        ord: 1
+    plan:
+      title: "Hand the migrated system back to the director"
+      steps:
+        - title: "Assemble the migration report"
+          ord: 0
+        - title: "Open the delivery PR and request review"
+          ord: 1
+
+# Document section schemas — typed bodies the document viewer renders.
+section_schemas:
+  env-report-sections:
+    schema_id: code-migration-env-report-v1
+    sections:
+      - { slug: host-setup,    title: "Host + GPU setup",      required: true }
+      - { slug: frameworks,    title: "Framework versions",    required: true }
+      - { slug: baseline-run,  title: "Baseline smoke run",    required: true }
+
+  port-map-sections:
+    schema_id: code-migration-port-map-v1
+    sections:
+      - { slug: api-mapping,   title: "API mapping",           required: true }
+      - { slug: unmapped,      title: "Unmapped / decisions",  required: true }
+      - { slug: module-order,  title: "Module port order",     required: false }
+
+  parity-report-sections:
+    schema_id: code-migration-parity-report-v1
+    sections:
+      - { slug: setup,         title: "Sweep setup",           required: true }
+      - { slug: results,       title: "Parity results",        required: true }
+      - { slug: gaps,          title: "Behavioural gaps",      required: false }
+
+  migration-report-sections:
+    schema_id: code-migration-report-v1
+    sections:
+      - { slug: summary,       title: "Summary",               required: true }
+      - { slug: decisions,     title: "Key decisions",         required: true }
+      - { slug: parity,        title: "Parity evidence",       required: true }
+      - { slug: followups,     title: "Follow-ups",            required: false }
+
+# Phase transitions. Forward path is explicit; admin reverts require admin
+# scope and aren't surfaced in the mobile UI.
+transitions:
+  - { from: env-setup,  to: port,       mode: explicit }
+  - { from: port,       to: integrate,  mode: explicit }
+  - { from: integrate,  to: experiment, mode: explicit }
+  - { from: experiment, to: deliver,    mode: explicit }
+  - { from: port,       to: env-setup,  mode: explicit, admin_only: true }
+  - { from: integrate,  to: port,       mode: explicit, admin_only: true }
+  - { from: experiment, to: integrate,  mode: explicit, admin_only: true }
+  - { from: deliver,    to: experiment, mode: explicit, admin_only: true }
+
+# Worker template hints — the steward consults these; the chassis does not
+# enforce them.
+worker_hints:
+  env-setup:
+    - coder.v1
+  port:
+    - coder.v1
+    - critic.v1
+  integrate:
+    - coder.v1
+    - critic.v1
+  experiment:
+    - ml-worker.v1
+    - coder.v1
+  deliver:
+    - critic.v1

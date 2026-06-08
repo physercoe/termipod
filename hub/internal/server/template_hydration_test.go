@@ -142,10 +142,15 @@ func TestResearchTemplate_ProjectCreateHydratesIdeaCriterion(t *testing.T) {
 	}
 }
 
-func TestResearchTemplate_LegacyTemplateUnaffected(t *testing.T) {
-	// Belt-and-braces — make sure the existing write-memo template's
-	// behaviour didn't shift when we extended the loader's data shape.
+func TestPhaselessTemplate_CreatesLifecycleDisabledProject(t *testing.T) {
+	// A template that declares no `phases:` must create a lifecycle-disabled
+	// project (phase stays empty), unchanged by the inline-spec loader work.
+	// (Previously asserted against the write-memo stub, removed in WS3 — now
+	// authored as an overlay so the case is self-contained.)
 	dir := t.TempDir()
+	const overlay = "name: phaseless-memo\nkind: goal\ngoal: just do it\n"
+	writeOverlayTemplate(t, dir, "phaseless-memo.v1.yaml", overlay)
+
 	dbPath := filepath.Join(dir, "hub.db")
 	tok, err := Init(dir, dbPath)
 	if err != nil {
@@ -165,7 +170,7 @@ func TestResearchTemplate_LegacyTemplateUnaffected(t *testing.T) {
 	tok = mintTeamToken(t, srv, "owner", team)
 
 	body, _ := json.Marshal(map[string]any{
-		"name": "memo-test", "kind": "goal", "template_id": "write-memo",
+		"name": "memo-test", "kind": "goal", "template_id": "phaseless-memo",
 	})
 	req := httptest.NewRequest(http.MethodPost,
 		"/v1/teams/"+team+"/projects", bytes.NewReader(body))
@@ -179,7 +184,7 @@ func TestResearchTemplate_LegacyTemplateUnaffected(t *testing.T) {
 	var p projectOut
 	_ = json.Unmarshal(rr.Body.Bytes(), &p)
 	if p.Phase != "" {
-		t.Errorf("write-memo project phase=%q want empty (no phases declared)",
+		t.Errorf("phaseless project phase=%q want empty (no phases declared)",
 			p.Phase)
 	}
 }

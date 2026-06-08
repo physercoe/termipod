@@ -29,9 +29,11 @@ A template called **`triage-paper`**: a 1-phase project that asks
 the steward to read a paper and produce a short triage memo. Two
 parameters: `paper_url` and `length`.
 
-Conceptually it's a tiny version of the bundled `write-memo`
-template ([`hub/templates/projects/write-memo.yaml`](../../hub/templates/projects/write-memo.yaml)).
-You're going to author your own from blank.
+Conceptually it's a tiny version of the bundled `code-migration`
+reference spec ([`hub/templates/projects/code-migration.v1.yaml`](../../hub/templates/projects/code-migration.v1.yaml)).
+You're going to author your own from blank. (Under ADR-046 a project's
+spec _is_ its `config_yaml`; the bundled YAMLs are reference examples of
+that schema, not an installed library — see ADR-046 for the full picture.)
 
 ---
 
@@ -43,10 +45,10 @@ not overwrite it.
 
 ```bash
 ls ~/hub-tut/default/templates/projects/
-# ablation-sweep.yaml  benchmark-comparison.yaml  reproduce-paper.yaml  write-memo.yaml
+# code-migration.v1.yaml  research.v1.yaml
 ```
 
-Those four are the bundled set. Your custom template will land
+Those two are the bundled reference set. Your custom template will land
 alongside them.
 
 ---

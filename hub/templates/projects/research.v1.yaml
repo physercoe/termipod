@@ -7,12 +7,31 @@ goal: |-
   The research topic itself goes in this project's `goal` text; this
   template is topic-agnostic. See docs/reference/research-template-spec.md
   (A6) for the canonical content of every phase.
+# Typed parameters (ADR-046 / WS2). The bare form still works; the typed
+# form documents each input and lets the create form validate it.
 parameters:
-  topic: ""
-  budget_gpu_hours: 24
-  metric_path: experiment.eval_accuracy
-  metric_threshold: 0.85
-on_create_template_id: agents.steward
+  topic:
+    type: string
+    required: true
+    description: "The research topic / question this project investigates."
+  budget_gpu_hours:
+    type: int
+    default: 24
+    min: 1
+    description: "Compute budget for the experiment phase."
+  metric_path:
+    type: string
+    default: experiment.eval_accuracy
+    description: "Dotted path of the headline metric the experiment optimises."
+  metric_threshold:
+    type: number
+    default: 0.85
+    min: 0
+    max: 1
+    description: "Minimum headline-metric value the experiment gate accepts."
+# The project's bound domain steward (ADR-046). Create binds it; an explicit
+# Start spawns it (WS4).
+on_create_template_id: agents.steward.research
 # No project-level overview_widget — each phase_spec below declares its
 # own hero. Without a phase, the chassis falls through to the default
 # (task_milestone_list), which is appropriate for the rare pre-phase
@@ -53,6 +72,20 @@ phase_specs:
           text: "Director ratifies overall scope and direction."
         required: true
         ord: 0
+    tasks:
+      - id: frame-question
+        title: "Frame the research question for {topic}"
+        ord: 0
+      - id: scope-memo
+        title: "Draft an idea memo and request director ratification"
+        ord: 1
+    plan:
+      title: "Agree the scope"
+      steps:
+        - title: "Frame the question and success criteria"
+          ord: 0
+        - title: "Write the idea memo for director review"
+          ord: 1
 
   lit-review:
     display_name: "Literature review"
@@ -89,6 +122,20 @@ phase_specs:
         deliverable_ref: lit-review-doc
         required: false
         ord: 1
+    tasks:
+      - id: survey
+        title: "Survey prior work relevant to {topic}"
+        ord: 0
+      - id: write-litreview
+        title: "Write the literature review and position the project"
+        ord: 1
+    plan:
+      title: "Map the landscape"
+      steps:
+        - title: "Collect and read key prior work"
+          ord: 0
+        - title: "Identify gaps and position the project"
+          ord: 1
 
   method:
     display_name: "Method"
@@ -122,6 +169,20 @@ phase_specs:
         deliverable_ref: method-doc
         required: true
         ord: 1
+    tasks:
+      - id: design-method
+        title: "Design the method and experimental setup"
+        ord: 0
+      - id: budget-plan
+        title: "Estimate cost against the {budget_gpu_hours} GPU-hour budget"
+        ord: 1
+    plan:
+      title: "Design the approach"
+      steps:
+        - title: "Specify hypothesis, approach, and evaluation"
+          ord: 0
+        - title: "Estimate and cap the compute budget"
+          ord: 1
 
   experiment:
     display_name: "Experiment"
@@ -191,6 +252,20 @@ phase_specs:
         deliverable_ref: experiment-results
         required: true
         ord: 2
+    tasks:
+      - id: run-sweep
+        title: "Run the experiment sweep within the {budget_gpu_hours} GPU-hour budget"
+        ord: 0
+      - id: analyse
+        title: "Analyse results against {metric_path}"
+        ord: 1
+    plan:
+      title: "Run the experiments"
+      steps:
+        - title: "Execute the sweep and collect runs"
+          ord: 0
+        - title: "Aggregate metrics and write the experiment report"
+          ord: 1
 
   paper:
     display_name: "Paper"
@@ -217,6 +292,20 @@ phase_specs:
         deliverable_ref: paper-draft
         required: true
         ord: 0
+    tasks:
+      - id: draft-paper
+        title: "Draft the paper from the method + experiment results"
+        ord: 0
+      - id: revise
+        title: "Revise to address director feedback"
+        ord: 1
+    plan:
+      title: "Write the paper"
+      steps:
+        - title: "Assemble the draft from prior phases"
+          ord: 0
+        - title: "Revise and request director ratification"
+          ord: 1
 
 # Document section schemas — typed bodies the W5a viewer renders.
 # Documents are created at `documents.schema_id = "<schema_id>"` and the

@@ -1,7 +1,9 @@
 # 044. The project lifecycle is adaptive, not a fixed template contract
 
 > **Type:** decision
-> **Status:** Accepted (2026-06-05) — director resolved the four open
+> **Status:** Accepted (2026-06-05) · **Amended (2026-06-08)** — see
+> [§Amendment](#amendment-2026-06-08--early-bind--completion-gating).
+> Director resolved the four open
 > questions (Q1–Q4 below). Director feedback on the deliverable/criteria/
 > phase-advance model surfaced during code-migration lifecycle testing
 > (issues [#18](https://github.com/physercoe/termipod/issues/18),
@@ -157,10 +159,46 @@ an in-flight project.
   now system-approved off the AC state; human judgment lives in `gate`
   criteria, not a separate override. (Folded into decision 3 + P3.)
 
+## Amendment (2026-06-08) — early-bind + completion-gating
+
+A second round of code-migration lifecycle testing (issues
+[#21](https://github.com/physercoe/termipod/issues/21)–[#41](https://github.com/physercoe/termipod/issues/41))
+surfaced that the original per-phase hydration (#20) materialized only the
+*current* phase's rows on entry. That left an inconsistent binding model —
+criteria late-bound, deliverables creatable in any phase, tasks with no phase
+at all (#22, #26) — and made future-phase work both invisible and ungoverned
+(#23). The director resolved the binding model.
+
+**Decision — early-bind.** All phases' criteria, deliverables, **and tasks**
+materialize at project **create**, not on phase entry. The whole roadmap is
+visible from day one and its *definitions stay editable* — consistent with
+"the lifecycle is adaptive": as the active phase advances, new situations
+require revising *future* phases' AC/deliverable definitions, and the steward/
+director must be able to. (Tasks gain a `phase` column to carry this; #22.)
+
+**Decision — completion-gating (the guardrail).** Editing what a future
+phase's AC/deliverable *is* stays ungated — definitions adapt. But
+**completion** is phase-gated: `deliverable.set_state → ratified` and marking a
+criterion `met` are **rejected unless the item's phase == the project's current
+phase**. `ratified → draft` happens only via `/unratify`, which **re-pends** any
+gate criterion that ratification fired (the inverse of
+`cascadeDeliverableRatified`). Lists return all phases; an optional `phase=`
+filter is a convenience, not a hide (future phases are intentionally visible).
+
+This **supersedes the "hydrate on phase entry" timing** of #20 — hydration now
+runs for every phase at create; the per-advance hydrate call becomes an
+idempotent repair. It closes #26 (symmetry across criteria/deliverables/tasks),
+#22 (visibility + `phase=` filter + tasks gain a phase), and #23 (the
+completion guardrail). The **source** the materializer reads is a project's own
+inline `config_yaml`, recorded in
+[ADR-046](046-projects-from-inline-spec.md), which also collapses the separate
+"project template" concept this ADR still assumed.
+
 ## References
 
 - Issues: #18 (MCP deliverable.create), #19 (MCP criteria.create), #20
-  (per-phase hydration — the foundation, shipped).
+  (per-phase hydration — the foundation, shipped); amendment: #21–#41
+  (lifecycle cluster), esp. #22/#23/#26.
 - Code: `internal/server/handlers_deliverables.go` (incl.
   `handleGetProjectOverview` — the aggregate `phase.status` reuses),
   `handlers_criteria.go`, `apply_phase_advance.go`,

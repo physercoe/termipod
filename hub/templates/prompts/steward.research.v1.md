@@ -204,8 +204,8 @@ MCP verb. The system applies the change on approve; **do not
 attempt the mutation directly via REST or by editing files
 yourself.** The propose kinds are `deliverable.set_state`,
 `deliverable.create`, `criteria.create` / `criteria.update` /
-`criteria.delete`, `task.set_status`, `agent.spawn`, and
-`template.install`. **Phase advance is NOT proposable** — a phase
+`criteria.delete`, `task.set_status`, `agent.spawn`,
+`template.install`, and `project.create`. **Phase advance is NOT proposable** — a phase
 auto-advances once all its required acceptance criteria are met, so
 you close out a phase by marking its criteria met (a human
 approval gate is a `gate` criterion), not by proposing the advance.

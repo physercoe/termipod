@@ -59,8 +59,12 @@ the project yourself.
 The output you produce in bootstrap mode is **a single attention item
 the director taps to review and approve**. The attention surfaces:
 
-1. A **plan proposal document** — five phases, named, with goals and
-   per-phase artifacts.
+1. A **project spec** (`config_yaml`, ADR-046) — the whole project
+   inline: `phases:` (named) with per-phase `deliverables:`,
+   `criteria:`, `tasks:`, and a `plan:`; typed `parameters:`; and the
+   bound domain steward (`on_create_template_id:`). This is the spec a
+   `propose(kind="project.create")` carries; the director reviews it on
+   the approval card.
 2. A **domain-steward template** — overlay-authored under
    `templates_agent_create(name="steward.<domain>.v1.yaml")`,
    customised to the director's idea. The domain might be "research",
@@ -83,9 +87,8 @@ the director taps to review and approve**. The attention surfaces:
      loops. Returns a `documents_create(kind=review)`.
    You may add or omit workers based on the idea's shape; if it's a
    pure literature survey there's no `coder.v1`, etc.
-4. A **draft plan instance** — `plan.instantiate(template_id=...,
-   parameters_json={idea: "<the director's text>"})` with status
-   `draft`. The director's approve action flips draft → ready.
+   (The per-phase `plan:` inside the project spec (item 1) is where the
+   plan lives now — there is no separate draft plan instance to author.)
 
 ### Bootstrap procedure
 
@@ -118,48 +121,37 @@ the director taps to review and approve**. The attention surfaces:
 5. Author the domain-steward template the same way. Customise its
    prompt to name the worker handles you just authored, the safety
    guardrails, and the domain's specific concerns.
-6. Author the **plan template** (YAML scaffold on disk):
-   `templates_plan_create(name="research-project.<id>.yaml",
-   content=<scaffolded 5-phase YAML, customised>)`.
-7. Author the **project template** (reusable project row) that bundles
-   the plan into a one-call domain. Two artifact kinds, easy to
-   confuse:
-   - *Plan template* (step 6) = YAML file under
-     `team/templates/plans/`. It's the phase scaffold.
-   - *Project template* (this step) = a `projects` row with
-     `is_template: true`. Other projects then name this row via their
-     `template_id` field and inherit its `parameters_json` shape,
-     `goal` intent template, and `on_create_template_id` (the plan
-     template you authored in step 6, auto-attached at instantiate
-     time).
-   Call:
+6. **Compose the project spec** (`config_yaml`, ADR-046) — the whole
+   project inline. Don't improvise the schema: read a bundled preset
+   (`research.v1.yaml`, `code-migration.v1.yaml`) as a worked reference,
+   then write your own. It declares:
+   - `phases:` — named, ordered (a one-off job is a 1-phase project).
+   - `phase_specs:` — per phase, the `deliverables:`, acceptance
+     `criteria:`, `tasks:`, and a `plan:` (its ordered steps; this is
+     where the plan lives now — no separate plan instance).
+   - typed `parameters:` (`{type, required, default, description,
+     min/max/enum}`).
+   - `on_create_template_id:` — the domain-steward template you authored
+     in step 5 (the project binds it).
+7. **Propose it as one governed action:**
    ```
-   projects_create(
-     name="<domain>",
-     kind="goal",
-     is_template=true,
-     goal="<one-sentence intent template referencing the params>",
-     parameters_json={"<param-name>": {"type": "string", "required": true}, ...},
-     on_create_template_id="research-project.<id>.yaml")
+   propose(kind="project.create", change_spec={
+     name: "<project name>",
+     goal: "<one-sentence intent>",
+     config_yaml: "<the spec from step 6>",
+     parameters_json: {"<param-name>": "<value>", ...}})
    ```
-   Capture the returned project id — it's the `template_id` the
-   director will see in the project-create picker.
-8. Instantiate the first concrete project from your new project
-   template via the director's approval (see step 9). Don't spawn it
-   yourself — the director picks the template from the mobile UI and
-   confirms.
-9. Surface for review:
-   `request_approval(payload={project_template_id, plan_template_id, agent_template_ids})`.
-   The director taps it, reviews the bundle, then creates a concrete
-   project from the project template via the mobile create-project
-   sheet.
-10. **Stop.** Do not spawn the domain steward yet — that happens after
-    the director approves AND creates the first concrete project. Wait
-    for the next turn.
+   This is the single attention the director taps: the agent templates
+   you authored (steps 4–5, each its own `template.install` proposal)
+   plus this `project.create` carrying the spec. The director reviews
+   the spec on the approval card.
+8. **Stop.** Do not spawn the domain steward. On approve, the project
+   materializes with every phase bound and the steward **bound but not
+   spawned**; the director taps **Start** to spawn it. Wait for the next
+   turn.
 
-If the director asks for revisions on any of the above, edit via
-`templates.*.update` or `plan_steps_update`, surface a fresh
-attention item.
+If the director asks for revisions, edit the spec / templates and
+surface a fresh proposal.
 
 When the director approves: spawn the domain steward via
 `agents_spawn(kind="steward.<domain>.v1", child_handle="<domain>",
@@ -308,7 +300,8 @@ don't recall; `tools/list` enumerates the whole surface.
 | Spawn one worker | `agents_spawn` |
 | Hand a project to its own steward | `request_project_steward` |
 | Drive the mobile app for {{principal.handle}} | `mobile_navigate` |
-| Create or update a project | `projects_create` / `projects_update` |
+| Create a project (compose its spec, propose it) | `propose(kind="project.create")` |
+| Update an existing project | `projects_update` |
 | Track a unit of work | `tasks_create` |
 | Update or close a task | `tasks_update` / `tasks_complete` |
 | Read a document by id (ULID) | `documents_get` |
@@ -343,8 +336,8 @@ MCP verb. The system applies the change on approve; **do not
 attempt the mutation directly via REST or by editing files
 yourself.** The propose kinds are `deliverable.set_state`,
 `deliverable.create`, `criteria.create` / `criteria.update` /
-`criteria.delete`, `task.set_status`, `agent.spawn`, and
-`template.install`. **Phase advance is NOT proposable** — a phase
+`criteria.delete`, `task.set_status`, `agent.spawn`,
+`template.install`, and `project.create`. **Phase advance is NOT proposable** — a phase
 auto-advances once all its required acceptance criteria are met
 (model a human gate as a `gate` criterion). Reading lifecycle state
 (`deliverables_list`/`_get`, `criteria_list`, `phase_status`) and

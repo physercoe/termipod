@@ -867,15 +867,43 @@ Project
  │     └── Acceptance criteria  (per-phase, optionally per-deliverable)
  ├── Plan  (one per project in practice)
  │     └── Plan-steps  (phase-bucketed via phase_idx)
- └── Tasks  (project-scoped, no phase column)
+ └── Tasks  (project-scoped, phase-tagged via tasks.phase — WS1)
 ```
 
 ### project
 A top-level work container. Owns phases, plans, tasks, deliverables,
 acceptance criteria, channels, schedules, artifacts, runs.
-- *Distinguish from:* **template** — projects are instances; templates
-  are blueprints stored on disk under `team/templates/projects/`.
+- *Distinguish from:* **project spec / project template** — a project's
+  spec *is* its own `config_yaml` (ADR-046); the on-disk presets under
+  `team/templates/projects/` are **reference examples** of that schema,
+  not a library you install from.
 - *Canonical:* migration `0001_initial.up.sql` + `0034_project_lifecycle`.
+
+### project spec (config_yaml)
+A project's full definition, carried **inline** in its own
+`config_yaml` (ADR-046): `phases:` (≥1; a one-off job is a 1-phase
+project), per-phase `deliverables:` / `criteria:` / `tasks:` / `plan:`,
+typed `parameters:`, and the bound domain steward
+(`on_create_template_id:`). An agent creates a project by composing this
+spec and calling `propose(kind="project.create")`; the principal reviews
+it on the approval card and on approve the project **materializes** with
+every phase early-bound. There is no separate install-a-project-template
+step.
+- *Distinguish from:* **template.install** — still a normal
+  agent-proposes / principal-approves action for agent / prompt / plan
+  templates; it is **not** the project-creation path.
+- *Canonical:* ADR-046, ADR-044 amendment.
+
+### Start (a project)
+The explicit gesture that spawns a project's **bound** domain steward.
+Create *binds* the steward (records `on_create_template_id`) but does
+**not** spawn it; `POST …/projects/{id}/start` (mobile: the "Not
+started — review & Start" affordance) spawns it. A project read exposes
+the derived `steward_started` flag.
+- *Distinguish from:* **create** (binds the steward, materializes the
+  phases) and **ensure-steward** (ADR-025 lazy-materialize on first
+  engagement — Start is the deliberate up-front variant).
+- *Canonical:* ADR-046.
 
 ### phase
 A string column on `projects` (e.g. `idea`, `lit-review`, `method`,

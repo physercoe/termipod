@@ -1,8 +1,11 @@
 # 046. A project's spec is its `config_yaml`; create is a governed action
 
 > **Type:** decision
-> **Status:** Proposed (2026-06-08) — director simplification during the
-> code-migration lifecycle review (issues #21–#41). Amends
+> **Status:** Accepted (2026-06-08) — implemented across WS0–WS5 (see the
+> [plan](../plans/projects-from-inline-spec.md)); director simplification during the
+> code-migration lifecycle review (issues #21–#41). **Amended same day** — see
+> [Amendment: `template.install` stays an agent-proposable action](#amendment-2026-06-08--templateinstall-stays-an-agent-proposable-action).
+> Amends
 > [044](044-adaptive-project-lifecycle.md); builds on
 > [030](030-governed-actions-and-propose-verb.md) (the `propose` verb),
 > [025](025-project-steward-accountability.md) (the project steward), and
@@ -80,6 +83,32 @@ Creating a project is one governed act; approving it materializes it. A
    spawn are separate events even though the proposal was already reviewed: the
    *spec* review (approval card) and the *materialized project* review (detail
    page) are distinct, and the director keeps the start trigger.
+
+## Amendment (2026-06-08) — `template.install` stays an agent-proposable action
+
+Decision §2 above (and the TL;DR) overstated the consequence as "there is **no
+`template.install` verb in the steward surface**" / "`template.install` remains
+a **principal-only** direct action." The director corrected this the same day:
+
+> The principal approves the `template.install`; **agents should be able to
+> propose a template.**
+
+What ADR-046 actually changes is narrower than "remove `template.install`":
+
+- **Project creation** no longer routes through installing-a-project-template.
+  A project's spec *is* its `config_yaml`, and an agent creates a project with
+  `propose(kind="project.create")`. This is the whole of #39/#40's fix — the
+  reviewable surface is the inline spec, not a blob `sha256`.
+- **`template.install` is unchanged** for what it is actually for — authoring
+  **agent / prompt / plan** templates. It stays a normal ADR-030 governed
+  action: an agent (steward) **proposes** it; the **principal approves**. It is
+  *not* gated principal-only, and it is *not* the project-creation path.
+
+So the two are orthogonal: `project.create` is how you create a *project*;
+`template.install` is how you author a reusable *template* (and a project no
+longer needs one — presets are reference examples). The steward prompts and
+`docs/reference/hub-mcp.md §4` reflect this split; the role gate is unchanged
+(no `template.install` principal-only gate was added).
 
 ## Consequences
 

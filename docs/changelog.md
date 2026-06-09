@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.810
+> **Last verified vs code:** v1.0.811
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -23,7 +23,46 @@ binding). Seed entries prior to that are in
 
 ---
 
-## v1.0.810-alpha — 2026-06-09
+## v1.0.811-alpha — 2026-06-09
+
+**Design-system enforcement (ADR-047): named tokens become the single
+source of truth.** The Flutter UI's spacing / radius / type / color
+conventions were defined but bypassed — three diverged sources of truth and
+a real WCAG failure. This release lands the full program: a token
+vocabulary, accessibility fixes, one shared chip, a CI ratchet that blocks
+new drift, and the first burn-down sweeps. No new product surface — the
+visual system made structurally true. Mobile parts await device-test.
+
+Added:
+- **Design tokens** (#87 `f0a7c5e`): `lib/theme/tokens.dart` —
+  `Spacing` (4px grid), `Radii` (M3 shape scale, `md=12` default),
+  `FontSizes` (6-step, 13 floor), `IconSizes`. New code composes from these
+  instead of ad-hoc literals (ADR-047 D-1..D-4). `tokens_test.dart` pins them.
+- **Shared chips** (#89 `a7455ee`): `lib/widgets/app_chip.dart` —
+  `AppStatusChip` (static tinted label) + `AppChoiceChip` (selectable
+  filter), plus a `ChipThemeData` in both schemes. Collapse the ~45 bespoke
+  `_*Chip`/`_*Pill` classes (D-7).
+- **Design-token ratchet** (#90 `b0babb4`): `scripts/lint-design-tokens.sh`
+  — a forward-only CI gate (bash + python3) that fails when an off-token
+  category rises above its grandfathered baseline; the backlog only shrinks
+  (D-9).
+
+Changed:
+- **WCAG 2.1 AA accessibility** (#88 `a06d805`): `textMuted` #6B7280→#868C96
+  (was 3.39:1 on surfaceDark, failed AA) and `textMutedLight`
+  #9CA3AF→#646B73 (was 2.54:1 on white); `contrast_test.dart` guards every
+  text token at ≥4.5:1 (D-6).
+- **One brand accent** (#88): `ColorScheme.secondary` wired to tonal cyan
+  `#009AA8` (was a literal copy of primary); amber is the warning semantic
+  only (D-5).
+- **Chip migrations** (#89/#92/#93/#94): the run/plan/review/task/document/
+  artifact status & kind filters, the project portfolio + Me activity badges,
+  the session-details chip row, and the propose-card transition/stalled chips
+  now use `AppChip` on tokens. Ratchet baseline 1230→1186.
+- **`ui-guidelines.md` reconciled** (#91 `a378524`) to describe the tokens
+  (it was stale since v1.0.312); colors/radius/type tables corrected (D-10).
+
+
 
 **Tester-feedback hardening: the authority MCP tool surface gets one
 canonical spelling per tool, the Insight transcript's turn / error

@@ -33,6 +33,7 @@ import '../services/hub/agent_status.dart';
 import '../services/hub/session_display.dart';
 import '../services/steward_handle.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 import 'agent_category_style.dart';
 
 /// Retarget callback: `(agentId, sessionId, live)` for the picked run.
@@ -201,7 +202,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 10, 6, 4),
+                        padding: const EdgeInsets.fromLTRB(Spacing.s12, Spacing.s8, Spacing.s8, 4),
                         child: Row(
                           children: [
                             Icon(Icons.account_tree_outlined,
@@ -385,14 +386,14 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     VoidCallback? onBack,
   }) =>
       Padding(
-        padding: const EdgeInsets.fromLTRB(8, 12, 14, 8),
+        padding: const EdgeInsets.fromLTRB(8, 12, Spacing.s12, 8),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (onBack != null)
               InkWell(
                 onTap: onBack,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: Radii.smBorder,
                 child: Padding(
                   padding: const EdgeInsets.all(4),
                   child: Icon(Icons.chevron_left, size: 20, color: fg),
@@ -421,7 +422,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.jetBrainsMono(
-                      fontSize: 9,
+                      fontSize: FontSizes.label,
                       fontWeight: FontWeight.w600,
                       letterSpacing: 0.5,
                       color: muted,
@@ -435,7 +436,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
       );
 
   Widget _emptyRow(String message, Color muted) => Padding(
-        padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+        padding: const EdgeInsets.fromLTRB(Spacing.s12, 4, Spacing.s12, 8),
         child: Text(message,
             style: GoogleFonts.spaceGrotesk(fontSize: 12, color: muted)),
       );
@@ -463,7 +464,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
       child: InkWell(
         onTap: active ? null : () => _pickAgent(a),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: Spacing.s8),
           child: Row(
             children: [
               Container(
@@ -494,7 +495,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                 Text(
                   agentStatusLabelResumable(status, resumable),
                   style:
-                      GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+                      GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
                 ),
             ],
           ),
@@ -539,7 +540,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
             ? null
             : () => _retarget(agentId, sid, isLive),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: Spacing.s8),
           child: Row(
             children: [
               Icon(style.icon, size: 16, color: style.color),
@@ -564,7 +565,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10, color: muted),
+                            fontSize: FontSizes.label, color: muted),
                       ),
                   ],
                 ),
@@ -580,7 +581,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
               if (status.isNotEmpty)
                 Text(
                   status,
-                  style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+                  style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
                 ),
             ],
           ),
@@ -617,7 +618,7 @@ class SessionsRailHandle extends StatelessWidget {
         borderRadius:
             const BorderRadius.horizontal(right: Radius.circular(10)),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s4, vertical: Spacing.s12),
           child: Icon(Icons.chevron_right, size: 18, color: muted),
         ),
       ),

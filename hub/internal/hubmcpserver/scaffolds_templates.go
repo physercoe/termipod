@@ -26,15 +26,15 @@ import (
 // Tool definitions
 // ---------------------------------------------------------------------
 
-// scaffoldToolFor returns the `templates.<cat>.scaffold` tool for one
+// scaffoldToolFor returns the `templates_<cat>_scaffold` tool for one
 // category. Wired into templateToolDefs() in tools_templates.go.
 func scaffoldToolFor(toolPrefix, dirName, ext string) toolDef {
 	return toolDef{
-		Name: "templates." + toolPrefix + ".scaffold",
+		Name: "templates_" + toolPrefix + "_scaffold",
 		Description: "Return a clean " + toolPrefix + " template skeleton with " +
 			"placeholder values + schema-mandated fields populated. The agent " +
-			"customises in-place, then writes back via `templates." + toolPrefix +
-			".create(name=<name>" + ext + ", content=<filled skeleton>)`. Args " +
+			"customises in-place, then writes back via `templates_" + toolPrefix +
+			"_create(name=<name>" + ext + ", content=<filled skeleton>)`. Args " +
 			"select the variant when one category has multiple shapes (agent: " +
 			"`kind=worker|steward`; plan: `phases=N`). The returned `content` " +
 			"is the full file body; do not concatenate or partially fill — " +

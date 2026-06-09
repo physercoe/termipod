@@ -46,13 +46,13 @@ func (s *Server) authorizeAgentsSpawn(agentID string, raw json.RawMessage) *jrpc
 	).Scan(&callerKind); err != nil {
 		return &jrpcError{
 			Code:    -32601,
-			Message: "agents.spawn: caller agent not found",
+			Message: "agents_spawn: caller agent not found",
 		}
 	}
 	if callerKind == generalStewardKind {
 		return &jrpcError{
 			Code: -32601,
-			Message: "agents.spawn: general steward must delegate via " +
+			Message: "agents_spawn: general steward must delegate via " +
 				"request_project_steward (ADR-025 D2)",
 		}
 	}
@@ -74,7 +74,7 @@ func (s *Server) authorizeAgentsSpawn(agentID string, raw json.RawMessage) *jrpc
 	).Scan(&stewardID); err != nil {
 		return &jrpcError{
 			Code:    -32601,
-			Message: "agents.spawn: project " + projectID + " not found",
+			Message: "agents_spawn: project " + projectID + " not found",
 		}
 	}
 	if stewardID == "" {
@@ -83,14 +83,14 @@ func (s *Server) authorizeAgentsSpawn(agentID string, raw json.RawMessage) *jrpc
 		// project-bound spawn is allowed.
 		return &jrpcError{
 			Code: -32601,
-			Message: "agents.spawn: project has no steward yet; " +
+			Message: "agents_spawn: project has no steward yet; " +
 				"call POST /steward/ensure first (ADR-025 W3)",
 		}
 	}
 	if stewardID != agentID {
 		return &jrpcError{
 			Code: -32601,
-			Message: "agents.spawn: caller is not the steward for project " +
+			Message: "agents_spawn: caller is not the steward for project " +
 				projectID + " (ADR-025 D3)",
 		}
 	}

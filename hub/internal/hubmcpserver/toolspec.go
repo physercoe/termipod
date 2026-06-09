@@ -7,9 +7,9 @@
 //
 // W1 migrates the `documents` domain as the proof. Migrated tools
 // keep their REST-adapter dispatch — the toolDef.call closures in
-// tools.go, reached via Dispatch — and ToolSpec.Backend names the
-// legacy entry that still carries that closure. Later wedges add
-// native-handler dispatch and the remaining domains.
+// tools.go, reached via Dispatch under their canonical snake_case
+// name (Backend == Name). Later wedges add native-handler dispatch
+// and the remaining domains.
 package hubmcpserver
 
 import "encoding/json"
@@ -42,7 +42,7 @@ type ToolSpec struct {
 	InputSchema    json.RawMessage //
 	Tier           string          // permission tier — replaces tiers.go toolTiers
 	WorkerEligible bool            // default role eligibility (D-3); stewards always allowed
-	Backend        string          // authority dispatch: the buildTools() name carrying the REST adapter
+	Backend        string          // authority dispatch key == Name (non-empty); "" marks a native tool (see native_tools.go)
 
 	// --- ADR-031 D-1 structured payload (W2.b) ---
 
@@ -85,11 +85,11 @@ func deprecatedPrefix(canonical string) string {
 }
 
 // toolRegistry is the unified registry. Authority tools keep their REST
-// adapters in buildTools() under the dotted names; each ToolSpec names that
-// adapter as its Backend (the dispatch key, NOT a callable name — the dotted
-// spellings were retired as callable aliases in WS1.1) and reuses its
-// Description + InputSchema so there is no copy drift. WorkerEligible mirrors
-// what roles.yaml grants today (verified per tool) so authz is preserved.
+// adapters in buildTools() under their canonical snake_case name; each
+// ToolSpec sets Backend == Name (the closure key == the agent-callable name,
+// one spelling across every layer) and reuses the closure's Description +
+// InputSchema so there is no copy drift. WorkerEligible mirrors what
+// roles.yaml grants today (verified per tool) so authz is preserved.
 //
 //	W1 — documents.   W2 — projects / plans / runs / artifacts.
 //	W3 — agents / hosts / reviews / channels / a2a (authority-backed
@@ -103,13 +103,16 @@ func deprecatedPrefix(canonical string) string {
 //	     path too.
 func toolRegistry() []ToolSpec {
 	tools := buildTools()
-	// spec builds one ToolSpec for an authority-backed tool. backend is
-	// the buildTools() name carrying the REST adapter — it is the dispatch
-	// key (Name → Backend), NOT a callable name. The deprecated dotted/old
-	// spellings were retired in WS1.1 (internal-techdebt-cleanup): only the
-	// canonical snake_case `name` resolves now; Aliases stays empty.
-	spec := func(name, backend, short, tier string, workerEligible bool) ToolSpec {
-		d, _ := findTool(tools, backend)
+	// spec builds one ToolSpec for an authority-backed tool. `name` is the
+	// canonical snake_case spelling (ADR-033 D-1): the only agent-callable
+	// name, the buildTools() closure key, AND the dispatch key — Backend ==
+	// Name. (The dotted resource.verb spellings the closures once carried
+	// were retired as callable aliases in WS1.1, then collapsed into the
+	// snake name in the naming-unify refactor; Backend stays a distinct
+	// field only because native tools set it "" as the authority-vs-native
+	// dispatch marker — see native_tools.go.)
+	spec := func(name, short, tier string, workerEligible bool) ToolSpec {
+		d, _ := findTool(tools, name)
 		return ToolSpec{
 			Name:           name,
 			Short:          short,
@@ -117,175 +120,175 @@ func toolRegistry() []ToolSpec {
 			InputSchema:    d.InputSchema,
 			Tier:           tier,
 			WorkerEligible: workerEligible,
-			Backend:        backend,
+			Backend:        name,
 		}
 	}
 	specs := []ToolSpec{
 		// --- documents (W1) ---
-		spec("documents_list", "documents.list",
+		spec("documents_list",
 			"List documents in the team (rows, not bodies). Optional: project (id).",
 			tierTrivial, true),
-		spec("documents_get", "documents.get",
+		spec("documents_get",
 			"Fetch one document by id, with its full body. Required: document_id (ULID).",
 			tierTrivial, true),
-		spec("documents_create", "documents.create",
+		spec("documents_create",
 			"Create a document. Required: project_id, kind, title, and one of content_inline | artifact_id.",
 			tierRoutine, true),
 		// --- projects (W2) ---
-		spec("projects_list", "projects.list",
+		spec("projects_list",
 			"List projects in the team. Optional: kind (goal|standing).",
 			tierTrivial, true),
-		spec("projects_get", "projects.get",
+		spec("projects_get",
 			"Fetch one project by id. Required: project.",
 			tierTrivial, true),
-		spec("projects_create", "projects.create",
+		spec("projects_create",
 			"Create a project or project template. Required: name, kind (goal|standing).",
 			tierSignificant, false),
-		spec("projects_update", "projects.update",
+		spec("projects_update",
 			"Update a project's editable fields (goal, budget, steward, …). Required: project.",
 			tierRoutine, false),
 		// --- project lifecycle: deliverables + criteria + phase (ADR-044 P1) ---
-		spec("deliverables_list", "deliverables.list",
+		spec("deliverables_list",
 			"List a project's deliverables (work products gated per phase). Required: project. Optional: phase, state.",
 			tierTrivial, true),
-		spec("deliverables_get", "deliverables.get",
+		spec("deliverables_get",
 			"Fetch one deliverable with its components. Required: project, deliverable.",
 			tierTrivial, true),
-		spec("criteria_list", "criteria.list",
+		spec("criteria_list",
 			"List a project's acceptance criteria (the rubric). Required: project. Optional: phase, deliverable_id.",
 			tierTrivial, true),
-		spec("phase_status", "phase.status",
+		spec("phase_status",
 			"Project lifecycle status for the active phase: phase + deliverables (with components) + criteria/deliverable counts. Required: project.",
 			tierTrivial, true),
-		spec("deliverables_add_component", "deliverables.add_component",
+		spec("deliverables_add_component",
 			"Attach a produced document/artifact/run/commit to a deliverable you are materializing. Required: project, deliverable, kind, ref_id.",
 			tierRoutine, true),
-		spec("deliverables_remove_component", "deliverables.remove_component",
+		spec("deliverables_remove_component",
 			"Remove a component you attached to a deliverable. Required: project, deliverable, component.",
 			tierRoutine, true),
-		spec("deliverables_set_state", "deliverables.set_state",
+		spec("deliverables_set_state",
 			"Move your own deliverable between draft and in-review. Required: project, deliverable, state. (Ratify via a deliverable.set_state proposal.)",
 			tierRoutine, true),
-		spec("criteria_set_state", "criteria.set_state",
+		spec("criteria_set_state",
 			"Mark a text/metric criterion met or failed as you complete its work. Required: project, criterion, state. gate criteria are chassis-evaluated.",
 			tierRoutine, true),
 		// --- plans + steps (W2) ---
-		spec("plans_list", "plans.list",
+		spec("plans_list",
 			"List plans, optionally filtered to one project.",
 			tierTrivial, true),
-		spec("plans_get", "plans.get",
+		spec("plans_get",
 			"Fetch one plan by id. Required: plan.",
 			tierTrivial, true),
-		spec("plans_create", "plans.create",
+		spec("plans_create",
 			"Create a plan for a project. Required: project, title.",
 			tierRoutine, false),
-		spec("plan_steps_create", "plans.steps.create",
+		spec("plan_steps_create",
 			"Add a step to a plan. Required: plan, phase_idx, step_idx, kind.",
 			tierRoutine, false),
-		spec("plan_steps_list", "plans.steps.list",
+		spec("plan_steps_list",
 			"List the steps of a plan. Required: plan.",
 			tierTrivial, true),
-		spec("plan_steps_update", "plans.steps.update",
+		spec("plan_steps_update",
 			"Update a plan step's status or refs. Required: plan, step.",
 			tierRoutine, false),
 		// --- runs (W2) ---
-		spec("runs_list", "runs.list",
+		spec("runs_list",
 			"List runs, optionally filtered to one project.",
 			tierTrivial, true),
-		spec("runs_get", "runs.get",
+		spec("runs_get",
 			"Fetch one run by id. Required: run.",
 			tierTrivial, true),
-		spec("runs_create", "runs.create",
+		spec("runs_create",
 			"Create a run under a project. Required: project_id.",
 			tierRoutine, true),
-		spec("runs_update", "runs.update",
+		spec("runs_update",
 			"Update an existing run's mutable fields (status, config, or link "+
 				"trackio metrics). Required: run. Fixes typos without recreating.",
 			tierRoutine, true),
-		spec("runs_delete", "runs.delete",
+		spec("runs_delete",
 			"Delete a run created in error (digests removed, artifacts detached). "+
 				"Required: run. Use runs.update status=cancelled to keep it for audit.",
 			tierRoutine, false),
-		spec("runs_detach_artifact", "runs.detach_artifact",
+		spec("runs_detach_artifact",
 			"Unlink a wrongly-attached artifact from a run (keeps the artifact). "+
 				"Required: run, artifact.",
 			tierRoutine, false),
-		spec("runs_attach_artifact", "runs.attach_artifact",
+		spec("runs_attach_artifact",
 			"Attach an artifact to a run. Required: run, project_id, kind, name, uri.",
 			tierRoutine, true),
 		// --- artifacts (W2) ---
-		spec("artifacts_list", "artifacts.list",
+		spec("artifacts_list",
 			"List artifacts, optionally filtered by project, run, or kind.",
 			tierTrivial, true),
-		spec("artifacts_get", "artifacts.get",
+		spec("artifacts_get",
 			"Fetch one artifact by id. Required: artifact.",
 			tierTrivial, true),
-		spec("artifacts_create", "artifacts.create",
+		spec("artifacts_create",
 			"Create an artifact record. Required: project_id, kind, name, uri.",
 			tierRoutine, false),
 		// --- agents (W3) ---
 		// agents_list absorbed the legacy thin `list_agents` (ADR-033
 		// D-4); the `list_agents` alias was retired in WS1.1.
-		spec("agents_list", "agents.list",
+		spec("agents_list",
 			"List agents in the team (terminal-status rows hidden by default). Optional: host_id, status, live, project_id, include_terminated, include_archived.",
 			tierTrivial, true),
-		spec("agents_get", "agents.get",
+		spec("agents_get",
 			"Fetch one agent by id, with full detail. Required: agent (id).",
 			tierTrivial, true),
-		spec("agents_spawn", "agents.spawn",
+		spec("agents_spawn",
 			"Spawn a child agent. Required: child_handle, kind, spawn_spec_yaml, host_id (call hosts.list first). Project-bound spawns require the caller to be that project's steward.",
 			tierSignificant, false),
-		spec("agents_stop", "agents.stop",
+		spec("agents_stop",
 			"Stop a worker (reversible): kill the agent, session → paused. Resumable via agents.resume. Required: agent (id).",
 			tierRoutine, false),
-		spec("agents_terminate", "agents.terminate",
+		spec("agents_terminate",
 			"Terminate a worker permanently: kill the agent and archive its session (fork-only, not resumable). Required: agent (id). Use agents.stop if you may want it back.",
 			tierSignificant, false),
-		spec("agents_resume", "agents.resume",
+		spec("agents_resume",
 			"Inverse of agents.stop: respawn a stopped agent's paused session (fresh process, continues from worktree+cursor). Required: agent (id).",
 			tierRoutine, false),
 		// --- hosts (W3) ---
-		spec("hosts_list", "hosts.list",
+		spec("hosts_list",
 			"List host-runners registered with the team (id, name, status, capabilities). No arguments.",
 			tierTrivial, true),
-		spec("hosts_get", "hosts.get",
+		spec("hosts_get",
 			"Fetch one host-runner by id. Required: host (id).",
 			tierTrivial, true),
-		spec("hosts_update_ssh_hint", "hosts.update_ssh_hint",
+		spec("hosts_update_ssh_hint",
 			"Patch a host's non-secret ssh_hint_json. Required: host (id), ssh_hint (object). Secret-bearing keys are rejected.",
 			tierSignificant, false),
 		// --- reviews (W3) ---
-		spec("reviews_list", "reviews.list",
+		spec("reviews_list",
 			"List reviews. Optional: project (id).",
 			tierTrivial, true),
-		spec("reviews_create", "reviews.create",
+		spec("reviews_create",
 			"Create a review request. Typical fields: project, document_id, reviewer, question.",
 			tierRoutine, true),
 		// --- channels (W3) ---
-		spec("channels_post_event", "channels.post_event",
+		spec("channels_post_event",
 			"Post an event to a channel. Required: channel, type, and a non-empty parts array.",
 			tierRoutine, true),
 		// --- a2a (W3) ---
-		spec("a2a_invoke", "a2a.invoke",
+		spec("a2a_invoke",
 			"Send an A2A message to another agent by handle. Required: handle, text. Workers may target only their parent steward.",
 			tierSignificant, true),
-		spec("a2a_cards_list", "a2a.cards.list",
+		spec("a2a_cards_list",
 			"List A2A agent cards in the team — the directory a2a_invoke resolves handles against. Optional: handle (scope to one).",
 			tierTrivial, true),
 		// --- tasks (W4) ---
-		spec("tasks_list", "tasks.list",
+		spec("tasks_list",
 			"List tasks for a project. Required: project_id. Optional: status, priority, sort.",
 			tierTrivial, true),
 		// tasks_get absorbed the legacy native `get_task` (ADR-033 D-4);
 		// the adapter accepts a bare task id. The `get_task` alias was
 		// retired in WS1.1.
-		spec("tasks_get", "tasks.get",
+		spec("tasks_get",
 			"Get one task by id. Required: task (ULID). Optional: project_id.",
 			tierTrivial, true),
-		spec("tasks_create", "tasks.create",
+		spec("tasks_create",
 			"Create a task under a project. Required: project_id, title.",
 			tierRoutine, true),
-		spec("tasks_update", "tasks.update",
+		spec("tasks_update",
 			"Patch a task's fields (title, body_md, status, priority, …). Required: project_id, task.",
 			tierRoutine, true),
 		// tasks_complete is the worker-facing close-out verb (ADR-029
@@ -295,100 +298,100 @@ func toolRegistry() []ToolSpec {
 		// bundled worker template's default_capabilities lists it. The
 		// pre-fix `false` here contradicted both surfaces and forced
 		// workers into request_help to finish their own tasks.
-		spec("tasks_complete", "tasks.complete",
+		spec("tasks_complete",
 			"Close out an assigned task — bundles status=done + result_summary. Required: project_id, task.",
 			tierRoutine, true),
-		spec("tasks_delete", "tasks.delete",
+		spec("tasks_delete",
 			"Delete a task. Required: project_id, task. Use tasks_update status=cancelled to keep it for the audit trail.",
 			tierRoutine, false),
 		// --- schedules (W4) ---
-		spec("schedules_list", "schedules.list",
+		spec("schedules_list",
 			"List schedules for the team. Optional: project (id).",
 			tierTrivial, true),
-		spec("schedules_create", "schedules.create",
+		spec("schedules_create",
 			"Create a schedule that fires a plan from a template. Required: project_id, template_id, trigger_kind.",
 			tierSignificant, false),
-		spec("schedules_update", "schedules.update",
+		spec("schedules_update",
 			"Patch a schedule (enabled, cron_expr, parameters_json). Required: schedule (id).",
 			tierRoutine, false),
-		spec("schedules_delete", "schedules.delete",
+		spec("schedules_delete",
 			"Delete a schedule. Required: schedule (id).",
 			tierRoutine, false),
-		spec("schedules_run", "schedules.run",
+		spec("schedules_run",
 			"Manually fire a schedule, returning the new plan_id. Required: schedule (id).",
 			tierSignificant, false),
 		// --- misc authority-backed (W4) ---
 		// audit_read absorbed the legacy `get_audit` (ADR-033 D-4) — same
 		// data, same 500 cap, forwards the `action` filter. The
 		// `get_audit` alias was retired in WS1.1.
-		spec("audit_read", "audit.read",
+		spec("audit_read",
 			"List audit events for the team. Optional: limit, since, action.",
 			tierTrivial, true),
-		spec("policy_read", "policy.read",
+		spec("policy_read",
 			"Read the team policy document (STUB — returns placeholder rules). No arguments.",
 			tierTrivial, true),
-		spec("mobile_navigate", "mobile.navigate",
+		spec("mobile_navigate",
 			"Navigate the user's mobile app to a termipod:// URI.",
 			tierTrivial, false),
-		spec("project_channels_create", "project_channels.create",
+		spec("project_channels_create",
 			"Create a channel scoped to one project. Required: project_id, name.",
 			tierRoutine, false),
-		spec("team_channels_create", "team_channels.create",
+		spec("team_channels_create",
 			"Create a team-scope channel. Required: name.",
 			tierRoutine, false),
 		// --- templates (W6) — 3 categories × 6 ops ---
-		spec("templates_agent_create", "templates.agent.create",
+		spec("templates_agent_create",
 			"Create an agent template in the team overlay. Required: name, content.",
 			tierSignificant, false),
-		spec("templates_agent_update", "templates.agent.update",
+		spec("templates_agent_update",
 			"Update an agent template. Required: name, content (full overwrite).",
 			tierSignificant, false),
-		spec("templates_agent_delete", "templates.agent.delete",
+		spec("templates_agent_delete",
 			"Delete an agent template from the team overlay. Required: name.",
 			tierSignificant, false),
-		spec("templates_agent_list", "templates.agent.list",
+		spec("templates_agent_list",
 			"List agent templates in the team overlay.",
 			tierTrivial, true),
-		spec("templates_agent_get", "templates.agent.get",
+		spec("templates_agent_get",
 			"Fetch an agent template (overlay merged with the bundled built-in). Required: name.",
 			tierTrivial, true),
-		spec("templates_agent_scaffold", "templates.agent.scaffold",
+		spec("templates_agent_scaffold",
 			"Return an empty agent-template skeleton to customise.",
 			tierTrivial, false),
-		spec("templates_prompt_create", "templates.prompt.create",
+		spec("templates_prompt_create",
 			"Create a prompt template in the team overlay. Required: name, content.",
 			tierSignificant, false),
-		spec("templates_prompt_update", "templates.prompt.update",
+		spec("templates_prompt_update",
 			"Update a prompt template. Required: name, content (full overwrite).",
 			tierSignificant, false),
-		spec("templates_prompt_delete", "templates.prompt.delete",
+		spec("templates_prompt_delete",
 			"Delete a prompt template from the team overlay. Required: name.",
 			tierSignificant, false),
-		spec("templates_prompt_list", "templates.prompt.list",
+		spec("templates_prompt_list",
 			"List prompt templates in the team overlay.",
 			tierTrivial, true),
-		spec("templates_prompt_get", "templates.prompt.get",
+		spec("templates_prompt_get",
 			"Fetch a prompt template (overlay merged with the bundled built-in). Required: name.",
 			tierTrivial, true),
-		spec("templates_prompt_scaffold", "templates.prompt.scaffold",
+		spec("templates_prompt_scaffold",
 			"Return an empty prompt-template skeleton to customise.",
 			tierTrivial, false),
-		spec("templates_plan_create", "templates.plan.create",
+		spec("templates_plan_create",
 			"Create a plan template in the team overlay. Required: name, content.",
 			tierSignificant, false),
-		spec("templates_plan_update", "templates.plan.update",
+		spec("templates_plan_update",
 			"Update a plan template. Required: name, content (full overwrite).",
 			tierSignificant, false),
-		spec("templates_plan_delete", "templates.plan.delete",
+		spec("templates_plan_delete",
 			"Delete a plan template from the team overlay. Required: name.",
 			tierSignificant, false),
-		spec("templates_plan_list", "templates.plan.list",
+		spec("templates_plan_list",
 			"List plan templates in the team overlay.",
 			tierTrivial, true),
-		spec("templates_plan_get", "templates.plan.get",
+		spec("templates_plan_get",
 			"Fetch a plan template (overlay merged with the bundled built-in). Required: name.",
 			tierTrivial, true),
-		spec("templates_plan_scaffold", "templates.plan.scaffold",
+		spec("templates_plan_scaffold",
 			"Return an empty plan-template skeleton to customise.",
 			tierTrivial, false),
 	}

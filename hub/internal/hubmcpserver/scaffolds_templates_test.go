@@ -134,9 +134,9 @@ func TestScaffoldPlan_PhaseCount(t *testing.T) {
 func TestScaffoldRegistered_ToolCatalogIncludesScaffolds(t *testing.T) {
 	tools := buildTools()
 	want := map[string]bool{
-		"templates.agent.scaffold":  false,
-		"templates.prompt.scaffold": false,
-		"templates.plan.scaffold":   false,
+		"templates_agent_scaffold":  false,
+		"templates_prompt_scaffold": false,
+		"templates_plan_scaffold":   false,
 	}
 	for _, tool := range tools {
 		if _, ok := want[tool.Name]; ok {

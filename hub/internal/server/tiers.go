@@ -81,80 +81,15 @@ var toolTiers = map[string]string{
 	"reports.post":  TierTrivial,     // worker writes own report
 
 	// --- rich-authority surface (mcp_authority.go → hubmcpserver) ---
-	"projects.list":           TierTrivial,
-	"projects.get":            TierTrivial,
-	"projects.create":         TierSignificant, // new project = new scope
-	"projects.update":         TierRoutine,
-	"plans.list":              TierTrivial,
-	"plans.get":               TierTrivial,
-	"plans.create":            TierRoutine,
-	"plans.steps.create":      TierRoutine,
-	"plans.steps.list":        TierTrivial,
-	"plans.steps.update":      TierRoutine,
-	"runs.list":               TierTrivial,
-	"runs.get":                TierTrivial,
-	"runs.create":             TierRoutine,
-	"runs.attach_artifact":    TierRoutine,
-	"documents.list":          TierTrivial,
-	"documents.get":           TierTrivial,
-	"documents.create":        TierRoutine,
-	"reviews.list":            TierTrivial,
-	"reviews.create":          TierRoutine,
-	"policy.read":             TierTrivial,
-	"artifacts.list":          TierTrivial,
-	"artifacts.get":           TierTrivial,
-	"artifacts.create":        TierRoutine,
-	"agents.spawn":            TierSignificant, // spawns a worker
-	"agents.terminate":        TierSignificant, // kills a worker (mirror of spawn)
-	"agents.list":             TierTrivial,
-	"agents.get":              TierTrivial,
-	"hosts.list":              TierTrivial,
-	"hosts.get":               TierTrivial,
-	"channels.post_event":     TierRoutine,
-	"a2a.invoke":              TierSignificant, // peer message
-	"a2a.cards.list":          TierTrivial,     // directory read
-	"hosts.update_ssh_hint":   TierSignificant, // host config change
-	"project_channels.create": TierRoutine,
-	"team_channels.create":    TierRoutine,
-	"tasks.list":              TierTrivial,
-	"tasks.get":               TierTrivial,
-	"tasks.create":            TierRoutine,
-	"tasks.update":            TierRoutine,
-	"tasks.complete":          TierRoutine,
-	"tasks.delete":            TierRoutine,
-	"schedules.list":          TierTrivial,
-	"schedules.create":        TierSignificant, // scheduled side effects
-	"schedules.update":        TierRoutine,
-	"schedules.delete":        TierRoutine,
-	"schedules.run":           TierSignificant, // manual fire of a schedule
-	"audit.read":              TierTrivial,
-	"mobile.navigate":         TierTrivial, // UI navigation hint, no state change
-
-	// --- template overlay fan-out (templates.{agent,prompt,plan}.* per
-	//     ADR-016 D2). Mirrors templates_propose: writes are Significant
-	//     because they alter team-wide overlay; reads are Trivial. ---
-	"templates.agent.create":  TierSignificant,
-	"templates.agent.update":  TierSignificant,
-	"templates.agent.delete":  TierSignificant,
-	"templates.agent.list":    TierTrivial,
-	"templates.agent.get":     TierTrivial,
-	"templates.prompt.create": TierSignificant,
-	"templates.prompt.update": TierSignificant,
-	"templates.prompt.delete": TierSignificant,
-	"templates.prompt.list":   TierTrivial,
-	"templates.prompt.get":    TierTrivial,
-	"templates.plan.create":   TierSignificant,
-	"templates.plan.update":   TierSignificant,
-	"templates.plan.delete":   TierSignificant,
-	"templates.plan.list":     TierTrivial,
-	"templates.plan.get":      TierTrivial,
-
-	// Scaffold tools — read-only data, no side effect. Returns a
-	// skeleton the caller customises before calling the matching
-	// `*.create` write. Open to anyone with the *.create tool.
-	"templates.agent.scaffold":  TierTrivial,
-	"templates.prompt.scaffold": TierTrivial,
-	"templates.plan.scaffold":   TierTrivial,
+	// The unified-registry authority tools (projects_*, plans_*, runs_*,
+	// agents_*, tasks_*, schedules_*, templates_*, …) carry their tier on
+	// the ToolSpec (toolspec.go), resolved here via tierFor's
+	// lookupToolSpec fallback. They are NOT duplicated in this table: agents
+	// call them by their canonical snake_case name, which never matches a
+	// dotted key, so any entry here would be dead. (Pre-refactor this block
+	// held ~65 dotted entries shadowed by the ToolSpec lookup; the
+	// naming-unify refactor removed them. TestEveryCatalogEntryHasTier still
+	// guards that every catalog tool is classified somewhere.)
 
 	// --- claude-code's own tool surface ---
 	"Read":           TierTrivial,

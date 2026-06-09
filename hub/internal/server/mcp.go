@@ -405,7 +405,8 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 	// under a canonical name or a deprecated alias.
 	//
 	// Authority registry (W1–W4): the tool has a buildTools() REST
-	// adapter — forward to it under spec.Backend.
+	// adapter — forward to it under spec.Backend (== spec.Name, the same
+	// canonical snake_case name the agent called).
 	if spec, ok, _ := hubmcpserver.LookupToolSpec(call.Name); ok {
 		return s.dispatchAuthorityToolRaw(ctx, agentToken, scope.Team, spec.Backend, call.Arguments)
 	}

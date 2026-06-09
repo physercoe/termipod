@@ -173,14 +173,14 @@ func TestProjectCreate_AgentConcreteIsGoverned(t *testing.T) {
 	// the agent token (agents can't bearer-auth REST directly; the dispatch
 	// forwards their token through the router). A concrete create is rejected
 	// and points to propose(project.create).
-	if _, jerr := srv.dispatchAuthorityTool(ctx, agentTok, team, "projects.create",
+	if _, jerr := srv.dispatchAuthorityTool(ctx, agentTok, team, "projects_create",
 		map[string]any{"name": "ungoverned", "kind": "goal"}); jerr == nil ||
 		!strings.Contains(jerr.Message, "project.create") {
 		t.Fatalf("agent concrete create jerr=%v; want a governance error pointing to propose", jerr)
 	}
 
 	// Template authoring stays open to agents (templates are authored, not proposed).
-	if _, jerr := srv.dispatchAuthorityTool(ctx, agentTok, team, "projects.create",
+	if _, jerr := srv.dispatchAuthorityTool(ctx, agentTok, team, "projects_create",
 		map[string]any{"name": "a-template", "kind": "goal", "is_template": true,
 			"config_yaml": "phases:\n  - only\n"}); jerr != nil {
 		t.Fatalf("agent template create jerr=%v; want success", jerr)

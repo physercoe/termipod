@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Foldable run-report dashboard (ADR-038 / agent-run-analysis-mode plan
 /// P1). Renders the per-run **digest** as an overview card over the
@@ -94,7 +95,7 @@ class _RunReportCardState extends State<RunReportCard> {
     final (outcomeIcon, outcomeColor) = _outcomeBadge(outcome, errors);
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+      margin: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, Spacing.s8),
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(12),
@@ -108,7 +109,7 @@ class _RunReportCardState extends State<RunReportCard> {
             borderRadius: BorderRadius.circular(12),
             onTap: () => setState(() => _expanded = !_expanded),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 11, 10, 11),
+              padding: const EdgeInsets.fromLTRB(Spacing.s12, Spacing.s12, Spacing.s8, Spacing.s12),
               child: Row(
                 children: [
                   Icon(outcomeIcon, size: 18, color: outcomeColor),
@@ -143,7 +144,7 @@ class _RunReportCardState extends State<RunReportCard> {
           if (_expanded) ...[
             Divider(height: 1, color: border),
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              padding: const EdgeInsets.fromLTRB(Spacing.s12, 12, Spacing.s12, Spacing.s12),
               child: _body(context, muted, isDark, events: events,
                   turns: turns, errors: errors, toolTotal: toolTotal,
                   toolFailed: toolFailed, cost: cost, durationMs: durationMs,
@@ -420,7 +421,7 @@ class _Stat extends StatelessWidget {
           children: [
             Text(label,
                 style: TextStyle(
-                    fontSize: 10.5, letterSpacing: 0.3, color: muted)),
+                    fontSize: FontSizes.label, letterSpacing: 0.3, color: muted)),
             if (onTap != null) ...[
               const SizedBox(width: 3),
               Icon(Icons.my_location, size: 11, color: muted),
@@ -432,7 +433,7 @@ class _Stat extends StatelessWidget {
     if (onTap == null) return body;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: Radii.smBorder,
       child: Padding(padding: const EdgeInsets.all(2), child: body),
     );
   }
@@ -445,7 +446,7 @@ class _ErrorPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: DesignColors.error.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(8),

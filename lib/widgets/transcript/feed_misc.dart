@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'feed_reducer.dart' show FeedLens;
 
 /// "Offline · last updated 2m ago" strip shown above the transcript
@@ -32,7 +33,7 @@ class OfflineBanner extends StatelessWidget {
         color: DesignColors.warning.withValues(alpha: 0.08),
         border: Border(bottom: BorderSide(color: border)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       child: Row(
         children: [
           Icon(Icons.cloud_off_outlined, size: 14, color: muted),
@@ -41,7 +42,7 @@ class OfflineBanner extends StatelessWidget {
             child: Text(
               'Offline — showing cached transcript (last updated '
               '${_relative(staleSince)})',
-              style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+              style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
             ),
           ),
         ],
@@ -101,12 +102,12 @@ class VerboseToggleChip extends StatelessWidget {
         color: bg.withValues(alpha: 0.92),
         elevation: 1,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: Radii.lgBorder,
           side: BorderSide(color: border),
         ),
         child: InkWell(
           onTap: onToggle,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: Radii.lgBorder,
           child: Padding(
             padding: const EdgeInsets.symmetric(
                 horizontal: 8, vertical: 4),
@@ -125,7 +126,7 @@ class VerboseToggleChip extends StatelessWidget {
                   Text(
                     label,
                     style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       fontWeight: FontWeight.w700,
                       color: muted,
                     ),
@@ -166,7 +167,7 @@ class NewEventsPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         child: Container(
           padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
           decoration: BoxDecoration(
             color: DesignColors.primary,
             borderRadius: BorderRadius.circular(16),
@@ -340,14 +341,14 @@ class FeedFilterControl extends StatelessWidget {
               // Bigger hit target — the 16px icon + 8/4 padding was an
               // awkward tap on the constrained host (tester feedback).
               padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 8),
               child: Icon(Icons.filter_list, size: 20, color: muted),
             )
           : Padding(
               // Taller active-filter label so the whole pill (and the
               // step buttons beside it) is comfortably tappable.
               padding:
-                  const EdgeInsets.fromLTRB(8, 8, 6, 8),
+                  const EdgeInsets.fromLTRB(8, 8, Spacing.s8, 8),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -370,7 +371,7 @@ class FeedFilterControl extends StatelessWidget {
       color: bg.withValues(alpha: 0.92),
       elevation: 1,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: Radii.lgBorder,
         side: BorderSide(
             color: lens == FeedLens.all
                 ? border
@@ -387,7 +388,7 @@ class FeedFilterControl extends StatelessWidget {
                       ? (matchCount == 0 ? '0' : '$matchIndex/$matchCount')
                       : '$matchCount',
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     fontWeight: FontWeight.w700,
                     color: muted,
                   ),
@@ -443,7 +444,7 @@ class _StepButton extends StatelessWidget {
         child: Padding(
           // Roomier hit target — the 3/4 padding made prev/next an awkward
           // tap once a filter was active (tester feedback).
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
           child: Icon(
             icon,
             size: 18,
@@ -477,12 +478,12 @@ class ExpandFeedButton extends StatelessWidget {
         color: bg.withValues(alpha: 0.92),
         elevation: 1,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: Radii.lgBorder,
           side: BorderSide(color: border),
         ),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: Radii.lgBorder,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Icon(Icons.open_in_full, size: 14, color: muted),
@@ -678,12 +679,12 @@ class ContextJumpButton extends StatelessWidget {
       child: Material(
         color: bg.withValues(alpha: 0.85),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           side: BorderSide(color: border),
         ),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           child: Padding(
             padding: const EdgeInsets.all(4),
             child: Icon(Icons.center_focus_strong, size: 15, color: muted),
@@ -736,7 +737,7 @@ class TurnStepperPill extends StatelessWidget {
         side: BorderSide(color: border),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s4, vertical: 2),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -756,11 +757,11 @@ class TurnStepperPill extends StatelessWidget {
       message: tip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: Radii.lgBorder,
         child: Padding(
           // Larger hit area per arrow — the stepper buttons were a tight
           // tap at 6/5 (tester feedback).
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
           child: Icon(
             icon,
             size: 20,
@@ -805,11 +806,11 @@ class FeedPositionPill extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
           child: Text(
             'event ${pos.n} / ${pos.m}',
             style: GoogleFonts.robotoMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               color: muted,
               decoration:
                   onTap == null ? null : TextDecoration.underline,
@@ -907,7 +908,7 @@ class ErrorSummaryRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 8),
           child: Row(
             children: [
               Container(
@@ -940,14 +941,14 @@ class ErrorSummaryRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10, color: muted),
+                            fontSize: FontSizes.label, color: muted),
                       ),
                   ],
                 ),
               ),
               Text('#$ordinal',
                   style:
-                      GoogleFonts.jetBrainsMono(fontSize: 10, color: muted)),
+                      GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted)),
               const SizedBox(width: 6),
               Icon(Icons.chevron_right, size: 18, color: muted),
             ],
@@ -1024,7 +1025,7 @@ class TurnSummaryRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 8),
           child: Row(
             children: [
               Container(
@@ -1054,7 +1055,7 @@ class TurnSummaryRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10, color: muted),
+                            fontSize: FontSizes.label, color: muted),
                       ),
                   ],
                 ),

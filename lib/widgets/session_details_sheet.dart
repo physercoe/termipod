@@ -383,10 +383,7 @@ class _SessionDetailsSheet extends StatelessWidget {
     final cwd = payload['cwd']?.toString() ?? '';
     final sessionId = payload['session_id']?.toString() ?? '';
 
-    final modelLine = [
-      if (model.isNotEmpty) model,
-      if (version.isNotEmpty) 'v$version',
-    ].join(' · ');
+    final modelLine = model;
     // #67: the "engine" row must show the real backend engine (claude-code,
     // codex, …) from `backend.kind`, not the agent's template kind. Fall back
     // to agentKind when the engine is unresolved so the row never blanks. The
@@ -395,6 +392,13 @@ class _SessionDetailsSheet extends StatelessWidget {
     final engineLabel = (engineKind != null && engineKind!.isNotEmpty)
         ? engineKind!
         : (agentKind ?? '');
+    // `version` is the engine/CLI version (e.g. claude-code's build), not the
+    // model version, so it rides the engine row — the model string already
+    // carries its own date-stamped version (claude-opus-4-7-20260101).
+    final engineLine = [
+      if (engineLabel.isNotEmpty) engineLabel,
+      if (version.isNotEmpty) 'v$version',
+    ].join(' · ');
     final templateKind = agentKind ?? '';
     final showKindRow =
         templateKind.isNotEmpty && templateKind != engineLabel;
@@ -410,7 +414,7 @@ class _SessionDetailsSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (engineLabel.isNotEmpty)
-              _kvLine(context, 'engine', engineLabel),
+              _kvLine(context, 'engine', engineLine),
             if (showKindRow) _kvLine(context, 'kind', templateKind),
             if (modelLine.isNotEmpty) _kvLine(context, 'model', modelLine),
             if (permMode.isNotEmpty)

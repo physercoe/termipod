@@ -24,6 +24,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 
 Map<String, dynamic> decodeJsonObject(dynamic raw) {
   if (raw == null) return const {};
@@ -69,50 +70,37 @@ class TransitionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final (bg, fg) = _palette(isDark);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final base = _base(isDark);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.s8, vertical: Spacing.s2),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(4),
+        color: base.withValues(alpha: 0.16),
+        borderRadius: Radii.xsBorder,
       ),
       child: Text(
         label,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 11,
+          fontSize: FontSizes.label,
           fontWeight: emphasis ? FontWeight.w600 : FontWeight.w400,
-          color: fg,
+          color: base,
         ),
       ),
     );
   }
 
-  (Color, Color) _palette(bool isDark) {
+  /// The semantic base color for this chip; the chip tints its background
+  /// from it (ADR-047 D-5). Non-emphasis chips read as neutral muted text.
+  Color _base(bool isDark) {
     if (!emphasis) {
-      return (
-        isDark ? Colors.grey.shade800 : Colors.grey.shade200,
-        isDark ? Colors.grey.shade200 : Colors.grey.shade800,
-      );
+      return isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     }
-    switch (family) {
-      case TransitionChipFamily.state:
-        return (
-          isDark ? Colors.green.shade900 : Colors.green.shade100,
-          isDark ? Colors.green.shade200 : Colors.green.shade900,
-        );
-      case TransitionChipFamily.phase:
-        return (
-          isDark ? Colors.indigo.shade900 : Colors.indigo.shade100,
-          isDark ? Colors.indigo.shade100 : Colors.indigo.shade900,
-        );
-      case TransitionChipFamily.status:
-        return (
-          isDark ? Colors.blueGrey.shade700 : Colors.blueGrey.shade100,
-          isDark ? Colors.blueGrey.shade100 : Colors.blueGrey.shade900,
-        );
-    }
+    return switch (family) {
+      TransitionChipFamily.state => DesignColors.success,
+      TransitionChipFamily.phase => DesignColors.info,
+      TransitionChipFamily.status => DesignColors.slate,
+    };
   }
 }
 
@@ -122,28 +110,27 @@ class StalledPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? Colors.amber.shade900 : Colors.amber.shade100;
-    final fg = isDark ? Colors.amber.shade100 : Colors.amber.shade900;
+    const base = DesignColors.warning;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.s8, vertical: Spacing.s4),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(4),
+        color: base.withValues(alpha: 0.16),
+        borderRadius: Radii.xsBorder,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.schedule, size: 12, color: fg),
-          const SizedBox(width: 4),
+          const Icon(Icons.schedule, size: IconSizes.sm, color: base),
+          const SizedBox(width: Spacing.s4),
           Text(
             addressee.isEmpty
                 ? 'Stuck — awaiting decision'
                 : 'Stuck — addressed to $addressee',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w600,
-              color: fg,
+              color: base,
             ),
           ),
         ],
@@ -175,10 +162,11 @@ class TransitionFrame extends StatelessWidget {
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.s8, vertical: Spacing.s4),
       decoration: BoxDecoration(
         border: Border.all(color: mutedColor.withValues(alpha: 0.35)),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -186,13 +174,15 @@ class TransitionFrame extends StatelessWidget {
           if (fromLabel.isNotEmpty) ...[
             TransitionChip(label: fromLabel, family: family, emphasis: false),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Icon(Icons.arrow_forward, size: 12, color: mutedColor),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.s8),
+              child:
+                  Icon(Icons.arrow_forward, size: IconSizes.sm, color: mutedColor),
             ),
           ] else
             Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: Icon(Icons.arrow_forward, size: 12, color: mutedColor),
+              padding: const EdgeInsets.only(right: Spacing.s8),
+              child:
+                  Icon(Icons.arrow_forward, size: IconSizes.sm, color: mutedColor),
             ),
           TransitionChip(label: toLabel, family: family, emphasis: true),
         ],

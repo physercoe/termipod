@@ -3,9 +3,9 @@
 # One <category>\t<count> per line. Counts may only DECREASE —
 # lowering them as the backlog burns down (WS6) is the point.
 private_chip_class	37
-raw_material_color	96
+raw_material_color	84
 stray_hex_color	8
-off_scale_radius	212
-off_scale_font_size	302
-off_grid_edge_inset	560
+off_scale_radius	211
+off_scale_font_size	301
+off_grid_edge_inset	556
 box_shadow	15

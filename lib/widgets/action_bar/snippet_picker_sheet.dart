@@ -514,8 +514,8 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 16),
-        color: Colors.red.withValues(alpha: 0.2),
-        child: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+        color: DesignColors.error.withValues(alpha: 0.2),
+        child: const Icon(Icons.delete_outline, color: DesignColors.error, size: 20),
       ),
       child: InkWell(
         onTap: () {
@@ -878,10 +878,10 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                 },
               ),
             ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              leading: const Icon(Icons.delete_outline, color: DesignColors.error),
               title: Text(
                 AppLocalizations.of(context)!.buttonDelete,
-                style: const TextStyle(color: Colors.red),
+                style: const TextStyle(color: DesignColors.error),
               ),
               onTap: () {
                 Navigator.pop(sheetContext);

@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../projects/documents_screen.dart' show DocumentDetailScreen;
 import '../projects/project_detail_screen.dart';
 import '../sessions/sessions_screen.dart';
@@ -211,7 +212,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
               _Field(label: 'Raised', value: _formatTs(createdAt)),
             if (ctxSessionID.isNotEmpty || _projectScope() != null)
               Padding(
-                padding: const EdgeInsets.only(top: 6),
+                padding: const EdgeInsets.only(top: Spacing.s8),
                 child: Wrap(
                   spacing: 8,
                   runSpacing: 6,
@@ -255,7 +256,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
                   child: Text(
                     'Resolved ${_formatTs(resolvedAt)}',
                     style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       color: muted,
                       fontStyle: FontStyle.italic,
                     ),
@@ -522,7 +523,7 @@ class _Field extends StatelessWidget {
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: Spacing.s8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -559,15 +560,15 @@ class _Chip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
       ),
       child: Text(
         label,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w600,
           color: color,
         ),
@@ -601,12 +602,12 @@ class _TranscriptTile extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 8),
       decoration: BoxDecoration(
         color: isDark
             ? DesignColors.surfaceDark.withValues(alpha: 0.5)
             : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
         border: Border.all(
           color: isDark
               ? DesignColors.borderDark
@@ -621,7 +622,7 @@ class _TranscriptTile extends StatelessWidget {
               Text(
                 _label(kind, producer),
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w700,
                   color: muted,
                 ),
@@ -631,7 +632,7 @@ class _TranscriptTile extends StatelessWidget {
                 Text(
                   tsLabel,
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: muted,
                   ),
                 ),
@@ -751,10 +752,10 @@ class _DecisionTile extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 8),
       decoration: BoxDecoration(
         color: accent.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
         border: Border(
           left: BorderSide(color: accent, width: 2),
         ),
@@ -786,7 +787,7 @@ class _DecisionTile extends StatelessWidget {
                 Text(
                   _ApprovalDetailScreenState._formatTs(at),
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: muted,
                   ),
                 ),
@@ -794,11 +795,11 @@ class _DecisionTile extends StatelessWidget {
           ),
           if (by.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 2, left: 20),
+              padding: const EdgeInsets.only(top: 2, left: Spacing.s16),
               child: Text(
                 'by $by',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: muted,
                 ),
               ),
@@ -806,7 +807,7 @@ class _DecisionTile extends StatelessWidget {
           if (body.isNotEmpty) ...[
             const SizedBox(height: 4),
             Padding(
-              padding: const EdgeInsets.only(left: 20),
+              padding: const EdgeInsets.only(left: Spacing.s16),
               child: SelectableText(
                 body,
                 style: GoogleFonts.jetBrainsMono(
@@ -819,7 +820,7 @@ class _DecisionTile extends StatelessWidget {
           if (reason.isNotEmpty) ...[
             const SizedBox(height: 4),
             Padding(
-              padding: const EdgeInsets.only(left: 20),
+              padding: const EdgeInsets.only(left: Spacing.s16),
               child: SelectableText(
                 'Reason: $reason',
                 style: GoogleFonts.jetBrainsMono(
@@ -981,7 +982,7 @@ class _RevisionRequestedBlockState
       decoration: BoxDecoration(
         color: bg,
         border: Border.all(color: border),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1087,7 +1088,7 @@ class _LinkedAnnotationRow extends StatelessWidget {
     return InkWell(
       onTap: missing ? null : onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: Spacing.s8, horizontal: 4),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1128,7 +1129,7 @@ class _LinkedAnnotationRow extends StatelessWidget {
                     Text(
                       '$kind · $section${status == 'resolved' ? ' · resolved' : ''}',
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 9,
+                        fontSize: FontSizes.label,
                         color: DesignColors.textMuted,
                       ),
                     ),
@@ -1246,7 +1247,7 @@ class _TemplateProposalPreviewState
       decoration: BoxDecoration(
         color: bg,
         border: Border.all(color: border),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1333,7 +1334,7 @@ class _TemplateProposalPreviewState
           else
             Container(
               constraints: const BoxConstraints(maxHeight: 320),
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(Spacing.s8),
               decoration: BoxDecoration(
                 color: isDark
                     ? DesignColors.backgroundDark
@@ -1387,15 +1388,15 @@ class _DiffStatusChip extends StatelessWidget {
       color = DesignColors.warning;
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
       ),
       child: Text(
         label,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w600,
           color: color,
         ),

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -59,6 +60,71 @@ func TestDoSpawn_StripsAtFromChildHandle(t *testing.T) {
 	}
 	if stored != "coder" {
 		t.Errorf("stored handle = %q; want %q (bare, no @-prefix)", stored, "coder")
+	}
+}
+
+// TestDoSpawn_PersistsBackendKind guards the #67/#68 fix: DoSpawn must
+// write the engine family into backend_json so mobile can resolve
+// agent['backend']['kind']. Two sources, in priority order: the rendered
+// spec's backend.kind (template/steward spawns where in.Kind is a
+// template id), then in.Kind for mobile direct-engine spawns. A stored
+// '{}' is exactly the regression these issues reported.
+func TestDoSpawn_PersistsBackendKind(t *testing.T) {
+	s, _ := newTestServer(t)
+	seedTestHost(t, s, defaultTeamID, "host-x", "h1")
+
+	cases := []struct {
+		name      string
+		handle    string
+		kind      string
+		spawnSpec string
+		want      string
+	}{
+		{
+			name:      "spec backend.kind wins",
+			handle:    "coder-a",
+			kind:      "steward.general.v1",
+			spawnSpec: "backend:\n  kind: claude-code\n  cmd: echo test\n",
+			want:      "claude-code",
+		},
+		{
+			name:      "falls back to in.Kind",
+			handle:    "coder-b",
+			kind:      "codex",
+			spawnSpec: "backend:\n  cmd: echo test\n",
+			want:      "codex",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+				ChildHandle: tc.handle,
+				Kind:        tc.kind,
+				HostID:      "host-x",
+				SpawnSpec:   tc.spawnSpec,
+			})
+			if err != nil {
+				t.Fatalf("DoSpawn: %v (status=%d)", err, status)
+			}
+			var stored string
+			if err := s.db.QueryRow(
+				`SELECT backend_json FROM agents WHERE id = ?`, out.AgentID,
+			).Scan(&stored); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			if stored == "{}" || stored == "" {
+				t.Fatalf("backend_json = %q; want a {\"kind\":...} object (#67/#68 regression)", stored)
+			}
+			var got struct {
+				Kind string `json:"kind"`
+			}
+			if err := json.Unmarshal([]byte(stored), &got); err != nil {
+				t.Fatalf("backend_json %q not valid JSON: %v", stored, err)
+			}
+			if got.Kind != tc.want {
+				t.Errorf("backend.kind = %q; want %q", got.Kind, tc.want)
+			}
+		})
 	}
 }
 

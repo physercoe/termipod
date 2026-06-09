@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/app_chip.dart';
 import 'plan_create_sheet.dart';
 import 'plan_viewer_screen.dart';
 
@@ -417,7 +418,7 @@ class _FilterBar extends StatelessWidget {
             child: Row(
               children: [
                 for (final s in _statusFilters) ...[
-                  _StatusChip(
+                  AppChoiceChip(
                     label: s == null ? 'all' : s,
                     selected: statusFilter == s,
                     onTap: () => onStatusSelected(s),
@@ -474,49 +475,6 @@ class _FilterBar extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _StatusChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: selected
-              ? DesignColors.primary.withValues(alpha: 0.2)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected
-                ? DesignColors.primary
-                : DesignColors.borderDark,
-          ),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected
-                ? DesignColors.primary
-                : DesignColors.textMuted,
-          ),
-        ),
       ),
     );
   }

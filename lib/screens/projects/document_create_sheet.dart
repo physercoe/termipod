@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/app_chip.dart';
 
 /// Compose a new document (memo, draft, report, or review) from the phone.
 /// Hub enforces the kind on the server; we offer the four blueprint §6.7
@@ -172,7 +173,7 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
           runSpacing: 6,
           children: [
             for (final k in _kinds)
-              _KindChip(
+              AppChoiceChip(
                 label: k,
                 selected: _kind == k,
                 onTap: () => setState(() => _kind = k),
@@ -252,45 +253,6 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
           ),
         ),
       );
-}
-
-class _KindChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _KindChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? DesignColors.primary.withValues(alpha: 0.2)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? DesignColors.primary : DesignColors.borderDark,
-          ),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 11,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? DesignColors.primary : DesignColors.textMuted,
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _ProjectField extends StatelessWidget {

@@ -18,6 +18,7 @@ import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/agent_category_style.dart';
+import '../../widgets/app_chip.dart';
 import '../../widgets/home/persistent_steward_card.dart';
 import '../../widgets/me_stats_card.dart';
 import '../../widgets/steward_badge.dart';
@@ -585,11 +586,11 @@ class _MeCard extends ConsumerWidget {
           children: [
             Row(
               children: [
-                _KindChip(text: _kindLabel(item.kind), color: accent),
+                AppStatusChip(label: _kindLabel(item.kind), color: accent),
                 if (item.severity != null && item.severity!.isNotEmpty) ...[
                   const SizedBox(width: 6),
-                  _KindChip(
-                    text: item.severity!,
+                  AppStatusChip(
+                    label: item.severity!,
                     color: _severityColor(item.severity!),
                   ),
                 ],
@@ -1203,29 +1204,3 @@ class _ActiveSessionsStrip extends StatelessWidget {
 }
 
 /// Pinned CTA to direct the steward from Me. Closes the asymmetry where
-class _KindChip extends StatelessWidget {
-  final String text;
-  final Color color;
-  const _KindChip({required this.text, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Text(
-        text,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: color,
-          letterSpacing: 0.3,
-        ),
-      ),
-    );
-  }
-}

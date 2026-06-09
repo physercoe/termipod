@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../providers/settings_provider.dart';
+import '../theme/design_colors.dart';
 
 /// リサイズプリセット
 enum ImageResizePreset {
@@ -202,6 +203,9 @@ class _ImageTransferConfirmDialogState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final mutedColor = theme.brightness == Brightness.dark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
 
     return AlertDialog(
       backgroundColor: theme.colorScheme.surfaceContainerHigh,
@@ -241,7 +245,7 @@ class _ImageTransferConfirmDialogState
                     ),
                   Text(
                     _formatSize(widget.imageBytes.length),
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+                    style: theme.textTheme.bodySmall?.copyWith(color: mutedColor),
                   ),
                 ],
               ),
@@ -301,7 +305,7 @@ class _ImageTransferConfirmDialogState
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: const EdgeInsets.only(bottom: 8),
-                title: Text('Advanced', style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey)),
+                title: Text('Advanced', style: theme.textTheme.bodyMedium?.copyWith(color: mutedColor)),
                 children: [
                   // Remote Path
                   _label('Remote Path'),
@@ -314,7 +318,7 @@ class _ImageTransferConfirmDialogState
                   const SizedBox(height: 2),
                   Text(
                     'Use {path} as placeholder. e.g. @{path}',
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey, fontSize: 11),
+                    style: theme.textTheme.bodySmall?.copyWith(color: mutedColor, fontSize: 11),
                   ),
                   const SizedBox(height: 4),
                   _textField(_pathFormatController),
@@ -365,7 +369,7 @@ class _ImageTransferConfirmDialogState
                           style: TextStyle(
                             color: _resizePreset == ImageResizePreset.custom
                                 ? theme.colorScheme.primary
-                                : Colors.grey,
+                                : mutedColor,
                           ),
                         ),
                       ),
@@ -378,7 +382,7 @@ class _ImageTransferConfirmDialogState
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     title: Text('Auto Enter', style: theme.textTheme.bodyMedium),
-                    subtitle: Text('Send Enter after path injection', style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)),
+                    subtitle: Text('Send Enter after path injection', style: theme.textTheme.bodySmall?.copyWith(color: mutedColor)),
                     value: _autoEnter,
                     onChanged: (v) => setState(() => _autoEnter = v),
                   ),

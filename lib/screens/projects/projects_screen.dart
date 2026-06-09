@@ -15,6 +15,7 @@ import 'projects_list_controller.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
@@ -392,7 +393,7 @@ class _HostAgentsSectionState extends State<_HostAgentsSection> {
     final pane = (a['pane_id'] ?? '').toString();
     final color = _agentStatusColor(status);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s4),
       child: Row(
         children: [
           Container(
@@ -418,7 +419,7 @@ class _HostAgentsSectionState extends State<_HostAgentsSection> {
               if (pane.isNotEmpty) pane,
             ].join(' · '),
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10, color: widget.muted,
+              fontSize: FontSizes.label, color: widget.muted,
             ),
           ),
         ],
@@ -435,7 +436,7 @@ class _HostAgentsSectionState extends State<_HostAgentsSection> {
           'AGENTS · ${widget.live.length} live'
           '${widget.dead.isEmpty ? '' : ' · ${widget.dead.length} dead'}',
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             fontWeight: FontWeight.w700,
             color: widget.muted,
             letterSpacing: 0.5,
@@ -468,7 +469,7 @@ class _HostAgentsSectionState extends State<_HostAgentsSection> {
                   Text(
                     'show ${widget.dead.length} dead',
                     style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10, color: widget.muted),
+                        fontSize: FontSizes.label, color: widget.muted),
                   ),
                 ],
               ),
@@ -747,7 +748,7 @@ class _ProjectsSectionLabel extends StatelessWidget {
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 2),
+      padding: const EdgeInsets.fromLTRB(Spacing.s16, 16, Spacing.s16, 2),
       child: Text(
         text.toUpperCase(),
         style: GoogleFonts.spaceGrotesk(
@@ -855,7 +856,7 @@ class _ProjectsFilterSheet extends ConsumerWidget {
                 height: 4,
                 decoration: BoxDecoration(
                   color: DesignColors.textMuted.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -972,7 +973,7 @@ class _SectionLabel extends StatelessWidget {
     return Text(
       text.toUpperCase(),
       style: GoogleFonts.spaceGrotesk(
-        fontSize: 10,
+        fontSize: FontSizes.label,
         fontWeight: FontWeight.w700,
         color: DesignColors.textMuted,
         letterSpacing: 0.8,
@@ -1052,7 +1053,7 @@ class _ProjectListCard extends StatelessWidget {
     final p = progress.clamp(0.0, 1.0).toDouble();
     final pct = (p * 100).round();
     final card = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
@@ -1097,7 +1098,7 @@ class _ProjectListCard extends StatelessWidget {
                 Text(
                   'no open AC',
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: muted,
                   ),
                 ),
@@ -1108,7 +1109,7 @@ class _ProjectListCard extends StatelessWidget {
             children: [
               Expanded(
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
+                  borderRadius: Radii.xsBorder,
                   child: LinearProgressIndicator(
                     value: p,
                     minHeight: 4,
@@ -1122,7 +1123,7 @@ class _ProjectListCard extends StatelessWidget {
               Text(
                 '$pct%',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w700,
                   color: muted,
                 ),
@@ -1134,7 +1135,7 @@ class _ProjectListCard extends StatelessWidget {
             Text(
               subProjectsSuffix!,
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: muted,
               ),
             ),
@@ -1200,7 +1201,7 @@ class _PhasePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasPos = index > 0 && total > 0;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: DesignColors.primary.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -1213,7 +1214,7 @@ class _PhasePill extends StatelessWidget {
           Text(
             phase,
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w700,
               color: DesignColors.primary,
             ),
@@ -1223,7 +1224,7 @@ class _PhasePill extends StatelessWidget {
             Text(
               '$index/$total',
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 fontWeight: FontWeight.w500,
                 color: DesignColors.primary.withValues(alpha: 0.65),
               ),
@@ -1245,7 +1246,7 @@ class _OpenAcChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: DesignColors.warning.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(4),
@@ -1261,7 +1262,7 @@ class _OpenAcChip extends StatelessWidget {
           Text(
             '$count open AC',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w700,
               color: DesignColors.warning,
             ),
@@ -1282,10 +1283,10 @@ class _AttentionBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
       decoration: BoxDecoration(
         color: DesignColors.warning.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(
           color: DesignColors.warning.withValues(alpha: 0.6),
         ),
@@ -1293,7 +1294,7 @@ class _AttentionBadge extends StatelessWidget {
       child: Text(
         '$count open',
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: DesignColors.warning,
         ),
@@ -1319,7 +1320,7 @@ class _InfoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final tile = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
         borderRadius: BorderRadius.circular(8),
@@ -1351,7 +1352,7 @@ class _InfoTile extends StatelessWidget {
           else if (trailing != null && trailing!.isNotEmpty)
             Text(trailing!,
                 style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: isDark
                         ? DesignColors.textMuted
                         : DesignColors.textMutedLight)),
@@ -1374,7 +1375,7 @@ class _Chip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(4),
@@ -1383,7 +1384,7 @@ class _Chip extends StatelessWidget {
       child: Text(
         text,
         style: GoogleFonts.jetBrainsMono(
-            fontSize: 10, fontWeight: FontWeight.w600, color: color),
+            fontSize: FontSizes.label, fontWeight: FontWeight.w600, color: color),
       ),
     );
   }

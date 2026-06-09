@@ -11,6 +11,7 @@ import '../../services/hub/session_display.dart';
 import '../../services/id_format.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/agent_actions_menu.dart';
 import '../../widgets/agent_config_sheet.dart';
 import '../../widgets/live_feed.dart';
@@ -642,7 +643,7 @@ class _CategoryFilterStrip extends StatelessWidget {
       ));
     }
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(children: chips),
@@ -794,7 +795,7 @@ Future<_ScopePick?> _pickScopeSheet(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                padding: const EdgeInsets.fromLTRB(Spacing.s16, 4, Spacing.s16, 8),
                 child: Text(
                   'Scope for new session',
                   style: GoogleFonts.spaceGrotesk(
@@ -1111,11 +1112,11 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
     );
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       child: Container(
         decoration: BoxDecoration(
           border: Border.all(color: border),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1132,7 +1133,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
               borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(10)),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 4, Spacing.s8),
                 child: Row(
                   children: [
                     if (!isOrphan) ...[
@@ -1166,7 +1167,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                                 if (hostName != null) '@$hostName',
                               ].join(' · '),
                               style: GoogleFonts.jetBrainsMono(
-                                fontSize: 10,
+                                fontSize: FontSizes.label,
                                 color: muted,
                               ),
                             )
@@ -1175,7 +1176,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                               'Original steward gone — open to read, '
                               'fork to continue with a fresh one',
                               style: GoogleFonts.spaceGrotesk(
-                                fontSize: 10,
+                                fontSize: FontSizes.label,
                                 color: muted,
                               ),
                             ),
@@ -1251,14 +1252,14 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
               // reach a chat — provide it inline rather than asking
               // them to dig through a kebab.
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, Spacing.s8),
                 child: Row(
                   children: [
                     Expanded(
                       child: Text(
                         'No active session for this steward.',
                         style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10, color: muted),
+                            fontSize: FontSizes.label, color: muted),
                       ),
                     ),
                     FilledButton.tonal(
@@ -1266,7 +1267,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                           group.agentId, group.handle),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
+                            horizontal: Spacing.s8, vertical: 4),
                         minimumSize: const Size(0, 28),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
@@ -1283,7 +1284,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                   onTap: () =>
                       setState(() => _showPrevious = !_showPrevious),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
                     child: Row(
                       children: [
                         Icon(
@@ -1297,7 +1298,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                         Text(
                           'previous (${group.previous.length})',
                           style: GoogleFonts.jetBrainsMono(
-                              fontSize: 10, color: muted),
+                              fontSize: FontSizes.label, color: muted),
                         ),
                       ],
                     ),
@@ -1391,13 +1392,13 @@ List<Widget> _buildScopeGroupedPrevious(
     final label = labelFor(kind, id);
     final count = buckets[key]!.length;
     out.add(Padding(
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
+      padding: const EdgeInsets.fromLTRB(Spacing.s16, Spacing.s8, Spacing.s16, 2),
       child: Row(
         children: [
           Text(
             label,
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w600,
               color: muted,
               letterSpacing: 0.6,
@@ -1407,7 +1408,7 @@ List<Widget> _buildScopeGroupedPrevious(
           Text(
             '· $count',
             style:
-                GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+                GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
           ),
         ],
       ),
@@ -1449,7 +1450,7 @@ class _CategoryHeader extends StatelessWidget {
     return InkWell(
       onTap: onToggle,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+        padding: const EdgeInsets.fromLTRB(16, Spacing.s12, 16, Spacing.s8),
         child: Row(
           children: [
             Icon(
@@ -1783,7 +1784,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     final inSelect = widget.selecting;
     return ListTile(
       contentPadding:
-          const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          const EdgeInsets.symmetric(horizontal: Spacing.s16, vertical: 4),
       leading: inSelect
           ? Checkbox(
               value: selected,
@@ -1901,7 +1902,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         : Text(
             _shortTimestamp(lastActive),
             style:
-                GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+                GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
           );
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1914,7 +1915,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
                   DesignColors.warning.withValues(alpha: 0.16),
               foregroundColor: DesignColors.warning,
               padding: const EdgeInsets.symmetric(
-                  horizontal: 12, vertical: 6),
+                  horizontal: 12, vertical: Spacing.s8),
               minimumSize: const Size(0, 32),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
@@ -2348,7 +2349,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 4),
         decoration: BoxDecoration(
           color: muted.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(12),
@@ -2361,7 +2362,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
             Text(
               label,
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: muted,
                 fontWeight: FontWeight.w500,
               ),

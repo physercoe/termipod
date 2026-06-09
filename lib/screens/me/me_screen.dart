@@ -16,6 +16,7 @@ import '../../services/hub/session_display.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/agent_category_style.dart';
 import '../../widgets/app_chip.dart';
@@ -477,12 +478,12 @@ class _FilterChip extends StatelessWidget {
             : DesignColors.textSecondaryLight);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: Radii.lgBorder,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 8),
         decoration: BoxDecoration(
           color: bg,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: Radii.lgBorder,
           border: Border.all(
             color: selected
                 ? DesignColors.primary
@@ -505,7 +506,7 @@ class _FilterChip extends StatelessWidget {
             if (count > 0) ...[
               const SizedBox(width: 6),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
                 decoration: BoxDecoration(
                   color: selected
                       ? Colors.white.withValues(alpha: 0.2)
@@ -515,7 +516,7 @@ class _FilterChip extends StatelessWidget {
                 child: Text(
                   '$count',
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     fontWeight: FontWeight.w700,
                     color: selected ? Colors.white : DesignColors.primary,
                   ),
@@ -575,7 +576,7 @@ class _MeCard extends ConsumerWidget {
       onTap: () => _primaryAction(context, ref),
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(Spacing.s12),
         decoration: BoxDecoration(
           color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
           borderRadius: BorderRadius.circular(12),
@@ -600,7 +601,7 @@ class _MeCard extends ConsumerWidget {
                 Text(
                   _shortTs(item.ts),
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: isDark
                         ? DesignColors.textMuted
                         : DesignColors.textMutedLight,
@@ -850,7 +851,7 @@ class _UrgentTasksSection extends ConsumerWidget {
       children: [
         const _SectionLabel(text: 'Urgent'),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+          padding: const EdgeInsets.fromLTRB(16, Spacing.s8, 16, 4),
           child: Container(
             decoration: BoxDecoration(
               color: bg,
@@ -860,7 +861,7 @@ class _UrgentTasksSection extends ConsumerWidget {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+                  padding: const EdgeInsets.fromLTRB(Spacing.s12, 12, Spacing.s12, Spacing.s8),
                   child: Row(
                     children: [
                       Container(
@@ -895,7 +896,7 @@ class _UrgentTasksSection extends ConsumerWidget {
                     )),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 8),
+                          horizontal: Spacing.s12, vertical: 8),
                       child: Row(
                         children: [
                           Container(
@@ -924,7 +925,7 @@ class _UrgentTasksSection extends ConsumerWidget {
                                 Text(
                                   '${row.projectName} · ${row.status}',
                                   style: GoogleFonts.jetBrainsMono(
-                                    fontSize: 10,
+                                    fontSize: FontSizes.label,
                                     color: muted,
                                   ),
                                 ),
@@ -957,7 +958,7 @@ class _SectionLabel extends StatelessWidget {
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 2),
+      padding: const EdgeInsets.fromLTRB(Spacing.s16, Spacing.s8, Spacing.s16, 2),
       child: Text(
         text.toUpperCase(),
         style: GoogleFonts.spaceGrotesk(
@@ -1099,12 +1100,12 @@ class _ActiveSessionsStrip extends StatelessWidget {
                     title: title,
                   ),
                 )),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: Radii.mdBorder,
                 child: Container(
                   width: 200,
                   decoration: BoxDecoration(
                     color: bg,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: Radii.mdBorder,
                     border: Border.all(color: border),
                   ),
                   child: Row(
@@ -1125,7 +1126,7 @@ class _ActiveSessionsStrip extends StatelessWidget {
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
+                              horizontal: 12, vertical: Spacing.s8),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1134,7 +1135,7 @@ class _ActiveSessionsStrip extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Padding(
-                                    padding: const EdgeInsets.only(top: 1),
+                                    padding: const EdgeInsets.only(top: Spacing.s2),
                                     child: Icon(style.icon,
                                         size: 14, color: style.color),
                                   ),
@@ -1161,7 +1162,7 @@ class _ActiveSessionsStrip extends StatelessWidget {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: GoogleFonts.jetBrainsMono(
-                                      fontSize: 10,
+                                      fontSize: FontSizes.label,
                                       color: muted,
                                     ),
                                   ),
@@ -1171,7 +1172,7 @@ class _ActiveSessionsStrip extends StatelessWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: GoogleFonts.jetBrainsMono(
-                                        fontSize: 10,
+                                        fontSize: FontSizes.label,
                                         color: muted,
                                       ),
                                     ),
@@ -1181,7 +1182,7 @@ class _ActiveSessionsStrip extends StatelessWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: GoogleFonts.jetBrainsMono(
-                                        fontSize: 10,
+                                        fontSize: FontSizes.label,
                                         color: muted,
                                       ),
                                     ),

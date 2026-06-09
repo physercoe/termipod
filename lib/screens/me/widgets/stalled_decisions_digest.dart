@@ -35,11 +35,14 @@ class StalledDecisionsDigest extends ConsumerWidget {
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final isFilterActive = ref.watch(stalledFilterProvider);
-    final accentBg = isFilterActive
-        ? (isDark ? Colors.amber.shade900 : Colors.amber.shade100)
-        : (isDark ? Colors.amber.shade900.withValues(alpha: 0.4) : Colors.amber.shade50);
-    final accentFg =
-        isDark ? Colors.amber.shade100 : Colors.amber.shade900;
+    final warnContainer = isDark
+        ? DesignColors.warningContainer
+        : DesignColors.warningContainerLight;
+    final accentBg =
+        isFilterActive ? warnContainer : warnContainer.withValues(alpha: 0.4);
+    final accentFg = isDark
+        ? DesignColors.onWarningContainer
+        : DesignColors.onWarningContainerLight;
     final subtitle = _subtitle();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),

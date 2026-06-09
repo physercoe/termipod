@@ -54,6 +54,24 @@ class DesignColors {
   static const info = Color(0xFF6366F1); // indigo — informational / phase
   static const slate = Color(0xFF64748B); // neutral slate — routine / status
 
+  // Status containers (ADR-047 D-5/D-6 — M3 *Container / on*Container
+  // idiom). A tinted callout background + the on-color that stays
+  // WCAG AA (>=4.5:1) on it. Dark + Light variants resolved by theme
+  // brightness, like textMuted/textMutedLight. Replaces the ad-hoc
+  // Colors.amber.shadeNNN tonal pairs. on*Container also doubles as the
+  // legible warning fg on the app's normal surfaces (verified in
+  // test/theme/contrast_test.dart). Ratios: dark 8.96, light 6.37.
+  static const warningContainer = Color(0xFF422E08); // deep amber wash
+  static const warningContainerLight = Color(0xFFFEF3C7); // amber-100
+  static const onWarningContainer = Color(0xFFFCD34D); // amber-300 (on dark)
+  static const onWarningContainerLight = Color(0xFF92400E); // amber-800 (on light)
+
+  // `success`/`warning` are bright enough to read on DARK surfaces but
+  // fail AA on LIGHT ones; successOnLight is the green-800 tone for
+  // success used as standalone fg (icon/label) on a light surface.
+  // (matches connectedCardTextLight.) White 7.13, canvasLight 6.48.
+  static const successOnLight = Color(0xFF166534); // green-800
+
   // Terminal Colors
   static const terminalGreen = Color(0xFF22C55E);
   static const terminalBlue = Color(0xFF3B82F6);

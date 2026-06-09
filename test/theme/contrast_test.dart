@@ -88,4 +88,42 @@ void main() {
     expect(DesignColors.textMuted, isNot(DesignColors.textSecondary));
     expect(DesignColors.textMutedLight, isNot(DesignColors.textSecondaryLight));
   });
+
+  group('status-container on-colors clear AA', () {
+    // The on*Container fg must read on both its own container AND the
+    // app's normal surfaces (these tokens double as the legible status
+    // fg on plain backgrounds — e.g. the override sheet's gavel icon).
+    test('onWarningContainer on warningContainer + dark surfaces', () {
+      for (final s in const [
+        DesignColors.warningContainer,
+        DesignColors.surfaceDark,
+        DesignColors.backgroundDark,
+      ]) {
+        expect(contrastRatio(DesignColors.onWarningContainer, s),
+            greaterThanOrEqualTo(aa));
+      }
+    });
+    test('onWarningContainerLight on warningContainerLight + light surfaces',
+        () {
+      for (final s in const [
+        DesignColors.warningContainerLight,
+        DesignColors.surfaceLight,
+        DesignColors.canvasLight,
+      ]) {
+        expect(contrastRatio(DesignColors.onWarningContainerLight, s),
+            greaterThanOrEqualTo(aa));
+      }
+    });
+    test('success reads on dark, successOnLight reads on light', () {
+      expect(contrastRatio(DesignColors.success, DesignColors.surfaceDark),
+          greaterThanOrEqualTo(aa));
+      for (final s in const [
+        DesignColors.surfaceLight,
+        DesignColors.canvasLight,
+      ]) {
+        expect(contrastRatio(DesignColors.successOnLight, s),
+            greaterThanOrEqualTo(aa));
+      }
+    });
+  });
 }

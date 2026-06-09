@@ -226,3 +226,99 @@ func TestTasks_CreateUnknownProjectIs404(t *testing.T) {
 		t.Errorf("raw FK constraint leaked to client: %q", rr.Body.String())
 	}
 }
+
+// TestTasks_BlockReasonDoesNotClobberBody walks the exact #54 reproduction:
+// a block reason is recorded in the dedicated block_reason field (not body_md),
+// status-only transitions preserve body_md, and leaving the blocked state
+// auto-clears the now-stale block reason. The original description survives to
+// the completed task.
+func TestTasks_BlockReasonDoesNotClobberBody(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	const team = "block-team"
+	const projectID = "proj-block"
+	now := NowUTC()
+	if _, err := s.db.Exec(
+		`INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
+		team, team, now); err != nil {
+		t.Fatalf("seed team: %v", err)
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO projects (id, team_id, name, created_at, kind, is_template)
+		 VALUES (?, ?, 'block-test', ?, 'goal', 0)`,
+		projectID, team, now); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	token := mintTeamToken(t, s, "owner", team)
+	do := func(method, url string, body any) *httptest.ResponseRecorder {
+		var r *http.Request
+		if body != nil {
+			buf, _ := json.Marshal(body)
+			r = httptest.NewRequest(method, url, bytes.NewReader(buf))
+			r.Header.Set("Content-Type", "application/json")
+		} else {
+			r = httptest.NewRequest(method, url, nil)
+		}
+		r.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		s.router.ServeHTTP(rr, r)
+		return rr
+	}
+
+	const origBody = "Fix login.js:42 — replace event.preventDefault() with form.requestSubmit()"
+	base := "/v1/teams/" + team + "/projects/" + projectID + "/tasks"
+
+	// 1. Create with a real description.
+	rr := do("POST", base, map[string]any{"title": "fix login", "body_md": origBody})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var created taskOut
+	_ = json.Unmarshal(rr.Body.Bytes(), &created)
+	get := func() taskOut {
+		rr := do("GET", base+"/"+created.ID, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("get: %d %s", rr.Code, rr.Body.String())
+		}
+		var out taskOut
+		_ = json.Unmarshal(rr.Body.Bytes(), &out)
+		return out
+	}
+
+	// 2. Block with a reason — in the dedicated field, NOT body_md.
+	rr = do("PATCH", base+"/"+created.ID, map[string]any{
+		"status": "blocked", "block_reason": "Blocked: need Safari 17.4 test env"})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("block: %d %s", rr.Code, rr.Body.String())
+	}
+	if b := get(); b.BodyMD != origBody || b.BlockReason != "Blocked: need Safari 17.4 test env" || b.Status != "blocked" {
+		t.Fatalf("after block: body=%q reason=%q status=%q", b.BodyMD, b.BlockReason, b.Status)
+	}
+
+	// 3. Unblock with a status-only patch → body preserved, reason auto-cleared.
+	rr = do("PATCH", base+"/"+created.ID, map[string]any{"status": "in_progress"})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("unblock: %d %s", rr.Code, rr.Body.String())
+	}
+	if b := get(); b.BodyMD != origBody || b.BlockReason != "" {
+		t.Fatalf("after unblock: body=%q reason=%q (want orig body, empty reason)", b.BodyMD, b.BlockReason)
+	}
+
+	// 4. Complete → the original description is intact, not a stale block reason.
+	rr = do("PATCH", base+"/"+created.ID, map[string]any{"status": "done"})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("complete: %d %s", rr.Code, rr.Body.String())
+	}
+	if b := get(); b.BodyMD != origBody {
+		t.Fatalf("after done: body=%q; want original description preserved", b.BodyMD)
+	}
+}

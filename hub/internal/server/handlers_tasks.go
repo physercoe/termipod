@@ -33,6 +33,7 @@ import (
 type taskIn struct {
 	Title        string `json:"title"`
 	BodyMD       string `json:"body_md,omitempty"`
+	BlockReason  string `json:"block_reason,omitempty"`
 	ParentTaskID string `json:"parent_task_id,omitempty"`
 	AssigneeID   string `json:"assignee_id,omitempty"`
 	CreatedByID  string `json:"created_by_id,omitempty"`
@@ -47,6 +48,7 @@ type taskOut struct {
 	ParentTaskID string `json:"parent_task_id,omitempty"`
 	Title        string `json:"title"`
 	BodyMD       string `json:"body_md"`
+	BlockReason  string `json:"block_reason,omitempty"`
 	Status       string `json:"status"`
 	Priority     string `json:"priority"`
 	AssigneeID   string `json:"assignee_id,omitempty"`
@@ -122,11 +124,11 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	id := NewID()
 	now := NowUTC()
 	_, err := s.writeDB.ExecContext(r.Context(), `
-		INSERT INTO tasks (id, project_id, parent_task_id, title, body_md, status, priority,
+		INSERT INTO tasks (id, project_id, parent_task_id, title, body_md, block_reason, status, priority,
 		                   assignee_id, created_by_id, milestone_id, created_at, updated_at)
-		VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?,
+		VALUES (?, ?, NULLIF(?, ''), ?, ?, NULLIF(?, ''), ?, ?,
 		        NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?)`,
-		id, proj, in.ParentTaskID, in.Title, in.BodyMD, status, priority,
+		id, proj, in.ParentTaskID, in.Title, in.BodyMD, in.BlockReason, status, priority,
 		in.AssigneeID, in.CreatedByID, in.MilestoneID, now, now)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -142,6 +144,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, taskOut{
 		ID: id, ProjectID: proj, ParentTaskID: in.ParentTaskID, Title: in.Title,
 		BodyMD: in.BodyMD, Status: status, Priority: priority,
+		BlockReason: in.BlockReason,
 		AssigneeID:  in.AssigneeID,
 		CreatedByID: in.CreatedByID, MilestoneID: in.MilestoneID,
 		Source:    "ad_hoc",
@@ -211,7 +214,8 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(t.started_at, ''), COALESCE(t.completed_at, ''),
 		       COALESCE(t.result_summary, ''),
 		       COALESCE(ae.handle, ''), COALESCE(ae.status, ''),
-		       COALESCE(ar.handle, '')
+		       COALESCE(ar.handle, ''),
+		       COALESCE(t.block_reason, '')
 		FROM tasks t
 		LEFT JOIN plan_steps ps ON ps.id = t.plan_step_id
 		LEFT JOIN agents ae ON ae.id = t.assignee_id
@@ -259,7 +263,8 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 			&t.Status, &t.Priority, &t.AssigneeID, &t.CreatedByID, &t.MilestoneID,
 			&t.PlanStepID, &t.PlanID, &t.CreatedAt, &t.UpdatedAt,
 			&t.StartedAt, &t.CompletedAt, &t.ResultSummary,
-			&t.AssigneeHandle, &t.AssigneeStatus, &t.AssignerHandle); err != nil {
+			&t.AssigneeHandle, &t.AssigneeStatus, &t.AssignerHandle,
+			&t.BlockReason); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -270,11 +275,18 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 type taskPatchIn struct {
-	Title      *string `json:"title,omitempty"`
-	BodyMD     *string `json:"body_md,omitempty"`
-	Status     *string `json:"status,omitempty"`
-	AssigneeID *string `json:"assignee_id,omitempty"`
-	Priority   *string `json:"priority,omitempty"`
+	Title  *string `json:"title,omitempty"`
+	BodyMD *string `json:"body_md,omitempty"`
+	// BlockReason records *why* the task is currently blocked, kept
+	// separate from BodyMD so a `tasks.update status=blocked` no longer
+	// has to clobber the task's standing description (#54). nil leaves the
+	// prior value; explicit "" clears it; and any status change away from
+	// 'blocked' auto-clears it (see handlePatchTask) so a stale reason
+	// doesn't leak into an unblocked/done task.
+	BlockReason *string `json:"block_reason,omitempty"`
+	Status      *string `json:"status,omitempty"`
+	AssigneeID  *string `json:"assignee_id,omitempty"`
+	Priority    *string `json:"priority,omitempty"`
 	// ResultSummary lets the closing call (typically `tasks.complete`
 	// via MCP, or a manual mobile flip-to-done) record what the worker
 	// actually did. Stamped into the existing `tasks.result_summary`
@@ -314,6 +326,18 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		sets = append(sets, "body_md = ?")
 		args = append(args, *in.BodyMD)
 		changedFields = append(changedFields, "body_md")
+	}
+	// block_reason: explicit value wins; otherwise any status change away
+	// from 'blocked' clears the now-stale reason so it doesn't leak into an
+	// unblocked / done / cancelled task (#54). body_md is left untouched by
+	// both paths — that is the whole point of the dedicated field.
+	if in.BlockReason != nil {
+		sets = append(sets, "block_reason = NULLIF(?, '')")
+		args = append(args, *in.BlockReason)
+		changedFields = append(changedFields, "block_reason")
+	} else if in.Status != nil && *in.Status != "blocked" {
+		sets = append(sets, "block_reason = NULL")
+		changedFields = append(changedFields, "block_reason")
 	}
 	if in.Status != nil {
 		sets = append(sets, "status = ?")
@@ -445,7 +469,8 @@ const taskSelectSQL = `
 	       COALESCE(t.started_at, ''), COALESCE(t.completed_at, ''),
 	       COALESCE(t.result_summary, ''),
 	       COALESCE(ae.handle, ''), COALESCE(ae.status, ''),
-	       COALESCE(ar.handle, '')
+	       COALESCE(ar.handle, ''),
+	       COALESCE(t.block_reason, '')
 	FROM tasks t
 	LEFT JOIN plan_steps ps ON ps.id = t.plan_step_id
 	LEFT JOIN agents ae ON ae.id = t.assignee_id
@@ -460,7 +485,8 @@ func scanTask(row *sql.Row) (taskOut, error) {
 		&t.Status, &t.Priority, &t.AssigneeID, &t.CreatedByID, &t.MilestoneID,
 		&t.PlanStepID, &t.PlanID, &t.CreatedAt, &t.UpdatedAt,
 		&t.StartedAt, &t.CompletedAt, &t.ResultSummary,
-		&t.AssigneeHandle, &t.AssigneeStatus, &t.AssignerHandle)
+		&t.AssigneeHandle, &t.AssigneeStatus, &t.AssignerHandle,
+		&t.BlockReason)
 	if err != nil {
 		return t, err
 	}

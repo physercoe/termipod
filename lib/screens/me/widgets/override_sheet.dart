@@ -107,8 +107,8 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
                 Icon(Icons.gavel,
                     size: 18,
                     color: isDark
-                        ? Colors.amber.shade200
-                        : Colors.amber.shade800),
+                        ? DesignColors.onWarningContainer
+                        : DesignColors.onWarningContainerLight),
                 const SizedBox(width: 8),
                 Text(
                   'Override decision',
@@ -136,7 +136,7 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
+                color: isDark ? DesignColors.canvasDark : DesignColors.canvasLight,
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Column(

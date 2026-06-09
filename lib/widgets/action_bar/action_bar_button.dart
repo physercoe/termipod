@@ -156,7 +156,7 @@ class _ActionBarButtonWidgetState extends State<ActionBarButtonWidget> {
                 : DesignColors.success.withValues(alpha: 0.08));
         borderColor = Colors.transparent;
       }
-      textColor = isDark ? DesignColors.success : const Color(0xFF16A34A);
+      textColor = isDark ? DesignColors.success : DesignColors.successOnLight;
     } else if (isAction) {
       // Action buttons: secondary accent, secondary-color flash on tap.
       if (_flashActive) {

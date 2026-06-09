@@ -232,8 +232,8 @@ class _BoolDot extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final fg = value
-        ? (isDark ? Colors.green.shade300 : Colors.green.shade800)
-        : (isDark ? Colors.grey.shade600 : Colors.grey.shade500);
+        ? (isDark ? DesignColors.success : DesignColors.successOnLight)
+        : (isDark ? DesignColors.textMuted : DesignColors.textMutedLight);
     return Row(
       children: [
         Icon(

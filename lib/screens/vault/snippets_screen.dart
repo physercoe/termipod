@@ -8,6 +8,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../models/snippet_presets.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// スニペット一覧・管理画面
 ///
@@ -206,12 +207,12 @@ class _SnippetsScreenState extends ConsumerState<SnippetsScreen> {
               : null,
           isDense: true,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
           filled: true,
           fillColor:
               isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: Radii.mdBorder,
             borderSide: BorderSide(
               color: isDark
                   ? DesignColors.borderDark
@@ -219,7 +220,7 @@ class _SnippetsScreenState extends ConsumerState<SnippetsScreen> {
             ),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: Radii.mdBorder,
             borderSide: BorderSide(
               color: isDark
                   ? DesignColors.borderDark
@@ -246,7 +247,7 @@ class _SnippetsScreenState extends ConsumerState<SnippetsScreen> {
     final storedCollapsed = _collapsed.contains(sectionKey);
     return InkWell(
       onTap: () => _toggleCollapsed(sectionKey),
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: Radii.smBorder,
       child: Padding(
         padding: const EdgeInsets.only(top: 12, bottom: 8),
         child: Row(
@@ -276,7 +277,7 @@ class _SnippetsScreenState extends ConsumerState<SnippetsScreen> {
               const SizedBox(width: 8),
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
                 decoration: BoxDecoration(
                   color: DesignColors.primary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(4),
@@ -284,7 +285,7 @@ class _SnippetsScreenState extends ConsumerState<SnippetsScreen> {
                 child: Text(
                   badge,
                   style: GoogleFonts.spaceGrotesk(
-                    fontSize: 9,
+                    fontSize: FontSizes.label,
                     fontWeight: FontWeight.w700,
                     color: DesignColors.primary,
                     letterSpacing: 0.8,
@@ -362,7 +363,7 @@ class _SnippetTile extends ConsumerWidget {
         direction: DismissDirection.endToStart,
         background: Container(
           alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 20),
+          padding: const EdgeInsets.only(right: Spacing.s16),
           decoration: BoxDecoration(
             color: DesignColors.error.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(12),
@@ -402,7 +403,7 @@ class _SnippetTile extends ConsumerWidget {
           },
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(Spacing.s12),
             decoration: BoxDecoration(
               color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
               borderRadius: BorderRadius.circular(12),
@@ -425,7 +426,7 @@ class _SnippetTile extends ConsumerWidget {
                       Text(
                         snippet.name,
                         style: GoogleFonts.spaceGrotesk(
-                          fontSize: 15,
+                          fontSize: FontSizes.subtitle,
                           fontWeight: FontWeight.w600,
                           color: colorScheme.onSurface,
                         ),
@@ -904,8 +905,8 @@ class _SnippetEditDialogState extends ConsumerState<SnippetEditDialog> {
     final ctls = _varControllers[variable.name];
     if (ctls == null) return const SizedBox.shrink();
     return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(10),
+      margin: const EdgeInsets.only(top: Spacing.s8),
+      padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
         color: (isDark
                 ? DesignColors.keyBackground
@@ -1101,7 +1102,7 @@ class _PresetSnippetTile extends ConsumerWidget {
         direction: DismissDirection.endToStart,
         background: Container(
           alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 20),
+          padding: const EdgeInsets.only(right: Spacing.s16),
           decoration: BoxDecoration(
             color: DesignColors.error.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(12),
@@ -1150,7 +1151,7 @@ class _PresetSnippetTile extends ConsumerWidget {
           },
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(Spacing.s12),
             decoration: BoxDecoration(
               color: isDark
                   ? DesignColors.surfaceDark
@@ -1182,7 +1183,7 @@ class _PresetSnippetTile extends ConsumerWidget {
                             child: Text(
                               preset.name,
                               style: GoogleFonts.spaceGrotesk(
-                                fontSize: 15,
+                                fontSize: FontSizes.subtitle,
                                 fontWeight: FontWeight.w600,
                                 color: colorScheme.onSurface,
                               ),
@@ -1204,7 +1205,7 @@ class _PresetSnippetTile extends ConsumerWidget {
                               child: Text(
                                 'EDITED',
                                 style: GoogleFonts.spaceGrotesk(
-                                  fontSize: 8,
+                                  fontSize: FontSizes.label,
                                   fontWeight: FontWeight.w700,
                                   color: DesignColors.primary,
                                   letterSpacing: 0.6,

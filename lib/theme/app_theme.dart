@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'design_colors.dart';
+import 'tokens.dart';
 
 /// アプリテーマ定義（HTMLデザイン仕様準拠）
 class AppTheme {
@@ -97,6 +98,20 @@ class AppTheme {
           side: const BorderSide(color: DesignColors.borderDark),
         ),
         margin: EdgeInsets.zero,
+      ),
+      // Token-based defaults for any Material chip (ADR-047 D-7). The app's
+      // custom chips live in lib/widgets/app_chip.dart.
+      chipTheme: ChipThemeData(
+        backgroundColor: DesignColors.surfaceDark,
+        selectedColor: DesignColors.primary.withValues(alpha: 0.2),
+        side: const BorderSide(color: DesignColors.borderDark),
+        labelStyle: const TextStyle(
+            fontSize: FontSizes.label, color: DesignColors.textSecondary),
+        secondaryLabelStyle: const TextStyle(
+            fontSize: FontSizes.label, color: DesignColors.primary),
+        padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.s8, vertical: Spacing.s4),
+        shape: const RoundedRectangleBorder(borderRadius: Radii.mdBorder),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -313,6 +328,19 @@ class AppTheme {
           side: const BorderSide(color: DesignColors.borderLight),
         ),
         margin: EdgeInsets.zero,
+      ),
+      // Token-based defaults for any Material chip (ADR-047 D-7). See dark.
+      chipTheme: ChipThemeData(
+        backgroundColor: DesignColors.surfaceLight,
+        selectedColor: DesignColors.primary.withValues(alpha: 0.2),
+        side: const BorderSide(color: DesignColors.borderLight),
+        labelStyle: const TextStyle(
+            fontSize: FontSizes.label, color: DesignColors.textSecondaryLight),
+        secondaryLabelStyle: const TextStyle(
+            fontSize: FontSizes.label, color: DesignColors.primary),
+        padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.s8, vertical: Spacing.s4),
+        shape: const RoundedRectangleBorder(borderRadius: Radii.mdBorder),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,

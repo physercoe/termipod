@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/task_priority_style.dart';
+import '../../../widgets/app_chip.dart';
 import '../../../widgets/steward_strip.dart';
 import '../reviews_screen.dart';
 import 'registry.dart';
@@ -247,7 +248,7 @@ class _StatusChip extends StatelessWidget {
       'archived' => DesignColors.textMuted,
       _ => DesignColors.primary,
     };
-    return _Chip(label: label, color: color);
+    return AppStatusChip(label: label, color: color);
   }
 }
 
@@ -260,7 +261,7 @@ class _BudgetChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final used = (usedCents / 100).toStringAsFixed(0);
     final cap = (capCents / 100).toStringAsFixed(0);
-    return _Chip(
+    return AppStatusChip(
       label: 'budget: \$$used / \$$cap',
       color: DesignColors.warning,
       icon: Icons.attach_money,
@@ -278,50 +279,10 @@ class _AttentionPill extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(4),
-      child: _Chip(
+      child: AppStatusChip(
         label: count == 1 ? '1 review' : '$count reviews',
         color: DesignColors.warning,
         icon: Icons.flag_outlined,
-      ),
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  final String label;
-  final Color color;
-  final IconData? icon;
-  const _Chip({
-    required this.label,
-    required this.color,
-    this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 11, color: color),
-            const SizedBox(width: 3),
-          ],
-          Text(
-            label,
-            style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-        ],
       ),
     );
   }

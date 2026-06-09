@@ -210,8 +210,10 @@ func foldEventIncremental(ctx context.Context, eventsR, digestTx digestStore, ag
 	f := newDigestFolder(d)
 	f.open = open
 	f.nextIdx = nextIdx
-	f.callName = nil // incremental resolves tool names from the DB, not memory
+	f.callName = nil   // incremental resolves tool names from the DB, not memory
+	f.callAnchor = nil // ditto for the #64 error-anchor relocation
 	f.resolve = func(id string) string { return resolveToolName(ctx, eventsR, agentID, id) }
+	f.resolveAnchor = func(id string) (foldAnchor, bool) { return resolveToolAnchor(ctx, eventsR, agentID, id) }
 
 	f.step(e)
 
@@ -339,6 +341,27 @@ func resolveToolName(ctx context.Context, q digestStore, agentID, id string) str
 		 ORDER BY seq DESC LIMIT 1`, agentID, id,
 	).Scan(&name)
 	return name
+}
+
+// resolveToolAnchor looks up a tool_call's navigation anchor (seq,
+// session_ordinal, ts) by its id — the incremental mirror of the brute-force
+// folder's in-memory callAnchor map. Used only on a tool failure to re-point
+// the error sample at the originating tool_call (#64). ok=false when no
+// matching tool_call exists, so the caller keeps the event's own anchor.
+func resolveToolAnchor(ctx context.Context, q digestStore, agentID, id string) (foldAnchor, bool) {
+	var a foldAnchor
+	err := q.QueryRowContext(ctx, `
+		SELECT seq, COALESCE(session_ordinal, 0), COALESCE(ts, '')
+		  FROM agent_events
+		 WHERE agent_id = ? AND kind = 'tool_call'
+		   AND COALESCE(json_extract(payload_json, '$.id'),
+		               json_extract(payload_json, '$.toolCallId')) = ?
+		 ORDER BY seq DESC LIMIT 1`, agentID, id,
+	).Scan(&a.Seq, &a.Ordinal, &a.TS)
+	if err != nil {
+		return foldAnchor{}, false
+	}
+	return a, true
 }
 
 // ensureAgentDigest backfills the digest + turn index for an agent that has

@@ -42,7 +42,13 @@ const (
 	// Insight Navigator lands on the right row after a resume (seq collides
 	// across the session's agents; the ordinal does not). The bump refolds
 	// sealed digests so their turn/error anchors gain the ordinal.
-	digestSchemaVersion = 5
+	//
+	// v6 re-points error anchors at the triggering event (issue #64): a
+	// tool_error samples the originating tool_call (not the failure response one
+	// row below), and a failed_turn samples the turn's first event (not the
+	// turn.result end marker). The bump refolds sealed digests so their Errors
+	// tab lands on the request that failed, not its result.
+	digestSchemaVersion = 6
 	// Cap the per-tool sample-seq lists so a pathological run can't bloat the
 	// JSON blob. Tool samples are navigation anchors, not a complete index
 	// (agent_turns + the kind-filtered listing are that).
@@ -211,6 +217,22 @@ type turnRow struct {
 // tool failure). Both yield the same name, so the digests agree.
 type toolNameResolver func(id string) string
 
+// foldAnchor is a triggering event's navigation anchor — its (seq, ordinal,
+// ts) triple. Used to re-point a tool failure's error sample at the tool_call
+// that caused it rather than the failure-signal event itself (issue #64).
+type foldAnchor struct {
+	Seq     int64
+	Ordinal int64
+	TS      string
+}
+
+// toolAnchorResolver maps a tool-call id to its foldAnchor. Like
+// toolNameResolver it has two implementations that agree: brute-force reads an
+// in-memory map of calls seen this run; incremental does a bounded DB lookup
+// (rare — only on a tool failure). Returns ok=false when the originating
+// tool_call can't be found, so the error sample falls back to its own anchor.
+type toolAnchorResolver func(id string) (foldAnchor, bool)
+
 // digestFolder is the shared state machine. For brute force it holds the
 // whole run; for incremental it is reconstructed from the persisted row +
 // open turn and stepped once.
@@ -222,15 +244,24 @@ type digestFolder struct {
 	lastTS   string
 	resolve  toolNameResolver
 	callName map[string]string // brute-force id→name; nil for incremental
+	// callAnchor is the brute-force id→(seq,ordinal,ts) map for re-pointing a
+	// tool failure's error sample at its originating tool_call (#64); nil for
+	// incremental, which resolves via resolveAnchor's DB lookup instead.
+	callAnchor    map[string]foldAnchor
+	resolveAnchor toolAnchorResolver
 }
 
 func newDigestFolder(d *agentDigest) *digestFolder {
-	f := &digestFolder{digest: d, callName: map[string]string{}}
+	f := &digestFolder{digest: d, callName: map[string]string{}, callAnchor: map[string]foldAnchor{}}
 	f.resolve = func(id string) string {
 		if n, ok := f.callName[id]; ok {
 			return n
 		}
 		return ""
+	}
+	f.resolveAnchor = func(id string) (foldAnchor, bool) {
+		a, ok := f.callAnchor[id]
+		return a, ok
 	}
 	return f
 }
@@ -312,6 +343,7 @@ func (f *digestFolder) step(e foldEvent) {
 		}
 		if id := eventToolID(e.Kind, e.Payload); id != "" && f.callName != nil {
 			f.callName[id] = name
+			f.callAnchor[id] = foldAnchor{Seq: e.Seq, Ordinal: e.Ordinal, TS: e.TS}
 		}
 		t := f.tool(name)
 		t.Calls++
@@ -354,7 +386,8 @@ func (f *digestFolder) step(e foldEvent) {
 		}
 		// Canonical error: a failed turn counts once.
 		if class, ok := canonicalErrorClass(e); ok {
-			f.recordError(class, e.Seq, e.Ordinal, e.TS, f.errorSampleLabel(e))
+			seq, ord, ts := f.errorAnchor(e, class)
+			f.recordError(class, seq, ord, ts, f.errorSampleLabel(e))
 		}
 		f.closeTurn(status, e.TS)
 		return
@@ -363,7 +396,8 @@ func (f *digestFolder) step(e foldEvent) {
 	// Canonical-error classification for non-turn events (the open turn is
 	// guaranteed non-nil here because we opened one above).
 	if class, ok := canonicalErrorClass(e); ok {
-		f.recordError(class, e.Seq, e.Ordinal, e.TS, f.errorSampleLabel(e))
+		seq, ord, ts := f.errorAnchor(e, class)
+		f.recordError(class, seq, ord, ts, f.errorSampleLabel(e))
 		if isToolFailure(e) {
 			d.ToolFailed++
 			if f.open != nil {
@@ -436,6 +470,37 @@ func (f *digestFolder) tool(name string) *toolAgg {
 		f.digest.Tools[name] = t
 	}
 	return t
+}
+
+// errorAnchor returns the (seq, ordinal, ts) the error sample should anchor on
+// so the Insight Navigator's Errors tab lands on the event that *triggered* the
+// failure, not the failure-signal event itself (issue #64):
+//
+//   - tool_error — the originating tool_call (resolved by id), so the user sees
+//     the request that failed, not the error response one row below it. Falls
+//     back to the event's own anchor when the call can't be resolved (engines
+//     vary in which id field a tool_result / tool_call_update carries).
+//   - failed_turn — the turn's first event (the open turn's StartOrdinal), not
+//     the turn.result end-of-turn marker, so the user lands at the top of the
+//     turn that failed.
+//   - everything else (kind=='error') — the event's own anchor, unchanged.
+func (f *digestFolder) errorAnchor(e foldEvent, class string) (int64, int64, string) {
+	switch class {
+	case "tool_error":
+		if id := eventToolID(e.Kind, e.Payload); id != "" && f.resolveAnchor != nil {
+			if a, ok := f.resolveAnchor(id); ok {
+				return a.Seq, a.Ordinal, a.TS
+			}
+		}
+	case "failed_turn":
+		// Anchor on the open turn (the one this turn.result is closing) — its
+		// first event. Gate on StartSeq, not StartOrdinal, so the relocation also
+		// holds for session-less agents whose ordinals are all 0.
+		if f.open != nil && f.open.StartSeq > 0 {
+			return f.open.StartSeq, f.open.StartOrdinal, f.open.StartTS
+		}
+	}
+	return e.Seq, e.Ordinal, e.TS
 }
 
 func (f *digestFolder) recordError(class string, seq, ordinal int64, ts, label string) {

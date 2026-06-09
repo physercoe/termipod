@@ -90,3 +90,60 @@ func TestDigestFold_ThreadsOrdinalOntoAnchors(t *testing.T) {
 		t.Fatalf("want error SampleOrdinals [4], got %v", c.SampleOrdinals)
 	}
 }
+
+// #64: a tool failure's error sample must anchor on the originating tool_call,
+// not the tool_result that carries is_error — so the Errors navigator lands on
+// the request that failed, not its response one row below.
+func TestDigestFold_ToolErrorAnchorsOnTriggeringCall(t *testing.T) {
+	events := []foldEvent{
+		{Seq: 1, Ordinal: 1, Kind: "turn.start", TS: "2026-06-09T00:00:00Z",
+			Payload: map[string]any{"turn_id": "t1"}},
+		{Seq: 2, Ordinal: 2, Kind: "tool_call", TS: "2026-06-09T00:00:01Z",
+			Payload: map[string]any{"id": "call-1", "name": "Bash"}},
+		{Seq: 3, Ordinal: 3, Kind: "tool_result", TS: "2026-06-09T00:00:02Z",
+			Payload: map[string]any{"tool_use_id": "call-1", "is_error": true}},
+		{Seq: 4, Ordinal: 4, Kind: "turn.result", TS: "2026-06-09T00:00:03Z",
+			Payload: map[string]any{"status": "success"}},
+	}
+	d, _ := computeAgentDigest("a", "team", events)
+
+	c := d.Errors["tool_error"]
+	if c == nil {
+		t.Fatalf("tool_error class not recorded")
+	}
+	if len(c.SampleOrdinals) != 1 || c.SampleOrdinals[0] != 2 {
+		t.Fatalf("want tool_error anchored on the tool_call (ordinal 2), got %v", c.SampleOrdinals)
+	}
+	if len(c.SampleSeqs) != 1 || c.SampleSeqs[0] != 2 {
+		t.Fatalf("want tool_error seq anchored on the tool_call (seq 2), got %v", c.SampleSeqs)
+	}
+	if len(c.SampleTSs) != 1 || c.SampleTSs[0] != "2026-06-09T00:00:01Z" {
+		t.Fatalf("want tool_error ts = the tool_call's ts, got %v", c.SampleTSs)
+	}
+}
+
+// #64: a failed turn's error sample must anchor on the turn's first event, not
+// the turn.result end-of-turn marker — so the navigator lands at the top of the
+// turn that failed.
+func TestDigestFold_FailedTurnAnchorsOnTurnStart(t *testing.T) {
+	events := []foldEvent{
+		{Seq: 5, Ordinal: 7, Kind: "turn.start", TS: "2026-06-09T00:00:00Z",
+			Payload: map[string]any{"turn_id": "t1"}},
+		{Seq: 6, Ordinal: 8, Kind: "text", TS: "2026-06-09T00:00:01Z",
+			Payload: map[string]any{"body": "working"}},
+		{Seq: 7, Ordinal: 9, Kind: "turn.result", TS: "2026-06-09T00:00:02Z",
+			Payload: map[string]any{"status": "error"}},
+	}
+	d, _ := computeAgentDigest("a", "team", events)
+
+	c := d.Errors["failed_turn"]
+	if c == nil {
+		t.Fatalf("failed_turn class not recorded")
+	}
+	if len(c.SampleOrdinals) != 1 || c.SampleOrdinals[0] != 7 {
+		t.Fatalf("want failed_turn anchored on the turn start (ordinal 7), got %v", c.SampleOrdinals)
+	}
+	if len(c.SampleSeqs) != 1 || c.SampleSeqs[0] != 5 {
+		t.Fatalf("want failed_turn seq anchored on the turn start (seq 5), got %v", c.SampleSeqs)
+	}
+}

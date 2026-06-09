@@ -83,8 +83,11 @@ bool? statusLineFastMode(Map<String, dynamic>? statusLine) {
 
 /// Open the session.init details bottom sheet for [payload]. Public so
 /// SessionChatScreen can wire its AppBar chip to the same drawer the
-/// inline header used to use. [agentKind] surfaces the engine
-/// (claude-code, codex, ...) which session.init doesn't carry.
+/// inline header used to use. [engineKind] is the agent's real backend
+/// engine (claude-code, codex, ...) from `backend.kind`; [agentKind] is the
+/// agent's template kind (e.g. `steward.general.v1`, `coder.v1`) from the
+/// agents table — for a worker the two coincide, for a steward they differ
+/// (#67). session.init carries neither.
 ///
 /// [statusLine] is the latest status_line frame's payload (v1.0.706
 /// polish). The sheet uses it to surface fields that are
@@ -97,6 +100,7 @@ void showSessionDetailsSheet(
   BuildContext context,
   Map<String, dynamic> payload, {
   String? agentKind,
+  String? engineKind,
   ModeModelPickerData? modeModel,
   Map<String, dynamic>? statusLine,
 }) {
@@ -107,6 +111,7 @@ void showSessionDetailsSheet(
     builder: (ctx) => _SessionDetailsSheet(
       payload: payload,
       agentKind: agentKind,
+      engineKind: engineKind,
       modeModel: modeModel,
       statusLine: statusLine,
     ),
@@ -124,6 +129,12 @@ void showSessionDetailsSheet(
 class SessionInitChip extends StatelessWidget {
   final Map<String, dynamic> payload;
   final String? agentKind;
+  // The agent's real backend engine (claude-code, codex, …) from
+  // `backend.kind`, threaded to the tap-drawer's AGENT section so the
+  // "engine" row is honest even for a steward whose [agentKind] is a
+  // template kind (#67). Null when unresolved → the row falls back to
+  // [agentKind].
+  final String? engineKind;
   // When provided, the details sheet (opened on tap) renders Mode +
   // Model selection sections at the top. This consolidates what used
   // to live behind a separate tune AppBar icon — one entry, one sheet,
@@ -149,6 +160,7 @@ class SessionInitChip extends StatelessWidget {
     super.key,
     required this.payload,
     this.agentKind,
+    this.engineKind,
     this.modeModel,
     this.statusLine,
     this.dense = false,
@@ -167,7 +179,10 @@ class SessionInitChip extends StatelessWidget {
     if (dense) {
       return InkWell(
         onTap: () => showSessionDetailsSheet(context, payload,
-            agentKind: agentKind, modeModel: modeModel, statusLine: statusLine),
+            agentKind: agentKind,
+            engineKind: engineKind,
+            modeModel: modeModel,
+            statusLine: statusLine),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           // Tight vertical padding so the chip sits flush with the 10px
@@ -203,7 +218,9 @@ class SessionInitChip extends StatelessWidget {
     }
     return InkWell(
       onTap: () => showSessionDetailsSheet(context, payload,
-          agentKind: agentKind, modeModel: modeModel,
+          agentKind: agentKind,
+          engineKind: engineKind,
+          modeModel: modeModel,
           statusLine: statusLine),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
@@ -278,11 +295,13 @@ class SessionInitChip extends StatelessWidget {
 class _SessionDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> payload;
   final String? agentKind;
+  final String? engineKind;
   final ModeModelPickerData? modeModel;
   final Map<String, dynamic>? statusLine;
   const _SessionDetailsSheet({
     required this.payload,
     this.agentKind,
+    this.engineKind,
     this.modeModel,
     this.statusLine,
   });
@@ -367,7 +386,19 @@ class _SessionDetailsSheet extends StatelessWidget {
       if (model.isNotEmpty) model,
       if (version.isNotEmpty) 'v$version',
     ].join(' · ');
-    final hasAgentSection = (agentKind != null && agentKind!.isNotEmpty) ||
+    // #67: the "engine" row must show the real backend engine (claude-code,
+    // codex, …) from `backend.kind`, not the agent's template kind. Fall back
+    // to agentKind when the engine is unresolved so the row never blanks. The
+    // template kind gets its own "kind" row, shown only when it differs from
+    // the engine (for a worker the two coincide — no redundant row).
+    final engineLabel = (engineKind != null && engineKind!.isNotEmpty)
+        ? engineKind!
+        : (agentKind ?? '');
+    final templateKind = agentKind ?? '';
+    final showKindRow =
+        templateKind.isNotEmpty && templateKind != engineLabel;
+    final hasAgentSection = engineLabel.isNotEmpty ||
+        showKindRow ||
         modelLine.isNotEmpty ||
         permMode.isNotEmpty ||
         outputStyle.isNotEmpty;
@@ -377,8 +408,9 @@ class _SessionDetailsSheet extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (agentKind != null && agentKind!.isNotEmpty)
-              _kvLine(context, 'engine', agentKind!),
+            if (engineLabel.isNotEmpty)
+              _kvLine(context, 'engine', engineLabel),
+            if (showKindRow) _kvLine(context, 'kind', templateKind),
             if (modelLine.isNotEmpty) _kvLine(context, 'model', modelLine),
             if (permMode.isNotEmpty)
               _kvLine(context, 'permission', permMode,

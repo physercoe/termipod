@@ -1038,9 +1038,13 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
         // after a ternary `?` trips the Dart parser.
         final ts = ts0.isNotEmpty ? ts0 : widget.runAnchorTs?[ord];
         return TurnSummaryRow(
-          // Prefer the digest's own turn ordinal (`idx`, 0-based) so the label
-          // matches the run-report card; fall back to the list position.
-          ordinal: ((r['idx'] as num?)?.toInt() ?? i) + 1,
+          // Label from the sorted-list position (1-based). The digest's own
+          // `idx` is a PER-AGENT counter that resets to 0 on every session
+          // resume (#63) — using it makes labels restart and duplicate
+          // (1,2,3,1,2,3,…). `_sortedTurnRows` already orders every turn in the
+          // session by its session-scoped `start_ordinal`, so `i + 1` is a
+          // stable, monotonic 1..N turn number across resume boundaries.
+          ordinal: i + 1,
           status: (r['status'] ?? '').toString(),
           open: r['open'] == true,
           durationMs: (r['duration_ms'] as num?)?.toInt() ?? 0,

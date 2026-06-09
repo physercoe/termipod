@@ -1405,17 +1405,34 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		}
 	}
 
+	// Persist the engine family in backend_json so mobile can resolve the
+	// engine (agent['backend']['kind']) for the agent sheet (#67) and the
+	// compose-snippet profile (#68). Without this the column stays '{}' and
+	// the Flutter side falls back to the template name. Prefer the rendered
+	// spec's backend.kind — the real family for template/steward spawns
+	// where in.Kind carries a template id — and fall back to in.Kind for
+	// mobile direct-engine spawns that pass the family there.
+	backendFamily := backendKindFromSpec(in.SpawnSpec)
+	if backendFamily == "" {
+		backendFamily = in.Kind
+	}
+	backendJSON := "{}"
+	if backendFamily != "" {
+		b, _ := json.Marshal(map[string]string{"kind": backendFamily})
+		backendJSON = string(b)
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO agents (
 			id, team_id, handle, kind, backend_json, capabilities_json,
 			parent_agent_id, host_id, budget_cents, worktree_path,
 			driving_mode, project_id,
 			status, pause_state, created_at
-		) VALUES (?, ?, ?, ?, '{}', '[]',
+		) VALUES (?, ?, ?, ?, ?, '[]',
 		          NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''),
 		          NULLIF(?, ''), NULLIF(?, ''),
 		          'pending', 'running', ?)`,
-		agentID, team, in.ChildHandle, in.Kind,
+		agentID, team, in.ChildHandle, in.Kind, backendJSON,
 		in.ParentID, in.HostID, nullableInt(in.BudgetCents),
 		in.WorktreePath, mode, projectID, now); err != nil {
 		return spawnOut{}, http.StatusConflict, err

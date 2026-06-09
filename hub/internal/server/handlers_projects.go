@@ -239,6 +239,22 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name required")
 		return
 	}
+	// #59: materializing a concrete project is a governed action (ADR-030 /
+	// ADR-046). An agent (steward) must route through
+	// propose(kind="project.create") so the principal reviews the inline spec
+	// before it lands — it may not POST here to create one unapproved. The
+	// propose Apply path calls createProjectCore directly (not this HTTP
+	// handler), so approved creates are unaffected, and a principal creating
+	// from the app is admitted. Template authoring (is_template) stays open:
+	// templates are authored references, not proposed.
+	if !in.IsTemplate {
+		if _, actorKind, _ := actorFromContext(r.Context()); actorKind == "agent" {
+			writeErr(w, http.StatusForbidden,
+				`creating a project is a governed action: call propose(kind="project.create") `+
+					`so the principal approves the spec — projects.create cannot create one directly`)
+			return
+		}
+	}
 	out, status, err := s.createProjectCore(r.Context(), team, in)
 	if err != nil {
 		writeErr(w, status, err.Error())

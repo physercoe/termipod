@@ -48,6 +48,12 @@ class DesignColors {
   static const error = Color(0xFFEF4444);
   static const warning = Color(0xFFF59E0B);
 
+  // Semantic accents for tonal chips/badges (ADR-047 D-5). Used as the
+  // base of an alpha-tinted chip (bg = base @ low alpha, fg = base), the
+  // same model as AppStatusChip.
+  static const info = Color(0xFF6366F1); // indigo — informational / phase
+  static const slate = Color(0xFF64748B); // neutral slate — routine / status
+
   // Terminal Colors
   static const terminalGreen = Color(0xFF22C55E);
   static const terminalBlue = Color(0xFF3B82F6);

@@ -41,7 +41,10 @@ class AppTheme {
       onPrimary: Colors.black,
       primaryContainer: DesignColors.primary.withValues(alpha: 0.2),
       onPrimaryContainer: DesignColors.primary,
-      secondary: DesignColors.primary,
+      // Tonal cyan, not a copy of primary (ADR-047 D-5): the Material
+      // secondary slot is meaningful without introducing a clashing hue.
+      // Amber stays the warning semantic only (DesignColors.warning).
+      secondary: DesignColors.primaryDark,
       onSecondary: Colors.black,
       surface: DesignColors.surfaceDark,
       onSurface: DesignColors.textPrimary,
@@ -256,7 +259,8 @@ class AppTheme {
       onPrimary: Colors.white,
       primaryContainer: DesignColors.primary.withValues(alpha: 0.1),
       onPrimaryContainer: DesignColors.primaryDark,
-      secondary: DesignColors.primary,
+      // Tonal cyan, not a copy of primary (ADR-047 D-5). See dark scheme.
+      secondary: DesignColors.primaryDark,
       onSecondary: Colors.white,
       surface: DesignColors.surfaceLight,
       onSurface: DesignColors.textPrimaryLight,

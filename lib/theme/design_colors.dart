@@ -25,12 +25,18 @@ class DesignColors {
   // Text Colors (Dark Theme)
   static const textPrimary = Color(0xFFFFFFFF);
   static const textSecondary = Color(0xFF9CA3AF);
-  static const textMuted = Color(0xFF6B7280);
+  // WCAG 2.1 AA floor (ADR-047 D-6): #6B7280 was 3.39:1 on surfaceDark and
+  // failed AA; #868C96 is 4.85:1 on surfaceDark (5.6:1+ on darker surfaces),
+  // still visibly muted below textSecondary.
+  static const textMuted = Color(0xFF868C96);
 
   // Text Colors (Light Theme)
   static const textPrimaryLight = Color(0xFF111827);
   static const textSecondaryLight = Color(0xFF4B5563);
-  static const textMutedLight = Color(0xFF9CA3AF);
+  // WCAG 2.1 AA floor (ADR-047 D-6): #9CA3AF was only 2.54:1 on white and
+  // failed AA badly; #646B73 is 4.90:1 on canvasLight (its worst surface),
+  // still clearly more muted than textSecondaryLight.
+  static const textMutedLight = Color(0xFF646B73);
 
   // Surface Colors (Light Theme)
   static const surfaceLight = Color(0xFFFFFFFF);

@@ -63,14 +63,19 @@ class _TaskMilestoneListHeroState
       );
     }
     final all = _rows ?? const <Map<String, dynamic>>[];
+    // #61: "open" = not terminal. Both 'done' and 'cancelled' are terminal,
+    // so a cancelled task is not open work and must not be counted/listed here.
     final open = all
-        .where((r) => (r['status'] ?? '').toString() != 'done')
+        .where((r) {
+          final s = (r['status'] ?? '').toString();
+          return s != 'done' && s != 'cancelled';
+        })
         .toList();
     if (open.isEmpty) {
       return _EmptyCard(
         message: all.isEmpty
             ? 'No tasks yet. Create one from the Tasks tab.'
-            : 'All tasks are done — nothing open.',
+            : 'Nothing open — every task is done or cancelled.',
       );
     }
 

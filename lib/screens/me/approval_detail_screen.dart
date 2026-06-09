@@ -158,7 +158,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
                       ? 'hand-back'
                       : 'clarify',
                   color: (pending['mode'] ?? 'clarify').toString() == 'handoff'
-                      ? Colors.orange
+                      ? DesignColors.warning
                       : DesignColors.primary,
                 ),
               if (kind == 'elicit')
@@ -426,7 +426,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
       case 'critical':
         return DesignColors.error;
       case 'major':
-        return Colors.orange;
+        return DesignColors.warning;
       default:
         return DesignColors.primary;
     }
@@ -1384,7 +1384,7 @@ class _DiffStatusChip extends StatelessWidget {
       color = DesignColors.textMuted;
     } else {
       label = 'revise';
-      color = Colors.orange;
+      color = DesignColors.warning;
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

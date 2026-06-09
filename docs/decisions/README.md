@@ -65,6 +65,7 @@ next sequential number — don't reserve, don't skip.
 | [044](044-adaptive-project-lifecycle.md) | The project lifecycle is adaptive, not a fixed template contract — agents materialize deliverables, criteria editable via propose, AC-driven system-approved phase advance (human gating = `gate` criterion) | Accepted 2026-06-05 · Amended 2026-06-08 (early-bind + completion-gating) | — |
 | [045](045-hub-storage-scaling.md) | Hub storage scaling — deferred bounded-staleness fold, event/digest store separation (per-class + per-team shards), selectable sqlite\|postgres backend (D3 decided, not built) | Accepted 2026-06-06 | (amends [038](038-per-run-event-digest.md) §2) |
 | [046](046-projects-from-inline-spec.md) | A project's spec is its `config_yaml`; create is a governed `project.create` whose approval materializes the project — template/project collapse, presets as reference examples, no steward `template.install`, steward bound + spawned on Start | Proposed 2026-06-08 | (amends [044](044-adaptive-project-lifecycle.md)) |
+| [047](047-design-system-enforcement.md) | Design-system enforcement — named tokens as the single source of truth (M3-aligned spacing/radius/type scales), WCAG 2.1 AA floor, one central `chipTheme`, single brand accent, no-new-violations CI ratchet | Accepted 2026-06-09 | — |
 
 ---
 

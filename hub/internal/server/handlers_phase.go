@@ -158,6 +158,33 @@ func (s *Server) templateGoal(templateID string) string {
 	return ""
 }
 
+// templateOnCreateTemplateID returns the on_create_template_id declared by the
+// named project template (the steward bound on Start), or "" when the template
+// is unknown or declares none. Mirrors templateGoal — it is the third
+// resolution tier in createProjectCore so a concrete project created from a
+// template inherits the template's bound steward even when neither the request
+// nor an inline config_yaml names one. Without it the column stays NULL and the
+// mobile "review & Start" banner never renders (#62).
+func (s *Server) templateOnCreateTemplateID(templateID string) string {
+	if templateID == "" {
+		return ""
+	}
+	docs, err := loadProjectTemplates(s.cfg.DataRoot)
+	if err != nil {
+		return ""
+	}
+	name := templateID
+	if n := s.templateNameForID(templateID); n != "" {
+		name = n
+	}
+	for _, d := range docs {
+		if d.Name == templateID || d.Name == name {
+			return d.OnCreateTemplateID
+		}
+	}
+	return ""
+}
+
 // nextPhase returns the phase following current in phases, or "" when
 // current is empty (no phase yet) returns the first phase, or when
 // current is the last phase returns "" to mean "no phase to advance to."

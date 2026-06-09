@@ -380,6 +380,11 @@ class _TasksViewState extends ConsumerState<_TasksView> {
     'in_progress',
     'blocked',
     'done',
+    // #61: cancelled tasks are loaded under "All" but were neither grouped
+    // nor filterable, so the count (all) and the list (cancelled hidden)
+    // disagreed. Cancelled rows are kept for the audit trail (ADR-029), so
+    // surface them rather than silently drop them from the count.
+    'cancelled',
   ];
 
   @override
@@ -520,7 +525,10 @@ class _TasksViewState extends ConsumerState<_TasksView> {
     }
     // No status filter — group by status (Linear/Asana mobile pattern).
     // Each section header carries the status; per-row label is dropped.
-    const order = ['todo', 'in_progress', 'blocked', 'done'];
+    // #61: include 'cancelled' so every loaded task lands in a group — the
+    // grouped list and the loaded set agree (no "4 loaded, 1 shown" gap).
+    // Cancelled trails the active statuses; _TaskTile renders it struck-through.
+    const order = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
     final byStatus = <String, List<Map<String, dynamic>>>{};
     for (final t in _tasks) {
       final s = (t['status'] ?? 'todo').toString();

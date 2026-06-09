@@ -132,3 +132,28 @@ func TestStartProject_AlreadyRunning_409(t *testing.T) {
 		t.Errorf("second start out=%+v; want already_running for %s", second, first.AgentID)
 	}
 }
+
+// #62 — a concrete project created from a named template, with neither an
+// explicit on_create_template_id nor an inline config_yaml that declares one,
+// inherits the template's bound steward (tier-3 fallback). Without it the
+// column lands NULL and mobile's "review & Start" banner never renders, so the
+// principal has no way to Start the steward.
+func TestProjectCreate_InheritsOnCreateTemplateIDFromTemplate(t *testing.T) {
+	srv, dir, team, tok := newProjectTemplateTestServer(t)
+	// A minimal template that binds a steward but declares no required
+	// parameters — isolates the inheritance from any preset's param gate.
+	writeOverlayTemplate(t, dir, "mini.v1.yaml",
+		"name: mini\nkind: goal\ngoal: do the thing\non_create_template_id: agents.steward.mini\n")
+
+	p := createProject(t, srv, team, tok, map[string]any{
+		"name":        "from-mini",
+		"kind":        "goal",
+		"template_id": "mini",
+	})
+	if p.OnCreateTemplateID != "agents.steward.mini" {
+		t.Fatalf("on_create_template_id = %q; want inherited agents.steward.mini (#62)", p.OnCreateTemplateID)
+	}
+	if p.StewardStarted {
+		t.Error("steward_started=true on fresh create; want false (Start banner must show)")
+	}
+}

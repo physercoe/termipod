@@ -350,6 +350,14 @@ func (s *Server) createProjectCore(ctx context.Context, team string, in projectI
 	if onCreateTpl == "" {
 		onCreateTpl = projectSpecOnCreateTemplateID(in.ConfigYML)
 	}
+	// Tier 3 (#62): a concrete project created from a named template with
+	// neither an explicit field nor an inline spec value inherits the
+	// template's own on_create_template_id — mirroring the goal fallback
+	// below. Without this the column lands NULL and mobile's "review & Start"
+	// banner never shows, leaving the principal no way to Start the steward.
+	if onCreateTpl == "" && in.TemplateID != "" && !in.IsTemplate {
+		onCreateTpl = s.templateOnCreateTemplateID(in.TemplateID)
+	}
 
 	// Resolve the project goal (#29). A concrete project created from a
 	// template with no explicit goal inherits the template's goal text; then

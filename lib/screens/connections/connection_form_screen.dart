@@ -13,6 +13,7 @@ import '../../providers/key_provider.dart';
 import '../../services/keychain/secure_storage.dart';
 import '../../services/ssh/ssh_client.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// 接続編集画面
 ///
@@ -331,7 +332,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
               Text(
                 l10n.terminalModeDesc,
                 style: GoogleFonts.spaceGrotesk(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: Theme.of(context).brightness == Brightness.dark
                       ? DesignColors.textMuted
                       : DesignColors.textMutedLight,
@@ -351,7 +352,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
               Text(
                 l10n.deepLinkIdDesc,
                 style: GoogleFonts.spaceGrotesk(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: Theme.of(context).brightness == Brightness.dark
                       ? DesignColors.textMuted
                       : DesignColors.textMutedLight,
@@ -400,7 +401,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
     return Text(
       label,
       style: GoogleFonts.spaceGrotesk(
-        fontSize: 10,
+        fontSize: FontSizes.label,
         fontWeight: FontWeight.w500,
         letterSpacing: 1,
         color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -439,7 +440,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: colorScheme.primary),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
       ),
       validator: (value) {
         if (value == null || value.isEmpty) {
@@ -477,7 +478,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: colorScheme.primary),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
         suffixIcon: Container(
           padding: const EdgeInsets.all(12),
           child: Container(
@@ -537,7 +538,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: colorScheme.primary),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
       ),
       validator: (value) {
         if (value == null || value.isEmpty) {
@@ -579,7 +580,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: colorScheme.primary),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
       ),
       validator: (value) {
         if (value == null || value.isEmpty) {
@@ -620,7 +621,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(color: colorScheme.primary),
             ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
           ),
           validator: (value) {
             if (value != null && value.isNotEmpty && !value.startsWith('/')) {
@@ -668,7 +669,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: colorScheme.primary),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
       ),
       validator: (value) {
         if (value != null && value.isNotEmpty && value.contains(' ')) {
@@ -696,12 +697,12 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
             child: GestureDetector(
               onTap: () => setState(() => _authMethod = 'password'),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
                 decoration: BoxDecoration(
                   color: _authMethod == 'password'
                       ? colorScheme.primary
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: Radii.smBorder,
                   boxShadow: _authMethod == 'password'
                       ? [
                           BoxShadow(
@@ -730,12 +731,12 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
             child: GestureDetector(
               onTap: () => setState(() => _authMethod = 'key'),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
                 decoration: BoxDecoration(
                   color: _authMethod == 'key'
                       ? colorScheme.primary
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: Radii.smBorder,
                   boxShadow: _authMethod == 'key'
                       ? [
                           BoxShadow(
@@ -797,7 +798,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: colorScheme.primary),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
       ),
       validator: (value) {
         if (!widget.isEditing && (value == null || value.isEmpty)) {
@@ -827,7 +828,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none,
             ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
           ),
           dropdownColor: colorScheme.surface,
           style: GoogleFonts.spaceGrotesk(fontSize: 14, color: colorScheme.onSurface),
@@ -921,7 +922,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide(color: colorScheme.primary),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
                   ),
                   validator: (value) {
                     if (_useJumpHost && (value == null || value.isEmpty)) {
@@ -961,7 +962,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide(color: colorScheme.primary),
                               ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
                             ),
                           ),
                         ],
@@ -996,7 +997,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide(color: colorScheme.primary),
                               ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
                             ),
                           ),
                         ],
@@ -1020,12 +1021,12 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                         child: GestureDetector(
                           onTap: () => setState(() => _jumpAuthMethod = 'password'),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
                             decoration: BoxDecoration(
                               color: _jumpAuthMethod == 'password'
                                   ? colorScheme.primary
                                   : Colors.transparent,
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: Radii.smBorder,
                             ),
                             child: Text(
                               l10n.authMethodPassword,
@@ -1045,12 +1046,12 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                         child: GestureDetector(
                           onTap: () => setState(() => _jumpAuthMethod = 'key'),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
                             decoration: BoxDecoration(
                               color: _jumpAuthMethod == 'key'
                                   ? colorScheme.primary
                                   : Colors.transparent,
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: Radii.smBorder,
                             ),
                             child: Text(
                               l10n.authMethodPrivateKey,
@@ -1081,7 +1082,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
                     ),
                     dropdownColor: colorScheme.surface,
                     style: GoogleFonts.spaceGrotesk(fontSize: 14, color: colorScheme.onSurface),
@@ -1170,7 +1171,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide(color: colorScheme.primary),
                               ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
                             ),
                             validator: (value) {
                               if (_useProxy && (value == null || value.isEmpty)) {
@@ -1211,7 +1212,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide(color: colorScheme.primary),
                               ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
                             ),
                           ),
                         ],
@@ -1242,7 +1243,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide(color: colorScheme.primary),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -1269,7 +1270,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide(color: colorScheme.primary),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
                   ),
                 ),
               ],

@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import 'app_chip.dart';
 
 // ---------------------------------------------------------------------------
 // v1.0.706 polish — top-level statusLine accessors for the SESSION STATE
@@ -193,11 +194,11 @@ class SessionInitChip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (agentKind != null && agentKind!.isNotEmpty) ...[
-                _Pill(label: _shortKind(agentKind!), color: DesignColors.primary),
+                AppStatusChip(label: _shortKind(agentKind!), color: DesignColors.primary),
                 const SizedBox(width: 4),
               ],
               if (model.isNotEmpty)
-                _Pill(label: _shortModel(model), color: DesignColors.secondary),
+                AppStatusChip(label: _shortModel(model), color: DesignColors.secondary),
               if (permMode.isNotEmpty) ...[
                 const SizedBox(width: 4),
                 // The long word ("bypassPermissions") is replaced by a
@@ -229,31 +230,31 @@ class SessionInitChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (agentKind != null && agentKind!.isNotEmpty) ...[
-              _Pill(
+              AppStatusChip(
                 label: _shortKind(agentKind!),
                 color: DesignColors.primary,
               ),
               const SizedBox(width: 4),
             ],
             if (model.isNotEmpty)
-              _Pill(
+              AppStatusChip(
                 label: _shortModel(model),
                 color: DesignColors.secondary,
               ),
             if (permMode.isNotEmpty) ...[
               const SizedBox(width: 4),
-              _Pill(
+              AppStatusChip(
                 label: permMode,
                 color: _permModeColor(permMode),
               ),
             ],
             if (tools.isNotEmpty) ...[
               const SizedBox(width: 4),
-              _Pill(label: '${tools.length}t', color: mutedColor),
+              AppStatusChip(label: '${tools.length}t', color: mutedColor),
             ],
             if (mcpServers.isNotEmpty) ...[
               const SizedBox(width: 4),
-              _Pill(
+              AppStatusChip(
                 label: '${mcpServers.length}mcp',
                 color: _mcpAggregateColor(mcpServers, mutedColor),
               ),
@@ -628,7 +629,7 @@ class _McpRow extends StatelessWidget {
             ),
           ),
           if (status.isNotEmpty)
-            _Pill(label: status, color: _mcpStatusColor(status)),
+            AppStatusChip(label: status, color: _mcpStatusColor(status)),
         ],
       ),
     );
@@ -651,31 +652,6 @@ class _McpRow extends StatelessWidget {
   }
 }
 
-class _Pill extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _Pill({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: color,
-        ),
-      ),
-    );
-  }
-}
 
 /// ADR-021 W2.5 — captured mode + model state advertised by the agent
 /// plus the bound picker callbacks. Lifted out of [LiveFeed] so the

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/app_chip.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../documents/structured_document_viewer.dart';
 import 'document_create_sheet.dart';
@@ -245,7 +246,7 @@ class _KindBar extends StatelessWidget {
       child: Row(
         children: [
           for (final k in kinds) ...[
-            _Pill(
+            AppChoiceChip(
               label: k ?? 'all',
               selected: k == selected,
               onTap: () => onChanged(k),
@@ -253,45 +254,6 @@ class _KindBar extends StatelessWidget {
             const SizedBox(width: 6),
           ],
         ],
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _Pill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? DesignColors.primary.withValues(alpha: 0.2)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? DesignColors.primary : DesignColors.borderDark,
-          ),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 11,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? DesignColors.primary : DesignColors.textMuted,
-          ),
-        ),
       ),
     );
   }

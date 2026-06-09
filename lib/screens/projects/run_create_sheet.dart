@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/app_chip.dart';
 
 /// Declare a new experiment run (blueprint §6.5). Runs are the unit of
 /// work for training, evaluation, and notebooks; the hub stores metadata
@@ -195,7 +196,7 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
           runSpacing: 6,
           children: [
             for (final k in _kinds)
-              _KindChip(
+              AppChoiceChip(
                 label: k,
                 selected: _kind == k,
                 onTap: () => setState(() => _kind = k),
@@ -306,45 +307,6 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
           ),
         ),
       );
-}
-
-class _KindChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _KindChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? DesignColors.primary.withValues(alpha: 0.2)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? DesignColors.primary : DesignColors.borderDark,
-          ),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 11,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? DesignColors.primary : DesignColors.textMuted,
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _ProjectField extends StatelessWidget {

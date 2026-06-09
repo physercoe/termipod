@@ -15,6 +15,7 @@ import '../sessions/sessions_screen.dart' show SessionChatScreen;
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_feed.dart';
+import '../../widgets/app_chip.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/insights_panel.dart';
 import '../../widgets/phase_badge.dart';
@@ -597,7 +598,7 @@ class _TaskFilterBar extends StatelessWidget {
               child: Row(
                 children: [
                   for (final s in statuses) ...[
-                    _TaskFilterPill(
+                    AppChoiceChip(
                       label: s ?? 'all',
                       selected: s == selectedStatus,
                       onTap: () => onStatusChanged(s),
@@ -723,46 +724,6 @@ class _StatusSectionHeader extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _TaskFilterPill extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _TaskFilterPill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: selected
-              ? DesignColors.primary.withValues(alpha: 0.2)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color:
-                selected ? DesignColors.primary : DesignColors.borderDark,
-          ),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? DesignColors.primary : DesignColors.textMuted,
-          ),
-        ),
       ),
     );
   }

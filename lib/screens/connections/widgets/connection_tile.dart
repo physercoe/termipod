@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
+import '../../../theme/design_colors.dart';
+
 /// 接続一覧のタイルWidget
 class ConnectionTile extends StatelessWidget {
   final String name;
@@ -30,7 +32,7 @@ class ConnectionTile extends StatelessWidget {
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: isConnected
-            ? Colors.green
+            ? DesignColors.success
             : Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Icon(
           Icons.computer,
@@ -65,9 +67,9 @@ class ConnectionTile extends StatelessWidget {
             value: 'delete',
             child: Row(
               children: [
-                const Icon(Icons.delete, color: Colors.red),
+                const Icon(Icons.delete, color: DesignColors.error),
                 const SizedBox(width: 8),
-                Text(l10n.buttonDelete, style: const TextStyle(color: Colors.red)),
+                Text(l10n.buttonDelete, style: const TextStyle(color: DesignColors.error)),
               ],
             ),
           ),

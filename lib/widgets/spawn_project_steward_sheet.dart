@@ -158,7 +158,7 @@ class _SpawnProjectStewardSheetState
                   'No hosts registered. Install a host-runner first.',
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
-                    color: Colors.redAccent,
+                    color: DesignColors.error,
                   ),
                 )
               else
@@ -208,7 +208,7 @@ class _SpawnProjectStewardSheetState
               if (_error != null) ...[
                 const SizedBox(height: 12),
                 Text(_error!,
-                    style: const TextStyle(color: Colors.redAccent)),
+                    style: const TextStyle(color: DesignColors.error)),
               ],
               const SizedBox(height: 20),
               FilledButton.icon(

@@ -351,10 +351,10 @@ Color _agentStatusColor(String status) {
   switch (status) {
     case 'running':
     case 'active':
-      return Colors.green;
+      return DesignColors.success;
     case 'pending':
     case 'idle':
-      return Colors.orange;
+      return DesignColors.warning;
     case 'crashed':
     case 'failed':
     case 'terminated':

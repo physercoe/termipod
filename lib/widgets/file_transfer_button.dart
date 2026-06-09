@@ -3,6 +3,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/file_transfer_provider.dart';
+import '../theme/design_colors.dart';
 
 /// File transfer button
 ///
@@ -46,8 +47,8 @@ class FileTransferButton extends ConsumerWidget {
                 color: isIdle
                     ? Colors.white70
                     : transferState.phase == FileTransferPhase.error
-                        ? Colors.redAccent
-                        : Colors.green,
+                        ? DesignColors.error
+                        : DesignColors.success,
               ),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(

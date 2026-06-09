@@ -21,6 +21,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'feed_render.dart';
 
 /// Decode an attention item's `pending_payload` into a string-keyed map.
@@ -218,11 +219,11 @@ class _PermissionPromptCardState
         denyLabel = 'Deny';
     }
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: scheme.surface,
         border: Border.all(color: tierColor.withValues(alpha: 0.6), width: 1.5),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -231,7 +232,7 @@ class _PermissionPromptCardState
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -243,7 +244,7 @@ class _PermissionPromptCardState
               Text(
                 _tier.toUpperCase(),
                 style: GoogleFonts.spaceGrotesk(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w800,
                   color: tierColor,
                   letterSpacing: 0.6,
@@ -293,7 +294,7 @@ class _PermissionPromptCardState
                 hintStyle: GoogleFonts.jetBrainsMono(
                     fontSize: 11, color: muted),
                 contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 8),
+                    horizontal: Spacing.s8, vertical: 8),
                 border: const OutlineInputBorder(),
               ),
             ),
@@ -315,7 +316,7 @@ class _PermissionPromptCardState
                   backgroundColor: DesignColors.error.withValues(alpha: 0.15),
                   foregroundColor: DesignColors.error,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 6),
+                      horizontal: 14, vertical: Spacing.s8),
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -332,7 +333,7 @@ class _PermissionPromptCardState
                           : DesignColors.success),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 6),
+                      horizontal: 14, vertical: Spacing.s8),
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -545,14 +546,14 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
         ? [for (final v in optionsRaw) v.toString()]
         : const <String>[];
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: scheme.surface,
         border: Border.all(
           color: DesignColors.primary.withValues(alpha: 0.6),
           width: 1.5,
         ),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -561,7 +562,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -574,7 +575,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
               Text(
                 'SELECT',
                 style: GoogleFonts.spaceGrotesk(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w800,
                   color: DesignColors.primary,
                   letterSpacing: 0.6,
@@ -608,7 +609,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
                     onPressed: _sending ? null : () => _pick(opt),
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
+                          horizontal: 12, vertical: Spacing.s8),
                       minimumSize: const Size(0, 32),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
@@ -635,7 +636,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
                       DesignColors.error.withValues(alpha: 0.15),
                   foregroundColor: DesignColors.error,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 6),
+                      horizontal: 14, vertical: Spacing.s8),
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -649,7 +650,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
                     backgroundColor: DesignColors.success,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 6),
+                        horizontal: 14, vertical: Spacing.s8),
                     minimumSize: const Size(0, 32),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),

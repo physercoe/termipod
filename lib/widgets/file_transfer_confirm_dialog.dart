@@ -3,6 +3,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../providers/file_transfer_provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/design_colors.dart';
 
 /// File transfer confirm dialog
 ///
@@ -84,6 +85,9 @@ class _FileTransferConfirmDialogState extends State<FileTransferConfirmDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
+    final mutedColor = theme.brightness == Brightness.dark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
     final totalSize =
         widget.files.fold<int>(0, (sum, f) => sum + f.size);
 
@@ -128,7 +132,7 @@ class _FileTransferConfirmDialogState extends State<FileTransferConfirmDialog> {
                       trailing: Text(
                         _formatSize(file.size),
                         style: theme.textTheme.bodySmall
-                            ?.copyWith(color: Colors.grey),
+                            ?.copyWith(color: mutedColor),
                       ),
                     );
                   },
@@ -138,7 +142,7 @@ class _FileTransferConfirmDialogState extends State<FileTransferConfirmDialog> {
               Text(
                 '${widget.files.length} file${widget.files.length > 1 ? 's' : ''} — ${_formatSize(totalSize)}',
                 style:
-                    theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+                    theme.textTheme.bodySmall?.copyWith(color: mutedColor),
               ),
               const SizedBox(height: 16),
 
@@ -173,7 +177,7 @@ class _FileTransferConfirmDialogState extends State<FileTransferConfirmDialog> {
                 childrenPadding: const EdgeInsets.only(bottom: 8),
                 title: Text('Advanced',
                     style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: Colors.grey)),
+                        ?.copyWith(color: mutedColor)),
                 children: [
                   // Path format
                   _label(l10n.filePathFormatLabel),
@@ -181,7 +185,7 @@ class _FileTransferConfirmDialogState extends State<FileTransferConfirmDialog> {
                   Text(
                     'Use {path} as placeholder. e.g. @{path}',
                     style: theme.textTheme.bodySmall
-                        ?.copyWith(color: Colors.grey, fontSize: 11),
+                        ?.copyWith(color: mutedColor, fontSize: 11),
                   ),
                   const SizedBox(height: 4),
                   TextField(
@@ -205,7 +209,7 @@ class _FileTransferConfirmDialogState extends State<FileTransferConfirmDialog> {
                         style: theme.textTheme.bodyMedium),
                     subtitle: Text('Send Enter after path injection',
                         style: theme.textTheme.bodySmall
-                            ?.copyWith(color: Colors.grey)),
+                            ?.copyWith(color: mutedColor)),
                     value: _autoEnter,
                     onChanged: (v) => setState(() => _autoEnter = v),
                   ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../services/sftp/sftp_service.dart';
+import '../theme/design_colors.dart';
 
 /// Remote file browser dialog
 ///
@@ -117,6 +118,9 @@ class _RemoteFileBrowserDialogState extends State<RemoteFileBrowserDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
+    final mutedColor = theme.brightness == Brightness.dark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
 
     return AlertDialog(
       backgroundColor: theme.colorScheme.surfaceContainerHigh,
@@ -174,11 +178,11 @@ class _RemoteFileBrowserDialogState extends State<RemoteFileBrowserDialog> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(Icons.error_outline,
-                                  color: Colors.redAccent, size: 32),
+                                  color: DesignColors.error, size: 32),
                               const SizedBox(height: 8),
                               Text(_error!,
                                   style: theme.textTheme.bodySmall
-                                      ?.copyWith(color: Colors.redAccent)),
+                                      ?.copyWith(color: DesignColors.error)),
                               const SizedBox(height: 8),
                               TextButton(
                                 onPressed: () =>
@@ -192,7 +196,7 @@ class _RemoteFileBrowserDialogState extends State<RemoteFileBrowserDialog> {
                           ? Center(
                               child: Text(l10n.emptyDirectory,
                                   style: theme.textTheme.bodySmall
-                                      ?.copyWith(color: Colors.grey)),
+                                      ?.copyWith(color: mutedColor)),
                             )
                           : ListView.builder(
                               itemCount: _entries!.length,
@@ -221,7 +225,7 @@ class _RemoteFileBrowserDialogState extends State<RemoteFileBrowserDialog> {
                                       : Text(
                                           _formatSize(entry.size),
                                           style: theme.textTheme.bodySmall
-                                              ?.copyWith(color: Colors.grey),
+                                              ?.copyWith(color: mutedColor),
                                         ),
                                   onTap: () {
                                     if (entry.isDirectory) {

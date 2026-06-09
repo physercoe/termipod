@@ -178,7 +178,7 @@ class _DownloadEntryTile extends ConsumerWidget {
                   const SizedBox(height: 2),
                   Text(
                     entry.error!,
-                    style: const TextStyle(fontSize: 11, color: Colors.red),
+                    style: const TextStyle(fontSize: 11, color: DesignColors.error),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -207,11 +207,11 @@ class _DownloadEntryTile extends ConsumerWidget {
           ),
         );
       case DownloadStatus.completed:
-        return const Icon(Icons.check_circle, color: Colors.green, size: 20);
+        return const Icon(Icons.check_circle, color: DesignColors.success, size: 20);
       case DownloadStatus.failed:
-        return const Icon(Icons.error, color: Colors.red, size: 20);
+        return const Icon(Icons.error, color: DesignColors.error, size: 20);
       case DownloadStatus.cancelled:
-        return const Icon(Icons.cancel, color: Colors.grey, size: 20);
+        return const Icon(Icons.cancel, color: DesignColors.slate, size: 20);
     }
   }
 

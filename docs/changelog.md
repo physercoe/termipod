@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.811
+> **Last verified vs code:** v1.0.812
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,24 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.812-alpha — 2026-06-09
+
+**Fixed**
+
+- **Engine family now persists on spawn (#67, #68).** `DoSpawn()`
+  hardcoded `backend_json` to `'{}'`, so `agent['backend']['kind']` was
+  always empty on the wire. The mobile agent sheet's engine row (#67)
+  and the compose-snippet `engineProfileId` (#68) read that path and so
+  fell back to the template name / panel profile. `DoSpawn` now resolves
+  the engine family (preferring the rendered spec's `backend.kind`,
+  falling back to `in.Kind`) and writes `{"kind": "<family>"}` into the
+  column — aligning it with the direct REST create path that already
+  honored `in.Backend`. Hub-only fix; existing rows keep `'{}'` — a
+  fresh spawn resolves the engine. Guard: `TestDoSpawn_PersistsBackendKind`.
+  (PR #96)
 
 ---
 

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/app_chip.dart';
 import '../../widgets/hub_offline_banner.dart';
 
 /// Human-review queue (blueprint §6.8, P2.x).
@@ -278,7 +279,7 @@ class _FilterBar extends StatelessWidget {
             child: Row(
               children: [
                 for (final f in filters) ...[
-                  _FilterChipPill(
+                  AppChoiceChip(
                     label: f ?? 'all',
                     selected: f == selected,
                     onTap: () => onChanged(f),
@@ -410,45 +411,6 @@ class _ProjectFilterSheet extends StatelessWidget {
               onTap: () => Navigator.of(context).pop(_ProjectPick(id: id)),
             );
           },
-        ),
-      ),
-    );
-  }
-}
-
-class _FilterChipPill extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _FilterChipPill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? DesignColors.primary.withValues(alpha: 0.2)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? DesignColors.primary : DesignColors.borderDark,
-          ),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 11,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? DesignColors.primary : DesignColors.textMuted,
-          ),
         ),
       ),
     );

@@ -104,6 +104,15 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
   // with data already base64-encoded; on send they ride alongside
   // the text body in postAgentInput's images param (W4.1).
   bool _canAttachImages = false;
+  // #68 — the agent's real backend engine (claude-code, codex, …) from
+  // `backend.kind`, resolved once at mount alongside the attach affordances.
+  // Doubles as the snippet picker's preset profile id (engine kind ==
+  // ActionBarPresets id), so the bolt-icon picker shows THIS engine's slash
+  // commands instead of falling back to the global action-bar profile. NB
+  // `agent['kind']` is the wrong source — for a steward it's the template
+  // kind (steward.general.v1), not the engine. Null until resolved / for an
+  // engine without presets → the picker falls back to the global profile.
+  String? _engineProfileId;
   // artifact-type-registry W7.2 — per-modality capability + queued
   // attachment state. Like _canAttachImages, these resolve once at
   // mount from the family registry and stay stable for the agent's
@@ -144,6 +153,10 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       // so accept both — `mode` wins when present.
       final drivingMode = (agent['mode'] ?? agent['driving_mode'])?.toString();
       final kind = agent['kind']?.toString();
+      // The engine for the snippet-preset profile (#68): `backend.kind`, not
+      // `agent['kind']` (which is the template kind for a steward).
+      final backend = agent['backend'];
+      final engine = (backend is Map) ? backend['kind']?.toString() : null;
       final canImg = resolveCanAttachImages(
           kind: kind, drivingMode: drivingMode, families: families);
       final canPdf = resolveCanAttachPdfs(
@@ -156,12 +169,14 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       if (canImg != _canAttachImages ||
           canPdf != _canAttachPdfs ||
           canAud != _canAttachAudio ||
-          canVid != _canAttachVideo) {
+          canVid != _canAttachVideo ||
+          engine != _engineProfileId) {
         setState(() {
           _canAttachImages = canImg;
           _canAttachPdfs = canPdf;
           _canAttachAudio = canAud;
           _canAttachVideo = canVid;
+          _engineProfileId = engine;
         });
       }
     } catch (_) {
@@ -635,6 +650,10 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                             ref: ref,
                             onInsert: _insertSnippet,
                             onSendImmediately: _sendSnippetImmediately,
+                            // #68 — show THIS agent's engine presets, not the
+                            // global action-bar profile (which defaults to
+                            // general-terminal → no presets).
+                            engineProfileId: _engineProfileId,
                           ),
                   icon: Icon(Icons.bolt, size: 22, color: muted),
                   padding: EdgeInsets.zero,

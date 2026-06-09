@@ -11,6 +11,21 @@ import '../../providers/snippet_provider.dart';
 import '../../screens/vault/snippets_screen.dart' show SnippetEditDialog;
 import '../../theme/design_colors.dart';
 
+/// Resolve which preset profile the snippet picker shows (#68). A pinned
+/// agent engine (`engineProfileId`, e.g. an agent chat's `backend.kind`) wins
+/// over the panel/global action-bar profile, so the picker shows THAT agent's
+/// presets instead of falling back to whatever the user last selected in a
+/// terminal pane (default `general-terminal`, which has no presets). When no
+/// engine is pinned, the panel/global profile applies as before.
+@visibleForTesting
+String resolveSnippetProfileId({
+  required String? engineProfileId,
+  required String panelProfileId,
+}) =>
+    (engineProfileId != null && engineProfileId.isNotEmpty)
+        ? engineProfileId
+        : panelProfileId;
+
 /// Unified snippet picker bottom sheet.
 ///
 /// Shows preset agent commands (for active profile) and user snippets,
@@ -27,11 +42,20 @@ class SnippetPickerSheet extends ConsumerStatefulWidget {
   /// [ActionBar.panelKey]. Null falls back to the global profile.
   final String? panelKey;
 
+  /// The agent's backend engine (claude-code, codex, …), which doubles as
+  /// the preset profile id ([SnippetPresets.forProfile]). When non-empty it
+  /// pins the preset tab to THIS agent's engine, overriding the [panelKey] /
+  /// global action-bar profile (#68) — so the steward-chat bolt icon shows
+  /// the agent's slash commands instead of whatever profile the user last
+  /// selected in a terminal pane. Null falls back to the panel/global profile.
+  final String? engineProfileId;
+
   const SnippetPickerSheet({
     super.key,
     required this.onInsert,
     required this.onSendImmediately,
     this.panelKey,
+    this.engineProfileId,
   });
 
   static Future<void> show(
@@ -40,6 +64,7 @@ class SnippetPickerSheet extends ConsumerStatefulWidget {
     required void Function(String content) onInsert,
     required void Function(String content) onSendImmediately,
     String? panelKey,
+    String? engineProfileId,
   }) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -53,6 +78,7 @@ class SnippetPickerSheet extends ConsumerStatefulWidget {
         builder: (context, scrollController) {
           return SnippetPickerSheet(
             panelKey: panelKey,
+            engineProfileId: engineProfileId,
             onInsert: (content) {
               Navigator.pop(context);
               onInsert(content);
@@ -106,8 +132,16 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     // Resolve the profile for this panel so presets match the action
     // bar the user is currently looking at. Falls back to the global
     // default when panelKey is null.
-    final activeProfileId = ref.watch(
+    final panelProfileId = ref.watch(
       actionBarProvider.select((s) => s.profileIdForPanel(widget.panelKey)),
+    );
+    // #68 — when the caller pins an agent engine (the steward/agent chat
+    // bolt icon), that engine's presets win over the panel/global profile,
+    // so the picker never falls back to general-terminal (which has no
+    // presets) or a stale terminal-pane selection.
+    final activeProfileId = resolveSnippetProfileId(
+      engineProfileId: widget.engineProfileId,
+      panelProfileId: panelProfileId,
     );
     // Apply user overrides + hide deleted preset IDs.
     final rawPresets = SnippetPresets.forProfile(activeProfileId);

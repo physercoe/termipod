@@ -472,10 +472,15 @@ class _TasksViewState extends ConsumerState<_TasksView> {
         Positioned(
           right: 16,
           bottom: 16,
-          child: FloatingActionButton.small(
+          // #70: match the app-wide extended-FAB convention (the Me-page
+          // Steward FAB, "New project", the sibling "Ask steward" FAB) so the
+          // primary action is the same size everywhere — was the lone .small.
+          child: FloatingActionButton.extended(
             heroTag: 'project-tasks-fab',
             onPressed: _openCreate,
-            child: const Icon(Icons.add),
+            tooltip: 'New task',
+            icon: const Icon(Icons.add),
+            label: const Text('New task'),
           ),
         ),
       ],

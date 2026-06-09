@@ -1,9 +1,9 @@
 # Hub MCP tool surface
 
 > **Type:** reference
-> **Status:** Current (2026-05-13)
+> **Status:** Current (2026-06-09)
 > **Audience:** agent authors, steward template authors, integrators
-> **Last verified vs code:** v1.0.568
+> **Last verified vs code:** v1.0.809
 
 **TL;DR.** Single canonical entry for "what MCP tools does the
 hub expose, and what does each one do?" Every tool is a thin
@@ -197,6 +197,20 @@ attention / communication tools join this family; the test is *am I
 acting on a resource, or performing an act?* A few bare verbs
 (`search`, `attach`, `pause_self`) have no clean resource either and
 stay as-is.
+
+**One spelling, every layer.** A tool's name is the *single* identifier
+across the whole stack — the `tools/list` catalog, dispatch, the role
+gate, and the permission tier all key on it. There is no separate
+internal alias: an authority tool's REST-adapter closure
+(`hubmcpserver/tools.go`) is registered under the same snake_case name,
+and `ToolSpec.Backend == ToolSpec.Name` (the `Backend` field survives
+only to mark authority tools apart from native ones, which set it
+empty). Earlier revisions carried a dotted `resource.verb` spelling as
+the closure key; it was retired so the name an agent calls is the name
+everything else resolves. Do **not** reintroduce a second spelling — a
+dotted tool name now 404s. (The dotted forms in the governed-action
+list just below are a *different* namespace: `propose` *kinds*, not tool
+names.)
 
 **Governed-action kinds (`propose`).** The verb-first `propose` tool
 (ADR-030) carries a `kind` naming the governed action; on approve the

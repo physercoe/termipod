@@ -146,7 +146,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
       contentPadding: EdgeInsets.zero,
       leading: Icon(
         Icons.dns_outlined,
-        color: warn ? Colors.orange : null,
+        color: warn ? DesignColors.warning : null,
       ),
       title: Text(
         displayName,
@@ -156,7 +156,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
         subtitle,
         style: GoogleFonts.jetBrainsMono(
           fontSize: 11,
-          color: warn ? Colors.orange : muted,
+          color: warn ? DesignColors.warning : muted,
         ),
       ),
       onTap: () => Navigator.of(sheetCtx).pop(id),

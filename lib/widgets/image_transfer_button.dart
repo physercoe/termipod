@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../providers/image_transfer_provider.dart';
+import '../theme/design_colors.dart';
 
 /// Image transfer button
 ///
@@ -48,8 +49,8 @@ class ImageTransferButton extends ConsumerWidget {
                 color: isIdle
                     ? Colors.white70
                     : transferState.phase == ImageTransferPhase.error
-                        ? Colors.redAccent
-                        : Colors.green,
+                        ? DesignColors.error
+                        : DesignColors.success,
               ),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(

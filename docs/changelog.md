@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-06-08)
+> **Status:** Current (2026-06-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.809
+> **Last verified vs code:** v1.0.810
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,60 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.810-alpha — 2026-06-09
+
+**Tester-feedback hardening: the authority MCP tool surface gets one
+canonical spelling per tool, the Insight transcript's turn / error
+navigation lands where it should, and the post-ADR-046 project-lifecycle
+fold gains a batch of root-cause fixes.** A mixed release off the tester's
+open-issue backlog — no new surface, a lot of "make the existing thing
+correct."
+
+Changed:
+- **Authority MCP tool naming unified — `ToolSpec.Backend == Name`** (#81
+  `f2130ee`): the dual-naming seam is gone. Every authority tool now carries
+  one canonical snake_case spelling across catalog, dispatch, role gate, and
+  tier; the dotted `buildTools()` closure keys and the Name→Backend translation
+  were retired (the `Backend` field stays as the authority-vs-native marker —
+  native tools set `""`). Behaviour-neutral; the registry sweep tests are the
+  proof. Dotted spellings 404. Propose-kinds (`project.create`, …) are a
+  separate namespace and stay dotted.
+
+Fixed:
+- **Insight turn labels were non-monotonic after a session resume** (#63,
+  part of #83 `cd65815`): the Navigator → Turns tab labelled turns with the
+  per-agent `idx`, which resets to 0 on every resume (1,2,3,1,2,3,…); it now
+  labels from the session-ordinal-sorted list position, monotonic across
+  resume boundaries.
+- **Error navigator landed one row past the failure** (#64, #83): a tool
+  failure's error sample anchored on the `tool_result` / `turn.result` signal,
+  not the triggering event; it now re-points at the originating `tool_call`
+  (and a failed turn's first event). Digest schema v5 → v6 refolds sealed
+  digests onto the corrected anchors.
+- **Me-page scope label said "General" for a team-scoped session** (#65, #83):
+  reserved-term collision with the general steward; now "Team".
+- **Session-details "engine" row showed a steward's template kind** (#67, #83):
+  the row now reads the real engine from `backend.kind`, with the template kind
+  on its own "kind" row.
+- **Earlier tester quick-wins** (#80 `8f0c86d`): a dedicated
+  `tasks.block_reason` (status-only `tasks_update` already preserved `body_md`;
+  the reported overwrite was a misdiagnosis — #54), agent-kind concrete project
+  creation gated to `propose(project.create)` (#59), plus #62 / #61.
+- **Project-lifecycle fold root causes** (post-ADR-046): every phase must
+  declare a deliverable + research idea-phase fix (#60 `412a5d8`); acceptance
+  criteria bind to their deliverable on hydration (#56/#58 `a4e9318`);
+  propose-ratify fires the gate cascade and task-create 404s on an unknown
+  project (#53/#55 `023973d`); reset reconciles baseline templates and prunes
+  retired presets (#52 `8aed103`).
+
+Docs:
+- One-spelling tool-naming invariant noted in `hub-mcp.md §4` (#82 `646df47`).
+
+Chore:
+- Removed the unused desktop/web platform shells, the abandoned spec-kit
+  scaffold, and a stale mise pin (`a3648cd`, `73bc723`); pubspec.lock commit
+  message reconciled to English-only (`64918f1`, `a9354d6`).
 
 ## v1.0.809-alpha — 2026-06-08
 

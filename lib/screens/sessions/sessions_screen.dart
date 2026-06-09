@@ -2144,9 +2144,11 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     return userTitle.isEmpty ? '(untitled session)' : userTitle;
   }
 
-  // Best-effort lookup of the agent's `kind` (engine: claude-code,
-  // codex, …) from the cached hub state. Returns null when the agent
-  // record isn't loaded yet — the chip falls back to model-only.
+  // Best-effort lookup of the agent's `kind` from the cached hub state.
+  // NB this is the agent's TEMPLATE kind — for a worker it equals the engine
+  // (claude-code, codex, …), but for a steward it's the template
+  // (steward.general.v1), not the engine. Use `_agentEngine()` for the engine
+  // (#67). Returns null when the agent record isn't loaded yet.
   String? _agentKind() {
     final hub = ref.read(hubProvider).value;
     if (hub == null) return null;
@@ -2154,6 +2156,26 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
       if ((a['id'] ?? '').toString() != _agentId) continue;
       final kind = (a['kind'] ?? '').toString();
       if (kind.isNotEmpty) return kind;
+    }
+    return null;
+  }
+
+  // The agent's real backend engine (claude-code, codex, …) from its spawn
+  // spec's `backend.kind`. Distinct from `_agentKind()`, which for a steward
+  // is the template kind (#67). Returns null when the agent record or its
+  // backend block isn't loaded yet — the sheet's engine row then falls back to
+  // the template kind.
+  String? _agentEngine() {
+    final hub = ref.read(hubProvider).value;
+    if (hub == null) return null;
+    for (final a in hub.agents) {
+      if ((a['id'] ?? '').toString() != _agentId) continue;
+      final backend = a['backend'];
+      if (backend is Map) {
+        final k = (backend['kind'] ?? '').toString();
+        if (k.isNotEmpty) return k;
+      }
+      return null;
     }
     return null;
   }
@@ -2528,6 +2550,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
                   ? SessionInitChip(
                       payload: _sessionInit!,
                       agentKind: _agentKind(),
+                      engineKind: _agentEngine(),
                       // Folds the mode/model picker into the chip's tap
                       // drawer (one entry, not two); the live status_line
                       // surfaces the mutable session state there too.

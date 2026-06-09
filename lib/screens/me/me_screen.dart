@@ -1007,7 +1007,12 @@ class _ActiveSessionsStrip extends StatelessWidget {
         return 'Approving';
       case 'team':
       case '':
-        return 'General';
+        // "General" is reserved for the general steward (@steward,
+        // steward.general.v1); a team-scoped session reads "Team" (#65). The
+        // Sessions page classifies stewards General/Project/Domain by
+        // handle+kind — that taxonomy is authoritative; this scope label must
+        // not collide with it.
+        return 'Team';
       default:
         return kind;
     }

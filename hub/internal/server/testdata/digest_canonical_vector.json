@@ -30,9 +30,9 @@
       "failed_turn": 1
     },
     "error_sample_seqs": {
-      "tool_error": [9],
+      "tool_error": [8],
       "error:timeout": [10],
-      "failed_turn": [11]
+      "failed_turn": [7]
     },
     "tools": {
       "bash": {"calls": 1, "failed": 0},

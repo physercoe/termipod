@@ -29,6 +29,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../providers/hub_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 import 'transcript/event_card.dart';
 import 'transcript/feed_misc.dart';
 import 'transcript/fold_maps.dart';
@@ -1078,7 +1079,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, Spacing.s8),
           child: SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -1094,7 +1095,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
           child: marks.isEmpty
               ? _navEmpty('No tool calls, turns, or errors to map yet.')
               : Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  padding: const EdgeInsets.fromLTRB(Spacing.s16, 4, Spacing.s16, 12),
                   child: FeedMinimap(
                     marks: marks,
                     // Tap a tick → land on that landmark. The drawer stays open
@@ -1160,7 +1161,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
               isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
           return SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              padding: const EdgeInsets.fromLTRB(16, Spacing.s12, 16, 16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1258,7 +1259,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                       children: [
                         Padding(
                           padding:
-                              const EdgeInsets.fromLTRB(14, 10, 6, 4),
+                              const EdgeInsets.fromLTRB(Spacing.s12, Spacing.s8, Spacing.s8, 4),
                           child: Row(
                             children: [
                               Icon(Icons.toc, size: 18, color: muted),
@@ -1558,7 +1559,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                           color: DesignColors.primary.withValues(alpha: 0.6),
                           width: 2,
                         ),
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: Radii.mdBorder,
                       ),
                       padding: const EdgeInsets.all(2),
                       child: card,
@@ -1590,7 +1591,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                   child: Container(
                     color: DesignColors.error.withValues(alpha: 0.12),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                        horizontal: 12, vertical: Spacing.s8),
                     child: Text(
                       _error!,
                       style: GoogleFonts.jetBrainsMono(

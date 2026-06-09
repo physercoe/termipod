@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.812
+> **Last verified vs code:** v1.0.813
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,39 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.813-alpha — 2026-06-09
+
+Design-system (ADR-047) continuation + a session-detail fix. Mobile
+deltas await director device-test.
+
+**Added**
+
+- **Semantic status-container tokens** (`design_colors.dart`, PR #103) —
+  `warningContainer`/`onWarningContainer` (+`Light`) and `successOnLight`,
+  M3 `*Container`/`on*Container` idiom, all WCAG-AA-verified and guarded
+  by a new `test/theme/contrast_test.dart` group. Lets theme-flipped
+  tonal surfaces drop their `Colors.amber/green/grey.shadeNNN` pairs.
+
+**Changed**
+
+- **Design-token burn-down (WS6).** Migrated many surfaces off raw
+  Material swatches / off-grid spacing onto named tokens; the ratchet
+  baseline fell 1230 → 935. Color sweeps: transfer/file dialogs (#99),
+  snippet picker + approval detail (#100), status/button surfaces (#101),
+  stray hexes (#102), tonal pills via the new tokens (#103). Per-screen
+  grid/scale snaps (Spacing/FontSizes/Radii): connection_form (#104),
+  runs_screen (#105), me_screen (#106), projects_screen (#107),
+  interaction_cards (#108), feed_misc (#109), sessions_rail (#110),
+  approval_detail (#111).
+
+**Fixed**
+
+- **Session-detail sheet** (#98) — the engine/CLI `version` now renders on
+  the `engine` row (`claude-code · vX`) instead of being appended to the
+  `model` row; the model string already carries its own version.
 
 ---
 

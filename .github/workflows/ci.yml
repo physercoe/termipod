@@ -87,6 +87,15 @@ jobs:
         # the linter only blocks net-new undocumented compatibility debt.
         run: scripts/lint-legacy-markers.sh
 
+      - name: Lint design tokens
+        # ADR-047 forward-only ratchet — fails when a design-system category
+        # (off-token spacing/radius/font, raw Colors.*, stray Color(0x..),
+        # new private _*Chip/_*Pill class, boxShadow) rises above its
+        # grandfathered count in scripts/design-token-baseline.txt. New code
+        # must use lib/theme/tokens.dart / DesignColors / AppChip; the backlog
+        # burns down opportunistically (WS6). Pure bash + python3, no Flutter.
+        run: scripts/lint-design-tokens.sh
+
       - name: Validate OpenAPI spec
         # Enforces docs/reference/openapi.yaml validates against the
         # OpenAPI 3.x schema. Per docs/plans/doc-uplift.md P2.8 §5.8.

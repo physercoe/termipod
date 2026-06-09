@@ -20,9 +20,11 @@ class HubOfflineBanner extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: const BoxDecoration(
-        color: Color(0x332A2B36),
-        border: Border(
+      decoration: BoxDecoration(
+        // Faint translucent wash of the dark border token (was a raw
+        // 0x33-alpha #2A2B36 — the same RGB as borderDark).
+        color: DesignColors.borderDark.withValues(alpha: 0.2),
+        border: const Border(
           bottom: BorderSide(color: DesignColors.borderDark, width: 0.5),
         ),
       ),

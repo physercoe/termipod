@@ -4,7 +4,7 @@
 # lowering them as the backlog burns down (WS6) is the point.
 private_chip_class	30
 raw_material_color	52
-stray_hex_color	8
+stray_hex_color	6
 off_scale_radius	201
 off_scale_font_size	299
 off_grid_edge_inset	549

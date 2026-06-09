@@ -107,7 +107,7 @@ class _ArtifactCanvasViewerState extends ConsumerState<ArtifactCanvasViewer> {
         // background doesn't paint during cold init. Combined with the
         // dark overlay (see build), this gives zero-flash perceived
         // behaviour even on the very first open.
-        ..setBackgroundColor(const Color(0x00000000))
+        ..setBackgroundColor(Colors.transparent)
         ..setNavigationDelegate(NavigationDelegate(
           onNavigationRequest: (req) async => decideCanvasNavigation(req.url),
           onPageFinished: (_) {

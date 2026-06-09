@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 import '../../widgets/histogram_tile.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -322,7 +323,7 @@ class _FilterBar extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: border)),
       ),
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      padding: const EdgeInsets.fromLTRB(8, Spacing.s8, 8, Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -345,15 +346,15 @@ class _FilterBar extends StatelessWidget {
             const SizedBox(height: 6),
             InkWell(
               onTap: onProjectTap,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: Radii.smBorder,
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
                 decoration: BoxDecoration(
                   border: Border.all(
                     color: projectIsActive ? DesignColors.primary : border,
                   ),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: Radii.smBorder,
                 ),
                 child: Row(
                   children: [
@@ -455,7 +456,7 @@ class _ProjectFilterSheet extends StatelessWidget {
               subtitle: Text(
                 [if (kind.isNotEmpty) kind, id].join(' · '),
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.textMuted,
                 ),
               ),
@@ -509,7 +510,7 @@ class _RunRow extends StatelessWidget {
             Text(
               kind,
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: DesignColors.textMuted,
               ),
             ),
@@ -523,7 +524,7 @@ class _RunRow extends StatelessWidget {
             if (created.isNotEmpty) created,
           ].join(' · '),
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             color: DesignColors.textMuted,
           ),
         ),
@@ -548,7 +549,7 @@ class RunStatusChip extends StatelessWidget {
       _ => DesignColors.textMuted,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -557,7 +558,7 @@ class RunStatusChip extends StatelessWidget {
       child: Text(
         s.isEmpty ? '?' : s,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: color,
         ),
@@ -904,7 +905,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
                 name,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.spaceGrotesk(
-                  fontSize: 15,
+                  fontSize: FontSizes.subtitle,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -1105,7 +1106,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   Widget _sectionHeaderAction(
           String label, String action, VoidCallback onTap) =>
       Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: Spacing.s8),
         child: Row(
           children: [
             Expanded(
@@ -1143,7 +1144,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.25),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: Radii.smBorder,
           border: Border.all(color: DesignColors.borderDark),
         ),
         child: RichText(
@@ -1152,14 +1153,14 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
               TextSpan(
                 text: '$key ',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.textMuted,
                 ),
               ),
               TextSpan(
                 text: value,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w700,
                   color: DesignColors.terminalCyan,
                 ),
@@ -1358,10 +1359,10 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   // A bordered, faintly-filled container — the shared chrome for the
   // summary/metadata blocks.
   Widget _panel({required Widget child}) => Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(Spacing.s8),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.25),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: Radii.smBorder,
           border: Border.all(color: DesignColors.borderDark),
         ),
         child: child,
@@ -1431,7 +1432,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       );
 
   Widget _sectionLabel(String label) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: Spacing.s8),
         child: Text(
           label,
           style: GoogleFonts.spaceGrotesk(
@@ -1475,7 +1476,7 @@ class _RunStatusStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.25),
         borderRadius: BorderRadius.circular(8),
@@ -1605,7 +1606,7 @@ class _RunAlertsBannerState extends State<_RunAlertsBanner> {
       onTap: () => setState(() => _expanded = !_expanded),
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(Spacing.s8),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(8),
@@ -1653,7 +1654,7 @@ class _RunAlertsBannerState extends State<_RunAlertsBanner> {
     final color = _alertLevelColor(level);
     final text = (a['text'] ?? '').toString();
     return Padding(
-      padding: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.only(top: Spacing.s8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1680,7 +1681,7 @@ class _RunAlertsBannerState extends State<_RunAlertsBanner> {
                   Text(
                     text,
                     style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       color: muted,
                       height: 1.3,
                     ),
@@ -1708,7 +1709,7 @@ class _MetricStatTile extends StatelessWidget {
         (points.isEmpty ? null : points.last.$2);
     return Container(
       width: 150,
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.25),
         borderRadius: BorderRadius.circular(8),
@@ -1817,11 +1818,11 @@ class _ConfigKeyValueListState extends State<_ConfigKeyValueList> {
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: Radii.smBorder,
               borderSide: const BorderSide(color: DesignColors.borderDark),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: Radii.smBorder,
               borderSide: const BorderSide(color: DesignColors.borderDark),
             ),
           ),
@@ -1845,7 +1846,7 @@ class _ConfigKeyValueListState extends State<_ConfigKeyValueList> {
   }
 
   Widget _kvRow(String k, String v) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
+        padding: const EdgeInsets.symmetric(vertical: Spacing.s4),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2021,7 +2022,7 @@ class _MetricGroupTile extends StatelessWidget {
         .fold<int>(0, (a, b) => b > a ? b : a);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2041,7 +2042,7 @@ class _MetricGroupTile extends StatelessWidget {
                     child: Text(
                       'no samples yet',
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: DesignColors.textMuted,
                       ),
                     ),
@@ -2067,7 +2068,7 @@ class _MetricGroupTile extends StatelessWidget {
                 ? 'step $lastStep · $sampleCount samples'
                 : '$sampleCount samples',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               color: DesignColors.textMuted,
             ),
           ),
@@ -2085,14 +2086,14 @@ class _MetricGroupTile extends StatelessWidget {
           height: 8,
           decoration: BoxDecoration(
             color: s.color,
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: Radii.xsBorder,
           ),
         ),
         const SizedBox(width: 4),
         Text(
           s.label,
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             color: DesignColors.textMuted,
           ),
         ),
@@ -2101,7 +2102,7 @@ class _MetricGroupTile extends StatelessWidget {
           Text(
             _MetricSparklineTile._fmtValue(s.lastValue!),
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w700,
               color: s.color,
             ),
@@ -2200,7 +2201,7 @@ class _MetricSparklineTile extends StatelessWidget {
         (points.isEmpty ? null : points.last.$2);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2237,7 +2238,7 @@ class _MetricSparklineTile extends StatelessWidget {
                           ? 'no samples yet'
                           : 'single sample — need ≥2 for a line',
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: DesignColors.textMuted,
                       ),
                     ),
@@ -2253,7 +2254,7 @@ class _MetricSparklineTile extends StatelessWidget {
                 ? 'step $lastStep · $sampleCount samples'
                 : '$sampleCount samples',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               color: DesignColors.textMuted,
             ),
           ),
@@ -2365,7 +2366,7 @@ class _MetricURITile extends StatelessWidget {
       subtitle: Text(
         uri,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           color: DesignColors.textMuted,
         ),
       ),
@@ -2410,7 +2411,7 @@ class _RunArtifactTile extends StatelessWidget {
           ? Text(
               _fmtArtifactSize(size),
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: DesignColors.textMuted,
               ),
             )
@@ -2574,7 +2575,7 @@ class _ImageSeriesTileState extends ConsumerState<_ImageSeriesTile> {
     final err = _errors[sha];
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2605,7 +2606,7 @@ class _ImageSeriesTileState extends ConsumerState<_ImageSeriesTile> {
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: Radii.smBorder,
                 border: Border.all(color: DesignColors.borderDark),
               ),
               clipBehavior: Clip.antiAlias,
@@ -2632,14 +2633,14 @@ class _ImageSeriesTileState extends ConsumerState<_ImageSeriesTile> {
             Text(
               caption,
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: DesignColors.textMuted,
               ),
             ),
           Text(
             '${widget.rows.length} checkpoints',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               color: DesignColors.textMuted,
             ),
           ),

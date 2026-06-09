@@ -7,9 +7,9 @@
 // the heavy lifting (path validation, self-modification guard,
 // overlay write) lives in handlers_templates.go.
 //
-// Tool names follow ADR-016 D2 literally (templates.agent.create,
-// templates.prompt.update, …) so the operation-scope manifest in
-// roles.yaml can name them precisely. The role gate at the MCP
+// Tool names are the canonical snake_case spelling (ADR-033 D-1):
+// templates_agent_create, templates_prompt_update, … — the same name
+// agents call and the dispatch key (Backend == Name). The role gate at the MCP
 // boundary in dispatchTool denies workers' write attempts; the
 // self-modification guard in handlePutTemplate denies a steward
 // editing its own kind's template.
@@ -56,8 +56,8 @@ func templateToolDefs() []toolDef {
 // file is new and update when amending.
 func templateCreateTool(toolPrefix, dirName, ext string) toolDef {
 	return toolDef{
-		Name:        "templates." + toolPrefix + ".create",
-		Description: "Create a new " + toolPrefix + " template at <DataRoot>/team/templates/" + dirName + "/<name>. `name` should include the canonical extension (e.g. \"my-worker.v1" + ext + "\"). `content` is the raw file body. Returns 201 on first write, 200 on overwrite. SCHEMA: bundled templates ARE the schema reference — call `templates." + toolPrefix + ".scaffold` for an empty skeleton, or `templates." + toolPrefix + ".list` + `templates." + toolPrefix + ".get` on the closest existing template (e.g. `steward.v1.yaml` for a steward, `coder.v1.yaml` for a worker) and modify in place. Don't author from scratch — the YAML schema isn't in any prompt.",
+		Name:        "templates_" + toolPrefix + "_create",
+		Description: "Create a new " + toolPrefix + " template at <DataRoot>/team/templates/" + dirName + "/<name>. `name` should include the canonical extension (e.g. \"my-worker.v1" + ext + "\"). `content` is the raw file body. Returns 201 on first write, 200 on overwrite. SCHEMA: bundled templates ARE the schema reference — call `templates_" + toolPrefix + "_scaffold` for an empty skeleton, or `templates_" + toolPrefix + "_list` + `templates_" + toolPrefix + "_get` on the closest existing template (e.g. `steward.v1.yaml` for a steward, `coder.v1.yaml` for a worker) and modify in place. Don't author from scratch — the YAML schema isn't in any prompt.",
 		InputSchema: schema(`{"type":"object","required":["name","content"],"properties":{"name":{"type":"string","description":"file name including extension, e.g. \"my-worker.v1` + ext + `\""},"content":{"type":"string","description":"raw file body (YAML/Markdown/JSON)"}}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {
 			return templatePutCall(c, dirName, args)
@@ -67,8 +67,8 @@ func templateCreateTool(toolPrefix, dirName, ext string) toolDef {
 
 func templateUpdateTool(toolPrefix, dirName, ext string) toolDef {
 	return toolDef{
-		Name:        "templates." + toolPrefix + ".update",
-		Description: "Update an existing " + toolPrefix + " template. Same wire shape as templates." + toolPrefix + ".create — both PUT to the same path; the server distinguishes 200 (overwrite) from 201 (new). Fetch the current `content` via `templates." + toolPrefix + ".get` first; the body is a full overwrite, not a patch.",
+		Name:        "templates_" + toolPrefix + "_update",
+		Description: "Update an existing " + toolPrefix + " template. Same wire shape as templates_" + toolPrefix + "_create — both PUT to the same path; the server distinguishes 200 (overwrite) from 201 (new). Fetch the current `content` via `templates_" + toolPrefix + "_get` first; the body is a full overwrite, not a patch.",
 		InputSchema: schema(`{"type":"object","required":["name","content"],"properties":{"name":{"type":"string","description":"file name including extension, e.g. \"my-worker.v1` + ext + `\""},"content":{"type":"string","description":"raw file body (YAML/Markdown/JSON)"}}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {
 			return templatePutCall(c, dirName, args)
@@ -78,7 +78,7 @@ func templateUpdateTool(toolPrefix, dirName, ext string) toolDef {
 
 func templateDeleteTool(toolPrefix, dirName string) toolDef {
 	return toolDef{
-		Name:        "templates." + toolPrefix + ".delete",
+		Name:        "templates_" + toolPrefix + "_delete",
 		Description: "Delete a " + toolPrefix + " template from the team overlay. Bundled defaults remain accessible via embedded FS — there is no \"restore\", just delete the overlay file. Returns 404 if no overlay file exists.",
 		InputSchema: schema(`{"type":"object","required":["name"],"properties":{"name":{"type":"string","description":"file name including extension"}}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {
@@ -97,7 +97,7 @@ func templateDeleteTool(toolPrefix, dirName string) toolDef {
 
 func templateListTool(toolPrefix, dirName string) toolDef {
 	return toolDef{
-		Name:        "templates." + toolPrefix + ".list",
+		Name:        "templates_" + toolPrefix + "_list",
 		Description: "List " + toolPrefix + " templates in the team overlay. Returns array of {name, path, size, mod_time} entries.",
 		InputSchema: schema(`{"type":"object","properties":{}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {
@@ -114,7 +114,7 @@ func templateListTool(toolPrefix, dirName string) toolDef {
 
 func templateGetTool(toolPrefix, dirName string) toolDef {
 	return toolDef{
-		Name: "templates." + toolPrefix + ".get",
+		Name: "templates_" + toolPrefix + "_get",
 		// Defaulting raw=false (i.e. merge=1) means the steward always
 		// sees the embedded built-in's required fields (driving_mode,
 		// backend.cmd, …) even when a user's on-disk overlay was

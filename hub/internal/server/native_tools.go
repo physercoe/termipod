@@ -192,7 +192,7 @@ func buildNativeTools() []nativeTool {
 		{
 			Name:        "get_project_doc",
 			Short:       "Fetch a project document by reference.",
-			Description: "Fetch a FILE from the project's `docs_root` (a filesystem directory of shared human-authored context, e.g. `plans/research-plan.md`). `path` is a FILESYSTEM PATH relative to `docs_root` — NOT a document id. Returns the raw file body.\n\nThis is NOT the tool to read documents created via `documents.create` (those live in the database, not the filesystem) — use `documents.get` with the ULID returned by `documents.create` instead.\n\nReturns 404 if `docs_root` is unset, or if the file doesn't exist within it.",
+			Description: "Fetch a FILE from the project's `docs_root` (a filesystem directory of shared human-authored context, e.g. `plans/research-plan.md`). `path` is a FILESYSTEM PATH relative to `docs_root` — NOT a document id. Returns the raw file body.\n\nThis is NOT the tool to read documents created via `documents_create` (those live in the database, not the filesystem) — use `documents_get` with the ULID returned by `documents_create` instead.\n\nReturns 404 if `docs_root` is unset, or if the file doesn't exist within it.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -289,7 +289,7 @@ func buildNativeTools() []nativeTool {
 							"criterion to the deliverable it gates so the deliverable viewer " +
 							"surfaces it (#56); update/delete target_ref {project_id, criterion_id}); " +
 							"plus 'deliverable.set_state' and 'task.set_status'. " +
-							"Marking a criterion met/failed is the direct 'criteria.set_state' tool, " +
+							"Marking a criterion met/failed is the direct 'criteria_set_state' tool, " +
 							"not a propose. Phase advance is NOT proposable — it is system-driven: a " +
 							"phase auto-advances once all its required criteria are met (model a human " +
 							"gate as a `gate` criterion).",
@@ -413,7 +413,7 @@ func buildNativeTools() []nativeTool {
 			Short: "Ask the director to assign a project steward (general-steward delegation).",
 			Description: "General-steward delegation channel (ADR-025 W4). Use when " +
 				"asked to operate inside a project that has no live steward yet — you " +
-				"are blocked from `agents.spawn` with a project_id (ADR-025 D2). This " +
+				"are blocked from `agents_spawn` with a project_id (ADR-025 D2). This " +
 				"raises a `project_steward_request` attention item the director taps to " +
 				"materialize the project steward via the host-picker sheet. " +
 				"`suggested_host_id` prefills the sheet. Returns immediately with " +

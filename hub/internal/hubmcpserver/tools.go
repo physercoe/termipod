@@ -50,7 +50,7 @@ func schema(s string) json.RawMessage { return json.RawMessage(s) }
 func buildTools() []toolDef {
 	tools := []toolDef{
 		{
-			Name:        "projects.list",
+			Name:        "projects_list",
 			Description: "List projects in the configured team. Optional `kind` filters to 'goal' or 'standing'.",
 			InputSchema: schema(`{"type":"object","properties":{"kind":{"type":"string","enum":["goal","standing"]}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -66,13 +66,13 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name: "projects.create",
+			Name: "projects_create",
 			Description: "Create a reusable project template. Required: `name` and `kind` ('goal' = finite end-state / 'standing' = ongoing).\n\n" +
 				"GOVERNANCE (#59): an agent may use this tool ONLY to author a template (`is_template: true`). Creating a CONCRETE project is a governed action — call `propose(kind=\"project.create\")` with the inline spec so the principal approves it before it materializes; a direct concrete create here is rejected 403. (Principals create concrete projects directly from the app.)\n\n" +
 				"Two distinct authoring paths:\n\n" +
 				"(1) Concrete project — omit `is_template`. Agents must instead use propose; this path is for principals. Optionally pass `template_id` to instantiate from an existing project template (copies its `parameters_json` shape + binds `on_create_template_id` for auto-attached plans).\n\n" +
 				"(2) Project template — pass `is_template: true`. The row becomes a template other concrete projects can name via their `template_id` field. Carry the per-domain shape in `parameters_json` (intent params), `goal` (intent statement template), `config_yaml` (phase declarations), and `on_create_template_id` (auto-bound plan template). Templates MUST declare a non-empty `phases:` array in `config_yaml`; the validator rejects 422 otherwise.\n\n" +
-				"=== config_yaml shape ===\n\n```yaml\ndisplay_name: \"Research project\"\ndescription: \"AI/CS research lifecycle\"\nphases:\n  - id: idea\n    description: \"Brainstorm and bound the scope\"\n  - id: lit-review\n    description: \"Survey prior work\"\n  - id: experiment\n    description: \"Run the matrix\"\n```\n\nMalformed YAML or `phases:` missing (when `is_template: true`) returns HTTP 422 with a structured error.\n\n=== policy_overrides_json shape ===\n\nOptional JSON object overriding team-default policy entries. Must be `{}` or `{key: value, ...}` — arrays and scalars are rejected.\n\nProject templates are distinct from plan templates (`templates.plan.create`); plans are YAML scaffolds attached to a project's plans table, project templates are full project rows. Use `templates.plan.scaffold` to author the plan and `projects.create({is_template: true, on_create_template_id: <plan-template-id>})` to bundle the project template that auto-attaches it.",
+				"=== config_yaml shape ===\n\n```yaml\ndisplay_name: \"Research project\"\ndescription: \"AI/CS research lifecycle\"\nphases:\n  - id: idea\n    description: \"Brainstorm and bound the scope\"\n  - id: lit-review\n    description: \"Survey prior work\"\n  - id: experiment\n    description: \"Run the matrix\"\n```\n\nMalformed YAML or `phases:` missing (when `is_template: true`) returns HTTP 422 with a structured error.\n\n=== policy_overrides_json shape ===\n\nOptional JSON object overriding team-default policy entries. Must be `{}` or `{key: value, ...}` — arrays and scalars are rejected.\n\nProject templates are distinct from plan templates (`templates_plan_create`); plans are YAML scaffolds attached to a project's plans table, project templates are full project rows. Use `templates_plan_scaffold` to author the plan and `projects_create({is_template: true, on_create_template_id: <plan-template-id>})` to bundle the project template that auto-attaches it.",
 			InputSchema: schema(`{"type":"object","required":["name","kind"],"properties":{"name":{"type":"string"},"kind":{"type":"string","enum":["goal","standing"]},"goal":{"type":"string","description":"Intent statement (for concrete) or intent template (for is_template=true)."},"docs_root":{"type":"string"},"config_yaml":{"type":"string","description":"Phase declarations + acceptance criteria scaffolds. Inspected by the project chassis for is_template=true rows."},"parent_project_id":{"type":"string","description":"Sub-project parent (max depth 2)."},"template_id":{"type":"string","description":"Source project template for instantiation. Mutually exclusive with is_template=true in practice."},"is_template":{"type":"boolean","description":"true = this row is a reusable project template; other projects name it via template_id. Default false."},"parameters_json":{"type":"object","description":"For is_template=true: the parameter shape projects-of-this-kind accept. For concrete: the bound values."},"on_create_template_id":{"type":"string","description":"Plan template id auto-attached when a concrete project is instantiated from this template."},"budget_cents":{"type":"integer"},"steward_agent_id":{"type":"string","description":"Bind a specific steward agent to this project (validated)."},"policy_overrides_json":{"type":"object"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				if _, ok := args["name"].(string); !ok {
@@ -86,7 +86,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "projects.get",
+			Name:        "projects_get",
 			Description: "Fetch one project by id.",
 			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -102,7 +102,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "plans.list",
+			Name:        "plans_list",
 			Description: "List plans. Optional `project` filters to one project.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -118,7 +118,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "plans.create",
+			Name:        "plans_create",
 			Description: "Create a plan scaffold. Requires `project` and `title`.",
 			InputSchema: schema(`{"type":"object","required":["project","title"],"properties":{"project":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -130,7 +130,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "plans.get",
+			Name:        "plans_get",
 			Description: "Fetch one plan by id.",
 			InputSchema: schema(`{"type":"object","required":["plan"],"properties":{"plan":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -146,8 +146,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "plans.steps.create",
-			Description: "Append a step to a plan. Requires `plan`, `phase_idx`, `step_idx`, `kind` (one of agent_spawn|llm_call|shell|mcp_call|human_decision). `spec_json` is required for every kind except `human_decision` and carries the kind-specific fields the executor needs. Under-specified spec_json returns HTTP 422 with a structured error naming the missing field.\n\n=== spec_json shape per kind ===\n\n  - `agent_spawn`: `{child_handle: string, template?: string, spawn_spec_yaml?: string, ...}` — minimum `child_handle`. See agents.spawn for full spec.\n  - `llm_call`: `{prompt: string, model?: string, temperature?: number, max_tokens?: integer}` — minimum `prompt`.\n  - `shell`: `{cmd: string, cwd?: string, timeout_sec?: integer}` — minimum `cmd`.\n  - `mcp_call`: `{tool: string, args?: object}` — minimum `tool`.\n  - `human_decision`: optional `{prompt?: string}` — the step's own copy serves as the prompt when spec_json is empty.\n\nExample (agent_spawn step):\n```json\n{\n  \"plan\": \"01J...\",\n  \"phase_idx\": 2,\n  \"step_idx\": 0,\n  \"kind\": \"agent_spawn\",\n  \"spec_json\": {\n    \"child_handle\": \"ml-worker-1\",\n    \"template\": \"agents.ml-worker\"\n  }\n}\n```",
+			Name:        "plan_steps_create",
+			Description: "Append a step to a plan. Requires `plan`, `phase_idx`, `step_idx`, `kind` (one of agent_spawn|llm_call|shell|mcp_call|human_decision). `spec_json` is required for every kind except `human_decision` and carries the kind-specific fields the executor needs. Under-specified spec_json returns HTTP 422 with a structured error naming the missing field.\n\n=== spec_json shape per kind ===\n\n  - `agent_spawn`: `{child_handle: string, template?: string, spawn_spec_yaml?: string, ...}` — minimum `child_handle`. See agents_spawn for full spec.\n  - `llm_call`: `{prompt: string, model?: string, temperature?: number, max_tokens?: integer}` — minimum `prompt`.\n  - `shell`: `{cmd: string, cwd?: string, timeout_sec?: integer}` — minimum `cmd`.\n  - `mcp_call`: `{tool: string, args?: object}` — minimum `tool`.\n  - `human_decision`: optional `{prompt?: string}` — the step's own copy serves as the prompt when spec_json is empty.\n\nExample (agent_spawn step):\n```json\n{\n  \"plan\": \"01J...\",\n  \"phase_idx\": 2,\n  \"step_idx\": 0,\n  \"kind\": \"agent_spawn\",\n  \"spec_json\": {\n    \"child_handle\": \"ml-worker-1\",\n    \"template\": \"agents.ml-worker\"\n  }\n}\n```",
 			InputSchema: schema(`{"type":"object","required":["plan","phase_idx","step_idx","kind"],"properties":{"plan":{"type":"string"},"phase_idx":{"type":"integer","minimum":0},"step_idx":{"type":"integer","minimum":0},"kind":{"type":"string","enum":["agent_spawn","llm_call","shell","mcp_call","human_decision"]},"spec_json":{"type":"object"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				plan, _ := args["plan"].(string)
@@ -168,7 +168,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "plans.steps.list",
+			Name:        "plan_steps_list",
 			Description: "List all steps for a plan, ordered by phase_idx, step_idx.",
 			InputSchema: schema(`{"type":"object","required":["plan"],"properties":{"plan":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -184,7 +184,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "plans.steps.update",
+			Name:        "plan_steps_update",
 			Description: "Patch one step of a plan. Requires `plan` and `step`. Any of status, started_at, completed_at, input_refs_json, output_refs_json, agent_id may be supplied.",
 			InputSchema: schema(`{"type":"object","required":["plan","step"],"properties":{"plan":{"type":"string"},"step":{"type":"string"},"status":{"type":"string"},"started_at":{"type":"string"},"completed_at":{"type":"string"},"input_refs_json":{"type":"array"},"output_refs_json":{"type":"array"},"agent_id":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -211,7 +211,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "runs.list",
+			Name:        "runs_list",
 			Description: "List runs in the team. Optional `project` filter (runs can cross projects via parent_run_id).",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -227,7 +227,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "runs.get",
+			Name:        "runs_get",
 			Description: "Fetch one run by id.",
 			InputSchema: schema(`{"type":"object","required":["run"],"properties":{"run":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -243,8 +243,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "runs.update",
-			Description: "Update mutable fields of an EXISTING run without recreating it — fix a typo, set status, or link/re-link training metrics. Required: `run`. Optional (only the fields you pass change; pass \"\" to clear a nullable one): `status` (pending|running|completed|failed|cancelled), `config_json` (object), `seed`, `agent_id`, `started_at`, `finished_at`, `parent_run_id`, `trackio_host_id`, `trackio_run_uri`.\n\n=== Make a run's training curves show on mobile ===\nSet `trackio_run_uri` (and usually nothing else):\n  - `trackio_run_uri` — canonical form `trackio://<project>/<run_name>`.\n      • `<project>` = the trackio project name. Trackio stores one SQLite file per project at `<TRACKIO_DIR>/<project>.db` (default TRACKIO_DIR is `~/.cache/huggingface/trackio`). It's the `project=` you pass to `trackio.init(...)`.\n      • `<run_name>` = the run's name within that project — the `name=` in `trackio.init(project=..., name=...)`, stored in the trackio `metrics` table's `run_name` column.\n      (wandb runs use `wandb://...`; TensorBoard uses `tb://<run-path>`.)\n  - `trackio_host_id` — the hub host id of the machine where the worker logged (its trackio DB is on that host's disk). OPTIONAL: if you omit it and the run has an `agent_id`, the hub auto-fills it from that agent's host. So an agent normally only needs `trackio_run_uri`.\nThe host-runner on that host then reads the trackio SQLite and pushes downsampled curves to the run; mobile renders inline sparklines. (See `runs.create` to set these at creation time instead.)",
+			Name:        "runs_update",
+			Description: "Update mutable fields of an EXISTING run without recreating it — fix a typo, set status, or link/re-link training metrics. Required: `run`. Optional (only the fields you pass change; pass \"\" to clear a nullable one): `status` (pending|running|completed|failed|cancelled), `config_json` (object), `seed`, `agent_id`, `started_at`, `finished_at`, `parent_run_id`, `trackio_host_id`, `trackio_run_uri`.\n\n=== Make a run's training curves show on mobile ===\nSet `trackio_run_uri` (and usually nothing else):\n  - `trackio_run_uri` — canonical form `trackio://<project>/<run_name>`.\n      • `<project>` = the trackio project name. Trackio stores one SQLite file per project at `<TRACKIO_DIR>/<project>.db` (default TRACKIO_DIR is `~/.cache/huggingface/trackio`). It's the `project=` you pass to `trackio.init(...)`.\n      • `<run_name>` = the run's name within that project — the `name=` in `trackio.init(project=..., name=...)`, stored in the trackio `metrics` table's `run_name` column.\n      (wandb runs use `wandb://...`; TensorBoard uses `tb://<run-path>`.)\n  - `trackio_host_id` — the hub host id of the machine where the worker logged (its trackio DB is on that host's disk). OPTIONAL: if you omit it and the run has an `agent_id`, the hub auto-fills it from that agent's host. So an agent normally only needs `trackio_run_uri`.\nThe host-runner on that host then reads the trackio SQLite and pushes downsampled curves to the run; mobile renders inline sparklines. (See `runs_create` to set these at creation time instead.)",
 			InputSchema: schema(`{"type":"object","required":["run"],"properties":{"run":{"type":"string"},"status":{"type":"string"},"config_json":{"type":"object"},"seed":{"type":"integer"},"agent_id":{"type":"string"},"started_at":{"type":"string"},"finished_at":{"type":"string"},"parent_run_id":{"type":"string"},"trackio_host_id":{"type":"string"},"trackio_run_uri":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				id, _ := args["run"].(string)
@@ -266,8 +266,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "runs.delete",
-			Description: "Delete a run created in error or a throwaway test run. Required: `run`. Its metric/image/histogram digests are removed with it; artifacts the run produced are DETACHED (kept, just unlinked — they're content-addressed and may be referenced elsewhere); child runs are detached. To abandon a real run while keeping it for the audit trail, use `runs.update status=cancelled` instead.",
+			Name:        "runs_delete",
+			Description: "Delete a run created in error or a throwaway test run. Required: `run`. Its metric/image/histogram digests are removed with it; artifacts the run produced are DETACHED (kept, just unlinked — they're content-addressed and may be referenced elsewhere); child runs are detached. To abandon a real run while keeping it for the audit trail, use `runs_update status=cancelled` instead.",
 			InputSchema: schema(`{"type":"object","required":["run"],"properties":{"run":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				id, _ := args["run"].(string)
@@ -281,7 +281,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "runs.detach_artifact",
+			Name:        "runs_detach_artifact",
 			Description: "Unlink a wrongly-attached artifact from a run. Required: `run`, `artifact`. The artifact row and its bytes survive — only the run↔artifact link is cleared (run_id → NULL). Use this to fix a mis-attached artifact without deleting it.",
 			InputSchema: schema(`{"type":"object","required":["run","artifact"],"properties":{"run":{"type":"string"},"artifact":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -297,8 +297,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "documents.list",
-			Description: "List documents in the team. Optional `project` filters by project id. Returns rows with `id`, `project_id`, `kind`, `title`, `created_at`, etc — NOT the document body. Use `documents.get` to fetch a single doc's full body.\n\nNote: this is the documents-TABLE listing (rows authored via `documents.create`). It is NOT the same as `get_project_doc` which reads files from the project's filesystem `docs_root` (shared human-authored context). The two surfaces don't overlap.",
+			Name:        "documents_list",
+			Description: "List documents in the team. Optional `project` filters by project id. Returns rows with `id`, `project_id`, `kind`, `title`, `created_at`, etc — NOT the document body. Use `documents_get` to fetch a single doc's full body.\n\nNote: this is the documents-TABLE listing (rows authored via `documents_create`). It is NOT the same as `get_project_doc` which reads files from the project's filesystem `docs_root` (shared human-authored context). The two surfaces don't overlap.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				q := url.Values{}
@@ -313,9 +313,9 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "documents.get",
-			Description: "Fetch a single document by id, including its full body (`content_inline`). Required: `document_id` — the ULID returned by `documents.create`. Returns the full document row: `id`, `project_id`, `kind`, `title`, `content_inline`, `author_agent_id`, `created_at`, `prev_version_id`, etc.\n\nWhen the steward needs to read back a memo a worker just produced (via the doc_id the worker reported in tasks.complete `summary`), this is the tool — NOT `get_project_doc` (which reads filesystem files, not document-table rows) and NOT `documents.list` (which omits the body to stay cheap).\n\nExample:\n```json\n{\"document_id\": \"01KRV5387MK8WT6BB9DZ9TEE73\"}\n```\n\n404 if the document id is unknown; the error names the id so the caller can verify they passed the right value.",
-			InputSchema: schema(`{"type":"object","required":["document_id"],"properties":{"document_id":{"type":"string","description":"ULID returned by documents.create"}}}`),
+			Name:        "documents_get",
+			Description: "Fetch a single document by id, including its full body (`content_inline`). Required: `document_id` — the ULID returned by `documents_create`. Returns the full document row: `id`, `project_id`, `kind`, `title`, `content_inline`, `author_agent_id`, `created_at`, `prev_version_id`, etc.\n\nWhen the steward needs to read back a memo a worker just produced (via the doc_id the worker reported in tasks_complete `summary`), this is the tool — NOT `get_project_doc` (which reads filesystem files, not document-table rows) and NOT `documents_list` (which omits the body to stay cheap).\n\nExample:\n```json\n{\"document_id\": \"01KRV5387MK8WT6BB9DZ9TEE73\"}\n```\n\n404 if the document id is unknown; the error names the id so the caller can verify they passed the right value.",
+			InputSchema: schema(`{"type":"object","required":["document_id"],"properties":{"document_id":{"type":"string","description":"ULID returned by documents_create"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				docID, _ := args["document_id"].(string)
 				if docID == "" {
@@ -329,7 +329,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "documents.create",
+			Name:        "documents_create",
 			Description: "Create a new document. Required: `project_id`, `kind`, `title`, AND exactly one of {`content_inline`, `artifact_id`}.\n\n=== Field shapes ===\n\n  - `project_id` — project this doc belongs to.\n  - `kind` — `memo` | `draft` | `report` | `review` | `sample` (legacy allowlist); ANY value when `schema_id` is set (typed document per template).\n  - `title` — short non-empty string.\n  - `content_inline` — raw markdown (GitHub-flavored). Must be non-empty after trim; whitespace-only is rejected with HTTP 422. Max 256 KB; for larger bodies upload as an artifact and reference via `artifact_id`.\n  - `artifact_id` — id of an artifact in the same project. Mutually exclusive with `content_inline`.\n  - `schema_id` — opt-in typed-doc schema (overrides the kind allowlist).\n  - `prev_version_id` — optional pointer to the prior version for revision chains.\n  - `author_agent_id` — optional attribution; omit to default from the caller's token.\n\nExample (inline markdown doc):\n```json\n{\n  \"project_id\": \"01J...\",\n  \"kind\": \"report\",\n  \"title\": \"Lit review: MoD routing\",\n  \"content_inline\": \"# Lit review\\n\\nSurvey of MoD routing strategies...\"\n}\n```",
 			InputSchema: schema(`{"type":"object","required":["project_id","kind","title"],"properties":{"project_id":{"type":"string"},"kind":{"type":"string","description":"memo|draft|report|review|sample, or any value when schema_id is set"},"schema_id":{"type":"string"},"title":{"type":"string"},"prev_version_id":{"type":"string"},"content_inline":{"type":"string","description":"raw markdown body; must be non-empty after trim; max 256 KB"},"artifact_id":{"type":"string","description":"mutually exclusive with content_inline"},"author_agent_id":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -341,7 +341,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "reviews.list",
+			Name:        "reviews_list",
 			Description: "List reviews. Optional `project` filter.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -357,7 +357,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "reviews.create",
+			Name:        "reviews_create",
 			Description: "Create a new review request. Body is passed through; typical fields include project, document_id, reviewer, question.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"},"document_id":{"type":"string"},"reviewer":{"type":"string"},"question":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -369,7 +369,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "policy.read",
+			Name:        "policy_read",
 			Description: "Read the team policy document. STUB in P1.5: returns an empty-rules placeholder while the real policy engine is designed; the underlying /policy endpoint is still proxied so callers can observe the raw hub response for now.",
 			InputSchema: schema(`{"type":"object"}`),
 			call: func(c *hubClient, _ map[string]any) (any, error) {
@@ -387,8 +387,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "runs.create",
-			Description: "Create a new run row. Requires `project_id`. Optional: `agent_id`, `config_json` (object), `seed`, `parent_run_id`, `trackio_host_id`, `trackio_run_uri`.\n\nTo surface training curves on mobile, set `trackio_run_uri` to `trackio://<project>/<run_name>` (the `project=`/`name=` you pass to `trackio.init`; the project's SQLite is `<TRACKIO_DIR>/<project>.db`, default `~/.cache/huggingface/trackio`). `trackio_host_id` is the host where the worker logs — OPTIONAL when `agent_id` is set (the hub fills it from that agent's host). If you don't know the run name yet at creation, link it later with `runs.update`. Typos are fixable with `runs.update` — no need to recreate the run.",
+			Name:        "runs_create",
+			Description: "Create a new run row. Requires `project_id`. Optional: `agent_id`, `config_json` (object), `seed`, `parent_run_id`, `trackio_host_id`, `trackio_run_uri`.\n\nTo surface training curves on mobile, set `trackio_run_uri` to `trackio://<project>/<run_name>` (the `project=`/`name=` you pass to `trackio.init`; the project's SQLite is `<TRACKIO_DIR>/<project>.db`, default `~/.cache/huggingface/trackio`). `trackio_host_id` is the host where the worker logs — OPTIONAL when `agent_id` is set (the hub fills it from that agent's host). If you don't know the run name yet at creation, link it later with `runs_update`. Typos are fixable with `runs_update` — no need to recreate the run.",
 			InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"agent_id":{"type":"string"},"config_json":{"type":"object"},"seed":{"type":"integer"},"parent_run_id":{"type":"string"},"trackio_host_id":{"type":"string"},"trackio_run_uri":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				if p, _ := args["project_id"].(string); p == "" {
@@ -402,8 +402,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "runs.attach_artifact",
-			Description: "Attach a content-addressed artifact (checkpoint, eval_curve, log, dataset, report, figure, sample) to a run. Required: `run`, `project_id`, `kind`, `name`, `uri`.\n\n=== Field shapes ===\n\n  - `run` — id of the run this artifact belongs to.\n  - `project_id` — must match the run's project.\n  - `kind` — one of the closed-set artifact kinds (see `artifacts.create` for the full list).\n  - `name` — human-readable label.\n  - `uri` — content-addressed reference to bytes ALREADY uploaded via `attach` (cite the returned handle, e.g. `blob:sha256/<hex>`; blobs cap at 25 MiB). This tool only RECORDS the reference — it does NOT upload bytes; call `attach` first, then pass its sha here.\n  - `sha256`, `size`, `mime` — optional content metadata.\n  - `producer_agent_id` — optional attribution.\n  - `lineage_json` — optional JSON OBJECT (not an array or scalar) describing provenance:\n    ```json\n    {\n      \"upstream_run_ids\": [\"r1\", \"r2\"],\n      \"upstream_artifact_ids\": [\"a1\"],\n      \"parameters\": {\"lr\": 0.001}\n    }\n    ```\n    Unknown keys tolerated; non-object payload returns HTTP 422.",
+			Name:        "runs_attach_artifact",
+			Description: "Attach a content-addressed artifact (checkpoint, eval_curve, log, dataset, report, figure, sample) to a run. Required: `run`, `project_id`, `kind`, `name`, `uri`.\n\n=== Field shapes ===\n\n  - `run` — id of the run this artifact belongs to.\n  - `project_id` — must match the run's project.\n  - `kind` — one of the closed-set artifact kinds (see `artifacts_create` for the full list).\n  - `name` — human-readable label.\n  - `uri` — content-addressed reference to bytes ALREADY uploaded via `attach` (cite the returned handle, e.g. `blob:sha256/<hex>`; blobs cap at 25 MiB). This tool only RECORDS the reference — it does NOT upload bytes; call `attach` first, then pass its sha here.\n  - `sha256`, `size`, `mime` — optional content metadata.\n  - `producer_agent_id` — optional attribution.\n  - `lineage_json` — optional JSON OBJECT (not an array or scalar) describing provenance:\n    ```json\n    {\n      \"upstream_run_ids\": [\"r1\", \"r2\"],\n      \"upstream_artifact_ids\": [\"a1\"],\n      \"parameters\": {\"lr\": 0.001}\n    }\n    ```\n    Unknown keys tolerated; non-object payload returns HTTP 422.",
 			InputSchema: schema(`{"type":"object","required":["run","project_id","kind","name","uri"],"properties":{"run":{"type":"string"},"project_id":{"type":"string"},"kind":{"type":"string"},"name":{"type":"string"},"uri":{"type":"string"},"sha256":{"type":"string"},"size":{"type":"integer"},"mime":{"type":"string"},"producer_agent_id":{"type":"string"},"lineage_json":{"type":"object"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				runID, _ := args["run"].(string)
@@ -427,7 +427,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "artifacts.list",
+			Name:        "artifacts_list",
 			Description: "List artifacts in the team. Optional filters: `project`, `run`, `kind`. Newest first.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"},"run":{"type":"string"},"kind":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -445,7 +445,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "artifacts.get",
+			Name:        "artifacts_get",
 			Description: "Fetch one artifact by id.",
 			InputSchema: schema(`{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -461,8 +461,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "artifacts.create",
-			Description: "Create a standalone artifact (not tied to a run). For run outputs prefer `runs.attach_artifact`. Required: `project_id`, `kind`, `name`, `uri`.\n\n=== Field shapes ===\n\n  - `project_id` — project this artifact belongs to.\n  - `kind` — one of the closed-set artifact kinds: `checkpoint`, `eval_curve`, `log`, `dataset`, `report`, `figure`, `sample`, `code-bundle`, `pdf`, `audio`, `video`, `image`, `canvas-app`.\n  - `name` — human-readable label.\n  - `uri` — content-addressed reference to bytes ALREADY uploaded via `attach` (cite the returned handle, e.g. `blob:sha256/<hex>`; blobs cap at 25 MiB). This tool only RECORDS the reference — it does NOT upload bytes; call `attach` first, then pass its sha here.\n  - `sha256`, `size`, `mime` — optional content metadata.\n  - `producer_agent_id` — optional attribution.\n  - `lineage_json` — optional JSON OBJECT describing provenance:\n    ```json\n    {\n      \"upstream_run_ids\": [\"r1\"],\n      \"upstream_artifact_ids\": [\"a1\"],\n      \"parameters\": {\"lr\": 0.001}\n    }\n    ```\n    Non-object payload (array, scalar, malformed JSON) returns HTTP 422.",
+			Name:        "artifacts_create",
+			Description: "Create a standalone artifact (not tied to a run). For run outputs prefer `runs_attach_artifact`. Required: `project_id`, `kind`, `name`, `uri`.\n\n=== Field shapes ===\n\n  - `project_id` — project this artifact belongs to.\n  - `kind` — one of the closed-set artifact kinds: `checkpoint`, `eval_curve`, `log`, `dataset`, `report`, `figure`, `sample`, `code-bundle`, `pdf`, `audio`, `video`, `image`, `canvas-app`.\n  - `name` — human-readable label.\n  - `uri` — content-addressed reference to bytes ALREADY uploaded via `attach` (cite the returned handle, e.g. `blob:sha256/<hex>`; blobs cap at 25 MiB). This tool only RECORDS the reference — it does NOT upload bytes; call `attach` first, then pass its sha here.\n  - `sha256`, `size`, `mime` — optional content metadata.\n  - `producer_agent_id` — optional attribution.\n  - `lineage_json` — optional JSON OBJECT describing provenance:\n    ```json\n    {\n      \"upstream_run_ids\": [\"r1\"],\n      \"upstream_artifact_ids\": [\"a1\"],\n      \"parameters\": {\"lr\": 0.001}\n    }\n    ```\n    Non-object payload (array, scalar, malformed JSON) returns HTTP 422.",
 			InputSchema: schema(`{"type":"object","required":["project_id","kind","name","uri"],"properties":{"project_id":{"type":"string"},"kind":{"type":"string"},"name":{"type":"string"},"uri":{"type":"string"},"sha256":{"type":"string"},"size":{"type":"integer"},"mime":{"type":"string"},"producer_agent_id":{"type":"string"},"lineage_json":{"type":"object"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				for _, k := range []string{"project_id", "kind", "name", "uri"} {
@@ -478,16 +478,16 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "agents.spawn",
-			Description: "Spawn a child agent. Requires `child_handle`, `kind`, `spawn_spec_yaml`, AND `host_id` (the host-runner that will own the new agent's process). Call `hosts.list` first to discover the available host_ids — even on a single-host team, the caller must explicitly name the host so a misconfigured fleet fails loudly instead of leaving the agent stuck in `pending` with no claimer. Optional: parent_agent_id, worktree_path, budget_cents, mode, project_id (binds the agent to a project; YAML `project_id:` is the canonical site, body field is a fallback), permission_mode (`skip` = auto-allow tool calls; `prompt` = route every tool call through the hub permission_prompt gate; omitted → `skip`), wait (default true on the MCP path: block until engine reaches running/failed), wait_seconds (cap, default 30, max 50). May return 202 + attention_id if policy gates the spawn on approval. Project-bound spawns require the caller to be that project's steward; the general steward must delegate via `request_project_steward`.\n\n=== spawn_spec_yaml shape ===\n\nThe spec is a YAML document describing the engine to launch and (optionally) the workdir, persona, and per-call gate. Two valid shapes:\n\n(a) Template-reference shorthand (recommended for bundled engines):\n```yaml\ntemplate: agents.coder\n```\nThe hub loads the named template (from `team/templates/agents/` user overlay or `hub/templates/agents/` bundled) and deep-merges its fields under your spec. Your spec's fields override the template's (e.g. add `backend:\\n  model: claude-haiku-4-5` to override only the model). Template names use the `agents.<basename>` form — list available templates via `templates.list`.\n\n(b) Inline shape (when no template fits):\n```yaml\nbackend:\n  cmd: claude --print --output-format stream-json --input-format stream-json --verbose --dangerously-skip-permissions\n  kind: claude-code\n  model: claude-opus-4-7\nprompt: coder.v1.md\nproject_id: 01K...\n```\n\nMinimum viable spec: `backend.cmd` must be non-empty after template merge and {{var}} expansion. Specs that don't satisfy this return HTTP 422 with a structured error naming the missing field.\n\n=== Return shape ===\n\nThe response's `status` field reflects the new agent's real lifecycle state (when wait=true, the default):\n\n  - `running` — engine started within wait_seconds.\n  - `failed` — hostrunner refused or engine crashed; `failure_reason` populated.\n  - `pending` — wait_seconds expired before state transition; poll `agents.get` for final state.\n  - `pending_approval` — gated by spawn-approval policy; `attention_id` populated.\n\nSet `wait: false` to return `status: 'spawned'` immediately without confirming the engine started.\n\n=== Task linkage ===\n\nLink the spawn to a task. Pass `task_id` to attach to an existing task (flips status to 'in_progress' and stamps started_at if not already running; 409 if task is 'done' or 'cancelled' — call tasks.update status='in_progress' first to reopen). Or pass `task` (object with title, body_md, parent_task_id, milestone_id, priority) to materialize a fresh task in the same transaction, assignee = the new agent, created_by = parent_agent_id. `task_id` and `task` are mutually exclusive (400).\n\n=== Worker delivery ===\n\nThe linked task's title + body_md are inlined into the worker's agent-memory file (CLAUDE.md for claude-code, AGENTS.md for codex/kimi, GEMINI.md for gemini-cli) under a `## Task` section before launch, so the worker reads the instructions on first turn — no follow-up `a2a.invoke` is needed just to deliver the initial work. (You may still `a2a.invoke` later for clarifications or to push new context.)",
-			InputSchema: schema(`{"type":"object","required":["child_handle","kind","spawn_spec_yaml","host_id"],"properties":{"child_handle":{"type":"string"},"kind":{"type":"string"},"spawn_spec_yaml":{"type":"string"},"host_id":{"type":"string","description":"id of an online host-runner that will own the new agent's process; resolve via hosts.list"},"parent_agent_id":{"type":"string"},"worktree_path":{"type":"string"},"budget_cents":{"type":"integer"},"mode":{"type":"string"},"project_id":{"type":"string"},"permission_mode":{"type":"string","enum":["skip","prompt"],"description":"omit for worker spawns (default skip); set to 'prompt' to route every tool call through the hub permission_prompt MCP gate (creates attention_items the principal approves)"},"task_id":{"type":"string"},"task":{"type":"object","properties":{"title":{"type":"string"},"body_md":{"type":"string"},"parent_task_id":{"type":"string"},"milestone_id":{"type":"string"},"priority":{"type":"string","enum":["low","med","high","urgent"]}},"required":["title"]},"wait":{"type":"boolean","description":"Default true on the MCP path: block until the agent reaches running or failed, bounded by wait_seconds. Response status reflects real engine state. Set false to return immediately with status='spawned' (no engine confirmation)."},"wait_seconds":{"type":"integer","description":"Cap on the wait window. Default 30, hard-capped at 50."}}}`),
+			Name:        "agents_spawn",
+			Description: "Spawn a child agent. Requires `child_handle`, `kind`, `spawn_spec_yaml`, AND `host_id` (the host-runner that will own the new agent's process). Call `hosts_list` first to discover the available host_ids — even on a single-host team, the caller must explicitly name the host so a misconfigured fleet fails loudly instead of leaving the agent stuck in `pending` with no claimer. Optional: parent_agent_id, worktree_path, budget_cents, mode, project_id (binds the agent to a project; YAML `project_id:` is the canonical site, body field is a fallback), permission_mode (`skip` = auto-allow tool calls; `prompt` = route every tool call through the hub permission_prompt gate; omitted → `skip`), wait (default true on the MCP path: block until engine reaches running/failed), wait_seconds (cap, default 30, max 50). May return 202 + attention_id if policy gates the spawn on approval. Project-bound spawns require the caller to be that project's steward; the general steward must delegate via `request_project_steward`.\n\n=== spawn_spec_yaml shape ===\n\nThe spec is a YAML document describing the engine to launch and (optionally) the workdir, persona, and per-call gate. Two valid shapes:\n\n(a) Template-reference shorthand (recommended for bundled engines):\n```yaml\ntemplate: agents.coder\n```\nThe hub loads the named template (from `team/templates/agents/` user overlay or `hub/templates/agents/` bundled) and deep-merges its fields under your spec. Your spec's fields override the template's (e.g. add `backend:\\n  model: claude-haiku-4-5` to override only the model). Template names use the `agents.<basename>` form — list available templates via `templates.list`.\n\n(b) Inline shape (when no template fits):\n```yaml\nbackend:\n  cmd: claude --print --output-format stream-json --input-format stream-json --verbose --dangerously-skip-permissions\n  kind: claude-code\n  model: claude-opus-4-7\nprompt: coder.v1.md\nproject_id: 01K...\n```\n\nMinimum viable spec: `backend.cmd` must be non-empty after template merge and {{var}} expansion. Specs that don't satisfy this return HTTP 422 with a structured error naming the missing field.\n\n=== Return shape ===\n\nThe response's `status` field reflects the new agent's real lifecycle state (when wait=true, the default):\n\n  - `running` — engine started within wait_seconds.\n  - `failed` — hostrunner refused or engine crashed; `failure_reason` populated.\n  - `pending` — wait_seconds expired before state transition; poll `agents_get` for final state.\n  - `pending_approval` — gated by spawn-approval policy; `attention_id` populated.\n\nSet `wait: false` to return `status: 'spawned'` immediately without confirming the engine started.\n\n=== Task linkage ===\n\nLink the spawn to a task. Pass `task_id` to attach to an existing task (flips status to 'in_progress' and stamps started_at if not already running; 409 if task is 'done' or 'cancelled' — call tasks_update status='in_progress' first to reopen). Or pass `task` (object with title, body_md, parent_task_id, milestone_id, priority) to materialize a fresh task in the same transaction, assignee = the new agent, created_by = parent_agent_id. `task_id` and `task` are mutually exclusive (400).\n\n=== Worker delivery ===\n\nThe linked task's title + body_md are inlined into the worker's agent-memory file (CLAUDE.md for claude-code, AGENTS.md for codex/kimi, GEMINI.md for gemini-cli) under a `## Task` section before launch, so the worker reads the instructions on first turn — no follow-up `a2a_invoke` is needed just to deliver the initial work. (You may still `a2a_invoke` later for clarifications or to push new context.)",
+			InputSchema: schema(`{"type":"object","required":["child_handle","kind","spawn_spec_yaml","host_id"],"properties":{"child_handle":{"type":"string"},"kind":{"type":"string"},"spawn_spec_yaml":{"type":"string"},"host_id":{"type":"string","description":"id of an online host-runner that will own the new agent's process; resolve via hosts_list"},"parent_agent_id":{"type":"string"},"worktree_path":{"type":"string"},"budget_cents":{"type":"integer"},"mode":{"type":"string"},"project_id":{"type":"string"},"permission_mode":{"type":"string","enum":["skip","prompt"],"description":"omit for worker spawns (default skip); set to 'prompt' to route every tool call through the hub permission_prompt MCP gate (creates attention_items the principal approves)"},"task_id":{"type":"string"},"task":{"type":"object","properties":{"title":{"type":"string"},"body_md":{"type":"string"},"parent_task_id":{"type":"string"},"milestone_id":{"type":"string"},"priority":{"type":"string","enum":["low","med","high","urgent"]}},"required":["title"]},"wait":{"type":"boolean","description":"Default true on the MCP path: block until the agent reaches running or failed, bounded by wait_seconds. Response status reflects real engine state. Set false to return immediately with status='spawned' (no engine confirmation)."},"wait_seconds":{"type":"integer","description":"Cap on the wait window. Default 30, hard-capped at 50."}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				for _, k := range []string{"child_handle", "kind", "spawn_spec_yaml", "host_id"} {
 					if v, _ := args[k].(string); v == "" {
 						return nil, fmt.Errorf("%s is required", k)
 					}
 				}
-				// W9: MCP agents.spawn defaults to sync-wait so the
+				// W9: MCP agents_spawn defaults to sync-wait so the
 				// steward's tool_result accurately reflects whether
 				// the engine actually started. Caller can opt out by
 				// setting wait=false explicitly. See
@@ -505,7 +505,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "channels.post_event",
+			Name:        "channels_post_event",
 			Description: "Post an event to a channel (the hub's chat/message surface). Required: `channel`, `type`, AND a non-empty `parts` array. Optional `project` — when omitted the event targets a team-scope channel.\n\n=== parts shape ===\n\nEach part declares a `kind` discriminating the payload. The hub rejects parts with no `kind`, kind=`text` with empty `text`, kind=`file`/`image` with no `file.uri`/`image.uri`, kind=`data` with empty `data`. Unknown kinds are tolerated for forward-compat.\n\n```json\n{\n  \"channel\": \"team-default\",\n  \"type\": \"chat\",\n  \"parts\": [\n    {\"kind\": \"text\", \"text\": \"Hello\"},\n    {\"kind\": \"file\", \"file\": {\"uri\": \"sha256:abc123\", \"mime\": \"text/plain\"}}\n  ]\n}\n```\n\nOther fields:\n  - `from_id` — sender agent id (defaults from caller's token).\n  - `to_ids` — array of recipient agent ids.\n  - `task_id` / `correlation_id` — optional threading hooks.\n  - `metadata` — opaque JSON object passed through.\n\nMalformed parts return HTTP 422 with `parts[<index>]: <reason>`.",
 			InputSchema: schema(`{"type":"object","required":["channel","type","parts"],"properties":{"channel":{"type":"string"},"project":{"type":"string"},"type":{"type":"string"},"parts":{"type":"array","minItems":1,"items":{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","description":"text|file|image|data|excerpt|<custom>"},"text":{"type":"string"},"data":{"type":"object"},"file":{"type":"object","properties":{"uri":{"type":"string"}}},"image":{"type":"object","properties":{"uri":{"type":"string"}}}}}},"from_id":{"type":"string"},"to_ids":{"type":"array","items":{"type":"string"}},"task_id":{"type":"string"},"correlation_id":{"type":"string"},"metadata":{"type":"object"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -538,7 +538,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "a2a.invoke",
+			Name:        "a2a_invoke",
 			Description: "Send an A2A message to another agent by handle. Looks up the agent card in the team directory, then POSTs a JSON-RPC `message/send` envelope to the card's relay URL. Returns the JSON-RPC response envelope (typically a Task).",
 			InputSchema: schema(`{"type":"object","required":["handle","text"],"properties":{"handle":{"type":"string","description":"target agent handle (e.g. \"worker.ml\")"},"text":{"type":"string","description":"message body as plain text"},"kind":{"type":"string","enum":["directive","question","report"],"description":"the message's force: directive opens work, question asks a blocking question, report returns a result. Defaults to directive."},"cause":{"type":"string","description":"optional id of the directive/task this message serves (lineage)"},"task_id":{"type":"string","description":"optional existing task id to continue"},"message_id":{"type":"string","description":"optional message id; auto-generated when omitted"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -618,8 +618,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "a2a.cards.list",
-			Description: "List A2A agent cards registered in the team — the directory `a2a.invoke` resolves handles against. Each row carries `handle`, `agent_id`, `host_id`, `registered_at`, and the rewritten `card` (with `url` pointing at the hub's relay path). Optional `handle` argument scopes to one entry, useful for confirming a specific handle is callable. Workers should call this (rather than `agents.list`) to discover which siblings/parents are reachable over A2A — `agents.list` returns everything in the team including agents that don't expose A2A.",
+			Name:        "a2a_cards_list",
+			Description: "List A2A agent cards registered in the team — the directory `a2a_invoke` resolves handles against. Each row carries `handle`, `agent_id`, `host_id`, `registered_at`, and the rewritten `card` (with `url` pointing at the hub's relay path). Optional `handle` argument scopes to one entry, useful for confirming a specific handle is callable. Workers should call this (rather than `agents_list`) to discover which siblings/parents are reachable over A2A — `agents_list` returns everything in the team including agents that don't expose A2A.",
 			InputSchema: schema(`{"type":"object","properties":{"handle":{"type":"string","description":"optional — restrict to one handle"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				q := url.Values{}
@@ -634,7 +634,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "projects.update",
+			Name:        "projects_update",
 			Description: "Patch a project's mutable fields. Required: `project` and at least one update field. Create-time fields (`kind`, `template_id`, `parent_project_id`) are immutable by design.\n\n=== Mutable fields ===\n\n  - `goal` — intent statement (string; pass empty string to clear).\n  - `parameters_json` — JSON object carrying the project-template-defined params.\n  - `budget_cents` — integer cap.\n  - `policy_overrides_json` — JSON OBJECT overriding team-default policy entries. Must be `{}` or `{key: value, ...}`; arrays/scalars/malformed JSON return HTTP 422. Pass `{}` to clear all overrides.\n  - `steward_agent_id` — bind a specific steward (validated against agents table).\n  - `on_create_template_id` — plan template id auto-attached when projects instantiate from this one (only meaningful when the project is `is_template: true`).\n\nExample:\n```json\n{\n  \"project\": \"01J...\",\n  \"goal\": \"Compare Lion vs AdamW on tiny GPT\",\n  \"policy_overrides_json\": {\n    \"spawn\": {\"tier\": \"critical\"},\n    \"budget_cents_per_day\": 5000\n  }\n}\n```",
 			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"},"goal":{"type":"string"},"parameters_json":{"type":"object"},"budget_cents":{"type":"integer"},"policy_overrides_json":{"type":"object"},"steward_agent_id":{"type":"string"},"on_create_template_id":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -664,8 +664,8 @@ func buildTools() []toolDef {
 		},
 		// --- project lifecycle: deliverables + criteria + phase (ADR-044 P1) ---
 		{
-			Name:        "deliverables.list",
-			Description: "List a project's deliverables — the work products gated per phase. Required: `project`. Optional: `phase` (filter to one phase), `state` (draft|in-review|ratified). Each row carries `id`, `phase`, `kind`, `ratification_state`, `required`, `ord`, and its component refs. For one deliverable with full components, use `deliverables.get`.",
+			Name:        "deliverables_list",
+			Description: "List a project's deliverables — the work products gated per phase. Required: `project`. Optional: `phase` (filter to one phase), `state` (draft|in-review|ratified). Each row carries `id`, `phase`, `kind`, `ratification_state`, `required`, `ord`, and its component refs. For one deliverable with full components, use `deliverables_get`.",
 			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"},"phase":{"type":"string"},"state":{"type":"string","enum":["draft","in-review","ratified"]}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				id, _ := args["project"].(string)
@@ -687,7 +687,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "deliverables.get",
+			Name:        "deliverables_get",
 			Description: "Fetch one deliverable by id, with its components (document / artifact / run / commit refs). Required: `project`, `deliverable`.",
 			InputSchema: schema(`{"type":"object","required":["project","deliverable"],"properties":{"project":{"type":"string"},"deliverable":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -704,7 +704,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "criteria.list",
+			Name:        "criteria_list",
 			Description: "List a project's acceptance criteria — the rubric the director ratifies against. Required: `project`. Optional: `phase`, `deliverable_id` (criteria gating one deliverable). Each row carries `id`, `phase`, `deliverable_id`, `kind` (text|metric|gate), `body`, `state` (pending|met|failed|waived), `required`, `ord`. Read this to see what is blocking phase advance and what you must satisfy.",
 			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"},"phase":{"type":"string"},"deliverable_id":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -727,7 +727,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "phase.status",
+			Name:        "phase_status",
 			Description: "Project lifecycle status for the active phase: current `phase`, `phase_index`, the ordered `phases`, the phase's `deliverables` (with components), and `counts` (deliverables_total/ratified, criteria_total/met). Read this to see where the project stands and exactly what must be satisfied to advance. Required: `project`.",
 			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -743,7 +743,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "deliverables.add_component",
+			Name:        "deliverables_add_component",
 			Description: "Attach a component to a deliverable you are materializing — a produced document, artifact, run, or commit. Required: `project`, `deliverable`, `kind` (document|artifact|run|commit), `ref_id` (the produced object's id). Optional: `required` (default true), `ord`. This is your direct work product; ratifying the deliverable stays the director's gesture.",
 			InputSchema: schema(`{"type":"object","required":["project","deliverable","kind","ref_id"],"properties":{"project":{"type":"string"},"deliverable":{"type":"string"},"kind":{"type":"string","enum":["document","artifact","run","commit"]},"ref_id":{"type":"string"},"required":{"type":"boolean"},"ord":{"type":"integer"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -767,7 +767,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "deliverables.remove_component",
+			Name:        "deliverables_remove_component",
 			Description: "Remove a component you attached to a deliverable. Required: `project`, `deliverable`, `component` (the component id).",
 			InputSchema: schema(`{"type":"object","required":["project","deliverable","component"],"properties":{"project":{"type":"string"},"deliverable":{"type":"string"},"component":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -784,7 +784,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "deliverables.set_state",
+			Name:        "deliverables_set_state",
 			Description: "Move your own deliverable between `draft` and `in-review` — submit it for the director to review, or pull it back to keep working. Required: `project`, `deliverable`, `state` (draft|in-review). Ratification is the director's gesture: request `ratified` via a `deliverable.set_state` proposal, not this tool.",
 			InputSchema: schema(`{"type":"object","required":["project","deliverable","state"],"properties":{"project":{"type":"string"},"deliverable":{"type":"string"},"state":{"type":"string","enum":["draft","in-review"]}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -806,7 +806,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "criteria.set_state",
+			Name:        "criteria_set_state",
 			Description: "Mark a `text` or `metric` acceptance criterion `met` or `failed` as you complete the work it measures. Required: `project`, `criterion`, `state` (met|failed). Optional: `evidence_ref` (a doc/run/commit id backing the call). `gate` criteria are evaluated by the chassis when their deliverable is ratified and cannot be marked here (mark-met returns 403); the director can revert or waive any criterion.",
 			InputSchema: schema(`{"type":"object","required":["project","criterion","state"],"properties":{"project":{"type":"string"},"criterion":{"type":"string"},"state":{"type":"string","enum":["met","failed"]},"evidence_ref":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -837,8 +837,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "hosts.list",
-			Description: "List host-runners registered with the team. Each row carries `id`, `name`, `status` (online/stale/offline), `capabilities` (engines/modes the host can run), `last_seen_at`, and `ssh_hint_json`. Use this to resolve a hostname → host_id for `agents.spawn` (which requires the id, not the name).",
+			Name:        "hosts_list",
+			Description: "List host-runners registered with the team. Each row carries `id`, `name`, `status` (online/stale/offline), `capabilities` (engines/modes the host can run), `last_seen_at`, and `ssh_hint_json`. Use this to resolve a hostname → host_id for `agents_spawn` (which requires the id, not the name).",
 			InputSchema: schema(`{"type":"object","properties":{}}`),
 			call: func(c *hubClient, _ map[string]any) (any, error) {
 				var out json.RawMessage
@@ -849,8 +849,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "hosts.get",
-			Description: "Fetch one host-runner by id. Returns the same shape as `hosts.list` rows. Use after `hosts.list` to confirm a host's capabilities before spawning.",
+			Name:        "hosts_get",
+			Description: "Fetch one host-runner by id. Returns the same shape as `hosts_list` rows. Use after `hosts_list` to confirm a host's capabilities before spawning.",
 			InputSchema: schema(`{"type":"object","required":["host"],"properties":{"host":{"type":"string","description":"host_id"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				h, _ := args["host"].(string)
@@ -865,8 +865,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "agents.list",
-			Description: "List agents in the team. **By default terminal-status rows (terminated/failed/crashed) are hidden** so the response stays focused on live work; pass `include_terminated: true` to bring them back. Optional `host_id` filters to one host; optional `status` filters to one engine state (running/idle/paused/terminated/failed/crashed) — when set, overrides the `live` and `include_terminated` defaults; optional `live: true` is a superset shortcut for `status IN (running, idle, paused)`; optional `project_id` filters to agents bound to one project (per ADR-025 — the steward + its workers); optional `include_archived: true` un-hides archived rows. Each row carries `id`, `handle`, `kind`, `status`, `pause_state`, `host_id`, `parent_agent_id`, `project_id`, `created_at`, `last_event_at`. Use this to check what's already running before spawning a duplicate; pair with `a2a.cards.list` to discover which handles are reachable over A2A.",
+			Name:        "agents_list",
+			Description: "List agents in the team. **By default terminal-status rows (terminated/failed/crashed) are hidden** so the response stays focused on live work; pass `include_terminated: true` to bring them back. Optional `host_id` filters to one host; optional `status` filters to one engine state (running/idle/paused/terminated/failed/crashed) — when set, overrides the `live` and `include_terminated` defaults; optional `live: true` is a superset shortcut for `status IN (running, idle, paused)`; optional `project_id` filters to agents bound to one project (per ADR-025 — the steward + its workers); optional `include_archived: true` un-hides archived rows. Each row carries `id`, `handle`, `kind`, `status`, `pause_state`, `host_id`, `parent_agent_id`, `project_id`, `created_at`, `last_event_at`. Use this to check what's already running before spawning a duplicate; pair with `a2a_cards_list` to discover which handles are reachable over A2A.",
 			InputSchema: schema(`{"type":"object","properties":{"host_id":{"type":"string"},"status":{"type":"string","description":"single engine state; takes precedence over live/include_terminated"},"live":{"type":"boolean","description":"shortcut for status IN (running, idle, paused)"},"include_terminated":{"type":"boolean","description":"include terminated/failed/crashed rows (default false)"},"project_id":{"type":"string"},"include_archived":{"type":"boolean"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				q := url.Values{}
@@ -896,8 +896,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "agents.get",
-			Description: "Fetch one agent by id. Returns full detail including `spawn_spec_yaml` and `spawn_authority_json` when known (agents spawned via `agents.spawn` have these; agents minted by other paths may not). Use before `agents.terminate` to confirm the right target.",
+			Name:        "agents_get",
+			Description: "Fetch one agent by id. Returns full detail including `spawn_spec_yaml` and `spawn_authority_json` when known (agents spawned via `agents_spawn` have these; agents minted by other paths may not). Use before `agents_terminate` to confirm the right target.",
 			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				a, _ := args["agent"].(string)
@@ -912,8 +912,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "agents.stop",
-			Description: "STOP a worker: kill the agent but keep its session RESUMABLE (session → paused). Required: `agent`. This is the reversible halt — pair it with `agents.resume` to respawn a fresh process that continues from the worktree + transcript cursor. Use this to free a worker you intend to bring back. (Contrast `agents.terminate`, which ends the work permanently.) Same semantics as the principal's \"Stop session\".",
+			Name:        "agents_stop",
+			Description: "STOP a worker: kill the agent but keep its session RESUMABLE (session → paused). Required: `agent`. This is the reversible halt — pair it with `agents_resume` to respawn a fresh process that continues from the worktree + transcript cursor. Use this to free a worker you intend to bring back. (Contrast `agents_terminate`, which ends the work permanently.) Same semantics as the principal's \"Stop session\".",
 			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				a, _ := args["agent"].(string)
@@ -927,8 +927,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "agents.terminate",
-			Description: "TERMINATE a worker permanently: kill the agent and ARCHIVE its session (fork-only, NOT resumable). Required: `agent`. This is the irreversible end — use it when the work is finished or abandoned for good. If you might want the worker back, use `agents.stop` (resumable) instead. Same semantics as the principal's \"Archive\".",
+			Name:        "agents_terminate",
+			Description: "TERMINATE a worker permanently: kill the agent and ARCHIVE its session (fork-only, NOT resumable). Required: `agent`. This is the irreversible end — use it when the work is finished or abandoned for good. If you might want the worker back, use `agents_stop` (resumable) instead. Same semantics as the principal's \"Archive\".",
 			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				a, _ := args["agent"].(string)
@@ -942,8 +942,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "agents.resume",
-			Description: "The inverse of `agents.stop`: bring a STOPPED worker back. Stopping an agent leaves its session PAUSED; this respawns that session — a FRESH process that continues from the preserved worktree + transcript cursor (NOT the same process, not the same agent id). Required: `agent` (the stopped agent's id). Returns the new agent id. Returns 409 if the agent has no paused session to resume (it may still be live, or it was `agents.terminate`d — terminated work is archived and only fork-eligible, not resumable).",
+			Name:        "agents_resume",
+			Description: "The inverse of `agents_stop`: bring a STOPPED worker back. Stopping an agent leaves its session PAUSED; this respawns that session — a FRESH process that continues from the preserved worktree + transcript cursor (NOT the same process, not the same agent id). Required: `agent` (the stopped agent's id). Returns the new agent id. Returns 409 if the agent has no paused session to resume (it may still be live, or it was `agents_terminate`d — terminated work is archived and only fork-eligible, not resumable).",
 			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id of the terminated agent whose session to respawn"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				a, _ := args["agent"].(string)
@@ -958,7 +958,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "hosts.update_ssh_hint",
+			Name:        "hosts_update_ssh_hint",
 			Description: "Patch a host's non-secret ssh_hint_json. Requires `host` and `ssh_hint` (object). The hub rejects payloads containing password/private_key/passphrase/secret/token keys per the data-ownership law (§4) — use only non-secret hints (username, port, jump, proxy_command, identity_file path).",
 			InputSchema: schema(`{"type":"object","required":["host","ssh_hint"],"properties":{"host":{"type":"string"},"ssh_hint":{"type":"object","description":"JSON object of non-secret SSH hints; stringified before sending to the hub"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -983,8 +983,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "project_channels.create",
-			Description: "Create a channel scoped to one project. Requires `project_id` and `name`. Project channels carry project-local traffic; use team_channels.create for cross-project rooms like #hub-meta.",
+			Name:        "project_channels_create",
+			Description: "Create a channel scoped to one project. Requires `project_id` and `name`. Project channels carry project-local traffic; use team_channels_create for cross-project rooms like #hub-meta.",
 			InputSchema: schema(`{"type":"object","required":["project_id","name"],"properties":{"project_id":{"type":"string"},"name":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
@@ -1000,7 +1000,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "team_channels.create",
+			Name:        "team_channels_create",
 			Description: "Create a team-scope channel (project_id=NULL, scope_kind='team'). Requires `name`. Use for cross-project rooms like #hub-meta.",
 			InputSchema: schema(`{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -1016,7 +1016,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "tasks.list",
+			Name:        "tasks_list",
 			Description: "List tasks for a project (ad-hoc and plan-materialized alike). Requires `project_id`. Optional `status` and `priority` filters. Default sort is priority DESC (urgent→low) then updated_at DESC; pass `sort=updated` for reverse-chronological. Each row includes `priority`, `plan_step_id`, and `source` (`ad_hoc` | `plan`).",
 			InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"status":{"type":"string"},"priority":{"type":"string","enum":["low","med","high","urgent"]},"sort":{"type":"string","enum":["priority","updated"]}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -1042,8 +1042,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "tasks.create",
-			Description: "Create a task under a project. Requires `project_id` and `title`. Optional `body_md`, `status` (default 'todo'), `priority` (low|med|high|urgent, default 'med'), `assignee_id`, `parent_task_id`, `milestone_id`, `created_by_id`. Note: tasks.list now sorts by priority DESC then updated_at DESC by default.",
+			Name:        "tasks_create",
+			Description: "Create a task under a project. Requires `project_id` and `title`. Optional `body_md`, `status` (default 'todo'), `priority` (low|med|high|urgent, default 'med'), `assignee_id`, `parent_task_id`, `milestone_id`, `created_by_id`. Note: tasks_list now sorts by priority DESC then updated_at DESC by default.",
 			InputSchema: schema(`{"type":"object","required":["project_id","title"],"properties":{"project_id":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"status":{"type":"string"},"priority":{"type":"string","enum":["low","med","high","urgent"]},"assignee_id":{"type":"string"},"parent_task_id":{"type":"string"},"milestone_id":{"type":"string"},"created_by_id":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
@@ -1068,7 +1068,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "tasks.get",
+			Name:        "tasks_get",
 			Description: "Get one task by id. Provide `task` (the task ULID); `id` is accepted as a synonym. `project_id` is optional — when omitted a team-scoped lookup is used. Response includes `priority` (low|med|high|urgent), `plan_step_id` (empty for ad-hoc tasks), `source` (`ad_hoc` | `plan`), `milestone_id`, `parent_task_id`, `assignee_id`, and `created_by_id`.",
 			InputSchema: schema(`{"type":"object","properties":{"task":{"type":"string","description":"task ULID"},"id":{"type":"string","description":"synonym for task"},"project_id":{"type":"string","description":"optional — scopes the lookup to one project"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -1092,8 +1092,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "tasks.update",
-			Description: "Patch a task. Requires `project_id` and `task`. Any of `title`, `body_md`, `block_reason`, `status` (todo|in_progress|blocked|done|cancelled), `priority` (low|med|high|urgent), `assignee_id`, `result_summary` may be supplied. ADR-029: `cancelled` is the explicit override path when the work should be stopped (vs. `done` which is auto-derived from agent termination); auto-derive never enters or leaves `cancelled`. When blocking a task, set `block_reason` for *why* it is stuck — do NOT overwrite `body_md` (the task's standing description) with the reason. `block_reason` is cleared automatically when the task moves out of `blocked`. Workers closing out a task should prefer `tasks.complete` (sugar over this verb) which bundles status='done' + result_summary in one call.",
+			Name:        "tasks_update",
+			Description: "Patch a task. Requires `project_id` and `task`. Any of `title`, `body_md`, `block_reason`, `status` (todo|in_progress|blocked|done|cancelled), `priority` (low|med|high|urgent), `assignee_id`, `result_summary` may be supplied. ADR-029: `cancelled` is the explicit override path when the work should be stopped (vs. `done` which is auto-derived from agent termination); auto-derive never enters or leaves `cancelled`. When blocking a task, set `block_reason` for *why* it is stuck — do NOT overwrite `body_md` (the task's standing description) with the reason. `block_reason` is cleared automatically when the task moves out of `blocked`. Workers closing out a task should prefer `tasks_complete` (sugar over this verb) which bundles status='done' + result_summary in one call.",
 			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"block_reason":{"type":"string","description":"why the task is currently blocked; set this instead of overwriting body_md. Auto-cleared when status leaves 'blocked'."},"status":{"type":"string","enum":["todo","in_progress","blocked","done","cancelled"]},"priority":{"type":"string","enum":["low","med","high","urgent"]},"assignee_id":{"type":"string"},"result_summary":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
@@ -1118,8 +1118,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "tasks.complete",
-			Description: "Close out a task that this worker was assigned (ADR-029 W2.8). Requires `project_id` and `task`. Optional `summary` records what the worker actually did (lands in `tasks.result_summary` and is surfaced inline in the assigner's session via the W2.9 notification). Bundles status='done' + completed_at + result_summary in one call so workers don't have to remember to update each field separately. Use `tasks.update status='blocked'` instead when you hit a blocker and want the steward to intervene; `tasks.update status='cancelled'` when the decision is to abandon the work.",
+			Name:        "tasks_complete",
+			Description: "Close out a task that this worker was assigned (ADR-029 W2.8). Requires `project_id` and `task`. Optional `summary` records what the worker actually did (lands in `tasks.result_summary` and is surfaced inline in the assigner's session via the W2.9 notification). Bundles status='done' + completed_at + result_summary in one call so workers don't have to remember to update each field separately. Use `tasks_update status='blocked'` instead when you hit a blocker and want the steward to intervene; `tasks_update status='cancelled'` when the decision is to abandon the work.",
 			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"summary":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
@@ -1138,8 +1138,8 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "tasks.delete",
-			Description: "Delete a task (ADR-029 D-7). Requires `project_id` and `task`. Drops the row; agent_spawns rows that linked to the task survive with task_id NULL. Distinct from `tasks.update status='cancelled'`, which keeps the task for the audit trail. Use delete for tasks created in error; use update→cancelled when the work was real but is being abandoned.",
+			Name:        "tasks_delete",
+			Description: "Delete a task (ADR-029 D-7). Requires `project_id` and `task`. Drops the row; agent_spawns rows that linked to the task survive with task_id NULL. Distinct from `tasks_update status='cancelled'`, which keeps the task for the audit trail. Use delete for tasks created in error; use update→cancelled when the work was real but is being abandoned.",
 			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
@@ -1154,7 +1154,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "schedules.list",
+			Name:        "schedules_list",
 			Description: "List schedules for the team. Optional `project` filters to one project.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -1170,7 +1170,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "schedules.create",
+			Name:        "schedules_create",
 			Description: "Create a schedule that fires a plan from a template. Requires `project_id`, `template_id`, `trigger_kind` (cron|manual|on_create). `cron_expr` is required when trigger_kind='cron'. Optional `parameters_json` (object) and `enabled` (default true).",
 			InputSchema: schema(`{"type":"object","required":["project_id","template_id","trigger_kind"],"properties":{"project_id":{"type":"string"},"template_id":{"type":"string"},"trigger_kind":{"type":"string","enum":["cron","manual","on_create"]},"cron_expr":{"type":"string"},"parameters_json":{"type":"object"},"enabled":{"type":"boolean"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -1187,7 +1187,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "schedules.update",
+			Name:        "schedules_update",
 			Description: "Patch a schedule. Requires `schedule`. Any of `enabled`, `cron_expr`, `parameters_json` may be supplied.",
 			InputSchema: schema(`{"type":"object","required":["schedule"],"properties":{"schedule":{"type":"string"},"enabled":{"type":"boolean"},"cron_expr":{"type":"string"},"parameters_json":{"type":"object"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -1212,7 +1212,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "schedules.delete",
+			Name:        "schedules_delete",
 			Description: "Delete a schedule. Requires `schedule`.",
 			InputSchema: schema(`{"type":"object","required":["schedule"],"properties":{"schedule":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -1227,7 +1227,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "schedules.run",
+			Name:        "schedules_run",
 			Description: "Manually fire a schedule — equivalent to a cron tick but user-initiated. Works for any trigger_kind. Returns the newly created plan_id. Requires `schedule`.",
 			InputSchema: schema(`{"type":"object","required":["schedule"],"properties":{"schedule":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
@@ -1243,7 +1243,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name: "mobile.navigate",
+			Name: "mobile_navigate",
 			Description: "Navigate the user's mobile app to a `termipod://` URI " +
 				"(read-only — no edits, no taps that mutate state). The URI " +
 				"addresses an in-app destination such as " +
@@ -1274,7 +1274,7 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "audit.read",
+			Name:        "audit_read",
 			Description: "List audit events for the team. Supports optional `limit` (max 500), `since`, and `action` query params.",
 			InputSchema: schema(`{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":500},"since":{"type":"string","description":"RFC3339 timestamp"},"action":{"type":"string","description":"filter to one audit action"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {

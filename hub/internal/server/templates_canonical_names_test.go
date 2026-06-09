@@ -16,15 +16,23 @@ import (
 // therefore reference tools ONLY by their canonical snake_case name — a
 // dotted reference would steer an agent into a guaranteed-404 call.
 //
-// The forbidden set is the authority Backends (the dotted REST-adapter names,
-// derived from the registry so it can't drift) plus the handful of native
-// dotted aliases WS1.1 removed (those are gone from the registry, so they're
-// listed explicitly — a small, closed set that won't grow).
+// The forbidden set is the dotted spelling of every authority tool — derived
+// from each ToolSpec's canonical snake_case Name by re-dotting it
+// (projects_create → projects.create) so it can't drift as tools are added —
+// plus the handful of native dotted aliases WS1.1 removed (those are gone from
+// the registry, so they're listed explicitly — a small, closed set that won't
+// grow). (Before the naming-unify refactor the dotted form was stored on
+// ToolSpec.Backend; now Backend == Name, so we reconstruct it here.)
 func TestBundledTemplatesUseCanonicalNames(t *testing.T) {
 	dottedCanonical := map[string]string{}
 	for _, s := range hubmcpserver.ToolRegistry() {
-		if strings.Contains(s.Backend, ".") {
-			dottedCanonical[s.Backend] = s.Name
+		// Authority tools only (Backend == Name, non-empty); native tools
+		// (Backend == "") have no historical dotted spelling to forbid.
+		if s.Backend == "" {
+			continue
+		}
+		if dotted := strings.ReplaceAll(s.Name, "_", "."); dotted != s.Name {
+			dottedCanonical[dotted] = s.Name
 		}
 	}
 	for dotted, canonical := range map[string]string{

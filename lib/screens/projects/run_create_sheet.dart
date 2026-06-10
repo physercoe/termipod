@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
@@ -25,6 +28,7 @@ class RunCreateSheet extends ConsumerStatefulWidget {
 class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
   List<Map<String, dynamic>>? _projects;
   String? _loadError;
+  bool _hubMissing = false;
   bool _loading = true;
 
   final _name = TextEditingController();
@@ -62,7 +66,7 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       setState(() {
-        _loadError = 'Hub not configured.';
+        _hubMissing = true;
         _loading = false;
       });
       return;
@@ -84,6 +88,7 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
   }
 
   Future<void> _submit() async {
+    final l10n = AppLocalizations.of(context)!;
     final projectId = _projectId;
     if (projectId == null || projectId.isEmpty) return;
     Map<String, dynamic>? metadata;
@@ -92,12 +97,12 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
       try {
         final decoded = jsonDecode(metaText);
         if (decoded is! Map) {
-          setState(() => _metaError = 'Metadata must be a JSON object.');
+          setState(() => _metaError = l10n.metadataNotObject);
           return;
         }
         metadata = decoded.cast<String, dynamic>();
       } catch (e) {
-        setState(() => _metaError = 'Invalid JSON: $e');
+        setState(() => _metaError = l10n.invalidJson('$e'));
         return;
       }
     }
@@ -125,7 +130,7 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $e')),
+        SnackBar(content: Text(l10n.createFailedError('$e'))),
       );
     }
   }
@@ -154,11 +159,16 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
   }
 
   Widget _body(ScrollController scroll) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final runTerm = vocab.term(VocabAxis.entityRun);
+    final projectTerm = vocab.term(VocabAxis.entityProject);
+    final agentTerm = vocab.term(VocabAxis.roleAgent);
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_loadError != null) {
+    if (_hubMissing || _loadError != null) {
       return Center(
         child: Text(
-          _loadError!,
+          _hubMissing ? l10n.hubNotConfigured : _loadError!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -184,14 +194,14 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
           ),
         ),
         Text(
-          'New run',
+          l10n.newRun(runTerm.lower),
           style: GoogleFonts.spaceGrotesk(
             fontSize: 18,
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 16),
-        _label('Kind'),
+        _label(l10n.fieldKind),
         Wrap(
           spacing: 6,
           runSpacing: 6,
@@ -205,7 +215,7 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
           ],
         ),
         const SizedBox(height: 16),
-        _label('Project'),
+        _label(projectTerm.title),
         if (widget.projectId != null)
           InputDecorator(
             decoration: const InputDecoration(
@@ -221,46 +231,47 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
           _ProjectField(
             projects: projects,
             selectedId: _projectId,
+            pickLabel: l10n.pickProject(projectTerm.lower),
             onChanged: (id) => setState(() => _projectId = id),
           ),
         const SizedBox(height: 16),
-        _label('Name (optional)'),
+        _label(l10n.fieldNameOptional),
         TextField(
           controller: _name,
           enabled: !_submitting,
           style: GoogleFonts.spaceGrotesk(fontSize: 14),
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
             isDense: true,
-            hintText: 'e.g. sft-4b-lr3e-5',
+            hintText: l10n.runNameHint,
           ),
         ),
         const SizedBox(height: 16),
-        _label('Agent id (optional)'),
+        _label(l10n.agentIdOptional(agentTerm.title)),
         TextField(
           controller: _agent,
           enabled: !_submitting,
           style: GoogleFonts.jetBrainsMono(fontSize: 13),
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
             isDense: true,
-            hintText: 'If driven by an agent',
+            hintText: l10n.runAgentHint(agentTerm.pluralLower),
           ),
         ),
         const SizedBox(height: 16),
-        _label('Parent run id (optional)'),
+        _label(l10n.parentRunIdOptional(runTerm.lower)),
         TextField(
           controller: _parent,
           enabled: !_submitting,
           style: GoogleFonts.jetBrainsMono(fontSize: 13),
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
             isDense: true,
-            hintText: 'For forks / child sweeps',
+            hintText: l10n.runParentHint,
           ),
         ),
         const SizedBox(height: 16),
-        _label('Metadata (JSON, optional)'),
+        _label(l10n.fieldMetadataJsonOptional),
         TextField(
           controller: _metadata,
           enabled: !_submitting,
@@ -290,7 +301,7 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
                   height: 14,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Create run'),
+              : Text(l10n.createRunButton(runTerm.lower)),
         ),
       ],
     );
@@ -313,10 +324,12 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
 class _ProjectField extends StatelessWidget {
   final List<Map<String, dynamic>> projects;
   final String? selectedId;
+  final String pickLabel;
   final ValueChanged<String?> onChanged;
   const _ProjectField({
     required this.projects,
     required this.selectedId,
+    required this.pickLabel,
     required this.onChanged,
   });
 
@@ -350,7 +363,7 @@ class _ProjectField extends StatelessWidget {
   }
 
   String _label(List<Map<String, dynamic>> projects) {
-    if (selectedId == null) return 'Pick a project';
+    if (selectedId == null) return pickLabel;
     for (final p in projects) {
       if ((p['id'] ?? '').toString() == selectedId) {
         return (p['name'] ?? selectedId).toString();

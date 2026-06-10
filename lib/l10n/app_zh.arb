@@ -1370,5 +1370,22 @@
   "reviewDecidedSnack": "{review}{status}",
   "@reviewDecidedSnack": { "placeholders": { "review": { "type": "String" }, "status": { "type": "String" } } },
   "decideFailedError": "决定失败：{error}",
-  "@decideFailedError": { "placeholders": { "error": { "type": "String" } } }
+  "@decideFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "newRun": "新建{run}",
+  "@newRun": { "placeholders": { "run": { "type": "String" } } },
+  "fieldNameOptional": "名称（可选）",
+  "runNameHint": "例如 sft-4b-lr3e-5",
+  "agentIdOptional": "{agent} id（可选）",
+  "@agentIdOptional": { "placeholders": { "agent": { "type": "String" } } },
+  "runAgentHint": "若由{agents}驱动",
+  "@runAgentHint": { "placeholders": { "agents": { "type": "String" } } },
+  "parentRunIdOptional": "父{run} id（可选）",
+  "@parentRunIdOptional": { "placeholders": { "run": { "type": "String" } } },
+  "runParentHint": "用于分叉 / 子扫描",
+  "fieldMetadataJsonOptional": "元数据（JSON，可选）",
+  "metadataNotObject": "元数据必须是 JSON 对象。",
+  "createRunButton": "创建{run}",
+  "@createRunButton": { "placeholders": { "run": { "type": "String" } } },
+  "pickProject": "选择{project}",
+  "@pickProject": { "placeholders": { "project": { "type": "String" } } }
 }

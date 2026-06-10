@@ -1210,6 +1210,7 @@ class _AgentsView extends ConsumerWidget {
                           ),
                           ...agentLifecycleMenuItems(
                             context,
+                            ref,
                             isDead: isDead,
                             isPaused: isPaused,
                             hasPane: hasPane,

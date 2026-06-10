@@ -2649,6 +2649,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
         if (fa != null)
           ...agentLifecycleMenuItems(
             context,
+            ref,
             isDead: agentIsDead,
             isPaused: agentIsPaused,
             hasPane: agentHasPane,

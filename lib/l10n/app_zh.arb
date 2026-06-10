@@ -1516,5 +1516,15 @@
   "totalSpendLabel": "总支出",
   "spawnSpecLabel": "生成规格",
   "journalLabel": "日志",
-  "noJournalEntries": "（无日志条目）"
+  "noJournalEntries": "（无日志条目）",
+  "searchEventsHint": "搜索事件…",
+  "typeToSearch": "输入以搜索",
+  "noMatches": "无匹配结果",
+  "eventFallback": "（事件）",
+  "fromLabel": "来自",
+  "receivedLabel": "接收时间",
+  "partsLabel": "内容片段",
+  "noParts": "（无内容片段）",
+  "openChannelNamed": "打开 #{name}",
+  "@openChannelNamed": { "placeholders": { "name": { "type": "String" } } }
 }

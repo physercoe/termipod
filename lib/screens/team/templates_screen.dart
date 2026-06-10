@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart' show HubApiError;
@@ -11,6 +12,26 @@ import '../../theme/tokens.dart';
 import '../projects/project_create_sheet.dart';
 import 'agent_families_screen.dart';
 import 'template_icon.dart';
+
+/// Localized label for a template category (server taxonomy key). Known
+/// categories map to neutral translated labels; an unknown server-added
+/// category falls back to its raw key so it still surfaces.
+String templateCategoryLabel(AppLocalizations l10n, String category) {
+  switch (category) {
+    case 'agents':
+      return l10n.templateCatAgents;
+    case 'prompts':
+      return l10n.templateCatPrompts;
+    case 'plans':
+      return l10n.templateCatPlans;
+    case 'policies':
+      return l10n.templateCatPolicies;
+    case 'projects':
+      return l10n.templateCatProjects;
+    default:
+      return category;
+  }
+}
 
 /// Canonical category order across the Library Templates tab and the
 /// New-template sheet. Mental flow: who runs it (agents) → what it says
@@ -160,23 +181,14 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
   /// branch so the operator sees exactly what's about to be lost or
   /// overwritten before confirming.
   Future<void> _confirmAndReset({required _ResetKind kind}) async {
+    final l10n = AppLocalizations.of(context)!;
     final isTemplates = kind == _ResetKind.templates;
-    final title = isTemplates
-        ? 'Reset bundled templates?'
-        : 'Reset agent-family overrides?';
-    final body = isTemplates
-        ? 'Every on-disk template that ships with the hub will be '
-            'overwritten with the bundled version. Files you authored '
-            'yourself (no embedded counterpart) are kept as-is.\n\n'
-            'Use this after a hub upgrade adds new fields or fixes a '
-            'bundled template — your custom templates survive; only '
-            'the shipped ones reset.'
-        : 'Every agent-family override file will be deleted, so the '
-            'embedded defaults take over. Custom families you authored '
-            'that have no embedded counterpart WILL be deleted too.\n\n'
-            'Use this when you want a clean engine list straight from '
-            'the shipped defaults.';
-    final confirmLabel = isTemplates ? 'Reset templates' : 'Reset families';
+    final title =
+        isTemplates ? l10n.resetTemplatesTitle : l10n.resetFamiliesTitle;
+    final body =
+        isTemplates ? l10n.resetTemplatesBody : l10n.resetFamiliesBody;
+    final confirmLabel =
+        isTemplates ? l10n.resetTemplatesConfirm : l10n.resetFamiliesConfirm;
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
@@ -185,7 +197,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogCtx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -208,12 +220,18 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
       if (!mounted) return;
       String summary;
       if (isTemplates) {
-        final ow = (result['overwritten'] ?? 0).toString();
-        final created = (result['created'] ?? 0).toString();
-        summary = 'Reset done — overwritten: $ow, created: $created';
+        final ow = (result['overwritten'] is num)
+            ? (result['overwritten'] as num).toInt()
+            : int.tryParse('${result['overwritten'] ?? 0}') ?? 0;
+        final created = (result['created'] is num)
+            ? (result['created'] as num).toInt()
+            : int.tryParse('${result['created'] ?? 0}') ?? 0;
+        summary = l10n.resetTemplatesSummary(ow, created);
       } else {
-        final removed = (result['removed'] ?? 0).toString();
-        summary = 'Reset done — removed: $removed override(s)';
+        final removed = (result['removed'] is num)
+            ? (result['removed'] as num).toInt()
+            : int.tryParse('${result['removed'] ?? 0}') ?? 0;
+        summary = l10n.resetFamiliesSummary(removed);
       }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(summary)));
       // Refresh whichever tab the operator was looking at so the
@@ -226,7 +244,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Reset failed: $e'),
+        content: Text(AppLocalizations.of(context)!.resetFailedError('$e')),
         backgroundColor: DesignColors.error,
       ));
     }
@@ -234,6 +252,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final onTemplates = _tabs.index == 0;
     return Scaffold(
       appBar: AppBar(
@@ -241,26 +260,26 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
             ? TextField(
                 controller: _searchCtl,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'Search templates and engines',
+                decoration: InputDecoration(
+                  hintText: l10n.searchTemplatesHint,
                   border: InputBorder.none,
                 ),
                 style: GoogleFonts.spaceGrotesk(fontSize: 16),
                 onChanged: (v) => setState(() => _query = v),
               )
             : Text(
-                'Library',
+                l10n.libraryTitle,
                 style: GoogleFonts.spaceGrotesk(
                     fontSize: 18, fontWeight: FontWeight.w700),
               ),
         actions: [
           IconButton(
-            tooltip: _searching ? 'Close search' : 'Search',
+            tooltip: _searching ? l10n.tooltipCloseSearch : l10n.tooltipSearch,
             icon: Icon(_searching ? Icons.close : Icons.search),
             onPressed: _toggleSearch,
           ),
           IconButton(
-            tooltip: onTemplates ? 'New template' : 'New family',
+            tooltip: onTemplates ? l10n.newTemplate : l10n.newFamilyTooltip,
             icon: const Icon(Icons.add),
             onPressed: onTemplates
                 ? (_loading ? null : _newTemplate)
@@ -273,7 +292,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
                 : () => _familiesKey.currentState?.load(),
           ),
           PopupMenuButton<String>(
-            tooltip: 'More actions',
+            tooltip: l10n.moreActions,
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
               switch (v) {
@@ -285,15 +304,15 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
                   break;
               }
             },
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'reset_templates',
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.restart_alt, size: 20),
-                  title: Text('Reset bundled templates'),
-                  subtitle: Text('Overwrite on-disk copies with shipped defaults'),
+                  leading: const Icon(Icons.restart_alt, size: 20),
+                  title: Text(l10n.resetTemplatesMenuTitle),
+                  subtitle: Text(l10n.resetTemplatesMenuSubtitle),
                 ),
               ),
               PopupMenuItem(
@@ -301,9 +320,9 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.restart_alt, size: 20),
-                  title: Text('Reset agent-family overrides'),
-                  subtitle: Text('Delete every override; embedded defaults win'),
+                  leading: const Icon(Icons.restart_alt, size: 20),
+                  title: Text(l10n.resetFamiliesMenuTitle),
+                  subtitle: Text(l10n.resetFamiliesMenuSubtitle),
                 ),
               ),
             ],
@@ -311,9 +330,9 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
         ],
         bottom: TabBar(
           controller: _tabs,
-          tabs: const [
-            Tab(text: 'Templates'),
-            Tab(text: 'Engines'),
+          tabs: [
+            Tab(text: l10n.tabTemplates),
+            Tab(text: l10n.tabEngines),
           ],
         ),
       ),
@@ -328,6 +347,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
   }
 
   Widget _body() {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -355,7 +375,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
                   _load();
                 },
                 icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Retry'),
+                label: Text(l10n.buttonRetry),
               ),
             ],
           ),
@@ -365,7 +385,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
     final allRows = _rows ?? const <Map<String, dynamic>>[];
     if (allRows.isEmpty) {
       return Center(
-        child: Text('No templates seeded yet.',
+        child: Text(l10n.noTemplatesSeeded,
             style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted)),
       );
     }
@@ -380,7 +400,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
     if (filtered.isEmpty) {
       return Center(
         child: Text(
-          'No matches for "$_query".',
+          l10n.noMatchesFor(_query),
           style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted),
         ),
       );
@@ -475,7 +495,7 @@ class _CategoryGroup extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  category,
+                  templateCategoryLabel(AppLocalizations.of(context)!, category),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -1025,8 +1045,9 @@ deny: []
         .toList();
     if (!mounted) return;
     if (inCat.isEmpty) {
+      final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('No existing $_category templates to clone from.'),
+        content: Text(l10n.noCloneSource(templateCategoryLabel(l10n, _category))),
       ));
       return;
     }
@@ -1056,7 +1077,7 @@ deny: []
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Clone failed: $e'),
+        content: Text(AppLocalizations.of(context)!.cloneFailedError('$e')),
       ));
     }
   }
@@ -1076,15 +1097,16 @@ deny: []
       Navigator.of(context).pop(_NewTemplateRequest('projects', '', ''));
       return;
     }
+    final l10n = AppLocalizations.of(context)!;
     var name = _name.text.trim();
     if (name.isEmpty) {
-      setState(() => _err = 'Name required.');
+      setState(() => _err = l10n.nameRequired);
       return;
     }
     if (name.contains('/') ||
         name.contains(r'\') ||
         name.startsWith('.')) {
-      setState(() => _err = 'Name cannot contain /, \\, or start with a dot.');
+      setState(() => _err = l10n.nameInvalidChars);
       return;
     }
     if (!name.contains('.')) name = '$name${_suggestedExt()}';
@@ -1094,6 +1116,7 @@ deny: []
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         16, 12, 16, 16 + MediaQuery.of(context).viewInsets.bottom,
@@ -1112,7 +1135,7 @@ deny: []
               ),
             ),
           ),
-          Text('New template',
+          Text(l10n.newTemplate,
               style: GoogleFonts.spaceGrotesk(
                   fontSize: 18, fontWeight: FontWeight.w700)),
           const SizedBox(height: 16),
@@ -1121,7 +1144,7 @@ deny: []
             children: [
               for (final c in _categories)
                 ChoiceChip(
-                  label: Text(c),
+                  label: Text(templateCategoryLabel(l10n, c)),
                   selected: _category == c,
                   onSelected: (_) => setState(() {
                     _category = c;
@@ -1144,9 +1167,7 @@ deny: []
                 border: Border.all(color: DesignColors.borderDark),
               ),
               child: Text(
-                'Project templates live in the projects table. Continue '
-                'to the project create sheet to fill in name, goal, and '
-                'phase shape — it will be saved with is_template=1.',
+                l10n.projectTemplateHelp,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
                   color: DesignColors.textMuted,
@@ -1161,7 +1182,8 @@ deny: []
               OutlinedButton.icon(
                 onPressed: _pickCloneSource,
                 icon: const Icon(Icons.copy_outlined, size: 16),
-                label: Text('Clone from existing $_category template'),
+                label: Text(l10n.cloneFromExisting(
+                    templateCategoryLabel(l10n, _category))),
               )
             else
               Row(
@@ -1171,7 +1193,7 @@ deny: []
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Cloning from $_cloneSourceName',
+                      l10n.cloningFrom(_cloneSourceName!),
                       style: GoogleFonts.jetBrainsMono(
                           fontSize: 12, color: DesignColors.textMuted),
                       overflow: TextOverflow.ellipsis,
@@ -1180,7 +1202,7 @@ deny: []
                   TextButton.icon(
                     onPressed: _clearClone,
                     icon: const Icon(Icons.close, size: 14),
-                    label: const Text('Clear'),
+                    label: Text(l10n.buttonClear),
                   ),
                 ],
               ),
@@ -1193,7 +1215,7 @@ deny: []
               autofocus: true,
               style: GoogleFonts.jetBrainsMono(fontSize: 13),
               decoration: InputDecoration(
-                labelText: 'Name',
+                labelText: l10n.fieldName,
                 border: const OutlineInputBorder(),
                 isDense: true,
                 hintText: 'my-agent.v1${_suggestedExt()}',
@@ -1206,8 +1228,8 @@ deny: []
           FilledButton(
             onPressed: _submit,
             child: Text(_category == 'projects'
-                ? 'Continue'
-                : 'Create + open editor'),
+                ? l10n.buttonContinue
+                : l10n.createOpenEditor),
           ),
         ],
       ),
@@ -1238,7 +1260,9 @@ class _ClonePickerSheet extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Clone $category template',
+                    AppLocalizations.of(context)!.cloneCategoryTemplate(
+                        templateCategoryLabel(
+                            AppLocalizations.of(context)!, category)),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,

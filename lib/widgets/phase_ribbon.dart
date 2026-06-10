@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Material horizontal stepper showing the project's phase set with the
 /// current phase highlighted (D1, project-lifecycle-mvp.md W1).
@@ -108,7 +109,7 @@ class _PhaseChip extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 8),
           decoration: BoxDecoration(
             color: background,
             border: Border.all(color: border),

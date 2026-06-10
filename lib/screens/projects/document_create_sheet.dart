@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 
 /// Compose a new document (memo, draft, report, or review) from the phone.
@@ -155,7 +156,7 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
               color: DesignColors.borderDark,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: Radii.xsBorder,
             ),
           ),
         ),
@@ -242,7 +243,7 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
   }
 
   Widget _label(String s) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: Spacing.s8),
         child: Text(
           s,
           style: GoogleFonts.spaceGrotesk(
@@ -341,7 +342,7 @@ class _ProjectPickerSheet extends StatelessWidget {
               subtitle: Text(
                 id,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.textMuted,
                 ),
               ),

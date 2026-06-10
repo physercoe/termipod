@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart' show HubApiError;
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../projects/project_create_sheet.dart';
 import 'agent_families_screen.dart';
 import 'template_icon.dart';
@@ -464,7 +465,7 @@ class _CategoryGroup extends StatelessWidget {
         InkWell(
           onTap: onToggle,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, Spacing.s8),
             child: Row(
               children: [
                 Icon(
@@ -886,7 +887,7 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
         decoration: const InputDecoration(
           border: OutlineInputBorder(),
           isDense: true,
-          contentPadding: EdgeInsets.all(10),
+          contentPadding: EdgeInsets.all(Spacing.s8),
         ),
         keyboardType: TextInputType.multiline,
         textCapitalization: TextCapitalization.none,
@@ -1107,7 +1108,7 @@ deny: []
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
                 color: DesignColors.borderDark,
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: Radii.xsBorder,
               ),
             ),
           ),
@@ -1136,7 +1137,7 @@ deny: []
             // collected there. Help text explains why this category
             // skips the inline name field.
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(Spacing.s8),
               decoration: BoxDecoration(
                 color: DesignColors.surfaceDark,
                 borderRadius: BorderRadius.circular(8),

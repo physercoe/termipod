@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../providers/key_provider.dart';
+import '../../../theme/tokens.dart';
 
 /// SSH鍵を表示するタイルウィジェット
 class KeyTile extends StatelessWidget {
@@ -51,7 +52,7 @@ class KeyTile extends StatelessWidget {
               keyMeta.fingerprint!,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontFamily: 'monospace',
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: Theme.of(context).colorScheme.outline,
                   ),
               maxLines: 1,
@@ -119,7 +120,7 @@ class KeyTile extends StatelessWidget {
   Widget _buildSourceBadge(BuildContext context) {
     final isGenerated = keyMeta.source == KeySource.generated;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
       decoration: BoxDecoration(
         color: isGenerated
             ? Theme.of(context).colorScheme.primaryContainer
@@ -129,7 +130,7 @@ class KeyTile extends StatelessWidget {
       child: Text(
         isGenerated ? 'Generated' : 'Imported',
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontSize: 9,
+              fontSize: FontSizes.label,
               color: isGenerated
                   ? Theme.of(context).colorScheme.onPrimaryContainer
                   : Theme.of(context).colorScheme.onSecondaryContainer,

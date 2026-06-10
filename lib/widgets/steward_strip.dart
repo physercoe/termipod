@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../providers/hub_provider.dart';
 import '../services/hub/open_steward_session.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Project Detail steward strip (W3) — replaces the legacy
 /// `_StewardChip` with the seven-state pill from D1's discussion §6.6
@@ -72,7 +73,7 @@ class _StewardStripState extends ConsumerState<StewardStrip> {
     final handoff = _state?['handoff'] as Map?;
     final stateInfo = _stateInfoFor(state);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 8),
       decoration: BoxDecoration(
         color: stateInfo.color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
@@ -117,7 +118,7 @@ class _StewardStripState extends ConsumerState<StewardStrip> {
                           'asking general steward${_handoffPurpose(handoff)}',
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10,
+                            fontSize: FontSizes.label,
                             color: DesignColors.warning,
                           ),
                         ),
@@ -133,7 +134,7 @@ class _StewardStripState extends ConsumerState<StewardStrip> {
               onPressed: () => _onAffordanceTap(stateInfo.affordance!),
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 6),
+                    horizontal: 12, vertical: Spacing.s8),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 foregroundColor: stateInfo.color,

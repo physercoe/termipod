@@ -13,6 +13,7 @@ import '../../services/voice/cloud_stt.dart';
 import '../../services/voice/recording_controller.dart';
 import '../../services/voice/voice_recording_session.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'steward_overlay_chat.dart';
 import 'steward_overlay_controller.dart';
 import 'voice_recording_hud.dart';
@@ -866,7 +867,7 @@ class _PanelHeader extends ConsumerWidget {
       child: MouseRegion(
         cursor: SystemMouseCursors.move,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+          padding: const EdgeInsets.fromLTRB(Spacing.s12, Spacing.s8, Spacing.s8, Spacing.s8),
           child: Row(
             children: [
               Icon(

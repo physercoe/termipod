@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/annotation_overlay.dart';
 import '../../widgets/markdown_section_editor.dart';
 import '../../widgets/section_state_pip.dart';
@@ -159,7 +160,7 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
                 title,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.spaceGrotesk(
-                  fontSize: 15,
+                  fontSize: FontSizes.subtitle,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -277,9 +278,9 @@ class _ActionBar extends StatelessWidget {
     return Container(
       padding: EdgeInsets.fromLTRB(
         12,
-        10,
+        Spacing.s8,
         12,
-        10 + MediaQuery.of(context).padding.bottom,
+        Spacing.s8 + MediaQuery.of(context).padding.bottom,
       ),
       decoration: BoxDecoration(
         color:

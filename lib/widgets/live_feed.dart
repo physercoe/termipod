@@ -18,6 +18,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../providers/hub_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 import 'agent_compose.dart';
 import 'transcript/event_card.dart';
 import 'transcript/feed_misc.dart';
@@ -1233,7 +1234,7 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
                           color: DesignColors.primary.withValues(alpha: 0.6),
                           width: 2,
                         ),
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: Radii.mdBorder,
                       ),
                       padding: const EdgeInsets.all(2),
                       child: card,
@@ -1273,7 +1274,7 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
                   child: Container(
                     color: DesignColors.error.withValues(alpha: 0.12),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                        horizontal: 12, vertical: Spacing.s8),
                     child: Text(
                       _error!,
                       style: GoogleFonts.jetBrainsMono(

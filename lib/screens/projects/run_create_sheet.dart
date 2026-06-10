@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 
 /// Declare a new experiment run (blueprint §6.5). Runs are the unit of
@@ -178,7 +179,7 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
               color: DesignColors.borderDark,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: Radii.xsBorder,
             ),
           ),
         ),
@@ -296,7 +297,7 @@ class _RunCreateSheetState extends ConsumerState<RunCreateSheet> {
   }
 
   Widget _label(String s) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: Spacing.s8),
         child: Text(
           s,
           style: GoogleFonts.spaceGrotesk(
@@ -395,7 +396,7 @@ class _ProjectPickerSheet extends StatelessWidget {
               subtitle: Text(
                 id,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.textMuted,
                 ),
               ),

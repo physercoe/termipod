@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../services/tmux/tmux_parser.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 
 /// リサイズ対象ペインをグラフィカルに選択するダイアログ
 class ResizePaneChooserDialog extends StatefulWidget {
@@ -172,7 +173,7 @@ class _ResizePaneChooserDialogState extends State<ResizePaneChooserDialog> {
                               '${pane.index}\n${pane.width}x${pane.height}',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: FontSizes.label,
                                 color: isSelected
                                     ? DesignColors.primary
                                     : DesignColors.textSecondary,
@@ -323,7 +324,7 @@ class _ResizeWindowChooserDialogState
           children: [
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s8),
               decoration: BoxDecoration(
                 color: isSelected
                     ? DesignColors.primary.withValues(alpha: 0.15)
@@ -390,7 +391,7 @@ class _ResizeWindowChooserDialogState
                   height: height.clamp(10.0, areaH),
                   child: Container(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(2),
+                      borderRadius: Radii.xsBorder,
                       border: Border.all(
                         color: DesignColors.borderDark,
                         width: 1,

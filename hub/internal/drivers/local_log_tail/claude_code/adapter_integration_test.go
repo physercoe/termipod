@@ -93,6 +93,19 @@ func waitForN(t *testing.T, p *capturingPoster, n int, timeout time.Duration) []
 	return nil
 }
 
+// firstKind returns a pointer to the first captured event of the given
+// kind, or nil. Used by tests that assert on a specific event kind
+// rather than an absolute index — the adapter now emits a leading
+// launch-time session.init (so content no longer starts at index 0).
+func firstKind(events []capturedEvent, kind string) *capturedEvent {
+	for i := range events {
+		if events[i].kind == kind {
+			return &events[i]
+		}
+	}
+	return nil
+}
+
 func TestAdapter_Start_ReplaysExistingThenLive(t *testing.T) {
 	cwd := "/home/test/proj"
 	homeDir, projectDir := makeFakeHome(t, cwd)
@@ -126,11 +139,14 @@ func TestAdapter_Start_ReplaysExistingThenLive(t *testing.T) {
 	}
 	defer a.Stop()
 
-	// Replay: first surviving event is the assistant text. (The
-	// user-string line is dropped per v1.0.663.)
-	got := waitForN(t, p, 1, 1*time.Second)
-	if got[0].kind != "text" {
-		t.Errorf("event 0 kind = %q, want text", got[0].kind)
+	// Replay: the first surviving content event is the assistant text.
+	// (The user-string line is dropped per v1.0.663; a leading launch
+	// session.init now precedes it, so we find the text by kind.) Wait
+	// for both the launch session.init and the replayed text.
+	got := waitForN(t, p, 2, 1*time.Second)
+	txt := firstKind(got, "text")
+	if txt == nil {
+		t.Fatalf("no text event in replay: %+v", got)
 	}
 	// v1.0.666: no replay tag is added by the M4 adapter. The pre-
 	// v1.0.666 W2d rule stamped replay:true on every StartFromBeginning
@@ -138,20 +154,21 @@ func TestAdapter_Start_ReplaysExistingThenLive(t *testing.T) {
 	// doesn't need the tag (SSE seq-gating + id-dedup already prevent
 	// double-rendering across cold-open + live), so the assertion is
 	// inverted: replay MUST be absent.
-	if _, has := got[0].payload["replay"]; has {
-		t.Errorf("event 0 carries replay tag; v1.0.666 expects absent: %v", got[0].payload)
+	if _, has := txt.payload["replay"]; has {
+		t.Errorf("text event carries replay tag; v1.0.666 expects absent: %v", txt.payload)
 	}
 
 	// Live: append a new line.
 	appendJSONL(t, jsonl,
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}`,
 	)
-	got = waitForN(t, p, 2, 2*time.Second)
-	if got[1].kind != "tool_call" {
-		t.Errorf("live event kind = %q, want tool_call", got[1].kind)
+	got = waitForN(t, p, 3, 2*time.Second)
+	tc := firstKind(got, "tool_call")
+	if tc == nil {
+		t.Fatalf("no tool_call event: %+v", got)
 	}
-	if _, has := got[1].payload["replay"]; has {
-		t.Errorf("live event carries replay tag; v1.0.666 expects absent: %v", got[1].payload)
+	if _, has := tc.payload["replay"]; has {
+		t.Errorf("live event carries replay tag; v1.0.666 expects absent: %v", tc.payload)
 	}
 }
 
@@ -176,10 +193,15 @@ func TestAdapter_Start_StartFromEndSkipsExisting(t *testing.T) {
 	}
 	defer a.Stop()
 
-	// Small grace window for the goroutine to settle at EOF.
+	// Small grace window for the goroutine to settle at EOF. StartFromEnd
+	// skips PRIOR CONTENT — the only event allowed before the live append
+	// is the launch-time session.init handshake (which isn't transcript
+	// content). Assert no content event (text/usage/tool_call) replayed.
 	time.Sleep(150 * time.Millisecond)
-	if got := p.snapshot(); len(got) != 0 {
-		t.Errorf("StartFromEnd posted %d events for prior content; want 0: %+v", len(got), got)
+	for _, ev := range p.snapshot() {
+		if ev.kind != "session.init" {
+			t.Errorf("StartFromEnd replayed prior content event %q; want only the launch session.init: %+v", ev.kind, ev)
+		}
 	}
 
 	// Append a fresh line that DOES survive the v1.0.663 user-string
@@ -187,12 +209,13 @@ func TestAdapter_Start_StartFromEndSkipsExisting(t *testing.T) {
 	appendJSONL(t, jsonl,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"new"}]}}`,
 	)
-	got := waitForN(t, p, 1, 2*time.Second)
-	if got[0].kind != "text" {
-		t.Errorf("kind = %q, want text", got[0].kind)
+	got := waitForN(t, p, 2, 2*time.Second)
+	txt := firstKind(got, "text")
+	if txt == nil {
+		t.Fatalf("no text event after live append: %+v", got)
 	}
-	if got[0].payload["replay"] != nil {
-		t.Errorf("StartFromEnd event has replay = %v; want unset", got[0].payload["replay"])
+	if txt.payload["replay"] != nil {
+		t.Errorf("StartFromEnd event has replay = %v; want unset", txt.payload["replay"])
 	}
 }
 
@@ -235,9 +258,13 @@ func TestAdapter_Start_AsyncWaitsForSessionFile(t *testing.T) {
 		t.Errorf("Start blocked for %v; expected immediate return (async resolver)", elapsed)
 	}
 
-	got := waitForN(t, p, 1, 2*time.Second)
-	if got[0].payload["text"] != "delayed" {
-		t.Errorf("text = %v, want delayed", got[0].payload["text"])
+	got := waitForN(t, p, 2, 2*time.Second)
+	txt := firstKind(got, "text")
+	if txt == nil {
+		t.Fatalf("no text event from delayed session file: %+v", got)
+	}
+	if txt.payload["text"] != "delayed" {
+		t.Errorf("text = %v, want delayed", txt.payload["text"])
 	}
 }
 
@@ -330,13 +357,17 @@ func TestAdapter_StopDrainsRunLoop(t *testing.T) {
 // v1.0.667 — the M4 adapter synthesises a session.init event on the
 // first usage frame carrying a model, since on-disk JSONL has no
 // equivalent of M2 stream-json's `init` frame. Without this mobile's
-// AppBar chip stays blank for every M4 spawn. Asserts:
-//   - session.init lands BEFORE the corresponding usage event so
-//     the chip can render in the same build pass
-//   - payload carries engine="claude-code", the model from the
+// AppBar chip stays blank for every M4 spawn. Plus a model-less
+// launch-time session.init is posted the moment the session resolves
+// (so the chip appears immediately, not only after the first turn) —
+// mobile merges the two (session_id first, model later). Asserts:
+//   - a leading launch session.init (no model) lands before any content
+//   - the model-bearing session.init lands BEFORE the corresponding
+//     usage event so the chip can render in the same build pass
+//   - its payload carries engine="claude-code", the model from the
 //     assistant frame, and the workdir
 //   - subsequent usage frames in the same session DO NOT re-emit
-//     session.init (would be benign but adds noise)
+//     the model-bearing session.init (would be benign but adds noise)
 // TestAdapter_ConcurrentStopAndStatusLine drives the data race fixed
 // alongside this test: resolveAndRun (the Start goroutine) writes a.tailer
 // and a.engineSessionID, while Stop and the gateway-goroutine OnStatusLine
@@ -425,25 +456,36 @@ func TestAdapter_SynthesisesSessionInitFromFirstUsage(t *testing.T) {
 	}
 	defer a.Stop()
 
-	// Both assistant frames produce text + usage. With one
-	// synthetic session.init, that's 5 events total.
-	got := waitForN(t, p, 5, 2*time.Second)
+	// Launch session.init (no model) + both assistant frames each
+	// produce text + usage + the model-bearing session.init = 6 events.
+	got := waitForN(t, p, 6, 2*time.Second)
 
-	// Find the session.init.
-	var initIdx = -1
-	initCount := 0
+	// Two session.init events: the leading launch handshake (no model)
+	// and the model-bearing one synthesised from the first usage frame.
+	var launchIdx, modelIdx = -1, -1
 	for i, ev := range got {
-		if ev.kind == "session.init" {
-			initCount++
-			if initIdx < 0 {
-				initIdx = i
+		if ev.kind != "session.init" {
+			continue
+		}
+		if m, _ := ev.payload["model"].(string); m == "" {
+			if launchIdx < 0 {
+				launchIdx = i
 			}
+		} else if modelIdx < 0 {
+			modelIdx = i
 		}
 	}
-	if initCount != 1 {
-		t.Fatalf("want exactly 1 session.init, got %d in %+v", initCount, got)
+	if launchIdx < 0 {
+		t.Fatalf("no launch (model-less) session.init in %+v", got)
 	}
-	init := got[initIdx]
+	if modelIdx < 0 {
+		t.Fatalf("no model-bearing session.init in %+v", got)
+	}
+	// The launch handshake leads — nothing else precedes it.
+	if launchIdx != 0 {
+		t.Errorf("launch session.init at index %d, want 0 (it should lead): %+v", launchIdx, got)
+	}
+	init := got[modelIdx]
 	if init.payload["engine"] != "claude-code" {
 		t.Errorf("engine = %v, want claude-code", init.payload["engine"])
 	}
@@ -456,16 +498,21 @@ func TestAdapter_SynthesisesSessionInitFromFirstUsage(t *testing.T) {
 	// v1.0.672: session_id must be the JSONL filename UUID so
 	// captureEngineSessionID stamps `sessions.engine_session_id` and
 	// the resume path can splice `--resume <uuid>` into the respawn
-	// cmd. Without this every M4 claude-code resume cold-started.
+	// cmd. Without this every M4 claude-code resume cold-started. Both
+	// session.init emits carry it.
+	if got[launchIdx].payload["session_id"] != sessUUID {
+		t.Errorf("launch session_id = %v, want %s", got[launchIdx].payload["session_id"], sessUUID)
+	}
 	if init.payload["session_id"] != sessUUID {
 		t.Errorf("session_id = %v, want %s", init.payload["session_id"], sessUUID)
 	}
-	// session.init must precede the FIRST usage event so mobile's
-	// build-pass picks it up alongside the chip-driving values.
-	for i := 0; i < initIdx; i++ {
+	// The model-bearing session.init must precede the FIRST usage event
+	// so mobile's build-pass picks it up alongside the chip-driving
+	// values.
+	for i := 0; i < modelIdx; i++ {
 		if got[i].kind == "usage" {
-			t.Errorf("usage at index %d landed BEFORE session.init at %d: %+v",
-				i, initIdx, got)
+			t.Errorf("usage at index %d landed BEFORE model-bearing session.init at %d: %+v",
+				i, modelIdx, got)
 		}
 	}
 }

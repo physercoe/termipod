@@ -95,16 +95,24 @@ func TestAdapter_SessionInit_UsesStatusLineVersion(t *testing.T) {
 	// adapter emits both `usage` and the synthetic `session.init`.
 	appendJSONL(t, jsonl, `{"type":"assistant","message":{"model":"claude-opus-4-7","usage":{"input_tokens":10,"output_tokens":5}}}`)
 
-	events := waitForN(t, poster, 2, 3*time.Second)
+	// Launch session.init (no model) + usage + the model-bearing
+	// session.init = 3 events. The version override we assert here is on
+	// the model-bearing emit (the launch one may have raced ahead of the
+	// statusLine frame), so select the session.init carrying a model.
+	events := waitForN(t, poster, 3, 3*time.Second)
 	var gotInit *capturedEvent
 	for i := range events {
-		if events[i].kind == "session.init" {
-			gotInit = &events[i]
-			break
+		if events[i].kind != "session.init" {
+			continue
 		}
+		if m, _ := events[i].payload["model"].(string); m == "" {
+			continue // skip the model-less launch handshake
+		}
+		gotInit = &events[i]
+		break
 	}
 	if gotInit == nil {
-		t.Fatalf("no session.init in %v", events)
+		t.Fatalf("no model-bearing session.init in %v", events)
 	}
 	if v, _ := gotInit.payload["version"].(string); v != "2.1.150" {
 		t.Errorf("session.init.version = %q, want 2.1.150 (statusLine override missing)", v)
@@ -270,9 +278,12 @@ func TestAdapter_OnStatusLine_NoRotationOnSameSessionID(t *testing.T) {
 	}
 	defer a.Stop()
 
-	// Land the initial usage + session.init.
+	// Land the launch session.init + the initial usage + the
+	// model-bearing session.init (3 events). Wait for all three to
+	// settle before sampling `before`, else a late-landing event would
+	// race the same-session no-op check below.
 	appendJSONL(t, jsonl, `{"type":"assistant","message":{"model":"claude-opus-4-7","usage":{"input_tokens":10,"output_tokens":5}}}`)
-	waitForN(t, poster, 2, 3*time.Second)
+	waitForN(t, poster, 3, 3*time.Second)
 	before := len(poster.snapshot())
 
 	// Fire statusLine with the SAME session_id. No rotation.

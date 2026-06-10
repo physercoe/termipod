@@ -137,12 +137,22 @@ type Adapter struct {
 	pickerMu   sync.Mutex
 	pickerDone chan struct{}
 
-	// sessionInitMu guards sessionInitSent. The flag is checked + set
-	// in runLoop so a second usage event on the same session doesn't
-	// re-emit the synthetic session.init (mobile would still merge it
-	// correctly, but the duplicate event is noise).
+	// sessionInitMu guards sessionInitSent + launchInitSent. The flags
+	// are checked + set in runLoop / resolveAndRun so a second usage
+	// event on the same session doesn't re-emit the synthetic
+	// session.init (mobile would still merge it correctly, but the
+	// duplicate event is noise).
 	sessionInitMu   sync.Mutex
 	sessionInitSent bool
+	// launchInitSent guards the launch-time session.init. claude-code M4
+	// has no `init` frame, and the model isn't known until the first
+	// `usage` event lands, so a chip-less spawn would show no AppBar
+	// SessionInitChip until the first turn completes. We post an early
+	// model-less session.init (engine/cwd/version/session_id) at launch
+	// so the chip appears immediately; maybeEmitSessionInit then re-emits
+	// with the model when the first usage arrives (mobile merges the two
+	// — the "session_id first, model later" flow antigravity also uses).
+	launchInitSent bool
 
 	// engineSessionID is the claude-code session UUID — the basename
 	// (sans `.jsonl`) of the file we're tailing. Captured in
@@ -369,6 +379,13 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 		a.engineSessionID = sid
 		a.mu.Unlock()
 
+		// Post an early, model-less session.init so the mobile AppBar
+		// chip appears the moment the session resolves — without waiting
+		// for the first usage event (maybeEmitSessionInit) which only
+		// fires after a turn completes. The other drivers (appserver,
+		// ACP, antigravity) all emit at launch; this closes that gap.
+		a.emitLaunchSessionInit(ctx)
+
 		a.Log.Info("claude-code adapter started",
 			"agent_id", a.AgentID,
 			"workdir", a.Workdir,
@@ -409,10 +426,47 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 		// real lifecycle event the principal needs to see.
 		a.sessionInitMu.Lock()
 		a.sessionInitSent = false
+		a.launchInitSent = false
 		a.sessionInitMu.Unlock()
 		a.Log.Info("claude-code adapter: rotating to new session (post-/clear)",
 			"agent_id", a.AgentID,
 			"new_jsonl", jsonlPath)
+	}
+}
+
+// emitLaunchSessionInit posts a model-less session.init as soon as the
+// session JSONL resolves, so the mobile AppBar SessionInitChip appears
+// immediately on spawn rather than staying blank until the first turn
+// completes. The model isn't known yet (it rides the first `usage`
+// event), so maybeEmitSessionInit re-emits with the model later; mobile
+// keys the chip on session_id|model and merges the two emits (the same
+// "session_id first, model later" flow the antigravity adapter uses).
+//
+// Idempotent per session via launchInitSent (reset on W3 rotation), and
+// independent of sessionInitSent so the model-bearing emit still fires.
+func (a *Adapter) emitLaunchSessionInit(ctx context.Context) {
+	a.sessionInitMu.Lock()
+	if a.launchInitSent {
+		a.sessionInitMu.Unlock()
+		return
+	}
+	a.launchInitSent = true
+	a.sessionInitMu.Unlock()
+
+	payload := map[string]any{
+		"engine":  "claude-code",
+		"cwd":     a.Workdir,
+		"version": "claude-code", // statusLine override below when known
+	}
+	if v := a.statusLineVersion(); v != "" {
+		payload["version"] = v
+	}
+	if sid := a.currentEngineSessionID(); sid != "" {
+		payload["session_id"] = sid
+	}
+	if err := a.Poster.PostAgentEvent(ctx, a.AgentID, "session.init", "agent", payload); err != nil {
+		a.Log.Warn("claude-code adapter: launch session.init post failed",
+			"agent_id", a.AgentID, "err", err)
 	}
 }
 

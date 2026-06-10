@@ -350,21 +350,29 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     if (latestSessionInitPayload(_events) != null) return;
     if (widget.onSessionInit == null) return;
     try {
-      // Pull the agent's tail across ALL sessions; merge every
-      // session.init payload we find in chronological order (newer
-      // events overwrite earlier fields, earlier-only fields persist).
-      // Page size is small because session.init is rare. Walk forward
-      // so the merge order matches the live build() path (see
-      // latestSessionInitPayload in feed_reducer.dart for the rationale).
-      final any = await client.listAgentEvents(
+      // Query session.init events SPECIFICALLY (server-side kind filter),
+      // across ALL sessions. The previous unfiltered tail(200) missed the
+      // chip on any session longer than ~200 events: session.init is the
+      // session's FIRST event, so on a long-running M2 session it has long
+      // since scrolled out of the tail window — the backfill found nothing
+      // and the AppBar chip stayed empty. The kind filter returns the
+      // newest session.init regardless of how much else has flowed since.
+      // Small limit because session.init is rare (one per process start;
+      // a resumed session may carry a few across respawns).
+      final inits = await client.listAgentEvents(
         widget.agentId,
         tail: true,
-        limit: 200,
-        // No sessionId — that's the whole point of the fallback.
+        limit: 25,
+        kinds: const ['session.init'],
+        // No sessionId — chip stays informative across "new session" /
+        // resume flows where the init lives in a sibling session.
       );
       if (!mounted) return;
+      // tail returns newest-first (DESC); merge oldest→newest so newer
+      // fields win and earlier-only fields persist, matching the live
+      // build() path (latestSessionInitPayload in feed_reducer.dart).
       Map<String, dynamic>? merged;
-      for (final e in any) {
+      for (final e in inits.reversed) {
         if ((e['kind'] ?? '').toString() != 'session.init') continue;
         final p = e['payload'];
         if (p is! Map) continue;

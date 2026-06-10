@@ -8,8 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/entity_names.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
@@ -46,6 +49,7 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
   List<Map<String, dynamic>>? _projects;
   bool _loading = true;
   String? _error;
+  bool _hubMissing = false;
   DateTime? _staleSince;
 
   static const _statuses = <String?>[
@@ -73,7 +77,7 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -141,9 +145,9 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     _load();
   }
 
-  String _projectFilterLabel() {
+  String _projectFilterLabel(String allProjectsLabel) {
     final id = _projectFilter;
-    if (id == null) return 'All projects';
+    if (id == null) return allProjectsLabel;
     for (final p in _projects ?? const <Map<String, dynamic>>[]) {
       if ((p['id'] ?? '').toString() == id) {
         return (p['name'] ?? id).toString();
@@ -173,6 +177,10 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final runTerm = vocab.term(VocabAxis.entityRun);
+    final projectTerm = vocab.term(VocabAxis.entityProject);
     final projects =
         _projects ?? ref.watch(hubProvider).value?.projects ?? const [];
     final scopeName = widget.projectId == null
@@ -181,7 +189,9 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          scopeName == null ? 'Experiments' : 'Experiments · $scopeName',
+          scopeName == null
+              ? runTerm.plural
+              : '${runTerm.plural} · $scopeName',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -190,23 +200,23 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
           PopupMenuButton<String>(
-            tooltip: 'More',
+            tooltip: l10n.tooltipMore,
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
               if (v == 'new') _createRun();
             },
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'new',
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.add, size: 20),
-                  title: Text('New run'),
+                  leading: const Icon(Icons.add, size: 20),
+                  title: Text(l10n.newRun(runTerm.lower)),
                 ),
               ),
             ],
@@ -224,7 +234,8 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
               _load();
             },
             showProjectFilter: _showProjectFilter,
-            projectLabel: _projectFilterLabel(),
+            projectLabel:
+                _projectFilterLabel(l10n.allProjects(projectTerm.pluralLower)),
             projectIsActive: _projectFilter != null,
             onProjectTap: _pickProject,
           ),
@@ -236,12 +247,13 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
   }
 
   Widget _body() {
+    final l10n = AppLocalizations.of(context)!;
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          _error!,
+          _hubMissing ? l10n.hubNotConfigured : _error!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -251,16 +263,18 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     }
     final rows = _rows ?? const [];
     if (rows.isEmpty) {
+      final runs = ref.watch(vocabularyProvider).term(VocabAxis.entityRun);
       final filtered = _status != null || _projectFilter != null;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
             filtered
-                ? 'No runs match the current filters.'
+                ? l10n.runsNoneMatch(runs.pluralLower)
                 : _status == null
-                    ? 'No runs yet.'
-                    : 'No $_status runs.',
+                    ? l10n.runsNoneYet(runs.pluralLower)
+                    : l10n.runsNoneStatus(
+                        runStatusLabel(l10n, _status!), runs.pluralLower),
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 13,
@@ -316,6 +330,7 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
@@ -333,7 +348,9 @@ class _FilterBar extends StatelessWidget {
               children: [
                 for (final s in statuses) ...[
                   AppChoiceChip(
-                    label: s ?? 'all',
+                    label: s == null
+                        ? l10n.filterAll
+                        : runStatusLabel(l10n, s),
                     selected: statusSelected == s,
                     onTap: () => onStatusSelected(s),
                   ),
@@ -400,7 +417,7 @@ class _ProjectPick {
   const _ProjectPick({this.id, this.clear = false});
 }
 
-class _ProjectFilterSheet extends StatelessWidget {
+class _ProjectFilterSheet extends ConsumerWidget {
   final List<Map<String, dynamic>> projects;
   final String? selectedId;
   const _ProjectFilterSheet({
@@ -409,7 +426,10 @@ class _ProjectFilterSheet extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final projectTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityProject);
     return DraggableScrollableSheet(
       initialChildSize: 0.6,
       minChildSize: 0.3,
@@ -430,7 +450,7 @@ class _ProjectFilterSheet extends StatelessWidget {
               return ListTile(
                 leading: const Icon(Icons.clear, size: 18),
                 title: Text(
-                  'All projects',
+                  l10n.allProjects(projectTerm.pluralLower),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -534,12 +554,34 @@ class _RunRow extends StatelessWidget {
   }
 }
 
+/// Maps a wire run status onto its localized label. Unknown states fall
+/// back to the raw wire token so new server states still render.
+String runStatusLabel(AppLocalizations l10n, String wire) {
+  switch (wire.toLowerCase()) {
+    case 'running':
+      return l10n.runStatusRunning;
+    case 'succeeded':
+    case 'success':
+    case 'completed':
+      return l10n.runStatusSucceeded;
+    case 'failed':
+    case 'error':
+      return l10n.runStatusFailed;
+    case 'cancelled':
+    case 'canceled':
+      return l10n.runStatusCancelled;
+    default:
+      return wire;
+  }
+}
+
 class RunStatusChip extends StatelessWidget {
   final String status;
   const RunStatusChip({super.key, required this.status});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final s = status.toLowerCase();
     final color = switch (s) {
       'running' => DesignColors.terminalBlue,
@@ -556,7 +598,7 @@ class RunStatusChip extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
-        s.isEmpty ? '?' : s,
+        s.isEmpty ? '?' : runStatusLabel(l10n, s),
         style: GoogleFonts.jetBrainsMono(
           fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,

@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -43,13 +46,19 @@ class _ProjectChannelCreateSheetState
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $e')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.createFailedError('$e'))),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final channelTerm = voc.term(VocabAxis.entityChannel);
+    final projectTerm = voc.term(VocabAxis.entityProject);
+    final teamTerm = voc.term(VocabAxis.entityTeam);
     return Padding(
       padding: EdgeInsets.fromLTRB(
         16,
@@ -73,7 +82,7 @@ class _ProjectChannelCreateSheetState
             ),
           ),
           Text(
-            'New channel',
+            l10n.newChannel(channelTerm.lower),
             style: GoogleFonts.spaceGrotesk(
               fontSize: 18,
               fontWeight: FontWeight.w700,
@@ -95,8 +104,8 @@ class _ProjectChannelCreateSheetState
           ),
           const SizedBox(height: 4),
           Text(
-            'Channels are scoped to this project. Events posted here '
-            'stay off the team-wide feed.',
+            l10n.channelScopeNote(
+                channelTerm.plural, projectTerm.lower, teamTerm.lower),
             style: GoogleFonts.spaceGrotesk(
               fontSize: 11,
               color: DesignColors.textMuted,
@@ -111,7 +120,7 @@ class _ProjectChannelCreateSheetState
                     height: 14,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Create'),
+                : Text(l10n.buttonCreate),
           ),
         ],
       ),

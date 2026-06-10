@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
+import '../../services/vocab/vocab_term.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -93,9 +97,12 @@ class _ProjectChannelsListScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final channelTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityChannel);
     final title = widget.projectName.isEmpty
-        ? 'Discussion'
-        : 'Discussion · ${widget.projectName}';
+        ? l10n.channelsTitle
+        : l10n.channelsTitleNamed(widget.projectName);
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -105,17 +112,17 @@ class _ProjectChannelsListScreenState
               fontSize: 16, fontWeight: FontWeight.w700),
         ),
       ),
-      body: _body(),
+      body: _body(l10n, channelTerm),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'project-channel-fab-${widget.projectId}',
         onPressed: _create,
         icon: const Icon(Icons.add),
-        label: const Text('Channel'),
+        label: Text(channelTerm.title),
       ),
     );
   }
 
-  Widget _body() {
+  Widget _body(AppLocalizations l10n, VocabTerm channelTerm) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
@@ -136,7 +143,7 @@ class _ProjectChannelsListScreenState
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
-                'No channels yet — tap + to create',
+                l10n.noChannelsHint(channelTerm.pluralLower),
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 13,
                   color: DesignColors.textMuted,
@@ -172,6 +179,7 @@ class _ChannelTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final name = (row['name'] ?? '').toString();
     final id = (row['id'] ?? '').toString();
@@ -200,7 +208,7 @@ class _ChannelTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    name.isEmpty ? '(unnamed)' : name,
+                    name.isEmpty ? l10n.unnamedValue : name,
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,

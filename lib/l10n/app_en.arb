@@ -1335,5 +1335,17 @@
   "relativeInFuture": "in {mag}",
   "@relativeInFuture": { "placeholders": { "mag": { "type": "String" } } },
   "relativePast": "{mag} ago",
-  "@relativePast": { "placeholders": { "mag": { "type": "String" } } }
+  "@relativePast": { "placeholders": { "mag": { "type": "String" } } },
+  "createFailedError": "Create failed: {error}",
+  "@createFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "newChannel": "New {channel}",
+  "@newChannel": { "placeholders": { "channel": { "type": "String" } } },
+  "noChannelsHint": "No {channels} yet — tap + to create",
+  "@noChannelsHint": { "placeholders": { "channels": { "type": "String" } } },
+  "unnamedValue": "(unnamed)",
+  "channelScopeNote": "{channels} are scoped to this {project}. Events posted here stay off the {team}-wide feed.",
+  "@channelScopeNote": { "placeholders": { "channels": { "type": "String" }, "project": { "type": "String" }, "team": { "type": "String" } } },
+  "channelsTitle": "Discussion",
+  "channelsTitleNamed": "Discussion · {name}",
+  "@channelsTitleNamed": { "placeholders": { "name": { "type": "String" } } }
 }

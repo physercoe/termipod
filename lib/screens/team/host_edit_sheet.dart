@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -107,12 +110,14 @@ class _HostEditSheetState extends ConsumerState<HostEditSheet> {
       try {
         final decoded = jsonDecode(capsText);
         if (decoded is! Map) {
-          setState(() => _capsError = 'Capabilities must be a JSON object.');
+          setState(() =>
+              _capsError = AppLocalizations.of(context)!.capsMustBeObject);
           return;
         }
         caps = decoded.cast<String, dynamic>();
       } catch (e) {
-        setState(() => _capsError = 'Invalid JSON: $e');
+        setState(() =>
+            _capsError = AppLocalizations.of(context)!.invalidJson('$e'));
         return;
       }
     }
@@ -132,12 +137,15 @@ class _HostEditSheetState extends ConsumerState<HostEditSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      messenger.showSnackBar(SnackBar(content: Text('Update failed: $e')));
+      messenger.showSnackBar(SnackBar(
+          content: Text(AppLocalizations.of(context)!.updateFailedError('$e'))));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final hostTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityHost);
     final name = (widget.host['name'] ?? '').toString();
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -170,7 +178,7 @@ class _HostEditSheetState extends ConsumerState<HostEditSheet> {
               ),
             ),
             Text(
-              name.isEmpty ? 'Edit host' : 'Edit $name',
+              name.isEmpty ? l10n.editHost(hostTerm.lower) : l10n.editHostNamed(name),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -178,26 +186,25 @@ class _HostEditSheetState extends ConsumerState<HostEditSheet> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Secret fields (passwords, keys, passphrases) are refused '
-              'by the hub; store those on the device.',
+              l10n.hostSecretFieldsNote,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 color: DesignColors.textMuted,
               ),
             ),
             const SizedBox(height: 16),
-            _sectionTitle('SSH hint'),
-            _field(label: 'Host', controller: _host, mono: true),
-            _field(label: 'Username', controller: _user, mono: true),
+            _sectionTitle(l10n.hostSshHintSection),
+            _field(label: hostTerm.title, controller: _host, mono: true),
+            _field(label: l10n.hostFieldUsername, controller: _user, mono: true),
             _field(
-              label: 'Port',
+              label: l10n.hostFieldPort,
               controller: _port,
               mono: true,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             ),
             const SizedBox(height: 16),
-            _sectionTitle('Capabilities (JSON)'),
+            _sectionTitle(l10n.hostCapsSection),
             TextField(
               controller: _caps,
               enabled: !_submitting,
@@ -227,7 +234,7 @@ class _HostEditSheetState extends ConsumerState<HostEditSheet> {
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Save changes'),
+                  : Text(l10n.buttonSaveChanges),
             ),
           ],
         ),

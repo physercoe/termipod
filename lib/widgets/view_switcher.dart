@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -40,7 +41,7 @@ class ViewSwitcher extends StatelessWidget {
     final idx = currentView.clamp(0, views.length - 1);
     final cur = views[idx];
     return PopupMenuButton<int>(
-      tooltip: 'Switch view',
+      tooltip: AppLocalizations.of(context)!.switchView,
       padding: EdgeInsets.zero,
       onSelected: onSelect,
       itemBuilder: (_) => [

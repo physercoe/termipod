@@ -7,6 +7,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../team/template_icon.dart';
 
 /// Project creation sheet (blueprint §9 P2.7).
@@ -176,7 +177,7 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
       child: SafeArea(
         top: false,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(Spacing.s16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -402,7 +403,7 @@ class _ParentHint extends StatelessWidget {
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     final kindLabel = kind == 'standing' ? 'sub-Workspace' : 'sub-project';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
@@ -736,7 +737,7 @@ class _TemplatePickRow extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           color: DesignColors.textMuted,
         ),
       ),
@@ -761,7 +762,7 @@ class _ParameterSummary extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final entries = parameters.entries.toList();
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 8, Spacing.s8),
       decoration: BoxDecoration(
         border: Border.all(
           color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
@@ -892,7 +893,7 @@ class _TemplateParameterSheetState extends State<_TemplateParameterSheet> {
       child: SafeArea(
         top: false,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(Spacing.s16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,

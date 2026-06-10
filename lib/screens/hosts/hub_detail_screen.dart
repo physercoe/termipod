@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../admin/admin_screen.dart';
 import 'hub_config_screen.dart';
 
@@ -154,7 +155,7 @@ class _Card extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: border),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      padding: const EdgeInsets.fromLTRB(Spacing.s12, Spacing.s8, Spacing.s12, Spacing.s8),
       child: child,
     );
   }
@@ -283,7 +284,7 @@ class _DatabaseCard extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 4, top: 4),
               child: Text('TABLES',
                   style: GoogleFonts.spaceGrotesk(
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       fontWeight: FontWeight.w700,
                       color: muted,
                       letterSpacing: 0.8)),
@@ -431,7 +432,7 @@ class _PairRow extends StatelessWidget {
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s4),
       child: Row(
         children: [
           Expanded(

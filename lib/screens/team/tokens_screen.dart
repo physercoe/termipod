@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Owner-only token manager. Issue new tokens for human team members
 /// or for extra hosts/agents, list existing ones, and revoke.
@@ -221,10 +222,10 @@ class _TokenTile extends StatelessWidget {
     return Opacity(
       opacity: revoked ? 0.5 : 1.0,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 12),
         decoration: BoxDecoration(
           color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           border: Border.all(
             color: isDark
                 ? DesignColors.borderDark
@@ -387,9 +388,9 @@ Future<void> _showPlaintextSheet(
     builder: (ctx) {
       return Padding(
         padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 20,
+          left: Spacing.s16,
+          right: Spacing.s16,
+          top: Spacing.s16,
           bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
         ),
         child: SingleChildScrollView(

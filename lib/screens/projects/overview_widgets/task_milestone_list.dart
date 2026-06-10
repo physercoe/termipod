@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import '../../../theme/task_priority_style.dart';
 import '../task_detail_screen.dart';
 import 'registry.dart';
@@ -121,7 +122,7 @@ class _TaskMilestoneListHeroState
                   Text(
                     p.label,
                     style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0.5,
                       color: isDark
@@ -137,11 +138,11 @@ class _TaskMilestoneListHeroState
         ],
         if (overflow > 0)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.only(top: Spacing.s8),
             child: Text(
               '+ $overflow more — open Tasks tab',
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: DesignColors.textMuted,
                 fontStyle: FontStyle.italic,
               ),
@@ -179,7 +180,7 @@ class _TaskRow extends StatelessWidget {
         ));
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
         child: Row(
           children: [
             TaskPriorityDot(priority: priority, size: 8),
@@ -199,7 +200,7 @@ class _TaskRow extends StatelessWidget {
             Text(
               statusLabel,
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: DesignColors.textMuted,
               ),
             ),
@@ -221,10 +222,10 @@ class _EmptyCard extends StatelessWidget {
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 16),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: border),
       ),
       child: Text(

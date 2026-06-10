@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Hub group tile rendered atop the Hosts tab — the visual sibling of
 /// the per-hostrunner row but backed by `/v1/hub/stats` instead of
@@ -64,7 +65,7 @@ class HubTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+          padding: const EdgeInsets.fromLTRB(Spacing.s12, 12, Spacing.s8, 12),
           child: Row(
             children: [
               Icon(Icons.hub_outlined,
@@ -81,7 +82,7 @@ class HubTile extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.spaceGrotesk(
-                                  fontSize: 15,
+                                  fontSize: FontSizes.subtitle,
                                   fontWeight: FontWeight.w700)),
                         ),
                         if (version != null)
@@ -120,15 +121,15 @@ class _StalePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = Theme.of(context).hintColor;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
       ),
       child: Text(
         'stale',
         style: GoogleFonts.jetBrainsMono(
-            fontSize: 9, fontWeight: FontWeight.w700, color: color),
+            fontSize: FontSizes.label, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }

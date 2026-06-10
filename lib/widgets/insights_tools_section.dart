@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/insights_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Tool-call efficiency section — Phase 2 W5c of insights-phase-2.md.
 /// Renders the `tools` block from `/v1/insights`:
@@ -74,7 +75,7 @@ class InsightsToolsSection extends ConsumerWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: border),
             ),
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            padding: const EdgeInsets.fromLTRB(Spacing.s12, Spacing.s8, Spacing.s12, Spacing.s8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -110,7 +111,7 @@ class InsightsToolsSection extends ConsumerWidget {
                   ),
                   const SizedBox(height: 6),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: Radii.xsBorder,
                     child: LinearProgressIndicator(
                       minHeight: 4,
                       value: approvalRate.clamp(0.0, 1.0),
@@ -152,7 +153,7 @@ class _StatRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s4),
       child: Row(
         children: [
           SizedBox(

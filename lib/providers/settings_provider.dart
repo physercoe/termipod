@@ -52,6 +52,11 @@ class AppSettings {
   /// Language override: 'system', 'en', 'zh'
   final String locale;
 
+  /// Vocabulary preset (ADR-048): 'tech' (default), 'business', 'political',
+  /// 'research'. Re-words role-bound terms (steward/agent/principal/…).
+  /// Orthogonal to [locale] (language) — see `services/vocab/`.
+  final String vocabPreset;
+
   // --- Navigation Pad settings ---
   /// Navigation pad mode: 'full', 'compact', 'off'
   final String navPadMode;
@@ -122,6 +127,7 @@ class AppSettings {
     this.imageAutoEnter = false,
     this.imageBracketedPaste = false,
     this.locale = 'system',
+    this.vocabPreset = 'tech',
     this.navPadMode = 'compact',
     this.navPadDpadStyle = 'dpad',
     this.navPadRepeatRate = 80,
@@ -173,6 +179,7 @@ class AppSettings {
     bool? imageAutoEnter,
     bool? imageBracketedPaste,
     String? locale,
+    String? vocabPreset,
     String? navPadMode,
     String? navPadDpadStyle,
     int? navPadRepeatRate,
@@ -221,6 +228,7 @@ class AppSettings {
       imageAutoEnter: imageAutoEnter ?? this.imageAutoEnter,
       imageBracketedPaste: imageBracketedPaste ?? this.imageBracketedPaste,
       locale: locale ?? this.locale,
+      vocabPreset: vocabPreset ?? this.vocabPreset,
       navPadMode: navPadMode ?? this.navPadMode,
       navPadDpadStyle: navPadDpadStyle ?? this.navPadDpadStyle,
       navPadRepeatRate: navPadRepeatRate ?? this.navPadRepeatRate,
@@ -279,6 +287,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _imageAutoEnterKey = 'settings_image_auto_enter';
   static const String _imageBracketedPasteKey = 'settings_image_bracketed_paste';
   static const String _localeKey = 'settings_locale';
+  static const String _vocabPresetKey = 'settings_vocab_preset';
   static const String _navPadModeKey = 'settings_nav_pad_mode';
   static const String _navPadDpadStyleKey = 'settings_nav_pad_dpad_style';
   static const String _navPadRepeatRateKey = 'settings_nav_pad_repeat_rate';
@@ -344,6 +353,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       imageAutoEnter: prefs.getBool(_imageAutoEnterKey) ?? false,
       imageBracketedPaste: prefs.getBool(_imageBracketedPasteKey) ?? false,
       locale: prefs.getString(_localeKey) ?? 'system',
+      vocabPreset: prefs.getString(_vocabPresetKey) ?? 'tech',
       navPadMode: _migrateNavPadMode(prefs.getString(_navPadModeKey)),
       navPadDpadStyle: prefs.getString(_navPadDpadStyleKey) ?? 'dpad',
       navPadRepeatRate: prefs.getInt(_navPadRepeatRateKey) ?? 80,
@@ -541,6 +551,13 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setLocale(String value) async {
     state = state.copyWith(locale: value);
     await _saveSetting(_localeKey, value);
+  }
+
+  /// Set the vocabulary preset (ADR-048): 'tech' | 'business' | 'political' |
+  /// 'research'. Re-words role-bound terms live via `vocabularyProvider`.
+  Future<void> setVocabPreset(String value) async {
+    state = state.copyWith(vocabPreset: value);
+    await _saveSetting(_vocabPresetKey, value);
   }
 
   // --- Navigation Pad settings setters ---

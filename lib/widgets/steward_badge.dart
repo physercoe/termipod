@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -12,7 +15,7 @@ import '../theme/tokens.dart';
 /// or an actor handle. The badge renders when the value equals or ends
 /// with `steward`, so both hub-minted agent ids and handle-only actors
 /// match the same predicate.
-class StewardBadge extends StatelessWidget {
+class StewardBadge extends ConsumerWidget {
   const StewardBadge({super.key});
 
   static bool matches(String fromId) {
@@ -26,7 +29,8 @@ class StewardBadge extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final label = ref.watch(vocabularyProvider).term(VocabAxis.roleSteward).lower;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
       margin: const EdgeInsets.only(left: Spacing.s8),
@@ -44,7 +48,7 @@ class StewardBadge extends StatelessWidget {
               size: 10, color: DesignColors.primary),
           const SizedBox(width: 3),
           Text(
-            'steward',
+            label,
             style: GoogleFonts.jetBrainsMono(
               fontSize: FontSizes.label,
               fontWeight: FontWeight.w700,

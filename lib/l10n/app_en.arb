@@ -159,6 +159,7 @@
   "settingInvertPaneNavDesc": "Reverse swipe direction for pane switching",
   "settingTheme": "Theme",
   "settingLanguage": "Language",
+  "settingVocabPreset": "Vocabulary preset",
   "settingRemotePath": "Remote Path",
   "settingImageOutputFormat": "Output Format",
   "settingJpegQuality": "JPEG Quality",

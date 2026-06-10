@@ -125,14 +125,23 @@ List<MapEntry<String, List<Map<String, dynamic>>>> detachedScopeBuckets(
   return bucketSessionsByScope(detached);
 }
 
-String stewardCategoryLabel(StewardCategory c) {
+/// Label for a steward category. The role noun is injected so the active
+/// vocabulary preset (ADR-048) can re-word it — pass the lower-case singular
+/// and plural of `role.steward` (e.g. "manager"/"managers"). Defaults keep
+/// the tech wording so existing call sites and unit tests are unaffected.
+/// "Detached sessions" is tech-neutral (no role term).
+String stewardCategoryLabel(
+  StewardCategory c, {
+  String steward = 'steward',
+  String stewards = 'stewards',
+}) {
   switch (c) {
     case StewardCategory.general:
-      return 'General steward';
+      return 'General $steward';
     case StewardCategory.project:
-      return 'Project stewards';
+      return 'Project $stewards';
     case StewardCategory.domain:
-      return 'Domain stewards';
+      return 'Domain $stewards';
     case StewardCategory.detached:
       return 'Detached sessions';
   }

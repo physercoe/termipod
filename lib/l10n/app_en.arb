@@ -1556,5 +1556,7 @@
   "reviewAlreadyDecided": "This {review} is already {status}.",
   "@reviewAlreadyDecided": { "placeholders": { "review": { "type": "String" }, "status": { "type": "String" } } },
   "reviewDecidedSnack": "{review} {status}",
-  "@reviewDecidedSnack": { "placeholders": { "review": { "type": "String" }, "status": { "type": "String" } } }
+  "@reviewDecidedSnack": { "placeholders": { "review": { "type": "String" }, "status": { "type": "String" } } },
+  "decideFailedError": "Decide failed: {error}",
+  "@decideFailedError": { "placeholders": { "error": { "type": "String" } } }
 }

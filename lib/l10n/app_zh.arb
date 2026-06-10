@@ -1368,5 +1368,7 @@
   "reviewAlreadyDecided": "该{review}已{status}。",
   "@reviewAlreadyDecided": { "placeholders": { "review": { "type": "String" }, "status": { "type": "String" } } },
   "reviewDecidedSnack": "{review}{status}",
-  "@reviewDecidedSnack": { "placeholders": { "review": { "type": "String" }, "status": { "type": "String" } } }
+  "@reviewDecidedSnack": { "placeholders": { "review": { "type": "String" }, "status": { "type": "String" } } },
+  "decideFailedError": "决定失败：{error}",
+  "@decideFailedError": { "placeholders": { "error": { "type": "String" } } }
 }

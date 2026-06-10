@@ -665,7 +665,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
       if (!mounted) return;
       setState(() => _deciding = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.decideFailedStatus('$e'))),
+        SnackBar(content: Text(l10n.decideFailedError('$e'))),
       );
     }
   }

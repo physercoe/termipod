@@ -75,7 +75,7 @@ class _BadgeCount extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? Colors.amber.shade700 : Colors.amber.shade600;
+    final bg = DesignColors.warning;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: Spacing.s2),
       constraints: const BoxConstraints(minWidth: 16),

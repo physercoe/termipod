@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:termipod/theme/design_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:media_store_plus/media_store_plus.dart';
@@ -148,7 +149,7 @@ class _MyAppState extends ConsumerState<MyApp> {
       ScaffoldMessenger.maybeOf(navigator.context)?.showSnackBar(
         SnackBar(
           content: Text(AppLocalizations.of(navigator.context)?.deepLinkServerNotFound(data.server!) ?? 'Server not found: ${data.server}'),
-          backgroundColor: Colors.red,
+          backgroundColor: DesignColors.error,
         ),
       );
       return;

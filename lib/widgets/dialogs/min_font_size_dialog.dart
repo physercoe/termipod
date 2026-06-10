@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/design_colors.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 /// 最小フォントサイズ選択ダイアログ
@@ -41,7 +42,7 @@ class _MinFontSizeDialogState extends State<MinFontSizeDialog> {
               padding: EdgeInsets.only(bottom: 8.0),
               child: Text(
                 'Font size will not go below this value. Horizontal scroll is enabled for wider panes.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: DesignColors.textMuted),
               ),
             ),
             ..._minFontSizes.map((size) {

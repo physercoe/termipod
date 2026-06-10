@@ -551,7 +551,7 @@ class _NewFamilyNameDialogState extends State<_NewFamilyNameDialog> {
           const SizedBox(height: 8),
           Text(
             'Lowercase letters, digits, and dashes. Must match a CLI binary on PATH.',
-            style: GoogleFonts.spaceGrotesk(fontSize: 11, color: Colors.grey),
+            style: GoogleFonts.spaceGrotesk(fontSize: 11, color: DesignColors.textMuted),
           ),
         ],
       ),

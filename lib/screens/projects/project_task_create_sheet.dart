@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/task_priority_style.dart';
 import '../../theme/tokens.dart';
+import '../../theme/design_colors.dart';
 
 /// Bottom sheet for creating a task. Pops `true` on success so the caller
 /// reloads the task list.
@@ -145,7 +146,7 @@ class _ProjectTaskCreateSheetState
                 const SizedBox(height: 12),
                 Text(_error!,
                     style: GoogleFonts.jetBrainsMono(
-                        fontSize: 12, color: Colors.red)),
+                        fontSize: 12, color: DesignColors.error)),
               ],
               const SizedBox(height: 20),
               Row(

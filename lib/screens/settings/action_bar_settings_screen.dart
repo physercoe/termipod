@@ -171,7 +171,7 @@ class _ActionBarSettingsScreenState
             child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
             onPressed: () {
               ref.read(actionBarProvider.notifier).deleteGroup(group.id);
               Navigator.pop(ctx);

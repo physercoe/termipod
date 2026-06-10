@@ -310,7 +310,7 @@ String _fmtAbsoluteShort(DateTime localTs) {
 ({Color color, String severity}) rateLimitAlarmTier(num? usedPercentage) {
   final p = (usedPercentage ?? 0).toDouble();
   if (p >= 95) return (color: DesignColors.error, severity: 'red');
-  if (p >= 80) return (color: Colors.orange, severity: 'amber');
+  if (p >= 80) return (color: DesignColors.warning, severity: 'amber');
   return (color: DesignColors.success, severity: 'green');
 }
 

@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// One entry in the header's `View ▾` switcher.
 class SessionView {
@@ -87,7 +88,7 @@ class SessionHeader extends StatelessWidget {
 
     final hasSubtitle = subtitle != null && subtitle!.isNotEmpty;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 8, 6),
+      padding: const EdgeInsets.fromLTRB(16, Spacing.s8, 8, Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -123,7 +124,7 @@ class SessionHeader extends StatelessWidget {
                       child: Text(
                         subtitle!,
                         style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10, color: muted),
+                            fontSize: FontSizes.label, color: muted),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -173,7 +174,7 @@ class SessionHeader extends StatelessWidget {
       ],
       child: Container(
         margin: const EdgeInsets.only(right: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: border),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Renders one histogram series as a step-scrubbable bar chart. Each
 /// [rows] entry carries `{name, step, buckets: {edges, counts}}`; the
@@ -52,7 +53,7 @@ class _HistogramSeriesTileState extends State<HistogramSeriesTile> {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -74,7 +75,7 @@ class _HistogramSeriesTileState extends State<HistogramSeriesTile> {
                   Text(
                     'step $step',
                     style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       color: DesignColors.textMuted,
                     ),
                   ),
@@ -102,7 +103,7 @@ class _HistogramSeriesTileState extends State<HistogramSeriesTile> {
                       child: Text(
                         '${safeIndex + 1}/${widget.rows.length}',
                         style: GoogleFonts.jetBrainsMono(
-                          fontSize: 9,
+                          fontSize: FontSizes.label,
                           color: DesignColors.textMuted,
                         ),
                       ),
@@ -222,7 +223,7 @@ class _HistogramPainter extends CustomPainter {
       text: TextSpan(
         text: text,
         style: TextStyle(
-          fontSize: 9,
+          fontSize: FontSizes.label,
           color: color.withValues(alpha: 0.8),
           fontFamily: 'monospace',
         ),

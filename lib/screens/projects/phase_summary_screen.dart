@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/deliverable_state_pip.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../deliverables/structured_deliverable_viewer.dart';
@@ -150,12 +151,12 @@ class _DeliverableTile extends StatelessWidget {
     final components = (deliverable['components'] as List? ?? const []);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
       child: Material(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         child: InkWell(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           onTap: () async {
             await Navigator.of(context).push(
               MaterialPageRoute(
@@ -169,9 +170,9 @@ class _DeliverableTile extends StatelessWidget {
             onChanged();
           },
           child: Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(Spacing.s12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: Radii.mdBorder,
               border: Border.all(
                 color: isDark
                     ? DesignColors.borderDark

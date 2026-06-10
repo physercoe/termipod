@@ -12,6 +12,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 class AgentPaneView extends ConsumerStatefulWidget {
   final String agentId;
@@ -122,7 +123,7 @@ class _AgentPaneViewState extends ConsumerState<AgentPaneView> {
               style: TextStyle(color: mutedColor))
         else
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
               color: isDark
                   ? DesignColors.surfaceDark
@@ -142,7 +143,7 @@ class _AgentPaneViewState extends ConsumerState<AgentPaneView> {
                       ? '(no capture yet)'
                       : 'captured ${_shortTs(_paneCapturedAt!)} ago',
                   style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10, color: mutedColor),
+                      fontSize: FontSizes.label, color: mutedColor),
                 ),
                 const SizedBox(height: 6),
                 SelectableText(
@@ -158,7 +159,7 @@ class _AgentPaneViewState extends ConsumerState<AgentPaneView> {
           const SizedBox(height: 16),
           const _SectionHeader(title: 'Spawn spec'),
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
               color: isDark
                   ? DesignColors.surfaceDark
@@ -190,7 +191,7 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6, top: 4),
+      padding: const EdgeInsets.only(bottom: Spacing.s8, top: 4),
       child: Row(
         children: [
           Text(title,

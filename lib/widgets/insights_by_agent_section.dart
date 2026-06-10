@@ -6,6 +6,7 @@ import '../providers/insights_provider.dart';
 import '../screens/insights/insights_screen.dart';
 import '../services/steward_handle.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Per-agent breakdown — one row per agent active in the scope, tap
 /// any row to drill into that single agent's InsightsScreen.
@@ -183,7 +184,7 @@ class _AgentTile extends StatelessWidget {
         ));
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -202,7 +203,7 @@ class _AgentTile extends StatelessWidget {
                 const SizedBox(width: 8),
                 if (row.isSteward)
                   Padding(
-                    padding: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.only(right: Spacing.s8),
                     child: Icon(
                       Icons.support_agent_outlined,
                       size: 14,
@@ -230,7 +231,7 @@ class _AgentTile extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             ClipRRect(
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: Radii.xsBorder,
               child: LinearProgressIndicator(
                 minHeight: 3,
                 value: share.clamp(0.0, 1.0),
@@ -242,7 +243,7 @@ class _AgentTile extends StatelessWidget {
             const SizedBox(height: 3),
             Text(
               _subtitle(row),
-              style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+              style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
             ),
           ],
         ),

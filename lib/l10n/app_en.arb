@@ -986,5 +986,18 @@
   "sendFailedStatus": "Send failed ({status})",
   "@sendFailedStatus": { "placeholders": { "status": { "type": "int" } } },
   "sendFailedMsg": "Send failed: {error}",
-  "@sendFailedMsg": { "placeholders": { "error": { "type": "String" } } }
+  "@sendFailedMsg": { "placeholders": { "error": { "type": "String" } } },
+
+  "taskStarted": "Task started",
+  "taskStartedNamed": "Task started · {name}",
+  "@taskStartedNamed": { "placeholders": { "name": { "type": "String" } } },
+  "taskUpdated": "Task updated",
+  "taskUpdatedPairs": "Task updated · {pairs}",
+  "@taskUpdatedPairs": { "placeholders": { "pairs": { "type": "String" } } },
+  "taskNotification": "Task notification",
+  "taskMessage": "Task: {message}",
+  "@taskMessage": { "placeholders": { "message": { "type": "String" } } },
+  "copyKindTile": "tile",
+  "copiedKind": "Copied {kind}",
+  "@copiedKind": { "placeholders": { "kind": { "type": "String" } } }
 }

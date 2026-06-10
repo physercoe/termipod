@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/entity_names.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import 'plan_step_create_sheet.dart';
@@ -42,6 +45,8 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  // client==null branch of _load() runs synchronously during initState.
+  bool _hubMissing = false;
 
   @override
   void initState() {
@@ -58,7 +63,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -98,17 +103,21 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
   Future<void> _setPlanStatus(String status) async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final planTerm = ref.read(vocabularyProvider).term(VocabAxis.entityPlan);
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
       await client.updatePlan(widget.planId, status: status);
       if (!mounted) return;
-      messenger.showSnackBar(
-          SnackBar(content: Text('Plan → $status')));
+      messenger.showSnackBar(SnackBar(
+          content: Text(l10n.planTransition(
+              planTerm.title, planStatusLabel(l10n, status)))));
       await _load();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Update failed: $e')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(l10n.updateFailedError('$e'))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -117,6 +126,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
   Future<void> _setStepStatus(String stepId, String status) async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
+    final l10n = AppLocalizations.of(context)!;
     final messenger = ScaffoldMessenger.of(context);
     try {
       await client.updatePlanStep(
@@ -125,11 +135,13 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
         status: status,
       );
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Step → $status')));
+      messenger.showSnackBar(SnackBar(
+          content: Text(l10n.stepTransition(planStatusLabel(l10n, status)))));
       await _load();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Update failed: $e')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(l10n.updateFailedError('$e'))));
     }
   }
 
@@ -187,6 +199,8 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final planTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityPlan);
     final status = (_plan?['status'] ?? '').toString();
     final projects = ref.watch(hubProvider).value?.projects ?? const [];
     final projectName = projectNameFor(widget.projectId, projects);
@@ -204,7 +218,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
             Row(
               children: [
                 Text(
-                  'Plan',
+                  planTerm.title,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -230,11 +244,11 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
           PopupMenuButton<String>(
-            tooltip: 'Plan actions',
+            tooltip: l10n.planActionsTooltip(planTerm.lower),
             enabled: !_busy && _plan != null,
             icon: const Icon(Icons.more_vert),
             onSelected: _setPlanStatus,
@@ -247,7 +261,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
                       children: [
                         PlanStatusChip(status: s),
                         const SizedBox(width: 8),
-                        Text('Set $s'),
+                        Text(l10n.setStatusLabel(planStatusLabel(l10n, s))),
                       ],
                     ),
                   ),
@@ -261,7 +275,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
           : FloatingActionButton.small(
               heroTag: 'plan-step-fab',
               onPressed: _busy ? null : _openStepCreateSheet,
-              tooltip: 'Add step',
+              tooltip: l10n.buttonAddStep,
               child: const Icon(Icons.add),
             ),
     );
@@ -269,10 +283,11 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
 
   Widget _body() {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Padding(
         padding: const EdgeInsets.all(24),
-        child: Text(_error!,
+        child: Text(
+            _hubMissing ? AppLocalizations.of(context)!.hubNotConfigured : _error!,
             style: GoogleFonts.jetBrainsMono(
                 fontSize: 12, color: DesignColors.error)),
       );
@@ -308,8 +323,9 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
       if (st == 'blocked') blocked++;
     }
     final pct = total == 0 ? 0.0 : done / total;
+    final l10n = AppLocalizations.of(context)!;
     return _Section(
-      title: 'Progress ($done / $total)',
+      title: l10n.progressTitle(done, total),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -342,6 +358,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
   }
 
   Widget _pill(String label, int count, Color color) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
@@ -350,7 +367,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        '$label · $count',
+        '${planStatusLabel(l10n, label)} · $count',
         style: GoogleFonts.jetBrainsMono(
             fontSize: FontSizes.label, fontWeight: FontWeight.w700, color: color),
       ),
@@ -358,24 +375,29 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
   }
 
   Widget _header(Map<String, dynamic> plan) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final projectTerm = voc.term(VocabAxis.entityProject);
     final projects = ref.watch(hubProvider).value?.projects ?? const [];
     final projectId = widget.projectId;
     final projectName = projectNameFor(projectId, projects);
     final projectLabel = projectName == projectId || projectId.isEmpty
-        ? (projectId.isEmpty ? '(no project)' : projectId)
+        ? (projectId.isEmpty
+            ? l10n.noProjectValue(projectTerm.lower)
+            : projectId)
         : '$projectName  ·  ${shortId(projectId)}';
     final planId = (plan['id'] ?? '').toString();
     final rows = <_KV>[
-      _KV('project', projectLabel),
-      _KV('version', '${plan['version'] ?? 1}'),
+      _KV(projectTerm.lower, projectLabel),
+      _KV(l10n.metaVersion, '${plan['version'] ?? 1}'),
       if ((plan['template_id'] ?? '').toString().isNotEmpty)
-        _KV('template', (plan['template_id']).toString()),
-      _KV('created', (plan['created_at'] ?? '').toString()),
+        _KV(l10n.metaTemplate, (plan['template_id']).toString()),
+      _KV(l10n.metaCreated, (plan['created_at'] ?? '').toString()),
       if ((plan['started_at'] ?? '').toString().isNotEmpty)
-        _KV('started', plan['started_at'].toString()),
+        _KV(l10n.metaStarted, plan['started_at'].toString()),
       if ((plan['completed_at'] ?? '').toString().isNotEmpty)
-        _KV('completed', plan['completed_at'].toString()),
-      if (planId.isNotEmpty) _KV('id', shortId(planId)),
+        _KV(l10n.metaCompleted, plan['completed_at'].toString()),
+      if (planId.isNotEmpty) _KV(l10n.metaId, shortId(planId)),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -395,7 +417,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
       pretty = spec.toString();
     }
     return _Section(
-      title: 'Spec',
+      title: AppLocalizations.of(context)!.sectionSpec,
       child: SelectableText(
         pretty,
         style: GoogleFonts.jetBrainsMono(fontSize: 11, height: 1.4),
@@ -404,11 +426,12 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
   }
 
   Widget _stepsSection() {
+    final l10n = AppLocalizations.of(context)!;
     if (_steps.isEmpty) {
       return _Section(
-        title: 'Steps',
+        title: l10n.sectionSteps,
         child: Text(
-          'No steps yet.',
+          l10n.noStepsYet,
           style: GoogleFonts.spaceGrotesk(
               fontSize: 12, color: DesignColors.textMuted),
         ),
@@ -421,7 +444,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
     }
     final phases = byPhase.keys.toList()..sort();
     return _Section(
-      title: 'Steps (${_steps.length})',
+      title: l10n.sectionStepsCount(_steps.length),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -429,7 +452,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 8, bottom: Spacing.s8),
               child: Text(
-                'Phase $ph',
+                l10n.phaseLabel(ph),
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -508,7 +531,7 @@ class _Section extends StatelessWidget {
   }
 }
 
-class _StepRow extends StatelessWidget {
+class _StepRow extends ConsumerWidget {
   final Map<String, dynamic> step;
   final List<Map<String, dynamic>> agents;
   final VoidCallback onTap;
@@ -519,7 +542,9 @@ class _StepRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final agentTerm = ref.watch(vocabularyProvider).term(VocabAxis.roleAgent);
     final kind = (step['kind'] ?? '').toString();
     final status = (step['status'] ?? '').toString();
     final idx = (step['step_idx'] ?? 0).toString();
@@ -562,7 +587,7 @@ class _StepRow extends StatelessWidget {
                   ),
                   if (agentLabel.isNotEmpty)
                     Text(
-                      'agent: $agentLabel',
+                      l10n.stepAgentLine(agentTerm.lower, agentLabel),
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.jetBrainsMono(
                         fontSize: FontSizes.label,
@@ -581,7 +606,7 @@ class _StepRow extends StatelessWidget {
   }
 }
 
-class _StepDetailSheet extends StatelessWidget {
+class _StepDetailSheet extends ConsumerWidget {
   final Map<String, dynamic> step;
   final List<Map<String, dynamic>> agents;
   final ValueChanged<String> onTransition;
@@ -592,7 +617,9 @@ class _StepDetailSheet extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final agentTerm = ref.watch(vocabularyProvider).term(VocabAxis.roleAgent);
     final kind = (step['kind'] ?? '').toString();
     final status = (step['status'] ?? '').toString();
     final phase = (step['phase_idx'] ?? 0).toString();
@@ -620,7 +647,7 @@ class _StepDetailSheet extends StatelessWidget {
                     PlanStatusChip(status: status),
                     const SizedBox(width: 8),
                     Text(
-                      'Phase $phase · step $idx',
+                      l10n.phaseStepLabel(phase, idx),
                       style: GoogleFonts.jetBrainsMono(
                           fontSize: 12,
                           color: DesignColors.textMuted),
@@ -644,18 +671,18 @@ class _StepDetailSheet extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'agent: $agentLabel',
+                l10n.stepAgentLine(agentTerm.lower, agentLabel),
                 style: GoogleFonts.jetBrainsMono(
                     fontSize: 11, color: DesignColors.textMuted),
               ),
             ),
           const SizedBox(height: 16),
-          ..._specBlocks(context, spec),
-          _kvBlock(context, 'Inputs', inputs),
-          _kvBlock(context, 'Outputs', outputs),
+          ..._specBlocks(context, spec, l10n),
+          _kvBlock(context, l10n.sectionInputs, inputs),
+          _kvBlock(context, l10n.sectionOutputs, outputs),
           const SizedBox(height: 16),
           Text(
-            'Set status',
+            l10n.setStatusSectionLabel,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 12,
               fontWeight: FontWeight.w700,
@@ -676,7 +703,7 @@ class _StepDetailSheet extends StatelessWidget {
                       children: [
                         PlanStatusChip(status: s),
                         const SizedBox(width: 6),
-                        Text(s),
+                        Text(planStatusLabel(l10n, s)),
                       ],
                     ),
                   ),
@@ -693,9 +720,10 @@ class _StepDetailSheet extends StatelessWidget {
   /// each step actually does without squinting at a JSON tree. The
   /// remaining scalar fields render as a compact kv block; anything
   /// left (nested objects, arrays) falls into the raw JSON tail.
-  List<Widget> _specBlocks(BuildContext context, dynamic raw) {
+  List<Widget> _specBlocks(
+      BuildContext context, dynamic raw, AppLocalizations l10n) {
     if (raw == null) return const [];
-    if (raw is! Map) return [_kvBlock(context, 'Spec', raw)];
+    if (raw is! Map) return [_kvBlock(context, l10n.sectionSpec, raw)];
     if (raw.isEmpty) return const [];
 
     // Known verbose fields, in display order. command/cmd/script tend to
@@ -732,11 +760,11 @@ class _StepDetailSheet extends StatelessWidget {
       out.add(_scalarGrid(context, scalars));
     }
     if (other.isNotEmpty) {
-      out.add(_kvBlock(context, 'Other', other));
+      out.add(_kvBlock(context, l10n.sectionOther, other));
     }
     if (out.isEmpty) {
       // Pure-map spec with no recognised fields (rare): still show it.
-      out.add(_kvBlock(context, 'Spec', raw));
+      out.add(_kvBlock(context, l10n.sectionSpec, raw));
     }
     return out;
   }

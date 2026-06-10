@@ -871,5 +871,13 @@
   "taskNotification": "任务通知",
   "taskMessage": "任务：{message}",
   "copyKindTile": "卡片",
-  "copiedKind": "已复制{kind}"
+  "copiedKind": "已复制{kind}",
+
+  "navNoErrors": "无错误——干净的运行。",
+  "navNoTurns": "尚未记录任何轮次。",
+  "navNoMap": "尚无可映射的工具调用、轮次或错误。",
+  "jumpToEventPos": "跳转到事件 {n} / {m}",
+  "jumpToEvent": "跳转到事件…",
+  "jumpToEventOf": "跳转到事件 第 {n} / 共 {m}",
+  "scrubHint": "在运行中任意位置拖动，然后跳转。"
 }

@@ -12,6 +12,7 @@ import '../../providers/hub_provider.dart';
 import '../../providers/ssh_provider.dart' show activeSshConnectionIdsProvider;
 import '../../services/keychain/secure_storage.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/hub_tile.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
@@ -247,7 +248,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
           else if (_personalHostsExpanded && rows.isNotEmpty)
             const SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(20, 0, 16, 12),
+                padding: EdgeInsets.fromLTRB(Spacing.s16, 0, 16, 12),
                 child:
                     _NoHostsHint(text: 'No personal-only bookmarks yet.'),
               ),
@@ -479,7 +480,7 @@ class _HostTile extends ConsumerWidget {
         onTap: () => _handleTap(context, ref),
         onLongPress: () => _showActionSheet(context, ref),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+          padding: const EdgeInsets.fromLTRB(Spacing.s12, 12, Spacing.s8, 12),
           child: Row(
             children: [
               Expanded(
@@ -488,7 +489,7 @@ class _HostTile extends ConsumerWidget {
                   children: [
                     Text(row.displayName,
                         style: GoogleFonts.spaceGrotesk(
-                            fontSize: 15, fontWeight: FontWeight.w700)),
+                            fontSize: FontSizes.subtitle, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(row.subtitle,
                         style: GoogleFonts.jetBrainsMono(
@@ -701,16 +702,16 @@ class _ScopeBadge extends StatelessWidget {
       }
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: color.withValues(alpha: 0.4), width: 0.5),
       ),
       child: Text(
         label,
         style: GoogleFonts.jetBrainsMono(
-            fontSize: 10, fontWeight: FontWeight.w600, color: color),
+            fontSize: FontSizes.label, fontWeight: FontWeight.w600, color: color),
       ),
     );
   }
@@ -767,7 +768,7 @@ class _CollapsibleHeader extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 16, 4),
+        padding: const EdgeInsets.fromLTRB(Spacing.s16, 12, 16, 4),
         child: Row(
           children: [
             Text(
@@ -821,7 +822,7 @@ class _VaultSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+          padding: const EdgeInsets.fromLTRB(Spacing.s16, 12, Spacing.s16, 4),
           child: Text(
             'VAULT',
             style: GoogleFonts.spaceGrotesk(
@@ -844,7 +845,7 @@ class _VaultSection extends StatelessWidget {
               )),
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 12),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: border),

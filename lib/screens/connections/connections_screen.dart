@@ -13,6 +13,7 @@ import '../../services/ssh/ssh_client.dart';
 import '../../services/tmux/tmux_commands.dart';
 import '../../services/tmux/tmux_parser.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'connection_form_screen.dart';
 import '../terminal/terminal_screen.dart';
 import '../terminal/widgets/new_session_dialog.dart';
@@ -327,7 +328,7 @@ class ConnectionsScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: Radii.lgBorder,
               border: Border.all(color: isDark ? DesignColors.borderDark : DesignColors.borderLight),
             ),
             child: Icon(
@@ -404,7 +405,7 @@ class ConnectionsScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: Radii.lgBorder,
               border: Border.all(color: isDark ? DesignColors.borderDark : DesignColors.borderLight),
             ),
             child: Icon(
@@ -633,7 +634,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                           color: hasActiveSessions
                               ? (isDark ? DesignColors.connectingCardDark : DesignColors.connectingCardLight)
                               : (isDark ? DesignColors.borderDark : DesignColors.borderLight),
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: Radii.mdBorder,
                           border: Border.all(
                             color: hasActiveSessions
                                 ? (isDark ? DesignColors.connectingCardBorderDark : DesignColors.connectingCardBorderLight)
@@ -703,7 +704,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                               const SizedBox(width: 8),
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
+                                    horizontal: Spacing.s8, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: DesignColors.primary.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(4),
@@ -715,7 +716,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                                 child: Text(
                                   'RAW',
                                   style: GoogleFonts.jetBrainsMono(
-                                    fontSize: 9,
+                                    fontSize: FontSizes.label,
                                     fontWeight: FontWeight.w700,
                                     color: DesignColors.primary,
                                     letterSpacing: 0.8,
@@ -747,7 +748,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                       message: AppLocalizations.of(context)!.connectAsRawShell,
                       child: InkWell(
                         onTap: widget.onConnectRaw,
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: Radii.mdBorder,
                         child: Container(
                           // Match the leftmost status-icon footprint
                           // (40x40 / 20pt glyph) so the shortcut doesn't
@@ -759,7 +760,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                             color: isDark
                                 ? DesignColors.borderDark
                                 : DesignColors.borderLight,
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: Radii.mdBorder,
                           ),
                           child: Icon(
                             Icons.terminal,
@@ -947,7 +948,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                 side: BorderSide(
                   color: colorScheme.primary.withValues(alpha: 0.4),
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
                 minimumSize: const Size(double.infinity, 0),
               ),
             ),
@@ -1007,7 +1008,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                 Text(
                   AppLocalizations.of(context)!.activeSessions.toUpperCase(),
                   style: GoogleFonts.spaceGrotesk(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     fontWeight: FontWeight.w700,
                     color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
                     letterSpacing: 1.5,
@@ -1081,7 +1082,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                   color: colorScheme.primary.withValues(alpha: 0.3),
                   style: BorderStyle.solid,
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
                 minimumSize: const Size(double.infinity, 0),
               ),
             ),
@@ -1176,7 +1177,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
               ),
               // Status Badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
                 decoration: BoxDecoration(
                   color: isAttached
                       ? (isDark ? DesignColors.connectedCardDark.withValues(alpha: 0.5) : DesignColors.connectedCardLight)
@@ -1191,7 +1192,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                 child: Text(
                   isAttached ? AppLocalizations.of(context)!.sessionAttached : AppLocalizations.of(context)!.sessionDetached,
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     fontWeight: FontWeight.w500,
                     color: isAttached
                         ? (isDark ? DesignColors.connectedCardTextDark : DesignColors.connectedCardTextLight)

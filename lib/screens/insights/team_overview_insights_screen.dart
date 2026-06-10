@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../projects/project_detail_screen.dart';
 
 /// Team-level aggregate dashboard surfaced by the AppBar Insights icon
@@ -234,7 +235,7 @@ class _StatTile extends StatelessWidget {
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     final accent = tone ?? DesignColors.primary;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
@@ -255,7 +256,7 @@ class _StatTile extends StatelessWidget {
           Text(
             label,
             style: GoogleFonts.spaceGrotesk(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               color: DesignColors.textMuted,
               letterSpacing: 0.5,
             ),
@@ -273,7 +274,7 @@ class _Section extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, Spacing.s8),
       child: Text(
         title.toUpperCase(),
         style: GoogleFonts.spaceGrotesk(
@@ -306,7 +307,7 @@ class _PhaseDistribution extends StatelessWidget {
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
@@ -333,7 +334,7 @@ class _PhaseDistribution extends StatelessWidget {
                   ),
                   Expanded(
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
+                      borderRadius: Radii.xsBorder,
                       child: LinearProgressIndicator(
                         value: max == 0 ? 0 : e.value / max,
                         minHeight: 6,
@@ -400,7 +401,7 @@ class _ActivityRecency extends StatelessWidget {
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
@@ -471,7 +472,7 @@ class _Bucket extends StatelessWidget {
         Text(
           label,
           style: GoogleFonts.spaceGrotesk(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             color: DesignColors.textMuted,
             letterSpacing: 0.5,
           ),
@@ -521,7 +522,7 @@ class _MostRecentList extends ConsumerWidget {
               borderRadius: BorderRadius.circular(8),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
+                    horizontal: 12, vertical: Spacing.s8),
                 child: Row(
                   children: [
                     Expanded(
@@ -539,7 +540,7 @@ class _MostRecentList extends ConsumerWidget {
                     Text(
                       _relativeTime(top[i].lastActivity),
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: DesignColors.textMuted,
                       ),
                     ),
@@ -578,7 +579,7 @@ class _AgentLeaderboard extends StatelessWidget {
           for (var i = 0; i < top.length; i++) ...[
             Padding(
               padding: const EdgeInsets.symmetric(
-                  horizontal: 12, vertical: 10),
+                  horizontal: 12, vertical: Spacing.s8),
               child: Row(
                 children: [
                   Expanded(
@@ -598,7 +599,7 @@ class _AgentLeaderboard extends StatelessWidget {
                         Text(
                           _agentSub(top[i]),
                           style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10,
+                            fontSize: FontSizes.label,
                             color: DesignColors.textMuted,
                           ),
                         ),

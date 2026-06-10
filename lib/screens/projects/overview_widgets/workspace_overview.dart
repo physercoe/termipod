@@ -6,6 +6,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/app_chip.dart';
 import '../plan_viewer_screen.dart';
 import '../plans_screen.dart';
 import '../reviews_screen.dart';
@@ -166,13 +167,13 @@ class _WorkspaceHeaderState extends ConsumerState<WorkspaceHeader> {
             spacing: 6,
             runSpacing: 6,
             children: [
-              _Chip(
+              AppStatusChip(
                 label: status.isEmpty ? 'active' : status,
                 color: status == 'archived'
                     ? DesignColors.textMuted
                     : DesignColors.terminalGreen,
               ),
-              _Chip(
+              AppStatusChip(
                 label: stewardAgentId.isEmpty
                     ? 'steward: not-configured'
                     : 'steward: configured',
@@ -182,7 +183,7 @@ class _WorkspaceHeaderState extends ConsumerState<WorkspaceHeader> {
                 icon: Icons.smart_toy_outlined,
               ),
               if (budgetCents is int)
-                _Chip(
+                AppStatusChip(
                   label:
                       'budget: \$0 / \$${(budgetCents / 100).toStringAsFixed(0)}',
                   color: DesignColors.warning,
@@ -197,7 +198,7 @@ class _WorkspaceHeaderState extends ConsumerState<WorkspaceHeader> {
                           ReviewsScreen(projectId: widget.ctx.projectId),
                     ),
                   ),
-                  child: _Chip(
+                  child: AppStatusChip(
                     label: openAttention == 1
                         ? '1 review'
                         : '$openAttention reviews',
@@ -662,44 +663,6 @@ class _FiringRow extends StatelessWidget {
     final startRel = formatRelative(started);
     if (finished == null) return 'started $startRel';
     return 'started $startRel · ${formatRelative(finished)}';
-  }
-}
-
-/// Small chip duplicating the styling in PortfolioHeader. Kept local so
-/// the two chassis can diverge without a shared base.
-class _Chip extends StatelessWidget {
-  final String label;
-  final Color color;
-  final IconData? icon;
-  const _Chip({required this.label, required this.color, this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 11, color: color),
-            const SizedBox(width: 3),
-          ],
-          Text(
-            label,
-            style: GoogleFonts.jetBrainsMono(
-              fontSize: FontSizes.label,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

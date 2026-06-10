@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
+import 'app_chip.dart';
 
 /// Foldable run-report dashboard (ADR-038 / agent-run-analysis-mode plan
 /// P1). Renders the per-run **digest** as an overview card over the
@@ -129,7 +130,7 @@ class _RunReportCardState extends State<RunReportCard> {
                     ),
                   ),
                   if (errors > 0) ...[
-                    _ErrorPill(count: errors),
+                    AppStatusChip(label: '⚠ $errors', color: DesignColors.error),
                     const SizedBox(width: 6),
                   ],
                   Icon(
@@ -439,23 +440,3 @@ class _Stat extends StatelessWidget {
   }
 }
 
-class _ErrorPill extends StatelessWidget {
-  final int count;
-  const _ErrorPill({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
-      decoration: BoxDecoration(
-        color: DesignColors.error.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text('⚠ $count',
-          style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: DesignColors.error)),
-    );
-  }
-}

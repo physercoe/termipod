@@ -2,7 +2,7 @@
 # Regenerate with: scripts/lint-design-tokens.sh --update
 # One <category>\t<count> per line. Counts may only DECREASE —
 # lowering them as the backlog burns down (WS6) is the point.
-private_chip_class	30
+private_chip_class	15
 raw_material_color	3
 stray_hex_color	0
 off_scale_radius	16

@@ -16,6 +16,7 @@ import '../../providers/sessions_provider.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/app_chip.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
@@ -1093,7 +1094,10 @@ class _ProjectListCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               if (openCriteria > 0)
-                _OpenAcChip(count: openCriteria)
+                AppStatusChip(
+                    label: '$openCriteria open AC',
+                    color: DesignColors.warning,
+                    icon: Icons.check_circle_outline)
               else
                 Text(
                   'no open AC',
@@ -1239,40 +1243,6 @@ class _PhasePill extends StatelessWidget {
 /// "N open AC" badge with muted-warning palette. Distinct from the
 /// attention badge above so the eye can separate "decisions for me"
 /// from "ratification gates I haven't met yet."
-class _OpenAcChip extends StatelessWidget {
-  final int count;
-  const _OpenAcChip({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
-      decoration: BoxDecoration(
-        color: DesignColors.warning.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(4),
-        border:
-            Border.all(color: DesignColors.warning.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.check_circle_outline,
-              size: 10, color: DesignColors.warning),
-          const SizedBox(width: 3),
-          Text(
-            '$count open AC',
-            style: GoogleFonts.jetBrainsMono(
-              fontSize: FontSizes.label,
-              fontWeight: FontWeight.w700,
-              color: DesignColors.warning,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Small pill shown on project rows and the project Overview to surface
 /// open attention count. Muted warning color — not a red-dot "unread"
 /// because attention items are approvals/decisions, not missed messages.
@@ -1368,27 +1338,6 @@ class _InfoTile extends StatelessWidget {
   }
 }
 
-class _Chip extends StatelessWidget {
-  final String text;
-  final Color color;
-  const _Chip({required this.text, required this.color});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Text(
-        text,
-        style: GoogleFonts.jetBrainsMono(
-            fontSize: FontSizes.label, fontWeight: FontWeight.w600, color: color),
-      ),
-    );
-  }
-}
 
 // ---------------------------------------------------------------------
 // Agent / Host detail sheets — Pause, Resume, Terminate, pane preview,
@@ -1629,7 +1578,7 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                       style: GoogleFonts.spaceGrotesk(
                           fontSize: 18, fontWeight: FontWeight.w700)),
                 ),
-                _Chip(text: status, color: _agentStatusColor(status)),
+                AppStatusChip(label: status, color: _agentStatusColor(status)),
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
                   tooltip: 'Edit host',

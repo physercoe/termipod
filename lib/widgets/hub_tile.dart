@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
+import 'app_chip.dart';
 
 /// Hub group tile rendered atop the Hosts tab — the visual sibling of
 /// the per-hostrunner row but backed by `/v1/hub/stats` instead of
@@ -100,7 +101,9 @@ class HubTile extends StatelessWidget {
                                 fontSize: 11, color: muted)),
                         if (stale) ...[
                           const SizedBox(width: 6),
-                          _StalePill(),
+                          AppStatusChip(
+                              label: 'stale',
+                              color: Theme.of(context).hintColor),
                         ],
                       ],
                     ),
@@ -116,24 +119,6 @@ class HubTile extends StatelessWidget {
   }
 }
 
-class _StalePill extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final color = Theme.of(context).hintColor;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: Radii.smBorder,
-      ),
-      child: Text(
-        'stale',
-        style: GoogleFonts.jetBrainsMono(
-            fontSize: FontSizes.label, fontWeight: FontWeight.w700, color: color),
-      ),
-    );
-  }
-}
 
 int _int64(Object? v) {
   if (v is int) return v;

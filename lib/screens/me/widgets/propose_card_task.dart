@@ -79,14 +79,14 @@ class ProposeCardTask extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s8),
             decoration: BoxDecoration(
-              color: (isDark ? Colors.grey.shade900 : Colors.grey.shade100),
+              color: (isDark ? DesignColors.surfaceDark : DesignColors.canvasLight),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
               resultSummary,
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 11,
-                color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
+                color: isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight,
               ),
             ),
           ),

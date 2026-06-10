@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
+import '../../services/vocab/vocab_term.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import 'schedule_create_sheet.dart';
@@ -68,26 +72,30 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Toggle failed: $e')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.toggleFailedError('$e'))),
       );
     }
   }
 
   Future<void> _confirmDelete(String id, String name) async {
+    final l10n = AppLocalizations.of(context)!;
+    final scheduleTerm =
+        ref.read(vocabularyProvider).term(VocabAxis.entitySchedule);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete schedule?'),
-        content: Text('"$name" will stop firing. This cannot be undone.'),
+        title: Text(l10n.deleteScheduleTitle(scheduleTerm.lower)),
+        content: Text(l10n.deleteScheduleBody(name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -101,7 +109,8 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $e')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.deleteFailedError('$e'))),
       );
     }
   }
@@ -111,19 +120,21 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     final messenger = ScaffoldMessenger.of(context);
+    final l10n = AppLocalizations.of(context)!;
     setState(() => _running.add(id));
     try {
       final planId = await client.runSchedule(id);
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
         content: Text(planId.isEmpty
-            ? 'Fired $name'
-            : 'Fired $name → plan $planId'),
+            ? l10n.scheduleFired(name)
+            : l10n.scheduleFiredPlan(name, planId)),
       ));
       await _load();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Run failed: $e')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(l10n.runFailedError('$e'))));
     } finally {
       if (mounted) setState(() => _running.remove(id));
     }
@@ -150,29 +161,32 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final scheduleTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entitySchedule);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Schedules',
+          l10n.schedulesTitle(scheduleTerm.plural),
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
         actions: [
           PopupMenuButton<String>(
-            tooltip: 'More',
+            tooltip: l10n.tooltipMore,
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
               if (v == 'new') _openCreate();
               if (v == 'refresh') _load();
             },
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'new',
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.add, size: 20),
-                  title: Text('New schedule'),
+                  leading: const Icon(Icons.add, size: 20),
+                  title: Text(l10n.newSchedule(scheduleTerm.lower)),
                 ),
               ),
               PopupMenuItem(
@@ -180,8 +194,8 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.refresh, size: 20),
-                  title: Text('Refresh'),
+                  leading: const Icon(Icons.refresh, size: 20),
+                  title: Text(l10n.buttonRefresh),
                 ),
               ),
             ],
@@ -211,7 +225,7 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
                             _load();
                           },
                           icon: const Icon(Icons.refresh, size: 16),
-                          label: const Text('Retry'),
+                          label: Text(l10n.buttonRetry),
                         ),
                       ],
                     ),
@@ -219,7 +233,7 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
                 )
               : RefreshIndicator(
                   onRefresh: _load,
-                  child: _buildList(),
+                  child: _buildList(l10n, scheduleTerm),
                 ),
     );
   }
@@ -227,7 +241,7 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
   // Summary header: how many schedules are enabled and when the next
   // firing lands. Lead with status so the screen reads as a monitoring
   // surface first and an authoring surface second.
-  String _buildSummary(List<Map<String, dynamic>> rows) {
+  String _buildSummary(AppLocalizations l10n, List<Map<String, dynamic>> rows) {
     if (rows.isEmpty) return '';
     final enabled = rows.where((r) => r['enabled'] == true).length;
     final now = DateTime.now();
@@ -240,17 +254,17 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
       if (dt == null || dt.isBefore(now)) continue;
       if (nextDt == null || dt.isBefore(nextDt)) nextDt = dt;
     }
-    final parts = <String>['$enabled of ${rows.length} enabled'];
+    final parts = <String>[l10n.scheduleSummaryEnabled(enabled, rows.length)];
     if (nextDt != null) {
-      parts.add('next fires ${_fmtRel(nextDt.toIso8601String())}');
+      parts.add(l10n.scheduleNextFires(_fmtRel(l10n, nextDt.toIso8601String())));
     }
     return parts.join(' · ');
   }
 
-  Widget _buildList() {
+  Widget _buildList(AppLocalizations l10n, VocabTerm scheduleTerm) {
     final rows = _rows ?? const <Map<String, dynamic>>[];
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final summary = _buildSummary(rows);
+    final summary = _buildSummary(l10n, rows);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
       children: [
@@ -272,7 +286,7 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
             padding: const EdgeInsets.symmetric(vertical: 48),
             child: Center(
               child: Text(
-                'No schedules yet. Use the menu to create one.',
+                l10n.noSchedulesHint(scheduleTerm.pluralLower),
                 textAlign: TextAlign.center,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 13,
@@ -327,6 +341,7 @@ class _ScheduleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final template = (row['template_id'] ?? '').toString();
     final trigger = (row['trigger_kind'] ?? 'cron').toString();
@@ -334,14 +349,19 @@ class _ScheduleTile extends StatelessWidget {
     final enabled = row['enabled'] == true;
     final nextRun = (row['next_run_at'] ?? '').toString();
     final lastRun = (row['last_run_at'] ?? '').toString();
-    final header = template.isEmpty ? '(unknown template)' : template;
+    final header = template.isEmpty ? l10n.unknownTemplate : template;
+    final triggerLabel = scheduleTriggerLabel(l10n, trigger);
     final detail = trigger == 'cron' && cron.isNotEmpty
-        ? '$trigger · $cron'
-        : trigger;
+        ? '$triggerLabel · $cron'
+        : triggerLabel;
 
     final meta = <String>[];
-    if (nextRun.isNotEmpty) meta.add('next ${_fmtRel(nextRun)}');
-    if (lastRun.isNotEmpty) meta.add('last ${_fmtRel(lastRun)}');
+    if (nextRun.isNotEmpty) {
+      meta.add(l10n.scheduleMetaNext(_fmtRel(l10n, nextRun)));
+    }
+    if (lastRun.isNotEmpty) {
+      meta.add(l10n.scheduleMetaLast(_fmtRel(l10n, lastRun)));
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -389,7 +409,7 @@ class _ScheduleTile extends StatelessWidget {
           // has no enabled gate and "test a disabled schedule" is a
           // legitimate case.
           IconButton(
-            tooltip: 'Run now',
+            tooltip: l10n.tooltipRunNow,
             icon: running
                 ? const SizedBox(
                     width: 16,
@@ -401,21 +421,21 @@ class _ScheduleTile extends StatelessWidget {
             onPressed: running ? null : onRunNow,
           ),
           PopupMenuButton<String>(
-            tooltip: 'More',
+            tooltip: l10n.tooltipMore,
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
               if (v == 'edit') onEdit();
               if (v == 'duplicate') onDuplicate();
               if (v == 'delete') onDelete();
             },
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'edit',
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.edit_outlined, size: 20),
-                  title: Text('Edit'),
+                  leading: const Icon(Icons.edit_outlined, size: 20),
+                  title: Text(l10n.buttonEdit),
                 ),
               ),
               PopupMenuItem(
@@ -423,8 +443,8 @@ class _ScheduleTile extends StatelessWidget {
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.copy, size: 20),
-                  title: Text('Duplicate'),
+                  leading: const Icon(Icons.copy, size: 20),
+                  title: Text(l10n.buttonDuplicate),
                 ),
               ),
               PopupMenuItem(
@@ -432,8 +452,9 @@ class _ScheduleTile extends StatelessWidget {
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.delete, color: DesignColors.error, size: 20),
-                  title: Text('Delete'),
+                  leading: const Icon(Icons.delete,
+                      color: DesignColors.error, size: 20),
+                  title: Text(l10n.buttonDelete),
                 ),
               ),
             ],
@@ -447,7 +468,7 @@ class _ScheduleTile extends StatelessWidget {
 // Turns an ISO-8601 timestamp into a compact relative string. Falls
 // back to the raw value on parse failure so a surprising format still
 // shows *something* rather than nothing.
-String _fmtRel(String iso) {
+String _fmtRel(AppLocalizations l10n, String iso) {
   final dt = DateTime.tryParse(iso);
   if (dt == null) return iso;
   final now = DateTime.now();
@@ -466,5 +487,5 @@ String _fmtRel(String iso) {
   } else {
     return iso.split('T').first;
   }
-  return future ? 'in $mag' : '$mag ago';
+  return future ? l10n.relativeInFuture(mag) : l10n.relativePast(mag);
 }

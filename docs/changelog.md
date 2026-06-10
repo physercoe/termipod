@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-10)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.814
+> **Last verified vs code:** v1.0.815
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,32 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.815-alpha — 2026-06-10
+
+Continued ADR-047 design-system burn-down — colors, elevation, and chip
+consolidation. Token ratchet 130 → 100 (cumulative 1230 → 100 since
+ADR-047). Visual deltas await director device-test.
+
+**Changed**
+
+- **Semantic colors → `DesignColors` tokens** (#133, #134) — raw Material
+  `Colors.red`/`green`/`orange`/`amber`/`grey` mapped to the design-system
+  status tokens (`error`/`success`/`warning`/`textMuted`/border…); the
+  last drift hexes and greys mapped to existing surface/text tokens; new
+  `DesignColors.violet` for the 5th chart series. No visual change.
+  `raw_material_color` 39 → 3, `stray_hex_color` 5 → 0.
+- **Flat by default** (#135, ADR-047 D-8) — removed all 15 `boxShadow`
+  blocks; cards / overlays / buttons now rely on border + surface tone
+  for elevation, and the five state-glow shadows (focused field, selected
+  segment, active-session dot) were redundant with their color/fill
+  signal. `box_shadow` 15 → 0.
+- **Chip consolidation** (#136, ADR-047 D-7) — collapsed 15 bespoke
+  `_*Chip`/`_*Pill` classes (the tinted-label reimplementations) into the
+  shared `AppStatusChip`; chip visuals now normalize to one spec.
+  `private_chip_class` 30 → 15. −287 lines.
 
 ---
 

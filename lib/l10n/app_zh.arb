@@ -829,7 +829,7 @@
   "errorClassToolError": "工具错误",
   "errorClassFailedTurn": "失败的轮次",
   "errorClassError": "错误",
-  "errorClassTyped": "错误 · {type}",
+  "errorClassTyped": "错误 · {kind}",
   "filterTranscript": "筛选转录",
   "olderMatch": "较早的匹配",
   "newerMatch": "较新的匹配",

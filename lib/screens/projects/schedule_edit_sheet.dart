@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
+import 'schedule_create_sheet.dart' show scheduleTriggerLabel;
 
 /// In-place editor for an existing schedule. patchSchedule accepts
 /// `cron_expr`, `parameters_json`, and `enabled`; template_id, project_id,
@@ -89,12 +93,14 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
         try {
           final decoded = jsonDecode(paramsText);
           if (decoded is! Map) {
-            setState(() => _paramsError = 'Parameters must be a JSON object.');
+            setState(() => _paramsError =
+                AppLocalizations.of(context)!.paramsMustBeJsonObject);
             return;
           }
           paramsChange = decoded.cast<String, dynamic>();
         } catch (e) {
-          setState(() => _paramsError = 'Invalid JSON: $e');
+          setState(() => _paramsError =
+              AppLocalizations.of(context)!.invalidJsonError('$e'));
           return;
         }
       }
@@ -123,13 +129,18 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Update failed: $e')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.updateFailedError('$e'))),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final scheduleTerm = voc.term(VocabAxis.entitySchedule);
+    final projectTerm = voc.term(VocabAxis.entityProject);
     final template = (widget.schedule['template_id'] ?? '').toString();
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -162,7 +173,7 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
               ),
             ),
             Text(
-              'Edit schedule',
+              l10n.editSchedule(scheduleTerm.lower),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -170,22 +181,21 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Template, project, and trigger kind are frozen after '
-              'create. Duplicate the schedule if you need to change those.',
+              l10n.scheduleFrozenNote(projectTerm.lower, scheduleTerm.lower),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 color: DesignColors.textMuted,
               ),
             ),
             const SizedBox(height: 16),
-            _label('Template'),
+            _label(l10n.fieldTemplate),
             InputDecorator(
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
               child: Text(
-                template.isEmpty ? '(unknown)' : template,
+                template.isEmpty ? l10n.unknownValue : template,
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: 13,
                   color: DesignColors.textMuted,
@@ -193,14 +203,14 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            _label('Trigger'),
+            _label(l10n.fieldTrigger),
             InputDecorator(
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
               child: Text(
-                _triggerKind,
+                scheduleTriggerLabel(l10n, _triggerKind),
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: 13,
                   color: DesignColors.textMuted,
@@ -209,7 +219,7 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
             ),
             if (_triggerKind == 'cron') ...[
               const SizedBox(height: 16),
-              _label('Cron expression'),
+              _label(l10n.fieldCronExpr),
               TextField(
                 controller: _cron,
                 enabled: !_submitting,
@@ -222,7 +232,7 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
               ),
             ],
             const SizedBox(height: 16),
-            _label('Parameters (JSON)'),
+            _label(l10n.fieldParamsJson),
             TextField(
               controller: _params,
               enabled: !_submitting,
@@ -254,7 +264,7 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Save changes'),
+                  : Text(l10n.buttonSaveChanges),
             ),
           ],
         ),

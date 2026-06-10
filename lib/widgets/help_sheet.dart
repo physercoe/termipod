@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../models/action_bar_config.dart';
 import '../providers/action_bar_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Tmux cheat sheet entry
 class _TmuxEntry {
@@ -134,7 +135,7 @@ class _HelpSheetContent extends StatelessWidget {
               height: 4,
               decoration: BoxDecoration(
                 color: mutedColor,
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: Radii.xsBorder,
               ),
             ),
           ),
@@ -262,7 +263,7 @@ class _HelpSheetContent extends StatelessWidget {
         children: [
           Container(
             width: 48,
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s4),
             decoration: BoxDecoration(
               color: DesignColors.primary.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(4),
@@ -381,7 +382,7 @@ class _HelpSheetContent extends StatelessWidget {
                 children: [
                   Container(
                     width: 110,
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s4),
                     decoration: BoxDecoration(
                       color: DesignColors.primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(4),
@@ -447,7 +448,7 @@ class _HelpSheetContent extends StatelessWidget {
                 children: [
                   Container(
                     width: 80,
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s4),
                     decoration: BoxDecoration(
                       color: DesignColors.primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(4),

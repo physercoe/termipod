@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Filterable cross-team view of `audit_events` (ADR-028 Phase 5 /
 /// plan W25). Backed by the owner-scope `GET /v1/admin/audit` query.
@@ -237,7 +238,7 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
           child: Text(
             label,
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 9,
+              fontSize: FontSizes.label,
               color: isDark
                   ? DesignColors.textMuted
                   : DesignColors.textMutedLight,
@@ -256,16 +257,16 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
 
   Widget _filterChip(String label, bool selected, VoidCallback onTap) {
     return Padding(
-      padding: const EdgeInsets.only(right: 6),
+      padding: const EdgeInsets.only(right: Spacing.s8),
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s4),
           decoration: BoxDecoration(
             color: selected
                 ? DesignColors.primary.withValues(alpha: 0.18)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: Radii.lgBorder,
             border: Border.all(
               color: selected
                   ? DesignColors.primary
@@ -297,7 +298,7 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
     final team = (e['team_id'] as String?) ?? '';
 
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
         borderRadius: BorderRadius.circular(8),
@@ -322,7 +323,7 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
               ),
               Text(
                 ts,
-                style: GoogleFonts.jetBrainsMono(fontSize: 9, color: muted),
+                style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
               ),
             ],
           ),
@@ -331,7 +332,7 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
           const SizedBox(height: 3),
           Text(
             '${actor.isEmpty ? actorKind : actor} · $team',
-            style: GoogleFonts.jetBrainsMono(fontSize: 9, color: muted),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
           ),
         ],
       ),

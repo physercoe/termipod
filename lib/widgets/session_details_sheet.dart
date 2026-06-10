@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 import 'app_chip.dart';
 
 // ---------------------------------------------------------------------------
@@ -189,7 +190,7 @@ class SessionInitChip extends StatelessWidget {
           // Tight vertical padding so the chip sits flush with the 10px
           // identity subtitle it shares row 2 with — at vertical:4 the chip
           // made the row visibly taller than the bare "steward @host" line.
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -225,7 +226,7 @@ class SessionInitChip extends StatelessWidget {
           statusLine: statusLine),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s8),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -321,7 +322,7 @@ class _SessionDetailsSheet extends StatelessWidget {
         child: Text(
           title,
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             fontWeight: FontWeight.w700,
             color: mutedColor,
             letterSpacing: 0.5,
@@ -595,7 +596,7 @@ class _ChipWrap extends StatelessWidget {
       children: [
         for (final it in items)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(4),
               border: Border.all(color: border),
@@ -733,7 +734,7 @@ Future<void> showModeModelPickerSheet(
             children: [
               if (data.hasMode) ...[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(0, 4, 0, 6),
+                  padding: const EdgeInsets.fromLTRB(0, 4, 0, Spacing.s8),
                   child: Text(
                     'Mode',
                     style: Theme.of(sheetCtx).textTheme.titleSmall,
@@ -749,7 +750,7 @@ Future<void> showModeModelPickerSheet(
                 const SizedBox(height: 12),
               if (data.hasModel) ...[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(0, 4, 0, 6),
+                  padding: const EdgeInsets.fromLTRB(0, 4, 0, Spacing.s8),
                   child: Text(
                     'Model',
                     style: Theme.of(sheetCtx).textTheme.titleSmall,

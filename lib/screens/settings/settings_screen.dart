@@ -20,6 +20,7 @@ import '../../models/action_bar_config.dart';
 import '../../models/action_bar_presets.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'action_bar_settings_screen.dart';
 import 'file_browser_screen.dart';
 import '../vault/vault_screen.dart';
@@ -191,7 +192,7 @@ class _CategoryCard extends StatelessWidget {
         height: 36,
         decoration: BoxDecoration(
           color: scheme.primaryContainer.withValues(alpha: 0.35),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
         ),
         child: Icon(icon, color: scheme.primary, size: 20),
       ),
@@ -1363,7 +1364,7 @@ class _CategoryPage extends ConsumerWidget {
                             .colorScheme
                             .onSurfaceVariant
                             .withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(2),
+                        borderRadius: Radii.xsBorder,
                       ),
                     ),
                     Padding(
@@ -1982,7 +1983,7 @@ class _BetaChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: scheme.tertiaryContainer,
         borderRadius: BorderRadius.circular(4),
@@ -1990,7 +1991,7 @@ class _BetaChip extends StatelessWidget {
       child: Text(
         'BETA',
         style: TextStyle(
-          fontSize: 9,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.5,
           color: scheme.onTertiaryContainer,
@@ -2127,7 +2128,7 @@ class _NavPadSlot extends StatelessWidget {
             Text(
               button.value,
               style: TextStyle(
-                fontSize: 8,
+                fontSize: FontSizes.label,
                 color: isDark
                     ? DesignColors.textPrimary.withValues(alpha: 0.5)
                     : DesignColors.textPrimaryLight.withValues(alpha: 0.5),
@@ -2185,7 +2186,7 @@ class _NavPadSlot extends StatelessWidget {
                         .colorScheme
                         .onSurfaceVariant
                         .withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: Radii.xsBorder,
                   ),
                 ),
                 Padding(

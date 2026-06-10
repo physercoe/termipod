@@ -1452,7 +1452,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: DesignColors.error,
         action: SnackBarAction(
           label: AppLocalizations.of(context)!.buttonRetry,
           textColor: Colors.white,
@@ -3558,7 +3558,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   ],
                 ),
               ),
-              Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),
+              Divider(height: 1, color: isDark ? DesignColors.borderDark : DesignColors.borderLight),
               // モード切り替え（Normal / Scroll & Select）
               ListTile(
                 leading: Icon(
@@ -3751,7 +3751,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   );
                 },
               ),
-              Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),
+              Divider(height: 1, color: isDark ? DesignColors.borderDark : DesignColors.borderLight),
               // Downloads
               Consumer(
                 builder: (context, menuRef, _) {
@@ -3786,7 +3786,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   );
                 },
               ),
-              Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),
+              Divider(height: 1, color: isDark ? DesignColors.borderDark : DesignColors.borderLight),
               // 設定画面へ
               ListTile(
                 leading: Icon(
@@ -3811,7 +3811,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   );
                 },
               ),
-              Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),
+              Divider(height: 1, color: isDark ? DesignColors.borderDark : DesignColors.borderLight),
               // 切断ボタン
               ListTile(
                 leading: Icon(
@@ -4455,7 +4455,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(AppLocalizations.of(context)!.imageUploaded(next.lastUploadedPath!)),
-            backgroundColor: Colors.green,
+            backgroundColor: DesignColors.success,
           ),
         );
       }
@@ -4577,7 +4577,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(AppLocalizations.of(context)!.fileUploaded(next.lastUploadedPaths!.length)),
-            backgroundColor: Colors.green,
+            backgroundColor: DesignColors.success,
           ),
         );
       }
@@ -4657,7 +4657,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(AppLocalizations.of(context)!.fileDownloaded),
-              backgroundColor: Colors.green,
+              backgroundColor: DesignColors.success,
             ),
           );
         }

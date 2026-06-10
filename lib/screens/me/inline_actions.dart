@@ -330,7 +330,7 @@ class InlineHelpRequestActionsState
     final isHandoff = _mode == 'handoff';
     final isFill = _mode == 'fill';
     final chipColor = isHandoff
-        ? Colors.orange
+        ? DesignColors.warning
         : (isFill ? DesignColors.terminalCyan : DesignColors.primary);
     final chipLabel =
         isHandoff ? 'hand-back' : (isFill ? 'fill' : 'clarify');

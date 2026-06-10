@@ -148,7 +148,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
             child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
             onPressed: () {
               ref.read(inputHistoryProvider.notifier).clear();
               Navigator.pop(ctx);

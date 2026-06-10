@@ -599,7 +599,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
     final isConnected = hasActiveSessions || widget.connection.lastConnectedAt != null;
     final statusColor = hasActiveSessions
         ? DesignColors.success
-        : (isConnected ? Colors.orange : (isDark ? DesignColors.textMuted : DesignColors.textMutedLight));
+        : (isConnected ? DesignColors.warning : (isDark ? DesignColors.textMuted : DesignColors.textMutedLight));
 
     return Container(
       decoration: BoxDecoration(

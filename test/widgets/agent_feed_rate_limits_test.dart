@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:termipod/theme/design_colors.dart';
 import 'package:termipod/widgets/live_feed.dart';
 
 // Tests for ADR-036 W5 — rate_limits surface from status_line frames.
@@ -346,8 +346,8 @@ void main() {
       // them on one threshold doesn't pass undetected.
       final amber = rateLimitAlarmTier(85);
       final red = rateLimitAlarmTier(99);
-      expect(amber.color, Colors.orange);
-      expect(red.color, isNot(equals(Colors.orange)));
+      expect(amber.color, DesignColors.warning);
+      expect(red.color, isNot(equals(DesignColors.warning)));
     });
   });
 }

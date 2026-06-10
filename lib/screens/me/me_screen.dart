@@ -790,7 +790,7 @@ class _MeCard extends ConsumerWidget {
       case _Filter.approvals:
         return DesignColors.primary;
       case _Filter.agents:
-        return Colors.orange;
+        return DesignColors.warning;
       case _Filter.messages:
         return DesignColors.primary;
       case _Filter.all:
@@ -803,7 +803,7 @@ class _MeCard extends ConsumerWidget {
       case 'critical':
         return DesignColors.error;
       case 'major':
-        return Colors.orange;
+        return DesignColors.warning;
       case 'minor':
       default:
         return DesignColors.primary;

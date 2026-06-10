@@ -211,7 +211,7 @@ class _RemoteFileBrowserDialogState extends State<RemoteFileBrowserDialog> {
                                         : _iconForFilename(entry.name),
                                     size: 20,
                                     color: entry.isDirectory
-                                        ? Colors.amber
+                                        ? DesignColors.warning
                                         : Colors.white70,
                                   ),
                                   title: Text(

@@ -309,7 +309,7 @@ class TelemetryStrip extends StatelessWidget {
       final color = pct >= 0.9
           ? DesignColors.error
           : pct >= 0.7
-              ? Colors.orange
+              ? DesignColors.warning
               : DesignColors.success;
       tiles.add(_TelemetryTile(
         icon: Icons.donut_large,

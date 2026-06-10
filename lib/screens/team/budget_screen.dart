@@ -346,7 +346,7 @@ class _AgentRow extends StatelessWidget {
     Color? iconColor;
     if (status == 'active') {
       icon = Icons.play_circle;
-      iconColor = Colors.green;
+      iconColor = DesignColors.success;
     } else if (status == 'terminated' || status == 'stopped') {
       icon = Icons.stop_circle;
       iconColor =

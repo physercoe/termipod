@@ -524,7 +524,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
                   Icons.arrow_drop_up,
                   size: 40,
                   color: _lastSwipeDirection == 'Up'
-                      ? Colors.amber
+                      ? DesignColors.warning
                       : Colors.white.withValues(alpha: 0.6),
                 ),
               ),
@@ -537,7 +537,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
                   Icons.arrow_drop_down,
                   size: 40,
                   color: _lastSwipeDirection == 'Down'
-                      ? Colors.amber
+                      ? DesignColors.warning
                       : Colors.white.withValues(alpha: 0.6),
                 ),
               ),
@@ -550,7 +550,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
                   Icons.arrow_left,
                   size: 40,
                   color: _lastSwipeDirection == 'Left'
-                      ? Colors.amber
+                      ? DesignColors.warning
                       : Colors.white.withValues(alpha: 0.6),
                 ),
               ),
@@ -563,7 +563,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
                   Icons.arrow_right,
                   size: 40,
                   color: _lastSwipeDirection == 'Right'
-                      ? Colors.amber
+                      ? DesignColors.warning
                       : Colors.white.withValues(alpha: 0.6),
                 ),
               ),
@@ -637,7 +637,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
                         : Alignment.bottomCenter),
                 colors: [
                   Colors.transparent,
-                  Colors.red.withValues(alpha: 0.4),
+                  DesignColors.error.withValues(alpha: 0.4),
                 ],
               ),
             ),
@@ -667,7 +667,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
     final canNavigate = widget.navigableDirections?[direction] ?? true;
     final color = canNavigate
         ? DesignColors.primary.withValues(alpha: 0.2)
-        : Colors.red.withValues(alpha: 0.15);
+        : DesignColors.error.withValues(alpha: 0.15);
 
     final alignment = switch (direction) {
       SwipeDirection.left => Alignment.centerLeft,

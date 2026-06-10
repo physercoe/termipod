@@ -13,6 +13,7 @@ import '../../services/voice/cloud_stt.dart';
 import '../../services/voice/recording_controller.dart';
 import '../../services/voice/voice_recording_session.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../image_attach/composer_image_attach.dart';
 import '../multimodal_attach/composer_multimodal_attach.dart';
 import '../text_attach/composer_text_attach.dart';
@@ -28,7 +29,7 @@ import 'voice_recording_hud.dart';
 /// `enabledBorder` vs `focusedBorder`; we pin all three to one outline
 /// so the brief unfocused frame during the bounce doesn't flash.
 final OutlineInputBorder _kStableInputBorder = OutlineInputBorder(
-  borderRadius: BorderRadius.circular(10),
+  borderRadius: Radii.mdBorder,
   borderSide: BorderSide(
     color: DesignColors.primary.withValues(alpha: 0.4),
     width: 1,
@@ -1040,7 +1041,7 @@ class _ChatInputState extends State<_ChatInput> {
         enabledBorder: _kStableInputBorder,
         focusedBorder: _kStableInputBorder,
         contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12, vertical: 10),
+            horizontal: 12, vertical: Spacing.s8),
         suffixIcon: voiceEnabled
             ? IconButton(
                 tooltip: streaming ? 'Stop dictation' : 'Start dictation',
@@ -1080,14 +1081,14 @@ class _ChatInputState extends State<_ChatInput> {
       onLongPressMoveUpdate: _onHoldToSpeakMoveUpdate,
       child: Container(
         constraints: const BoxConstraints(minHeight: 44),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         decoration: BoxDecoration(
           color: recording
               ? DesignColors.error.withValues(alpha: 0.10)
               : (isDark
                   ? Colors.white.withValues(alpha: 0.04)
                   : Colors.black.withValues(alpha: 0.03)),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           border: Border.all(
             color: recording
                 ? DesignColors.error.withValues(alpha: 0.55)
@@ -1230,7 +1231,7 @@ class _ChatInputState extends State<_ChatInput> {
             ),
           if (_pendingMultimodal.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
+              padding: const EdgeInsets.only(bottom: Spacing.s8, left: 4, right: 4),
               child: Wrap(
                 spacing: 6,
                 runSpacing: 4,
@@ -1460,7 +1461,7 @@ class _MessageBubble extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: Radii.mdBorder,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1488,7 +1489,7 @@ class _MessageBubble extends StatelessWidget {
                 Text(
                   msg.note!,
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: muted,
                   ),
                 ),
@@ -1535,14 +1536,14 @@ class _IntentPill extends ConsumerWidget {
           maxWidth: MediaQuery.of(context).size.width * 0.86,
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: Radii.lgBorder,
           onTap: () => _refire(context, ref),
           child: Container(
             padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
             decoration: BoxDecoration(
               color: DesignColors.primary.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: Radii.lgBorder,
               border: Border.all(
                 color: DesignColors.primary.withValues(alpha: 0.30),
                 width: 1,
@@ -1574,7 +1575,7 @@ class _IntentPill extends ConsumerWidget {
                 Text(
                   '· ${_hhmm(ts)}',
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: muted,
                   ),
                 ),

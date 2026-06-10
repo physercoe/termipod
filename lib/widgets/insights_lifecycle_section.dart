@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/insights_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Project lifecycle drilldown — Phase 2 W5d of insights-phase-2.md.
 /// Reads `body['lifecycle']` from `/v1/insights`, which the hub
@@ -91,7 +92,7 @@ class InsightsLifecycleSection extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: border),
               ),
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+              padding: const EdgeInsets.fromLTRB(Spacing.s12, Spacing.s8, Spacing.s12, Spacing.s8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -204,7 +205,7 @@ class _PhaseTimeline extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: border),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      padding: const EdgeInsets.fromLTRB(Spacing.s12, Spacing.s8, Spacing.s12, Spacing.s8),
       child: Column(
         children: [
           for (var i = 0; i < phases.length; i++) ...[
@@ -282,7 +283,7 @@ class _PhaseRowWidget extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           ClipRRect(
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: Radii.xsBorder,
             child: LinearProgressIndicator(
               minHeight: 4,
               value: share.clamp(0.0, 1.0),
@@ -342,7 +343,7 @@ class _RateRow extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         ClipRRect(
-          borderRadius: BorderRadius.circular(2),
+          borderRadius: Radii.xsBorder,
           child: LinearProgressIndicator(
             minHeight: 4,
             value: rate.clamp(0.0, 1.0),

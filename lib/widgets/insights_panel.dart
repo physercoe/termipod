@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/insights_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 // Re-export the scope value object so callers that already imported
 // insights_panel.dart can construct an `InsightsScope.project(...)`
@@ -55,7 +56,7 @@ class InsightsPanel extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 6),
+          padding: const EdgeInsets.only(left: 4, bottom: Spacing.s8),
           child: Row(
             children: [
               Icon(Icons.insights_outlined, size: 16, color: muted),
@@ -63,7 +64,7 @@ class InsightsPanel extends ConsumerWidget {
               Text(
                 'INSIGHTS · 24h',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.6,
                   color: muted,
@@ -74,7 +75,7 @@ class InsightsPanel extends ConsumerWidget {
                 Text(
                   '· stale',
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: muted,
                   ),
                 ),
@@ -144,10 +145,10 @@ class _MetricTile extends StatelessWidget {
     final accent = warn ? DesignColors.error : DesignColors.primary;
     return Container(
       width: 104,
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 9),
+      padding: const EdgeInsets.fromLTRB(Spacing.s8, 8, Spacing.s8, Spacing.s8),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -155,7 +156,7 @@ class _MetricTile extends StatelessWidget {
           Text(
             label.toUpperCase(),
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 9,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.6,
               color: muted,
@@ -176,7 +177,7 @@ class _MetricTile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               color: muted,
             ),
           ),

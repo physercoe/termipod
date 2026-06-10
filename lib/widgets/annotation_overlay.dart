@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// ADR-020 W1 — director annotations on a typed-document section.
 ///
@@ -136,14 +137,14 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
     return Container(
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 4, 6),
+            padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 4, Spacing.s8),
             child: Row(
               children: [
                 const Icon(Icons.rate_review_outlined,
@@ -283,12 +284,12 @@ class _AnnotationRow extends StatelessWidget {
     final glyph = _annotationIcon(kind);
     final color = _annotationColor(kind);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+      padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 4, Spacing.s8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 1),
+            padding: const EdgeInsets.only(top: Spacing.s2),
             child: Icon(glyph, size: 16, color: color),
           ),
           const SizedBox(width: 10),
@@ -316,7 +317,7 @@ class _AnnotationRow extends StatelessWidget {
                     Text(
                       '$actorLabel · ${_kindLabel(kind)}',
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: isDark
                             ? DesignColors.textMuted
                             : DesignColors.textMutedLight,
@@ -359,7 +360,7 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -367,7 +368,7 @@ class _StatusChip extends StatelessWidget {
       child: Text(
         label,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 9,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w600,
           color: color,
         ),

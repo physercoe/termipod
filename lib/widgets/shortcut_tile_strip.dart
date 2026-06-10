@@ -18,6 +18,7 @@ import '../screens/projects/runs_screen.dart';
 import '../screens/projects/schedules_screen.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 import '../widgets/artifact_viewers/tabular_viewer.dart';
 
 /// Closed registry of shortcut-tile slugs (template-yaml-schema §11).
@@ -315,7 +316,7 @@ class _CustomizeTilesRow extends ConsumerWidget {
       borderRadius: BorderRadius.circular(8),
       onTap: () => _open(context, ref),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         decoration: BoxDecoration(
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(8),
@@ -585,7 +586,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
               height: 4,
               decoration: BoxDecoration(
                 color: DesignColors.textMuted.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: Radii.xsBorder,
               ),
             ),
             const SizedBox(height: 12),
@@ -635,7 +636,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                   children: [
                     if (_showHeroPicker) ...[
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, Spacing.s8),
                         child: Text(
                           'Phase hero',
                           style: GoogleFonts.spaceGrotesk(
@@ -656,7 +657,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, Spacing.s8),
                         child: Text(
                           overviewWidgetSpecFor(_selectedHero).subtitle,
                           style: GoogleFonts.spaceGrotesk(
@@ -690,7 +691,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                     ],
                     if (_selected.isNotEmpty) ...[
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, Spacing.s8),
                         child: Text(
                           'Shown on this phase (drag to reorder)',
                           style: GoogleFonts.spaceGrotesk(
@@ -719,7 +720,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                     ],
                     if (_available.isNotEmpty) ...[
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
+                        padding: const EdgeInsets.fromLTRB(8, 12, 8, Spacing.s8),
                         child: Text(
                           'Available',
                           style: GoogleFonts.spaceGrotesk(
@@ -800,7 +801,7 @@ class _TileEditorRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         onTap: () => onChanged(!selected),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s8),
           child: Row(
             children: [
               Checkbox(
@@ -844,7 +845,7 @@ class _NoTilesPlaceholder extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: isDark
             ? DesignColors.surfaceDark.withValues(alpha: 0.5)
@@ -896,7 +897,7 @@ class _TileRow extends ConsumerWidget {
       borderRadius: BorderRadius.circular(8),
       onTap: () => _open(context, ref),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         decoration: BoxDecoration(
           color:
               isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,

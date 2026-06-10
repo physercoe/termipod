@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
@@ -509,20 +510,22 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   }
 
   AppBar _buildDefaultAppBar() {
+    final l10n = AppLocalizations.of(context)!;
+    final steward = ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     return AppBar(
       title: Text(
-        'Sessions',
+        l10n.sessionsTitle,
         style: GoogleFonts.spaceGrotesk(
             fontWeight: FontWeight.w700, fontSize: 18),
       ),
       actions: [
         IconButton(
-          tooltip: 'Steward insights',
+          tooltip: l10n.stewardInsightsTooltip(steward.title),
           icon: const Icon(Icons.insights_outlined),
           onPressed: () => _openStewardInsights(context, ref),
         ),
         IconButton(
-          tooltip: 'Search past sessions',
+          tooltip: l10n.searchPastSessions,
           icon: const Icon(Icons.search),
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute(
@@ -531,12 +534,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           ),
         ),
         IconButton(
-          tooltip: 'Spawn new steward',
+          tooltip: l10n.spawnNewSteward(steward.lower),
           icon: const Icon(Icons.add),
           onPressed: () => _spawnNewSteward(context, ref),
         ),
         PopupMenuButton<String>(
-          tooltip: 'More',
+          tooltip: l10n.buttonMore,
           onSelected: (v) {
             switch (v) {
               case 'select':
@@ -550,23 +553,23 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 ref.read(hubProvider.notifier).refreshAll();
             }
           },
-          itemBuilder: (_) => const [
+          itemBuilder: (_) => [
             PopupMenuItem(
               value: 'select',
               child: ListTile(
-                leading: Icon(Icons.check_box_outlined),
-                title: Text('Select…'),
+                leading: const Icon(Icons.check_box_outlined),
+                title: Text(l10n.menuSelectEllipsis),
                 contentPadding: EdgeInsets.zero,
                 dense: true,
               ),
             ),
-            PopupMenuDivider(),
+            const PopupMenuDivider(),
             PopupMenuItem(
               value: 'templates',
-              child: Text('Templates & engines'),
+              child: Text(l10n.menuTemplatesEngines),
             ),
-            PopupMenuDivider(),
-            PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+            const PopupMenuDivider(),
+            PopupMenuItem(value: 'refresh', child: Text(l10n.buttonRefresh)),
           ],
         ),
       ],
@@ -1096,7 +1099,8 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
   Future<void> _rename() async {
     final id = group.agentId;
     if (id.isEmpty) return;
-    final next = await _promptForHandle(context, group.handle);
+    final next = await _promptForHandle(context, group.handle,
+        ref.read(vocabularyProvider).term(VocabAxis.roleSteward).lower);
     if (next == null || next == group.handle || !mounted) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
@@ -1156,7 +1160,9 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
   static Future<String?> _promptForHandle(
     BuildContext context,
     String current,
+    String stewardRole,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     // Show the bare name (no `-steward` suffix) so the rename
     // dialog matches the spawn-steward sheet's UX. The app
     // re-attaches the suffix on save via normalizeStewardHandle.
@@ -1165,13 +1171,13 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
       return await showDialog<String?>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Rename steward'),
+          title: Text(l10n.renameSteward(stewardRole)),
           content: TextField(
             controller: ctrl,
             autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Name',
-              hintText: 'steward, research, infra-east, …',
+            decoration: InputDecoration(
+              labelText: l10n.fieldName,
+              hintText: l10n.stewardHandleHint,
             ),
             onSubmitted: (v) =>
                 Navigator.pop(ctx, normalizeStewardHandle(v.trim())),
@@ -1179,7 +1185,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, null),
-              child: const Text('Cancel'),
+              child: Text(l10n.buttonCancel),
             ),
             FilledButton(
               onPressed: () {
@@ -1193,7 +1199,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                 }
                 Navigator.pop(ctx, v);
               },
-              child: const Text('Save'),
+              child: Text(l10n.buttonSave),
             ),
           ],
         ),
@@ -1205,6 +1211,10 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final stewardTerm = voc.term(VocabAxis.roleSteward);
+    final agentTerm = voc.term(VocabAxis.roleAgent);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -1304,7 +1314,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                     ),
                     if (hasMenu)
                       PopupMenuButton<String>(
-                        tooltip: 'Steward actions',
+                        tooltip: l10n.stewardActions(stewardTerm.title),
                         icon: Icon(Icons.more_vert,
                             size: 18, color: muted),
                         onSelected: (v) {
@@ -1324,28 +1334,28 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                               _rename();
                           }
                         },
-                        itemBuilder: (_) => const [
+                        itemBuilder: (_) => [
                           PopupMenuItem(
                             value: 'agent_config',
-                            child: Text('View agent config'),
+                            child: Text(l10n.viewAgentConfig(agentTerm.lower)),
                           ),
-                          PopupMenuDivider(),
+                          const PopupMenuDivider(),
                           PopupMenuItem(
                             value: 'reset',
-                            child: Text('Reset (new conversation)'),
+                            child: Text(l10n.menuResetConversation),
                           ),
                           PopupMenuItem(
                             value: 'replace',
-                            child: Text('Replace steward'),
+                            child: Text(l10n.replaceSteward(stewardTerm.lower)),
                           ),
-                          PopupMenuDivider(),
+                          const PopupMenuDivider(),
                           PopupMenuItem(
                             value: 'rename',
-                            child: Text('Rename'),
+                            child: Text(l10n.buttonRename),
                           ),
                           PopupMenuItem(
                             value: 'stop',
-                            child: Text('Stop session'),
+                            child: Text(l10n.menuStopSession),
                           ),
                         ],
                       ),

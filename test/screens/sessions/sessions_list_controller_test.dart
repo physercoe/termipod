@@ -125,4 +125,84 @@ void main() {
       expect(groupSessionsBySteward(const [], const SessionsState()), isEmpty);
     });
   });
+
+  // #122: the Detached category is a single synthetic group bucketing
+  // every orphan session, so a group count always reads 1. The header /
+  // filter chip must count sessions, and select mode must be able to
+  // sub-filter detached by scope.
+  Map<String, dynamic> scoped(String id, String kind, String scopeId) =>
+      {'id': id, 'scope_kind': kind, 'scope_id': scopeId};
+
+  StewardGroup detachedGroup(List<Map<String, dynamic>> previous) =>
+      StewardGroup(agent: const {'handle': '', 'id': ''}, current: null,
+          previous: previous);
+
+  group('categoryDisplayCount (#122)', () {
+    test('steward categories count groups (one per steward)', () {
+      final groups = [
+        mkGroup('s1', '@steward'),
+        mkGroup('p1', '@steward.aaaa1111'),
+        mkGroup('p2', '@steward.bbbb2222'),
+      ];
+      expect(categoryDisplayCount(StewardCategory.general, groups), 1);
+      expect(categoryDisplayCount(StewardCategory.project, groups), 2);
+    });
+
+    test('detached counts sessions, not the single synthetic group', () {
+      final groups = [
+        mkGroup('s1', '@steward'),
+        detachedGroup([
+          scoped('o1', 'team', ''),
+          scoped('o2', 'project', 'p1'),
+          scoped('o3', 'project', 'p1'),
+        ]),
+      ];
+      // group count would be 1; session count is 3.
+      expect(categoryDisplayCount(StewardCategory.detached, groups), 3);
+    });
+
+    test('absent category → 0', () {
+      expect(categoryDisplayCount(StewardCategory.domain, [mkGroup('s1', '@steward')]), 0);
+      expect(categoryDisplayCount(StewardCategory.detached, [mkGroup('s1', '@steward')]), 0);
+    });
+  });
+
+  group('scope bucketing (#122)', () {
+    test('sessionScopeKey joins kind|id', () {
+      expect(sessionScopeKey(scoped('x', 'project', 'p1')), 'project|p1');
+      expect(sessionScopeKey({'id': 'y'}), '|');
+    });
+
+    test('buckets preserve order but float Team/empty to the top', () {
+      final buckets = bucketSessionsByScope([
+        scoped('a', 'project', 'p1'),
+        scoped('b', 'attention', 'att1'),
+        scoped('c', 'team', ''),
+        scoped('d', 'project', 'p1'),
+      ]);
+      // Team floats first; remaining keep first-seen order.
+      expect(buckets.map((e) => e.key).toList(), ['team|', 'project|p1', 'attention|att1']);
+      // sessions stay grouped under their key.
+      expect(buckets.first.value.map((s) => s['id']), ['c']);
+      expect(buckets[1].value.map((s) => s['id']), ['a', 'd']);
+    });
+
+    test('detachedScopeBuckets gathers only detached groups\' sessions', () {
+      final groups = [
+        mkGroup('s1', '@steward'),
+        detachedGroup([
+          scoped('o1', 'project', 'p1'),
+          scoped('o2', 'team', ''),
+          scoped('o3', 'project', 'p1'),
+        ]),
+      ];
+      final buckets = detachedScopeBuckets(groups);
+      expect(buckets.map((e) => e.key).toList(), ['team|', 'project|p1']);
+      expect(buckets.firstWhere((e) => e.key == 'project|p1').value.length, 2);
+    });
+
+    test('no detached group → empty buckets', () {
+      expect(detachedScopeBuckets([mkGroup('s1', '@steward')]), isEmpty);
+    });
+  });
 }

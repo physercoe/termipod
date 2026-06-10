@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// "Last 24 hours" digest summarising the audit feed.
 ///
@@ -43,7 +44,7 @@ class ActivityDigestCard extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(Spacing.s12),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(12),
@@ -98,10 +99,10 @@ class ActivityDigestCard extends StatelessWidget {
                   for (final e in topActions.take(4))
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                          horizontal: 8, vertical: Spacing.s4),
                       decoration: BoxDecoration(
                         color: DesignColors.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: Radii.smBorder,
                         border: Border.all(
                           color: DesignColors.primary.withValues(alpha: 0.35),
                         ),
@@ -109,7 +110,7 @@ class ActivityDigestCard extends StatelessWidget {
                       child: Text(
                         '${e.key} · ${e.value}',
                         style: GoogleFonts.jetBrainsMono(
-                          fontSize: 10,
+                          fontSize: FontSizes.label,
                           fontWeight: FontWeight.w600,
                           color: DesignColors.primary,
                         ),

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/section_state_pip.dart';
 import 'section_detail_screen.dart';
 
@@ -175,7 +176,7 @@ class _ProgressStrip extends StatelessWidget {
       children: [
         Expanded(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(3),
+            borderRadius: Radii.xsBorder,
             child: LinearProgressIndicator(
               value: ratio,
               minHeight: 4,
@@ -189,7 +190,7 @@ class _ProgressStrip extends StatelessWidget {
         Text(
           '$ratified / $total ratified',
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             fontWeight: FontWeight.w600,
             color: DesignColors.textMuted,
           ),
@@ -218,7 +219,7 @@ class _SectionRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         decoration: BoxDecoration(
           color:
               isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
@@ -233,7 +234,7 @@ class _SectionRow extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.only(top: 3),
+              padding: const EdgeInsets.only(top: Spacing.s4),
               child: SectionStatePip(state: state, showLabel: false),
             ),
             const SizedBox(width: 10),
@@ -274,7 +275,7 @@ class _SectionRow extends StatelessWidget {
                         Text(
                           '· ${_relativeTs(lastAuthored)}',
                           style: GoogleFonts.jetBrainsMono(
-                            fontSize: 9,
+                            fontSize: FontSizes.label,
                             color: DesignColors.textMuted,
                           ),
                         ),
@@ -326,7 +327,7 @@ class _FallbackPlainBody extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
             decoration: BoxDecoration(
               color: DesignColors.warning.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),

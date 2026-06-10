@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'feed_render.dart';
 
 // Tool-name → glyph map for the tool_call card header strip. Keeps the
@@ -197,7 +198,7 @@ class _ToolKvLine extends StatelessWidget {
         ? DesignColors.textPrimary
         : DesignColors.textPrimaryLight;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s2),
       child: RichText(
         text: TextSpan(
           children: [
@@ -235,7 +236,7 @@ class _StatusPill extends StatelessWidget {
       _ => DesignColors.textMuted,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(8),
@@ -244,7 +245,7 @@ class _StatusPill extends StatelessWidget {
       child: Text(
         status,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: color,
         ),
@@ -329,7 +330,7 @@ class _ToolResultInlineState extends State<_ToolResultInline> {
                   Text(
                     widget.isError ? 'result · error' : 'result',
                     style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       fontWeight: FontWeight.w700,
                       color: mutedColor,
                       letterSpacing: 0.5,
@@ -340,7 +341,7 @@ class _ToolResultInlineState extends State<_ToolResultInline> {
                     Text(
                       '· ${lineCount} line${lineCount == 1 ? '' : 's'}',
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: mutedColor,
                       ),
                     ),

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import 'propose_card_visuals.dart';
 
 /// ADR-030 W20 — confirmation sheet for principal-override.
@@ -97,7 +98,7 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: mutedColor.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -134,10 +135,10 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
             const SizedBox(height: 12),
             // Context block — what's being overridden.
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(Spacing.s8),
               decoration: BoxDecoration(
                 color: isDark ? DesignColors.canvasDark : DesignColors.canvasLight,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: Radii.smBorder,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -155,7 +156,7 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
                     Text(
                       'change_spec: ${_compactJson(changeSpec)}',
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: mutedColor,
                       ),
                       maxLines: 3,
@@ -167,7 +168,7 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
                     Text(
                       'target_ref: ${_compactJson(targetRef)}',
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: mutedColor,
                       ),
                       maxLines: 2,
@@ -201,7 +202,7 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
               Text(
                 _error!,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.error,
                 ),
               ),

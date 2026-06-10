@@ -5,6 +5,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../services/tmux/tmux_commands.dart';
 import '../../../services/tmux/tmux_parser.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import 'pane_layout_painters.dart';
 
 /// ペインレイアウトをインタラクティブに表示するウィジェット
@@ -250,7 +251,7 @@ class _PaneLayoutVisualizerState extends State<PaneLayoutVisualizer> {
           Text(
             'Tap to split',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 8,
+              fontSize: FontSizes.label,
               color: DesignColors.primary.withValues(alpha: 0.7),
             ),
           ),
@@ -259,7 +260,7 @@ class _PaneLayoutVisualizerState extends State<PaneLayoutVisualizer> {
           Text(
             '${pane.width}x${pane.height}',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 9,
+              fontSize: FontSizes.label,
               color: Colors.white.withValues(alpha: 0.5),
             ),
           ),
@@ -276,12 +277,12 @@ class _PaneLayoutVisualizerState extends State<PaneLayoutVisualizer> {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
         child: Container(
-          padding: const EdgeInsets.all(6),
+          padding: const EdgeInsets.all(Spacing.s8),
           decoration: BoxDecoration(
             color: DesignColors.primary.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: Radii.smBorder,
             border: Border.all(
               color: DesignColors.primary.withValues(alpha: 0.4),
             ),

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../sessions/sessions_screen.dart' show SessionChatScreen;
@@ -363,7 +364,7 @@ class _StateRow extends StatelessWidget {
         ? DesignColors.textMuted
         : DesignColors.textMutedLight;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: isDark
             ? DesignColors.surfaceDark
@@ -380,7 +381,7 @@ class _StateRow extends StatelessWidget {
           Text(
             label,
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.5,
               color: muted,
@@ -872,7 +873,7 @@ class _AuditRow extends StatelessWidget {
           Container(
             width: 8,
             height: 8,
-            margin: const EdgeInsets.only(top: 5),
+            margin: const EdgeInsets.only(top: Spacing.s4),
             decoration: BoxDecoration(
               color: _actionColor(action, muted),
               shape: BoxShape.circle,
@@ -907,7 +908,7 @@ class _AuditRow extends StatelessWidget {
                       Text(
                         '${formatRelative(ts)} ago',
                         style: GoogleFonts.spaceGrotesk(
-                          fontSize: 10,
+                          fontSize: FontSizes.label,
                           color: muted,
                         ),
                       ),

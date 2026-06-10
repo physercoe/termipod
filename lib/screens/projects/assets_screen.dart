@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'blobs_section.dart';
 
 /// Standalone "Assets" host screen — wraps [BlobsSection] in a
@@ -16,10 +17,11 @@ class AssetsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Assets',
+          l10n.assetsTitle,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 18,
             fontWeight: FontWeight.w700,

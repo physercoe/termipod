@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../models/artifact_kinds.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/entity_names.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
@@ -43,6 +46,7 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
   List<Map<String, dynamic>>? _rows;
   bool _loading = true;
   String? _error;
+  bool _hubMissing = false;
   DateTime? _staleSince;
 
   // Filter pills cover the closed MVP set (W1 of artifact-type-registry).
@@ -78,7 +82,7 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -112,15 +116,21 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final outputs = vocab.term(VocabAxis.entityOutput);
     final titleScope = widget.runId != null
-        ? 'run ${_short(widget.runId!)}'
+        ? '${vocab.term(VocabAxis.entityRun).lower} ${_short(widget.runId!)}'
         : widget.projectId != null
-            ? 'project ${_short(widget.projectId!)}'
+            ? '${vocab.term(VocabAxis.entityProject).lower} '
+                '${_short(widget.projectId!)}'
             : null;
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          titleScope == null ? 'Outputs' : 'Outputs · $titleScope',
+          titleScope == null
+              ? outputs.plural
+              : '${outputs.plural} · $titleScope',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -129,7 +139,7 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
         ],
@@ -150,12 +160,13 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
   }
 
   Widget _body() {
+    final l10n = AppLocalizations.of(context)!;
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          _error!,
+          _hubMissing ? l10n.hubNotConfigured : _error!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -165,14 +176,18 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
     }
     final rows = _filtered;
     if (rows.isEmpty) {
+      final vocab = ref.watch(vocabularyProvider);
+      final outputs = vocab.term(VocabAxis.entityOutput);
+      final agents = vocab.term(VocabAxis.roleAgent);
+      final runs = vocab.term(VocabAxis.entityRun);
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
             _rows == null || _rows!.isEmpty
-                ? 'No outputs yet.\nAgents attach checkpoints, eval curves,\n'
-                    'and reports here as runs complete.'
-                : 'No ${_kind ?? "outputs"} match.',
+                ? l10n.artifactsEmpty(
+                    outputs.pluralLower, agents.plural, runs.pluralLower)
+                : l10n.artifactsNoneMatch(_kind ?? outputs.pluralLower),
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 13,
@@ -197,11 +212,17 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
 /// One-line role banner mirroring Files/Assets. "Outputs" is the user-facing
 /// word; "artifacts" is the primitive name. Keep both so the decision map
 /// (Files/Documents/Assets/Outputs) stays legible.
-class _OutputsGuidance extends StatelessWidget {
+class _OutputsGuidance extends ConsumerWidget {
   const _OutputsGuidance();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final outputs = vocab.term(VocabAxis.entityOutput);
+    final agents = vocab.term(VocabAxis.roleAgent);
+    final runs = vocab.term(VocabAxis.entityRun);
+    final teams = vocab.term(VocabAxis.entityTeam);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
@@ -227,14 +248,15 @@ class _OutputsGuidance extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Outputs agents produce',
+                  l10n.artifactsGuidanceTitle(
+                      outputs.plural, agents.pluralLower),
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 12, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Checkpoints, eval curves, logs, reports from runs. '
-                  'Content-addressed with lineage — safe to share across teams.',
+                  l10n.artifactsGuidanceBody(
+                      runs.pluralLower, teams.pluralLower),
                   style: GoogleFonts.spaceGrotesk(fontSize: 11, color: muted),
                 ),
               ],
@@ -258,6 +280,7 @@ class _KindBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -265,7 +288,7 @@ class _KindBar extends StatelessWidget {
         children: [
           for (final k in kinds) ...[
             AppChoiceChip(
-              label: k ?? 'all',
+              label: k ?? l10n.filterAll,
               selected: k == selected,
               onTap: () => onChanged(k),
             ),
@@ -277,14 +300,16 @@ class _KindBar extends StatelessWidget {
   }
 }
 
-class _ArtifactRow extends StatelessWidget {
+class _ArtifactRow extends ConsumerWidget {
   final Map<String, dynamic> row;
   const _ArtifactRow({required this.row});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final runTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityRun);
     final kind = (row['kind'] ?? '').toString();
-    final name = (row['name'] ?? '(unnamed)').toString();
+    final name = (row['name'] ?? l10n.unnamedValue).toString();
     final runId = (row['run_id'] ?? '').toString();
     final size = row['size'];
     final created = (row['created_at'] ?? '').toString();
@@ -318,7 +343,7 @@ class _ArtifactRow extends StatelessWidget {
         padding: const EdgeInsets.only(top: 2),
         child: Text(
           [
-            if (runId.isNotEmpty) 'run ${_short(runId)}',
+            if (runId.isNotEmpty) '${runTerm.lower} ${_short(runId)}',
             if (created.isNotEmpty) created,
             if (uri.isNotEmpty) uri,
           ].join(' · '),
@@ -486,9 +511,10 @@ class _ArtifactDetailSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
-    final name = (row['name'] ?? '(unnamed)').toString();
+    final name = (row['name'] ?? l10n.unnamedValue).toString();
     final kind = (row['kind'] ?? '').toString();
     final hub = ref.watch(hubProvider).value;
     final projects = hub?.projects ?? const [];
@@ -593,9 +619,10 @@ class _ArtifactViewerLauncher extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final rawKind = (row['kind'] ?? '').toString();
     final spec = artifactKindSpecFor(rawKind);
-    final name = (row['name'] ?? '(unnamed)').toString();
+    final name = (row['name'] ?? l10n.unnamedValue).toString();
     final uri = (row['uri'] ?? '').toString();
     final mime = (row['mime'] ?? '').toString();
     if (uri.isEmpty) return const SizedBox.shrink();
@@ -604,7 +631,7 @@ class _ArtifactViewerLauncher extends StatelessWidget {
       case ArtifactKind.pdf:
         return _LauncherButton(
           icon: Icons.picture_as_pdf_outlined,
-          label: 'Open PDF',
+          label: l10n.artifactOpenPdf,
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) =>
@@ -615,7 +642,7 @@ class _ArtifactViewerLauncher extends StatelessWidget {
       case ArtifactKind.tabular:
         return _LauncherButton(
           icon: Icons.table_chart_outlined,
-          label: 'Open table',
+          label: l10n.artifactOpenTable,
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => ArtifactTabularViewerScreen(
@@ -629,7 +656,7 @@ class _ArtifactViewerLauncher extends StatelessWidget {
       case ArtifactKind.image:
         return _LauncherButton(
           icon: Icons.image_outlined,
-          label: 'Open image',
+          label: l10n.artifactOpenImage,
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) =>
@@ -640,7 +667,7 @@ class _ArtifactViewerLauncher extends StatelessWidget {
       case ArtifactKind.codeBundle:
         return _LauncherButton(
           icon: Icons.code,
-          label: 'Open code',
+          label: l10n.artifactOpenCode,
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) =>
@@ -651,7 +678,7 @@ class _ArtifactViewerLauncher extends StatelessWidget {
       case ArtifactKind.audio:
         return _LauncherButton(
           icon: Icons.audiotrack,
-          label: 'Play audio',
+          label: l10n.artifactPlayAudio,
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) =>
@@ -662,7 +689,7 @@ class _ArtifactViewerLauncher extends StatelessWidget {
       case ArtifactKind.video:
         return _LauncherButton(
           icon: Icons.movie_outlined,
-          label: 'Play video',
+          label: l10n.artifactPlayVideo,
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) =>
@@ -673,7 +700,7 @@ class _ArtifactViewerLauncher extends StatelessWidget {
       case ArtifactKind.canvasApp:
         return _LauncherButton(
           icon: Icons.web_asset_outlined,
-          label: 'Open canvas',
+          label: l10n.artifactOpenCanvas,
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) =>
@@ -684,7 +711,7 @@ class _ArtifactViewerLauncher extends StatelessWidget {
       case ArtifactKind.metricChart:
         return _LauncherButton(
           icon: Icons.show_chart,
-          label: 'Open chart',
+          label: l10n.artifactOpenChart,
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => ArtifactMetricChartViewerScreen(

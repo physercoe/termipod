@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import 'design_colors.dart';
 
 /// Fixed four-value task priority enum. Matches the hub migration 0021
@@ -24,6 +25,20 @@ extension TaskPriorityX on TaskPriority {
 
   /// User-visible short label for chips / menus.
   String get label => wire;
+
+  /// Localized short label for chips / menus.
+  String localizedLabel(AppLocalizations l10n) {
+    switch (this) {
+      case TaskPriority.low:
+        return l10n.taskPriorityLow;
+      case TaskPriority.med:
+        return l10n.taskPriorityMed;
+      case TaskPriority.high:
+        return l10n.taskPriorityHigh;
+      case TaskPriority.urgent:
+        return l10n.taskPriorityUrgent;
+    }
+  }
 
   /// Higher = more attention. Used for client-side sorts that mirror the
   /// server's default order when a caller can't hit the network.
@@ -56,6 +71,24 @@ TaskPriority parseTaskPriority(Object? raw) {
     case 'med':
     default:
       return TaskPriority.med;
+  }
+}
+
+/// Localized user-visible label for a task status wire value
+/// (`todo` / `in_progress` / `blocked` / `done`). Unknown values fall
+/// back to the raw wire string.
+String taskStatusLabel(AppLocalizations l10n, String wire) {
+  switch (wire) {
+    case 'todo':
+      return l10n.taskStatusTodo;
+    case 'in_progress':
+      return l10n.taskStatusInProgress;
+    case 'blocked':
+      return l10n.taskStatusBlocked;
+    case 'done':
+      return l10n.taskStatusDone;
+    default:
+      return wire;
   }
 }
 

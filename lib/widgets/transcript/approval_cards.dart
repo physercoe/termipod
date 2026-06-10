@@ -14,6 +14,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
+import '../app_chip.dart';
 import 'feed_render.dart';
 
 
@@ -153,7 +154,7 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
             ),
           ),
         if (decided != null)
-          _DecisionChip(decision: decided)
+          _decisionChip(decided)
         else
           Wrap(
             spacing: 6,
@@ -219,38 +220,19 @@ class _ApprovalOption {
   const _ApprovalOption({required this.id, required this.label});
 }
 
-class _DecisionChip extends StatelessWidget {
-  final String decision;
-  const _DecisionChip({required this.decision});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (decision) {
-      'allow' => DesignColors.success,
-      'deny' => DesignColors.error,
-      'cancel' => DesignColors.textMuted,
-      _ => DesignColors.primary,
-    };
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: color.withValues(alpha: 0.5)),
-        ),
-        child: Text(
-          'decided: $decision',
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-      ),
-    );
-  }
+/// Decision tag ("decided: …") rendered via the shared [AppStatusChip]
+/// (ADR-047 D-7).
+Widget _decisionChip(String decision) {
+  final color = switch (decision) {
+    'allow' => DesignColors.success,
+    'deny' => DesignColors.error,
+    'cancel' => DesignColors.textMuted,
+    _ => DesignColors.primary,
+  };
+  return Align(
+    alignment: Alignment.centerLeft,
+    child: AppStatusChip(label: 'decided: $decision', color: color),
+  );
 }
 
 /// Inline interactive card for `AskUserQuestion` tool calls. The

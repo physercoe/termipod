@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
-import '../../theme/tokens.dart';
+import '../../widgets/app_chip.dart';
 
 /// Embeddable body for the hub's agent-family registry. Lives as a tab
 /// inside TemplatesScreen — templates *use* engines via backend.kind, so
@@ -203,7 +203,7 @@ class _FamilyTile extends StatelessWidget {
                     fontSize: 13, fontWeight: FontWeight.w600)),
           ),
           const SizedBox(width: 8),
-          _SourceChip(source: source),
+          _sourceChip(context, source),
         ],
       ),
       subtitle: Text(
@@ -221,45 +221,16 @@ class _FamilyTile extends StatelessWidget {
   }
 }
 
-class _SourceChip extends StatelessWidget {
-  final String source;
-  const _SourceChip({required this.source});
-
-  @override
-  Widget build(BuildContext context) {
-    Color bg;
-    Color fg;
-    switch (source) {
-      case 'custom':
-        bg = DesignColors.success.withOpacity(0.18);
-        fg = DesignColors.success;
-        break;
-      case 'override':
-        bg = DesignColors.warning.withOpacity(0.18);
-        fg = DesignColors.warning;
-        break;
-      default:
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        bg = (isDark ? Colors.white : Colors.black).withOpacity(0.07);
-        fg = isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: Radii.mdBorder,
-      ),
-      child: Text(
-        source,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: FontSizes.label,
-          fontWeight: FontWeight.w600,
-          color: fg,
-          letterSpacing: 0.4,
-        ),
-      ),
-    );
-  }
+/// Family-source tag (custom / override / embedded) rendered via the
+/// shared [AppStatusChip] (ADR-047 D-7).
+Widget _sourceChip(BuildContext context, String source) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  final color = switch (source) {
+    'custom' => DesignColors.success,
+    'override' => DesignColors.warning,
+    _ => isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+  };
+  return AppStatusChip(label: source, color: color);
 }
 
 /// Editor for one family. Embedded entries open in read-only mode with
@@ -437,7 +408,7 @@ class _AgentFamilyEditorScreenState
                       fontSize: 14, fontWeight: FontWeight.w600)),
             ),
             const SizedBox(width: 8),
-            _SourceChip(source: _source.isEmpty ? 'embedded' : _source),
+            _sourceChip(context, _source.isEmpty ? 'embedded' : _source),
           ],
         ),
         actions: [

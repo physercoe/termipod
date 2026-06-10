@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
+import 'app_chip.dart';
 import '../theme/tokens.dart';
 
 /// ADR-020 W1 — director annotations on a typed-document section.
@@ -325,7 +326,7 @@ class _AnnotationRow extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     if (isResolved)
-                      _StatusChip(label: 'resolved', color: color),
+                      AppStatusChip(label: 'resolved', color: color),
                   ],
                 ),
               ],
@@ -347,31 +348,6 @@ class _AnnotationRow extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _StatusChip({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: FontSizes.label,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
       ),
     );
   }

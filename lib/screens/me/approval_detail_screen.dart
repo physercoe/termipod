@@ -8,6 +8,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/app_chip.dart';
 import '../projects/documents_screen.dart' show DocumentDetailScreen;
 import '../projects/project_detail_screen.dart';
 import '../sessions/sessions_screen.dart';
@@ -150,11 +151,11 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
             spacing: 8,
             runSpacing: 4,
             children: [
-              _Chip(label: _kindLabel(kind), color: DesignColors.primary),
+              AppStatusChip(label: _kindLabel(kind), color: DesignColors.primary),
               if (severity.isNotEmpty)
-                _Chip(label: severity, color: _severityColor(severity)),
+                AppStatusChip(label: severity, color: _severityColor(severity)),
               if (kind == 'help_request' && pending != null)
-                _Chip(
+                AppStatusChip(
                   label: (pending['mode'] ?? 'clarify').toString() == 'handoff'
                       ? 'hand-back'
                       : 'clarify',
@@ -163,7 +164,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
                       : DesignColors.primary,
                 ),
               if (kind == 'elicit')
-                _Chip(label: 'fill', color: DesignColors.terminalCyan),
+                AppStatusChip(label: 'fill', color: DesignColors.terminalCyan),
             ],
           ),
           const SizedBox(height: 20),
@@ -547,31 +548,6 @@ class _Field extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _Chip({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: Radii.smBorder,
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: FontSizes.label,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
       ),
     );
   }
@@ -1267,7 +1243,7 @@ class _TemplateProposalPreviewState
               ),
               const Spacer(),
               if (!_loading && _proposed != null)
-                _DiffStatusChip(
+                _diffStatusChip(
                   isCreate: _currentMissing,
                   hasCurrent: _current != null,
                   isSame: _current != null && _current == _proposed,
@@ -1360,47 +1336,27 @@ class _TemplateProposalPreviewState
 /// "this is a brand-new template" reads differently than "this revises
 /// an existing template" or "this is identical to what's already on
 /// disk" (a no-op proposal worth rejecting).
-class _DiffStatusChip extends StatelessWidget {
-  final bool isCreate;
-  final bool hasCurrent;
-  final bool isSame;
-  const _DiffStatusChip({
-    required this.isCreate,
-    required this.hasCurrent,
-    required this.isSame,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    String label;
-    Color color;
-    if (isCreate) {
-      label = 'NEW';
-      color = DesignColors.terminalCyan;
-    } else if (!hasCurrent) {
-      label = 'unknown';
-      color = DesignColors.textMuted;
-    } else if (isSame) {
-      label = 'no change';
-      color = DesignColors.textMuted;
-    } else {
-      label = 'revise';
-      color = DesignColors.warning;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: Radii.smBorder,
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: FontSizes.label,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
-      ),
-    );
+/// Diff-status tag (NEW / unknown / no change / revise) rendered via the
+/// shared [AppStatusChip] (ADR-047 D-7).
+Widget _diffStatusChip({
+  required bool isCreate,
+  required bool hasCurrent,
+  required bool isSame,
+}) {
+  String label;
+  Color color;
+  if (isCreate) {
+    label = 'NEW';
+    color = DesignColors.terminalCyan;
+  } else if (!hasCurrent) {
+    label = 'unknown';
+    color = DesignColors.textMuted;
+  } else if (isSame) {
+    label = 'no change';
+    color = DesignColors.textMuted;
+  } else {
+    label = 'revise';
+    color = DesignColors.warning;
   }
+  return AppStatusChip(label: label, color: color);
 }

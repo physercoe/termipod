@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/app_chip.dart';
 import '../project_create_sheet.dart';
 import '../project_detail_screen.dart';
 import 'registry.dart';
@@ -145,7 +146,7 @@ class _ChildRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            _StatusChip(status: status),
+            _statusChip(status),
             if (openAttention > 0) ...[
               const SizedBox(width: 6),
               _AttentionBadge(count: openAttention),
@@ -160,35 +161,16 @@ class _ChildRow extends StatelessWidget {
   }
 }
 
-class _StatusChip extends StatelessWidget {
-  final String status;
-  const _StatusChip({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final label = status.isEmpty ? 'active' : status;
-    final color = switch (label) {
-      'active' => DesignColors.terminalGreen,
-      'archived' => DesignColors.textMuted,
-      _ => DesignColors.primary,
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: FontSizes.label,
-          fontWeight: FontWeight.w700,
-          color: color,
-        ),
-      ),
-    );
-  }
+/// Child-project status tag rendered via the shared [AppStatusChip]
+/// (ADR-047 D-7).
+Widget _statusChip(String status) {
+  final label = status.isEmpty ? 'active' : status;
+  final color = switch (label) {
+    'active' => DesignColors.terminalGreen,
+    'archived' => DesignColors.textMuted,
+    _ => DesignColors.primary,
+  };
+  return AppStatusChip(label: label, color: color);
 }
 
 class _AttentionBadge extends StatelessWidget {

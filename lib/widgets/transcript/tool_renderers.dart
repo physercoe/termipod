@@ -12,6 +12,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
+import '../app_chip.dart';
 import 'feed_render.dart';
 
 // Tool-name → glyph map for the tool_call card header strip. Keeps the
@@ -139,7 +140,7 @@ class _FoldableToolCallState extends State<FoldableToolCall> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (widget.status.isNotEmpty) _StatusPill(status: widget.status),
+              if (widget.status.isNotEmpty) _statusPill(widget.status),
               const SizedBox(width: 4),
               InkWell(
                 onTap: () => setState(() => _expanded = !_expanded),
@@ -222,36 +223,16 @@ class _ToolKvLine extends StatelessWidget {
 /// Compact status pill for the tool_call card header.
 /// pending/in_progress/completed/failed each get their own accent so
 /// the user can scan a long transcript without reading every label.
-class _StatusPill extends StatelessWidget {
-  final String status;
-  const _StatusPill({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (status) {
-      'failed' => DesignColors.error,
-      'completed' => DesignColors.success,
-      'in_progress' => DesignColors.terminalCyan,
-      'pending' => DesignColors.warning,
-      _ => DesignColors.textMuted,
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Text(
-        status,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: FontSizes.label,
-          fontWeight: FontWeight.w700,
-          color: color,
-        ),
-      ),
-    );
-  }
+/// Tool-status tag rendered via the shared [AppStatusChip] (ADR-047 D-7).
+Widget _statusPill(String status) {
+  final color = switch (status) {
+    'failed' => DesignColors.error,
+    'completed' => DesignColors.success,
+    'in_progress' => DesignColors.terminalCyan,
+    'pending' => DesignColors.warning,
+    _ => DesignColors.textMuted,
+  };
+  return AppStatusChip(label: status, color: color);
 }
 
 /// Inline tool_result block rendered inside a tool_call card. Reuses

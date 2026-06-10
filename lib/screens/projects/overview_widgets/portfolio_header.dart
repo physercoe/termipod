@@ -166,7 +166,7 @@ class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
             ),
           if (openAttention > 0) ...[
             const SizedBox(height: 8),
-            _AttentionPill(
+            _attentionPill(
               count: openAttention,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
@@ -216,9 +216,9 @@ class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
               spacing: 6,
               runSpacing: 6,
               children: [
-                _StatusChip(label: status.isEmpty ? 'active' : status),
+                _statusChip(status.isEmpty ? 'active' : status),
                 if (budgetCents is int)
-                  _BudgetChip(usedCents: 0, capCents: budgetCents),
+                  _budgetChip(0, budgetCents),
               ],
             ),
             if (_loaded && _total > 0) ...[
@@ -238,55 +238,38 @@ class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
   }
 }
 
-class _StatusChip extends StatelessWidget {
-  final String label;
-  const _StatusChip({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (label) {
-      'active' => DesignColors.terminalGreen,
-      'archived' => DesignColors.textMuted,
-      _ => DesignColors.primary,
-    };
-    return AppStatusChip(label: label, color: color);
-  }
+/// Project-status tag rendered via the shared [AppStatusChip] (ADR-047 D-7).
+Widget _statusChip(String label) {
+  final color = switch (label) {
+    'active' => DesignColors.terminalGreen,
+    'archived' => DesignColors.textMuted,
+    _ => DesignColors.primary,
+  };
+  return AppStatusChip(label: label, color: color);
 }
 
-class _BudgetChip extends StatelessWidget {
-  final int usedCents;
-  final int capCents;
-  const _BudgetChip({required this.usedCents, required this.capCents});
+/// Budget tag rendered via the shared [AppStatusChip] (ADR-047 D-7).
+Widget _budgetChip(int usedCents, int capCents) {
+  final used = (usedCents / 100).toStringAsFixed(0);
+  final cap = (capCents / 100).toStringAsFixed(0);
+  return AppStatusChip(
+    label: 'budget: \$$used / \$$cap',
+    color: DesignColors.warning,
+    icon: Icons.attach_money,
+  );
+}
 
-  @override
-  Widget build(BuildContext context) {
-    final used = (usedCents / 100).toStringAsFixed(0);
-    final cap = (capCents / 100).toStringAsFixed(0);
-    return AppStatusChip(
-      label: 'budget: \$$used / \$$cap',
+/// Tappable attention-count tag rendered via the shared [AppStatusChip].
+Widget _attentionPill({required int count, required VoidCallback onTap}) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(4),
+    child: AppStatusChip(
+      label: count == 1 ? '1 review' : '$count reviews',
       color: DesignColors.warning,
-      icon: Icons.attach_money,
-    );
-  }
-}
-
-class _AttentionPill extends StatelessWidget {
-  final int count;
-  final VoidCallback onTap;
-  const _AttentionPill({required this.count, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: AppStatusChip(
-        label: count == 1 ? '1 review' : '$count reviews',
-        color: DesignColors.warning,
-        icon: Icons.flag_outlined,
-      ),
-    );
-  }
+      icon: Icons.flag_outlined,
+    ),
+  );
 }
 
 class _TaskProgressRow extends StatelessWidget {

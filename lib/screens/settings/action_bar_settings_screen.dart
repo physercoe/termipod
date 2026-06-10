@@ -8,6 +8,7 @@ import '../../models/action_bar_config.dart';
 import '../../models/action_bar_presets.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Settings screen for customizing action bar groups and buttons.
 ///
@@ -319,7 +320,7 @@ class _GroupTile extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 4, 10),
+        padding: const EdgeInsets.fromLTRB(8, 8, 4, Spacing.s8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -374,7 +375,7 @@ class _GroupTile extends StatelessWidget {
                         b.type == ActionBarButtonType.modifier;
                     return Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
+                        horizontal: Spacing.s8,
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
@@ -572,14 +573,14 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
       child: InkWell(
         onTap: () => _showEditButtonDialog(context, index),
         onLongPress: () => _showButtonActionSheet(context, index, button),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         child: Container(
           constraints: const BoxConstraints(minWidth: 60, minHeight: 44),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
           decoration: BoxDecoration(
             color: bgColor,
             border: Border.all(color: borderColor, width: 1),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: Radii.mdBorder,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -598,7 +599,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
               Text(
                 _buttonTypeLabel(button.type),
                 style: TextStyle(
-                  fontSize: 9,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w500,
                   letterSpacing: 0.4,
                   color: (isDark
@@ -784,7 +785,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                   height: 4,
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: Radii.xsBorder,
                   ),
                 ),
                 Padding(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 import 'phase_ribbon.dart';
 
 /// Compact phase indicator. Replaces the inline [PhaseRibbon] when
@@ -50,8 +51,8 @@ class PhaseBadge extends StatelessWidget {
       onTap: () => _expand(context),
       child: Container(
         padding: dense
-            ? const EdgeInsets.fromLTRB(8, 3, 8, 3)
-            : const EdgeInsets.fromLTRB(10, 5, 8, 5),
+            ? const EdgeInsets.fromLTRB(8, Spacing.s4, 8, Spacing.s4)
+            : const EdgeInsets.fromLTRB(Spacing.s8, Spacing.s4, 8, Spacing.s4),
         decoration: BoxDecoration(
           color: DesignColors.primary.withValues(alpha: 0.12),
           border: Border.all(
@@ -159,12 +160,12 @@ class _PhasePickerSheet extends StatelessWidget {
             height: 4,
             decoration: BoxDecoration(
               color: DesignColors.textMuted.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: Radii.xsBorder,
             ),
           ),
           const SizedBox(height: 12),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: Spacing.s16),
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(

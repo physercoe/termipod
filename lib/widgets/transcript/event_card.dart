@@ -19,6 +19,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
 
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../markdown_builders.dart';
 import 'approval_cards.dart';
 import 'feed_reducer.dart';
@@ -756,7 +757,7 @@ class AgentEventCard extends StatefulWidget {
           border: Border.all(color: codeBorder),
         ),
         h1: base.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
-        h2: base.copyWith(fontSize: 15, fontWeight: FontWeight.w700),
+        h2: base.copyWith(fontSize: FontSizes.subtitle, fontWeight: FontWeight.w700),
         h3: base.copyWith(fontSize: 14, fontWeight: FontWeight.w700),
         h4: base.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
         blockquote: base.copyWith(
@@ -880,7 +881,7 @@ class _AgentEventCardState extends State<AgentEventCard> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: border),
       ),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      padding: const EdgeInsets.fromLTRB(Spacing.s8, 8, Spacing.s8, Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -976,7 +977,7 @@ class _CardHeader extends StatelessWidget {
           height: 6,
           decoration: BoxDecoration(
             color: accent,
-            borderRadius: BorderRadius.circular(3),
+            borderRadius: Radii.xsBorder,
           ),
         ),
         const SizedBox(width: 6),
@@ -991,13 +992,13 @@ class _CardHeader extends StatelessWidget {
         const SizedBox(width: 6),
         Text(
           producer,
-          style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+          style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
         ),
         const Spacer(),
         if (ts != null)
           Text(
             _formatTs(ts!),
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
           ),
         if (copyText.isNotEmpty) ...[
           const SizedBox(width: 4),
@@ -1136,7 +1137,7 @@ class _DiffView extends StatelessWidget {
       };
       children.add(Container(
         color: bg,
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

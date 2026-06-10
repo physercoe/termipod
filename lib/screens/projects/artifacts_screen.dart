@@ -6,6 +6,7 @@ import '../../models/artifact_kinds.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 import '../../widgets/artifact_viewers/audio_viewer.dart';
 import '../../widgets/artifact_viewers/canvas_viewer.dart';
@@ -209,7 +210,7 @@ class _OutputsGuidance extends StatelessWidget {
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
@@ -307,7 +308,7 @@ class _ArtifactRow extends StatelessWidget {
             Text(
               _formatSize(size),
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: DesignColors.textMuted,
               ),
             ),
@@ -322,7 +323,7 @@ class _ArtifactRow extends StatelessWidget {
             if (uri.isNotEmpty) uri,
           ].join(' · '),
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             color: DesignColors.textMuted,
           ),
           maxLines: 1,
@@ -411,7 +412,7 @@ class ArtifactKindChip extends StatelessWidget {
     final spec = artifactKindSpecFor(kind.toLowerCase());
     final color = _colorForRole(spec.colorRole);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -420,7 +421,7 @@ class ArtifactKindChip extends StatelessWidget {
       child: Text(
         spec.label,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: color,
         ),
@@ -529,7 +530,7 @@ class _ArtifactDetailSheet extends ConsumerWidget {
                 height: 4,
                 decoration: BoxDecoration(
                   color: DesignColors.textMuted.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -542,7 +543,7 @@ class _ArtifactDetailSheet extends ConsumerWidget {
                   child: Text(
                     name,
                     style: GoogleFonts.spaceGrotesk(
-                      fontSize: 15,
+                      fontSize: FontSizes.subtitle,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -560,7 +561,7 @@ class _ArtifactDetailSheet extends ConsumerWidget {
                     Text(
                       e.key,
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                         color: DesignColors.textMuted,

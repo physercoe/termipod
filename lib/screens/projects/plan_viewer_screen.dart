@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'plan_step_create_sheet.dart';
 import 'plans_screen.dart';
 
@@ -220,7 +221,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
                 subtitle,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.textMuted,
                 ),
               ),
@@ -351,7 +352,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
       child: Text(
         '$label · $count',
         style: GoogleFonts.jetBrainsMono(
-            fontSize: 10, fontWeight: FontWeight.w700, color: color),
+            fontSize: FontSizes.label, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }
@@ -426,7 +427,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
         children: [
           for (final ph in phases) ...[
             Padding(
-              padding: const EdgeInsets.only(top: 8, bottom: 6),
+              padding: const EdgeInsets.only(top: 8, bottom: Spacing.s8),
               child: Text(
                 'Phase $ph',
                 style: GoogleFonts.spaceGrotesk(
@@ -487,7 +488,7 @@ class _Section extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         border: Border.all(color: DesignColors.borderDark),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -529,8 +530,8 @@ class _StepRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(4),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 6),
-        padding: const EdgeInsets.all(10),
+        margin: const EdgeInsets.only(bottom: Spacing.s8),
+        padding: const EdgeInsets.all(Spacing.s8),
         decoration: BoxDecoration(
           color: DesignColors.surfaceDark.withValues(alpha: 0.4),
           borderRadius: BorderRadius.circular(4),
@@ -564,7 +565,7 @@ class _StepRow extends StatelessWidget {
                       'agent: $agentLabel',
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: DesignColors.textMuted,
                       ),
                     ),
@@ -757,7 +758,7 @@ class _StepDetailSheet extends StatelessWidget {
           const SizedBox(height: 4),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(4),
@@ -837,7 +838,7 @@ class _StepDetailSheet extends StatelessWidget {
           const SizedBox(height: 4),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
               color: DesignColors.surfaceDark.withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(4),

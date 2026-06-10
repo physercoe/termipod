@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 import '../../widgets/hub_offline_banner.dart';
 
@@ -270,7 +271,7 @@ class _FilterBar extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: border)),
       ),
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      padding: const EdgeInsets.fromLTRB(8, Spacing.s8, 8, Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -293,15 +294,15 @@ class _FilterBar extends StatelessWidget {
             const SizedBox(height: 6),
             InkWell(
               onTap: onProjectTap,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: Radii.smBorder,
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
                 decoration: BoxDecoration(
                   border: Border.all(
                     color: projectIsActive ? DesignColors.primary : border,
                   ),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: Radii.smBorder,
                 ),
                 child: Row(
                   children: [
@@ -403,7 +404,7 @@ class _ProjectFilterSheet extends StatelessWidget {
               subtitle: Text(
                 [if (kind.isNotEmpty) kind, id].join(' · '),
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.textMuted,
                 ),
               ),
@@ -482,7 +483,7 @@ class _ReviewRow extends StatelessWidget {
             if (created.isNotEmpty) created,
           ].join(' · '),
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             color: DesignColors.textMuted,
           ),
         ),
@@ -510,7 +511,7 @@ class ReviewStatusChip extends StatelessWidget {
       _ => DesignColors.textMuted,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -519,7 +520,7 @@ class ReviewStatusChip extends StatelessWidget {
       child: Text(
         s.isEmpty ? '?' : s,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: color,
         ),
@@ -684,7 +685,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
               color: DesignColors.borderDark,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: Radii.xsBorder,
             ),
           ),
         ),
@@ -713,10 +714,10 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
         if (docContent.isNotEmpty) ...[
           _sectionLabel('Document'),
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.25),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: Radii.smBorder,
               border: Border.all(color: DesignColors.borderDark),
             ),
             child: _DocumentBody(content: docContent),
@@ -823,7 +824,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
       );
 
   Widget _sectionLabel(String label) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: Spacing.s8),
         child: Text(
           label,
           style: GoogleFonts.spaceGrotesk(
@@ -855,9 +856,9 @@ class _DocumentBody extends StatelessWidget {
         styleSheet: MarkdownStyleSheet(
           p: GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4),
           h1: GoogleFonts.spaceGrotesk(
-              fontSize: 17, fontWeight: FontWeight.w700),
+              fontSize: FontSizes.title, fontWeight: FontWeight.w700),
           h2: GoogleFonts.spaceGrotesk(
-              fontSize: 15, fontWeight: FontWeight.w700),
+              fontSize: FontSizes.subtitle, fontWeight: FontWeight.w700),
           h3: GoogleFonts.spaceGrotesk(
               fontSize: 14, fontWeight: FontWeight.w700),
           code: GoogleFonts.jetBrainsMono(

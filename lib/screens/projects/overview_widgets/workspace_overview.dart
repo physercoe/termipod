@@ -5,6 +5,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import '../plan_viewer_screen.dart';
 import '../plans_screen.dart';
 import '../reviews_screen.dart';
@@ -118,10 +119,10 @@ class _WorkspaceHeaderState extends ConsumerState<WorkspaceHeader> {
         .length;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: border),
       ),
       child: Column(
@@ -479,14 +480,14 @@ class _RecentFiringsListState extends ConsumerState<RecentFiringsList> {
     return Container(
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, 8),
             child: Row(
               children: [
                 const Icon(Icons.playlist_play_outlined,
@@ -508,7 +509,7 @@ class _RecentFiringsListState extends ConsumerState<RecentFiringsList> {
               child: Text(
                 l10n.workspaceFiringLoading,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.textMuted,
                 ),
               ),
@@ -540,7 +541,7 @@ class _RecentFiringsListState extends ConsumerState<RecentFiringsList> {
               )),
               child: Padding(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
                 child: Row(
                   children: [
                     Text(
@@ -591,14 +592,14 @@ class _FiringRow extends StatelessWidget {
                 ),
               )),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
               width: 8,
               height: 8,
-              margin: const EdgeInsets.only(top: 5, right: 10),
+              margin: const EdgeInsets.only(top: Spacing.s4, right: Spacing.s8),
               decoration: BoxDecoration(
                 color: statusColor,
                 shape: BoxShape.circle,
@@ -621,7 +622,7 @@ class _FiringRow extends StatelessWidget {
                   Text(
                     _subtitle(started, finished, status),
                     style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       color: isDark
                           ? DesignColors.textMuted
                           : DesignColors.textMutedLight,
@@ -634,7 +635,7 @@ class _FiringRow extends StatelessWidget {
             Text(
               status,
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 fontWeight: FontWeight.w700,
                 color: statusColor,
               ),
@@ -675,7 +676,7 @@ class _Chip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -691,7 +692,7 @@ class _Chip extends StatelessWidget {
           Text(
             label,
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w700,
               color: color,
             ),

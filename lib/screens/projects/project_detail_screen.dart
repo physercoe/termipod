@@ -13,6 +13,7 @@ import '../../widgets/agent_actions_menu.dart';
 import '../../widgets/agent_config_sheet.dart';
 import '../sessions/sessions_screen.dart' show SessionChatScreen;
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_feed.dart';
 import '../../widgets/app_chip.dart';
@@ -778,7 +779,7 @@ class _TaskTile extends StatelessWidget {
         onChanged();
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         decoration: BoxDecoration(
           color:
               isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
@@ -936,7 +937,7 @@ class _TaskTileAttribution extends StatelessWidget {
       if (pieces.isNotEmpty) pieces.add(_sep());
       pieces.add(Text(
         'by @${_stripAt(assignerHandle)}',
-        style: GoogleFonts.spaceGrotesk(fontSize: 10, color: muted),
+        style: GoogleFonts.spaceGrotesk(fontSize: FontSizes.label, color: muted),
       ));
     }
     final timeText = _timeLabel();
@@ -944,7 +945,7 @@ class _TaskTileAttribution extends StatelessWidget {
       if (pieces.isNotEmpty) pieces.add(_sep());
       pieces.add(Text(
         timeText,
-        style: GoogleFonts.spaceGrotesk(fontSize: 10, color: muted),
+        style: GoogleFonts.spaceGrotesk(fontSize: FontSizes.label, color: muted),
       ));
     }
     if (pieces.isEmpty) return const SizedBox.shrink();
@@ -971,7 +972,7 @@ class _TaskTileAttribution extends StatelessWidget {
         Text(
           '@${_stripAt(assigneeHandle)}',
           style: GoogleFonts.spaceGrotesk(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             fontWeight: FontWeight.w500,
             color: muted,
           ),
@@ -981,10 +982,10 @@ class _TaskTileAttribution extends StatelessWidget {
   }
 
   Widget _sep() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s8),
         child: Text(
           '·',
-          style: GoogleFonts.spaceGrotesk(fontSize: 10, color: muted),
+          style: GoogleFonts.spaceGrotesk(fontSize: FontSizes.label, color: muted),
         ),
       );
 
@@ -1127,7 +1128,7 @@ class _AgentsView extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
+                      horizontal: 12, vertical: Spacing.s8),
                   decoration: BoxDecoration(
                     color: isDark
                         ? DesignColors.surfaceDark
@@ -1160,7 +1161,7 @@ class _AgentsView extends ConsumerWidget {
                                 formatId(idKindFor('agent'),
                                     (a['id'] ?? '').toString()),
                                 style: GoogleFonts.jetBrainsMono(
-                                  fontSize: 10,
+                                  fontSize: FontSizes.label,
                                   color: isDark
                                       ? DesignColors.textMuted
                                       : DesignColors.textMutedLight,
@@ -1172,7 +1173,7 @@ class _AgentsView extends ConsumerWidget {
                       ),
                       Text(agentStatusLabelResumable(aStatus, resumable),
                           style: GoogleFonts.jetBrainsMono(
-                              fontSize: 10, color: mutedC)),
+                              fontSize: FontSizes.label, color: mutedC)),
                       // Per-row action affordance (parity with the steward
                       // session rows): the shared agent-lifecycle menu. Respawn
                       // (needs the spawn spec) stays in the detail sheet.
@@ -1574,7 +1575,7 @@ class _OverviewView extends ConsumerWidget {
                     children: [
                       Text(r.key,
                           style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10,
+                            fontSize: FontSizes.label,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.5,
                             color: isDark
@@ -1683,12 +1684,12 @@ class _AttentionBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: Radii.mdBorder,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 12),
         decoration: BoxDecoration(
           color: DesignColors.warning.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           border: Border.all(color: DesignColors.warning.withValues(alpha: 0.55)),
         ),
         child: Row(
@@ -1760,7 +1761,7 @@ class _ParentBreadcrumb extends ConsumerWidget {
               },
         child: Padding(
           padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
           child: Row(
             children: [
               const Icon(Icons.chevron_left,
@@ -1769,7 +1770,7 @@ class _ParentBreadcrumb extends ConsumerWidget {
               Text(
                 kindLabel,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.5,
                   color: DesignColors.textMuted,
@@ -1896,7 +1897,7 @@ class _StartBannerState extends ConsumerState<_StartBanner> {
     return Container(
       width: double.infinity,
       color: bg,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s8),
       child: Row(
         children: [
           Icon(Icons.play_circle_outline, size: 18, color: muted),

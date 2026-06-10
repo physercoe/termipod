@@ -1972,7 +1972,7 @@ const _seriesPalette = <Color>[
   DesignColors.warning,
   DesignColors.success,
   DesignColors.error,
-  Color(0xFFB394FF),
+  DesignColors.violet,
 ];
 
 /// Renders a metric group as a single multi-line chart with a legend.

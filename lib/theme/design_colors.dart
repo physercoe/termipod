@@ -53,6 +53,7 @@ class DesignColors {
   // same model as AppStatusChip.
   static const info = Color(0xFF6366F1); // indigo — informational / phase
   static const slate = Color(0xFF64748B); // neutral slate — routine / status
+  static const violet = Color(0xFFB394FF); // categorical accent — chart series
 
   // Status containers (ADR-047 D-5/D-6 — M3 *Container / on*Container
   // idiom). A tinted callout background + the on-color that stays

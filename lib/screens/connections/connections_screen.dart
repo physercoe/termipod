@@ -906,7 +906,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
   Widget _buildRawExpandedContent(bool isDark, ColorScheme colorScheme) {
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF15161C) : const Color(0xFFF8F9FA),
+        color: isDark ? DesignColors.footerBackground : DesignColors.backgroundLight,
         border: Border(
             top: BorderSide(
                 color: isDark ? DesignColors.borderDark : DesignColors.borderLight)),
@@ -993,7 +993,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
   Widget _buildExpandedContent(List<ActiveSession> activeSessions, bool isDark, ColorScheme colorScheme) {
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF15161C) : const Color(0xFFF8F9FA),
+        color: isDark ? DesignColors.footerBackground : DesignColors.backgroundLight,
         border: Border(top: BorderSide(color: isDark ? DesignColors.borderDark : DesignColors.borderLight)),
         borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
       ),

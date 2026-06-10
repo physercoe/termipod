@@ -5,6 +5,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../services/host_label.dart';
 import '../../services/hub/agent_status.dart';
 import '../../services/hub/session_display.dart';
@@ -446,6 +448,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           final orderedCats = order
               .where((c) => byCategory.containsKey(c))
               .toList(growable: false);
+          final sTerm =
+              ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
           return RefreshIndicator(
             onRefresh: () async {
               await ref.read(sessionsProvider.notifier).refresh();
@@ -456,7 +460,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
               children: [
                 for (final cat in orderedCats) ...[
                   _CategoryHeader(
-                    label: stewardCategoryLabel(cat),
+                    label: stewardCategoryLabel(cat,
+                        steward: sTerm.lower, stewards: sTerm.pluralLower),
                     count: categoryDisplayCount(cat, byCategory[cat]!),
                     collapsed: _collapsedCategories.contains(cat),
                     onToggle: () => setState(() {
@@ -589,6 +594,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     final categoryCounts = <StewardCategory, int>{
       for (final c in presentCats) c: categoryDisplayCount(c, groups),
     };
+    final stewardTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     // Detached scope sub-chips (#122): when Detached is the active
     // filter and its orphans span more than one scope, offer a second
     // chip row so Select-all / bulk ops can target one scope.
@@ -661,6 +668,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 onToggle: _toggleCategoryFilter,
                 scopeChips: scopeChipData,
                 onToggleScope: _toggleScopeFilter,
+                steward: stewardTerm.lower,
+                stewards: stewardTerm.pluralLower,
               ),
             ),
     );
@@ -684,12 +693,19 @@ class _CategoryFilterStrip extends StatelessWidget {
     required this.onToggle,
     this.scopeChips = const [],
     this.onToggleScope,
+    this.steward = 'steward',
+    this.stewards = 'stewards',
   });
   final Map<StewardCategory, int> counts;
   final Set<StewardCategory> selected;
   final void Function(StewardCategory c) onToggle;
   final List<({String key, String label, int count, bool selected})> scopeChips;
   final void Function(String key)? onToggleScope;
+
+  /// Lower-case singular / plural of `role.steward` (ADR-048), so the chip
+  /// labels track the active vocabulary preset.
+  final String steward;
+  final String stewards;
 
   @override
   Widget build(BuildContext context) {
@@ -707,7 +723,8 @@ class _CategoryFilterStrip extends StatelessWidget {
       chips.add(Padding(
         padding: const EdgeInsets.only(right: 8),
         child: FilterChip(
-          label: Text('${stewardCategoryLabel(c)} · $n'),
+          label: Text(
+              '${stewardCategoryLabel(c, steward: steward, stewards: stewards)} · $n'),
           selected: isActive,
           onSelected: (_) => onToggle(c),
           visualDensity: VisualDensity.compact,

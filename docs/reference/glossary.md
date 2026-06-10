@@ -13,9 +13,9 @@ means. If you discover a new collision or ambiguous usage, add an
 entry here in the same change.
 
 This is **not** the design-vocabulary doc — `vocabulary.md` is the
-swappable role-bound vocab axes for post-MVP theme packs. They
-coexist; this one is fixed engineering terminology, that one is
-intentionally swappable.
+swappable role-bound vocab axes, now shipping as **[vocabulary
+presets](#vocabulary-preset)** (ADR-048). They coexist; this one is
+fixed engineering terminology, that one is intentionally swappable.
 
 ---
 
@@ -850,6 +850,19 @@ sheets (engine arbitrage, lifecycle flow, tool-call efficiency,
 unit economics, snippet usage, multi-host distribution); Tier-3 is
 post-MVP (governance, security, knowledge curves).
 - *Canonical:* ADR-022.
+
+### vocabulary preset
+The audience theme that re-words role-bound terms — `tech` (default),
+`business`, `political`, `research` — selected per client (later
+hub-served per team). Resolved by `(preset, language)` through the
+`VocabPack` in `lib/services/vocab/`, orthogonal to language (gen-l10n
+owns en/zh). Only the named role-bound axes
+(`vocabulary.md` §1) swap; ~80% of strings stay neutral.
+- *Distinguish from:* the **theme** (visual: dark/light, design tokens,
+  ADR-047) — different dimension, deliberately not called "theme". And
+  from `vocabulary.md`, which is the *catalogue* of swappable axes; the
+  preset is one *column* of it.
+- *Canonical:* ADR-048; `docs/reference/vocabulary.md`.
 
 ---
 

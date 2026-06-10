@@ -109,11 +109,13 @@ No longer deferred — authored under [ADR-048]. Headline role axes
 | `role.principal` | 负责人 | 老板 | 领导 | 课题组负责人 |
 | `role.agent` | 智能体 | 专员 | 干事 | 研究员 |
 
-The full 21-axis × 4-preset × {en, zh} matrix lives in
-[the program plan](../plans/themed-vocabulary-and-i18n-sweep.md); it
-becomes the canonical table here when WS-A lands. The runtime is the
-`(preset, language)` → `axis → term` `VocabPack` of §5 Shape A, extended
-across language.
+The full 21-axis × 4-preset × {en, zh} matrix is **implemented** (WS-A) as
+the `VocabPack` in `lib/services/vocab/vocab_packs.dart` — the
+`(preset, language)` → `axis → term` resolver of §5 Shape A, extended across
+language. The headline role rows above are director-set and locked; the
+**non-headline zh terms ship as the working set but remain open for director
+review** before this table is declared canonical. `scripts/lint-vocab.sh` +
+`test/services/vocab/vocab_pack_test.dart` keep every pack complete.
 
 ---
 

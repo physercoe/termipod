@@ -10,6 +10,7 @@ import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../providers/urgent_tasks_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/host_label.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../services/hub/session_display.dart';
@@ -99,7 +100,7 @@ class MeScreen extends ConsumerWidget {
           ? FloatingActionButton.extended(
               onPressed: () => openStewardSession(context, ref),
               icon: const Icon(Icons.auto_awesome),
-              label: const Text('Steward'),
+              label: Text(ref.watch(vocabularyProvider).steward),
             )
           : null,
       body: RefreshIndicator(

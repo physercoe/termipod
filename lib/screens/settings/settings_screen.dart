@@ -12,6 +12,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/key_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_preset.dart';
+import '../../services/vocab/vocabulary.dart';
 import '../../services/data_port_service.dart';
 import '../../services/notifications/local_notifications.dart';
 import '../../services/public_file_store.dart';
@@ -297,6 +300,15 @@ class _CategoryPage extends ConsumerWidget {
         title: Text(l10n.settingLanguage),
         subtitle: Text(SettingsScreen._localeLabelStatic(context, settings.locale)),
         onTap: () => _showLocalePicker(context, ref, settings.locale),
+      ),
+      ListTile(
+        leading: const Icon(Icons.badge_outlined),
+        title: Text(l10n.settingVocabPreset),
+        subtitle: Text(
+          '${VocabPreset.fromId(settings.vocabPreset).label}'
+          ' · ${ref.watch(vocabularyProvider).steward}',
+        ),
+        onTap: () => _showVocabPresetPicker(context, ref, settings.vocabPreset),
       ),
       const Divider(),
       SwitchListTile(
@@ -1283,6 +1295,36 @@ class _CategoryPage extends ConsumerWidget {
               onChanged: (v) {
                 if (v != null) {
                   ref.read(settingsProvider.notifier).setLocale(v);
+                }
+                Navigator.pop(ctx);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showVocabPresetPicker(
+      BuildContext context, WidgetRef ref, String current) {
+    final l10n = AppLocalizations.of(context)!;
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(l10n.settingVocabPreset),
+        children: [
+          for (final preset in VocabPreset.values)
+            RadioListTile<String>(
+              title: Text(preset.label),
+              subtitle: Text(
+                Vocabulary(preset, resolveVocabLanguage(
+                  ref.read(settingsProvider).locale,
+                )).steward,
+              ),
+              value: preset.id,
+              groupValue: current,
+              onChanged: (v) {
+                if (v != null) {
+                  ref.read(settingsProvider.notifier).setVocabPreset(v);
                 }
                 Navigator.pop(ctx);
               },

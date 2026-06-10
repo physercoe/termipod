@@ -96,6 +96,14 @@ jobs:
         # burns down opportunistically (WS6). Pure bash + python3, no Flutter.
         run: scripts/lint-design-tokens.sh
 
+      - name: Lint vocabulary packs
+        # ADR-048 completeness gate — fails when a (preset × language) pack in
+        # lib/services/vocab/vocab_packs.dart is missing any VocabAxis. Term
+        # resolution is fallback-tolerant, so a gap degrades silently to
+        # tech/en; this makes the invariant load-bearing. Pure bash + python3,
+        # no Flutter (vocab_pack_test.dart proves the same with type access).
+        run: scripts/lint-vocab.sh
+
       - name: Validate OpenAPI spec
         # Enforces docs/reference/openapi.yaml validates against the
         # OpenAPI 3.x schema. Per docs/plans/doc-uplift.md P2.8 §5.8.

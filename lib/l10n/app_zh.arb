@@ -1147,5 +1147,17 @@
   "relativeInFuture": "{mag}后",
   "@relativeInFuture": { "placeholders": { "mag": { "type": "String" } } },
   "relativePast": "{mag}前",
-  "@relativePast": { "placeholders": { "mag": { "type": "String" } } }
+  "@relativePast": { "placeholders": { "mag": { "type": "String" } } },
+  "createFailedError": "创建失败：{error}",
+  "@createFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "newChannel": "新建{channel}",
+  "@newChannel": { "placeholders": { "channel": { "type": "String" } } },
+  "noChannelsHint": "暂无{channels}——点击 + 创建",
+  "@noChannelsHint": { "placeholders": { "channels": { "type": "String" } } },
+  "unnamedValue": "（未命名）",
+  "channelScopeNote": "{channels}的作用域限定为此{project}。此处发布的事件不会进入全{team}动态。",
+  "@channelScopeNote": { "placeholders": { "channels": { "type": "String" }, "project": { "type": "String" }, "team": { "type": "String" } } },
+  "channelsTitle": "讨论",
+  "channelsTitleNamed": "讨论 · {name}",
+  "@channelsTitleNamed": { "placeholders": { "name": { "type": "String" } } }
 }

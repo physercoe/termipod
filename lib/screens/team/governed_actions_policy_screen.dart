@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -32,6 +33,7 @@ class _GovernedActionsPolicyScreenState
     extends ConsumerState<GovernedActionsPolicyScreen> {
   Map<String, dynamic>? _kinds;
   String? _error;
+  bool _hubMissing = false;
   bool _loading = true;
 
   @override
@@ -45,7 +47,7 @@ class _GovernedActionsPolicyScreenState
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'No active hub connection';
+        _hubMissing = true;
       });
       return;
     }
@@ -67,46 +69,50 @@ class _GovernedActionsPolicyScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Governed action policy',
+          l10n.governedActionPolicyTitle,
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
         actions: [
           IconButton(
-            tooltip: 'Reload',
+            tooltip: l10n.buttonReload,
             icon: const Icon(Icons.refresh, size: 20),
             onPressed: _loading ? null : _load,
           ),
         ],
       ),
-      body: _body(context),
+      body: _body(context, l10n),
     );
   }
 
-  Widget _body(BuildContext context) {
+  Widget _body(BuildContext context, AppLocalizations l10n) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
+    }
+    if (_hubMissing) {
+      return _Empty(
+        icon: Icons.error_outline,
+        title: l10n.policyLoadError,
+        message: l10n.hubNotConfigured,
+      );
     }
     if (_error != null) {
       return _Empty(
         icon: Icons.error_outline,
-        title: 'Could not load policy',
+        title: l10n.policyLoadError,
         message: _error!,
       );
     }
     final kinds = _kinds ?? const {};
     if (kinds.isEmpty) {
-      return const _Empty(
+      return _Empty(
         icon: Icons.policy_outlined,
-        title: 'No `kinds:` block in policy.yaml',
-        message:
-            'The hub falls back to a permissive default: every governed '
-            'action lands on the principal with quorum=1 and override '
-            'allowed. To pin per-kind routing, add a `kinds:` block to '
-            'team/policy.yaml under the Policies tab.',
+        title: l10n.policyNoKindsTitle,
+        message: l10n.policyNoKindsBody,
       );
     }
     // Stable key ordering so the table doesn't reshuffle on each reload.
@@ -127,6 +133,7 @@ class _GovernedActionsPolicyScreenState
 class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -136,19 +143,19 @@ class _Header extends StatelessWidget {
         children: [
           Expanded(
               flex: 5,
-              child: Text('kind',
+              child: Text(l10n.policyColKind,
                   style: _headerStyle(mutedColor))),
           Expanded(
               flex: 3,
-              child: Text('default tier',
+              child: Text(l10n.policyColTier,
                   style: _headerStyle(mutedColor))),
           Expanded(
               flex: 2,
               child:
-                  Text('commits', style: _headerStyle(mutedColor))),
+                  Text(l10n.policyColCommits, style: _headerStyle(mutedColor))),
           Expanded(
               flex: 2,
-              child: Text('override',
+              child: Text(l10n.policyColOverride,
                   style: _headerStyle(mutedColor))),
         ],
       ),
@@ -171,6 +178,7 @@ class _KindRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final defaultTier = (policy['default_tier'] ?? '—').toString();
@@ -212,11 +220,11 @@ class _KindRow extends StatelessWidget {
           ),
           Expanded(
             flex: 2,
-            child: _BoolDot(value: commits, label: 'yes'),
+            child: _BoolDot(value: commits, label: l10n.policyValYes),
           ),
           Expanded(
             flex: 2,
-            child: _BoolDot(value: overrideAllowed, label: 'allow'),
+            child: _BoolDot(value: overrideAllowed, label: l10n.policyValAllow),
           ),
         ],
       ),
@@ -259,8 +267,7 @@ class _Footnote extends StatelessWidget {
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     return Text(
-      'Edit policy.yaml under team settings → Policies. Kinds without '
-      'a `default_tier` fall back to "principal" with quorum=1.',
+      AppLocalizations.of(context)!.policyFootnote,
       style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: mutedColor),
     );
   }

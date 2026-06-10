@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -57,7 +60,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Budgets',
+          AppLocalizations.of(context)!.governanceBudgets,
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
@@ -87,6 +90,8 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
   }
 
   Widget _body() {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
     final rows = _rows ?? const <Map<String, dynamic>>[];
     if (rows.isEmpty) {
       final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -103,7 +108,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
           const SizedBox(height: 12),
           Center(
             child: Text(
-              'No agent spend yet.',
+              l10n.noAgentSpend(voc.term(VocabAxis.roleAgent).pluralLower),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 13,
                 color: isDark
@@ -152,19 +157,19 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
         ),
         const SizedBox(height: 20),
         Text(
-          'By project',
+          l10n.budgetByProject(voc.term(VocabAxis.entityProject).lower),
           style: GoogleFonts.spaceGrotesk(
               fontSize: 14, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 4),
         for (final entry in perProject.entries)
           _ProjectRow(
-            projectId: entry.key.isEmpty ? '(none)' : entry.key,
+            projectId: entry.key.isEmpty ? l10n.projectNone : entry.key,
             agg: entry.value,
           ),
         const SizedBox(height: 20),
         Text(
-          'By agent',
+          l10n.budgetByAgent(voc.term(VocabAxis.roleAgent).lower),
           style: GoogleFonts.spaceGrotesk(
               fontSize: 14, fontWeight: FontWeight.w700),
         ),
@@ -195,6 +200,7 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final pct = anyBudget && totalBudget > 0
         ? (totalSpent / totalBudget).clamp(0.0, 1.0)
@@ -213,10 +219,10 @@ class _SummaryCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: _Stat(label: 'Spent', value: _fmtDollars(totalSpent))),
+              Expanded(child: _Stat(label: l10n.budgetStatSpent, value: _fmtDollars(totalSpent))),
               Expanded(
                 child: _Stat(
-                  label: 'Budget',
+                  label: l10n.budgetStatBudget,
                   value: anyBudget ? _fmtDollars(totalBudget) : '—',
                 ),
               ),
@@ -233,7 +239,7 @@ class _SummaryCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              '${(pct * 100).round()}% of budget',
+              l10n.budgetPctOfBudget((pct * 100).round()),
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 11,
                 color: isDark
@@ -243,7 +249,7 @@ class _SummaryCard extends StatelessWidget {
             ),
           ] else
             Text(
-              'No budgets set',
+              l10n.noBudgetsSet,
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 11,
                 color: isDark
@@ -291,13 +297,16 @@ class _Stat extends StatelessWidget {
   }
 }
 
-class _ProjectRow extends StatelessWidget {
+class _ProjectRow extends ConsumerWidget {
   final String projectId;
   final _ProjectAgg agg;
   const _ProjectRow({required this.projectId, required this.agg});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final agentTerm = ref.watch(vocabularyProvider).term(VocabAxis.roleAgent);
+    final agents = agg.count == 1 ? agentTerm.lower : agentTerm.pluralLower;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final budget = agg.budget;
     return ListTile(
@@ -308,7 +317,7 @@ class _ProjectRow extends StatelessWidget {
             fontSize: 13, fontWeight: FontWeight.w600),
       ),
       subtitle: Text(
-        '${agg.count} agent${agg.count == 1 ? '' : 's'} · ${_fmtDollars(agg.spent)} spent',
+        l10n.budgetProjectSubtitle(agg.count, agents, _fmtDollars(agg.spent)),
         style: GoogleFonts.jetBrainsMono(
           fontSize: 11,
           color: isDark
@@ -389,7 +398,7 @@ class _AgentRow extends StatelessWidget {
       );
     } else {
       trailing = Text(
-        'no limit',
+        AppLocalizations.of(context)!.budgetNoLimit,
         style: GoogleFonts.jetBrainsMono(
           fontSize: FontSizes.label,
           color: isDark

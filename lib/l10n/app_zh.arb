@@ -862,5 +862,14 @@
   "decideFailedStatus": "决定失败（{status}）",
   "decideFailedMsg": "决定失败：{error}",
   "sendFailedStatus": "发送失败（{status}）",
-  "sendFailedMsg": "发送失败：{error}"
+  "sendFailedMsg": "发送失败：{error}",
+
+  "taskStarted": "任务已开始",
+  "taskStartedNamed": "任务已开始 · {name}",
+  "taskUpdated": "任务已更新",
+  "taskUpdatedPairs": "任务已更新 · {pairs}",
+  "taskNotification": "任务通知",
+  "taskMessage": "任务：{message}",
+  "copyKindTile": "卡片",
+  "copiedKind": "已复制{kind}"
 }

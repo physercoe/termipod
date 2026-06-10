@@ -18,6 +18,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
 
+import '../../l10n/app_localizations.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../markdown_builders.dart';
@@ -278,6 +279,7 @@ class AgentEventCard extends StatefulWidget {
   // every time the agent backgrounded a task. Render a one-liner per
   // frame; fall back to pretty JSON for subtypes we don't model.
   Widget _systemBody(BuildContext ctx, Map<String, dynamic> p) {
+    final l10n = AppLocalizations.of(ctx)!;
     final subtype = (p['subtype'] ?? '').toString();
     final taskId = (p['task_id'] ?? '').toString();
     String? line;
@@ -288,7 +290,8 @@ class AgentEventCard extends StatefulWidget {
         // structure we may not have.
         final name = (p['agent'] ?? p['name'] ?? '').toString();
         final desc = (p['description'] ?? p['prompt'] ?? '').toString();
-        final head = name.isEmpty ? 'Task started' : 'Task started · $name';
+        final head =
+            name.isEmpty ? l10n.taskStarted : l10n.taskStartedNamed(name);
         line = desc.isEmpty ? head : '$head — $desc';
         break;
       case 'task_updated':
@@ -299,14 +302,14 @@ class AgentEventCard extends StatefulWidget {
           final pairs = patch.entries
               .map((e) => '${e.key}=${e.value}')
               .join(', ');
-          line = 'Task updated · $pairs';
+          line = l10n.taskUpdatedPairs(pairs);
         } else {
-          line = 'Task updated';
+          line = l10n.taskUpdated;
         }
         break;
       case 'task_notification':
         final msg = (p['message'] ?? p['text'] ?? p['notification'] ?? '').toString();
-        line = msg.isEmpty ? 'Task notification' : 'Task: $msg';
+        line = msg.isEmpty ? l10n.taskNotification : l10n.taskMessage(msg);
         break;
     }
     if (line != null) {
@@ -1051,12 +1054,13 @@ class _CardHeader extends StatelessWidget {
   }
 
   Future<void> _copy(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     await Clipboard.setData(ClipboardData(text: copyText));
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Copied ${kind.isEmpty ? "tile" : kind}',
+            l10n.copiedKind(kind.isEmpty ? l10n.copyKindTile : kind),
             style: GoogleFonts.jetBrainsMono(fontSize: 12),
           ),
           duration: const Duration(seconds: 1),

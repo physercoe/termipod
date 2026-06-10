@@ -819,5 +819,23 @@
   "respawnFromSpecBody": "使用相同规格启动一个新的{agent}。原记录保持不变——若要释放名称，请先归档它。",
   "newHandle": "新名称",
   "respawnFailedMsg": "重新生成失败：{error}",
-  "respawnRequestedMsg": "已请求重新生成：{handle}"
+  "respawnRequestedMsg": "已请求重新生成：{handle}",
+
+  "lensAll": "全部",
+  "lensText": "文本",
+  "lensTurns": "轮次",
+  "lensTools": "工具",
+  "lensErrors": "错误",
+  "errorClassToolError": "工具错误",
+  "errorClassFailedTurn": "失败的轮次",
+  "errorClassError": "错误",
+  "errorClassTyped": "错误 · {kind}",
+  "filterTranscript": "筛选转录",
+  "olderMatch": "较早的匹配",
+  "newerMatch": "较新的匹配",
+  "clearFilter": "清除筛选",
+  "openFullTranscript": "打开全屏转录",
+  "viewInFullTranscript": "在完整转录中查看",
+  "noLensEventsLoaded": "已加载的转录中没有{lens}事件——向上滚动以加载更早内容，或清除筛选。",
+  "noLensEventsRun": "本次运行中没有{lens}事件。"
 }

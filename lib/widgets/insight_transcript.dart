@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
@@ -1325,6 +1326,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_events.isEmpty) {
       return Center(
@@ -1622,8 +1624,8 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : Text(
-                            'No ${FeedFilterControl.labelFor(_lens)} events in '
-                            'this run.',
+                            l10n.noLensEventsRun(
+                                FeedFilterControl.labelFor(l10n, _lens)),
                             textAlign: TextAlign.center,
                             style: GoogleFonts.spaceGrotesk(
                               fontSize: 12,

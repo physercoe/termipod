@@ -9,8 +9,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/blob_cache.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/artifact_viewers/image_viewer.dart';
@@ -134,26 +137,28 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!
+            .downloadFailedError('$e'))),
       );
     }
   }
 
   Future<void> _confirmRemove(BlobRecord rec) async {
+    final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove from cache?'),
-        content: const Text('The blob stays on the server.'),
+        title: Text(l10n.removeFromCacheTitle),
+        content: Text(l10n.removeFromCacheBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove'),
+            child: Text(l10n.buttonRemove),
           ),
         ],
       ),
@@ -202,7 +207,8 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Upload failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!
+            .uploadFailedError('$e'))),
       );
     } finally {
       if (mounted) setState(() => _uploading = false);
@@ -255,7 +261,7 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
                     ),
                   )
                 : const Icon(Icons.add),
-            label: const Text('Upload'),
+            label: Text(AppLocalizations.of(context)!.buttonUpload),
           ),
         ),
       ],
@@ -263,6 +269,9 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
   }
 
   Widget _buildEmpty(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final channels =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityChannel);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted = isDark
         ? DesignColors.textMuted
@@ -276,15 +285,14 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
             Icon(Icons.perm_media_outlined, size: 48, color: muted),
             const SizedBox(height: 12),
             Text(
-              'No assets yet on this device.',
+              l10n.assetsEmptyTitle,
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(
                   fontSize: 13, fontWeight: FontWeight.w600, color: muted),
             ),
             const SizedBox(height: 6),
             Text(
-              'Attachments you view in channels appear here. '
-              'Use + to upload a standalone reference.',
+              l10n.assetsEmptyBody(channels.pluralLower),
               textAlign: TextAlign.center,
               style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
             ),
@@ -298,11 +306,13 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
 /// Role banner for the Assets/Blobs section. Mirrors the Files banner so
 /// a user landing on either surface sees the same decision map: agents
 /// read Files by path, humans browse Assets by content.
-class _AssetsGuidance extends StatelessWidget {
+class _AssetsGuidance extends ConsumerWidget {
   const _AssetsGuidance();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final agent = ref.watch(vocabularyProvider).term(VocabAxis.roleAgent);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
@@ -328,15 +338,13 @@ class _AssetsGuidance extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Assets humans browse by content',
+                  l10n.assetsGuidanceTitle,
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 12, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Screenshots, audio, PDFs, notes. Tap a row to preview '
-                  '(PDF / markdown / text / images), or use the download '
-                  'button to share. For files an agent reads by path, use Files.',
+                  l10n.assetsGuidanceBody(agent.pluralLower),
                   style: GoogleFonts.spaceGrotesk(fontSize: 11, color: muted),
                 ),
               ],
@@ -418,6 +426,7 @@ class _BlobTextViewerScreenState extends ConsumerState<BlobTextViewerScreen> {
   bool _loading = true;
   String _content = '';
   String? _error;
+  bool _hubMissing = false;
 
   @override
   void initState() {
@@ -430,7 +439,7 @@ class _BlobTextViewerScreenState extends ConsumerState<BlobTextViewerScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'hub not connected';
+        _hubMissing = true;
       });
       return;
     }
@@ -463,11 +472,13 @@ class _BlobTextViewerScreenState extends ConsumerState<BlobTextViewerScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _error != null
+          : (_hubMissing || _error != null)
               ? Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text(
-                    _error!,
+                    _hubMissing
+                        ? AppLocalizations.of(context)!.hubNotConfigured
+                        : _error!,
                     style: GoogleFonts.jetBrainsMono(
                       color: DesignColors.error,
                       fontSize: 12,

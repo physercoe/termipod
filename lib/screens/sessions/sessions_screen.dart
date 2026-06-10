@@ -68,6 +68,15 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   // _exitSelect; ignored outside selection mode.
   final Set<StewardCategory> _categoryFilter = <StewardCategory>{};
 
+  // Scope sub-filter for the Detached category (selection mode only).
+  // Keys are '<scope_kind>|<scope_id>' (see sessionScopeKey). Empty =
+  // all scopes. Only meaningful while Detached is in _categoryFilter —
+  // it narrows Select-all / Invert / bulk actions to one scope's orphan
+  // sessions (e.g. "all of Project X's detached"), mirroring the scope
+  // sub-headers the non-select list already shows (#122). Cleared when
+  // Detached leaves the category filter and on _exitSelect.
+  final Set<String> _scopeFilter = <String>{};
+
   // Categories the user has manually collapsed. Detached is collapsed
   // by default because it's history/diagnostic content — users with
   // many orphan sessions don't want it dominating the scroll. Other
@@ -99,6 +108,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       _selecting = false;
       _selectedIds.clear();
       _categoryFilter.clear();
+      _scopeFilter.clear();
     });
   }
 
@@ -109,11 +119,27 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       } else {
         _categoryFilter.add(c);
       }
+      // The scope sub-filter only applies while Detached is filtered —
+      // drop it the moment Detached leaves the category set so a stale
+      // scope narrowing can't silently shrink a later selection.
+      if (!_categoryFilter.contains(StewardCategory.detached)) {
+        _scopeFilter.clear();
+      }
       // Drop any selected ids whose category just got filtered out so
       // bulk actions stay honest about what they'll act on.
       // (The visible-set helpers recompute on next build anyway, but
       // pruning here avoids a flash of stale counts in the AppBar
       // title while the rebuild is in flight.)
+    });
+  }
+
+  void _toggleScopeFilter(String key) {
+    setState(() {
+      if (_scopeFilter.contains(key)) {
+        _scopeFilter.remove(key);
+      } else {
+        _scopeFilter.add(key);
+      }
     });
   }
 
@@ -149,12 +175,23 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   List<Map<String, dynamic>> _visibleSessions(List<StewardGroup> groups) {
     final out = <Map<String, dynamic>>[];
     for (final g in groups) {
-      if (_categoryFilter.isNotEmpty &&
-          !_categoryFilter.contains(categorizeStewardGroup(g))) {
+      final cat = categorizeStewardGroup(g);
+      if (_categoryFilter.isNotEmpty && !_categoryFilter.contains(cat)) {
         continue;
       }
-      if (g.current != null) out.add(g.current!);
-      out.addAll(g.previous);
+      // Detached scope sub-filter (#122): when scopes are selected, only
+      // detached sessions in those scopes are visible — so Select-all /
+      // bulk-archive act on e.g. one project's orphans, not every scope.
+      final scoped =
+          cat == StewardCategory.detached && _scopeFilter.isNotEmpty;
+      if (g.current != null &&
+          (!scoped || _scopeFilter.contains(sessionScopeKey(g.current!)))) {
+        out.add(g.current!);
+      }
+      for (final s in g.previous) {
+        if (scoped && !_scopeFilter.contains(sessionScopeKey(s))) continue;
+        out.add(s);
+      }
     }
     return out;
   }
@@ -420,7 +457,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 for (final cat in orderedCats) ...[
                   _CategoryHeader(
                     label: stewardCategoryLabel(cat),
-                    count: byCategory[cat]!.length,
+                    count: categoryDisplayCount(cat, byCategory[cat]!),
                     collapsed: _collapsedCategories.contains(cat),
                     onToggle: () => setState(() {
                       if (_collapsedCategories.contains(cat)) {
@@ -542,14 +579,38 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       ),
       orElse: () => const <StewardGroup>[],
     );
-    // Count groups per category (across the unfiltered set) so the
-    // filter chips can advertise their cardinality even when filter
-    // hides them. Empty categories don't get a chip.
-    final categoryCounts = <StewardCategory, int>{};
-    for (final g in groups) {
-      final cat = categorizeStewardGroup(g);
-      categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
-    }
+    // Per-category counts (across the unfiltered set) so the filter
+    // chips advertise their cardinality even when the filter hides them.
+    // Empty categories don't get a chip. Detached counts its sessions,
+    // not its single synthetic group (#122) — see categoryDisplayCount.
+    final presentCats = <StewardCategory>{
+      for (final g in groups) categorizeStewardGroup(g),
+    };
+    final categoryCounts = <StewardCategory, int>{
+      for (final c in presentCats) c: categoryDisplayCount(c, groups),
+    };
+    // Detached scope sub-chips (#122): when Detached is the active
+    // filter and its orphans span more than one scope, offer a second
+    // chip row so Select-all / bulk ops can target one scope.
+    final scopeBuckets = detachedScopeBuckets(groups);
+    final detachedSelected =
+        _categoryFilter.contains(StewardCategory.detached);
+    final showScopeChips = detachedSelected && scopeBuckets.length > 1;
+    final scopeChipData = showScopeChips
+        ? [
+            for (final e in scopeBuckets)
+              (
+                key: e.key,
+                label: _scopeLabel(ref, e.key),
+                count: e.value.length,
+                selected: _scopeFilter.contains(e.key),
+              ),
+          ]
+        : const <({String key, String label, int count, bool selected})>[];
+    // The strip earns its space when there's more than one category to
+    // toggle, or a single (Detached-only) category that still splits
+    // across multiple scopes worth sub-filtering.
+    final showStrip = categoryCounts.length > 1 || scopeBuckets.length > 1;
     final visible = _visibleSessions(groups);
     final allSelected = visible.isNotEmpty &&
         visible.every((s) =>
@@ -590,14 +651,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       // filter; empty filter = no narrowing (the default). Wrapped
       // in a horizontal scroller for narrow phones; categories
       // already in a stable order matching the list grouping.
-      bottom: categoryCounts.length <= 1
+      bottom: !showStrip
           ? null
           : PreferredSize(
-              preferredSize: const Size.fromHeight(44),
+              preferredSize: Size.fromHeight(showScopeChips ? 88 : 44),
               child: _CategoryFilterStrip(
                 counts: categoryCounts,
                 selected: _categoryFilter,
                 onToggle: _toggleCategoryFilter,
+                scopeChips: scopeChipData,
+                onToggleScope: _toggleScopeFilter,
               ),
             ),
     );
@@ -608,15 +671,25 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 /// StewardCategory. Lives below the selection AppBar so the user
 /// can scope Select-all / Stop / Archive / Delete to a subset
 /// (e.g. "all project stewards") without manually deselecting.
+///
+/// When [scopeChips] is non-empty (the Detached category is the active
+/// filter and its orphans span >1 scope) a second indented row of scope
+/// sub-chips renders below the category row, so bulk actions can target
+/// a single scope's detached sessions — matching the scope sub-headers
+/// the non-select list already shows (#122).
 class _CategoryFilterStrip extends StatelessWidget {
   const _CategoryFilterStrip({
     required this.counts,
     required this.selected,
     required this.onToggle,
+    this.scopeChips = const [],
+    this.onToggleScope,
   });
   final Map<StewardCategory, int> counts;
   final Set<StewardCategory> selected;
   final void Function(StewardCategory c) onToggle;
+  final List<({String key, String label, int count, bool selected})> scopeChips;
+  final void Function(String key)? onToggleScope;
 
   @override
   Widget build(BuildContext context) {
@@ -642,12 +715,41 @@ class _CategoryFilterStrip extends StatelessWidget {
         ),
       ));
     }
-    return Padding(
+    final categoryRow = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(children: chips),
       ),
+    );
+    if (scopeChips.isEmpty) return categoryRow;
+    // Second row: scope sub-chips for the Detached category. Indented so
+    // it reads as a refinement of the Detached chip above it.
+    final scopeRow = Padding(
+      padding: const EdgeInsets.only(left: 24, right: 12, bottom: Spacing.s8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final sc in scopeChips)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilterChip(
+                  label: Text('${sc.label} · ${sc.count}'),
+                  selected: sc.selected,
+                  onSelected: (_) => onToggleScope?.call(sc.key),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [categoryRow, scopeRow],
     );
   }
 }
@@ -1340,59 +1442,15 @@ List<Widget> _buildScopeGroupedPrevious(
   void Function(String id)? onToggleTile,
 }) {
   if (previous.isEmpty) return const [];
-  final hub = ref.watch(hubProvider).value;
-  // Bucket sessions into scope groups, preserving order.
-  final buckets = <String, List<Map<String, dynamic>>>{};
-  final order = <String>[];
-  for (final s in previous) {
-    final kind = (s['scope_kind'] ?? '').toString();
-    final id = (s['scope_id'] ?? '').toString();
-    final key = '$kind|$id';
-    if (!buckets.containsKey(key)) {
-      buckets[key] = [];
-      order.add(key);
-    }
-    buckets[key]!.add(s);
-  }
-  String labelFor(String kind, String id) {
-    switch (kind) {
-      case 'project':
-        if (hub != null) {
-          for (final p in hub.projects) {
-            if ((p['id'] ?? '').toString() == id) {
-              final name = (p['name'] ?? p['title'] ?? '').toString();
-              if (name.isNotEmpty) return 'Project: $name';
-            }
-          }
-        }
-        return 'Project';
-      case 'attention':
-        return 'Approving';
-      case 'team':
-      case '':
-        // Team scope reads "Team", not "General" — "General" belongs to
-        // the steward taxonomy, not the session scope (#65).
-        return 'Team';
-      default:
-        return kind;
-    }
-  }
-  // Move the Team (team/empty-scope) bucket to the top so the
-  // most-common case doesn't sink under project-specific groups when
-  // there are many projects.
-  order.sort((a, b) {
-    final aGen = a.startsWith('team|') || a.startsWith('|');
-    final bGen = b.startsWith('team|') || b.startsWith('|');
-    if (aGen != bGen) return aGen ? -1 : 1;
-    return 0;
-  });
+  // Bucket + order via the shared partitioner so the rendered scope
+  // sub-headers and the select-mode scope sub-filter chips (#122) stay
+  // in lockstep.
+  final buckets = bucketSessionsByScope(previous);
   final out = <Widget>[];
-  for (final key in order) {
-    final parts = key.split('|');
-    final kind = parts.first;
-    final id = parts.sublist(1).join('|');
-    final label = labelFor(kind, id);
-    final count = buckets[key]!.length;
+  for (final entry in buckets) {
+    final key = entry.key;
+    final label = _scopeLabel(ref, key);
+    final count = entry.value.length;
     out.add(Padding(
       padding: const EdgeInsets.fromLTRB(Spacing.s16, Spacing.s8, Spacing.s16, 2),
       child: Row(
@@ -1415,7 +1473,7 @@ List<Widget> _buildScopeGroupedPrevious(
         ],
       ),
     ));
-    for (final s in buckets[key]!) {
+    for (final s in entry.value) {
       out.add(_SessionTile(
         session: s,
         selecting: selecting,
@@ -1426,6 +1484,38 @@ List<Widget> _buildScopeGroupedPrevious(
     }
   }
   return out;
+}
+
+/// Human label for a scope key (`'<scope_kind>|<scope_id>'`). Project
+/// scopes resolve the project's name from the hub cache; everything else
+/// maps to a fixed label. Shared by the scope-grouped Previous list and
+/// the select-mode scope sub-filter chips (#122) so both read the same.
+String _scopeLabel(WidgetRef ref, String key) {
+  final hub = ref.watch(hubProvider).value;
+  final parts = key.split('|');
+  final kind = parts.first;
+  final id = parts.sublist(1).join('|');
+  switch (kind) {
+    case 'project':
+      if (hub != null) {
+        for (final p in hub.projects) {
+          if ((p['id'] ?? '').toString() == id) {
+            final name = (p['name'] ?? p['title'] ?? '').toString();
+            if (name.isNotEmpty) return 'Project: $name';
+          }
+        }
+      }
+      return 'Project';
+    case 'attention':
+      return 'Approving';
+    case 'team':
+    case '':
+      // Team scope reads "Team", not "General" — "General" belongs to
+      // the steward taxonomy, not the session scope (#65).
+      return 'Team';
+    default:
+      return kind;
+  }
 }
 
 /// Collapsible header row above a steward category. Tap toggles the

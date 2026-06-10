@@ -53,6 +53,78 @@ StewardCategory categorizeStewardGroup(StewardGroup g) {
   return StewardCategory.domain;
 }
 
+/// Display count for a category header / filter chip. The general /
+/// project / domain categories carry one [StewardGroup] per steward, so
+/// the group count is the meaningful number ("5 project stewards").
+/// [StewardCategory.detached] is a single synthetic group that buckets
+/// *every* orphan session, so its group count is always 1 — count the
+/// sessions it holds instead (#122).
+int categoryDisplayCount(StewardCategory cat, Iterable<StewardGroup> groups) {
+  if (cat == StewardCategory.detached) {
+    var n = 0;
+    for (final g in groups) {
+      if (categorizeStewardGroup(g) == StewardCategory.detached) {
+        n += g.previous.length;
+      }
+    }
+    return n;
+  }
+  return groups.where((g) => categorizeStewardGroup(g) == cat).length;
+}
+
+/// Scope key for a session row — `'<scope_kind>|<scope_id>'`. Mirrors
+/// the bucketing key the scope-grouped Previous list renders, so the
+/// detached scope sub-filter (#122) and the rendered sub-headers stay in
+/// lockstep.
+String sessionScopeKey(Map<String, dynamic> s) {
+  final kind = (s['scope_kind'] ?? '').toString();
+  final id = (s['scope_id'] ?? '').toString();
+  return '$kind|$id';
+}
+
+/// Bucket sessions by scope key, preserving first-seen order but
+/// floating the Team / empty-scope bucket to the top (the common case
+/// shouldn't sink under project-specific groups when there are many
+/// projects). Returns ordered (key, sessions) pairs. Shared by the
+/// scope-grouped Previous list and the select-mode scope sub-filter
+/// chips so both partition identically (#122).
+List<MapEntry<String, List<Map<String, dynamic>>>> bucketSessionsByScope(
+  List<Map<String, dynamic>> sessions,
+) {
+  final buckets = <String, List<Map<String, dynamic>>>{};
+  final order = <String>[];
+  for (final s in sessions) {
+    final key = sessionScopeKey(s);
+    if (!buckets.containsKey(key)) {
+      buckets[key] = [];
+      order.add(key);
+    }
+    buckets[key]!.add(s);
+  }
+  order.sort((a, b) {
+    final aGen = a.startsWith('team|') || a.startsWith('|');
+    final bGen = b.startsWith('team|') || b.startsWith('|');
+    if (aGen != bGen) return aGen ? -1 : 1;
+    return 0;
+  });
+  return [for (final k in order) MapEntry(k, buckets[k]!)];
+}
+
+/// All detached (orphan) sessions across the synthetic group(s),
+/// bucketed by scope. Empty when there are no detached sessions. Drives
+/// the select-mode scope sub-filter chips (#122).
+List<MapEntry<String, List<Map<String, dynamic>>>> detachedScopeBuckets(
+  Iterable<StewardGroup> groups,
+) {
+  final detached = <Map<String, dynamic>>[];
+  for (final g in groups) {
+    if (categorizeStewardGroup(g) == StewardCategory.detached) {
+      detached.addAll(g.previous);
+    }
+  }
+  return bucketSessionsByScope(detached);
+}
+
 String stewardCategoryLabel(StewardCategory c) {
   switch (c) {
     case StewardCategory.general:

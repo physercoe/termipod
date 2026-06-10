@@ -3,8 +3,11 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/entity_names.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
@@ -33,6 +36,9 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
   List<Map<String, dynamic>>? _rows;
   bool _loading = true;
   String? _error;
+  // See document_create_sheet: the client==null branch of _load() runs
+  // synchronously during initState, so the message resolves l10n at build.
+  bool _hubMissing = false;
 
   static const _kinds = <String?>[null, 'memo', 'draft', 'report', 'review'];
 
@@ -51,7 +57,7 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -120,6 +126,9 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final documentTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityDocument);
     final projects = ref.watch(hubProvider).value?.projects ?? const [];
     final scopeName = widget.projectId == null
         ? null
@@ -127,7 +136,9 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          scopeName == null ? 'Documents' : 'Documents · $scopeName',
+          scopeName == null
+              ? l10n.documentsTitle(documentTerm.plural)
+              : l10n.documentsTitleScoped(documentTerm.plural, scopeName),
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -136,23 +147,23 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
           PopupMenuButton<String>(
-            tooltip: 'More',
+            tooltip: l10n.tooltipMore,
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
               if (v == 'new') _createDoc();
             },
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'new',
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.add, size: 20),
-                  title: Text('New document'),
+                  leading: const Icon(Icons.add, size: 20),
+                  title: Text(l10n.newDocument(documentTerm.lower)),
                 ),
               ),
             ],
@@ -173,12 +184,15 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
   }
 
   Widget _body() {
+    final l10n = AppLocalizations.of(context)!;
+    final documentTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityDocument);
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          _error!,
+          _hubMissing ? l10n.hubNotConfigured : _error!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -188,13 +202,16 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
     }
     final rows = _filtered;
     if (rows.isEmpty) {
+      final emptyText = _rows == null || _rows!.isEmpty
+          ? l10n.noDocumentsYet(documentTerm.pluralLower)
+          : l10n.noKindMatch(_kind == null
+              ? documentTerm.pluralLower
+              : documentKindLabel(l10n, _kind!));
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            _rows == null || _rows!.isEmpty
-                ? 'No documents yet.'
-                : 'No ${_kind ?? "documents"} match.',
+            emptyText,
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 13,
@@ -241,6 +258,7 @@ class _KindBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -248,7 +266,7 @@ class _KindBar extends StatelessWidget {
         children: [
           for (final k in kinds) ...[
             AppChoiceChip(
-              label: k ?? 'all',
+              label: k == null ? l10n.filterAll : documentKindLabel(l10n, k),
               selected: k == selected,
               onTap: () => onChanged(k),
             ),
@@ -274,8 +292,11 @@ class _DocumentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final kind = (row['kind'] ?? '').toString();
-    final title = (row['title'] ?? '(untitled)').toString();
+    final title = (row['title'] ?? '').toString().isEmpty
+        ? l10n.untitledValue
+        : (row['title']).toString();
     final version = (row['version'] ?? 1).toString();
     final projectId = (row['project_id'] ?? '').toString();
     final authorId = (row['author_agent_id'] ?? '').toString();
@@ -333,6 +354,7 @@ class DocKindChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final k = kind.toLowerCase();
     final color = switch (k) {
       'memo' => DesignColors.terminalCyan,
@@ -349,7 +371,7 @@ class DocKindChip extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
-        k.isEmpty ? '?' : k,
+        k.isEmpty ? '?' : documentKindLabel(l10n, k),
         style: GoogleFonts.jetBrainsMono(
           fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
@@ -383,6 +405,7 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
   List<Map<String, dynamic>>? _versions;
   bool _loading = true;
   String? _error;
+  bool _hubMissing = false;
   bool _requestingReview = false;
   DateTime? _staleSince;
 
@@ -397,7 +420,7 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -433,10 +456,14 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
   }
 
   Future<void> _requestReview() async {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.read(vocabularyProvider);
     final projectId = (_doc?['project_id'] ?? '').toString();
     if (projectId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Document not loaded yet')),
+        SnackBar(
+            content: Text(l10n.documentNotLoaded(
+                voc.term(VocabAxis.entityDocument).title))),
       );
       return;
     }
@@ -458,21 +485,28 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
       if (!mounted) return;
       setState(() => _requestingReview = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Review requested')),
+        SnackBar(
+            content: Text(
+                l10n.reviewRequested(voc.term(VocabAxis.entityReview).title))),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _requestingReview = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Request failed: $e')),
+        SnackBar(content: Text(l10n.requestFailedError('$e'))),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final documentTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityDocument);
     final d = _doc ?? widget.summary ?? const <String, dynamic>{};
-    final title = (d['title'] ?? '(document)').toString();
+    final title = (d['title'] ?? '').toString().isEmpty
+        ? l10n.documentPlaceholderTitle(documentTerm.lower)
+        : (d['title']).toString();
     final kind = (d['kind'] ?? '').toString();
     return Scaffold(
       appBar: AppBar(
@@ -495,7 +529,8 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.rate_review_outlined),
-            tooltip: 'Request review',
+            tooltip: l10n.requestReviewTitle(
+                ref.watch(vocabularyProvider).term(VocabAxis.entityReview).lower),
             onPressed:
                 _loading || _requestingReview ? null : _requestReview,
           ),
@@ -511,14 +546,16 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
   }
 
   Widget _body(Map<String, dynamic> d) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          _error!,
+          _hubMissing ? l10n.hubNotConfigured : _error!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -556,19 +593,20 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
-          _metaRow('version', 'v$version'),
-          if (project.isNotEmpty) _metaRow('project', project),
-          if (author.isNotEmpty) _metaRow('author', author),
-          if (created.isNotEmpty) _metaRow('created', created),
+          _metaRow(l10n.metaVersion, 'v$version'),
+          if (project.isNotEmpty)
+            _metaRow(voc.term(VocabAxis.entityProject).lower, project),
+          if (author.isNotEmpty) _metaRow(l10n.metaAuthor, author),
+          if (created.isNotEmpty) _metaRow(l10n.metaCreated, created),
           const SizedBox(height: 14),
-          _sectionLabel('Content'),
+          _sectionLabel(l10n.sectionContent),
           if (content.isNotEmpty)
             _ContentBody(body: content)
           else if (artifactId.isNotEmpty)
             _ArtifactPointer(artifactId: artifactId)
           else
             Text(
-              '(no content)',
+              l10n.noContentLabel,
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 11,
                 color: DesignColors.textMuted,
@@ -576,7 +614,7 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
             ),
           if ((_versions ?? const []).length > 1) ...[
             const SizedBox(height: 20),
-            _sectionLabel('Version history'),
+            _sectionLabel(l10n.sectionVersionHistory),
             ...(_versions!..sort((a, b) =>
                     ((b['version'] ?? 0) as num)
                         .compareTo((a['version'] ?? 0) as num)))
@@ -683,12 +721,14 @@ class _ContentBody extends StatelessWidget {
   }
 }
 
-class _ArtifactPointer extends StatelessWidget {
+class _ArtifactPointer extends ConsumerWidget {
   final String artifactId;
   const _ArtifactPointer({required this.artifactId});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final output = ref.watch(vocabularyProvider).term(VocabAxis.entityOutput).lower;
     return Container(
       padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
@@ -704,7 +744,7 @@ class _ArtifactPointer extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: SelectableText(
-              'Stored as output $artifactId — bytes live on host, not in hub.',
+              l10n.artifactPointerNote(output, artifactId),
               style: GoogleFonts.jetBrainsMono(fontSize: 11),
             ),
           ),
@@ -732,27 +772,34 @@ class _RequestReviewDialogState extends State<_RequestReviewDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Request review'),
-      content: TextField(
-        controller: _note,
-        minLines: 2,
-        maxLines: 4,
-        decoration: const InputDecoration(
-          labelText: 'Note (optional)',
-          border: OutlineInputBorder(),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _note.text.trim()),
-          child: const Text('Request'),
-        ),
-      ],
+    final l10n = AppLocalizations.of(context)!;
+    return Consumer(
+      builder: (context, ref, _) {
+        final review =
+            ref.watch(vocabularyProvider).term(VocabAxis.entityReview).lower;
+        return AlertDialog(
+          title: Text(l10n.requestReviewTitle(review)),
+          content: TextField(
+            controller: _note,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: l10n.fieldNoteOptional,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l10n.buttonCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, _note.text.trim()),
+              child: Text(l10n.buttonRequest),
+            ),
+          ],
+        );
+      },
     );
   }
 }

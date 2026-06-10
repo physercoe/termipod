@@ -8,6 +8,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/input_history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'snippets_screen.dart';
 
 /// Full history screen body widget for the Vault.
@@ -130,7 +131,7 @@ class _HistoryTile extends ConsumerWidget {
         direction: DismissDirection.endToStart,
         background: Container(
           alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 20),
+          padding: const EdgeInsets.only(right: Spacing.s16),
           decoration: BoxDecoration(
             color: DesignColors.error.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(12),
@@ -156,7 +157,7 @@ class _HistoryTile extends ConsumerWidget {
           },
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(Spacing.s12),
             decoration: BoxDecoration(
               color: isDark
                   ? DesignColors.surfaceDark

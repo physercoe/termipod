@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// ADR-030 W21 — read-only viewer for the `kinds:` block in
 /// `<dataRoot>/team/policy.yaml`. Reached via team-settings →
@@ -156,7 +157,7 @@ class _Header extends StatelessWidget {
 
   TextStyle _headerStyle(Color color) {
     return GoogleFonts.jetBrainsMono(
-      fontSize: 10,
+      fontSize: FontSizes.label,
       fontWeight: FontWeight.w700,
       color: color,
     );
@@ -244,7 +245,7 @@ class _BoolDot extends StatelessWidget {
         const SizedBox(width: 4),
         Text(
           value ? label : '—',
-          style: GoogleFonts.jetBrainsMono(fontSize: 10, color: fg),
+          style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: fg),
         ),
       ],
     );
@@ -260,7 +261,7 @@ class _Footnote extends StatelessWidget {
     return Text(
       'Edit policy.yaml under team settings → Policies. Kinds without '
       'a `default_tier` fall back to "principal" with quorum=1.',
-      style: GoogleFonts.jetBrainsMono(fontSize: 10, color: mutedColor),
+      style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: mutedColor),
     );
   }
 }

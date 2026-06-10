@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/action_bar_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Flutter-native QWERTY keyboard for direct input mode.
 ///
@@ -311,7 +312,7 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
             ),
           ),
         ),
-        padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
+        padding: const EdgeInsets.fromLTRB(4, Spacing.s8, 4, 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -720,7 +721,7 @@ class _KeyboardKey extends StatelessWidget {
         height: 40,
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: Radii.smBorder,
           border: borderColor != null
               ? Border.all(color: borderColor, width: isLocked ? 1.5 : 1)
               : null,

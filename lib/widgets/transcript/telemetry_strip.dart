@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'feed_reducer.dart';
 import 'feed_render.dart';
 
@@ -414,7 +415,7 @@ class TelemetryStrip extends StatelessWidget {
         color: bg,
         border: Border(bottom: BorderSide(color: border)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       child: Row(
         children: [
           for (var i = 0; i < tiles.length; i++) ...[
@@ -581,7 +582,7 @@ class _TelemetryTile extends StatelessWidget {
                 sub,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 9,
+                  fontSize: FontSizes.label,
                   color: muted,
                 ),
               ),

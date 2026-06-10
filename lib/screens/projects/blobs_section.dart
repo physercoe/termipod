@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/blob_cache.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/artifact_viewers/image_viewer.dart';
 import '../../widgets/artifact_viewers/pdf_viewer.dart';
 
@@ -310,7 +311,7 @@ class _AssetsGuidance extends StatelessWidget {
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),

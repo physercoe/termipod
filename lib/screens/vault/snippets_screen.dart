@@ -1194,8 +1194,8 @@ class _PresetSnippetTile extends ConsumerWidget {
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 1,
+                                horizontal: Spacing.s4,
+                                vertical: Spacing.s2,
                               ),
                               decoration: BoxDecoration(
                                 color: DesignColors.primary

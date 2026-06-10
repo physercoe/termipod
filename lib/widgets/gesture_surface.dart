@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Full-screen gesture overlay for terminal area.
 ///
@@ -174,7 +175,7 @@ class _GestureSurfaceState extends State<GestureSurface>
                 top: 8,
                 left: 8,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
                   decoration: BoxDecoration(
                     color: DesignColors.primary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(4),
@@ -186,7 +187,7 @@ class _GestureSurfaceState extends State<GestureSurface>
                     'GESTURE',
                     style: TextStyle(
                       color: DesignColors.primary,
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1,
                     ),

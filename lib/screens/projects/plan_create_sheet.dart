@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/template_filter.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../team/template_icon.dart';
@@ -27,6 +30,9 @@ class _PlanCreateSheetState extends ConsumerState<PlanCreateSheet> {
   List<Map<String, dynamic>>? _projects;
   List<Map<String, dynamic>>? _templates;
   String? _loadError;
+  // client==null branch of _load() runs synchronously during initState;
+  // render hubNotConfigured at build, not here (would throw).
+  bool _hubMissing = false;
   bool _loading = true;
 
   String? _projectId;
@@ -43,7 +49,7 @@ class _PlanCreateSheetState extends ConsumerState<PlanCreateSheet> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       setState(() {
-        _loadError = 'Hub not configured.';
+        _hubMissing = true;
         _loading = false;
       });
       return;
@@ -85,7 +91,8 @@ class _PlanCreateSheetState extends ConsumerState<PlanCreateSheet> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $e')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.createFailedError('$e'))),
       );
     }
   }
@@ -114,11 +121,15 @@ class _PlanCreateSheetState extends ConsumerState<PlanCreateSheet> {
   }
 
   Widget _body(ScrollController scroll) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final planTerm = voc.term(VocabAxis.entityPlan);
+    final projectTerm = voc.term(VocabAxis.entityProject);
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_loadError != null) {
+    if (_hubMissing || _loadError != null) {
       return Center(
         child: Text(
-          _loadError!,
+          _hubMissing ? l10n.hubNotConfigured : _loadError!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -163,7 +174,7 @@ class _PlanCreateSheetState extends ConsumerState<PlanCreateSheet> {
           ),
         ),
         Text(
-          'Start a plan',
+          l10n.startPlan(planTerm.lower),
           style: GoogleFonts.spaceGrotesk(
             fontSize: 18,
             fontWeight: FontWeight.w700,
@@ -171,25 +182,31 @@ class _PlanCreateSheetState extends ConsumerState<PlanCreateSheet> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Creates a draft plan under a project. A steward fills in the '
-          'phases and steps from the chosen template.',
+          l10n.planCreateNote(
+            planTerm.lower,
+            projectTerm.lower,
+            voc.term(VocabAxis.roleSteward).lower,
+          ),
           style: GoogleFonts.spaceGrotesk(
             fontSize: 12,
             color: DesignColors.textMuted,
           ),
         ),
         const SizedBox(height: 16),
-        _label('Project'),
+        _label(projectTerm.title),
         _ProjectField(
           projects: projects,
           selectedId: _projectId,
+          pickHint: l10n.pickProjectHint(projectTerm.lower),
           onChanged: (id) => setState(() => _projectId = id),
         ),
         const SizedBox(height: 16),
-        _label('Template (optional)'),
+        _label(l10n.fieldTemplateOptional),
         _TemplateField(
           templates: agentTemplates,
           selectedPath: _templateId,
+          blankHint: l10n.noTemplateBlankDraft,
+          blankItemLabel: l10n.noTemplateBlankDraftItem,
           onChanged: (id) => setState(() => _templateId = id),
         ),
         const SizedBox(height: 24),
@@ -204,7 +221,7 @@ class _PlanCreateSheetState extends ConsumerState<PlanCreateSheet> {
                   height: 14,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Create draft plan'),
+              : Text(l10n.createDraftPlan(planTerm.lower)),
         ),
       ],
     );
@@ -227,10 +244,12 @@ class _PlanCreateSheetState extends ConsumerState<PlanCreateSheet> {
 class _ProjectField extends StatelessWidget {
   final List<Map<String, dynamic>> projects;
   final String? selectedId;
+  final String pickHint;
   final ValueChanged<String?> onChanged;
   const _ProjectField({
     required this.projects,
     required this.selectedId,
+    required this.pickHint,
     required this.onChanged,
   });
 
@@ -264,7 +283,7 @@ class _ProjectField extends StatelessWidget {
   }
 
   String _label(List<Map<String, dynamic>> projects) {
-    if (selectedId == null) return 'Pick a project';
+    if (selectedId == null) return pickHint;
     for (final p in projects) {
       if ((p['id'] ?? '').toString() == selectedId) {
         return (p['name'] ?? selectedId).toString();
@@ -327,10 +346,14 @@ class _ProjectPickerSheet extends StatelessWidget {
 class _TemplateField extends StatelessWidget {
   final List<Map<String, dynamic>> templates;
   final String? selectedPath;
+  final String blankHint;
+  final String blankItemLabel;
   final ValueChanged<String?> onChanged;
   const _TemplateField({
     required this.templates,
     required this.selectedPath,
+    required this.blankHint,
+    required this.blankItemLabel,
     required this.onChanged,
   });
 
@@ -342,7 +365,8 @@ class _TemplateField extends StatelessWidget {
           context: context,
           isScrollControlled: true,
           backgroundColor: Colors.transparent,
-          builder: (_) => _TemplatePickerSheet(templates: templates),
+          builder: (_) =>
+              _TemplatePickerSheet(templates: templates, blankLabel: blankItemLabel),
         );
         if (picked != null) onChanged(picked.isEmpty ? null : picked);
       },
@@ -358,7 +382,7 @@ class _TemplateField extends StatelessWidget {
               : const Icon(Icons.arrow_drop_down),
         ),
         child: Text(
-          selectedPath ?? 'No template — blank draft',
+          selectedPath ?? blankHint,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 13,
             color: selectedPath == null ? DesignColors.textMuted : null,
@@ -371,7 +395,11 @@ class _TemplateField extends StatelessWidget {
 
 class _TemplatePickerSheet extends StatelessWidget {
   final List<Map<String, dynamic>> templates;
-  const _TemplatePickerSheet({required this.templates});
+  final String blankLabel;
+  const _TemplatePickerSheet({
+    required this.templates,
+    required this.blankLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -395,7 +423,7 @@ class _TemplatePickerSheet extends StatelessWidget {
               return ListTile(
                 leading: const Icon(Icons.clear, size: 18),
                 title: Text(
-                  'No template (blank draft)',
+                  blankLabel,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,

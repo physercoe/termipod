@@ -5,7 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
@@ -72,12 +75,14 @@ class _PlanStepCreateSheetState extends ConsumerState<PlanStepCreateSheet> {
       try {
         final decoded = jsonDecode(specText);
         if (decoded is! Map) {
-          setState(() => _specError = 'Spec must be a JSON object.');
+          setState(() => _specError =
+              AppLocalizations.of(context)!.specMustBeJsonObject);
           return;
         }
         spec = decoded.cast<String, dynamic>();
       } catch (e) {
-        setState(() => _specError = 'Invalid JSON: $e');
+        setState(() => _specError =
+            AppLocalizations.of(context)!.invalidJsonError('$e'));
         return;
       }
     }
@@ -101,13 +106,16 @@ class _PlanStepCreateSheetState extends ConsumerState<PlanStepCreateSheet> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $e')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.createFailedError('$e'))),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final planTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityPlan);
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
       minChildSize: 0.5,
@@ -139,14 +147,14 @@ class _PlanStepCreateSheetState extends ConsumerState<PlanStepCreateSheet> {
               ),
             ),
             Text(
-              'Add plan step',
+              l10n.addPlanStep(planTerm.lower),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 16),
-            _label('Kind'),
+            _label(l10n.fieldKind),
             Wrap(
               spacing: 6,
               runSpacing: 6,
@@ -164,21 +172,21 @@ class _PlanStepCreateSheetState extends ConsumerState<PlanStepCreateSheet> {
               children: [
                 Expanded(
                   child: _numField(
-                    label: 'Phase index',
+                    label: l10n.fieldPhaseIndex,
                     controller: _phase,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _numField(
-                    label: 'Step index',
+                    label: l10n.fieldStepIndex,
                     controller: _step,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            _label('Spec (JSON, optional)'),
+            _label(l10n.fieldSpecJsonOptional),
             TextField(
               controller: _spec,
               enabled: !_submitting,
@@ -208,7 +216,7 @@ class _PlanStepCreateSheetState extends ConsumerState<PlanStepCreateSheet> {
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Add step'),
+                  : Text(l10n.buttonAddStep),
             ),
           ],
         ),

@@ -2,13 +2,34 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/entity_names.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/criterion_state_pip.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../deliverables/structured_deliverable_viewer.dart';
+
+/// Localized label for a criterion state wire value
+/// (`pending` / `met` / `failed` / `waived`). Unknown values fall back to
+/// the raw wire string.
+String criterionStateLabel(AppLocalizations l10n, String state) {
+  switch (state) {
+    case 'pending':
+      return l10n.criterionStatePending;
+    case 'met':
+      return l10n.criterionStateMet;
+    case 'failed':
+      return l10n.criterionStateFailed;
+    case 'waived':
+      return l10n.criterionStateWaived;
+    default:
+      return state;
+  }
+}
 
 /// Project-scoped acceptance-criteria list (chassis-followup wave 1,
 /// ADR-024). The deliverable viewer renders criteria inline per
@@ -31,6 +52,7 @@ class _AcceptanceCriteriaScreenState
   List<Map<String, dynamic>> _deliverables = const [];
   bool _loading = true;
   String? _error;
+  bool _hubMissing = false;
   DateTime? _staleSince;
   // null = all states; non-null narrows the list to a single state.
   String? _stateFilter;
@@ -52,7 +74,7 @@ class _AcceptanceCriteriaScreenState
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -131,12 +153,13 @@ class _AcceptanceCriteriaScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final projects = ref.watch(hubProvider).value?.projects ?? const [];
     final name = projectNameFor(widget.projectId, projects);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          name.isEmpty ? 'Acceptance' : 'Acceptance · $name',
+          name.isEmpty ? l10n.acceptanceTitle : l10n.acceptanceTitleScoped(name),
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -145,7 +168,7 @@ class _AcceptanceCriteriaScreenState
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
         ],
@@ -166,8 +189,10 @@ class _AcceptanceCriteriaScreenState
                 padding: EdgeInsets.symmetric(vertical: 32),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_error != null)
-              _ErrorCard(error: _error!, onRetry: _load)
+            else if (_hubMissing || _error != null)
+              _ErrorCard(
+                  error: _hubMissing ? l10n.hubNotConfigured : _error!,
+                  onRetry: _load)
             else if (_rows.isEmpty)
               const _EmptyCard()
             else
@@ -175,7 +200,7 @@ class _AcceptanceCriteriaScreenState
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, Spacing.s12, 4, 8),
                   child: Text(
-                    _prettyPhase(group.key),
+                    _prettyPhase(group.key, l10n.noPhase),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -200,8 +225,8 @@ class _AcceptanceCriteriaScreenState
     );
   }
 
-  static String _prettyPhase(String slug) {
-    if (slug.isEmpty) return 'No phase';
+  static String _prettyPhase(String slug, String emptyLabel) {
+    if (slug.isEmpty) return emptyLabel;
     final parts = slug.split(RegExp(r'[-_]'));
     return parts
         .map((p) =>
@@ -223,6 +248,7 @@ class _StateFilterRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
       child: SingleChildScrollView(
@@ -231,7 +257,8 @@ class _StateFilterRow extends StatelessWidget {
           children: [
             for (final s in states) ...[
               ChoiceChip(
-                label: Text(s ?? 'All'),
+                label: Text(
+                    s == null ? l10n.filterAll : criterionStateLabel(l10n, s)),
                 selected: current == s,
                 onSelected: (_) => onChanged(s),
               ),
@@ -244,7 +271,7 @@ class _StateFilterRow extends StatelessWidget {
   }
 }
 
-class _CriterionRow extends StatelessWidget {
+class _CriterionRow extends ConsumerWidget {
   final String projectId;
   final Map<String, dynamic> criterion;
   final Map<String, dynamic>? deliverable;
@@ -257,7 +284,9 @@ class _CriterionRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final projectTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityProject);
     final state = parseCriterionState(
         (criterion['state'] ?? '').toString());
     final kind = (criterion['kind'] ?? '').toString();
@@ -271,7 +300,8 @@ class _CriterionRow extends StatelessWidget {
     final required = criterion['required'] == true;
     final deliverableLabel = deliverable == null
         ? null
-        : _prettyKind((deliverable!['kind'] ?? '').toString());
+        : _prettyKind((deliverable!['kind'] ?? '').toString(),
+            l10n.deliverableFallback);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final tappable = deliverable != null;
     return Padding(
@@ -313,7 +343,9 @@ class _CriterionRow extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        description.isEmpty ? _prettyKind(kind) : description,
+                        description.isEmpty
+                            ? _prettyKind(kind, l10n.criterionFallback)
+                            : description,
                         style: GoogleFonts.spaceGrotesk(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -326,12 +358,12 @@ class _CriterionRow extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   [
-                    if (kind.isNotEmpty) 'kind: $kind',
+                    if (kind.isNotEmpty) l10n.criterionKindLine(kind),
                     if (deliverableLabel != null)
-                      'under: $deliverableLabel'
+                      l10n.criterionUnderLine(deliverableLabel)
                     else
-                      'project-level',
-                    if (required) 'required',
+                      l10n.criterionProjectLevel(projectTerm.lower),
+                    if (required) l10n.requiredTag,
                   ].join(' · '),
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 11,
@@ -346,8 +378,8 @@ class _CriterionRow extends StatelessWidget {
     );
   }
 
-  static String _prettyKind(String slug) {
-    if (slug.isEmpty) return 'Criterion';
+  static String _prettyKind(String slug, String emptyLabel) {
+    if (slug.isEmpty) return emptyLabel;
     final parts = slug.split(RegExp(r'[-_]'));
     return parts
         .map((p) =>
@@ -361,6 +393,7 @@ class _EmptyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     return Card(
       child: Padding(
@@ -371,13 +404,12 @@ class _EmptyCard extends StatelessWidget {
             const Icon(Icons.check_circle_outline, size: 24),
             const SizedBox(height: 8),
             Text(
-              'No acceptance criteria yet.',
+              l10n.noAcceptanceCriteriaYet,
               style: theme.textTheme.titleSmall,
             ),
             const SizedBox(height: 6),
             Text(
-              'Templates declare per-phase criteria; once W7 hydration runs '
-              'they appear here, scoped under their parent deliverable.',
+              l10n.criteriaEmptyBody,
               style: theme.textTheme.bodySmall,
             ),
           ],
@@ -394,6 +426,7 @@ class _ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -401,16 +434,16 @@ class _ErrorCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              children: const [
-                Icon(Icons.error_outline, size: 20),
-                SizedBox(width: 8),
-                Text('Could not load criteria'),
+              children: [
+                const Icon(Icons.error_outline, size: 20),
+                const SizedBox(width: 8),
+                Text(l10n.couldNotLoadCriteria),
               ],
             ),
             const SizedBox(height: 6),
             Text(error, style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 12),
-            OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
+            OutlinedButton(onPressed: onRetry, child: Text(l10n.buttonRetry)),
           ],
         ),
       ),

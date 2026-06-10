@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/entity_names.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/deliverable_state_pip.dart';
@@ -28,6 +31,7 @@ class _DeliverablesScreenState extends ConsumerState<DeliverablesScreen> {
   List<Map<String, dynamic>> _rows = const [];
   bool _loading = true;
   String? _error;
+  bool _hubMissing = false;
   DateTime? _staleSince;
 
   @override
@@ -45,7 +49,7 @@ class _DeliverablesScreenState extends ConsumerState<DeliverablesScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -105,12 +109,17 @@ class _DeliverablesScreenState extends ConsumerState<DeliverablesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final projectTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityProject);
     final projects = ref.watch(hubProvider).value?.projects ?? const [];
     final name = projectNameFor(widget.projectId, projects);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          name.isEmpty ? 'Deliverables' : 'Deliverables · $name',
+          name.isEmpty
+              ? l10n.deliverablesTitle
+              : l10n.deliverablesTitleScoped(name),
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -119,7 +128,7 @@ class _DeliverablesScreenState extends ConsumerState<DeliverablesScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
         ],
@@ -135,16 +144,18 @@ class _DeliverablesScreenState extends ConsumerState<DeliverablesScreen> {
                 padding: EdgeInsets.symmetric(vertical: 32),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_error != null)
-              _ErrorCard(error: _error!, onRetry: _load)
+            else if (_hubMissing || _error != null)
+              _ErrorCard(
+                  error: _hubMissing ? l10n.hubNotConfigured : _error!,
+                  onRetry: _load)
             else if (_rows.isEmpty)
-              const _EmptyCard()
+              _EmptyCard(project: projectTerm.lower)
             else
               for (final group in _grouped()) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, Spacing.s12, 4, 8),
                   child: Text(
-                    _prettyPhase(group.key),
+                    _prettyPhase(group.key, l10n.noPhase),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -166,8 +177,8 @@ class _DeliverablesScreenState extends ConsumerState<DeliverablesScreen> {
     );
   }
 
-  static String _prettyPhase(String slug) {
-    if (slug.isEmpty) return 'No phase';
+  static String _prettyPhase(String slug, String emptyLabel) {
+    if (slug.isEmpty) return emptyLabel;
     final parts = slug.split(RegExp(r'[-_]'));
     return parts
         .map((p) =>
@@ -189,6 +200,7 @@ class _DeliverableRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final id = (deliverable['id'] ?? '').toString();
     final kind = (deliverable['kind'] ?? '').toString();
     final state = parseDeliverableState(
@@ -232,7 +244,7 @@ class _DeliverableRow extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        _prettyKind(kind),
+                        _prettyKind(kind, l10n.deliverableFallback),
                         style: GoogleFonts.spaceGrotesk(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -244,8 +256,8 @@ class _DeliverableRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${components.length} component${components.length == 1 ? '' : 's'}'
-                  '${required ? ' · required' : ''}',
+                  l10n.componentCount(components.length) +
+                      (required ? ' · ${l10n.requiredTag}' : ''),
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 11,
                     color: DesignColors.textMuted,
@@ -259,8 +271,8 @@ class _DeliverableRow extends StatelessWidget {
     );
   }
 
-  static String _prettyKind(String slug) {
-    if (slug.isEmpty) return 'Deliverable';
+  static String _prettyKind(String slug, String emptyLabel) {
+    if (slug.isEmpty) return emptyLabel;
     final parts = slug.split(RegExp(r'[-_]'));
     return parts
         .map((p) =>
@@ -270,10 +282,12 @@ class _DeliverableRow extends StatelessWidget {
 }
 
 class _EmptyCard extends StatelessWidget {
-  const _EmptyCard();
+  final String project;
+  const _EmptyCard({required this.project});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     return Card(
       child: Padding(
@@ -284,13 +298,12 @@ class _EmptyCard extends StatelessWidget {
             const Icon(Icons.hourglass_empty, size: 24),
             const SizedBox(height: 8),
             Text(
-              'No deliverables yet.',
+              l10n.noDeliverablesYet,
               style: theme.textTheme.titleSmall,
             ),
             const SizedBox(height: 6),
             Text(
-              'Templates instantiate per-phase deliverables as the project '
-              'advances. Once a phase is entered, its deliverables land here.',
+              l10n.deliverablesEmptyBody(project),
               style: theme.textTheme.bodySmall,
             ),
           ],
@@ -307,6 +320,7 @@ class _ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -314,16 +328,16 @@ class _ErrorCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              children: const [
-                Icon(Icons.error_outline, size: 20),
-                SizedBox(width: 8),
-                Text('Could not load deliverables'),
+              children: [
+                const Icon(Icons.error_outline, size: 20),
+                const SizedBox(width: 8),
+                Text(l10n.couldNotLoadDeliverables),
               ],
             ),
             const SizedBox(height: 6),
             Text(error, style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 12),
-            OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
+            OutlinedButton(onPressed: onRetry, child: Text(l10n.buttonRetry)),
           ],
         ),
       ),

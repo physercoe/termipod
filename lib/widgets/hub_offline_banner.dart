@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Inline "Offline · last updated HH:MM" banner for hub list screens.
 ///
@@ -46,7 +47,7 @@ class HubOfflineBanner extends StatelessWidget {
               onTap: onRetry,
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 2),
+                    horizontal: Spacing.s8, vertical: 2),
                 child: Text(
                   'Retry',
                   style: GoogleFonts.spaceGrotesk(

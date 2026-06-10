@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// W6 — Acceptance-criterion state pip (A5 §8.2). Four states; reuses
 /// the section/deliverable pip palette so the affordance feels uniform
@@ -50,7 +51,7 @@ class CriterionStatePip extends StatelessWidget {
         Text(
           _labelFor(state),
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             fontWeight: FontWeight.w700,
             color: color,
             letterSpacing: 0.4,

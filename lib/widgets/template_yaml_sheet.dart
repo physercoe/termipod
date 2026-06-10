@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Modal sheet that surfaces the project's underlying template YAML
 /// (W3 — resolves the C1 §11.1 prep gap). The chassis-vs-template seam
@@ -82,7 +83,7 @@ class _TemplateYamlSheetState extends ConsumerState<TemplateYamlSheet> {
               margin: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
                 color: DesignColors.textMuted.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: Radii.xsBorder,
               ),
             ),
             Padding(

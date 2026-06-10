@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Three-state visual encoding for typed-document sections (W5a / A4
 /// §6). Mirrors the table in `structured-document-viewer.md`:
@@ -50,7 +51,7 @@ class SectionStatePip extends StatelessWidget {
         Text(
           _labelFor(state),
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             fontWeight: FontWeight.w700,
             color: color,
             letterSpacing: 0.4,

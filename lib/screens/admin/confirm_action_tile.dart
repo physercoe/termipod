@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// A destructive-action control that fires only on a deliberate
 /// **long-press + horizontal slide** (ADR-028 Phase 5 / plan W24).
@@ -131,7 +132,7 @@ class _ConfirmActionTileState extends State<ConfirmActionTile> {
           height: 52,
           decoration: BoxDecoration(
             color: track,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: Radii.mdBorder,
             border: Border.all(
               color: _armed ? accent.withValues(alpha: 0.5) : border,
             ),

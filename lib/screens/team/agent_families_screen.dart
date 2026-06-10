@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Embeddable body for the hub's agent-family registry. Lives as a tab
 /// inside TemplatesScreen — templates *use* engines via backend.kind, so
@@ -246,12 +247,12 @@ class _SourceChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
       ),
       child: Text(
         source,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w600,
           color: fg,
           letterSpacing: 0.4,

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// One entry in a [ViewSwitcher].
 class ViewOption {
@@ -64,7 +65,7 @@ class ViewSwitcher extends StatelessWidget {
       ],
       child: Container(
         margin: const EdgeInsets.only(right: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: border),

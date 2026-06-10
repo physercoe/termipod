@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../models/artifact_kinds.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../projects/artifacts_screen.dart' show showArtifactDetailSheet;
 
@@ -186,7 +187,7 @@ class _Row extends StatelessWidget {
         [if (mime.isNotEmpty) mime, if (created.isNotEmpty) created]
             .join(' · '),
         style: GoogleFonts.jetBrainsMono(
-            fontSize: 10, color: DesignColors.textMuted),
+            fontSize: FontSizes.label, color: DesignColors.textMuted),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),

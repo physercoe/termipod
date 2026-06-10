@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Pretty-print a JSON-able value with a 2-space indent; falls back to
 /// `toString()` on any value the encoder can't handle. Lifted from
@@ -103,7 +104,7 @@ class _CollapsibleMonoState extends State<CollapsibleMono> {
                     : lineOverflow
                         ? 'Show all (${lines.length} lines)'
                         : 'Show all (${widget.text.length} chars)',
-                style: GoogleFonts.jetBrainsMono(fontSize: 10),
+                style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label),
               ),
             ),
           ),

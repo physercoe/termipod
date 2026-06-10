@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'sessions_screen.dart';
 
 /// Phase 1.5c (MVP parity gap): full-text search across session
@@ -218,7 +219,7 @@ class _ResultTile extends ConsumerWidget {
               Text(
                 scopeLabel,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: muted,
                   letterSpacing: 0.4,
                 ),
@@ -227,7 +228,7 @@ class _ResultTile extends ConsumerWidget {
               Text(
                 '· $ts',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: muted,
                 ),
                 maxLines: 1,

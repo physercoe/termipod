@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/action_bar_config.dart';
 import '../providers/settings_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Default action buttons when no custom buttons are configured.
 const _defaultActionButtons = [
@@ -806,7 +807,7 @@ class _NavButtonState extends State<_NavButton> {
         height: widget.height,
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: Radii.smBorder,
           border: _flashActive
               ? Border.all(
                   color: DesignColors.primary.withValues(alpha: 0.9),

@@ -9,6 +9,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Team Settings → Steward Config per `docs/ia-redesign.md` §11 Wedge 7.
 ///
@@ -255,7 +256,7 @@ class _CurrentStewardCard extends ConsumerWidget {
         steward != null && (status == 'running' || status == 'pending');
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(Spacing.s12),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(12),

@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/insights_breakdown_section.dart';
 import '../../widgets/insights_by_agent_section.dart';
 import '../../widgets/insights_host_distribution.dart';
@@ -177,12 +178,12 @@ class _ScopeBanner extends ConsumerWidget {
     final hubState = ref.watch(hubProvider).value;
     final label = _labelForScope(scope, hubState);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: Theme.of(context).brightness == Brightness.dark
             ? DesignColors.surfaceDark
             : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
       ),
       child: Row(
         children: [

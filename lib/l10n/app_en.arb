@@ -1053,5 +1053,17 @@
   "governanceStewardSubtitle": "{steward} prompt, policy, and escalation · soon",
   "@governanceStewardSubtitle": { "placeholders": { "steward": { "type": "String" } } },
   "governedActionPolicyTitle": "Governed action policy",
-  "governedActionPolicySubtitle": "Read-only view of policy.yaml `kinds:` (default tier, commits, override) · ADR-030"
+  "governedActionPolicySubtitle": "Read-only view of policy.yaml `kinds:` (default tier, commits, override) · ADR-030",
+  "sendFailedError": "Send failed: {error}",
+  "@sendFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "attachFailedError": "Attach failed: {error}",
+  "@attachFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "downloadFailedError": "Download failed: {error}",
+  "@downloadFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "channelEmptyHint": "Nothing in #{name} yet",
+  "@channelEmptyHint": { "placeholders": { "name": { "type": "String" } } },
+  "messageHint": "Message…",
+  "senderSystem": "(system)",
+  "attachmentPreview": "(attachment)",
+  "emptyPreview": "(empty)"
 }

@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/steward_handle.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -293,6 +296,9 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
   }
 
   Future<void> _spawn() async {
+    final l10n = AppLocalizations.of(context)!;
+    final stewardTerm =
+        ref.read(vocabularyProvider).term(VocabAxis.roleSteward).lower;
     // The Name field accepts the bare domain (e.g. `research`); the
     // app appends `-steward` before sending so the server sees the
     // canonical handle. validateStewardHandle takes the normalized
@@ -306,9 +312,8 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
     }
     if (widget.sessionId == null && _liveStewardHandles.contains(handle)) {
       final suggested = stewardLabel(_suggestNextHandle(handle));
-      setState(() => _error =
-          'A live steward already uses the name "${stewardLabel(handle)}". '
-          'Pick a different one (e.g. $suggested).');
+      setState(() => _error = l10n.stewardNameTaken(
+          stewardTerm, stewardLabel(handle), suggested));
       return;
     }
     setState(() {
@@ -344,8 +349,8 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
       if (!mounted) return;
       final status = res['status']?.toString() ?? '';
       final msg = status == 'pending_approval'
-          ? 'Spawn request sent — awaiting approval.'
-          : 'Steward spawned.';
+          ? l10n.spawnRequestSent
+          : l10n.stewardSpawned(stewardTerm);
       // Clear the dismissed flag so the auto-trigger doesn't nag if the
       // user later terminates the steward and wants a clean slate.
       await _clearDismissed();
@@ -396,6 +401,11 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final steward = voc.term(VocabAxis.roleSteward);
+    final agent = voc.term(VocabAxis.roleAgent);
+    final hostTerm = voc.term(VocabAxis.entityHost);
     final scheme = Theme.of(context).colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final canSpawn = widget.hosts.isNotEmpty && !_busy;
@@ -427,8 +437,8 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                   Expanded(
                     child: Text(
                       widget.autoTriggered
-                          ? 'Start your steward'
-                          : 'Spawn a steward',
+                          ? l10n.spawnStewardTitleStart(steward.lower)
+                          : l10n.spawnStewardTitle(steward.lower),
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
@@ -444,12 +454,12 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
               ),
               const SizedBox(height: 12),
               Text(
-                'A steward is the agent you talk to. It takes your '
-                'directions in chat sessions, raises attention items '
-                'when it needs your call, and hands work out to project '
-                'agents. Teams can run several stewards in parallel '
-                '(one per domain — research, infra, …); each runs as '
-                'its own process and keeps its own conversation.',
+                l10n.spawnStewardBlurb(
+                  steward.lower,
+                  agent.lower,
+                  agent.pluralLower,
+                  steward.pluralLower,
+                ),
                 style: GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4),
               ),
               const SizedBox(height: 16),
@@ -461,8 +471,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    'No host registered. Register a host-runner first '
-                    '(see docs/hub-host-setup.md), then come back here.',
+                    l10n.spawnNoHost(hostTerm.lower),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 12,
                       color: scheme.onErrorContainer,
@@ -477,9 +486,9 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                   DropdownButtonFormField<String>(
                     initialValue: _templateName,
                     isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Template',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.fieldTemplate,
+                      border: const OutlineInputBorder(),
                     ),
                     items: _stewardTemplates
                         .map((t) => DropdownMenuItem<String>(
@@ -534,14 +543,15 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                     controller: _handleCtrl,
                     enabled: !_busy,
                     decoration: InputDecoration(
-                      labelText: 'Name',
+                      labelText: l10n.fieldName,
                       hintText: 'steward, research, infra-east, …',
                       helperText: _templatesLoading
-                          ? 'Loading templates…'
-                          : 'Lowercase, digits, dashes. '
-                              'Must be unique among live stewards on '
-                              'this team — stopping a steward frees '
-                              'the name.',
+                          ? l10n.loadingTemplates
+                          : l10n.stewardHandleHelper(
+                              steward.pluralLower,
+                              voc.term(VocabAxis.entityTeam).lower,
+                              steward.lower,
+                            ),
                       border: const OutlineInputBorder(),
                     ),
                   ),
@@ -550,9 +560,9 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                 DropdownButtonFormField<String>(
                   initialValue: _hostId,
                   isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Host',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: hostTerm.title,
+                    border: const OutlineInputBorder(),
                   ),
                   items: widget.hosts
                       .map((h) => DropdownMenuItem<String>(
@@ -591,7 +601,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                   maxLines: 6,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: InputDecoration(
-                    labelText: 'Persona seed (optional)',
+                    labelText: l10n.personaSeedLabel,
                     border: const OutlineInputBorder(),
                     hintText:
                         "e.g. You're terse. Always cite line numbers when "
@@ -605,8 +615,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Appended under "## Persona override" in the agent\'s '
-                  'CLAUDE.md so you can see exactly what the agent reads.',
+                  l10n.personaAppendedNote(agent.lower),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 11,
                     color: DesignColors.textMuted,
@@ -625,14 +634,14 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                   if (widget.autoTriggered)
                     TextButton(
                       onPressed: _busy ? null : _skip,
-                      child: const Text('Skip for now'),
+                      child: Text(l10n.buttonSkipForNow),
                     )
                   else
                     TextButton(
                       onPressed: _busy
                           ? null
                           : () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
+                      child: Text(l10n.buttonCancel),
                     ),
                   const SizedBox(width: 8),
                   FilledButton.icon(
@@ -645,7 +654,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                                 CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.arrow_forward),
-                    label: Text(_busy ? 'Starting…' : 'Start →'),
+                    label: Text(_busy ? l10n.buttonStarting : l10n.buttonStart),
                   ),
                 ],
               ),
@@ -681,6 +690,7 @@ class _PermissionModeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final scheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
@@ -693,7 +703,7 @@ class _PermissionModeSelector extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, 4),
             child: Text(
-              'Tool permissions',
+              l10n.toolPermissions,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -708,15 +718,14 @@ class _PermissionModeSelector extends StatelessWidget {
             dense: true,
             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
             title: Text(
-              'Allow all tools (PC mode)',
+              l10n.permAllowAll,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
             ),
             subtitle: Text(
-              'Auto-approve every tool call — same as running claude '
-              'locally with --dangerously-skip-permissions.',
+              l10n.permAllowAllDesc,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 color: DesignColors.textMuted,
@@ -730,16 +739,14 @@ class _PermissionModeSelector extends StatelessWidget {
             dense: true,
             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
             title: Text(
-              'Prompt for each tool (attention)',
+              l10n.permPromptEach,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
             ),
             subtitle: Text(
-              'Route every tool call through the MCP gateway → attention '
-              'items. Requires the W2 MCP tool registered on this hub; '
-              'otherwise claude will hang on the first tool call.',
+              l10n.permPromptEachDesc,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 color: DesignColors.textMuted,
@@ -774,7 +781,8 @@ class _BackendInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final info = _engineInfoFor(kind, drivingMode, model);
+    final info = _engineInfoFor(
+        kind, drivingMode, model, AppLocalizations.of(context)!);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
@@ -827,7 +835,8 @@ class _BackendInfo extends StatelessWidget {
   /// on `agents.kind` and what the spawn endpoint expects on the wire.
   /// `mode` and `model` are pulled from the template YAML so a swap
   /// in either field surfaces immediately.
-  static _EngineInfo _engineInfoFor(String kind, String? mode, String? model) {
+  static _EngineInfo _engineInfoFor(
+      String kind, String? mode, String? model, AppLocalizations l10n) {
     final modeBlurb = _modeBlurb(kind, mode);
     switch (kind) {
       case 'codex':
@@ -889,7 +898,7 @@ class _BackendInfo extends StatelessWidget {
         );
       default:
         return _EngineInfo(
-          label: kind.isEmpty ? 'Unknown engine' : kind,
+          label: kind.isEmpty ? l10n.unknownEngine : kind,
           detail: _joinDetail([
             modeBlurb,
             'kind=$kind (custom template)',

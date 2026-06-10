@@ -104,6 +104,13 @@ jobs:
         # no Flutter (vocab_pack_test.dart proves the same with type access).
         run: scripts/lint-vocab.sh
 
+      - name: Lint ARB localization files
+        # Issue #138 — keeps app_en.arb / app_zh.arb in lockstep: equal key
+        # sets + matching {placeholder} sets + no orphan @metadata. gen-l10n
+        # falls back to en silently, so a missing zh key would otherwise ship
+        # as untranslated English. Pure bash + python3, no Flutter.
+        run: scripts/lint-arb.sh
+
       - name: Validate OpenAPI spec
         # Enforces docs/reference/openapi.yaml validates against the
         # OpenAPI 3.x schema. Per docs/plans/doc-uplift.md P2.8 §5.8.

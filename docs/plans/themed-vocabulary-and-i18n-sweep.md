@@ -109,6 +109,12 @@ duplicates; the context-free-helper → enum pattern (helpers like
 `stewardCategoryLabel` return enums; widgets map enum → l10n/vocab at
 render, keeping `sessions_list_controller` pure and unit-tested).
 
+> **Shipped:** `scripts/lint-arb.sh` (wired into `ci.yml`; en/zh confirmed
+> at parity, 619 keys) + the migration pattern + conventions captured in
+> [how-to: localize a string](../how-to/localize-a-string.md). The
+> common-action duplicate-folding and the remaining helper→enum refactors
+> ride the per-area sweep PRs (WS-C…H), where they are naturally exercised.
+
 **WS-C…H — full string sweep, by area** (each a PR): apply the triage —
 neutral → ARB en/zh; role-bound → `{role}` template + `vocab.term(axis)`,
 axis-tagged. Order by visibility:

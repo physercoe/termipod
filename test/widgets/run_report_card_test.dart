@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:termipod/widgets/run_report_card.dart';
 
 // P1 (agent-run-analysis-mode): the foldable run-report dashboard renders
@@ -29,7 +30,11 @@ Map<String, dynamic> _digest({int errors = 3}) => {
     };
 
 Future<void> _pump(WidgetTester t, Widget child) => t.pumpWidget(
-      MaterialApp(home: Scaffold(body: SingleChildScrollView(child: child))),
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(body: SingleChildScrollView(child: child)),
+      ),
     );
 
 void main() {

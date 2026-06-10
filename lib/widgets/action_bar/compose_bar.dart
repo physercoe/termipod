@@ -8,6 +8,7 @@ import '../../providers/compose_draft_provider.dart';
 import '../../providers/input_history_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Compose bar: [+] insert menu + text field + [Send] button.
 ///
@@ -376,7 +377,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
           ),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -468,7 +469,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
             borderSide: BorderSide.none,
           ),
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
+            horizontal: Spacing.s12,
             vertical: 8,
           ),
           isDense: true,
@@ -545,14 +546,14 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
             ),
           ),
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
+            horizontal: Spacing.s12,
             vertical: 8,
           ),
           isDense: true,
           // LIVE indicator
           suffixIcon: Container(
             margin: const EdgeInsets.only(right: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
             decoration: BoxDecoration(
               color: DesignColors.success.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(4),
@@ -560,7 +561,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
             child: const Text(
               'LIVE',
               style: TextStyle(
-                fontSize: 9,
+                fontSize: FontSizes.label,
                 fontWeight: FontWeight.w700,
                 color: DesignColors.success,
               ),
@@ -617,10 +618,10 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
         widget.onSpecialKeyPressed?.call(tmuxKey);
       },
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 1, vertical: 3),
+        margin: const EdgeInsets.symmetric(horizontal: Spacing.s2, vertical: Spacing.s4),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: Radii.lgBorder,
           color: DesignColors.success.withValues(alpha: 0.08),
         ),
         child: Text(

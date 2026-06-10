@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
@@ -36,6 +37,7 @@ class _PhaseSummaryScreenState extends ConsumerState<PhaseSummaryScreen> {
   List<Map<String, dynamic>> _deliverables = const [];
   bool _loading = true;
   String? _error;
+  bool _hubMissing = false;
   DateTime? _staleSince;
 
   @override
@@ -49,7 +51,7 @@ class _PhaseSummaryScreenState extends ConsumerState<PhaseSummaryScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -77,10 +79,11 @@ class _PhaseSummaryScreenState extends ConsumerState<PhaseSummaryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(_pretty(widget.phase)),
+        title: Text(_pretty(widget.phase, l10n.phaseTitleFallback)),
       ),
       body: RefreshIndicator(
         onRefresh: _load,
@@ -93,7 +96,7 @@ class _PhaseSummaryScreenState extends ConsumerState<PhaseSummaryScreen> {
                     ?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             Text(
-              widget.isCurrent ? 'Current phase' : 'Phase summary',
+              widget.isCurrent ? l10n.phaseCurrentLabel : l10n.phaseSummaryLabel,
               style: theme.textTheme.bodyMedium
                   ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
@@ -103,8 +106,10 @@ class _PhaseSummaryScreenState extends ConsumerState<PhaseSummaryScreen> {
                 padding: EdgeInsets.all(24),
                 child: CircularProgressIndicator(),
               ))
-            else if (_error != null)
-              _ErrorCard(error: _error!, onRetry: _load)
+            else if (_hubMissing || _error != null)
+              _ErrorCard(
+                  error: _hubMissing ? l10n.hubNotConfigured : _error!,
+                  onRetry: _load)
             else if (_deliverables.isEmpty)
               _EmptyCard()
             else
@@ -120,8 +125,8 @@ class _PhaseSummaryScreenState extends ConsumerState<PhaseSummaryScreen> {
     );
   }
 
-  static String _pretty(String slug) {
-    if (slug.isEmpty) return 'Phase';
+  static String _pretty(String slug, String emptyLabel) {
+    if (slug.isEmpty) return emptyLabel;
     final parts = slug.split(RegExp(r'[-_]'));
     return parts
         .map((p) => p.isEmpty
@@ -143,6 +148,7 @@ class _DeliverableTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final id = (deliverable['id'] ?? '').toString();
     final kind = (deliverable['kind'] ?? '').toString();
     final state = parseDeliverableState(
@@ -186,7 +192,7 @@ class _DeliverableTile extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        _prettyKind(kind),
+                        _prettyKind(kind, l10n.deliverableFallback),
                         style: GoogleFonts.spaceGrotesk(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -198,8 +204,8 @@ class _DeliverableTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${components.length} component${components.length == 1 ? '' : 's'}'
-                  '${required ? ' · required' : ''}',
+                  l10n.componentCount(components.length) +
+                      (required ? ' · ${l10n.requiredTag}' : ''),
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 11,
                     color: DesignColors.textMuted,
@@ -213,8 +219,8 @@ class _DeliverableTile extends StatelessWidget {
     );
   }
 
-  static String _prettyKind(String slug) {
-    if (slug.isEmpty) return 'Deliverable';
+  static String _prettyKind(String slug, String emptyLabel) {
+    if (slug.isEmpty) return emptyLabel;
     final parts = slug.split(RegExp(r'[-_]'));
     return parts
         .map((p) =>
@@ -226,6 +232,7 @@ class _DeliverableTile extends StatelessWidget {
 class _EmptyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     return Card(
       child: Padding(
@@ -236,14 +243,12 @@ class _EmptyCard extends StatelessWidget {
             const Icon(Icons.hourglass_empty, size: 24),
             const SizedBox(height: 8),
             Text(
-              'No deliverables for this phase yet.',
+              l10n.noDeliverablesForPhase,
               style: theme.textTheme.titleSmall,
             ),
             const SizedBox(height: 6),
             Text(
-              'Templates declare per-phase deliverables; once W7 ships the '
-              'research template content, advancing into a phase will '
-              'instantiate them.',
+              l10n.phaseDeliverablesEmptyBody,
               style: theme.textTheme.bodySmall,
             ),
           ],
@@ -260,6 +265,7 @@ class _ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -267,16 +273,16 @@ class _ErrorCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              children: const [
-                Icon(Icons.error_outline, size: 20),
-                SizedBox(width: 8),
-                Text('Could not load deliverables'),
+              children: [
+                const Icon(Icons.error_outline, size: 20),
+                const SizedBox(width: 8),
+                Text(l10n.couldNotLoadDeliverables),
               ],
             ),
             const SizedBox(height: 6),
             Text(error, style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 12),
-            OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
+            OutlinedButton(onPressed: onRetry, child: Text(l10n.buttonRetry)),
           ],
         ),
       ),

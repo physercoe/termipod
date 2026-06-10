@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/agent_status.dart';
 import '../../services/hub/open_steward_session.dart' show openAgentSession;
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/agent_actions_menu.dart';
@@ -36,6 +39,7 @@ class ArchivedAgentsScreen extends ConsumerStatefulWidget {
 class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
   List<Map<String, dynamic>> _rows = const [];
   bool _loading = false;
+  bool _hubMissing = false;
   String? _error;
 
   bool get _projectScoped =>
@@ -56,7 +60,7 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -111,10 +115,15 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final agentTerm = vocab.term(VocabAxis.roleAgent);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _projectScoped ? 'Agent history' : 'Archived agents',
+          _projectScoped
+              ? l10n.agentHistoryTitle(agentTerm.title)
+              : l10n.archivedAgentsTitle(agentTerm.plural),
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
@@ -130,15 +139,19 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
   }
 
   Widget _buildBody() {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final agentTerm = vocab.term(VocabAxis.roleAgent);
+    final projectTerm = vocab.term(VocabAxis.entityProject);
     if (_loading && _rows.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            _error!,
+            _hubMissing ? l10n.hubNotConfigured : _error!,
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(color: DesignColors.error),
           ),
@@ -165,11 +178,10 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
           padding: const EdgeInsets.all(24),
           child: Text(
             _projectScoped
-                ? 'No past agents on this project yet.\n'
-                    'Crashed, failed, and archived agents will appear here.\n'
-                    'Stopped (resumable) agents stay in the Agents tab.'
-                : 'No archived agents.\n'
-                    'Terminate an agent, then tap Archive on its detail sheet to move it here.',
+                ? l10n.agentHistoryEmpty(
+                    agentTerm.pluralLower, projectTerm.lower)
+                : l10n.archivedAgentsEmpty(
+                    agentTerm.pluralLower, agentTerm.lower),
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(color: DesignColors.textMuted),
           ),
@@ -210,6 +222,8 @@ class _ArchivedTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final agentTerm = ref.watch(vocabularyProvider).term(VocabAxis.roleAgent);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final id = (row['id'] ?? '').toString();
     final handle = (row['handle'] ?? '?').toString();
@@ -291,7 +305,7 @@ class _ArchivedTile extends ConsumerWidget {
                     // session) + Delete (drop from the list). Respawn lives in
                     // the detail screen, which fetches the spawn spec.
                     PopupMenuButton<String>(
-                      tooltip: 'Agent actions',
+                      tooltip: l10n.agentActionsTooltip(agentTerm.title),
                       icon: const Icon(Icons.more_vert,
                           size: 18, color: DesignColors.textMuted),
                       padding: EdgeInsets.zero,
@@ -524,6 +538,8 @@ class _ArchivedAgentDetailScreenState
   }
 
   Widget _summaryTab() {
+    final l10n = AppLocalizations.of(context)!;
+    final projectTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityProject);
     final row = _full ?? widget.summary;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final kind = (row['kind'] ?? '').toString();
@@ -539,20 +555,20 @@ class _ArchivedAgentDetailScreenState
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
         _section(
-          'Summary',
+          l10n.summaryLabel,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _kv('Status', status),
-              _kv('Kind', kind),
-              if (projectId.isNotEmpty) _kv('Project', projectId),
+              _kv(l10n.statusLabel, status),
+              _kv(l10n.fieldKind, kind),
+              if (projectId.isNotEmpty) _kv(projectTerm.title, projectId),
               if (createdAt.isNotEmpty)
-                _kv('Created', _trimIso(createdAt)),
+                _kv(l10n.createdLabel, _trimIso(createdAt)),
               if (terminatedAt.isNotEmpty)
-                _kv('Terminated', _trimIso(terminatedAt)),
+                _kv(l10n.terminatedLabel, _trimIso(terminatedAt)),
               if (archivedAt.isNotEmpty)
-                _kv('Archived', _trimIso(archivedAt)),
-              _kv('Total spend', '\$${(spent / 100).toStringAsFixed(2)}'),
+                _kv(l10n.archivedLabel, _trimIso(archivedAt)),
+              _kv(l10n.totalSpendLabel, '\$${(spent / 100).toStringAsFixed(2)}'),
             ],
           ),
           isDark: isDark,
@@ -560,7 +576,7 @@ class _ArchivedAgentDetailScreenState
         if (spawnSpec.isNotEmpty) ...[
           const SizedBox(height: 16),
           _section(
-            'Spawn spec',
+            l10n.spawnSpecLabel,
             child: SelectableText(
               spawnSpec,
               style: GoogleFonts.jetBrainsMono(fontSize: 12, height: 1.35),
@@ -573,15 +589,16 @@ class _ArchivedAgentDetailScreenState
   }
 
   Widget _journalTab() {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
         _section(
-          'Journal',
+          l10n.journalLabel,
           child: (_journal ?? '').trim().isEmpty
               ? Text(
-                  '(no journal entries)',
+                  l10n.noJournalEntries,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 13,
                     color: DesignColors.textMuted,

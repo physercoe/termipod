@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../theme/tokens.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../services/steward_handle.dart';
 import '../../services/template_filter.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../team/template_icon.dart';
 
 /// Bottom-sheet editor for spawning an agent. Shared by the project detail
@@ -89,27 +92,29 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
     final items = await _presetSvc.delete(p.id);
     if (!mounted) return;
     setState(() => _presets = items);
+    final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Preset "${p.name}" deleted')));
+        .showSnackBar(SnackBar(content: Text(l10n.presetDeletedNamed(p.name))));
   }
 
   Future<void> _confirmDeletePreset(SpawnPreset p) async {
+    final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Delete preset "${p.name}"?'),
-        content: const Text('This only removes it from this device.'),
+        title: Text(l10n.deletePresetTitle(p.name)),
+        content: Text(l10n.deletePresetBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -118,12 +123,13 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
   }
 
   Future<void> _saveAsPreset() async {
+    final l10n = AppLocalizations.of(context)!;
     final handle = _handleCtl.text.trim();
     final kind = _kindCtl.text.trim();
     final yaml = _yamlCtl.text;
     if (handle.isEmpty || kind.isEmpty || yaml.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Fill handle, kind, and YAML first')),
+        SnackBar(content: Text(l10n.spawnFillFirst)),
       );
       return;
     }
@@ -131,24 +137,24 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Save spawn preset'),
+        title: Text(l10n.saveSpawnPreset),
         content: TextField(
           controller: nameCtl,
           autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Preset name',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: l10n.presetNameLabel,
+            border: const OutlineInputBorder(),
           ),
           onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(nameCtl.text.trim()),
-            child: const Text('Save'),
+            child: Text(l10n.buttonSave),
           ),
         ],
       ),
@@ -165,7 +171,7 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
     if (!mounted) return;
     setState(() => _presets = items);
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Saved preset "$name"')));
+        .showSnackBar(SnackBar(content: Text(l10n.presetSavedNamed(name))));
   }
 
   @override
@@ -177,6 +183,10 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
   }
 
   Future<void> _loadTemplate() async {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.read(vocabularyProvider);
+    final agentTerm = vocab.term(VocabAxis.roleAgent);
+    final templateTerm = vocab.term(VocabAxis.entityTemplate);
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
@@ -205,7 +215,7 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
       if (!mounted) return;
       if (agentTemplates.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No agent templates on this hub')),
+          SnackBar(content: Text(l10n.noAgentTemplates(agentTerm.lower))),
         );
         return;
       }
@@ -214,10 +224,10 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
         builder: (_) => ListView(
           shrinkWrap: true,
           children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Pick a template',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(l10n.pickTemplateTitle(templateTerm.lower),
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
             ),
             const Divider(height: 1),
             for (final t in agentTemplates)
@@ -242,22 +252,24 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Load template failed: $e')));
+          .showSnackBar(SnackBar(content: Text(l10n.loadTemplateFailed('$e'))));
     }
   }
 
   Future<void> _submit() async {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.read(vocabularyProvider);
+    final agentTerm = vocab.term(VocabAxis.roleAgent);
+    final stewardTerm = vocab.term(VocabAxis.roleSteward);
     final handle = _handleCtl.text.trim();
     final kind = _kindCtl.text.trim();
     final yaml = _yamlCtl.text;
     if (handle.isEmpty || kind.isEmpty || yaml.trim().isEmpty) {
-      setState(() => _error = 'handle, kind, and YAML spec are required');
+      setState(() => _error = l10n.spawnRequiredFields);
       return;
     }
     if (isStewardHandle(handle)) {
-      setState(() => _error =
-          'Steward handles ("steward" or "*-steward") are reserved — '
-          'use the Steward chip in the Projects AppBar to spawn one.');
+      setState(() => _error = l10n.stewardHandleReserved(stewardTerm.title));
       return;
     }
     setState(() {
@@ -276,8 +288,8 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
       if (!mounted) return;
       final status = res['status']?.toString() ?? '';
       final msg = status == 'pending_approval'
-          ? 'Spawn request sent — awaiting approval.'
-          : 'Agent "$handle" spawned.';
+          ? l10n.spawnRequestSent
+          : l10n.spawnAgentSpawned(agentTerm.title, handle);
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       await ref.read(hubProvider.notifier).refreshAll();
@@ -291,6 +303,10 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final agentTerm = vocab.term(VocabAxis.roleAgent);
+    final projectTerm = vocab.term(VocabAxis.entityProject);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
@@ -309,8 +325,9 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                   Expanded(
                     child: Text(
                       widget.projectId == null
-                          ? 'Spawn agent'
-                          : 'Spawn project agent',
+                          ? l10n.spawnAgentTitle(agentTerm.lower)
+                          : l10n.spawnProjectAgentTitle(
+                              projectTerm.lower, agentTerm.lower),
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.w700),
                     ),
@@ -331,10 +348,11 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                   if (_presets.isNotEmpty) ...[
                     Row(
                       children: [
-                        const Text('Presets',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        Text(l10n.presetsLabel,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600)),
                         const Spacer(),
-                        Text('long-press to delete',
+                        Text(l10n.longPressToDelete,
                             style: GoogleFonts.jetBrainsMono(
                               fontSize: FontSizes.label,
                               color: Theme.of(context)
@@ -369,29 +387,29 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                   ],
                   TextField(
                     controller: _handleCtl,
-                    decoration: const InputDecoration(
-                      labelText: 'Handle',
-                      hintText: 'e.g. worker-fe',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.handleLabel,
+                      hintText: l10n.handleHint,
+                      border: const OutlineInputBorder(),
                     ),
                     autofocus: true,
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _kindCtl,
-                    decoration: const InputDecoration(
-                      labelText: 'Kind',
+                    decoration: InputDecoration(
+                      labelText: l10n.fieldKind,
                       hintText: 'claude-code, kimi-code, antigravity, …',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: _hostId,
                     isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Host',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.hostLabel,
+                      border: const OutlineInputBorder(),
                     ),
                     items: widget.hosts
                         .map((h) => DropdownMenuItem<String>(
@@ -407,21 +425,22 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      const Expanded(
-                        child: Text('Spawn spec (YAML)',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
+                      Expanded(
+                        child: Text(l10n.spawnSpecYamlLabel,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600)),
                       ),
                       IconButton(
                         onPressed: _saveAsPreset,
                         icon: const Icon(Icons.bookmark_add_outlined,
                             size: 20),
-                        tooltip: 'Save as preset',
+                        tooltip: l10n.saveAsPreset,
                         visualDensity: VisualDensity.compact,
                       ),
                       IconButton(
                         onPressed: _loadTemplate,
                         icon: const Icon(Icons.file_open, size: 20),
-                        tooltip: 'Load template',
+                        tooltip: l10n.loadTemplateTooltip,
                         visualDensity: VisualDensity.compact,
                       ),
                     ],
@@ -451,7 +470,7 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                       TextButton(
                         onPressed:
                             _busy ? null : () => Navigator.of(context).pop(),
-                        child: const Text('Cancel'),
+                        child: Text(l10n.buttonCancel),
                       ),
                       const SizedBox(width: 8),
                       FilledButton.icon(
@@ -464,7 +483,8 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                                     strokeWidth: 2),
                               )
                             : const Icon(Icons.play_arrow),
-                        label: Text(_busy ? 'Spawning…' : 'Spawn'),
+                        label: Text(
+                            _busy ? l10n.spawningButton : l10n.spawnButton),
                       ),
                     ],
                   ),

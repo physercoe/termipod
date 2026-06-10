@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-10)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.815
+> **Last verified vs code:** v1.0.816
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,53 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.816-alpha — 2026-06-10
+
+The **vocabulary-preset runtime** (ADR-048) lands and the i18n sweep
+(#138) begins. Role terms (steward / agent / principal / …) now re-word by
+audience **preset** — tech / business / political / research — orthogonal
+to language (gen-l10n still owns en/zh). First surface swept: **Sessions**.
+Cut for director device-test across presets × languages.
+
+**Added**
+
+- **Vocabulary-preset runtime** (#141, [ADR-048]) — `lib/services/vocab/`:
+  `VocabAxis` (21 role-bound axes), `VocabPreset` (tech/business/political/
+  research), `VocabTerm` (English grammatical forms; zh single), the 8-pack
+  `kVocabPacks` table, a fallback-tolerant `Vocabulary` resolver, and
+  `vocabularyProvider`. A **Vocabulary preset** picker lands in
+  Settings → Display; the choice persists per client (hub-served later).
+- **i18n tooling** (#142) — `scripts/lint-arb.sh` keeps `app_en.arb` /
+  `app_zh.arb` in lockstep (key-set equality + placeholder parity + orphan
+  metadata; pure bash/python, no Flutter), wired into CI alongside the new
+  `scripts/lint-vocab.sh` (8-pack completeness). New how-to
+  `docs/how-to/localize-a-string.md` documents the migration pattern.
+
+**Changed**
+
+- **Sessions surface localized** (#143, #144, #138) — `sessions_screen.dart`
+  went from zero `AppLocalizations` use to fully localized for its app bar,
+  steward/session kebab menus, rename dialogs, bulk-select confirm dialogs,
+  result/error snackbars (ICU plurals + `{error}` templates), the selection
+  action bar, the empty state, and the scope sheet. Role-bound strings route
+  their noun through the active preset via `vocab.term(axis)`; en/zh ARB now
+  683 keys. (Role-bound descriptive dialog *bodies* follow in a later slice.)
+- **Steward-heavy surfaces re-word by preset** (#141) — Sessions category
+  headers + select chips, the `StewardBadge`, the Me direct-the-steward FAB,
+  and the steward/agent kebab labels all resolve through the preset.
+
+**Fixed**
+
+- **Detached session count + select-mode scope filter** (#139, #122) — the
+  Detached category counted its single synthetic group (always 1) instead of
+  its sessions, and select mode didn't subdivide detached sessions by scope
+  the way the normal list does. Both corrected with shared, unit-tested
+  bucketing helpers.
+
+[ADR-048]: decisions/048-themed-vocabulary-overlay.md
 
 ---
 

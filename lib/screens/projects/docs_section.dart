@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -100,11 +103,15 @@ class _DocsSectionState extends ConsumerState<DocsSection> {
 /// input surface — things agents read by name via MCP `get_project_doc`.
 /// The copy answers the user's decision question ("Files or Assets?")
 /// in two lines: who reads it, and where to put ambient content instead.
-class _FilesGuidance extends StatelessWidget {
+class _FilesGuidance extends ConsumerWidget {
   const _FilesGuidance();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final agents = voc.term(VocabAxis.roleAgent).pluralLower;
+    final channel = voc.term(VocabAxis.entityChannel).lower;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
@@ -130,14 +137,13 @@ class _FilesGuidance extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Files agents read by path',
+                  l10n.filesGuidanceTitle(agents),
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 12, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Trainer code, datasets, configs, prompts. '
-                  'For ambient references (screenshots, audio), drop them in a channel.',
+                  l10n.filesGuidanceBody(channel),
                   style: GoogleFonts.spaceGrotesk(fontSize: 11, color: muted),
                 ),
               ],
@@ -241,6 +247,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -254,7 +261,7 @@ class _EmptyState extends StatelessWidget {
           const SizedBox(height: 12),
           Center(
             child: Text(
-              'No files yet.',
+              l10n.noFilesYet,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -267,7 +274,7 @@ class _EmptyState extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Text(
-                'Populate docs_root on the hub host (writes from mobile not yet supported).',
+                l10n.docsRootHint,
                 textAlign: TextAlign.center,
                 style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
               ),

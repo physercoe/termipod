@@ -2,10 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
+
+/// Localized label for a document kind wire value
+/// (`memo` / `draft` / `report` / `review`). Unknown values fall back to
+/// the raw wire string. Shared with the documents list screen.
+String documentKindLabel(AppLocalizations l10n, String kind) {
+  switch (kind) {
+    case 'memo':
+      return l10n.docKindMemo;
+    case 'draft':
+      return l10n.docKindDraft;
+    case 'report':
+      return l10n.docKindReport;
+    case 'review':
+      return l10n.docKindReview;
+    default:
+      return kind;
+  }
+}
 
 /// Compose a new document (memo, draft, report, or review) from the phone.
 /// Hub enforces the kind on the server; we offer the four blueprint §6.7
@@ -26,6 +47,10 @@ class DocumentCreateSheet extends ConsumerStatefulWidget {
 class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
   List<Map<String, dynamic>>? _projects;
   String? _loadError;
+  // Set when the hub client is unconfigured. Rendered as a localized
+  // message at build time — resolving l10n here would throw, since the
+  // client==null branch of _load() runs synchronously during initState.
+  bool _hubMissing = false;
   bool _loading = true;
 
   final _title = TextEditingController();
@@ -58,7 +83,7 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       setState(() {
-        _loadError = 'Hub not configured.';
+        _hubMissing = true;
         _loading = false;
       });
       return;
@@ -100,7 +125,8 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $e')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.createFailedError('$e'))),
       );
     }
   }
@@ -129,11 +155,15 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
   }
 
   Widget _body(ScrollController scroll) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final documentTerm = voc.term(VocabAxis.entityDocument);
+    final projectTerm = voc.term(VocabAxis.entityProject);
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_loadError != null) {
+    if (_hubMissing || _loadError != null) {
       return Center(
         child: Text(
-          _loadError!,
+          _hubMissing ? l10n.hubNotConfigured : _loadError!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -161,28 +191,28 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
           ),
         ),
         Text(
-          'New document',
+          l10n.newDocument(documentTerm.lower),
           style: GoogleFonts.spaceGrotesk(
             fontSize: 18,
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 16),
-        _label('Kind'),
+        _label(l10n.fieldKind),
         Wrap(
           spacing: 6,
           runSpacing: 6,
           children: [
             for (final k in _kinds)
               AppChoiceChip(
-                label: k,
+                label: documentKindLabel(l10n, k),
                 selected: _kind == k,
                 onTap: () => setState(() => _kind = k),
               ),
           ],
         ),
         const SizedBox(height: 16),
-        _label('Project'),
+        _label(projectTerm.title),
         if (widget.projectId != null)
           InputDecorator(
             decoration: const InputDecoration(
@@ -198,23 +228,24 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
           _ProjectField(
             projects: projects,
             selectedId: _projectId,
+            pickHint: l10n.pickProjectHint(projectTerm.lower),
             onChanged: (id) => setState(() => _projectId = id),
           ),
         const SizedBox(height: 16),
-        _label('Title'),
+        _label(l10n.fieldTitle),
         TextField(
           controller: _title,
           enabled: !_submitting,
           style: GoogleFonts.spaceGrotesk(fontSize: 14),
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
             isDense: true,
-            hintText: 'e.g. Week 14 progress',
+            hintText: l10n.docTitleHint,
           ),
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 16),
-        _label('Content (markdown)'),
+        _label(l10n.fieldContentMarkdown),
         TextField(
           controller: _content,
           enabled: !_submitting,
@@ -236,7 +267,7 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
                   height: 14,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Create document'),
+              : Text(l10n.createDocumentButton(documentTerm.lower)),
         ),
       ],
     );
@@ -259,10 +290,12 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
 class _ProjectField extends StatelessWidget {
   final List<Map<String, dynamic>> projects;
   final String? selectedId;
+  final String pickHint;
   final ValueChanged<String?> onChanged;
   const _ProjectField({
     required this.projects,
     required this.selectedId,
+    required this.pickHint,
     required this.onChanged,
   });
 
@@ -296,7 +329,7 @@ class _ProjectField extends StatelessWidget {
   }
 
   String _label(List<Map<String, dynamic>> projects) {
-    if (selectedId == null) return 'Pick a project';
+    if (selectedId == null) return pickHint;
     for (final p in projects) {
       if ((p['id'] ?? '').toString() == selectedId) {
         return (p['name'] ?? selectedId).toString();

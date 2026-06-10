@@ -9,6 +9,7 @@ import '../services/ssh/ssh_client.dart';
 import '../services/tmux/tmux_commands.dart';
 import '../services/tmux/tmux_parser.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 import 'hosts/hosts_screen.dart';
 import 'activity/activity_screen.dart';
 import 'projects/projects_screen.dart';
@@ -227,6 +228,10 @@ class HomeScreen extends ConsumerWidget {
                 Container(
                   width: 24,
                   height: 2,
+                  // Deliberate: 2px bar + 6px = 8, matching the unselected
+                  // SizedBox(height: 8) so selected/unselected nav items stay
+                  // the same height. Off-grid on purpose — do NOT snap (the
+                  // nav bar height is tight; +2 overflows it).
                   margin: const EdgeInsets.only(bottom: 6),
                   decoration: BoxDecoration(
                     color: DesignColors.primary,
@@ -251,6 +256,9 @@ class HomeScreen extends ConsumerWidget {
               Text(
                 label,
                 style: TextStyle(
+                  // Off-scale on purpose: the custom bottom-nav bar height is
+                  // tight; snapping 9→label(11) overflows the nav-item Column.
+                  // Needs a deliberate height fix, not a token snap.
                   fontSize: 9,
                   fontWeight: FontWeight.w500,
                   letterSpacing: 0.3,
@@ -497,7 +505,7 @@ class _EmptySessionsView extends StatelessWidget {
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: Radii.lgBorder,
               border: Border.all(
                 color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
               ),
@@ -555,7 +563,7 @@ class _SessionCard extends StatelessWidget {
       direction: DismissDirection.endToStart,
       background: Container(
         alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
+        padding: const EdgeInsets.only(right: Spacing.s16),
         decoration: BoxDecoration(
           color: DesignColors.error.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(12),
@@ -628,7 +636,7 @@ class _SessionCard extends StatelessWidget {
                   color: isAttached
                       ? (isDark ? DesignColors.connectingCardDark : DesignColors.connectingCardLight)
                       : (isDark ? DesignColors.borderDark : DesignColors.borderLight),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: Radii.mdBorder,
                   border: Border.all(
                     color: isAttached
                         ? (isDark ? DesignColors.connectingCardBorderDark : DesignColors.connectingCardBorderLight)
@@ -694,7 +702,7 @@ class _SessionCard extends StatelessWidget {
                           Text(
                             AppLocalizations.of(context)!.lastWindow(session.lastWindowIndex ?? 0),
                             style: GoogleFonts.jetBrainsMono(
-                              fontSize: 10,
+                              fontSize: FontSizes.label,
                               color: DesignColors.primary.withValues(alpha: 0.7),
                             ),
                           ),
@@ -706,14 +714,14 @@ class _SessionCard extends StatelessWidget {
               ),
               // Status Badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 4),
                 decoration: BoxDecoration(
                   color: isAttached
                       ? (isDark
                           ? DesignColors.connectedCardDark.withValues(alpha: 0.5)
                           : DesignColors.connectedCardLight)
                       : (isDark ? DesignColors.borderDark : DesignColors.borderLight),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: Radii.smBorder,
                   border: Border.all(
                     color: isAttached
                         ? (isDark

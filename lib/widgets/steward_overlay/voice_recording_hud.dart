@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Floating recording indicator anchored near the steward puck while a
 /// Mode A (puck long-press) voice recording is in progress.
@@ -125,7 +126,7 @@ class _VoiceRecordingHudState extends State<VoiceRecordingHud>
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 8),
       decoration: BoxDecoration(
         color: DesignColors.error.withValues(alpha: 0.18),
         borderRadius: const BorderRadius.only(
@@ -199,7 +200,7 @@ class _VoiceRecordingHudState extends State<VoiceRecordingHud>
 
   Widget _buildTimerRow(Color textColor) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      padding: const EdgeInsets.fromLTRB(Spacing.s12, 12, Spacing.s12, 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -228,13 +229,13 @@ class _VoiceRecordingHudState extends State<VoiceRecordingHud>
     final empty = transcript.isEmpty;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+      padding: const EdgeInsets.fromLTRB(Spacing.s12, 4, Spacing.s12, Spacing.s8),
       child: Text(
         empty ? 'Listening…' : transcript,
         maxLines: 3,
         overflow: TextOverflow.ellipsis,
         style: GoogleFonts.spaceGrotesk(
-          fontSize: 15,
+          fontSize: FontSizes.subtitle,
           height: 1.35,
           fontWeight: empty ? FontWeight.w400 : FontWeight.w500,
           fontStyle: empty ? FontStyle.italic : FontStyle.normal,
@@ -250,7 +251,7 @@ class _VoiceRecordingHudState extends State<VoiceRecordingHud>
 
   Widget _buildFooter(bool isDark) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 8),
       decoration: BoxDecoration(
         color: (isDark ? Colors.white : Colors.black)
             .withValues(alpha: 0.04),

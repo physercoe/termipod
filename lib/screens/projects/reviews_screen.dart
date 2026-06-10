@@ -3,8 +3,11 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/entity_names.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
@@ -38,6 +41,7 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
   List<Map<String, dynamic>> _docs = const [];
   bool _loading = true;
   String? _error;
+  bool _hubMissing = false;
   DateTime? _staleSince;
 
   static const _filters = <String?>[
@@ -65,7 +69,7 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -121,9 +125,9 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
     _load();
   }
 
-  String _projectFilterLabel() {
+  String _projectFilterLabel(String allProjectsLabel) {
     final id = _projectFilter;
-    if (id == null) return 'All projects';
+    if (id == null) return allProjectsLabel;
     for (final p in _projects ?? const <Map<String, dynamic>>[]) {
       if ((p['id'] ?? '').toString() == id) {
         return (p['name'] ?? id).toString();
@@ -146,6 +150,10 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final reviews = vocab.term(VocabAxis.entityReview);
+    final projectTerm = vocab.term(VocabAxis.entityProject);
     final projects = ref.watch(hubProvider).value?.projects ?? const [];
     final scopeName = widget.projectId == null
         ? null
@@ -153,7 +161,9 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          scopeName == null ? 'Reviews' : 'Reviews · $scopeName',
+          scopeName == null
+              ? reviews.plural
+              : '${reviews.plural} · $scopeName',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -162,7 +172,7 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
         ],
@@ -177,7 +187,8 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
               _load();
             },
             showProjectFilter: _showProjectFilter,
-            projectLabel: _projectFilterLabel(),
+            projectLabel:
+                _projectFilterLabel(l10n.allProjects(projectTerm.pluralLower)),
             projectIsActive: _projectFilter != null,
             onProjectTap: _pickProject,
           ),
@@ -189,12 +200,13 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
   }
 
   Widget _body() {
+    final l10n = AppLocalizations.of(context)!;
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          _error!,
+          _hubMissing ? l10n.hubNotConfigured : _error!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -204,16 +216,18 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
     }
     final rows = _rows ?? const [];
     if (rows.isEmpty) {
+      final reviews =
+          ref.watch(vocabularyProvider).term(VocabAxis.entityReview);
       final narrowed = _projectFilter != null;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
             narrowed
-                ? 'No reviews match the current filters.'
+                ? l10n.reviewsNoneMatch(reviews.pluralLower)
                 : _filter == 'pending'
-                    ? 'Inbox zero — no pending reviews.'
-                    : 'No reviews with this status.',
+                    ? l10n.reviewsInboxZero(reviews.pluralLower)
+                    : l10n.reviewsNoneWithStatus(reviews.pluralLower),
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 13,
@@ -264,6 +278,7 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
@@ -281,7 +296,9 @@ class _FilterBar extends StatelessWidget {
               children: [
                 for (final f in filters) ...[
                   AppChoiceChip(
-                    label: f ?? 'all',
+                    label: f == null
+                        ? l10n.filterAll
+                        : reviewStatusLabel(l10n, f),
                     selected: f == selected,
                     onTap: () => onChanged(f),
                   ),
@@ -348,7 +365,7 @@ class _ProjectPick {
   const _ProjectPick({this.id, this.clear = false});
 }
 
-class _ProjectFilterSheet extends StatelessWidget {
+class _ProjectFilterSheet extends ConsumerWidget {
   final List<Map<String, dynamic>> projects;
   final String? selectedId;
   const _ProjectFilterSheet({
@@ -357,7 +374,10 @@ class _ProjectFilterSheet extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final projectTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityProject);
     return DraggableScrollableSheet(
       initialChildSize: 0.6,
       minChildSize: 0.3,
@@ -378,7 +398,7 @@ class _ProjectFilterSheet extends StatelessWidget {
               return ListTile(
                 leading: const Icon(Icons.clear, size: 18),
                 title: Text(
-                  'All projects',
+                  l10n.allProjects(projectTerm.pluralLower),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -418,7 +438,7 @@ class _ProjectFilterSheet extends StatelessWidget {
   }
 }
 
-class _ReviewRow extends StatelessWidget {
+class _ReviewRow extends ConsumerWidget {
   final Map<String, dynamic> row;
   final List<Map<String, dynamic>> projects;
   final List<Map<String, dynamic>> agents;
@@ -433,7 +453,9 @@ class _ReviewRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final reviews = ref.watch(vocabularyProvider).term(VocabAxis.entityReview);
     final state = _state(row);
     final projectId = (row['project_id'] ?? '').toString();
     final projectName =
@@ -445,7 +467,7 @@ class _ReviewRow extends StatelessWidget {
     final title = serverTitle.isNotEmpty
         ? serverTitle
         : (targetId.isEmpty
-            ? '(review)'
+            ? l10n.reviewFallbackTitle(reviews.lower)
             : documentTitleFor(targetId, docs));
     final requesterId = (row['requester_agent_id'] ??
             row['requester_handle'] ??
@@ -496,12 +518,30 @@ class _ReviewRow extends StatelessWidget {
 String _state(Map<String, dynamic> row) =>
     (row['state'] ?? row['status'] ?? '').toString().toLowerCase();
 
+/// Maps a wire review status onto its localized label. Unknown states fall
+/// back to the raw wire token so new server states still render.
+String reviewStatusLabel(AppLocalizations l10n, String wire) {
+  switch (wire.toLowerCase().replaceAll('-', '_')) {
+    case 'pending':
+      return l10n.reviewStatusPending;
+    case 'needs_changes':
+      return l10n.reviewStatusNeedsChanges;
+    case 'approved':
+      return l10n.reviewStatusApproved;
+    case 'rejected':
+      return l10n.reviewStatusRejected;
+    default:
+      return wire;
+  }
+}
+
 class ReviewStatusChip extends StatelessWidget {
   final String state;
   const ReviewStatusChip({super.key, required this.state});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final s = state.toLowerCase();
     final color = switch (s) {
       'approved' => DesignColors.success,
@@ -518,7 +558,7 @@ class ReviewStatusChip extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
-        s.isEmpty ? '?' : s,
+        s.isEmpty ? '?' : reviewStatusLabel(l10n, s),
         style: GoogleFonts.jetBrainsMono(
           fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
@@ -547,6 +587,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
   bool _loading = true;
   bool _deciding = false;
   String? _error;
+  bool _hubMissing = false;
   final TextEditingController _noteCtrl = TextEditingController();
 
   @override
@@ -566,7 +607,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -601,6 +642,9 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
   Future<void> _decide(String decision) async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final reviewTerm =
+        ref.read(vocabularyProvider).term(VocabAxis.entityReview);
     setState(() => _deciding = true);
     final note = _noteCtrl.text.trim();
     try {
@@ -611,14 +655,17 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Review $decision')),
+        SnackBar(
+          content: Text(l10n.reviewDecidedSnack(
+              reviewTerm.title, reviewStatusLabel(l10n, decision))),
+        ),
       );
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
       setState(() => _deciding = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Decide failed: $e')),
+        SnackBar(content: Text(l10n.decideFailedStatus('$e'))),
       );
     }
   }
@@ -642,14 +689,15 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
   }
 
   Widget _body(ScrollController scroll) {
+    final l10n = AppLocalizations.of(context)!;
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          _error!,
+          _hubMissing ? l10n.hubNotConfigured : _error!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -657,12 +705,18 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
         ),
       );
     }
+    final vocab = ref.watch(vocabularyProvider);
+    final reviews = vocab.term(VocabAxis.entityReview);
+    final documents = vocab.term(VocabAxis.entityDocument);
+    final output = vocab.term(VocabAxis.entityOutput);
     final r = _review ?? widget.summary;
     final state = _state(r);
     final isPending = state == 'pending' || state.isEmpty;
     final agents = ref.watch(hubProvider).value?.agents ?? const [];
-    final docTitle = (_document?['title'] ?? r['document_title'] ?? '(document)')
-        .toString();
+    final docTitle =
+        (_document?['title'] ?? r['document_title'] ?? '').toString().isNotEmpty
+            ? (_document?['title'] ?? r['document_title']).toString()
+            : l10n.reviewDocFallbackTitle(documents.lower);
     final docKind = (_document?['kind'] ?? '').toString();
     final docContent = (_document?['content_inline'] ?? '').toString();
     final requesterId =
@@ -705,14 +759,14 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
           ],
         ),
         const SizedBox(height: 12),
-        if (docKind.isNotEmpty) _kv('kind', docKind),
-        if (requester.isNotEmpty) _kv('requester', requester),
-        if (existingNote.isNotEmpty) _kv('note', existingNote),
-        if (decidedBy.isNotEmpty) _kv('decided by', decidedBy),
-        if (decidedAt.isNotEmpty) _kv('decided at', decidedAt),
+        if (docKind.isNotEmpty) _kv(l10n.reviewMetaKind, docKind),
+        if (requester.isNotEmpty) _kv(l10n.reviewMetaRequester, requester),
+        if (existingNote.isNotEmpty) _kv(l10n.reviewMetaNote, existingNote),
+        if (decidedBy.isNotEmpty) _kv(l10n.reviewMetaDecidedBy, decidedBy),
+        if (decidedAt.isNotEmpty) _kv(l10n.reviewMetaDecidedAt, decidedAt),
         const SizedBox(height: 8),
         if (docContent.isNotEmpty) ...[
-          _sectionLabel('Document'),
+          _sectionLabel(documents.title),
           Container(
             padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
@@ -725,9 +779,10 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
           const SizedBox(height: 12),
         ] else if (_document != null &&
             (_document!['artifact_id'] ?? '').toString().isNotEmpty) ...[
-          _sectionLabel('Document'),
+          _sectionLabel(documents.title),
           Text(
-            'Stored as output ${_document!['artifact_id']}',
+            l10n.reviewStoredAsOutput(
+                output.lower, '${_document!['artifact_id']}'),
             style: GoogleFonts.jetBrainsMono(
               fontSize: 11,
               color: DesignColors.textMuted,
@@ -736,7 +791,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
           const SizedBox(height: 12),
         ],
         if (isPending) ...[
-          _sectionLabel('Your note (optional)'),
+          _sectionLabel(l10n.fieldNoteOptional),
           TextField(
             controller: _noteCtrl,
             minLines: 2,
@@ -744,7 +799,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
             enabled: !_deciding,
             style: GoogleFonts.jetBrainsMono(fontSize: 12),
             decoration: InputDecoration(
-              hintText: 'Reasoning, follow-ups, or blockers',
+              hintText: l10n.reviewNoteHint,
               hintStyle: GoogleFonts.jetBrainsMono(
                 fontSize: 11,
                 color: DesignColors.textMuted,
@@ -761,7 +816,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
               FilledButton.icon(
                 onPressed: _deciding ? null : () => _decide('approved'),
                 icon: const Icon(Icons.check, size: 18),
-                label: const Text('Approve'),
+                label: Text(l10n.buttonApprove),
                 style: FilledButton.styleFrom(
                   backgroundColor: DesignColors.success,
                 ),
@@ -769,7 +824,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
               OutlinedButton.icon(
                 onPressed: _deciding ? null : () => _decide('needs_changes'),
                 icon: const Icon(Icons.edit_note, size: 18),
-                label: const Text('Request changes'),
+                label: Text(l10n.buttonRequestChanges),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: DesignColors.warning,
                   side: const BorderSide(color: DesignColors.warning),
@@ -778,7 +833,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
               OutlinedButton.icon(
                 onPressed: _deciding ? null : () => _decide('rejected'),
                 icon: const Icon(Icons.close, size: 18),
-                label: const Text('Reject'),
+                label: Text(l10n.buttonReject),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: DesignColors.error,
                   side: const BorderSide(color: DesignColors.error),
@@ -788,7 +843,8 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
           ),
         ] else
           Text(
-            'This review is already $state.',
+            l10n.reviewAlreadyDecided(
+                reviews.title, reviewStatusLabel(l10n, state)),
             style: GoogleFonts.jetBrainsMono(
               fontSize: 11,
               color: DesignColors.textMuted,

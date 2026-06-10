@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-06-09)
+> **Status:** Current (2026-06-10)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.813
+> **Last verified vs code:** v1.0.814
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,45 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.814-alpha — 2026-06-10
+
+Two device-test fixes from the v1.0.813 round + a large design-system
+(ADR-047) burn-down. Mobile deltas await director device-test.
+
+**Fixed**
+
+- **Session-init chip missing on the live feed** (#117) — two paths.
+  *M2 / existing session:* the mobile backfill scanned only the last 200
+  events for `session.init`, but it's the session's first event, so on a
+  long-running session it had scrolled out and the AppBar chip stayed
+  blank; the backfill now queries `session.init` by **kind**, so it
+  resolves regardless of session length. *M4 / fresh spawn:* the
+  claude-code adapter only synthesised `session.init` after the first
+  `usage` event, so a just-spawned agent had none; it now emits a
+  launch-time `session.init` (model filled in later via the existing
+  merge), matching the other drivers.
+- **Team-scoped sessions mislabeled "General"** (#119) — the session-scope
+  chip (header, previous-session groups, re-scope picker, search) now
+  reads **"Team"**; "General" stays reserved for the general-steward
+  taxonomy it was colliding with.
+
+**Changed**
+
+- **Design-token burn-down (WS6), continued.** Snapped off-grid spacing /
+  off-scale type + radii onto `lib/theme/tokens.dart` (`Spacing` 4px grid,
+  `FontSizes` type scale, `Radii` M3 scale) across the long tail of
+  screens and widgets: the four screens that missed the 813 tag
+  (sessions_screen #113, run_report_card #114, insight_transcript #115,
+  snippets_screen #116) plus per-cluster sweeps #120–#131 (Projects,
+  action_bar, team/hosts/connections/admin, widgets, viewers/sheets,
+  insights/badges, editors/policy, and the grid/scale tail-finish). The
+  ratchet baseline fell **935 → 171**. Deliberate large/display values
+  (bottom clearances, hero/display fonts, signature pill radii) and three
+  layout-sensitive files (terminal_screen, app_theme, compose_bar) were
+  intentionally left for hand-tuning, not blind-snapped.
 
 ---
 

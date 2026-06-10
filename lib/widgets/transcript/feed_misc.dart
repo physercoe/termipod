@@ -171,13 +171,6 @@ class NewEventsPill extends StatelessWidget {
           decoration: BoxDecoration(
             color: DesignColors.primary,
             borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

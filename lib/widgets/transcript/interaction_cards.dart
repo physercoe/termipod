@@ -224,13 +224,6 @@ class _PermissionPromptCardState
         color: scheme.surface,
         border: Border.all(color: tierColor.withValues(alpha: 0.6), width: 1.5),
         borderRadius: Radii.mdBorder,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       padding: const EdgeInsets.fromLTRB(12, 8, 12, Spacing.s8),
       child: Column(
@@ -554,13 +547,6 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
           width: 1.5,
         ),
         borderRadius: Radii.mdBorder,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       padding: const EdgeInsets.fromLTRB(12, 8, 12, Spacing.s8),
       child: Column(

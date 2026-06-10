@@ -8,4 +8,4 @@ stray_hex_color	0
 off_scale_radius	16
 off_scale_font_size	34
 off_grid_edge_inset	32
-box_shadow	15
+box_shadow	0

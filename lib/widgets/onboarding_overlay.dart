@@ -97,13 +97,6 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
           border: Border.all(
             color: DesignColors.primary.withValues(alpha: 0.3),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: DesignColors.primary.withValues(alpha: 0.2),
-              blurRadius: 30,
-              spreadRadius: 2,
-            ),
-          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

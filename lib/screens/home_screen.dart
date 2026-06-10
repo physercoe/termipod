@@ -182,15 +182,6 @@ class HomeScreen extends ConsumerWidget {
                 : (isDark ? DesignColors.borderDark : DesignColors.borderLight),
             width: 3,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: isSelected
-                  ? DesignColors.primary.withValues(alpha: 0.5)
-                  : Colors.black.withValues(alpha: isDark ? 0.4 : 0.2),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
         ),
         child: Icon(
           Icons.person_outline,
@@ -236,13 +227,6 @@ class HomeScreen extends ConsumerWidget {
                   decoration: BoxDecoration(
                     color: DesignColors.primary,
                     borderRadius: BorderRadius.circular(1),
-                    boxShadow: [
-                      BoxShadow(
-                        color: DesignColors.primary.withValues(alpha: 0.5),
-                        blurRadius: 8,
-                        spreadRadius: 0,
-                      ),
-                    ],
                   ),
                 )
               else
@@ -618,13 +602,6 @@ class _SessionCard extends StatelessWidget {
             border: Border.all(
               color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.1),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
           ),
           child: Row(
             children: [

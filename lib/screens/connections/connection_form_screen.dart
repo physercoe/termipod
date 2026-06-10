@@ -489,14 +489,6 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                   ? DesignColors.success
                   : mutedColor,
               shape: BoxShape.circle,
-              boxShadow: _hostController.text.isNotEmpty
-                  ? [
-                      BoxShadow(
-                        color: DesignColors.success.withValues(alpha: 0.6),
-                        blurRadius: 8,
-                      ),
-                    ]
-                  : null,
             ),
           ),
         ),
@@ -703,15 +695,6 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                       ? colorScheme.primary
                       : Colors.transparent,
                   borderRadius: Radii.smBorder,
-                  boxShadow: _authMethod == 'password'
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
                 ),
                 child: Text(
                   l10n.authMethodPassword,
@@ -737,15 +720,6 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                       ? colorScheme.primary
                       : Colors.transparent,
                   borderRadius: Radii.smBorder,
-                  boxShadow: _authMethod == 'key'
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
                 ),
                 child: Text(
                   l10n.authMethodPrivateKey,

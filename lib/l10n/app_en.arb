@@ -999,5 +999,15 @@
   "@taskMessage": { "placeholders": { "message": { "type": "String" } } },
   "copyKindTile": "tile",
   "copiedKind": "Copied {kind}",
-  "@copiedKind": { "placeholders": { "kind": { "type": "String" } } }
+  "@copiedKind": { "placeholders": { "kind": { "type": "String" } } },
+
+  "navNoErrors": "No errors — a clean run.",
+  "navNoTurns": "No turns recorded yet.",
+  "navNoMap": "No tool calls, turns, or errors to map yet.",
+  "jumpToEventPos": "Jump to event {n} / {m}",
+  "@jumpToEventPos": { "placeholders": { "n": { "type": "int" }, "m": { "type": "int" } } },
+  "jumpToEvent": "Jump to event…",
+  "jumpToEventOf": "Jump to event {n} of {m}",
+  "@jumpToEventOf": { "placeholders": { "n": { "type": "int" }, "m": { "type": "int" } } },
+  "scrubHint": "Scrub anywhere in the run, then jump."
 }

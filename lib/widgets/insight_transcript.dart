@@ -998,7 +998,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// controller [ctl] — it is a drawer list, NOT the transcript window.
   Widget _buildNavErrorsList(ScrollController ctl) {
     final ords = _sortedErrorOrdinals();
-    if (ords.isEmpty) return _navEmpty('No errors — a clean run.');
+    if (ords.isEmpty) {
+      return _navEmpty(AppLocalizations.of(context)!.navNoErrors);
+    }
     return ListView.builder(
       controller: ctl,
       padding: EdgeInsets.zero,
@@ -1026,7 +1028,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// controller [ctl].
   Widget _buildNavTurnsList(ScrollController ctl) {
     final rows = _sortedTurnRows();
-    if (rows.isEmpty) return _navEmpty('No turns recorded yet.');
+    if (rows.isEmpty) {
+      return _navEmpty(AppLocalizations.of(context)!.navNoTurns);
+    }
     return ListView.builder(
       controller: ctl,
       padding: EdgeInsets.zero,
@@ -1086,15 +1090,15 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
             child: OutlinedButton.icon(
               icon: const Icon(Icons.my_location, size: 16),
               label: Text(pos != null
-                  ? 'Jump to event ${pos.n} / ${pos.m}'
-                  : 'Jump to event…'),
+                  ? AppLocalizations.of(context)!.jumpToEventPos(pos.n, pos.m)
+                  : AppLocalizations.of(context)!.jumpToEvent),
               onPressed: (pos != null && pos.m > 1) ? _openJumpSheet : null,
             ),
           ),
         ),
         Expanded(
           child: marks.isEmpty
-              ? _navEmpty('No tool calls, turns, or errors to map yet.')
+              ? _navEmpty(AppLocalizations.of(context)!.navNoMap)
               : Padding(
                   padding: const EdgeInsets.fromLTRB(Spacing.s16, 4, Spacing.s16, 12),
                   child: FeedMinimap(
@@ -1168,13 +1172,14 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    'Jump to event ${val.round()} of $m',
+                    AppLocalizations.of(context)!
+                        .jumpToEventOf(val.round(), m),
                     style: TextStyle(
                         fontSize: 13, fontWeight: FontWeight.w600, color: fg),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Scrub anywhere in the run, then jump.',
+                    AppLocalizations.of(context)!.scrubHint,
                     style: TextStyle(fontSize: 11, color: muted),
                   ),
                   Slider(

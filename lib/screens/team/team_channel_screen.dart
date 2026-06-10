@@ -12,6 +12,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/blob_cache.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/steward_badge.dart';
 
 /// Single team-scope channel view: lists `channels/.../events` via REST,
@@ -311,8 +312,8 @@ class _EventBubble extends ConsumerWidget {
     final attachments = _attachmentsFromParts(parts);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(10),
+      margin: const EdgeInsets.only(bottom: Spacing.s8),
+      padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
         color:
             isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
@@ -331,7 +332,7 @@ class _EventBubble extends ConsumerWidget {
               Text(
                 from.isEmpty ? '(system)' : from,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w700,
                   color: DesignColors.primary,
                 ),
@@ -341,7 +342,7 @@ class _EventBubble extends ConsumerWidget {
               Text(
                 _shortTs(ts),
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 9,
+                  fontSize: FontSizes.label,
                   color: isDark
                       ? DesignColors.textMuted
                       : DesignColors.textMutedLight,
@@ -471,7 +472,7 @@ class _AttachmentChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 8),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: border),
@@ -494,7 +495,7 @@ class _AttachmentChip extends StatelessWidget {
             Text(
               '${size}B',
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: isDark
                     ? DesignColors.textMuted
                     : DesignColors.textMutedLight,

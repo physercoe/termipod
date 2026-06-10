@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Overview-side digest of the last few audit events scoped to one
 /// project (W2 — IA §6.2). Five rows + a "View all" affordance that the
@@ -69,14 +70,14 @@ class _ActivitySnippetState extends ConsumerState<ActivitySnippet> {
     return Container(
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 4, 6),
+            padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 4, Spacing.s8),
             child: Row(
               children: [
                 const Icon(Icons.history,
@@ -171,7 +172,7 @@ class _SnippetRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 1),
+            padding: const EdgeInsets.only(top: Spacing.s2),
             child: Icon(icon, size: 14, color: color),
           ),
           const SizedBox(width: 8),
@@ -193,7 +194,7 @@ class _SnippetRow extends StatelessWidget {
                 Text(
                   '$actor · ${activityActionLabel(action)}',
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 9,
+                    fontSize: FontSizes.label,
                     color: isDark
                         ? DesignColors.textMuted
                         : DesignColors.textMutedLight,
@@ -206,7 +207,7 @@ class _SnippetRow extends StatelessWidget {
           Text(
             shortRelativeTs(ts),
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 9,
+              fontSize: FontSizes.label,
               color: isDark
                   ? DesignColors.textMuted
                   : DesignColors.textMutedLight,

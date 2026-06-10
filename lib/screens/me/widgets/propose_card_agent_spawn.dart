@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import 'propose_addressee.dart';
 import 'propose_card_actions.dart';
 import 'propose_card_visuals.dart';
@@ -78,17 +79,17 @@ class ProposeCardAgentSpawn extends ConsumerWidget {
             if (engineKind.isNotEmpty)
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    const EdgeInsets.symmetric(horizontal: Spacing.s4, vertical: Spacing.s2),
                 decoration: BoxDecoration(
                   color: isDark
                       ? Colors.deepPurple.shade900
                       : Colors.deepPurple.shade100,
-                  borderRadius: BorderRadius.circular(3),
+                  borderRadius: Radii.xsBorder,
                 ),
                 child: Text(
                   engineKind,
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: isDark
                         ? Colors.deepPurple.shade200
                         : Colors.deepPurple.shade900,
@@ -108,14 +109,14 @@ class ProposeCardAgentSpawn extends ConsumerWidget {
           const SizedBox(height: 4),
           Text(
             'host: $hostId',
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: mutedColor),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: mutedColor),
           ),
         ],
         if (projectId.isNotEmpty) ...[
           const SizedBox(height: 2),
           Text(
             'project: $projectId',
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: mutedColor),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: mutedColor),
           ),
         ],
         const SizedBox(height: 10),

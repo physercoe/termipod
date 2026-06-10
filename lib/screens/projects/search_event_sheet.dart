@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../team/team_channel_screen.dart';
 
 /// Bottom sheet that renders a full hub event row surfaced by search.
@@ -58,7 +59,7 @@ class SearchEventSheet extends ConsumerWidget {
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: DesignColors.borderDark,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -125,10 +126,10 @@ class SearchEventSheet extends ConsumerWidget {
         widgets.add(
           Container(
             margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.25),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: Radii.smBorder,
               border: Border.all(color: DesignColors.borderDark),
             ),
             child: SelectableText(
@@ -141,10 +142,10 @@ class SearchEventSheet extends ConsumerWidget {
         widgets.add(
           Container(
             margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.25),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: Radii.smBorder,
               border: Border.all(color: DesignColors.borderDark),
             ),
             child: SelectableText(
@@ -184,7 +185,7 @@ class SearchEventSheet extends ConsumerWidget {
       );
 
   Widget _sectionLabel(String label) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: Spacing.s8),
         child: Text(
           label,
           style: GoogleFonts.spaceGrotesk(

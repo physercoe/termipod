@@ -11,6 +11,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/artifact_manifest/artifact_manifest.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Renders a `code-bundle`-kind artifact (wave 2 W5 of
 /// artifact-type-registry). Read-only file tree with syntax highlighting.
@@ -287,21 +288,21 @@ class _BundleFileBar extends StatelessWidget {
       height: 40,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         itemCount: files.length,
         separatorBuilder: (_, __) => const SizedBox(width: 6),
         itemBuilder: (_, i) {
           final isSel = i == selected;
           return InkWell(
             onTap: () => onPick(i),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: Radii.lgBorder,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 4),
               decoration: BoxDecoration(
                 color: isSel
                     ? DesignColors.primary.withValues(alpha: 0.2)
                     : Colors.transparent,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: Radii.lgBorder,
                 border: Border.all(
                   color: isSel
                       ? DesignColors.primary
@@ -346,7 +347,7 @@ class _BundleFileHeader extends StatelessWidget {
     final lines = '\n'.allMatches(file.content).length + 1;
     final bytes = utf8.encode(file.content).length;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, Spacing.s8),
       child: Row(
         children: [
           Icon(Icons.code, size: 14, color: DesignColors.textMuted),
@@ -405,7 +406,7 @@ class _CodeBundleLoadError extends StatelessWidget {
           SelectableText(
             uri,
             style: GoogleFonts.jetBrainsMono(
-                fontSize: 10, color: DesignColors.textMuted),
+                fontSize: FontSizes.label, color: DesignColors.textMuted),
           ),
         ],
       ),

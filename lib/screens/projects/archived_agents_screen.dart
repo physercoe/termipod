@@ -7,6 +7,7 @@ import '../../providers/sessions_provider.dart';
 import '../../services/hub/agent_status.dart';
 import '../../services/hub/open_steward_session.dart' show openAgentSession;
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/agent_actions_menu.dart';
 import '../../widgets/live_feed.dart';
 import '../../widgets/insights_panel.dart';
@@ -251,15 +252,15 @@ class _ArchivedTile extends ConsumerWidget {
           onTap: resumable == AgentResumability.resumable
               ? () => openAgentSession(context, ref, row)
               : onTap,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           child: Container(
             padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 12),
             decoration: BoxDecoration(
               color: isDark
                   ? DesignColors.surfaceDark
                   : DesignColors.surfaceLight,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: Radii.mdBorder,
               border: Border.all(
                 color: isDark
                     ? DesignColors.borderDark
@@ -284,7 +285,7 @@ class _ArchivedTile extends ConsumerWidget {
                     // (permanent), not the raw hub vocabulary.
                     Text(agentStatusLabelResumable(status, resumable),
                         style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10, color: DesignColors.textMuted)),
+                            fontSize: FontSizes.label, color: DesignColors.textMuted)),
                     const SizedBox(width: 2),
                     // Dead-agent actions — Resume session (continue the paused
                     // session) + Delete (drop from the list). Respawn lives in
@@ -602,7 +603,7 @@ class _ArchivedAgentDetailScreenState
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(
           color:
               isDark ? DesignColors.borderDark : DesignColors.borderLight,

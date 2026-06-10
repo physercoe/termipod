@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'budget_screen.dart';
 import 'councils_screen.dart';
 import 'governed_actions_policy_screen.dart';
@@ -114,16 +115,16 @@ class _Pill extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: Radii.lgBorder,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 8),
         decoration: BoxDecoration(
           color: selected
               ? DesignColors.primary
               : (isDark
                   ? DesignColors.surfaceDark
                   : DesignColors.surfaceLight),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: Radii.lgBorder,
           border: Border.all(
             color: selected
                 ? DesignColors.primary
@@ -230,10 +231,10 @@ class _MemberTile extends StatelessWidget {
     final label = unnamed ? 'principal (unnamed)' : '@$handle';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 12),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(
           color:
               isDark ? DesignColors.borderDark : DesignColors.borderLight,
@@ -258,7 +259,7 @@ class _MemberTile extends StatelessWidget {
                 if (issued.isNotEmpty)
                   Text('since ${_shortTs(issued)}',
                       style: GoogleFonts.jetBrainsMono(
-                          fontSize: 10,
+                          fontSize: FontSizes.label,
                           color: isDark
                               ? DesignColors.textMuted
                               : DesignColors.textMutedLight)),
@@ -279,15 +280,15 @@ class _CountBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
       decoration: BoxDecoration(
         color: DesignColors.primary.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
       ),
       child: Text(
         '$count token${count == 1 ? '' : 's'}',
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: DesignColors.primary,
         ),
@@ -396,7 +397,7 @@ class _PoliciesViewState extends ConsumerState<_PoliciesView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
               color: DesignColors.primary.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(8),
@@ -429,7 +430,7 @@ class _PoliciesViewState extends ConsumerState<_PoliciesView> {
                       : DesignColors.borderLight,
                 ),
               ),
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(Spacing.s8),
               child: TextField(
                 controller: _ctrl,
                 maxLines: null,
@@ -597,18 +598,18 @@ class _ChannelTile extends StatelessWidget {
     final name = (row['name'] ?? '?').toString();
     final id = (row['id'] ?? '').toString();
     return InkWell(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: Radii.mdBorder,
       onTap: () {
         Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => TeamChannelScreen(channelId: id, channelName: name),
         ));
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 12),
         decoration: BoxDecoration(
           color:
               isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           border: Border.all(
             color: isDark
                 ? DesignColors.borderDark

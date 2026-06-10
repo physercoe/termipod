@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/criterion_state_pip.dart';
 import '../../widgets/deliverable_state_pip.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -236,7 +237,7 @@ class _StructuredDeliverableViewerState
                 _prettyKind(title),
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.spaceGrotesk(
-                  fontSize: 15,
+                  fontSize: FontSizes.subtitle,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -481,14 +482,14 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Material(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         child: InkWell(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           onTap: () => _onTap(context, ref),
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: Radii.mdBorder,
               border: Border.all(
                 color: isDark
                     ? DesignColors.borderDark
@@ -524,7 +525,7 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
+                                  horizontal: Spacing.s8, vertical: 2),
                               decoration: BoxDecoration(
                                 color: DesignColors.warning
                                     .withValues(alpha: 0.15),
@@ -533,7 +534,7 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
                               child: Text(
                                 'required',
                                 style: GoogleFonts.jetBrainsMono(
-                                  fontSize: 9,
+                                  fontSize: FontSizes.label,
                                   color: DesignColors.warning,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -549,7 +550,7 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
                       Text(
                         secondaryLabel,
                         style: GoogleFonts.jetBrainsMono(
-                          fontSize: 10.5,
+                          fontSize: FontSizes.label,
                           color: _colorFor(kind),
                           letterSpacing: 0.3,
                           fontWeight: FontWeight.w600,
@@ -785,7 +786,7 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
           borderRadius: BorderRadius.circular(8),
           onTap: _busy || isGate ? null : () => _showActions(context),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
@@ -812,7 +813,7 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
                           Text(
                             '$_kind · $_state',
                             style: GoogleFonts.jetBrainsMono(
-                              fontSize: 10,
+                              fontSize: FontSizes.label,
                               color: DesignColors.textMuted,
                             ),
                           ),
@@ -821,7 +822,7 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
                             Text(
                               '· auto',
                               style: GoogleFonts.jetBrainsMono(
-                                fontSize: 10,
+                                fontSize: FontSizes.label,
                                 color: DesignColors.textMuted,
                               ),
                             ),
@@ -941,7 +942,7 @@ class _EmptyCard extends StatelessWidget {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(Spacing.s12),
       decoration: BoxDecoration(
         color: (isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight)
             .withValues(alpha: 0.5),
@@ -1017,9 +1018,9 @@ class _DeliverableActionBar extends StatelessWidget {
     return Container(
       padding: EdgeInsets.fromLTRB(
         12,
-        10,
+        Spacing.s8,
         12,
-        10 + MediaQuery.of(context).padding.bottom,
+        Spacing.s8 + MediaQuery.of(context).padding.bottom,
       ),
       decoration: BoxDecoration(
         color:
@@ -1180,7 +1181,7 @@ class _SendBackSheetState extends State<_SendBackSheet> {
                           subtitle: Text(
                             '$kind · $section',
                             style: GoogleFonts.jetBrainsMono(
-                              fontSize: 9,
+                              fontSize: FontSizes.label,
                               color: DesignColors.textMuted,
                             ),
                           ),
@@ -1282,7 +1283,7 @@ class _CommitDetailSheet extends StatelessWidget {
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: DesignColors.textMuted.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -1302,7 +1303,7 @@ class _CommitDetailSheet extends StatelessWidget {
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 2),
+                        horizontal: Spacing.s8, vertical: 2),
                     decoration: BoxDecoration(
                       color: DesignColors.warning.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(4),

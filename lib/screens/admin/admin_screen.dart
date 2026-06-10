@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'admin_audit_screen.dart';
 import 'admin_teams_controller.dart';
 import 'confirm_action_tile.dart';
@@ -191,7 +192,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       child: Text(
         label,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           letterSpacing: 1.2,
           color: isDark
@@ -293,7 +294,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(
           color:
               isDark ? DesignColors.borderDark : DesignColors.borderLight,
@@ -323,10 +324,10 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
           ),
           const SizedBox(height: 2),
           Padding(
-            padding: const EdgeInsets.only(left: 18),
+            padding: const EdgeInsets.only(left: Spacing.s16),
             child: Text(
               subtitle.toString(),
-              style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+              style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
             ),
           ),
           const SizedBox(height: 10),
@@ -414,7 +415,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(
           color: active
               ? DesignColors.primary
@@ -441,7 +442,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
           const SizedBox(height: 2),
           Text(
             sub.toString(),
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
           ),
           const SizedBox(height: 10),
           ConfirmActionTile(
@@ -462,12 +463,12 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: DesignColors.primary.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
       ),
       child: Text(
         'ACTIVE',
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 9,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.8,
           color: DesignColors.primary,
@@ -580,7 +581,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
             ),
             const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(Spacing.s8),
               decoration: BoxDecoration(
                 color: isDark
                     ? DesignColors.inputDark
@@ -708,7 +709,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
             child: Text(
               action,
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: DesignColors.primary,
               ),
             ),
@@ -716,12 +717,12 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
           Expanded(
             child: Text(
               summary,
-              style: GoogleFonts.jetBrainsMono(fontSize: 10),
+              style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label),
             ),
           ),
           Text(
             ts.length >= 16 ? ts.substring(5, 16) : ts,
-            style: GoogleFonts.jetBrainsMono(fontSize: 9, color: muted),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
           ),
         ],
       ),

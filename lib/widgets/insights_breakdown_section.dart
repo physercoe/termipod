@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/insights_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// First Tier-2 drilldown — engine + model breakdown
 /// (insights-phase-2.md W5a). Reads `by_engine` and `by_model` from
@@ -148,7 +149,7 @@ class _BreakdownTable extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: border),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      padding: const EdgeInsets.fromLTRB(Spacing.s12, 8, Spacing.s12, 8),
       child: Column(
         children: [
           for (var i = 0; i < rows.length; i++) ...[
@@ -207,7 +208,7 @@ class _Row extends StatelessWidget {
           // Visual share bar — relative to the max in the section so
           // the dominant row maxes out and the rest scale proportionally.
           ClipRRect(
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: Radii.xsBorder,
             child: LinearProgressIndicator(
               minHeight: 4,
               value: share.clamp(0.0, 1.0),
@@ -221,7 +222,7 @@ class _Row extends StatelessWidget {
             row.turns > 0
                 ? '${row.turns} turns · ${_human(row.tokensPerTurn)}/turn'
                 : 'no turns',
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
           ),
         ],
       ),

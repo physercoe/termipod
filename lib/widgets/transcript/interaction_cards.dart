@@ -316,7 +316,7 @@ class _PermissionPromptCardState
                   backgroundColor: DesignColors.error.withValues(alpha: 0.15),
                   foregroundColor: DesignColors.error,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: Spacing.s8),
+                      horizontal: Spacing.s12, vertical: Spacing.s8),
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -333,7 +333,7 @@ class _PermissionPromptCardState
                           : DesignColors.success),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: Spacing.s8),
+                      horizontal: Spacing.s12, vertical: Spacing.s8),
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -636,7 +636,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
                       DesignColors.error.withValues(alpha: 0.15),
                   foregroundColor: DesignColors.error,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: Spacing.s8),
+                      horizontal: Spacing.s12, vertical: Spacing.s8),
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -650,7 +650,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
                     backgroundColor: DesignColors.success,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: Spacing.s8),
+                        horizontal: Spacing.s12, vertical: Spacing.s8),
                     minimumSize: const Size(0, 32),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import '../../../theme/task_priority_style.dart';
 import '../../../widgets/app_chip.dart';
 import '../../../widgets/steward_strip.dart';
@@ -103,10 +104,10 @@ class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
         .length;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: border),
       ),
       child: Column(
@@ -316,7 +317,7 @@ class _TaskProgressRow extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(3),
+            borderRadius: Radii.xsBorder,
             child: LinearProgressIndicator(
               value: ratio,
               minHeight: 4,
@@ -332,7 +333,7 @@ class _TaskProgressRow extends StatelessWidget {
         Text(
           '$closed / $total',
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             fontWeight: FontWeight.w600,
             color: isDark
                 ? DesignColors.textSecondary
@@ -372,7 +373,7 @@ class _PriorityBreakdown extends StatelessWidget {
               Text(
                 '${p.label} ${byPriority[p]}',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.textMuted,
                 ),
               ),

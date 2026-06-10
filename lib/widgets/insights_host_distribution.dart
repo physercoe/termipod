@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../providers/hub_provider.dart';
 import '../providers/insights_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Multi-host distribution drilldown — Phase 2 W5b of
 /// insights-phase-2.md. Pure-mobile: reads `hubProvider.hosts` and
@@ -200,7 +201,7 @@ class _HostTable extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: border),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      padding: const EdgeInsets.fromLTRB(Spacing.s12, 8, Spacing.s12, 8),
       child: Column(
         children: [
           for (var i = 0; i < rows.length; i++) ...[
@@ -276,7 +277,7 @@ class _Row extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           ClipRRect(
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: Radii.xsBorder,
             child: LinearProgressIndicator(
               minHeight: 4,
               value: share.clamp(0.0, 1.0),
@@ -289,7 +290,7 @@ class _Row extends StatelessWidget {
             const SizedBox(height: 3),
             Text(
               capacity,
-              style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+              style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
             ),
           ],
         ],

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/hub_offline_banner.dart';
 import 'project_channel_create_sheet.dart';
 import 'project_channel_screen.dart';
@@ -176,14 +177,14 @@ class _ChannelTile extends StatelessWidget {
     final id = (row['id'] ?? '').toString();
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: Radii.mdBorder,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         decoration: BoxDecoration(
           color: isDark
               ? DesignColors.surfaceDark
               : DesignColors.surfaceLight,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           border: Border.all(
             color: isDark
                 ? DesignColors.borderDark
@@ -209,7 +210,7 @@ class _ChannelTile extends StatelessWidget {
                     Text(
                       id,
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: isDark
                             ? DesignColors.textMuted
                             : DesignColors.textMutedLight,

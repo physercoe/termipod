@@ -6,6 +6,7 @@ import '../providers/insights_provider.dart';
 import '../providers/me_stats_provider.dart';
 import '../screens/insights/insights_screen.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Me-tab Stats card (Phase 2 W3 of insights-phase-2.md). Shows
 /// today's team-wide token spend + Δ% vs the prior 7-day average,
@@ -54,7 +55,7 @@ class MeStatsCard extends ConsumerWidget {
               InsightsScreen(scope: InsightsScope.team(teamId)),
         )),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          padding: const EdgeInsets.fromLTRB(Spacing.s12, 12, Spacing.s12, 12),
           decoration: BoxDecoration(
             color: cardBg,
             borderRadius: BorderRadius.circular(12),
@@ -71,7 +72,7 @@ class MeStatsCard extends ConsumerWidget {
                     Text(
                       'TODAY · TEAM SPEND',
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 9,
+                        fontSize: FontSizes.label,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.6,
                         color: muted,

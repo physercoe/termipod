@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/spawn_project_steward_sheet.dart';
 
 /// Inline action widgets for attention items, shared between the
@@ -339,15 +340,15 @@ class InlineHelpRequestActionsState
         Row(
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
               decoration: BoxDecoration(
                 color: chipColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: Radii.smBorder,
               ),
               child: Text(
                 chipLabel,
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   fontWeight: FontWeight.w600,
                   color: chipColor,
                 ),
@@ -377,7 +378,7 @@ class InlineHelpRequestActionsState
             isDense: true,
             border: const OutlineInputBorder(),
             contentPadding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
           ),
         ),
         const SizedBox(height: 8),

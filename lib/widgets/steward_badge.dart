@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Tiny pill used to mark artifacts authored or initiated by the steward
 /// agent — channel messages, attention items, audit rows — per
@@ -27,8 +28,8 @@ class StewardBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      margin: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),
+      margin: const EdgeInsets.only(left: Spacing.s8),
       decoration: BoxDecoration(
         color: DesignColors.primary.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -45,7 +46,7 @@ class StewardBadge extends StatelessWidget {
           Text(
             'steward',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 9,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w700,
               color: DesignColors.primary,
               letterSpacing: 0.3,

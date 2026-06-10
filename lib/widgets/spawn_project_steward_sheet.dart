@@ -13,6 +13,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Returns the spawned/found agent id on success, or null if the user
 /// dismissed the sheet. Callers typically refresh the agents list on
@@ -115,7 +116,7 @@ class _SpawnProjectStewardSheetState
       child: SafeArea(
         top: false,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          padding: const EdgeInsets.fromLTRB(Spacing.s16, 16, Spacing.s16, Spacing.s16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -128,7 +129,7 @@ class _SpawnProjectStewardSheetState
                       color: isDark
                           ? DesignColors.borderDark
                           : DesignColors.borderLight,
-                      borderRadius: BorderRadius.circular(2),
+                      borderRadius: Radii.xsBorder,
                     ),
                   ),
                 ],

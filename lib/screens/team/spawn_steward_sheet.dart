@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// SharedPreferences key prefix for the per-team "user dismissed the
 /// bootstrap sheet" flag. We don't want to nag a user who explicitly
@@ -413,7 +414,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
           constraints: BoxConstraints(maxHeight: maxHeight),
         child: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          padding: const EdgeInsets.fromLTRB(Spacing.s16, 16, Spacing.s16, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -690,7 +691,7 @@ class _PermissionModeSelector extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+            padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, 4),
             child: Text(
               'Tool permissions',
               style: GoogleFonts.spaceGrotesk(
@@ -775,7 +776,7 @@ class _BackendInfo extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final info = _engineInfoFor(kind, drivingMode, model);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
         border: Border.all(color: scheme.outlineVariant),
         borderRadius: BorderRadius.circular(4),
@@ -810,7 +811,7 @@ class _BackendInfo extends StatelessWidget {
                 Text(
                   info.detail,
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: DesignColors.textMuted,
                   ),
                 ),

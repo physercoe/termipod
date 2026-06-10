@@ -5,6 +5,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// The [+] insert/action menu that appears from the compose bar.
 ///
@@ -50,7 +51,7 @@ class InsertMenu {
                     color: isDark
                         ? DesignColors.textMuted
                         : DesignColors.textMutedLight,
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: Radii.xsBorder,
                   ),
                 ),
                 // Menu items
@@ -137,7 +138,7 @@ class InsertMenu {
         onTap();
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s16, vertical: Spacing.s12),
         child: Row(
           children: [
             Icon(
@@ -151,7 +152,7 @@ class InsertMenu {
             Text(
               label,
               style: TextStyle(
-                fontSize: 15,
+                fontSize: FontSizes.subtitle,
                 color: isDark
                     ? DesignColors.textPrimary
                     : DesignColors.textPrimaryLight,

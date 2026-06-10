@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/task_priority_style.dart';
 import '../../theme/tokens.dart';
 import '../../theme/design_colors.dart';
@@ -40,7 +43,7 @@ class _ProjectTaskCreateSheetState
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     if (_title.text.trim().isEmpty) {
-      setState(() => _error = 'Title required');
+      setState(() => _error = AppLocalizations.of(context)!.titleRequired);
       return;
     }
     setState(() {
@@ -66,6 +69,8 @@ class _ProjectTaskCreateSheetState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final taskTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityTask);
     final insets = MediaQuery.of(context).viewInsets;
     return Padding(
       padding: EdgeInsets.only(bottom: insets.bottom),
@@ -77,46 +82,47 @@ class _ProjectTaskCreateSheetState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('New task',
+              Text(l10n.newTask(taskTerm.lower),
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 16),
               TextField(
                 controller: _title,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.fieldTitle,
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _body,
                 maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Body (markdown, optional)',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.fieldBodyOptional,
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _status,
-                decoration: const InputDecoration(
-                  labelText: 'Status',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.fieldStatus,
+                  border: const OutlineInputBorder(),
                 ),
                 items: [
                   for (final s in _statuses)
-                    DropdownMenuItem(value: s, child: Text(s)),
+                    DropdownMenuItem(
+                        value: s, child: Text(taskStatusLabel(l10n, s))),
                 ],
                 onChanged: (v) => setState(() => _status = v ?? 'todo'),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<TaskPriority>(
                 value: _priority,
-                decoration: const InputDecoration(
-                  labelText: 'Priority',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.fieldPriority,
+                  border: const OutlineInputBorder(),
                 ),
                 items: [
                   for (final p in TaskPriority.values)
@@ -134,7 +140,7 @@ class _ProjectTaskCreateSheetState
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(p.label),
+                          Text(p.localizedLabel(l10n)),
                         ],
                       ),
                     ),
@@ -154,7 +160,7 @@ class _ProjectTaskCreateSheetState
                   TextButton(
                     onPressed:
                         _busy ? null : () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
+                    child: Text(l10n.buttonCancel),
                   ),
                   const Spacer(),
                   FilledButton.icon(
@@ -166,7 +172,7 @@ class _ProjectTaskCreateSheetState
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.check, size: 16),
-                    label: const Text('Create'),
+                    label: Text(l10n.buttonCreate),
                   ),
                 ],
               ),

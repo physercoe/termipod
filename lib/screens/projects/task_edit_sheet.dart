@@ -3,7 +3,10 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -70,7 +73,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
     }
     if (titleChange != null && titleChange.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Title cannot be empty')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.titleCannotBeEmpty)),
       );
       return;
     }
@@ -89,13 +92,16 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Update failed: $e')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.updateFailedError('$e'))),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final taskTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityTask);
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
       minChildSize: 0.5,
@@ -127,7 +133,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
               ),
             ),
             Text(
-              'Edit task',
+              l10n.editTask(taskTerm.lower),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -135,9 +141,9 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
             ),
             const SizedBox(height: 16),
             _field(
-              label: 'Title',
+              label: l10n.fieldTitle,
               controller: _title,
-              hint: 'Short task name',
+              hint: l10n.taskTitleHint,
             ),
             _bodyField(),
             const SizedBox(height: 20),
@@ -149,7 +155,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Save changes'),
+                  : Text(l10n.buttonSaveChanges),
             ),
           ],
         ),
@@ -161,6 +167,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
     // Edit ↔ preview toggle keeps the body editor honest — authors can
     // check that their headings, lists, and code fences render before
     // saving without leaving the sheet.
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.s12),
       child: Column(
@@ -171,7 +178,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
             child: Row(
               children: [
                 Text(
-                  'Body (markdown)',
+                  l10n.fieldBodyMarkdown,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -182,6 +189,8 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
                 const Spacer(),
                 _ModeSegment(
                   preview: _preview,
+                  editLabel: l10n.buttonEdit,
+                  previewLabel: l10n.buttonPreview,
                   onChanged: (v) => setState(() => _preview = v),
                 ),
               ],
@@ -198,7 +207,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
               ),
               child: _body.text.trim().isEmpty
                   ? Text(
-                      '(empty)',
+                      l10n.emptyPreview,
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 13,
                         color: DesignColors.textMuted,
@@ -230,7 +239,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
               decoration: InputDecoration(
                 border: const OutlineInputBorder(),
                 isDense: true,
-                hintText: 'Details, acceptance criteria, links…',
+                hintText: l10n.taskBodyHint,
                 hintStyle: GoogleFonts.jetBrainsMono(
                   fontSize: 11,
                   color: DesignColors.textMuted,
@@ -292,8 +301,15 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
 
 class _ModeSegment extends StatelessWidget {
   final bool preview;
+  final String editLabel;
+  final String previewLabel;
   final ValueChanged<bool> onChanged;
-  const _ModeSegment({required this.preview, required this.onChanged});
+  const _ModeSegment({
+    required this.preview,
+    required this.editLabel,
+    required this.previewLabel,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -305,9 +321,9 @@ class _ModeSegment extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _seg('Edit', !preview, () => onChanged(false)),
+          _seg(editLabel, !preview, () => onChanged(false)),
           Container(width: 1, height: 22, color: DesignColors.borderDark),
-          _seg('Preview', preview, () => onChanged(true)),
+          _seg(previewLabel, preview, () => onChanged(true)),
         ],
       ),
     );

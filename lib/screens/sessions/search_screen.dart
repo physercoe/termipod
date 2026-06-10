@@ -263,7 +263,9 @@ class _ResultTile extends ConsumerWidget {
         return 'Approving';
       case 'team':
       case '':
-        return 'General';
+        // Team scope reads "Team", not "General" (#65) — "General" is
+        // the steward taxonomy's term, not a session-scope label.
+        return 'Team';
       default:
         return kind;
     }

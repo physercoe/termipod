@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 import 'plan_create_sheet.dart';
 import 'plan_viewer_screen.dart';
@@ -326,7 +327,7 @@ class _PlanRow extends StatelessWidget {
             if (created.isNotEmpty) created,
           ].join(' · '),
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             color: DesignColors.textMuted,
           ),
         ),
@@ -362,7 +363,7 @@ class PlanStatusChip extends StatelessWidget {
       _ => DesignColors.textMuted,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -371,7 +372,7 @@ class PlanStatusChip extends StatelessWidget {
       child: Text(
         s.isEmpty ? '?' : s,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: color,
         ),
@@ -409,7 +410,7 @@ class _FilterBar extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: border)),
       ),
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      padding: const EdgeInsets.fromLTRB(8, Spacing.s8, 8, Spacing.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -431,17 +432,17 @@ class _FilterBar extends StatelessWidget {
           const SizedBox(height: 6),
           InkWell(
             onTap: onProjectTap,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: Radii.smBorder,
             child: Container(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
               decoration: BoxDecoration(
                 border: Border.all(
                   color: projectIsActive
                       ? DesignColors.primary
                       : border,
                 ),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: Radii.smBorder,
               ),
               child: Row(
                 children: [
@@ -536,7 +537,7 @@ class _ProjectFilterSheet extends StatelessWidget {
               subtitle: Text(
                 [if (kind.isNotEmpty) kind, id].join(' · '),
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.textMuted,
                 ),
               ),

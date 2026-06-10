@@ -8,6 +8,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import '../../../widgets/artifact_viewers/metric_chart_viewer.dart';
 import '../../../widgets/artifact_viewers/pdf_viewer.dart';
 import '../../../widgets/criterion_state_pip.dart';
@@ -97,10 +98,10 @@ class _PhaseHeroState extends ConsumerState<_PhaseHero> {
         .toList();
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(Spacing.s12),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(
           color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
         ),
@@ -174,7 +175,7 @@ class _DeliverableLine extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
         onTap: () async {
           await Navigator.of(context).push(
             MaterialPageRoute(
@@ -393,7 +394,7 @@ class _ExperimentMetricChartEmbedState
         ),
       ),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, Spacing.s8),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: border),
@@ -550,7 +551,7 @@ class _PaperPdfEmbedState extends ConsumerState<_PaperPdfEmbed> {
         ),
       ),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, Spacing.s8),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: border),
@@ -749,7 +750,7 @@ class _NextSectionEmbedState extends ConsumerState<_NextSectionEmbed> {
         if (mounted) await _load();
       },
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, Spacing.s8),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: border),
@@ -775,7 +776,7 @@ class _NextSectionEmbedState extends ConsumerState<_NextSectionEmbed> {
                 Text(
                   '$_ratifiedCount/$_totalSections',
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: muted,
                   ),
                 ),
@@ -986,7 +987,7 @@ class _ScopeCriterionEmbedState
       borderRadius: BorderRadius.circular(8),
       onTap: actionable ? () => _showActions(id, state) : null,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, Spacing.s8),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: border),
@@ -1010,7 +1011,7 @@ class _ScopeCriterionEmbedState
                   Text(
                     '$kind · $state${isGate ? ' · auto' : ''}',
                     style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
+                      fontSize: FontSizes.label,
                       color: muted,
                     ),
                   ),

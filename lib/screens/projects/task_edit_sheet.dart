@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// In-place editor for a task's title and body. Status is edited via
 /// the chip row on the detail screen, so it's not duplicated here.
@@ -121,7 +122,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: DesignColors.borderDark,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -161,12 +162,12 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
     // check that their headings, lists, and code fences render before
     // saving without leaving the sheet.
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: Spacing.s12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: Spacing.s8),
             child: Row(
               children: [
                 Text(
@@ -189,10 +190,10 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
           if (_preview)
             Container(
               constraints: const BoxConstraints(minHeight: 120),
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(Spacing.s8),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.25),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: Radii.smBorder,
                 border: Border.all(color: DesignColors.borderDark),
               ),
               child: _body.text.trim().isEmpty
@@ -249,12 +250,12 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
     bool mono = false,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: Spacing.s12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: Spacing.s8),
             child: Text(
               label,
               style: GoogleFonts.spaceGrotesk(
@@ -299,7 +300,7 @@ class _ModeSegment extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: DesignColors.borderDark),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -316,11 +317,11 @@ class _ModeSegment extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 4),
         child: Text(
           label,
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
             color:
                 selected ? DesignColors.primary : DesignColors.textMuted,

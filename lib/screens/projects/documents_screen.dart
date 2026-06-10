@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../documents/structured_document_viewer.dart';
@@ -301,7 +302,7 @@ class _DocumentRow extends StatelessWidget {
           Text(
             'v$version',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               color: DesignColors.textMuted,
             ),
           ),
@@ -316,7 +317,7 @@ class _DocumentRow extends StatelessWidget {
             if (created.isNotEmpty) created,
           ].join(' · '),
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             color: DesignColors.textMuted,
           ),
         ),
@@ -341,7 +342,7 @@ class DocKindChip extends StatelessWidget {
       _ => DesignColors.textMuted,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -350,7 +351,7 @@ class DocKindChip extends StatelessWidget {
       child: Text(
         k.isEmpty ? '?' : k,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: color,
         ),
@@ -484,7 +485,7 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
                 title,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.spaceGrotesk(
-                  fontSize: 15,
+                  fontSize: FontSizes.subtitle,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -635,7 +636,7 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
       );
 
   Widget _sectionLabel(String label) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: Spacing.s8),
         child: Text(
           label,
           style: GoogleFonts.spaceGrotesk(
@@ -668,10 +669,10 @@ class _ContentBody extends StatelessWidget {
       );
     }
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
         border: Border.all(color: DesignColors.borderDark),
       ),
       child: SelectableText(
@@ -689,10 +690,10 @@ class _ArtifactPointer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
         color: DesignColors.warning.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
         border: Border.all(
           color: DesignColors.warning.withValues(alpha: 0.5),
         ),

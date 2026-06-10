@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import '../project_create_sheet.dart';
 import '../project_detail_screen.dart';
 import 'registry.dart';
@@ -69,14 +70,14 @@ class ChildrenStatusHero extends ConsumerWidget {
     return Container(
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, Spacing.s8),
             child: Row(
               children: [
                 const Icon(Icons.account_tree_outlined,
@@ -129,7 +130,7 @@ class _ChildRow extends StatelessWidget {
         ));
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         child: Row(
           children: [
             Expanded(
@@ -172,7 +173,7 @@ class _StatusChip extends StatelessWidget {
       _ => DesignColors.primary,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -181,7 +182,7 @@ class _StatusChip extends StatelessWidget {
       child: Text(
         label,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: color,
         ),
@@ -197,7 +198,7 @@ class _AttentionBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: DesignColors.warning.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -206,7 +207,7 @@ class _AttentionBadge extends StatelessWidget {
       child: Text(
         '$count open',
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: DesignColors.warning,
         ),
@@ -238,10 +239,10 @@ class _EmptyCard extends ConsumerWidget {
         ? 'New sub-Workspace'
         : 'New sub-project';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: Spacing.s12),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: border),
       ),
       child: Row(
@@ -267,7 +268,7 @@ class _EmptyCard extends ConsumerWidget {
             ),
             style: OutlinedButton.styleFrom(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 4),
               minimumSize: const Size(0, 32),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),

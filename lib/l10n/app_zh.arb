@@ -961,5 +961,16 @@
   "budgetPctOfBudget": "已用预算的 {pct}%",
   "noBudgetsSet": "未设置预算",
   "budgetProjectSubtitle": "{count} 个{agents} · 已花费 {dollars}",
-  "budgetNoLimit": "无上限"
+  "budgetNoLimit": "无上限",
+  "capsMustBeObject": "Capabilities 必须是 JSON 对象。",
+  "invalidJson": "无效的 JSON：{error}",
+  "updateFailedError": "更新失败：{error}",
+  "editHost": "编辑{host}",
+  "editHostNamed": "编辑 {name}",
+  "hostSecretFieldsNote": "中枢会拒绝机密字段（密码、密钥、口令）；请将它们存储在设备上。",
+  "hostSshHintSection": "SSH 提示",
+  "hostFieldUsername": "用户名",
+  "hostFieldPort": "端口",
+  "hostCapsSection": "能力（JSON）",
+  "buttonSaveChanges": "保存更改"
 }

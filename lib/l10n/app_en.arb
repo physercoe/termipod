@@ -1121,5 +1121,20 @@
   "noBudgetsSet": "No budgets set",
   "budgetProjectSubtitle": "{count} {agents} · {dollars} spent",
   "@budgetProjectSubtitle": { "placeholders": { "count": { "type": "int" }, "agents": { "type": "String" }, "dollars": { "type": "String" } } },
-  "budgetNoLimit": "no limit"
+  "budgetNoLimit": "no limit",
+  "capsMustBeObject": "Capabilities must be a JSON object.",
+  "invalidJson": "Invalid JSON: {error}",
+  "@invalidJson": { "placeholders": { "error": { "type": "String" } } },
+  "updateFailedError": "Update failed: {error}",
+  "@updateFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "editHost": "Edit {host}",
+  "@editHost": { "placeholders": { "host": { "type": "String" } } },
+  "editHostNamed": "Edit {name}",
+  "@editHostNamed": { "placeholders": { "name": { "type": "String" } } },
+  "hostSecretFieldsNote": "Secret fields (passwords, keys, passphrases) are refused by the hub; store those on the device.",
+  "hostSshHintSection": "SSH hint",
+  "hostFieldUsername": "Username",
+  "hostFieldPort": "Port",
+  "hostCapsSection": "Capabilities (JSON)",
+  "buttonSaveChanges": "Save changes"
 }

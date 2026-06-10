@@ -758,5 +758,20 @@
   "settingsSearchNoResults": "没有匹配的设置",
   "settingsSearchNudgeTeam": "在找团队共享设置？点击顶部的团队选择器。",
   "settingsSearchNudgeDismiss": "知道了",
-  "teamSwitcherSectionOnThisTeam": "团队配置"
+  "teamSwitcherSectionOnThisTeam": "团队配置",
+
+  "archiveSessionsBody": "已归档的会话会移至「以往」。其转录记录仍会保留；之后可从归档分叉以继续。",
+  "stopAgentsBody": "{agent}面板会保留在 tmux 中以供查看；{steward}会被标记为已终止，会话进入空闲。你可以为同一个{steward}启动一个新的{agent}以延续对话。",
+  "deleteSessionsBody": "转录记录仍会保留在审计日志中，但会失去会话关联。此操作不可撤销。",
+  "resetConversationBody": "关闭{label}的当前会话并开启一个新会话。{agent}进程会继续运行，因此其引擎级记忆得以保留——但可见的转录会从空白开始。先前的对话会移至「以往」。",
+  "stopSessionBody": "终止{handle}的{agent}进程。会话会暂停并保留在「以往」中；你可以稍后恢复它，或用一个新的{steward}替换它。",
+  "stopSessionGenericBody": "终止{steward}的{agent}进程。会话会暂停并保留在「以往」中；你可以稍后恢复它，或在不再需要后从归档分叉。",
+  "orphanSubtitle": "原{steward}已失效——打开可查看，分叉可用新的继续",
+  "noActiveSessionForSteward": "该{steward}暂无活动会话。",
+  "emptySessionsBody": "{steward}启动后，会话会显示在此处。主机重启后，会话会显示为「已中断」并提供「恢复」选项。",
+  "archiveSessionBody": "将该会话标记为已完成。转录记录仍会保留在「以往」中，之后可分叉以继续。",
+  "deleteSessionBody": "转录记录仍会保留在审计日志中，但会失去其会话关联。此操作不可撤销。",
+  "thisRole": "该{role}",
+  "scopeApproving": "审批中",
+  "scopeProjectNamed": "{project}：{name}"
 }

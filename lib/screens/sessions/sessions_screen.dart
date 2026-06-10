@@ -770,7 +770,7 @@ Future<_ScopePick?> _pickScopeSheet(
   final hub = ref.read(hubProvider).value;
   final projects = hub?.projects ?? const <Map<String, dynamic>>[];
   final options = <_ScopePick>[
-    const _ScopePick('team', '', 'General'),
+    const _ScopePick('team', '', 'Team'),
     for (final p in projects)
       _ScopePick(
         'project',
@@ -1370,14 +1370,16 @@ List<Widget> _buildScopeGroupedPrevious(
         return 'Approving';
       case 'team':
       case '':
-        return 'General';
+        // Team scope reads "Team", not "General" — "General" belongs to
+        // the steward taxonomy, not the session scope (#65).
+        return 'Team';
       default:
         return kind;
     }
   }
-  // Move the General bucket to the top so the most-common case
-  // doesn't sink under project-specific groups when there are many
-  // projects.
+  // Move the Team (team/empty-scope) bucket to the top so the
+  // most-common case doesn't sink under project-specific groups when
+  // there are many projects.
   order.sort((a, b) {
     final aGen = a.startsWith('team|') || a.startsWith('|');
     final bGen = b.startsWith('team|') || b.startsWith('|');
@@ -2337,7 +2339,11 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
         icon = Icons.gavel_outlined;
       case 'team':
       case '':
-        label = 'General';
+        // "General" is reserved for the general steward in the steward
+        // taxonomy (General/Project/Domain, classified by handle+kind);
+        // a team-scoped session reads "Team" so the scope chip doesn't
+        // collide with that taxonomy (#65, matching me_screen).
+        label = 'Team';
         icon = Icons.forum_outlined;
       default:
         label = kind;

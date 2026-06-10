@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../models/action_bar_config.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// A single button in the action bar.
 ///
@@ -203,10 +204,10 @@ class _ActionBarButtonWidgetState extends State<ActionBarButtonWidget> {
         duration: const Duration(milliseconds: 80),
         height: 32,
         constraints: const BoxConstraints(minWidth: 36),
-        padding: const EdgeInsets.symmetric(horizontal: 6),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s8),
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: Radii.smBorder,
           border: borderColor != Colors.transparent
               ? Border.all(color: borderColor, width: 1)
               : null,

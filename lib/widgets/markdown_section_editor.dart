@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// W5a — Basic markdown editor used by the Section Detail screen for
 /// manual edits. Textarea + simple toolbar (H1/H2/H3 / list / link /
@@ -145,7 +146,7 @@ class _MarkdownSectionEditorState extends State<MarkdownSectionEditor> {
             'Edit · ${widget.title}',
             overflow: TextOverflow.ellipsis,
             style: GoogleFonts.spaceGrotesk(
-              fontSize: 15,
+              fontSize: FontSizes.subtitle,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -171,7 +172,7 @@ class _MarkdownSectionEditorState extends State<MarkdownSectionEditor> {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 10),
+                    horizontal: 16, vertical: Spacing.s8),
                 color: DesignColors.surfaceDark.withValues(alpha: 0.4),
                 child: Text(
                   widget.guidance!,

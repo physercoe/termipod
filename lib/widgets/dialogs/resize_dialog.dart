@@ -6,6 +6,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../services/terminal/font_calculator.dart';
 import '../../services/tmux/tmux_parser.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// リサイズ結果
 class ResizeResult {
@@ -514,7 +515,7 @@ Widget _buildPaneGridPreview({
                           '${pane.index}\n${pane.width}x${pane.height}',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: FontSizes.label,
                             color: isTarget
                                 ? DesignColors.primary
                                 : DesignColors.textSecondary,
@@ -588,7 +589,7 @@ Widget _buildWarning(String message) {
     padding: const EdgeInsets.all(8),
     decoration: BoxDecoration(
       color: DesignColors.warning.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: Radii.smBorder,
       border: Border.all(color: DesignColors.warning.withValues(alpha: 0.3)),
     ),
     child: Row(

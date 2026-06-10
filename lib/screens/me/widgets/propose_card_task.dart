@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import 'propose_addressee.dart';
 import 'propose_card_actions.dart';
 import 'propose_card_visuals.dart';
@@ -76,7 +77,7 @@ class ProposeCardTask extends ConsumerWidget {
         if (resultSummary.isNotEmpty) ...[
           const SizedBox(height: 6),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s8),
             decoration: BoxDecoration(
               color: (isDark ? Colors.grey.shade900 : Colors.grey.shade100),
               borderRadius: BorderRadius.circular(4),
@@ -94,14 +95,14 @@ class ProposeCardTask extends ConsumerWidget {
           const SizedBox(height: 4),
           Text(
             'task: $taskId',
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: mutedColor),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: mutedColor),
           ),
         ],
         if (projectId.isNotEmpty) ...[
           const SizedBox(height: 2),
           Text(
             'project: $projectId',
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: mutedColor),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: mutedColor),
           ),
         ],
         const SizedBox(height: 10),

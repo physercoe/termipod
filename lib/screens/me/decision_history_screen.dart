@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'approval_detail_screen.dart';
 
 /// Recent resolved attentions — the audit-trail companion to the Me
@@ -147,7 +148,7 @@ class _HistoryRow extends StatelessWidget {
           ),
         ),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
@@ -184,7 +185,7 @@ class _HistoryRow extends StatelessWidget {
                     Text(
                       _shortTs(resolvedAt),
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: muted,
                       ),
                     ),
@@ -208,7 +209,7 @@ class _HistoryRow extends StatelessWidget {
                 Text(
                   'by $actor · ${kind.replaceAll('_', ' ')}',
                   style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
+                    fontSize: FontSizes.label,
                     color: muted,
                   ),
                 ),

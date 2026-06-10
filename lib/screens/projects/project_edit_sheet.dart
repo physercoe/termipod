@@ -5,6 +5,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// In-place editor for a project's mutable fields. The blueprint's
 /// `kind` is deliberately excluded — flipping a standing project to a
@@ -219,7 +220,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: DesignColors.borderDark,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -312,12 +313,12 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
     TextInputType? keyboard,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: Spacing.s12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: Spacing.s8),
             child: Text(
               label,
               style: GoogleFonts.spaceGrotesk(

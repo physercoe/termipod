@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/hub_offline_banner.dart';
 import 'doc_viewer_screen.dart';
 
@@ -112,7 +113,7 @@ class _FilesGuidance extends StatelessWidget {
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(Spacing.s8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
@@ -180,7 +181,7 @@ class _DocRow extends StatelessWidget {
           subtitle: Text(
             _subtitle(entry, isDir),
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               color: mutedColor,
             ),
           ),

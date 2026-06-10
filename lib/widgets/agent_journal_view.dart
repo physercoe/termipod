@@ -13,6 +13,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 class AgentJournalView extends ConsumerStatefulWidget {
   final String agentId;
@@ -101,7 +102,7 @@ class _AgentJournalViewState extends ConsumerState<AgentJournalView> {
         ),
         if (_journalLoaded)
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(Spacing.s8),
             decoration: BoxDecoration(
               color: isDark
                   ? DesignColors.surfaceDark
@@ -148,7 +149,7 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6, top: 4),
+      padding: const EdgeInsets.only(bottom: Spacing.s8, top: 4),
       child: Row(
         children: [
           Text(title,

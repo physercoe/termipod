@@ -9,6 +9,7 @@ import '../../providers/sessions_provider.dart';
 import '../../screens/sessions/sessions_screen.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Persistent home-tab card for the team-scoped general steward
 /// (`steward.general.v1`, handle `@steward`). Surfaces the always-on
@@ -263,7 +264,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
           onTap: _busy ? null : _open,
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 12),
             decoration: BoxDecoration(
               color: tintBg,
               borderRadius: BorderRadius.circular(12),
@@ -276,7 +277,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
                   height: 36,
                   decoration: BoxDecoration(
                     color: scheme.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: Radii.mdBorder,
                   ),
                   child: Icon(
                     Icons.auto_awesome,

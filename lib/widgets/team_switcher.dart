@@ -11,6 +11,7 @@ import '../screens/team/team_screen.dart';
 import '../screens/team/templates_screen.dart';
 import '../services/hub/hub_profiles.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Persistent profile + team switcher pill, shown in the AppBar of every
 /// Tier-1 tab.
@@ -60,7 +61,7 @@ class TeamSwitcher extends ConsumerWidget {
           itemBuilder: (ctx) => _buildItems(ctx, hub.profiles, activeId),
           child: Container(
             padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.circular(16),

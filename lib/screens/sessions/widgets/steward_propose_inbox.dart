@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import '../../me/widgets/propose_card_router.dart';
 
 /// ADR-030 W19 — steward-side propose inbox.
@@ -76,7 +77,7 @@ class _BadgeCount extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? Colors.amber.shade700 : Colors.amber.shade600;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: Spacing.s2),
       constraints: const BoxConstraints(minWidth: 16),
       decoration: BoxDecoration(
         color: bg,
@@ -86,7 +87,7 @@ class _BadgeCount extends StatelessWidget {
         '$count',
         textAlign: TextAlign.center,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 9,
+          fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
           color: Colors.white,
         ),
@@ -167,7 +168,7 @@ class StewardProposeInboxScreen extends ConsumerWidget {
             Text(
               'project: $projectId',
               style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10, color: mutedColor),
+                  fontSize: FontSizes.label, color: mutedColor),
             ),
           ],
         ),

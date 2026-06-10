@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../services/image/image_converter.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Shared image-attach helpers for compose surfaces (full AgentFeed
 /// + steward overlay chat). Caps mirror the hub validator so the
@@ -179,7 +180,7 @@ class ComposerImageThumbnailStrip extends StatelessWidget {
       height: 64,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
+        padding: const EdgeInsets.only(bottom: Spacing.s8, left: 4, right: 4),
         itemCount: images.length,
         separatorBuilder: (_, __) => const SizedBox(width: 6),
         itemBuilder: (ctx, i) {
@@ -194,7 +195,7 @@ class ComposerImageThumbnailStrip extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: Radii.smBorder,
                 child: Container(
                   width: 56,
                   height: 56,

@@ -773,5 +773,23 @@
   "deleteSessionBody": "转录记录仍会保留在审计日志中，但会失去其会话关联。此操作不可撤销。",
   "thisRole": "该{role}",
   "scopeApproving": "审批中",
-  "scopeProjectNamed": "{project}：{name}"
+  "scopeProjectNamed": "{project}：{name}",
+
+  "switchView": "切换视图",
+  "statEvents": "事件",
+  "statTurns": "轮次",
+  "statActive": "活跃",
+  "statElapsed": "已用时",
+  "statDuration": "时长",
+  "statCost": "费用",
+  "statTools": "工具",
+  "statErrors": "错误",
+  "statLatency": "延迟 p50/p95",
+  "statModels": "模型",
+  "runNoActivity": "暂无活动",
+  "runTurnsCount": "{count, plural, other{{count} 轮}}",
+  "runFooterLive": "实时",
+  "runFooterCached": "缓存",
+  "runFooterAsOf": "截至 {time}",
+  "runModelTokens": "{inTokens} 输入 · {outTokens} 输出"
 }

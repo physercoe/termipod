@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 import 'app_chip.dart';
@@ -64,6 +65,7 @@ class _RunReportCardState extends State<RunReportCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -87,6 +89,7 @@ class _RunReportCardState extends State<RunReportCard> {
     final outcome = (widget.digest['outcome'] ?? '').toString();
 
     final summary = _summaryLine(
+      l10n: l10n,
       outcome: outcome,
       turns: turns,
       durationMs: activeMs > 0 ? activeMs : durationMs,
@@ -170,6 +173,7 @@ class _RunReportCardState extends State<RunReportCard> {
     required int durationMs,
     required int activeMs,
   }) {
+    final l10n = AppLocalizations.of(context)!;
     final latency = widget.digest['latency'];
     final p50 = latency is Map ? _numAsInt(latency['p50_ms']) : 0;
     final p95 = latency is Map ? _numAsInt(latency['p95_ms']) : 0;
@@ -183,26 +187,26 @@ class _RunReportCardState extends State<RunReportCard> {
           spacing: 18,
           runSpacing: 12,
           children: [
-            _Stat(label: 'Events', value: '$events', muted: muted),
-            _Stat(label: 'Turns', value: '$turns', muted: muted),
+            _Stat(label: l10n.statEvents, value: '$events', muted: muted),
+            _Stat(label: l10n.statTurns, value: '$turns', muted: muted),
             // Real running time (sum of turn durations) — what the operator
             // means by "time spent". Shown when the hub supplies it.
             if (activeMs > 0)
               _Stat(
-                  label: 'Active',
+                  label: l10n.statActive,
                   value: _fmtDuration(activeMs),
                   muted: muted),
             // Full wall-clock span (first→last event, idle gaps included).
             _Stat(
-                label: activeMs > 0 ? 'Elapsed' : 'Duration',
+                label: activeMs > 0 ? l10n.statElapsed : l10n.statDuration,
                 value: _fmtDuration(durationMs),
                 muted: muted),
             _Stat(
-                label: 'Cost',
+                label: l10n.statCost,
                 value: cost > 0 ? '\$${cost.toStringAsFixed(2)}' : '—',
                 muted: muted),
             _Stat(
-              label: 'Tools',
+              label: l10n.statTools,
               value: toolTotal > 0
                   ? '${toolTotal - toolFailed}/$toolTotal'
                   : '—',
@@ -210,7 +214,7 @@ class _RunReportCardState extends State<RunReportCard> {
               valueColor: toolFailed > 0 ? DesignColors.warning : null,
             ),
             _Stat(
-              label: 'Errors',
+              label: l10n.statErrors,
               value: '$errors',
               muted: muted,
               valueColor: errors > 0 ? DesignColors.error : null,
@@ -221,32 +225,32 @@ class _RunReportCardState extends State<RunReportCard> {
             ),
             if (p50 > 0 || p95 > 0)
               _Stat(
-                  label: 'Latency p50/p95',
+                  label: l10n.statLatency,
                   value: '${_fmtDuration(p50)} / ${_fmtDuration(p95)}',
                   muted: muted),
           ],
         ),
         if (byModel is Map && byModel.isNotEmpty) ...[
           const SizedBox(height: 14),
-          Text('Models',
+          Text(l10n.statModels,
               style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.4,
                   color: muted)),
           const SizedBox(height: 6),
-          ...byModel.entries.map((e) => _modelRow(e.key.toString(),
+          ...byModel.entries.map((e) => _modelRow(l10n, e.key.toString(),
               e.value is Map ? (e.value as Map).cast<String, dynamic>() : const {},
               muted, isDark)),
         ],
         const SizedBox(height: 12),
-        _footer(muted),
+        _footer(l10n, muted),
       ],
     );
   }
 
-  Widget _modelRow(
-      String model, Map<String, dynamic> m, Color muted, bool isDark) {
+  Widget _modelRow(AppLocalizations l10n, String model,
+      Map<String, dynamic> m, Color muted, bool isDark) {
     final inTok = _numAsInt(m['in']);
     final outTok = _numAsInt(m['out']);
     return Padding(
@@ -263,25 +267,25 @@ class _RunReportCardState extends State<RunReportCard> {
                         ? DesignColors.textPrimary
                         : DesignColors.textPrimaryLight)),
           ),
-          Text('${_fmtTokens(inTok)} in · ${_fmtTokens(outTok)} out',
+          Text(l10n.runModelTokens(_fmtTokens(inTok), _fmtTokens(outTok)),
               style: TextStyle(fontSize: 11, color: muted)),
         ],
       ),
     );
   }
 
-  Widget _footer(Color muted) {
+  Widget _footer(AppLocalizations l10n, Color muted) {
     final lastTs = (widget.digest['last_ts'] ?? '').toString();
     final parts = <String>[];
     if (widget.live) {
-      parts.add('live');
+      parts.add(l10n.runFooterLive);
     }
     if (widget.staleSince != null) {
-      parts.add('cached');
+      parts.add(l10n.runFooterCached);
     }
     final when = _fmtClock(lastTs);
     final label = [
-      if (when.isNotEmpty) 'as of $when',
+      if (when.isNotEmpty) l10n.runFooterAsOf(when),
       ...parts,
     ].join(' · ');
     if (label.isEmpty) return const SizedBox.shrink();
@@ -315,16 +319,17 @@ class _RunReportCardState extends State<RunReportCard> {
   }
 
   String _summaryLine({
+    required AppLocalizations l10n,
     required String outcome,
     required int turns,
     required int durationMs,
     required double cost,
     required int events,
   }) {
-    if (events == 0) return 'No activity yet';
+    if (events == 0) return l10n.runNoActivity;
     final bits = <String>[
       if (outcome.isNotEmpty) outcome,
-      '$turns ${turns == 1 ? 'turn' : 'turns'}',
+      l10n.runTurnsCount(turns),
       _fmtDuration(durationMs),
       if (cost > 0) '\$${cost.toStringAsFixed(2)}',
     ];

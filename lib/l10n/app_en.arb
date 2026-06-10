@@ -872,5 +872,27 @@
   "scopeApproving": "Approving",
   "@scopeApproving": { "description": "Scope chip / sub-header label for attention-scoped sessions (WS-C slice 3)." },
   "scopeProjectNamed": "{project}: {name}",
-  "@scopeProjectNamed": { "placeholders": { "project": { "type": "String" }, "name": { "type": "String" } } }
+  "@scopeProjectNamed": { "placeholders": { "project": { "type": "String" }, "name": { "type": "String" } } },
+
+  "switchView": "Switch view",
+  "@switchView": { "description": "Tooltip on the View ▾ switcher in SessionHeader / ViewSwitcher (WS-D)." },
+  "statEvents": "Events",
+  "statTurns": "Turns",
+  "statActive": "Active",
+  "statElapsed": "Elapsed",
+  "statDuration": "Duration",
+  "statCost": "Cost",
+  "statTools": "Tools",
+  "statErrors": "Errors",
+  "statLatency": "Latency p50/p95",
+  "statModels": "Models",
+  "runNoActivity": "No activity yet",
+  "runTurnsCount": "{count, plural, =1{1 turn} other{{count} turns}}",
+  "@runTurnsCount": { "placeholders": { "count": { "type": "int" } } },
+  "runFooterLive": "live",
+  "runFooterCached": "cached",
+  "runFooterAsOf": "as of {time}",
+  "@runFooterAsOf": { "placeholders": { "time": { "type": "String" } } },
+  "runModelTokens": "{inTokens} in · {outTokens} out",
+  "@runModelTokens": { "placeholders": { "inTokens": { "type": "String" }, "outTokens": { "type": "String" } } }
 }

@@ -5,7 +5,7 @@
 private_chip_class	30
 raw_material_color	39
 stray_hex_color	5
-off_scale_radius	140
-off_scale_font_size	197
-off_grid_edge_inset	347
+off_scale_radius	132
+off_scale_font_size	191
+off_grid_edge_inset	327
 box_shadow	15

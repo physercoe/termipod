@@ -8,6 +8,7 @@ import '../../models/action_bar_config.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../screens/settings/action_bar_settings_screen.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../help_sheet.dart';
 
 /// Key Palette bottom sheet opened from the [⋮] button in the action bar.
@@ -112,7 +113,7 @@ class ProfileSheet extends ConsumerWidget {
                   color: isDark
                       ? DesignColors.textMuted
                       : DesignColors.textMutedLight,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -185,10 +186,10 @@ class ProfileSheet extends ConsumerWidget {
           Expanded(
             child: InkWell(
               onTap: () => _showProfilePicker(context, ref, state),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: Radii.smBorder,
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 6,
+                  horizontal: Spacing.s8,
                   vertical: 4,
                 ),
                 child: Row(
@@ -197,7 +198,7 @@ class ProfileSheet extends ConsumerWidget {
                       child: Text(
                         activeProfile.name,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: FontSizes.subtitle,
                           fontWeight: FontWeight.w600,
                           color: DesignColors.primary,
                         ),
@@ -227,7 +228,7 @@ class ProfileSheet extends ConsumerWidget {
             color: DesignColors.primary,
             tooltip: 'Help',
             visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 6),
+            padding: const EdgeInsets.symmetric(horizontal: Spacing.s8),
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
           TextButton.icon(
@@ -378,7 +379,7 @@ class ProfileSheet extends ConsumerWidget {
             child: Text(
               group.name.toUpperCase(),
               style: TextStyle(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.8,
                 color: isDark
@@ -426,7 +427,7 @@ class ProfileSheet extends ConsumerWidget {
         borderRadius: BorderRadius.circular(8),
         child: Container(
           height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s8),
           decoration: BoxDecoration(
             color: bgColor,
             border: Border.all(color: borderColor, width: 1),
@@ -494,11 +495,11 @@ class ProfileSheet extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: 2, bottom: 3),
+            padding: const EdgeInsets.only(left: 2, bottom: Spacing.s4),
             child: Text(
               AppLocalizations.of(context)!.paletteMetaHeader,
               style: TextStyle(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.6,
                 color: isDark
@@ -545,10 +546,10 @@ class ProfileSheet extends ConsumerWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: Radii.smBorder,
         child: Container(
           constraints: const BoxConstraints(minHeight: 30),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 4),
           decoration: BoxDecoration(
             color: isDark
                 ? DesignColors.keyBackground
@@ -559,7 +560,7 @@ class ProfileSheet extends ConsumerWidget {
                   : DesignColors.borderLight,
               width: 0.5,
             ),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: Radii.smBorder,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -771,7 +772,7 @@ class _ProfileRow extends StatelessWidget {
                     child: Text(
                       profile.name,
                       style: TextStyle(
-                        fontSize: 15,
+                        fontSize: FontSizes.subtitle,
                         fontWeight:
                             isActive ? FontWeight.w600 : FontWeight.normal,
                         color: isActive
@@ -787,7 +788,7 @@ class _ProfileRow extends StatelessWidget {
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 1),
+                          horizontal: Spacing.s8, vertical: Spacing.s2),
                       decoration: BoxDecoration(
                         color: isDark
                             ? DesignColors.textMuted.withValues(alpha: 0.2)
@@ -798,7 +799,7 @@ class _ProfileRow extends StatelessWidget {
                       child: Text(
                         AppLocalizations.of(context)!.builtIn.toLowerCase(),
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: FontSizes.label,
                           color: isDark
                               ? DesignColors.textMuted
                               : DesignColors.textMutedLight,

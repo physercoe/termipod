@@ -10,6 +10,7 @@ import '../../providers/input_history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../screens/vault/snippets_screen.dart' show SnippetEditDialog;
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Resolve which preset profile the snippet picker shows (#68). A pinned
 /// agent engine (`engineProfileId`, e.g. an agent chat's `backend.kind`) wins
@@ -204,7 +205,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
               color: isDark
                   ? DesignColors.textMuted
                   : DesignColors.textMutedLight,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: Radii.xsBorder,
             ),
           ),
           // Title row — bolt icon + inline search + [+] new button
@@ -321,7 +322,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                 Container(
                   width: 1,
                   height: 20,
-                  margin: const EdgeInsets.symmetric(horizontal: 6),
+                  margin: const EdgeInsets.symmetric(horizontal: Spacing.s8),
                   color: isDark
                       ? DesignColors.borderDark
                       : DesignColors.borderLight,
@@ -374,7 +375,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         decoration: BoxDecoration(
           color: isActive
               ? DesignColors.primary.withValues(alpha: 0.15)
@@ -532,7 +533,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
         },
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
           child: Row(
             children: [
               Expanded(
@@ -1028,7 +1029,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                     children: [
                       for (final v in snippet.variables)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.only(bottom: Spacing.s8),
                           child: v.kind == SnippetVarKind.option
                               ? DropdownButtonFormField<String>(
                                   initialValue: optionValues[v.name],
@@ -1142,12 +1143,12 @@ class _OptionChip extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: Radii.lgBorder,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s4),
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: Radii.lgBorder,
             border: Border.all(
               color: border,
               width: isSelected ? 1.5 : 1,

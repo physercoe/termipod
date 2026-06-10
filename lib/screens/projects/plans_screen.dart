@@ -2,13 +2,55 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/entity_names.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 import 'plan_create_sheet.dart';
 import 'plan_viewer_screen.dart';
+
+/// Localized label for a plan / plan-step lifecycle status. Unknown values
+/// fall back to the raw wire string. Shared with the plan viewer screen.
+String planStatusLabel(AppLocalizations l10n, String status) {
+  switch (status.toLowerCase()) {
+    case 'active':
+      return l10n.planStatusActive;
+    case 'draft':
+      return l10n.planStatusDraft;
+    case 'ready':
+      return l10n.planStatusReady;
+    case 'running':
+      return l10n.planStatusRunning;
+    case 'completed':
+      return l10n.planStatusCompleted;
+    case 'failed':
+      return l10n.planStatusFailed;
+    case 'cancelled':
+      return l10n.planStatusCancelled;
+    case 'proposed':
+      return l10n.planStatusProposed;
+    case 'pending':
+      return l10n.planStatusPending;
+    case 'done':
+      return l10n.planStatusDone;
+    case 'succeeded':
+      return l10n.planStatusSucceeded;
+    case 'error':
+      return l10n.planStatusError;
+    case 'paused':
+      return l10n.planStatusPaused;
+    case 'blocked':
+      return l10n.planStatusBlocked;
+    case 'skipped':
+      return l10n.planStatusSkipped;
+    default:
+      return status;
+  }
+}
 
 /// Read-only list of team plans (blueprint §6.2, P2.4). Plans are the
 /// shallow phase/step scaffolds that agents or schedulers drive — the
@@ -57,6 +99,8 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
   List<Map<String, dynamic>>? _projects;
   bool _loading = true;
   String? _error;
+  // client==null branch of _load() runs synchronously during initState.
+  bool _hubMissing = false;
   // Default to `_activeFilter` so the screen opens on in-flight work
   // rather than a firehose of completed + failed history.
   String? _statusFilter = _activeFilter;
@@ -84,7 +128,7 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -147,7 +191,10 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
 
   String _projectFilterLabel() {
     final id = _projectFilter;
-    if (id == null) return 'All projects';
+    if (id == null) {
+      return AppLocalizations.of(context)!.allProjects(
+          ref.read(vocabularyProvider).term(VocabAxis.entityProject).pluralLower);
+    }
     for (final p in _projects ?? const <Map<String, dynamic>>[]) {
       if ((p['id'] ?? '').toString() == id) {
         return (p['name'] ?? id).toString();
@@ -179,10 +226,12 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final planTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityPlan);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Plans',
+          l10n.plansTitle(planTerm.plural),
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -191,23 +240,23 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
           PopupMenuButton<String>(
-            tooltip: 'More',
+            tooltip: l10n.tooltipMore,
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
               if (v == 'new') _createPlan();
             },
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'new',
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.add, size: 20),
-                  title: Text('New plan'),
+                  leading: const Icon(Icons.add, size: 20),
+                  title: Text(l10n.newPlan(planTerm.lower)),
                 ),
               ),
             ],
@@ -234,11 +283,13 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
   }
 
   Widget _body() {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Padding(
         padding: const EdgeInsets.all(24),
-        child: Text(_error!,
+        child: Text(_hubMissing ? l10n.hubNotConfigured : _error!,
             style: GoogleFonts.jetBrainsMono(
                 fontSize: 12, color: DesignColors.error)),
       );
@@ -246,14 +297,15 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
     final rows = _rows ?? const [];
     if (rows.isEmpty) {
       final filtered = (_statusFilter != null || _projectFilter != null);
+      final plansLower = voc.term(VocabAxis.entityPlan).pluralLower;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
             filtered
-                ? 'No plans match the current filters.'
-                : 'No plans yet — plans appear here once a steward or '
-                    'template emits a phased scaffold.',
+                ? l10n.noPlansMatch(plansLower)
+                : l10n.noPlansYet(
+                    plansLower, voc.term(VocabAxis.roleSteward).lower),
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
                 fontSize: 13, color: DesignColors.textMuted),
@@ -279,17 +331,19 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
   }
 }
 
-class _PlanRow extends StatelessWidget {
+class _PlanRow extends ConsumerWidget {
   final Map<String, dynamic> plan;
   final List<Map<String, dynamic>> projects;
   const _PlanRow({required this.plan, required this.projects});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final id = (plan['id'] ?? '').toString();
     final projectId = (plan['project_id'] ?? '').toString();
     final projectName = projectId.isEmpty
-        ? '(no project)'
+        ? l10n.noProjectValue(
+            ref.watch(vocabularyProvider).term(VocabAxis.entityProject).lower)
         : projectNameFor(projectId, projects);
     final version = (plan['version'] ?? 1).toString();
     final status = (plan['status'] ?? '').toString();
@@ -351,6 +405,7 @@ class PlanStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final s = status.toLowerCase();
     final color = switch (s) {
       'running' => DesignColors.terminalBlue,
@@ -370,7 +425,7 @@ class PlanStatusChip extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
-        s.isEmpty ? '?' : s,
+        s.isEmpty ? '?' : planStatusLabel(l10n, s),
         style: GoogleFonts.jetBrainsMono(
           fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
@@ -403,6 +458,7 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
@@ -420,7 +476,7 @@ class _FilterBar extends StatelessWidget {
               children: [
                 for (final s in _statusFilters) ...[
                   AppChoiceChip(
-                    label: s == null ? 'all' : s,
+                    label: s == null ? l10n.filterAll : planStatusLabel(l10n, s),
                     selected: statusFilter == s,
                     onTap: () => onStatusSelected(s),
                   ),
@@ -511,7 +567,11 @@ class _ProjectFilterSheet extends StatelessWidget {
               return ListTile(
                 leading: const Icon(Icons.clear, size: 18),
                 title: Text(
-                  'All projects',
+                  AppLocalizations.of(context)!.allProjects(
+                      ProviderScope.containerOf(context)
+                          .read(vocabularyProvider)
+                          .term(VocabAxis.entityProject)
+                          .pluralLower),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,

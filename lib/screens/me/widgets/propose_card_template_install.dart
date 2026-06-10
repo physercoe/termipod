@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import 'propose_addressee.dart';
 import 'propose_card_actions.dart';
 import 'propose_card_visuals.dart';
@@ -90,14 +91,14 @@ class ProposeCardTemplateInstall extends ConsumerWidget {
           const SizedBox(height: 4),
           Text(
             'proposed by: $proposedBy',
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: mutedColor),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: mutedColor),
           ),
         ],
         if (blobSha.isNotEmpty) ...[
           const SizedBox(height: 2),
           Text(
             'sha256: ${_shortSha(blobSha)}',
-            style: GoogleFonts.jetBrainsMono(fontSize: 10, color: mutedColor),
+            style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: mutedColor),
           ),
         ],
         const SizedBox(height: 10),

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../theme/tokens.dart';
 
 /// Bottom sheet for creating a schedule (blueprint §6.3). A schedule binds
 /// a project to a template with a trigger. Cron schedules require cron_expr;
@@ -141,7 +142,7 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(Spacing.s16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,

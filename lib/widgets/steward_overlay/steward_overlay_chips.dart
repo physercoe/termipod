@@ -6,6 +6,7 @@ import '../../models/snippet_presets.dart';
 import '../../providers/snippet_provider.dart';
 import '../../screens/vault/snippets_screen.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'steward_overlay_controller.dart';
 
 /// SnippetPresets profile key for the overlay starter chips.
@@ -51,7 +52,7 @@ class StewardOverlayChips extends ConsumerWidget {
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

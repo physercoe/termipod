@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import 'children_status.dart';
 import 'recent_artifacts.dart';
 import 'research_phase_heroes.dart';
@@ -155,7 +156,7 @@ class _UnknownOverviewHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s12),
       decoration: BoxDecoration(
         color: DesignColors.surfaceDark.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(8),

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Tiny form for creating a project-scope channel. Returns the created
 /// channel map on success so the caller can append it to its in-memory
@@ -67,7 +68,7 @@ class _ProjectChannelCreateSheetState
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
                 color: DesignColors.borderDark,
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: Radii.xsBorder,
               ),
             ),
           ),

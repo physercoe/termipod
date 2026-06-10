@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Renders a `tabular`-kind artifact (wave 2 W3 of artifact-type-registry).
 ///
@@ -289,7 +290,7 @@ class _TabularLoadError extends StatelessWidget {
           SelectableText(
             uri,
             style: GoogleFonts.jetBrainsMono(
-                fontSize: 10, color: DesignColors.textMuted),
+                fontSize: FontSizes.label, color: DesignColors.textMuted),
           ),
         ],
       ),

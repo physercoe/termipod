@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 
 /// Append a new step to an existing plan (blueprint §6.2). The server
@@ -133,7 +134,7 @@ class _PlanStepCreateSheetState extends ConsumerState<PlanStepCreateSheet> {
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: DesignColors.borderDark,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -239,7 +240,7 @@ class _PlanStepCreateSheetState extends ConsumerState<PlanStepCreateSheet> {
   }
 
   Widget _label(String s) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: Spacing.s8),
         child: Text(
           s,
           style: GoogleFonts.spaceGrotesk(

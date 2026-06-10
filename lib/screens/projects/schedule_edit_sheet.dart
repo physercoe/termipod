@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// In-place editor for an existing schedule. patchSchedule accepts
 /// `cron_expr`, `parameters_json`, and `enabled`; template_id, project_id,
@@ -156,7 +157,7 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: DesignColors.borderDark,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),
@@ -262,7 +263,7 @@ class _ScheduleEditSheetState extends ConsumerState<ScheduleEditSheet> {
   }
 
   Widget _label(String s) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: Spacing.s8),
         child: Text(
           s,
           style: GoogleFonts.spaceGrotesk(

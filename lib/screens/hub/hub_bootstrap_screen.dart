@@ -6,6 +6,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../services/hub/hub_profiles.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Wizard for adding or editing a hub connection profile.
 ///
@@ -235,7 +236,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
         child: Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(Spacing.s16),
             children: [
               Text(
                 'Point this app at a running hub-server.',

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Owner-only editor for hub-wide governance files. MVP exposes the
 /// operation-scope manifest (`roles.yaml`); the AppBar's "Reset to
@@ -199,7 +200,7 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
             Text(
               'roles.yaml — operation-scope manifest',
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: muted,
               ),
             ),

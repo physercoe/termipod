@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Edits a host's non-secret SSH hint and capabilities map (blueprint
 /// §5.3.2 / §5.3.3). SSH hint is the shorthand the phone uses to
@@ -164,7 +165,7 @@ class _HostEditSheetState extends ConsumerState<HostEditSheet> {
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: DesignColors.borderDark,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
             ),

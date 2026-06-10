@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../theme/tokens.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../services/steward_handle.dart';
 import '../../services/template_filter.dart';
@@ -335,7 +336,7 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                         const Spacer(),
                         Text('long-press to delete',
                             style: GoogleFonts.jetBrainsMono(
-                              fontSize: 10,
+                              fontSize: FontSizes.label,
                               color: Theme.of(context)
                                   .textTheme
                                   .bodySmall

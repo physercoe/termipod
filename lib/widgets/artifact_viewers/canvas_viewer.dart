@@ -9,6 +9,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/artifact_manifest/artifact_manifest.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// CDN allowlist for sandboxed canvas-app WebViews (W4 of
 /// `docs/plans/canvas-viewer.md`, locked 2026-05-11). HTTPS-only; any
@@ -359,7 +360,7 @@ class _CanvasLoadError extends StatelessWidget {
           SelectableText(
             uri,
             style: GoogleFonts.jetBrainsMono(
-                fontSize: 10, color: DesignColors.textMuted),
+                fontSize: FontSizes.label, color: DesignColors.textMuted),
           ),
         ],
       ),

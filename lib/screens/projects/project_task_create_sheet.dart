@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/task_priority_style.dart';
+import '../../theme/tokens.dart';
 
 /// Bottom sheet for creating a task. Pops `true` on success so the caller
 /// reloads the task list.
@@ -70,7 +71,7 @@ class _ProjectTaskCreateSheetState
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(Spacing.s16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,

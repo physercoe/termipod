@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Renders an `audio`-kind artifact (wave 2 W6 of artifact-type-registry).
 ///
@@ -254,7 +255,7 @@ class _MediaLoadError extends StatelessWidget {
           SelectableText(
             uri,
             style: GoogleFonts.jetBrainsMono(
-                fontSize: 10, color: DesignColors.textMuted),
+                fontSize: FontSizes.label, color: DesignColors.textMuted),
           ),
         ],
       ),

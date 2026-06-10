@@ -1,23 +1,31 @@
 # Vocabulary
 
 > **Type:** reference
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-06-10) — the swap is **being implemented**
+> (was a future audit). See [ADR-048](../decisions/048-themed-vocabulary-overlay.md)
+> and [the program plan](../plans/themed-vocabulary-and-i18n-sweep.md).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.314
+> **Last verified vs code:** v1.0.815
 
 **TL;DR.** The role-bound vocabulary axes used across the app, with
-21 named axes and 4 theme presets. Foundation for a future
-per-team/per-pack vocab overlay (post-MVP per
-`../discussions/post-mvp-domain-packs.md`). New role-bound strings
-land here axis-tagged from day one so the eventual swap is a rename,
-not a rewrite.
+21 named axes and 4 **vocabulary presets**. Originally an audit for a
+future overlay; **promoted to MVP** by [ADR-048] after a tester found
+"steward" unfit for their domain. New role-bound strings land here
+axis-tagged so the swap is a rename, not a rewrite.
 
-The artifact survives until the theme-pack feature ships, so that:
+> **Term note.** This doc historically said "theme preset". The wording
+> dimension is now called a **vocabulary preset** to avoid colliding with
+> the visual **theme** (dark/light, design tokens, ADR-047). "Theme" below
+> is being read as "vocabulary preset" pending a prose pass.
+
+The audit held until the feature shipped, so that:
 
 1. New strings land in the correct axis from day one (no retroactive
    sweep).
 2. Hardcoded role-bound text is logged, not lost.
-3. The eventual swap is a rename, not a rewrite.
+3. The swap is a rename, not a rewrite — now cashed in by [ADR-048].
+
+[ADR-048]: ../decisions/048-themed-vocabulary-overlay.md
 
 ---
 
@@ -59,15 +67,19 @@ strings. ~80% of `app_en.arb` keys fall here and need no change.
 
 ---
 
-## 2. Theme presets
+## 2. Vocabulary presets
 
-Four themes are the working set. Per-axis values for each:
+Four presets are the working set: **tech** (default) · **business**
+(company) · **political** (policy) · **research** (academy). The English
+below was corrected by the director ([ADR-048] §Decision-5) — the prior
+draft ("Chief of Staff", "Lab Manager", "CEO") did not match the intended
+roles. ZH equivalents are now **authored**, not deferred (see §2.1).
 
 | Axis | tech (default) | business | political | research |
 |---|---|---|---|---|
-| `role.steward` | Steward | Chief of Staff | Chief of Staff | Lab Manager |
+| `role.steward` | Steward | Manager | Secretary | Supervisor |
 | `role.agent` | Agent | Specialist | Operative | Researcher |
-| `role.principal` | Owner | CEO | Principal | PI |
+| `role.principal` | Owner | Boss | Leader | PI |
 | `role.council` | Review board | Committee | Council | Review panel |
 | `entity.team` | Team | Org | Office | Group |
 | `entity.project` | Project | Initiative | Operation | Study |
@@ -86,9 +98,22 @@ Four themes are the working set. Per-axis values for each:
 | `surface.directive` | Spec | Directive | Directive | Hypothesis |
 | `surface.brief` | Digest | Daily brief | Briefing | Lab notes |
 
-**ZH equivalents** are deferred; the pattern will be:
-`{theme}_{lang}` packs (e.g. `business_zh`: 首席运营官 / 专员 / CEO / 委员会 …).
-Translation work belongs to the implementation wedge, not this audit.
+### 2.1 ZH equivalents
+
+No longer deferred — authored under [ADR-048]. Headline role axes
+(director-set):
+
+| Axis | tech | business | political | research |
+|---|---|---|---|---|
+| `role.steward` | 管家 | 经理 | 秘书 | 主管 |
+| `role.principal` | 负责人 | 老板 | 领导 | 课题组负责人 |
+| `role.agent` | 智能体 | 专员 | 干事 | 研究员 |
+
+The full 21-axis × 4-preset × {en, zh} matrix lives in
+[the program plan](../plans/themed-vocabulary-and-i18n-sweep.md); it
+becomes the canonical table here when WS-A lands. The runtime is the
+`(preset, language)` → `axis → term` `VocabPack` of §5 Shape A, extended
+across language.
 
 ---
 
@@ -177,9 +202,12 @@ now in the right slot.
 
 ---
 
-## 5. Implementation shape (when the wedge is scheduled)
+## 5. Implementation shape
 
-Two viable shapes — both compatible with this audit:
+**Decided ([ADR-048]): Shape A**, extended across language — the
+`VocabPack` is keyed by `(preset, language)`, not preset alone, so it
+resolves `axis → term` for both en and zh. Shape B is rejected (×8 ARB
+duplication). The two shapes, for the record:
 
 **Shape A: One key per axis-term, helper resolves at call-site.**
 ```dart

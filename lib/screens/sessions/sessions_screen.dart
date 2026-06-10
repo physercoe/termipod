@@ -225,10 +225,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l10n.archiveSessionsTitle(ids.length)),
-        content: const Text(
-          'Archived sessions move to Previous. Their transcripts stay '
-          'available; you can fork from archive later to continue.',
-        ),
+        content: Text(l10n.archiveSessionsBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -296,15 +293,14 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       );
       return;
     }
+    final voc = ref.read(vocabularyProvider);
+    final agentLower = voc.term(VocabAxis.roleAgent).lower;
+    final stewardLower = voc.term(VocabAxis.roleSteward).lower;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l10n.stopAgentsTitle(agentIds.length)),
-        content: const Text(
-          'The agent pane stays in tmux for inspection; the steward is '
-          'marked terminated and the session goes idle. You can spawn a '
-          'fresh agent for the same steward to keep the conversation.',
-        ),
+        content: Text(l10n.stopAgentsBody(agentLower, stewardLower)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -367,10 +363,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           l10n.deleteSessionsTitle(ids.length) +
               (hasNonArchived ? l10n.deleteSkipUnarchivedSuffix : ''),
         ),
-        content: const Text(
-          'The transcripts stay in the audit log but lose their '
-          'session-link. This is final.',
-        ),
+        content: Text(l10n.deleteSessionsBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -614,7 +607,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             for (final e in scopeBuckets)
               (
                 key: e.key,
-                label: _scopeLabel(ref, e.key),
+                label: _scopeLabel(context, ref, e.key),
                 count: e.value.length,
                 selected: _scopeFilter.contains(e.key),
               ),
@@ -895,15 +888,20 @@ class _ScopePick {
 
 Future<_ScopePick?> _pickScopeSheet(
     BuildContext context, WidgetRef ref) async {
+  final l10n = AppLocalizations.of(context)!;
+  final voc = ref.read(vocabularyProvider);
   final hub = ref.read(hubProvider).value;
   final projects = hub?.projects ?? const <Map<String, dynamic>>[];
   final options = <_ScopePick>[
-    const _ScopePick('team', '', 'Team'),
+    _ScopePick('team', '', voc.term(VocabAxis.entityTeam).title),
     for (final p in projects)
       _ScopePick(
         'project',
         (p['id'] ?? '').toString(),
-        'Project: ${(p['name'] ?? p['title'] ?? '').toString()}',
+        l10n.scopeProjectNamed(
+          voc.term(VocabAxis.entityProject).title,
+          (p['name'] ?? p['title'] ?? '').toString(),
+        ),
       ),
   ];
   return showModalBottomSheet<_ScopePick>(
@@ -1008,16 +1006,15 @@ Future<void> _resetStewardConversation(
   if (client == null) return;
 
   final l10n = AppLocalizations.of(context)!;
-  final label = stewardLabelText ?? 'this steward';
+  final voc = ref.read(vocabularyProvider);
+  final label =
+      stewardLabelText ?? l10n.thisRole(voc.term(VocabAxis.roleSteward).lower);
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: Text(l10n.resetConversationTitle),
       content: Text(
-        'Closes $label\'s current session and opens a fresh one. The '
-        'agent process keeps running, so its engine-level memory is '
-        'preserved — but the visible transcript starts empty. The '
-        'prior conversation goes to Previous.',
+        l10n.resetConversationBody(label, voc.term(VocabAxis.roleAgent).lower),
       ),
       actions: [
         TextButton(
@@ -1124,17 +1121,18 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
 
   Future<void> _stopSession() async {
     final l10n = AppLocalizations.of(context)!;
+    final voc = ref.read(vocabularyProvider);
     final id = group.agentId;
     if (id.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l10n.stopSessionTitle),
-        content: Text(
-          'Kills ${group.handle}\'s agent process. The session pauses '
-          'and stays in Previous; you can Resume it later or Replace '
-          'this steward with a fresh one.',
-        ),
+        content: Text(l10n.stopSessionBody(
+          group.handle,
+          voc.term(VocabAxis.roleAgent).lower,
+          voc.term(VocabAxis.roleSteward).lower,
+        )),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -1310,8 +1308,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                             )
                           else
                             Text(
-                              'Original steward gone — open to read, '
-                              'fork to continue with a fresh one',
+                              l10n.orphanSubtitle(stewardTerm.lower),
                               style: GoogleFonts.spaceGrotesk(
                                 fontSize: FontSizes.label,
                                 color: muted,
@@ -1394,7 +1391,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                   children: [
                     Expanded(
                       child: Text(
-                        'No active session for this steward.',
+                        l10n.noActiveSessionForSteward(stewardTerm.lower),
                         style: GoogleFonts.jetBrainsMono(
                             fontSize: FontSizes.label, color: muted),
                       ),
@@ -1484,7 +1481,7 @@ List<Widget> _buildScopeGroupedPrevious(
   final out = <Widget>[];
   for (final entry in buckets) {
     final key = entry.key;
-    final label = _scopeLabel(ref, key);
+    final label = _scopeLabel(context, ref, key);
     final count = entry.value.length;
     out.add(Padding(
       padding: const EdgeInsets.fromLTRB(Spacing.s16, Spacing.s8, Spacing.s16, 2),
@@ -1525,29 +1522,32 @@ List<Widget> _buildScopeGroupedPrevious(
 /// scopes resolve the project's name from the hub cache; everything else
 /// maps to a fixed label. Shared by the scope-grouped Previous list and
 /// the select-mode scope sub-filter chips (#122) so both read the same.
-String _scopeLabel(WidgetRef ref, String key) {
+String _scopeLabel(BuildContext context, WidgetRef ref, String key) {
+  final l10n = AppLocalizations.of(context)!;
+  final voc = ref.watch(vocabularyProvider);
   final hub = ref.watch(hubProvider).value;
   final parts = key.split('|');
   final kind = parts.first;
   final id = parts.sublist(1).join('|');
   switch (kind) {
     case 'project':
+      final project = voc.term(VocabAxis.entityProject).title;
       if (hub != null) {
         for (final p in hub.projects) {
           if ((p['id'] ?? '').toString() == id) {
             final name = (p['name'] ?? p['title'] ?? '').toString();
-            if (name.isNotEmpty) return 'Project: $name';
+            if (name.isNotEmpty) return l10n.scopeProjectNamed(project, name);
           }
         }
       }
-      return 'Project';
+      return project;
     case 'attention':
-      return 'Approving';
+      return l10n.scopeApproving;
     case 'team':
     case '':
       // Team scope reads "Team", not "General" — "General" belongs to
       // the steward taxonomy, not the session scope (#65).
-      return 'Team';
+      return voc.term(VocabAxis.entityTeam).title;
     default:
       return kind;
   }
@@ -1610,12 +1610,14 @@ class _CategoryHeader extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
+class _EmptyState extends ConsumerWidget {
   const _EmptyState();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
+    final stewardTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -1634,9 +1636,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Sessions appear here once a steward starts. After a host '
-              'restart, the session will show as Interrupted with a Resume '
-              'option.',
+              l10n.emptySessionsBody(stewardTerm.lower),
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(fontSize: 12, color: muted),
             ),
@@ -1728,17 +1728,17 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
   /// detach the engine without first opening the chat.
   Future<void> _stopFromRow(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
+    final voc = ref.read(vocabularyProvider);
     final agentId = (session['current_agent_id'] ?? '').toString();
     if (agentId.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l10n.stopSessionTitle),
-        content: const Text(
-          "Kills the steward's agent process. The session pauses and "
-          "stays in Previous; you can Resume it later or Fork from "
-          "archive once you've moved on.",
-        ),
+        content: Text(l10n.stopSessionGenericBody(
+          voc.term(VocabAxis.roleSteward).lower,
+          voc.term(VocabAxis.roleAgent).lower,
+        )),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -1781,10 +1781,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l10n.archiveSessionTitle),
-        content: const Text(
-          'Marks the session as done. The transcript stays available '
-          'under Previous, and you can fork it later to continue.',
-        ),
+        content: Text(l10n.archiveSessionBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -1816,10 +1813,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l10n.deleteSessionTitle),
-        content: const Text(
-          'The transcript stays in the audit log but loses its '
-          'session-link. This is final.',
-        ),
+        content: Text(l10n.deleteSessionBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -2451,6 +2445,8 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   Widget? _buildScopeChip(
       BuildContext context, WidgetRef ref, Map<String, dynamic>? session) {
     if (session == null) return null;
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.read(vocabularyProvider);
     final kind = (session['scope_kind'] ?? '').toString();
     final id = (session['scope_id'] ?? '').toString();
     String label;
@@ -2467,12 +2463,13 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
             }
           }
         }
+        final project = voc.term(VocabAxis.entityProject).title;
         label = (name != null && name.isNotEmpty)
-            ? 'Project: $name'
-            : 'Project';
+            ? l10n.scopeProjectNamed(project, name)
+            : project;
         icon = Icons.folder_outlined;
       case 'attention':
-        label = 'Approving';
+        label = l10n.scopeApproving;
         icon = Icons.gavel_outlined;
       case 'team':
       case '':
@@ -2480,7 +2477,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
         // taxonomy (General/Project/Domain, classified by handle+kind);
         // a team-scoped session reads "Team" so the scope chip doesn't
         // collide with that taxonomy (#65, matching me_screen).
-        label = 'Team';
+        label = voc.term(VocabAxis.entityTeam).title;
         icon = Icons.forum_outlined;
       default:
         label = kind;

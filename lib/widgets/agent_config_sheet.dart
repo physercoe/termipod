@@ -7,6 +7,7 @@ import '../providers/hub_provider.dart';
 import '../providers/sessions_provider.dart';
 import '../screens/sessions/sessions_screen.dart' show SessionChatScreen;
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Bottom sheet that surfaces an agent's full configuration —
 /// persona kind, derived role (from spawn_spec `default_role:`),
@@ -156,11 +157,11 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
 
     void section(String title, Widget body) {
       children.add(Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+        padding: const EdgeInsets.fromLTRB(16, Spacing.s12, 16, 4),
         child: Text(
           title,
           style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
+            fontSize: FontSizes.label,
             fontWeight: FontWeight.w700,
             color: muted,
             letterSpacing: 0.5,
@@ -249,13 +250,13 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
 
     if (spawnSpec.isNotEmpty) {
       children.add(Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+        padding: const EdgeInsets.fromLTRB(16, Spacing.s12, 16, 4),
         child: Row(
           children: [
             Text(
               'SPAWN SPEC',
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 fontWeight: FontWeight.w700,
                 color: muted,
                 letterSpacing: 0.5,
@@ -284,11 +285,11 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(Spacing.s8),
           decoration: BoxDecoration(
             color: (isDark ? Colors.white : Colors.black)
                 .withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: Radii.smBorder,
           ),
           child: SelectableText(
             spawnSpec,
@@ -315,7 +316,7 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
             margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(
               color: muted.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: Radii.xsBorder,
             ),
           ),
         ),

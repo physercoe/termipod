@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/criterion_state_pip.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../deliverables/structured_deliverable_viewer.dart';
@@ -172,7 +173,7 @@ class _AcceptanceCriteriaScreenState
             else
               for (final group in _grouped()) ...[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 14, 4, 8),
+                  padding: const EdgeInsets.fromLTRB(4, Spacing.s12, 4, 8),
                   child: Text(
                     _prettyPhase(group.key),
                     style: GoogleFonts.spaceGrotesk(
@@ -223,7 +224,7 @@ class _StateFilterRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -274,12 +275,12 @@ class _CriterionRow extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final tappable = deliverable != null;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s4),
       child: Material(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         child: InkWell(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: Radii.mdBorder,
           onTap: tappable
               ? () async {
                   await Navigator.of(context).push(
@@ -296,9 +297,9 @@ class _CriterionRow extends StatelessWidget {
                 }
               : null,
           child: Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(Spacing.s12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: Radii.mdBorder,
               border: Border.all(
                 color: isDark
                     ? DesignColors.borderDark

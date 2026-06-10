@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import '../artifacts_screen.dart';
 import 'registry.dart';
 
@@ -88,7 +89,7 @@ class _RecentArtifactsHeroState
           child: Text(
             'RECENT OUTPUTS',
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.5,
               color: DesignColors.textMuted,
@@ -98,7 +99,7 @@ class _RecentArtifactsHeroState
         for (final row in capped) _ArtifactLine(row: row),
         if (overflow > 0)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.only(top: Spacing.s8),
             child: InkWell(
               onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) =>
@@ -107,7 +108,7 @@ class _RecentArtifactsHeroState
               child: Text(
                 '+ $overflow more — open Outputs',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
+                  fontSize: FontSizes.label,
                   color: DesignColors.primary,
                   fontStyle: FontStyle.italic,
                 ),
@@ -129,7 +130,7 @@ class _ArtifactLine extends StatelessWidget {
     final kind = (row['kind'] ?? '').toString();
     final created = (row['created_at'] ?? '').toString();
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.s8),
       child: Row(
         children: [
           ArtifactKindChip(kind: kind),
@@ -149,7 +150,7 @@ class _ArtifactLine extends StatelessWidget {
           Text(
             _shortDate(created),
             style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
+              fontSize: FontSizes.label,
               color: DesignColors.textMuted,
             ),
           ),
@@ -177,10 +178,10 @@ class _EmptyCard extends StatelessWidget {
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 16),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(color: border),
       ),
       child: Text(

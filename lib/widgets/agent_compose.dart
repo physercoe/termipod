@@ -15,6 +15,7 @@ import '../providers/input_history_provider.dart';
 import '../providers/snippet_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 import 'action_bar/snippet_picker_sheet.dart';
 import 'image_attach/composer_image_attach.dart';
 import 'multimodal_attach/composer_multimodal_attach.dart';
@@ -583,7 +584,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
         color: bg,
         border: Border(top: BorderSide(color: border)),
       ),
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+      padding: const EdgeInsets.fromLTRB(8, Spacing.s8, 8, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -602,7 +603,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
             ),
           if (_pendingMultimodal.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
+              padding: const EdgeInsets.only(bottom: Spacing.s8, left: 4, right: 4),
               child: Wrap(
                 spacing: 6,
                 runSpacing: 4,
@@ -760,15 +761,15 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                       hintStyle: GoogleFonts.jetBrainsMono(
                           fontSize: 14, color: muted),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: Radii.smBorder,
                         borderSide: BorderSide(color: border),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: Radii.smBorder,
                         borderSide: BorderSide(color: border),
                       ),
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
+                          horizontal: Spacing.s8, vertical: 8),
                       suffixIcon: _ctrl.text.isEmpty
                           ? null
                           : GestureDetector(
@@ -813,7 +814,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                       value.text.trim().isEmpty && _pendingImages.isEmpty;
                   if (_sending) {
                     return const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      padding: EdgeInsets.symmetric(horizontal: Spacing.s8),
                       child: SizedBox(
                         width: 18,
                         height: 18,
@@ -891,7 +892,7 @@ class _SuggestionStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6, left: 4),
+      padding: const EdgeInsets.only(bottom: Spacing.s8, left: 4),
       child: SizedBox(
         height: 28,
         child: ListView.separated(

@@ -13,6 +13,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'feed_render.dart';
 
 
@@ -126,7 +127,7 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
       children: [
         if (toolSummary != null)
           Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: Spacing.s8),
             child: RichText(
               text: TextSpan(
                 style: GoogleFonts.jetBrainsMono(
@@ -168,7 +169,7 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
                             ? DesignColors.error
                             : DesignColors.primary),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                        horizontal: 12, vertical: Spacing.s8),
                     minimumSize: const Size(0, 32),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
@@ -184,7 +185,7 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
                 onPressed: _sending ? null : () => _send('cancel'),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 6),
+                      horizontal: 12, vertical: Spacing.s8),
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -200,7 +201,7 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
           ),
         if (_error != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.only(top: Spacing.s8),
             child: Text(
               _error!,
               style: GoogleFonts.jetBrainsMono(
@@ -433,7 +434,7 @@ class _AskUserQuestionCardState extends ConsumerState<AskUserQuestionCard> {
             children: [
               for (final o in options)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.only(bottom: Spacing.s8),
                   child: OutlinedButton(
                     onPressed: _sending ? null : () => _send(o.label),
                     style: OutlinedButton.styleFrom(
@@ -472,7 +473,7 @@ class _AskUserQuestionCardState extends ConsumerState<AskUserQuestionCard> {
           ),
         if (_error != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.only(top: Spacing.s8),
             child: Text(
               _error!,
               style: GoogleFonts.jetBrainsMono(

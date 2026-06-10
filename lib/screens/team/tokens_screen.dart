@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/hub_client.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -23,6 +26,7 @@ class TokensScreen extends ConsumerStatefulWidget {
 class _TokensScreenState extends ConsumerState<TokensScreen> {
   List<Map<String, dynamic>> _rows = const [];
   bool _loading = false;
+  bool _hubMissing = false;
   String? _error;
 
   @override
@@ -35,12 +39,13 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _hubMissing = false;
     });
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -61,7 +66,7 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
       setState(() {
         _loading = false;
         _error = e.status == 403
-            ? 'Token management requires an owner-kind token.'
+            ? AppLocalizations.of(context)!.tokenRequiresOwner
             : '${e.status}: ${e.message}';
       });
     } catch (e) {
@@ -91,6 +96,7 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
       if (!mounted) return;
       await _showPlaintextSheet(
         context,
+        ref,
         plaintext: plaintext,
         handle: result.handle,
         kind: result.kind,
@@ -101,7 +107,7 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Issue failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.issueFailedError('$e'))),
       );
     }
   }
@@ -109,22 +115,21 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
   Future<void> _revoke(Map<String, dynamic> row) async {
     final id = (row['id'] ?? '').toString();
     final label = (row['handle'] ?? row['kind'] ?? id).toString();
+    final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Revoke "$label"?'),
-        content: const Text(
-          'The holder will be signed out on their next request. This cannot be undone.',
-        ),
+        title: Text(l10n.revokeTokenTitle(label)),
+        content: Text(l10n.revokeTokenBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Revoke'),
+            child: Text(l10n.buttonRevoke),
           ),
         ],
       ),
@@ -138,17 +143,18 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Revoke failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.revokeFailedError('$e'))),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Auth',
+          l10n.governanceAuth,
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
@@ -162,15 +168,27 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _issue,
         icon: const Icon(Icons.add),
-        label: const Text('New token'),
+        label: Text(l10n.newToken),
       ),
-      body: _buildBody(),
+      body: _buildBody(l10n),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(AppLocalizations l10n) {
     if (_loading && _rows.isEmpty) {
       return const Center(child: CircularProgressIndicator());
+    }
+    if (_hubMissing) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            l10n.hubNotConfigured,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.spaceGrotesk(color: DesignColors.error),
+          ),
+        ),
+      );
     }
     if (_error != null) {
       return Center(
@@ -186,7 +204,7 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
     }
     if (_rows.isEmpty) {
       return Center(
-        child: Text('No tokens issued yet.',
+        child: Text(l10n.noTokensYet,
             style: GoogleFonts.spaceGrotesk(color: DesignColors.textMuted)),
       );
     }
@@ -212,13 +230,14 @@ class _TokenTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final kind = (row['kind'] ?? '').toString();
     final role = (row['role'] ?? '').toString();
     final handle = (row['handle'] ?? '').toString();
     final revoked = row['revoked_at'] != null;
     final createdAt = (row['created_at'] ?? '').toString();
-    final title = handle.isNotEmpty ? handle : '($kind token)';
+    final title = handle.isNotEmpty ? handle : l10n.tokenTileFallback(kind);
     return Opacity(
       opacity: revoked ? 0.5 : 1.0,
       child: Container(
@@ -253,7 +272,7 @@ class _TokenTile extends StatelessWidget {
                       kind,
                       if (role.isNotEmpty) role,
                       if (createdAt.isNotEmpty) createdAt.substring(0, 10),
-                      if (revoked) 'revoked',
+                      if (revoked) l10n.tokenStatusRevoked,
                     ].join(' · '),
                     style: GoogleFonts.spaceGrotesk(
                         fontSize: 11, color: DesignColors.textMuted),
@@ -300,13 +319,14 @@ class _IssueDialogState extends State<_IssueDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
-      title: const Text('New token'),
+      title: Text(l10n.newToken),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Kind',
+          Text(l10n.tokenKindLabel,
               style: GoogleFonts.spaceGrotesk(
                   fontSize: 12, color: DesignColors.textMuted)),
           const SizedBox(height: 6),
@@ -332,8 +352,8 @@ class _IssueDialogState extends State<_IssueDialog> {
             autofocus: true,
             decoration: InputDecoration(
               labelText: _kind == 'user'
-                  ? 'Handle (e.g. alice)'
-                  : 'Label (optional)',
+                  ? l10n.tokenHandleLabel
+                  : l10n.tokenLabelOptional,
             ),
           ),
         ],
@@ -341,7 +361,7 @@ class _IssueDialogState extends State<_IssueDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           onPressed: () {
@@ -353,7 +373,7 @@ class _IssueDialogState extends State<_IssueDialog> {
               _IssueSpec(kind: _kind, role: role, handle: h),
             );
           },
-          child: const Text('Issue'),
+          child: Text(l10n.buttonIssue),
         ),
       ],
     );
@@ -361,13 +381,16 @@ class _IssueDialogState extends State<_IssueDialog> {
 }
 
 Future<void> _showPlaintextSheet(
-  BuildContext context, {
+  BuildContext context,
+  WidgetRef ref, {
   required String plaintext,
   required String handle,
   required String kind,
   required String hubUrl,
   required String teamId,
 }) async {
+  final l10n = AppLocalizations.of(context)!;
+  final hostTerm = ref.read(vocabularyProvider).term(VocabAxis.entityHost).lower;
   // For host-kind tokens we render a ready-to-paste setup snippet
   // (Track A from docs/hub-host-setup.md) so the demo path is one
   // screen instead of "got token, now read the doc". The snippet uses
@@ -398,12 +421,12 @@ Future<void> _showPlaintextSheet(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Token for $handle',
+              Text(l10n.tokenForHandle(handle),
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(
-                'Copy this now. The hub does not store the plaintext — this is the only time it will be shown.',
+                l10n.tokenCopyWarning,
                 style: GoogleFonts.spaceGrotesk(
                     fontSize: 12, color: DesignColors.textMuted),
               ),
@@ -425,15 +448,15 @@ Future<void> _showPlaintextSheet(
                   Expanded(
                     child: FilledButton.icon(
                       icon: const Icon(Icons.copy),
-                      label: const Text('Copy'),
+                      label: Text(l10n.buttonCopy),
                       onPressed: () async {
                         await Clipboard.setData(
                             ClipboardData(text: plaintext));
                         if (!ctx.mounted) return;
                         ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(
-                            content: Text('Token copied'),
-                            duration: Duration(seconds: 2),
+                          SnackBar(
+                            content: Text(l10n.tokenCopied),
+                            duration: const Duration(seconds: 2),
                           ),
                         );
                       },
@@ -442,18 +465,18 @@ Future<void> _showPlaintextSheet(
                   const SizedBox(width: 8),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Done'),
+                    child: Text(l10n.buttonDone),
                   ),
                 ],
               ),
               if (hostSetup != null) ...[
                 const SizedBox(height: 24),
-                Text('Run on the host',
+                Text(l10n.runOnHost(hostTerm),
                     style: GoogleFonts.spaceGrotesk(
                         fontSize: 14, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 Text(
-                  'Inside a tmux session on the target box (Track A — see docs/hub-host-setup.md for systemd/Track B):',
+                  l10n.hostSetupInstructions,
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 12, color: DesignColors.textMuted),
                 ),
@@ -476,14 +499,14 @@ Future<void> _showPlaintextSheet(
                   alignment: Alignment.centerLeft,
                   child: TextButton.icon(
                     icon: const Icon(Icons.copy, size: 16),
-                    label: const Text('Copy setup command'),
+                    label: Text(l10n.copySetupCommand),
                     onPressed: () async {
                       await Clipboard.setData(ClipboardData(text: hostSetup));
                       if (!ctx.mounted) return;
                       ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(
-                          content: Text('Setup command copied'),
-                          duration: Duration(seconds: 2),
+                        SnackBar(
+                          content: Text(l10n.setupCommandCopied),
+                          duration: const Duration(seconds: 2),
                         ),
                       );
                     },
@@ -491,7 +514,7 @@ Future<void> _showPlaintextSheet(
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Prereq: host has \$HOME/host-runner built from `cd hub && go build -o ~/host-runner ./cmd/host-runner`. Already on \$PATH? Drop the leading `~/`.',
+                  l10n.hostRunnerPrereq,
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 11, color: DesignColors.textMuted),
                 ),

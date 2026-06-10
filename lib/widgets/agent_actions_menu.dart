@@ -24,10 +24,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../providers/sessions_provider.dart';
+import '../providers/vocab_provider.dart';
 import '../services/hub/agent_status.dart';
 import '../services/hub/hub_transport.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../theme/design_colors.dart';
 
 /// Menu action values (also the `onSelected` switch keys). `config` and
@@ -61,13 +64,16 @@ enum AgentActionOutcome {
 /// The shared lifecycle menu items — the single source of the labels. Gated by
 /// the agent's state exactly like the project-agent sheet always was.
 List<PopupMenuEntry<String>> agentLifecycleMenuItems(
-  BuildContext context, {
+  BuildContext context,
+  WidgetRef ref, {
   required bool isDead,
   required bool isPaused,
   required bool hasPane,
   required bool canRespawn,
   AgentResumability resumable = AgentResumability.unknown,
 }) {
+  final l10n = AppLocalizations.of(context)!;
+  final agent = ref.watch(vocabularyProvider).term(VocabAxis.roleAgent);
   final err = Theme.of(context).colorScheme.error;
   return [
     if (!isDead && hasPane)
@@ -75,7 +81,7 @@ List<PopupMenuEntry<String>> agentLifecycleMenuItems(
         value: AgentAction.pauseResume,
         child: ListTile(
           leading: Icon(isPaused ? Icons.play_arrow : Icons.pause),
-          title: Text(isPaused ? 'Resume' : 'Pause'),
+          title: Text(isPaused ? l10n.buttonResume : l10n.buttonPause),
           contentPadding: EdgeInsets.zero,
           dense: true,
         ),
@@ -87,24 +93,24 @@ List<PopupMenuEntry<String>> agentLifecycleMenuItems(
     // confusing "tried to resume, failed" path). When the session fate is
     // unknown (cold list) we still offer it and let the hub 409 clearly.
     if (isDead && resumable != AgentResumability.permanent)
-      const PopupMenuItem(
+      PopupMenuItem(
         value: AgentAction.resumeSession,
         child: ListTile(
-          leading:
-              Icon(Icons.play_circle_outline, color: DesignColors.success),
-          title: Text('Resume session'),
-          subtitle: Text('Continue the paused session (keeps history)'),
+          leading: const Icon(Icons.play_circle_outline,
+              color: DesignColors.success),
+          title: Text(l10n.menuResumeSession),
+          subtitle: Text(l10n.resumeSessionSubtitle),
           contentPadding: EdgeInsets.zero,
           dense: true,
         ),
       ),
     if (canRespawn)
-      const PopupMenuItem(
+      PopupMenuItem(
         value: AgentAction.respawn,
         child: ListTile(
-          leading: Icon(Icons.replay),
-          title: Text('Respawn'),
-          subtitle: Text('Spawn a new agent from the same spec'),
+          leading: const Icon(Icons.replay),
+          title: Text(l10n.menuRespawn),
+          subtitle: Text(l10n.respawnSubtitle(agent.lower)),
           contentPadding: EdgeInsets.zero,
           dense: true,
         ),
@@ -112,12 +118,12 @@ List<PopupMenuEntry<String>> agentLifecycleMenuItems(
     // Stop = resumable halt; sits above Archive so the recoverable option is the
     // default reach. Both kill the live pane.
     if (!isDead)
-      const PopupMenuItem(
+      PopupMenuItem(
         value: AgentAction.stop,
         child: ListTile(
-          leading: Icon(Icons.pause_circle_outline),
-          title: Text('Stop'),
-          subtitle: Text('Halt; session paused (resumable)'),
+          leading: const Icon(Icons.pause_circle_outline),
+          title: Text(l10n.buttonStop),
+          subtitle: Text(l10n.stopSubtitle),
           contentPadding: EdgeInsets.zero,
           dense: true,
         ),
@@ -127,8 +133,8 @@ List<PopupMenuEntry<String>> agentLifecycleMenuItems(
         value: AgentAction.archive,
         child: ListTile(
           leading: Icon(Icons.archive_outlined, color: err),
-          title: Text('Archive', style: TextStyle(color: err)),
-          subtitle: const Text('Permanent; session archived, fork-only'),
+          title: Text(l10n.buttonArchive, style: TextStyle(color: err)),
+          subtitle: Text(l10n.archiveSubtitle),
           contentPadding: EdgeInsets.zero,
           dense: true,
         ),
@@ -138,8 +144,8 @@ List<PopupMenuEntry<String>> agentLifecycleMenuItems(
         value: AgentAction.delete,
         child: ListTile(
           leading: Icon(Icons.delete_outline, color: err),
-          title: Text('Delete', style: TextStyle(color: err)),
-          subtitle: const Text('Remove from the list; row preserved'),
+          title: Text(l10n.buttonDelete, style: TextStyle(color: err)),
+          subtitle: Text(l10n.deleteSubtitle),
           contentPadding: EdgeInsets.zero,
           dense: true,
         ),
@@ -161,6 +167,8 @@ Future<AgentActionOutcome> runAgentLifecycleAction(
 }) async {
   final client = ref.read(hubProvider.notifier).client;
   if (client == null || agentId.isEmpty) return AgentActionOutcome.cancelled;
+  final l10n = AppLocalizations.of(context)!;
+  final agent = ref.read(vocabularyProvider).term(VocabAxis.roleAgent);
   final messenger = ScaffoldMessenger.of(context);
 
   Future<bool> confirm({
@@ -177,7 +185,7 @@ Future<AgentActionOutcome> runAgentLifecycleAction(
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: destructive
@@ -201,7 +209,7 @@ Future<AgentActionOutcome> runAgentLifecycleAction(
     try {
       await op();
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Action failed: $e')));
+      messenger.showSnackBar(SnackBar(content: Text(l10n.actionFailedMsg('$e'))));
       return AgentActionOutcome.cancelled;
     }
     await ref.read(hubProvider.notifier).refreshAll();
@@ -224,48 +232,40 @@ Future<AgentActionOutcome> runAgentLifecycleAction(
               await client.pauseAgent(agentId);
             }
           },
-          ok: isPaused ? 'Resume command enqueued' : 'Pause command enqueued',
+          ok: isPaused ? l10n.resumeEnqueued : l10n.pauseEnqueued,
           outcome: AgentActionOutcome.stayed);
     case AgentAction.stop:
       if (!await confirm(
-        title: 'Stop "$handle"?',
-        body: 'Halts this worker: the host-runner kills the pane (dirty '
-            'worktrees are preserved) and the session is PAUSED — resumable '
-            'later from where it left off. To end it permanently instead, use '
-            'Archive.',
-        action: 'Stop',
+        title: l10n.stopHandleTitle(handle),
+        body: l10n.stopAgentBody(agent.lower),
+        action: l10n.buttonStop,
         destructive: false,
       )) {
         return AgentActionOutcome.cancelled;
       }
       return guarded(() => client.stopAgent(agentId),
-          ok: 'Stopped — session paused (resumable)',
+          ok: l10n.stoppedResumable,
           outcome: AgentActionOutcome.stayed);
     case AgentAction.archive:
       if (!await confirm(
-        title: 'Archive "$handle"?',
-        body: 'Permanently ends this worker: the host-runner kills the pane '
-            '(dirty worktrees are preserved) and the session is ARCHIVED — '
-            'not resumable, only fork-eligible. To halt a worker you may want '
-            'back, use Stop instead.',
-        action: 'Archive',
+        title: l10n.archiveHandleTitle(handle),
+        body: l10n.archiveAgentBody(agent.lower),
+        action: l10n.buttonArchive,
       )) {
         return AgentActionOutcome.cancelled;
       }
       return guarded(() => client.terminateAgent(agentId),
-          ok: 'Archived', outcome: AgentActionOutcome.removed);
+          ok: l10n.agentArchived, outcome: AgentActionOutcome.removed);
     case AgentAction.delete:
       if (!await confirm(
-        title: 'Delete "$handle"?',
-        body: 'Moves this terminated agent off the live list. The row stays in '
-            'the database so spawn history and audit events still resolve. You '
-            'can review archived agents from the history page.',
-        action: 'Delete',
+        title: l10n.deleteHandleTitle(handle),
+        body: l10n.deleteAgentBody(agent.lower),
+        action: l10n.buttonDelete,
       )) {
         return AgentActionOutcome.cancelled;
       }
       return guarded(() => client.archiveAgent(agentId),
-          ok: 'Deleted', outcome: AgentActionOutcome.removed);
+          ok: l10n.agentDeleted, outcome: AgentActionOutcome.removed);
     case AgentAction.resumeSession:
       // A 409 here means there's no paused session to bring back — the run was
       // Archived (session archived, fork-only) or is still live. Surface that
@@ -277,18 +277,18 @@ Future<AgentActionOutcome> runAgentLifecycleAction(
         await client.resumeAgentSession(agentId);
       } on HubApiError catch (e) {
         final msg = e.status == 409
-            ? 'No paused session to resume — this run was archived '
-                '(permanent). Fork it to continue from its history.'
-            : 'Resume failed: $e';
+            ? l10n.noPausedSessionMsg
+            : l10n.resumeFailedMsg('$e');
         messenger.showSnackBar(SnackBar(content: Text(msg)));
         return AgentActionOutcome.cancelled;
       } catch (e) {
-        messenger.showSnackBar(SnackBar(content: Text('Resume failed: $e')));
+        messenger.showSnackBar(
+            SnackBar(content: Text(l10n.resumeFailedMsg('$e'))));
         return AgentActionOutcome.cancelled;
       }
       await ref.read(hubProvider.notifier).refreshAll();
       await ref.read(sessionsProvider.notifier).refresh();
-      messenger.showSnackBar(const SnackBar(content: Text('Session resumed')));
+      messenger.showSnackBar(SnackBar(content: Text(l10n.sessionResumedMsg)));
       return AgentActionOutcome.sessionResumed;
     default:
       return AgentActionOutcome.cancelled;
@@ -309,37 +309,38 @@ Future<bool> respawnAgentFromSpec(
   required String specYaml,
 }) async {
   if (specYaml.isEmpty) return false;
+  final l10n = AppLocalizations.of(context)!;
+  final agent = ref.read(vocabularyProvider).term(VocabAxis.roleAgent);
   final messenger = ScaffoldMessenger.of(context);
   final suggested = '$handle-r${DateTime.now().millisecondsSinceEpoch % 10000}';
   final ctrl = TextEditingController(text: suggested);
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('Respawn from spec'),
+      title: Text(l10n.respawnFromSpecTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Spawns a new agent using the same spec. The original row stays '
-            'untouched — archive it first if you want to free the handle.',
-            style: TextStyle(fontSize: 12),
+          Text(
+            l10n.respawnFromSpecBody(agent.lower),
+            style: const TextStyle(fontSize: 12),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: ctrl,
             autofocus: true,
-            decoration: const InputDecoration(labelText: 'New handle'),
+            decoration: InputDecoration(labelText: l10n.newHandle),
           ),
         ],
       ),
       actions: [
         TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel')),
+            child: Text(l10n.buttonCancel)),
         FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Respawn')),
+            child: Text(l10n.menuRespawn)),
       ],
     ),
   );
@@ -356,10 +357,12 @@ Future<bool> respawnAgentFromSpec(
       hostId: hostId.isEmpty ? null : hostId,
     );
   } catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text('Respawn failed: $e')));
+    messenger.showSnackBar(
+        SnackBar(content: Text(l10n.respawnFailedMsg('$e'))));
     return false;
   }
   await ref.read(hubProvider.notifier).refreshAll();
-  messenger.showSnackBar(SnackBar(content: Text('Respawn requested: $newHandle')));
+  messenger.showSnackBar(
+      SnackBar(content: Text(l10n.respawnRequestedMsg(newHandle))));
   return true;
 }

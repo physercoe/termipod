@@ -311,6 +311,7 @@ class _ArchivedTile extends ConsumerWidget {
                       },
                       itemBuilder: (ctx) => agentLifecycleMenuItems(
                         ctx,
+                        ref,
                         isDead: true,
                         isPaused: isPaused,
                         hasPane: false,

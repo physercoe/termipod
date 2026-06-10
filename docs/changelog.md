@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-10)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.816
+> **Last verified vs code:** v1.0.817
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,45 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.817-alpha — 2026-06-10
+
+The i18n sweep (#138 / ADR-048) continues across the **Sessions**,
+**shared-widget**, and **transcript** surfaces. A device-test build for
+everything merged since v1.0.816: WS-C slice 3, all of WS-D, and WS-E
+slices 1–4.
+
+### Changed
+
+- **Sessions — fully localized (WS-C slice 3, #146).** The remaining
+  hardcoded literals in `sessions_screen.dart` are gone: role-bound
+  confirm-dialog body paragraphs (filled by the active vocabulary preset
+  via `{role}` templates), neutral bodies, and the scope labels
+  (`entity.team` / `entity.project` resolved through vocab; `Approving`
+  neutral). The Sessions screen now carries zero hardcoded user-visible
+  strings.
+- **Shared widgets localized (WS-D, #147 / #148).** Neutral chrome —
+  the `View ▾` switcher tooltip and every `RunReportCard` label (stat
+  captions, summary, footer, model tokens). Role-bound — the shared
+  agent-lifecycle menu (`agent_actions_menu`): action verbs as plain
+  l10n, the `role.agent` term swapping via `{agent}` templates;
+  `agentLifecycleMenuItems` gained a `WidgetRef ref` param threaded
+  through its three call sites.
+- **Transcript localized (WS-E slices 1–4, #149–#152).** The feed-filter
+  lens vocabulary (`labelFor` / `errorClassLabel` gain an
+  `AppLocalizations` param), the approval & interaction decision cards,
+  the `event_card` task lines + copy snackbar, and the Insight navigator
+  empty-state / jump / scrub strings. The `telemetry_strip`
+  operator-diagnostics dashboard is intentionally out of scope (it needs
+  a dedicated duration/number-formatter i18n refactor).
+
+### Fixed
+
+- gen-l10n metadata: a placeholder named `type` collided with its own
+  `type` attribute and broke generation; renamed to `kind` (#149).
+- `run_report_card` widget test now installs the localization delegates
+  in its pump harness after the widget began reading `AppLocalizations`
+  (#147).
 
 ## v1.0.816-alpha — 2026-06-10
 

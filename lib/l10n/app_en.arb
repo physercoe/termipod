@@ -1396,5 +1396,21 @@
   "artifactPointerNote": "Stored as {output} {id} — bytes live on host, not in hub.",
   "@artifactPointerNote": { "placeholders": { "output": { "type": "String" }, "id": { "type": "String" } } },
   "fieldNoteOptional": "Note (optional)",
-  "buttonRequest": "Request"
+  "buttonRequest": "Request",
+  "startPlan": "Start a {plan}",
+  "@startPlan": { "placeholders": { "plan": { "type": "String" } } },
+  "planCreateNote": "Creates a draft {plan} under a {project}. A {steward} fills in the phases and steps from the chosen template.",
+  "@planCreateNote": { "placeholders": { "plan": { "type": "String" }, "project": { "type": "String" }, "steward": { "type": "String" } } },
+  "fieldTemplateOptional": "Template (optional)",
+  "createDraftPlan": "Create draft {plan}",
+  "@createDraftPlan": { "placeholders": { "plan": { "type": "String" } } },
+  "noTemplateBlankDraft": "No template — blank draft",
+  "noTemplateBlankDraftItem": "No template (blank draft)",
+  "addPlanStep": "Add {plan} step",
+  "@addPlanStep": { "placeholders": { "plan": { "type": "String" } } },
+  "buttonAddStep": "Add step",
+  "fieldPhaseIndex": "Phase index",
+  "fieldStepIndex": "Step index",
+  "fieldSpecJsonOptional": "Spec (JSON, optional)",
+  "specMustBeJsonObject": "Spec must be a JSON object."
 }

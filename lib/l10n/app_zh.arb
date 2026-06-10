@@ -1208,5 +1208,21 @@
   "artifactPointerNote": "存储为{output} {id}——字节存放在主机上，而非 hub 中。",
   "@artifactPointerNote": { "placeholders": { "output": { "type": "String" }, "id": { "type": "String" } } },
   "fieldNoteOptional": "备注（可选）",
-  "buttonRequest": "请求"
+  "buttonRequest": "请求",
+  "startPlan": "启动{plan}",
+  "@startPlan": { "placeholders": { "plan": { "type": "String" } } },
+  "planCreateNote": "在{project}下创建一个草稿{plan}。{steward}将根据所选模板填写各阶段和步骤。",
+  "@planCreateNote": { "placeholders": { "plan": { "type": "String" }, "project": { "type": "String" }, "steward": { "type": "String" } } },
+  "fieldTemplateOptional": "模板（可选）",
+  "createDraftPlan": "创建草稿{plan}",
+  "@createDraftPlan": { "placeholders": { "plan": { "type": "String" } } },
+  "noTemplateBlankDraft": "无模板——空白草稿",
+  "noTemplateBlankDraftItem": "无模板（空白草稿）",
+  "addPlanStep": "添加{plan}步骤",
+  "@addPlanStep": { "placeholders": { "plan": { "type": "String" } } },
+  "buttonAddStep": "添加步骤",
+  "fieldPhaseIndex": "阶段索引",
+  "fieldStepIndex": "步骤索引",
+  "fieldSpecJsonOptional": "规格（JSON，可选）",
+  "specMustBeJsonObject": "规格必须为 JSON 对象。"
 }

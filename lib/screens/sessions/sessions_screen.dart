@@ -209,6 +209,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   }
 
   Future<void> _bulkArchive(List<Map<String, dynamic>> visible) async {
+    final l10n = AppLocalizations.of(context)!;
     final ids = <String>[];
     for (final s in visible) {
       final id = (s['id'] ?? '').toString();
@@ -223,7 +224,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Archive ${ids.length} session${ids.length == 1 ? '' : 's'}?'),
+        title: Text(l10n.archiveSessionsTitle(ids.length)),
         content: const Text(
           'Archived sessions move to Previous. Their transcripts stay '
           'available; you can fork from archive later to continue.',
@@ -231,11 +232,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Archive'),
+            child: Text(l10n.buttonArchive),
           ),
         ],
       ),
@@ -249,8 +250,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(failed.isEmpty
-            ? 'Archived $n session${n == 1 ? '' : 's'}.'
-            : 'Archived $n; ${failed.length} failed.'),
+            ? l10n.archivedResult(n)
+            : l10n.archivedSomeFailed(n, failed.length)),
       ),
     );
     _exitSelect();
@@ -263,6 +264,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   /// is already gone). The hub will mark agents as terminated via
   /// PATCH /agents/<id> status=terminated.
   Future<void> _bulkStop(List<Map<String, dynamic>> visible) async {
+    final l10n = AppLocalizations.of(context)!;
     final agentIds = <String>{};
     var skippedTerminal = 0;
     for (final s in visible) {
@@ -288,8 +290,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(skippedTerminal > 0
-              ? 'Stop only works on active sessions. Selection is all closed/archived.'
-              : 'No active sessions selected.'),
+              ? l10n.stopOnlyActive
+              : l10n.noActiveSessionsSelected),
         ),
       );
       return;
@@ -297,9 +299,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(
-          'Stop ${agentIds.length} agent${agentIds.length == 1 ? '' : 's'}?',
-        ),
+        title: Text(l10n.stopAgentsTitle(agentIds.length)),
         content: const Text(
           'The agent pane stays in tmux for inspection; the steward is '
           'marked terminated and the session goes idle. You can spawn a '
@@ -308,14 +308,14 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Stop'),
+            child: Text(l10n.buttonStop),
           ),
         ],
       ),
@@ -329,14 +329,15 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(failed.isEmpty
-            ? 'Stopped $n agent${n == 1 ? '' : 's'}.'
-            : 'Stopped $n; ${failed.length} failed.'),
+            ? l10n.stoppedResult(n)
+            : l10n.stoppedSomeFailed(n, failed.length)),
       ),
     );
     _exitSelect();
   }
 
   Future<void> _bulkDelete(List<Map<String, dynamic>> visible) async {
+    final l10n = AppLocalizations.of(context)!;
     final ids = <String>[];
     var hasNonArchived = false;
     for (final s in visible) {
@@ -353,8 +354,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(hasNonArchived
-              ? 'Delete only works on archived sessions. Archive first.'
-              : 'No sessions selected.'),
+              ? l10n.deleteOnlyArchived
+              : l10n.noSessionsSelected),
         ),
       );
       return;
@@ -363,8 +364,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(
-          'Delete ${ids.length} session${ids.length == 1 ? '' : 's'}?'
-          + (hasNonArchived ? ' (skipping unarchived)' : ''),
+          l10n.deleteSessionsTitle(ids.length) +
+              (hasNonArchived ? l10n.deleteSkipUnarchivedSuffix : ''),
         ),
         content: const Text(
           'The transcripts stay in the audit log but lose their '
@@ -373,14 +374,14 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -394,8 +395,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(failed.isEmpty
-            ? 'Deleted $n session${n == 1 ? '' : 's'}.'
-            : 'Deleted $n; ${failed.length} failed.'),
+            ? l10n.deletedResult(n)
+            : l10n.deletedSomeFailed(n, failed.length)),
       ),
     );
     _exitSelect();
@@ -403,6 +404,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final state = ref.watch(sessionsProvider);
     final hubState = ref.watch(hubProvider).value;
     return Scaffold(
@@ -414,7 +416,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         error: (e, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text('Sessions failed to load: $e',
+            child: Text(l10n.sessionsLoadFailed('$e'),
                 style: GoogleFonts.jetBrainsMono(fontSize: 12)),
           ),
         ),
@@ -597,6 +599,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     final categoryCounts = <StewardCategory, int>{
       for (final c in presentCats) c: categoryDisplayCount(c, groups),
     };
+    final l10n = AppLocalizations.of(context)!;
     final stewardTerm =
         ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     // Detached scope sub-chips (#122): when Detached is the active
@@ -627,25 +630,25 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             _selectedIds.contains((s['id'] ?? '').toString()));
     return AppBar(
       leading: IconButton(
-        tooltip: 'Cancel selection',
+        tooltip: l10n.tooltipCancelSelection,
         icon: const Icon(Icons.close),
         onPressed: _exitSelect,
       ),
       title: Text(
-        '${_selectedIds.length} selected'
-        '${_categoryFilter.isEmpty ? '' : ' · filter'}',
+        l10n.nSelected(_selectedIds.length) +
+            (_categoryFilter.isEmpty ? '' : l10n.selectionFilterSuffix),
         style: GoogleFonts.spaceGrotesk(
             fontWeight: FontWeight.w700, fontSize: 18),
       ),
       actions: [
         if (_selectedIds.isNotEmpty)
           IconButton(
-            tooltip: 'Invert selection',
+            tooltip: l10n.tooltipInvertSelection,
             icon: const Icon(Icons.swap_horiz),
             onPressed: () => _invertSelection(visible),
           ),
         IconButton(
-          tooltip: allSelected ? 'Clear selection' : 'Select all',
+          tooltip: allSelected ? l10n.tooltipClearSelection : l10n.tooltipSelectAll,
           icon: Icon(allSelected ? Icons.deselect : Icons.select_all),
           onPressed: () {
             if (allSelected) {
@@ -788,6 +791,7 @@ class _SelectionActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final disabled = selectedCount == 0;
     // Three actions, ordered by destructiveness: Stop (interrupts the
     // process but leaves history), Archive (hides from default list,
@@ -807,7 +811,7 @@ class _SelectionActionBar extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: disabled ? null : onStop,
                   icon: const Icon(Icons.stop_circle_outlined),
-                  label: const Text('Stop'),
+                  label: Text(l10n.buttonStop),
                 ),
               ),
               const SizedBox(width: 8),
@@ -815,7 +819,7 @@ class _SelectionActionBar extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: disabled ? null : onArchive,
                   icon: const Icon(Icons.archive_outlined),
-                  label: const Text('Archive'),
+                  label: Text(l10n.buttonArchive),
                 ),
               ),
               const SizedBox(width: 8),
@@ -826,7 +830,7 @@ class _SelectionActionBar extends StatelessWidget {
                     backgroundColor: Theme.of(context).colorScheme.error,
                   ),
                   icon: const Icon(Icons.delete_outline),
-                  label: const Text('Delete'),
+                  label: Text(l10n.buttonDelete),
                 ),
               ),
             ],
@@ -872,7 +876,9 @@ Future<void> _startSession(
   } catch (e) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Start session for $handle failed: $e')),
+      SnackBar(
+          content: Text(AppLocalizations.of(context)!
+              .startSessionFailed(handle, '$e'))),
     );
   }
 }
@@ -919,7 +925,7 @@ Future<_ScopePick?> _pickScopeSheet(
               Padding(
                 padding: const EdgeInsets.fromLTRB(Spacing.s16, 4, Spacing.s16, 8),
                 child: Text(
-                  'Scope for new session',
+                  AppLocalizations.of(ctx)!.scopeForNewSession,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -971,7 +977,7 @@ void _openStewardInsights(BuildContext context, WidgetRef ref) {
   final teamId = hub?.config?.teamId ?? '';
   if (teamId.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Configure a team first')),
+      SnackBar(content: Text(AppLocalizations.of(context)!.configureTeamFirst)),
     );
     return;
   }
@@ -1001,11 +1007,12 @@ Future<void> _resetStewardConversation(
   final client = ref.read(hubProvider.notifier).client;
   if (client == null) return;
 
+  final l10n = AppLocalizations.of(context)!;
   final label = stewardLabelText ?? 'this steward';
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('Reset conversation?'),
+      title: Text(l10n.resetConversationTitle),
       content: Text(
         'Closes $label\'s current session and opens a fresh one. The '
         'agent process keeps running, so its engine-level memory is '
@@ -1015,11 +1022,11 @@ Future<void> _resetStewardConversation(
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Reset (new conversation)'),
+          child: Text(l10n.menuResetConversation),
         ),
       ],
     ),
@@ -1053,7 +1060,7 @@ Future<void> _resetStewardConversation(
   } catch (e) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Reset failed: $e')),
+      SnackBar(content: Text(l10n.resetFailed('$e'))),
     );
     return;
   }
@@ -1110,18 +1117,19 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rename failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.renameFailedMsg('$e'))),
       );
     }
   }
 
   Future<void> _stopSession() async {
+    final l10n = AppLocalizations.of(context)!;
     final id = group.agentId;
     if (id.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Stop session?'),
+        title: Text(l10n.stopSessionTitle),
         content: Text(
           'Kills ${group.handle}\'s agent process. The session pauses '
           'and stays in Previous; you can Resume it later or Replace '
@@ -1130,14 +1138,14 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Stop'),
+            child: Text(l10n.buttonStop),
           ),
         ],
       ),
@@ -1152,7 +1160,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Stop failed: $e')),
+        SnackBar(content: Text(l10n.stopFailedMsg('$e'))),
       );
     }
   }
@@ -1400,7 +1408,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                         minimumSize: const Size(0, 28),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      child: const Text('Start session'),
+                      child: Text(l10n.buttonStartSession),
                     ),
                   ],
                 ),
@@ -1607,6 +1615,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -1619,7 +1628,7 @@ class _EmptyState extends StatelessWidget {
             Icon(Icons.forum_outlined, size: 36, color: muted),
             const SizedBox(height: 8),
             Text(
-              'No sessions yet',
+              l10n.emptySessionsTitle,
               style: GoogleFonts.spaceGrotesk(
                   fontSize: 14, fontWeight: FontWeight.w600, color: muted),
             ),
@@ -1677,7 +1686,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rename failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.renameFailedMsg('$e'))),
       );
     }
   }
@@ -1699,14 +1708,16 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
           builder: (_) => SessionChatScreen(
             sessionId: newSessionId,
             agentId: newAgentId,
-            title: title.isEmpty ? 'Forked session' : title,
+            title: title.isEmpty
+                ? AppLocalizations.of(context)!.forkedSession
+                : title,
           ),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fork failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.forkFailedMsg('$e'))),
       );
     }
   }
@@ -1716,12 +1727,13 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
   /// the session. Used for active sessions where the user wants to
   /// detach the engine without first opening the chat.
   Future<void> _stopFromRow(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     final agentId = (session['current_agent_id'] ?? '').toString();
     if (agentId.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Stop session?'),
+        title: Text(l10n.stopSessionTitle),
         content: const Text(
           "Kills the steward's agent process. The session pauses and "
           "stays in Previous; you can Resume it later or Fork from "
@@ -1730,14 +1742,14 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Stop'),
+            child: Text(l10n.buttonStop),
           ),
         ],
       ),
@@ -1752,7 +1764,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Stop failed: $e')),
+        SnackBar(content: Text(l10n.stopFailedMsg('$e'))),
       );
     }
   }
@@ -1762,12 +1774,13 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
   /// reachable via Fork. Used when the user has moved on from this
   /// conversation and doesn't want it cluttering the active list.
   Future<void> _archiveFromRow(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     final id = (session['id'] ?? '').toString();
     if (id.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Archive session?'),
+        title: Text(l10n.archiveSessionTitle),
         content: const Text(
           'Marks the session as done. The transcript stays available '
           'under Previous, and you can fork it later to continue.',
@@ -1775,11 +1788,11 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Archive'),
+            child: Text(l10n.buttonArchive),
           ),
         ],
       ),
@@ -1790,18 +1803,19 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Archive failed: $e')),
+        SnackBar(content: Text(l10n.archiveFailedMsg('$e'))),
       );
     }
   }
 
   Future<void> _confirmDelete(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     final id = (session['id'] ?? '').toString();
     if (id.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete this session?'),
+        title: Text(l10n.deleteSessionTitle),
         content: const Text(
           'The transcript stays in the audit log but loses its '
           'session-link. This is final.',
@@ -1809,14 +1823,14 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -1827,7 +1841,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $e')),
+        SnackBar(content: Text(l10n.deleteFailedMsg('$e'))),
       );
     }
   }
@@ -1860,7 +1874,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Resume failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.resumeFailedMsg('$e'))),
       );
     } finally {
       if (mounted) setState(() => _resuming = false);
@@ -1981,12 +1995,13 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     // steward has a session") is preserved because Stop terminates
     // the agent first; the session pauses but the steward dies with
     // it, so no agent-without-session intermediate.
+    final l10n = AppLocalizations.of(context)!;
     final isActive = status == 'active';
     final isPaused = status == 'paused';
     final isArchived = status == 'archived';
     final hasAgent = (session['current_agent_id'] ?? '').toString().isNotEmpty;
     final menu = PopupMenuButton<String>(
-      tooltip: 'Session actions',
+      tooltip: l10n.sessionActions,
       icon: Icon(Icons.more_vert, size: 18, color: muted),
       onSelected: (v) {
         if (v == 'rename') _rename(context);
@@ -1996,23 +2011,23 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         if (v == 'archive') _archiveFromRow(context);
       },
       itemBuilder: (_) => [
-        const PopupMenuItem(value: 'rename', child: Text('Rename')),
+        PopupMenuItem(value: 'rename', child: Text(l10n.buttonRename)),
         if (isActive && hasAgent)
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'stop',
-            child: Text('Stop session'),
+            child: Text(l10n.menuStopSession),
           ),
         if (isActive || isPaused)
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'archive',
-            child: Text('Archive'),
+            child: Text(l10n.buttonArchive),
           ),
         if (isArchived) ...[
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'fork',
-            child: Text('Fork from archive'),
+            child: Text(l10n.buttonForkFromArchive),
           ),
-          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+          PopupMenuItem(value: 'delete', child: Text(l10n.buttonDelete)),
         ],
       ],
     );
@@ -2044,7 +2059,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
                     height: 14,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Resume'),
+                : Text(l10n.buttonResume),
           ),
         if (timestamp != null) ...[
           const SizedBox(width: 6),
@@ -2061,28 +2076,29 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     BuildContext context,
     String current,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     final ctrl = TextEditingController(text: current);
     try {
       return await showDialog<String?>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Rename session'),
+          title: Text(l10n.renameSessionTitle),
           content: TextField(
             controller: ctrl,
             autofocus: true,
-            decoration: const InputDecoration(
-              hintText: 'Untitled — empty clears the name',
+            decoration: InputDecoration(
+              hintText: l10n.renameSessionHint,
             ),
             onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, null),
-              child: const Text('Cancel'),
+              child: Text(l10n.buttonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-              child: const Text('Save'),
+              child: Text(l10n.buttonSave),
             ),
           ],
         ),
@@ -2332,7 +2348,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rename failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.renameFailedMsg('$e'))),
       );
     }
   }
@@ -2398,7 +2414,9 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
             builder: (_) => SessionChatScreen(
               sessionId: newSessionId,
               agentId: attachedAgent!,
-              title: title.isEmpty ? 'Forked session' : title,
+              title: title.isEmpty
+                  ? AppLocalizations.of(context)!.forkedSession
+                  : title,
             ),
           ),
         );
@@ -2411,14 +2429,16 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
           builder: (_) => SessionChatScreen(
             sessionId: newSessionId,
             agentId: newAgentId,
-            title: title.isEmpty ? 'Forked session' : title,
+            title: title.isEmpty
+                ? AppLocalizations.of(context)!.forkedSession
+                : title,
           ),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fork failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.forkFailedMsg('$e'))),
       );
     }
   }
@@ -2557,8 +2577,10 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     // the project-agent sheet via [agentLifecycleMenuItems] /
     // [runAgentLifecycleAction] so the actions + names can't drift; config /
     // rename / fork are session-specific.
+    final l10n = AppLocalizations.of(context)!;
+    final agentTerm = ref.watch(vocabularyProvider).term(VocabAxis.roleAgent);
     final sessionActionsMenu = PopupMenuButton<String>(
-      tooltip: 'Session actions',
+      tooltip: l10n.sessionActions,
       onSelected: (v) async {
         switch (v) {
           case AgentAction.config:
@@ -2606,21 +2628,21 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
       },
       itemBuilder: (_) => [
         if ((sessionRow?['current_agent_id'] ?? '').toString().isNotEmpty)
-          const PopupMenuItem(
+          PopupMenuItem(
             value: AgentAction.config,
             child: ListTile(
-              leading: Icon(Icons.account_tree_outlined),
-              title: Text('View agent config'),
-              subtitle: Text('Kind, role, mode, spawn spec'),
+              leading: const Icon(Icons.account_tree_outlined),
+              title: Text(l10n.viewAgentConfig(agentTerm.lower)),
+              subtitle: Text(l10n.agentConfigSubtitle),
               contentPadding: EdgeInsets.zero,
               dense: true,
             ),
           ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'rename',
           child: ListTile(
-            leading: Icon(Icons.edit_outlined),
-            title: Text('Rename session'),
+            leading: const Icon(Icons.edit_outlined),
+            title: Text(l10n.renameSessionTitle),
             contentPadding: EdgeInsets.zero,
             dense: true,
           ),
@@ -2644,9 +2666,8 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
             child: ListTile(
               leading: Icon(Icons.fork_right,
                   color: Theme.of(context).colorScheme.primary),
-              title: const Text('Fork from archive'),
-              subtitle: const Text(
-                  'New active session, same scope, fresh transcript'),
+              title: Text(l10n.buttonForkFromArchive),
+              subtitle: Text(l10n.forkFromArchiveSubtitle),
               contentPadding: EdgeInsets.zero,
               dense: true,
             ),

@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import 'feed_reducer.dart' show FeedLens;
@@ -262,23 +263,24 @@ class FeedFilterControl extends StatelessWidget {
     }
   }
 
-  static String labelFor(FeedLens l) {
+  static String labelFor(AppLocalizations l10n, FeedLens l) {
     switch (l) {
       case FeedLens.all:
-        return 'All';
+        return l10n.lensAll;
       case FeedLens.text:
-        return 'Text';
+        return l10n.lensText;
       case FeedLens.turns:
-        return 'Turns';
+        return l10n.lensTurns;
       case FeedLens.tools:
-        return 'Tools';
+        return l10n.lensTools;
       case FeedLens.errors:
-        return 'Errors';
+        return l10n.lensErrors;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -291,7 +293,7 @@ class FeedFilterControl extends StatelessWidget {
         lens == FeedLens.errors ? DesignColors.error : DesignColors.primary;
 
     final menu = PopupMenuButton<FeedLens>(
-      tooltip: 'Filter transcript',
+      tooltip: l10n.filterTranscript,
       padding: EdgeInsets.zero,
       onSelected: onSelectLens,
       itemBuilder: (_) => [
@@ -304,7 +306,7 @@ class FeedFilterControl extends StatelessWidget {
                     size: 16,
                     color: l == lens ? accent : muted),
                 const SizedBox(width: 8),
-                Text(labelFor(l),
+                Text(labelFor(l10n, l),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 13,
                       fontWeight:
@@ -348,7 +350,7 @@ class FeedFilterControl extends StatelessWidget {
                   Icon(iconFor(lens), size: 14, color: accent),
                   const SizedBox(width: 4),
                   Text(
-                    labelFor(lens),
+                    labelFor(l10n, lens),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -389,20 +391,20 @@ class FeedFilterControl extends StatelessWidget {
                 if (showStepper) ...[
                   _StepButton(
                     icon: Icons.keyboard_arrow_up,
-                    tooltip: 'Older match',
+                    tooltip: l10n.olderMatch,
                     color: muted,
                     onTap: canPrev ? onPrev : null,
                   ),
                   _StepButton(
                     icon: Icons.keyboard_arrow_down,
-                    tooltip: 'Newer match',
+                    tooltip: l10n.newerMatch,
                     color: muted,
                     onTap: canNext ? onNext : null,
                   ),
                 ],
                 _StepButton(
                   icon: Icons.close,
-                  tooltip: 'Clear filter',
+                  tooltip: l10n.clearFilter,
                   color: muted,
                   onTap: () => onSelectLens(FeedLens.all),
                 ),
@@ -466,7 +468,7 @@ class ExpandFeedButton extends StatelessWidget {
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     return Tooltip(
-      message: 'Open full-screen transcript',
+      message: AppLocalizations.of(context)!.openFullTranscript,
       child: Material(
         color: bg.withValues(alpha: 0.92),
         elevation: 1,
@@ -668,7 +670,7 @@ class ContextJumpButton extends StatelessWidget {
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     return Tooltip(
-      message: 'View in full transcript',
+      message: AppLocalizations.of(context)!.viewInFullTranscript,
       child: Material(
         color: bg.withValues(alpha: 0.85),
         shape: RoundedRectangleBorder(
@@ -820,16 +822,18 @@ class FeedPositionPill extends StatelessWidget {
 
 /// Human label for a canonical error class (the digest's keys): `tool_error` →
 /// "Tool error", `failed_turn` → "Failed turn", `error:<type>` → "Error · type".
-String errorClassLabel(String cls) {
+String errorClassLabel(AppLocalizations l10n, String cls) {
   switch (cls) {
     case 'tool_error':
-      return 'Tool error';
+      return l10n.errorClassToolError;
     case 'failed_turn':
-      return 'Failed turn';
+      return l10n.errorClassFailedTurn;
     case 'error':
-      return 'Error';
+      return l10n.errorClassError;
     default:
-      if (cls.startsWith('error:')) return 'Error · ${cls.substring(6)}';
+      if (cls.startsWith('error:')) {
+        return l10n.errorClassTyped(cls.substring(6));
+      }
       return cls;
   }
 }
@@ -883,7 +887,7 @@ class ErrorSummaryRow extends StatelessWidget {
     final fg =
         isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
     final rel = relativeAgo(ts);
-    final classLabel = errorClassLabel(errorClass);
+    final classLabel = errorClassLabel(AppLocalizations.of(context)!, errorClass);
     final hasLabel = label != null && label!.trim().isNotEmpty;
     // Headline = the tool/type label when present, else the class label.
     final headline = hasLabel ? label!.trim() : classLabel;

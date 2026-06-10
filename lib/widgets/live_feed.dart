@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
@@ -912,6 +913,7 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // Source slash/mention pickers (W-UI-4) from session.init when
     // available. Mentions blend agents + tools + skills since claude
@@ -1303,9 +1305,8 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
                     child: Text(
-                      'No ${FeedFilterControl.labelFor(_lens)} events in the '
-                      'loaded transcript — scroll up to load older, or clear '
-                      'the filter.',
+                      l10n.noLensEventsLoaded(
+                          FeedFilterControl.labelFor(l10n, _lens)),
                       textAlign: TextAlign.center,
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 12,

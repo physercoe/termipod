@@ -933,5 +933,26 @@
   "respawnFailedMsg": "Respawn failed: {error}",
   "@respawnFailedMsg": { "placeholders": { "error": { "type": "String" } } },
   "respawnRequestedMsg": "Respawn requested: {handle}",
-  "@respawnRequestedMsg": { "placeholders": { "handle": { "type": "String" } } }
+  "@respawnRequestedMsg": { "placeholders": { "handle": { "type": "String" } } },
+
+  "lensAll": "All",
+  "lensText": "Text",
+  "lensTurns": "Turns",
+  "lensTools": "Tools",
+  "lensErrors": "Errors",
+  "errorClassToolError": "Tool error",
+  "errorClassFailedTurn": "Failed turn",
+  "errorClassError": "Error",
+  "errorClassTyped": "Error · {type}",
+  "@errorClassTyped": { "placeholders": { "type": "String" } },
+  "filterTranscript": "Filter transcript",
+  "olderMatch": "Older match",
+  "newerMatch": "Newer match",
+  "clearFilter": "Clear filter",
+  "openFullTranscript": "Open full-screen transcript",
+  "viewInFullTranscript": "View in full transcript",
+  "noLensEventsLoaded": "No {lens} events in the loaded transcript — scroll up to load older, or clear the filter.",
+  "@noLensEventsLoaded": { "placeholders": { "lens": { "type": "String" } } },
+  "noLensEventsRun": "No {lens} events in this run.",
+  "@noLensEventsRun": { "placeholders": { "lens": { "type": "String" } } }
 }

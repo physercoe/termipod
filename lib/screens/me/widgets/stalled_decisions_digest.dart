@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../theme/design_colors.dart';
+import '../../../theme/tokens.dart';
 import 'propose_addressee.dart';
 
 /// ADR-030 W19.6 (mobile half) — top-of-Me digest card surfacing the
@@ -50,7 +51,7 @@ class StalledDecisionsDigest extends ConsumerWidget {
         onTap: () => ref.read(stalledFilterProvider.notifier).toggle(),
         borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          padding: const EdgeInsets.fromLTRB(12, Spacing.s8, 12, Spacing.s8),
           decoration: BoxDecoration(
             color: accentBg,
             borderRadius: BorderRadius.circular(8),
@@ -87,7 +88,7 @@ class StalledDecisionsDigest extends ConsumerWidget {
                     Text(
                       subtitle,
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
+                        fontSize: FontSizes.label,
                         color: mutedColor,
                       ),
                     ),
@@ -125,7 +126,7 @@ class _CountBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 2),
       decoration: BoxDecoration(
         color: fg.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),

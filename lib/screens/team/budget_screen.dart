@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Aggregated view of agent budgets and spend. Pulls rows from
 /// `listAgents()` and rolls them up client-side — there is no dedicated
@@ -202,7 +203,7 @@ class _SummaryCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(
           color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
         ),
@@ -366,7 +367,7 @@ class _AgentRow extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: Radii.xsBorder,
               child: LinearProgressIndicator(
                 value: pct.toDouble(),
                 minHeight: 4,
@@ -376,7 +377,7 @@ class _AgentRow extends StatelessWidget {
             Text(
               '$spent/$budget¢',
               style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
+                fontSize: FontSizes.label,
                 color: isDark
                     ? DesignColors.textMuted
                     : DesignColors.textMutedLight,
@@ -390,7 +391,7 @@ class _AgentRow extends StatelessWidget {
       trailing = Text(
         'no limit',
         style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
+          fontSize: FontSizes.label,
           color: isDark
               ? DesignColors.textMuted
               : DesignColors.textMutedLight,

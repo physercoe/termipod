@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../providers/download_manager_provider.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Show the download manager bottom sheet.
 void showDownloadManagerSheet(BuildContext context) {
@@ -55,7 +56,7 @@ class _DownloadManagerContent extends ConsumerWidget {
             height: 4,
             decoration: BoxDecoration(
               color: mutedColor,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: Radii.xsBorder,
             ),
           ),
         ),
@@ -130,7 +131,7 @@ class _DownloadEntryTile extends ConsumerWidget {
     final mutedColor = isDark ? Colors.white54 : Colors.black54;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -165,7 +166,7 @@ class _DownloadEntryTile extends ConsumerWidget {
                 if (entry.isActive) ...[
                   const SizedBox(height: 4),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: Radii.xsBorder,
                     child: LinearProgressIndicator(
                       value: entry.progress > 0 ? entry.progress : null,
                       minHeight: 3,

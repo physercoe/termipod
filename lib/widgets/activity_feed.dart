@@ -7,6 +7,7 @@ import '../providers/insights_provider.dart';
 import '../screens/insights/insights_screen.dart';
 import '../services/id_format.dart';
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 import 'activity_digest_card.dart';
 import 'hub_offline_banner.dart';
 
@@ -445,7 +446,7 @@ class _UnifiedFilterChips extends StatelessWidget {
       height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
         itemCount: children.length,
         separatorBuilder: (_, __) => const SizedBox(width: 6),
         itemBuilder: (_, i) => children[i],
@@ -461,7 +462,7 @@ class _AxisDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: Spacing.s8),
       child: VerticalDivider(
         width: 12,
         thickness: 1,
@@ -496,7 +497,7 @@ class _SearchField extends StatelessWidget {
           prefixIcon: const Icon(Icons.search, size: 18),
           isDense: true,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
           ),

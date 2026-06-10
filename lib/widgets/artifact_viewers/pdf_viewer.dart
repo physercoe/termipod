@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Renders a `pdf`-kind artifact (wave 2 W2 of artifact-type-registry).
 ///
@@ -224,7 +225,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
                   onTap: _pageCount > 0 ? _showGoToPageDialog : null,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                        horizontal: Spacing.s8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.55),
                       borderRadius: BorderRadius.circular(12),
@@ -234,7 +235,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
                           ? '$_currentPage / $_pageCount'
                           : '$_currentPage',
                       style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10.5,
+                        fontSize: FontSizes.label,
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
                       ),
@@ -341,7 +342,7 @@ class _PdfLoadError extends StatelessWidget {
           SelectableText(
             uri,
             style: GoogleFonts.jetBrainsMono(
-                fontSize: 10, color: DesignColors.textMuted),
+                fontSize: FontSizes.label, color: DesignColors.textMuted),
           ),
         ],
       ),
@@ -486,9 +487,9 @@ class _OutlineDrawer extends StatelessWidget {
                     child: Padding(
                       padding: EdgeInsets.fromLTRB(
                         item.level * 16.0 + 12,
-                        10,
+                        Spacing.s8,
                         12,
-                        10,
+                        Spacing.s8,
                       ),
                       child: Text(
                         item.node.title,

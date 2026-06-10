@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Renders an `image`-kind artifact (wave 2 W4 — view-on-tap).
 ///
@@ -183,7 +184,7 @@ class _ImageLoadError extends StatelessWidget {
           SelectableText(
             uri,
             style: GoogleFonts.jetBrainsMono(
-                fontSize: 10, color: DesignColors.textMuted),
+                fontSize: FontSizes.label, color: DesignColors.textMuted),
           ),
         ],
       ),
@@ -266,7 +267,7 @@ class _ImageMetaStrip extends StatelessWidget {
           color: bg,
           border: Border(top: BorderSide(color: border)),
         ),
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        padding: const EdgeInsets.fromLTRB(16, Spacing.s8, 16, Spacing.s8),
         child: Row(
           children: [
             Expanded(

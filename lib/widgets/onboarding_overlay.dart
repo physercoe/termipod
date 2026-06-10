@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/design_colors.dart';
+import '../theme/tokens.dart';
 
 /// Key for SharedPreferences to track if terminal onboarding was shown
 const _onboardingShownKey = 'onboarding_terminal_shown';
@@ -225,7 +226,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: DesignColors.primary,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: Spacing.s12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -233,7 +234,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                   child: Text(
                     _currentIndex < _cards.length - 1 ? 'Next' : 'Got it!',
                     style: GoogleFonts.spaceGrotesk(
-                      fontSize: 15,
+                      fontSize: FontSizes.subtitle,
                       fontWeight: FontWeight.w700,
                     ),
                   ),

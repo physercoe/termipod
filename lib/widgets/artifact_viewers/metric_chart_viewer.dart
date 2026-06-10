@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Wire shape for `metric-chart`-kind artifacts. v1 is one or more
 /// series of `[x, y]` numeric points with optional axis labels. The
@@ -202,7 +203,7 @@ class _LegendRow extends StatelessWidget {
                 height: 10,
                 decoration: BoxDecoration(
                   color: _seriesColor(chart.series[i], i),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: Radii.xsBorder,
                 ),
               ),
               const SizedBox(width: 6),
@@ -492,7 +493,7 @@ void _drawLabel(
   final tp = TextPainter(
     text: TextSpan(
       text: text,
-      style: TextStyle(fontSize: 10, color: color),
+      style: TextStyle(fontSize: FontSizes.label, color: color),
     ),
     textDirection: TextDirection.ltr,
     maxLines: 1,
@@ -548,7 +549,7 @@ class _MetricChartLoadError extends StatelessWidget {
           SelectableText(
             uri,
             style: GoogleFonts.jetBrainsMono(
-                fontSize: 10, color: DesignColors.textMuted),
+                fontSize: FontSizes.label, color: DesignColors.textMuted),
           ),
         ],
       ),

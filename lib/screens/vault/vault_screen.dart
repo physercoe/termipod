@@ -7,6 +7,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/input_history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import '../keys/key_generate_screen.dart';
 import '../keys/key_import_screen.dart';
 import '../keys/keys_screen.dart';
@@ -251,7 +252,7 @@ class _SmallActionButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s8),
         decoration: BoxDecoration(
           color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
           borderRadius: BorderRadius.circular(8),

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'schedule_create_sheet.dart';
 import 'schedule_edit_sheet.dart';
 
@@ -346,7 +347,7 @@ class _ScheduleTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: Radii.mdBorder,
         border: Border.all(
           color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
         ),
@@ -375,7 +376,7 @@ class _ScheduleTile extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(meta.join(' · '),
                         style: GoogleFonts.jetBrainsMono(
-                          fontSize: 10,
+                          fontSize: FontSizes.label,
                           color: isDark
                               ? DesignColors.textMuted
                               : DesignColors.textMutedLight,

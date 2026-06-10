@@ -1558,5 +1558,22 @@
   "reviewDecidedSnack": "{review} {status}",
   "@reviewDecidedSnack": { "placeholders": { "review": { "type": "String" }, "status": { "type": "String" } } },
   "decideFailedError": "Decide failed: {error}",
-  "@decideFailedError": { "placeholders": { "error": { "type": "String" } } }
+  "@decideFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "newRun": "New {run}",
+  "@newRun": { "placeholders": { "run": { "type": "String" } } },
+  "fieldNameOptional": "Name (optional)",
+  "runNameHint": "e.g. sft-4b-lr3e-5",
+  "agentIdOptional": "{agent} id (optional)",
+  "@agentIdOptional": { "placeholders": { "agent": { "type": "String" } } },
+  "runAgentHint": "If {agents} drive it",
+  "@runAgentHint": { "placeholders": { "agents": { "type": "String" } } },
+  "parentRunIdOptional": "Parent {run} id (optional)",
+  "@parentRunIdOptional": { "placeholders": { "run": { "type": "String" } } },
+  "runParentHint": "For forks / child sweeps",
+  "fieldMetadataJsonOptional": "Metadata (JSON, optional)",
+  "metadataNotObject": "Metadata must be a JSON object.",
+  "createRunButton": "Create {run}",
+  "@createRunButton": { "placeholders": { "run": { "type": "String" } } },
+  "pickProject": "Pick a {project}",
+  "@pickProject": { "placeholders": { "project": { "type": "String" } } }
 }

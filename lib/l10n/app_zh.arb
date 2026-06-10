@@ -908,5 +908,13 @@
   "governanceSteward": "{steward}",
   "governanceStewardSubtitle": "{steward}提示词、策略与升级 · 即将推出",
   "governedActionPolicyTitle": "受治理操作策略",
-  "governedActionPolicySubtitle": "只读查看 policy.yaml 的 `kinds:`（默认层级、提交、覆盖）· ADR-030"
+  "governedActionPolicySubtitle": "只读查看 policy.yaml 的 `kinds:`（默认层级、提交、覆盖）· ADR-030",
+  "sendFailedError": "发送失败：{error}",
+  "attachFailedError": "附件上传失败：{error}",
+  "downloadFailedError": "下载失败：{error}",
+  "channelEmptyHint": "#{name} 中暂无内容",
+  "messageHint": "消息…",
+  "senderSystem": "（系统）",
+  "attachmentPreview": "（附件）",
+  "emptyPreview": "（空）"
 }

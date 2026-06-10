@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import 'budget_screen.dart';
@@ -30,15 +33,23 @@ class TeamScreen extends ConsumerStatefulWidget {
 class _TeamScreenState extends ConsumerState<TeamScreen> {
   int _tab = 0;
 
-  static const _labels = ['Members', 'Policies', 'Channels', 'Governance'];
-
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final teamId = ref.watch(hubProvider).value?.config?.teamId ?? '';
+    final team = ref.watch(vocabularyProvider).term(VocabAxis.entityTeam).title;
+    final labels = [
+      l10n.teamTabMembers,
+      l10n.teamTabPolicies,
+      l10n.teamTabChannels,
+      l10n.teamTabGovernance,
+    ];
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          teamId.isEmpty ? 'Team Settings' : 'Team Settings · $teamId',
+          teamId.isEmpty
+              ? l10n.teamSettingsTitle(team)
+              : l10n.teamSettingsTitleScoped(team, teamId),
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
@@ -46,7 +57,7 @@ class _TeamScreenState extends ConsumerState<TeamScreen> {
       body: Column(
         children: [
           _PillTabs(
-            labels: _labels,
+            labels: labels,
             selected: _tab,
             onChanged: (i) => setState(() => _tab = i),
           ),
@@ -202,7 +213,11 @@ class _MembersViewState extends ConsumerState<_MembersView> {
       return _ErrorText(text: _error!);
     }
     final rows = _rows ?? const [];
-    if (rows.isEmpty) return const _EmptyText(text: 'No principals');
+    if (rows.isEmpty) {
+      final principals =
+          ref.watch(vocabularyProvider).term(VocabAxis.rolePrincipal).pluralLower;
+      return _EmptyText(text: AppLocalizations.of(context)!.noPrincipals(principals));
+    }
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
@@ -215,12 +230,13 @@ class _MembersViewState extends ConsumerState<_MembersView> {
   }
 }
 
-class _MemberTile extends StatelessWidget {
+class _MemberTile extends ConsumerWidget {
   final Map<String, dynamic> row;
   const _MemberTile({required this.row});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final handle = (row['handle'] ?? '').toString();
     final unnamed = row['unnamed'] == true;
@@ -228,7 +244,9 @@ class _MemberTile extends StatelessWidget {
         ? (row['token_count'] as num).toInt()
         : int.tryParse('${row['token_count'] ?? 0}') ?? 0;
     final issued = (row['first_issued_at'] ?? '').toString();
-    final label = unnamed ? 'principal (unnamed)' : '@$handle';
+    final principal =
+        ref.watch(vocabularyProvider).term(VocabAxis.rolePrincipal).lower;
+    final label = unnamed ? l10n.principalUnnamed(principal) : '@$handle';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Spacing.s12, vertical: 12),
@@ -257,7 +275,7 @@ class _MemberTile extends StatelessWidget {
                     style: GoogleFonts.spaceGrotesk(
                         fontSize: 14, fontWeight: FontWeight.w600)),
                 if (issued.isNotEmpty)
-                  Text('since ${_shortTs(issued)}',
+                  Text(l10n.memberSince(_shortTs(issued)),
                       style: GoogleFonts.jetBrainsMono(
                           fontSize: FontSizes.label,
                           color: isDark
@@ -286,7 +304,7 @@ class _CountBadge extends StatelessWidget {
         borderRadius: Radii.mdBorder,
       ),
       child: Text(
-        '$count token${count == 1 ? '' : 's'}',
+        AppLocalizations.of(context)!.tokenCount(count),
         style: GoogleFonts.jetBrainsMono(
           fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
@@ -366,13 +384,13 @@ class _PoliciesViewState extends ConsumerState<_PoliciesView> {
         _saving = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Policy saved · hub reloaded in-place')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.policySavedReloaded)),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.saveFailedError('$e'))),
       );
     }
   }
@@ -389,6 +407,7 @@ class _PoliciesViewState extends ConsumerState<_PoliciesView> {
     if (_error != null && !_loaded) {
       return _ErrorText(text: _error!);
     }
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final dirty = _ctrl.text != _lastSaved;
     return Padding(
@@ -409,7 +428,7 @@ class _PoliciesViewState extends ConsumerState<_PoliciesView> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Saved changes apply immediately — no hub-server restart.',
+                    l10n.policyAppliesImmediately,
                     style: GoogleFonts.spaceGrotesk(fontSize: 12),
                   ),
                 ),
@@ -454,12 +473,12 @@ class _PoliciesViewState extends ConsumerState<_PoliciesView> {
               TextButton.icon(
                 onPressed: _loading || _saving ? null : _load,
                 icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('Reload'),
+                label: Text(l10n.buttonReload),
               ),
               const Spacer(),
               TextButton(
                 onPressed: !dirty || _saving ? null : _discard,
-                child: const Text('Discard'),
+                child: Text(l10n.buttonDiscard),
               ),
               const SizedBox(width: 8),
               FilledButton.icon(
@@ -471,7 +490,7 @@ class _PoliciesViewState extends ConsumerState<_PoliciesView> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.save, size: 18),
-                label: const Text('Save'),
+                label: Text(l10n.buttonSave),
               ),
             ],
           ),
@@ -537,7 +556,9 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
   }
 
   Future<void> _createChannel() async {
-    final name = await _promptChannelName(context);
+    final channel =
+        ref.read(vocabularyProvider).term(VocabAxis.entityChannel).lower;
+    final name = await _promptChannelName(context, ref);
     if (name == null || name.isEmpty) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
@@ -547,7 +568,10 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create channel failed: $e')),
+        SnackBar(
+          content: Text(
+              AppLocalizations.of(context)!.createChannelFailed(channel, '$e')),
+        ),
       );
     }
   }
@@ -559,11 +583,16 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
     }
     if (_error != null) return _ErrorText(text: _error!);
     final rows = _rows ?? const [];
+    final voc = ref.watch(vocabularyProvider);
     return Stack(
       children: [
         Positioned.fill(
           child: rows.isEmpty
-              ? const _EmptyText(text: 'No team channels')
+              ? _EmptyText(
+                  text: AppLocalizations.of(context)!.noTeamChannels(
+                  voc.term(VocabAxis.entityTeam).lower,
+                  voc.term(VocabAxis.entityChannel).pluralLower,
+                ))
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView.separated(
@@ -636,27 +665,32 @@ class _ChannelTile extends StatelessWidget {
   }
 }
 
-Future<String?> _promptChannelName(BuildContext context) async {
+Future<String?> _promptChannelName(BuildContext context, WidgetRef ref) async {
+  final l10n = AppLocalizations.of(context)!;
+  final voc = ref.read(vocabularyProvider);
   final ctrl = TextEditingController();
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('New team channel'),
+      title: Text(l10n.newTeamChannel(
+        voc.term(VocabAxis.entityTeam).title,
+        voc.term(VocabAxis.entityChannel).lower,
+      )),
       content: TextField(
         controller: ctrl,
         autofocus: true,
-        decoration: const InputDecoration(
-          labelText: 'Name (e.g. announcements)',
+        decoration: InputDecoration(
+          labelText: l10n.channelNameLabel,
         ),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Create'),
+          child: Text(l10n.buttonCreate),
         ),
       ],
     ),
@@ -673,18 +707,21 @@ Future<String?> _promptChannelName(BuildContext context) async {
 ///
 /// "Tokens" → "Auth" rename avoids the LLM-token collision; "Usage" →
 /// "Budgets" matches the blueprint vocabulary.
-class _SettingsView extends StatelessWidget {
+class _SettingsView extends ConsumerWidget {
   const _SettingsView();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
         ListTile(
           leading: const Icon(Icons.account_balance_wallet_outlined),
-          title: const Text('Budgets'),
-          subtitle: const Text('Agent budgets and spend caps'),
+          title: Text(l10n.governanceBudgets),
+          subtitle: Text(l10n.governanceBudgetsSubtitle(
+              voc.term(VocabAxis.roleAgent).pluralLower)),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const BudgetScreen(),
@@ -692,8 +729,11 @@ class _SettingsView extends StatelessWidget {
         ),
         ListTile(
           leading: const Icon(Icons.key),
-          title: const Text('Auth'),
-          subtitle: const Text('Invite humans, rotate host/agent keys'),
+          title: Text(l10n.governanceAuth),
+          subtitle: Text(l10n.governanceAuthSubtitle(
+            voc.term(VocabAxis.entityHost).lower,
+            voc.term(VocabAxis.roleAgent).lower,
+          )),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const TokensScreen(),
@@ -701,8 +741,9 @@ class _SettingsView extends StatelessWidget {
         ),
         ListTile(
           leading: const Icon(Icons.how_to_vote_outlined),
-          title: const Text('Councils'),
-          subtitle: const Text('Review panels, quorum, and rotation · soon'),
+          title: Text(l10n.governanceCouncils(
+              voc.term(VocabAxis.roleCouncil).plural)),
+          subtitle: Text(l10n.governanceCouncilsSubtitle),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const CouncilsScreen(),
@@ -710,8 +751,10 @@ class _SettingsView extends StatelessWidget {
         ),
         ListTile(
           leading: const Icon(Icons.smart_toy_outlined),
-          title: const Text('Steward'),
-          subtitle: const Text('Steward prompt, policy, and escalation · soon'),
+          title: Text(l10n.governanceSteward(
+              voc.term(VocabAxis.roleSteward).title)),
+          subtitle: Text(l10n.governanceStewardSubtitle(
+              voc.term(VocabAxis.roleSteward).title)),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const StewardConfigScreen(),
@@ -723,10 +766,8 @@ class _SettingsView extends StatelessWidget {
         // "how is the system routing propose-decisions" view.
         ListTile(
           leading: const Icon(Icons.gavel_outlined),
-          title: const Text('Governed action policy'),
-          subtitle: const Text(
-              'Read-only view of policy.yaml `kinds:` (default tier, '
-              'commits, override) · ADR-030'),
+          title: Text(l10n.governedActionPolicyTitle),
+          subtitle: Text(l10n.governedActionPolicySubtitle),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const GovernedActionsPolicyScreen(),

@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/blob_cache.dart';
 import '../../services/hub/entity_names.dart';
@@ -136,7 +137,9 @@ class _ProjectChannelScreenState extends ConsumerState<ProjectChannelScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Send failed: $e')),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context)!.sendFailedError('$e'))),
         );
       }
     } finally {
@@ -201,7 +204,9 @@ class _ProjectChannelScreenState extends ConsumerState<ProjectChannelScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Attach failed: $e')),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context)!.attachFailedError('$e'))),
         );
       }
     } finally {
@@ -279,7 +284,7 @@ class _EmptyChannelView extends StatelessWidget {
                     : DesignColors.textMutedLight),
             const SizedBox(height: 12),
             Text(
-              'Nothing in #$name yet',
+              AppLocalizations.of(context)!.channelEmptyHint(name),
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 13,
@@ -301,6 +306,7 @@ class _EventBubble extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final fromId = (evt['from_id'] ?? '').toString();
     final agents = ref.watch(hubProvider).value?.agents ?? const [];
@@ -309,7 +315,7 @@ class _EventBubble extends ConsumerWidget {
         : agentHandleFor(fromId, agents, fallback: fromId);
     final ts = (evt['ts'] ?? evt['received_ts'] ?? '').toString();
     final parts = (evt['parts'] as List?) ?? const <dynamic>[];
-    final preview = _previewFromParts(parts);
+    final preview = _previewFromParts(parts, l10n);
     final attachments = _attachmentsFromParts(parts);
 
     return Container(
@@ -331,7 +337,7 @@ class _EventBubble extends ConsumerWidget {
           Row(
             children: [
               Text(
-                from.isEmpty ? '(system)' : from,
+                from.isEmpty ? l10n.senderSystem : from,
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: FontSizes.label,
                   fontWeight: FontWeight.w700,
@@ -385,13 +391,15 @@ class _EventBubble extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e')),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context)!.downloadFailedError('$e'))),
         );
       }
     }
   }
 
-  String _previewFromParts(List<dynamic> parts) {
+  String _previewFromParts(List<dynamic> parts, AppLocalizations l10n) {
     for (final raw in parts) {
       if (raw is! Map) continue;
       if (raw['kind'] == 'text' && raw['text'] is String) {
@@ -400,9 +408,9 @@ class _EventBubble extends ConsumerWidget {
       }
     }
     for (final raw in parts) {
-      if (raw is Map && raw['kind'] == 'attachment') return '(attachment)';
+      if (raw is Map && raw['kind'] == 'attachment') return l10n.attachmentPreview;
     }
-    return '(empty)';
+    return l10n.emptyPreview;
   }
 
   List<_Attachment> _attachmentsFromParts(List<dynamic> parts) {
@@ -558,9 +566,9 @@ class _Composer extends StatelessWidget {
               controller: controller,
               minLines: 1,
               maxLines: 4,
-              decoration: const InputDecoration(
-                hintText: 'Message…',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                hintText: AppLocalizations.of(context)!.messageHint,
+                border: const OutlineInputBorder(),
                 isDense: true,
               ),
               textInputAction: TextInputAction.newline,

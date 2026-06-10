@@ -1049,5 +1049,21 @@
   "buttonClear": "清除",
   "buttonContinue": "继续",
   "createOpenEditor": "创建并打开编辑器",
-  "cloneCategoryTemplate": "克隆 {category} 模板"
+  "cloneCategoryTemplate": "克隆 {category} 模板",
+  "renamedTo": "已重命名为 {name}",
+  "renameFailedError": "重命名失败：{error}",
+  "resetToDefaultTitle": "重置为默认？",
+  "resetToDefaultBody": "用内置的嵌入副本替换磁盘上的 {path}。如果你的模板因由较旧的中枢版本植入而缺少字段，请使用此项。\n\n如果该模板没有内置版本，则会失败。",
+  "buttonReset": "重置",
+  "resetToBuiltinDone": "已重置为内置默认项",
+  "deleteTemplateTitle": "删除模板？",
+  "deleteTemplateBody": "从磁盘移除 {path}。如果该模板自带内置版本，下次读取时会显示嵌入副本。",
+  "deleteFailedError": "删除失败：{error}",
+  "discardChangesTitle": "放弃更改？",
+  "discardChangesBody": "未保存的编辑将丢失。",
+  "buttonKeepEditing": "继续编辑",
+  "buttonEdit": "编辑",
+  "buttonPreview": "预览",
+  "menuResetToDefault": "重置为默认",
+  "renameTemplateTitle": "重命名模板"
 }

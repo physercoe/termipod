@@ -661,13 +661,15 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
         _dirty = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved'), duration: Duration(seconds: 1)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.savedSnack),
+            duration: const Duration(seconds: 1)),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.saveFailedError('$e'))),
       );
     }
   }
@@ -685,36 +687,32 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
       if (!mounted) return;
       setState(() => _name = newName);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Renamed to $newName'),
+        SnackBar(content: Text(AppLocalizations.of(context)!.renamedTo(newName)),
             duration: const Duration(seconds: 1)),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rename failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.renameFailedError('$e'))),
       );
     }
   }
 
   Future<void> _resetToDefault() async {
+    final l10n = AppLocalizations.of(context)!;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reset to default?'),
-        content: Text(
-          'Replaces ${widget.category}/$_name on disk with the built-in '
-          'embedded copy. Use this if your template is missing fields '
-          'because it was seeded by an older hub version.\n\n'
-          'Fails if no built-in version exists for this template.',
-        ),
+        title: Text(l10n.resetToDefaultTitle),
+        content: Text(l10n.resetToDefaultBody('${widget.category}/$_name')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton.tonal(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Reset'),
+            child: Text(l10n.buttonReset),
           ),
         ],
       ),
@@ -745,40 +743,37 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
         _saving = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Reset to built-in default'),
-            duration: Duration(seconds: 2)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.resetToBuiltinDone),
+            duration: const Duration(seconds: 2)),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reset failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.resetFailedError('$e'))),
       );
     }
   }
 
   Future<void> _delete() async {
+    final l10n = AppLocalizations.of(context)!;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete template?'),
-        content: Text(
-          'Removes ${widget.category}/$_name from disk. '
-          'If the template ships built-in, the embedded copy will surface '
-          'on next read.',
-        ),
+        title: Text(l10n.deleteTemplateTitle),
+        content: Text(l10n.deleteTemplateBody('${widget.category}/$_name')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton.tonal(
             style: FilledButton.styleFrom(
                 backgroundColor: DesignColors.error.withValues(alpha: 0.15),
                 foregroundColor: DesignColors.error),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -793,7 +788,7 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.deleteFailedError('$e'))),
       );
     }
   }
@@ -805,6 +800,7 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return PopScope(
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, _) async {
@@ -812,16 +808,16 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
         final discard = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Discard changes?'),
-            content: const Text('Unsaved edits will be lost.'),
+            title: Text(l10n.discardChangesTitle),
+            content: Text(l10n.discardChangesBody),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Keep editing'),
+                child: Text(l10n.buttonKeepEditing),
               ),
               FilledButton.tonal(
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('Discard'),
+                child: Text(l10n.buttonDiscard),
               ),
             ],
           ),
@@ -838,12 +834,12 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
           actions: [
             if (_isMarkdown)
               IconButton(
-                tooltip: _previewMd ? 'Edit' : 'Preview',
+                tooltip: _previewMd ? l10n.buttonEdit : l10n.buttonPreview,
                 icon: Icon(_previewMd ? Icons.edit : Icons.visibility),
                 onPressed: () => setState(() => _previewMd = !_previewMd),
               ),
             IconButton(
-              tooltip: 'Save',
+              tooltip: l10n.buttonSave,
               icon: _saving
                   ? const SizedBox(
                       width: 18,
@@ -864,11 +860,11 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
                     _delete();
                 }
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'rename', child: Text('Rename')),
+              itemBuilder: (_) => [
+                PopupMenuItem(value: 'rename', child: Text(l10n.buttonRename)),
                 PopupMenuItem(
-                    value: 'reset', child: Text('Reset to default')),
-                PopupMenuItem(value: 'delete', child: Text('Delete')),
+                    value: 'reset', child: Text(l10n.menuResetToDefault)),
+                PopupMenuItem(value: 'delete', child: Text(l10n.buttonDelete)),
               ],
             ),
           ],
@@ -1332,8 +1328,9 @@ class _RenameDialogState extends State<_RenameDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
-      title: const Text('Rename template'),
+      title: Text(l10n.renameTemplateTitle),
       content: TextField(
         controller: _ctrl,
         autofocus: true,
@@ -1350,18 +1347,18 @@ class _RenameDialogState extends State<_RenameDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           onPressed: () {
             final v = _ctrl.text.trim();
             if (v.isEmpty || v.startsWith('.')) {
-              setState(() => _err = 'Invalid name');
+              setState(() => _err = l10n.invalidName);
               return;
             }
             Navigator.of(context).pop(v);
           },
-          child: const Text('Rename'),
+          child: Text(l10n.buttonRename),
         ),
       ],
     );

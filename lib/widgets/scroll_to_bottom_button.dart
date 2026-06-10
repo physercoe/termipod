@@ -105,13 +105,6 @@ class ScrollToBottomButtonState extends State<ScrollToBottomButton> {
           color: bgColor,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: borderColor),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.15),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
         child: Icon(
           Icons.keyboard_double_arrow_down,

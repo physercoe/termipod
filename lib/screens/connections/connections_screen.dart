@@ -606,13 +606,6 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: isDark ? DesignColors.borderDark : DesignColors.borderLight),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         children: [
@@ -666,14 +659,6 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                               color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
                               width: 2,
                             ),
-                            boxShadow: hasActiveSessions
-                                ? [
-                                    BoxShadow(
-                                      color: statusColor.withValues(alpha: 0.6),
-                                      blurRadius: 8,
-                                    ),
-                                  ]
-                                : null,
                           ),
                         ),
                       ),

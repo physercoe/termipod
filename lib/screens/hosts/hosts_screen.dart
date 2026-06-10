@@ -651,12 +651,6 @@ class _LiveDot extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: DesignColors.success,
-          boxShadow: [
-            BoxShadow(
-              color: DesignColors.success.withValues(alpha: 0.45),
-              blurRadius: 4,
-            ),
-          ],
         ),
       ),
     );

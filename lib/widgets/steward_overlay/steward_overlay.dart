@@ -681,13 +681,6 @@ class _ExpandedPanel extends StatelessWidget {
               border: Border.all(
                 color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.18),
-                  blurRadius: 18,
-                  offset: const Offset(0, 4),
-                ),
-              ],
             ),
             // **v1.0.559 — Scaffold wrap for IME plumbing.** The overlay
             // is mounted via `MaterialApp.builder` so it lives OUTSIDE

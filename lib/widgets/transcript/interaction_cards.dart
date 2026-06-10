@@ -18,6 +18,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
@@ -142,16 +143,17 @@ class _PermissionPromptCardState
       (widget.payload['dialog_type'] ?? 'tool_permission').toString();
 
   Future<void> _decide(String decision) async {
+    final l10n = AppLocalizations.of(context)!;
     final id = (widget.attention['id'] ?? '').toString();
     if (id.isEmpty) return;
     final reason = _reasonCtrl.text.trim();
     if (_isStrategic && decision == 'approve' && reason.isEmpty) {
-      setState(() => _error = 'Strategic-tier approvals require a reason');
+      setState(() => _error = l10n.strategicReasonRequired);
       return;
     }
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
-      setState(() => _error = 'Not connected');
+      setState(() => _error = l10n.notConnected);
       return;
     }
     setState(() {
@@ -170,10 +172,10 @@ class _PermissionPromptCardState
       await ref.read(hubProvider.notifier).refreshAll();
     } on HubApiError catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Decide failed (${e.status})');
+      setState(() => _error = l10n.decideFailedStatus(e.status));
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Decide failed: $e');
+      setState(() => _error = l10n.decideFailedMsg('$e'));
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -181,6 +183,7 @@ class _PermissionPromptCardState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
     final muted = isDark
@@ -204,19 +207,19 @@ class _PermissionPromptCardState
     final String denyLabel;
     switch (dialogType) {
       case 'plan_approval':
-        headerTitle = 'Approve plan?';
-        approveLabel = 'Approve';
-        denyLabel = 'Reject';
+        headerTitle = l10n.approvePlanTitle;
+        approveLabel = l10n.buttonApprove;
+        denyLabel = l10n.buttonReject;
         break;
       case 'compaction':
-        headerTitle = 'Compact context?';
-        approveLabel = 'Compact';
-        denyLabel = 'Defer';
+        headerTitle = l10n.compactContextTitle;
+        approveLabel = l10n.buttonCompact;
+        denyLabel = l10n.buttonDefer;
         break;
       default:
-        headerTitle = 'Approve $toolName?';
-        approveLabel = _isStrategic ? 'Approve (strategic)' : 'Approve';
-        denyLabel = 'Deny';
+        headerTitle = l10n.approveToolTitle(toolName);
+        approveLabel = _isStrategic ? l10n.approveStrategic : l10n.buttonApprove;
+        denyLabel = l10n.buttonDeny;
     }
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s8),
@@ -283,7 +286,7 @@ class _PermissionPromptCardState
               style: GoogleFonts.jetBrainsMono(fontSize: 11),
               decoration: InputDecoration(
                 isDense: true,
-                hintText: 'Reason required for strategic-tier approvals',
+                hintText: l10n.reasonRequiredHint,
                 hintStyle: GoogleFonts.jetBrainsMono(
                     fontSize: 11, color: muted),
                 contentPadding: const EdgeInsets.symmetric(
@@ -414,6 +417,7 @@ class _CompactionBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted = isDark
         ? DesignColors.textMuted
@@ -421,13 +425,13 @@ class _CompactionBody extends StatelessWidget {
     final body = isDark
         ? DesignColors.textPrimary
         : DesignColors.textPrimaryLight;
-    final triggerLabel = trigger.isEmpty ? '(unspecified)' : trigger;
+    final triggerLabel = trigger.isEmpty ? l10n.unspecified : trigger;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'Trigger: $triggerLabel',
+          l10n.triggerLine(triggerLabel),
           style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
         ),
         if (customInstructions.trim().isNotEmpty) ...[
@@ -500,6 +504,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
   // labelled options", which is sharper than the old generic "decision".
 
   Future<void> _pick(String? optionId, {String decision = 'approve'}) async {
+    final l10n = AppLocalizations.of(context)!;
     final id = (widget.attention['id'] ?? '').toString();
     if (id.isEmpty) return;
     setState(() {
@@ -515,10 +520,10 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
           );
     } on HubApiError catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Decide failed (${e.status})');
+      setState(() => _error = l10n.decideFailedStatus(e.status));
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Decide failed: $e');
+      setState(() => _error = l10n.decideFailedMsg('$e'));
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -526,13 +531,14 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final question = (widget.payload['question'] ??
             widget.attention['summary'] ??
-            'Selection needed')
+            l10n.selectionNeeded)
         .toString();
     final optionsRaw = widget.payload['options'];
     final options = optionsRaw is List
@@ -559,7 +565,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
                   size: 16, color: DesignColors.primary),
               const SizedBox(width: 6),
               Text(
-                'SELECT',
+                l10n.selectTag,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: FontSizes.label,
                   fontWeight: FontWeight.w800,
@@ -582,7 +588,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
           const SizedBox(height: 8),
           if (options.isEmpty)
             Text(
-              'No options provided. Tap Approve or Reject below.',
+              l10n.noOptionsProvided,
               style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
             )
           else
@@ -626,7 +632,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                child: const Text('Reject'),
+                child: Text(l10n.buttonReject),
               ),
               if (options.isEmpty) ...[
                 const SizedBox(width: 8),
@@ -640,7 +646,7 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
                     minimumSize: const Size(0, 32),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: const Text('Approve'),
+                  child: Text(l10n.buttonApprove),
                 ),
               ],
               const Spacer(),

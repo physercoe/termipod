@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
@@ -48,11 +49,12 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
   String? get _effectiveDecision => _localDecision ?? widget.priorDecision;
 
   Future<void> _send(String decision, {String? optionId}) async {
+    final l10n = AppLocalizations.of(context)!;
     final agentId = widget.agentId;
     if (agentId == null || widget.requestId.isEmpty) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
-      setState(() => _error = 'Not connected');
+      setState(() => _error = l10n.notConnected);
       return;
     }
     setState(() {
@@ -76,19 +78,20 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
       if (!mounted) return;
       setState(() {
         _sending = false;
-        _error = 'Send failed (${e.status})';
+        _error = l10n.sendFailedStatus(e.status);
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _sending = false;
-        _error = 'Send failed: $e';
+        _error = l10n.sendFailedMsg('$e');
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted = isDark
         ? DesignColors.textMuted
@@ -116,9 +119,9 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
       }
     }
     if (options.isEmpty) {
-      options.addAll(const [
-        _ApprovalOption(id: 'allow', label: 'Allow'),
-        _ApprovalOption(id: 'deny', label: 'Deny'),
+      options.addAll([
+        _ApprovalOption(id: 'allow', label: l10n.buttonAllow),
+        _ApprovalOption(id: 'deny', label: l10n.buttonDeny),
       ]);
     }
 
@@ -139,7 +142,7 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
                 ),
                 children: [
                   TextSpan(
-                      text: 'tool: ',
+                      text: l10n.toolColonPrefix,
                       style: TextStyle(color: muted)),
                   TextSpan(text: toolSummary),
                 ],
@@ -154,7 +157,7 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
             ),
           ),
         if (decided != null)
-          _decisionChip(decided)
+          _decisionChip(l10n, decided)
         else
           Wrap(
             spacing: 6,
@@ -191,7 +194,7 @@ class _ApprovalCardState extends ConsumerState<ApprovalCard> {
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 child: Text(
-                  'Cancel',
+                  l10n.buttonCancel,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     color: muted,
@@ -222,7 +225,7 @@ class _ApprovalOption {
 
 /// Decision tag ("decided: …") rendered via the shared [AppStatusChip]
 /// (ADR-047 D-7).
-Widget _decisionChip(String decision) {
+Widget _decisionChip(AppLocalizations l10n, String decision) {
   final color = switch (decision) {
     'allow' => DesignColors.success,
     'deny' => DesignColors.error,
@@ -231,7 +234,7 @@ Widget _decisionChip(String decision) {
   };
   return Align(
     alignment: Alignment.centerLeft,
-    child: AppStatusChip(label: 'decided: $decision', color: color),
+    child: AppStatusChip(label: l10n.decidedPrefix(decision), color: color),
   );
 }
 
@@ -286,11 +289,12 @@ class _AskUserQuestionCardState extends ConsumerState<AskUserQuestionCard> {
   }
 
   Future<void> _send(String label) async {
+    final l10n = AppLocalizations.of(context)!;
     final agentId = widget.agentId;
     if (agentId == null || agentId.isEmpty || widget.toolUseId.isEmpty) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
-      setState(() => _error = 'Not connected');
+      setState(() => _error = l10n.notConnected);
       return;
     }
     setState(() {
@@ -313,13 +317,13 @@ class _AskUserQuestionCardState extends ConsumerState<AskUserQuestionCard> {
       if (!mounted) return;
       setState(() {
         _sending = false;
-        _error = 'Send failed (${e.status})';
+        _error = l10n.sendFailedStatus(e.status);
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _sending = false;
-        _error = 'Send failed: $e';
+        _error = l10n.sendFailedMsg('$e');
       });
     }
   }

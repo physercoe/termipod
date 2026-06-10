@@ -654,6 +654,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   _RunView _view = _RunView.overview;
   bool _loading = true;
   bool _busy = false;
+  bool _hubMissing = false;
   String? _error;
   // While the run is live, re-fetch the fast-moving signals (metrics +
   // alerts + status) on a timer so the glance stays current without a
@@ -677,7 +678,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -800,11 +801,12 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       // Fall through with an empty session id; the screen still opens.
     }
     if (!mounted) return;
+    final agentTerm = ref.read(vocabularyProvider).term(VocabAxis.roleAgent);
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => SessionChatScreen(
         sessionId: sid,
         agentId: agentId,
-        title: handle.isEmpty ? 'Agent' : handle,
+        title: handle.isEmpty ? agentTerm.title : handle,
       ),
     ));
   }
@@ -814,22 +816,25 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     if (u == null) return;
     final ok = await launchUrl(u, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
+      final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open $uri')),
+        SnackBar(content: Text(l10n.couldNotOpenUri(uri))),
       );
     }
   }
 
   Future<void> _complete() async {
+    final runTerm = ref.read(vocabularyProvider).term(VocabAxis.entityRun);
     final result = await showDialog<_CompletePayload>(
       context: context,
-      builder: (_) => const _CompleteRunDialog(),
+      builder: (_) => _CompleteRunDialog(runLabel: runTerm.lower),
     );
     if (result == null || !mounted) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
+    final l10n = AppLocalizations.of(context)!;
     try {
       await client.completeRun(
         widget.runId,
@@ -837,11 +842,15 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         summary: result.summary.isEmpty ? null : result.summary,
       );
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Run → ${result.status}')));
+      messenger.showSnackBar(SnackBar(
+        content: Text(l10n.runMarkedStatus(
+            runTerm.title, runStatusLabel(l10n, result.status))),
+      ));
       await _load();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Complete failed: $e')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(l10n.completeFailedError('$e'))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -857,6 +866,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     if (client == null) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
+    final l10n = AppLocalizations.of(context)!;
     try {
       await client.attachRunMetricURI(
         widget.runId,
@@ -864,36 +874,37 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         uri: result.uri,
       );
       if (!mounted) return;
-      messenger.showSnackBar(const SnackBar(content: Text('Dashboard attached')));
+      messenger.showSnackBar(SnackBar(content: Text(l10n.dashboardAttached)));
       await _load();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Attach failed: $e')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(l10n.attachFailedError('$e'))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _deleteRun() async {
+    final l10n = AppLocalizations.of(context)!;
+    final runTerm = ref.read(vocabularyProvider).term(VocabAxis.entityRun);
     final r = _run ?? widget.summary ?? const <String, dynamic>{};
-    final name = (r['name'] ?? r['id'] ?? 'this run').toString();
+    final name =
+        (r['name'] ?? r['id'] ?? l10n.thisRun(runTerm.lower)).toString();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete run?'),
-        content: Text(
-          'Permanently delete "$name" and its stored digests '
-          '(metrics, images, config, alerts). This cannot be undone.',
-        ),
+        title: Text(l10n.deleteRunTitle(runTerm.lower)),
+        content: Text(l10n.deleteRunBody(name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -907,12 +918,14 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     try {
       await client.deleteRun(widget.runId);
       if (!mounted) return;
-      messenger.showSnackBar(const SnackBar(content: Text('Run deleted')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(l10n.runDeletedSnack(runTerm.title))));
       navigator.pop();
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
-      messenger.showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(l10n.deleteFailedError('$e'))));
     }
   }
 
@@ -930,8 +943,10 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final runTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityRun);
     final r = _run ?? widget.summary ?? const <String, dynamic>{};
-    final name = (r['name'] ?? r['id'] ?? '(run)').toString();
+    final name = (r['name'] ?? r['id'] ?? '(${runTerm.lower})').toString();
     final status = (r['status'] ?? '').toString().toLowerCase();
     final terminal = status == 'succeeded' ||
         status == 'failed' ||
@@ -966,31 +981,31 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
               ),
             ),
           IconButton(
-            tooltip: 'Attach dashboard',
+            tooltip: l10n.attachDashboard,
             icon: const Icon(Icons.link),
             onPressed: _busy ? null : _attachMetric,
           ),
           if (!terminal)
             IconButton(
-              tooltip: 'Mark complete',
+              tooltip: l10n.markComplete,
               icon: const Icon(Icons.flag_outlined),
               onPressed: _busy ? null : _complete,
             ),
           PopupMenuButton<String>(
-            tooltip: 'More',
+            tooltip: l10n.tooltipMore,
             enabled: !_busy,
             onSelected: (v) {
               if (v == 'delete') _deleteRun();
             },
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem<String>(
                 value: 'delete',
                 child: Row(
                   children: [
-                    Icon(Icons.delete_outline,
+                    const Icon(Icons.delete_outline,
                         size: 18, color: DesignColors.error),
-                    SizedBox(width: 10),
-                    Text('Delete run'),
+                    const SizedBox(width: 10),
+                    Text(l10n.deleteRunMenuItem(runTerm.lower)),
                   ],
                 ),
               ),
@@ -1006,11 +1021,12 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
+      final l10n = AppLocalizations.of(context)!;
       return Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          _error!,
+          _hubMissing ? l10n.hubNotConfigured : _error!,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 12,
             color: DesignColors.error,
@@ -1047,6 +1063,11 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
 
   // ---- Overview: the glance — "is it healthy and how's it going?" ----
   Widget _overviewView(Map<String, dynamic> r) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final runTerm = vocab.term(VocabAxis.entityRun);
+    final projectTerm = vocab.term(VocabAxis.entityProject);
+    final agentTerm = vocab.term(VocabAxis.roleAgent);
     final status = (r['status'] ?? '').toString().toLowerCase();
     final kind = (r['kind'] ?? '').toString();
     final projectId = (r['project_id'] ?? '').toString();
@@ -1087,7 +1108,8 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             icon: const Icon(Icons.smart_toy_outlined, size: 16),
-            label: Text(agent.isEmpty ? 'Open agent →' : 'Open $agent →'),
+            label: Text(l10n
+                .openEntityArrow(agent.isEmpty ? agentTerm.lower : agent)),
             onPressed: () => _openAgent(agentId, agent),
           ),
         ),
@@ -1101,8 +1123,8 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       if (headline.isNotEmpty) ...[
         const SizedBox(height: 16),
         _sectionHeaderAction(
-          'Metrics',
-          'See all',
+          l10n.metricsLabel,
+          l10n.seeAll,
           () => setState(() => _view = _RunView.charts),
         ),
         Wrap(
@@ -1115,8 +1137,8 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       if (highlights.isNotEmpty) ...[
         const SizedBox(height: 16),
         _sectionHeaderAction(
-          'Config',
-          'See all',
+          l10n.configLabel,
+          l10n.seeAll,
           () => setState(() => _view = _RunView.config),
         ),
         Wrap(
@@ -1128,18 +1150,18 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       // 5. Summary.
       if (summary.isNotEmpty) ...[
         const SizedBox(height: 16),
-        _sectionLabel('Summary'),
+        _sectionLabel(l10n.summaryLabel),
         _panel(child: _SummaryBody(summary: summary)),
       ],
       // Identity details below the glance.
       const SizedBox(height: 16),
-      _sectionLabel('Details'),
-      if (kind.isNotEmpty) _metaRow('kind', kind),
-      if (project.isNotEmpty) _metaRow('project', project),
-      if (agent.isNotEmpty) _metaRow('agent', agent),
-      if (parent.isNotEmpty) _metaRow('parent run', parent),
-      if (created.isNotEmpty) _metaRow('started', created),
-      if (completed.isNotEmpty) _metaRow('completed', completed),
+      _sectionLabel(l10n.detailsLabel),
+      if (kind.isNotEmpty) _metaRow(l10n.runDetailKind, kind),
+      if (project.isNotEmpty) _metaRow(projectTerm.lower, project),
+      if (agent.isNotEmpty) _metaRow(agentTerm.lower, agent),
+      if (parent.isNotEmpty) _metaRow(l10n.parentRunLabel(runTerm.lower), parent),
+      if (created.isNotEmpty) _metaRow(l10n.metaStarted, created),
+      if (completed.isNotEmpty) _metaRow(l10n.metaCompleted, completed),
     ]);
   }
 
@@ -1274,17 +1296,18 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
 
   // ---- Charts: scalar metrics + system (GPU/CPU) + dashboard links ----
   Widget _chartsView() {
+    final l10n = AppLocalizations.of(context)!;
     final uris = _metricUris();
     if (_metrics.isEmpty && _systemMetrics.isEmpty && uris.isEmpty) {
       return _emptyView(
         Icons.show_chart,
-        'No metrics yet',
-        'Scalar metric curves appear here once a tracker is attached.',
+        l10n.runNoMetricsTitle,
+        l10n.runNoMetricsSubtitle,
       );
     }
     return _viewScroll([
       if (_metrics.isNotEmpty) ...[
-        _sectionLabel('Metrics'),
+        _sectionLabel(l10n.metricsLabel),
         for (final g in _groupMetrics(_metrics))
           if (g.rows.length == 1)
             _MetricSparklineTile(row: g.rows.single)
@@ -1293,7 +1316,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       ],
       if (_systemMetrics.isNotEmpty) ...[
         const SizedBox(height: 16),
-        _sectionLabel('System (GPU/CPU)'),
+        _sectionLabel(l10n.systemGpuCpuLabel),
         // System points are keyed by a 0-based sample ordinal, not a
         // training step — tell the tiles to suppress the "step N" label.
         for (final g in _groupMetrics(_systemMetrics))
@@ -1305,7 +1328,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       ],
       if (uris.isNotEmpty) ...[
         const SizedBox(height: 16),
-        _sectionLabel('Metric dashboards'),
+        _sectionLabel(l10n.metricDashboardsLabel),
         for (final u in uris) _MetricURITile(row: u, onLaunch: _launch),
       ],
     ]);
@@ -1313,16 +1336,17 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
 
   // ---- Media: images + distributions ----
   Widget _mediaView() {
+    final l10n = AppLocalizations.of(context)!;
     if (_images.isEmpty && _histograms.isEmpty) {
       return _emptyView(
         Icons.image_outlined,
-        'No media yet',
-        'Logged images and distributions appear here.',
+        l10n.runNoMediaTitle,
+        l10n.runNoMediaSubtitle,
       );
     }
     return _viewScroll([
       if (_images.isNotEmpty) ...[
-        _sectionLabel('Images'),
+        _sectionLabel(l10n.imagesLabel),
         for (final group in _groupImages(_images))
           _ImageSeriesTile(
             groupName: group.name,
@@ -1332,7 +1356,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       ],
       if (_histograms.isNotEmpty) ...[
         const SizedBox(height: 16),
-        _sectionLabel('Distributions'),
+        _sectionLabel(l10n.distributionsLabel),
         for (final group in _groupHistograms(_histograms))
           HistogramSeriesTile(
             groupName: group.name,
@@ -1344,22 +1368,27 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
 
   // ---- Outputs: produced artifacts ----
   Widget _outputsView() {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final outputTerm = vocab.term(VocabAxis.entityOutput);
+    final runTerm = vocab.term(VocabAxis.entityRun);
     if (_artifacts.isEmpty) {
       return _emptyView(
         Icons.folder_outlined,
-        'No outputs yet',
-        'Files and checkpoints the run produces appear here.',
+        l10n.runNoOutputsTitle(outputTerm.pluralLower),
+        l10n.runNoOutputsSubtitle(runTerm.lower),
       );
     }
     return _viewScroll([
-      _sectionLabel('Outputs'),
+      _sectionLabel(outputTerm.plural),
       for (final a in _artifacts.take(5)) _RunArtifactTile(row: a),
       if (_artifacts.length > 5)
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
             icon: const Icon(Icons.open_in_new, size: 16),
-            label: Text('View all ${_artifacts.length} outputs'),
+            label: Text(l10n.viewAllOutputs(
+                _artifacts.length, outputTerm.pluralLower)),
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => ArtifactsScreen(runId: widget.runId),
             )),
@@ -1370,24 +1399,26 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
 
   // ---- Config: metadata (P4 adds searchable hyperparameters) ----
   Widget _configView(Map<String, dynamic> r) {
+    final l10n = AppLocalizations.of(context)!;
+    final runTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityRun);
     final meta = r['metadata_json'];
     final hasMeta = meta is Map && meta.isNotEmpty;
     final hasConfig = _config != null && _config!.isNotEmpty;
     if (!hasConfig && !hasMeta) {
       return _emptyView(
         Icons.tune,
-        'No config yet',
-        'Hyperparameters and run metadata appear here.',
+        l10n.runNoConfigTitle,
+        l10n.runNoConfigSubtitle(runTerm.lower),
       );
     }
     return _viewScroll([
       if (hasConfig) ...[
-        _sectionLabel('Hyperparameters'),
+        _sectionLabel(l10n.hyperparametersLabel),
         _ConfigKeyValueList(config: _config!),
       ],
       if (hasMeta) ...[
         if (hasConfig) const SizedBox(height: 16),
-        _sectionLabel('Metadata'),
+        _sectionLabel(l10n.metadataLabel),
         _panel(
           child: SelectableText(
             const JsonEncoder.withIndent('  ').convert(meta),
@@ -1584,7 +1615,8 @@ class _LiveDurationTextState extends State<_LiveDurationText> {
 
   @override
   Widget build(BuildContext context) {
-    final d = _runDuration(widget.created, widget.completed);
+    final l10n = AppLocalizations.of(context)!;
+    final d = _runDuration(l10n, widget.created, widget.completed);
     return Text(
       d.isEmpty ? '—' : d,
       maxLines: 1,
@@ -1631,6 +1663,7 @@ class _RunAlertsBannerState extends State<_RunAlertsBanner> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final alerts = widget.alerts;
     // Headline = most severe; ties broken by recency (later in the
     // server's oldest-first ordering wins via >=).
@@ -1663,7 +1696,7 @@ class _RunAlertsBannerState extends State<_RunAlertsBanner> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    n == 1 ? '1 alert' : '$n alerts',
+                    l10n.alertCount(n),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -1836,6 +1869,7 @@ class _ConfigKeyValueListState extends State<_ConfigKeyValueList> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final entries = _q.isEmpty
         ? _flat
         : _flat
@@ -1851,7 +1885,7 @@ class _ConfigKeyValueListState extends State<_ConfigKeyValueList> {
           style: GoogleFonts.jetBrainsMono(fontSize: 12),
           decoration: InputDecoration(
             isDense: true,
-            hintText: 'Filter ${_flat.length} keys…',
+            hintText: l10n.filterKeysHint(_flat.length),
             hintStyle: GoogleFonts.jetBrainsMono(
               fontSize: 12,
               color: DesignColors.textMuted,
@@ -1874,7 +1908,7 @@ class _ConfigKeyValueListState extends State<_ConfigKeyValueList> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Text(
-              'no keys match "$_q"',
+              l10n.noKeysMatch(_q),
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 11,
                 color: DesignColors.textMuted,
@@ -1955,7 +1989,8 @@ class _SummaryBody extends StatelessWidget {
 /// time since start; completed runs show total elapsed. Returns an
 /// empty string if the timestamps don't parse — the caller omits the
 /// row in that case rather than showing gibberish.
-String _runDuration(String createdIso, String completedIso) {
+String _runDuration(
+    AppLocalizations l10n, String createdIso, String completedIso) {
   final start = DateTime.tryParse(createdIso);
   if (start == null) return '';
   final end =
@@ -1964,7 +1999,7 @@ String _runDuration(String createdIso, String completedIso) {
   final diff = end.difference(start);
   final running = completedIso.isEmpty;
   final body = _fmtDurationMs(diff.inMilliseconds);
-  return running ? 'running for $body' : body;
+  return running ? l10n.runningFor(body) : body;
 }
 
 String _fmtDurationMs(int ms) {
@@ -2388,6 +2423,7 @@ class _MetricURITile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final kind = (row['kind'] ?? '').toString();
     final uri = (row['uri'] ?? '').toString();
     return ListTile(
@@ -2399,7 +2435,7 @@ class _MetricURITile extends StatelessWidget {
         color: DesignColors.terminalCyan,
       ),
       title: Text(
-        kind.isEmpty ? 'dashboard' : kind,
+        kind.isEmpty ? l10n.dashboardLabel : kind,
         style: GoogleFonts.spaceGrotesk(
           fontSize: 12,
           fontWeight: FontWeight.w600,
@@ -2693,11 +2729,12 @@ class _ImageSeriesTileState extends ConsumerState<_ImageSeriesTile> {
 
   Widget _preview(Uint8List? bytes, String? err) {
     if (err != null) {
+      final l10n = AppLocalizations.of(context)!;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Text(
-            'failed to load: $err',
+            l10n.failedToLoadError(err),
             textAlign: TextAlign.center,
             style: GoogleFonts.jetBrainsMono(
               fontSize: 11,
@@ -2735,7 +2772,8 @@ class _CompletePayload {
 }
 
 class _CompleteRunDialog extends StatefulWidget {
-  const _CompleteRunDialog();
+  final String runLabel;
+  const _CompleteRunDialog({required this.runLabel});
 
   @override
   State<_CompleteRunDialog> createState() => _CompleteRunDialogState();
@@ -2755,8 +2793,9 @@ class _CompleteRunDialogState extends State<_CompleteRunDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
-      title: const Text('Complete run'),
+      title: Text(l10n.completeRunTitle(widget.runLabel)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2767,7 +2806,7 @@ class _CompleteRunDialogState extends State<_CompleteRunDialog> {
             children: [
               for (final s in _options)
                 ChoiceChip(
-                  label: Text(s),
+                  label: Text(runStatusLabel(l10n, s)),
                   selected: _status == s,
                   onSelected: (_) => setState(() => _status = s),
                 ),
@@ -2779,9 +2818,9 @@ class _CompleteRunDialogState extends State<_CompleteRunDialog> {
             minLines: 2,
             maxLines: 6,
             style: GoogleFonts.jetBrainsMono(fontSize: 12, height: 1.4),
-            decoration: const InputDecoration(
-              labelText: 'Summary (optional)',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: l10n.summaryOptional,
+              border: const OutlineInputBorder(),
               isDense: true,
             ),
           ),
@@ -2790,13 +2829,13 @@ class _CompleteRunDialogState extends State<_CompleteRunDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(
             _CompletePayload(_status, _summary.text.trim()),
           ),
-          child: const Text('Complete'),
+          child: Text(l10n.buttonComplete),
         ),
       ],
     );
@@ -2829,8 +2868,9 @@ class _AttachMetricDialogState extends State<_AttachMetricDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
-      title: const Text('Attach dashboard'),
+      title: Text(l10n.attachDashboard),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2838,10 +2878,10 @@ class _AttachMetricDialogState extends State<_AttachMetricDialog> {
           TextField(
             controller: _kind,
             style: GoogleFonts.jetBrainsMono(fontSize: 13),
-            decoration: const InputDecoration(
-              labelText: 'Kind',
-              helperText: 'e.g. tensorboard, wandb, trackio',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: l10n.fieldKind,
+              helperText: l10n.attachKindHelper,
+              border: const OutlineInputBorder(),
               isDense: true,
             ),
           ),
@@ -2849,10 +2889,10 @@ class _AttachMetricDialogState extends State<_AttachMetricDialog> {
           TextField(
             controller: _uri,
             style: GoogleFonts.jetBrainsMono(fontSize: 12),
-            decoration: const InputDecoration(
-              labelText: 'URI',
+            decoration: InputDecoration(
+              labelText: l10n.attachUriLabel,
               hintText: 'https://...',
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
               isDense: true,
             ),
             keyboardType: TextInputType.url,
@@ -2862,7 +2902,7 @@ class _AttachMetricDialogState extends State<_AttachMetricDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           onPressed: () {
@@ -2871,7 +2911,7 @@ class _AttachMetricDialogState extends State<_AttachMetricDialog> {
             if (kind.isEmpty || uri.isEmpty) return;
             Navigator.of(context).pop(_MetricPayload(kind, uri));
           },
-          child: const Text('Attach'),
+          child: Text(l10n.buttonAttach),
         ),
       ],
     );

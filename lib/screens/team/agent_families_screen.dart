@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -96,6 +97,7 @@ class AgentFamiliesTabState extends ConsumerState<AgentFamiliesTab>
   }
 
   Widget _body() {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -123,7 +125,7 @@ class AgentFamiliesTabState extends ConsumerState<AgentFamiliesTab>
                   load();
                 },
                 icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Retry'),
+                label: Text(l10n.buttonRetry),
               ),
             ],
           ),
@@ -133,7 +135,7 @@ class AgentFamiliesTabState extends ConsumerState<AgentFamiliesTab>
     final allRows = _rows ?? const <Map<String, dynamic>>[];
     if (allRows.isEmpty) {
       return Center(
-        child: Text('No families registered.',
+        child: Text(l10n.noFamiliesRegistered,
             style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted)),
       );
     }
@@ -154,7 +156,7 @@ class AgentFamiliesTabState extends ConsumerState<AgentFamiliesTab>
     if (rows.isEmpty) {
       return Center(
         child: Text(
-          'No matches for "${widget.query}".',
+          l10n.noMatchesFor(widget.query),
           style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted),
         ),
       );
@@ -168,7 +170,7 @@ class AgentFamiliesTabState extends ConsumerState<AgentFamiliesTab>
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: Text(
-                'Embedded defaults are read-only. Add a custom family or override an embedded one to change capability probing.',
+                l10n.familiesEmbeddedNote,
                 style: GoogleFonts.spaceGrotesk(fontSize: 12, color: muted),
               ),
             ),
@@ -224,13 +226,19 @@ class _FamilyTile extends StatelessWidget {
 /// Family-source tag (custom / override / embedded) rendered via the
 /// shared [AppStatusChip] (ADR-047 D-7).
 Widget _sourceChip(BuildContext context, String source) {
+  final l10n = AppLocalizations.of(context)!;
   final isDark = Theme.of(context).brightness == Brightness.dark;
   final color = switch (source) {
     'custom' => DesignColors.success,
     'override' => DesignColors.warning,
     _ => isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
   };
-  return AppStatusChip(label: source, color: color);
+  final label = switch (source) {
+    'custom' => l10n.familySourceCustom,
+    'override' => l10n.familySourceOverride,
+    _ => l10n.familySourceEmbedded,
+  };
+  return AppStatusChip(label: label, color: color);
 }
 
 /// Editor for one family. Embedded entries open in read-only mode with
@@ -330,7 +338,9 @@ class _AgentFamilyEditorScreenState
         if (_source == 'embedded') _source = 'override';
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved'), duration: Duration(seconds: 1)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.savedSnack),
+            duration: const Duration(seconds: 1)),
       );
     } catch (e) {
       if (!mounted) return;
@@ -342,23 +352,24 @@ class _AgentFamilyEditorScreenState
   }
 
   Future<void> _delete() async {
+    final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete override?'),
+        title: Text(l10n.deleteOverrideTitle),
         content: Text(
           _source == 'override'
-              ? 'This reverts ${widget.family} to its embedded default.'
-              : 'This removes the custom family ${widget.family} from the registry.',
+              ? l10n.deleteOverrideRevert(widget.family)
+              : l10n.deleteCustomFamily(widget.family),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -394,6 +405,7 @@ class _AgentFamilyEditorScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -415,16 +427,16 @@ class _AgentFamilyEditorScreenState
           if (_readOnly)
             TextButton(
               onPressed: _loading ? null : _override,
-              child: const Text('Override'),
+              child: Text(l10n.buttonOverride),
             ),
           if (!_readOnly && !widget.isNew && _source != 'embedded')
             IconButton(
-              tooltip: 'Delete override',
+              tooltip: l10n.deleteOverrideTooltip,
               icon: const Icon(Icons.delete_outline),
               onPressed: _saving ? null : _delete,
             ),
           IconButton(
-            tooltip: 'Save',
+            tooltip: l10n.buttonSave,
             icon: _saving
                 ? const SizedBox(
                     width: 18,
@@ -456,7 +468,7 @@ class _AgentFamilyEditorScreenState
                     color: (isDark ? Colors.white : Colors.black)
                         .withOpacity(0.04),
                     child: Text(
-                      'Embedded default — preview only. Tap Override to edit.',
+                      l10n.familyEmbeddedPreview,
                       style: GoogleFonts.spaceGrotesk(
                           fontSize: 12, color: muted),
                     ),
@@ -500,8 +512,9 @@ class _NewFamilyNameDialogState extends State<_NewFamilyNameDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
-      title: const Text('New agent family'),
+      title: Text(l10n.newAgentFamily),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -515,13 +528,13 @@ class _NewFamilyNameDialogState extends State<_NewFamilyNameDialog> {
             ],
             decoration: InputDecoration(
               hintText: 'kimi-code',
-              labelText: 'Family name',
+              labelText: l10n.familyNameLabel,
               errorText: _error,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Lowercase letters, digits, and dashes. Must match a CLI binary on PATH.',
+            l10n.familyNameRule,
             style: GoogleFonts.spaceGrotesk(fontSize: 11, color: DesignColors.textMuted),
           ),
         ],
@@ -529,18 +542,18 @@ class _NewFamilyNameDialogState extends State<_NewFamilyNameDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           onPressed: () {
             final v = _ctrl.text.trim();
             if (!_nameRe.hasMatch(v)) {
-              setState(() => _error = 'Invalid name');
+              setState(() => _error = l10n.invalidName);
               return;
             }
             Navigator.pop(context, v);
           },
-          child: const Text('Create'),
+          child: Text(l10n.buttonCreate),
         ),
       ],
     );

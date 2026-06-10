@@ -972,5 +972,22 @@
   "hostFieldUsername": "用户名",
   "hostFieldPort": "端口",
   "hostCapsSection": "能力（JSON）",
-  "buttonSaveChanges": "保存更改"
+  "buttonSaveChanges": "保存更改",
+  "noFamiliesRegistered": "未注册任何系列。",
+  "noMatchesFor": "没有匹配 \"{query}\" 的结果。",
+  "familiesEmbeddedNote": "内置默认项为只读。添加自定义系列或覆盖某个内置项以更改能力探测。",
+  "familySourceCustom": "自定义",
+  "familySourceOverride": "覆盖",
+  "familySourceEmbedded": "内置",
+  "savedSnack": "已保存",
+  "deleteOverrideTitle": "删除覆盖？",
+  "deleteOverrideRevert": "这会将 {family} 还原为其内置默认项。",
+  "deleteCustomFamily": "这会从注册表中移除自定义系列 {family}。",
+  "buttonOverride": "覆盖",
+  "deleteOverrideTooltip": "删除覆盖",
+  "familyEmbeddedPreview": "内置默认项——仅供预览。点击“覆盖”以编辑。",
+  "newAgentFamily": "新建 agent 系列",
+  "familyNameLabel": "系列名称",
+  "familyNameRule": "小写字母、数字和短横线。必须匹配 PATH 上的 CLI 可执行文件。",
+  "invalidName": "无效名称"
 }

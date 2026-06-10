@@ -4,9 +4,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/tokens.dart';
 import '../../theme/design_colors.dart';
+
+/// Localized label for a schedule trigger wire value
+/// (`cron` / `manual` / `on_create`). Unknown values fall back to the raw
+/// wire string. Shared with the edit sheet and the schedules list.
+String scheduleTriggerLabel(AppLocalizations l10n, String kind) {
+  switch (kind) {
+    case 'cron':
+      return l10n.triggerCron;
+    case 'manual':
+      return l10n.triggerManual;
+    case 'on_create':
+      return l10n.triggerOnCreate;
+    default:
+      return kind;
+  }
+}
 
 /// Bottom sheet for creating a schedule (blueprint §6.3). A schedule binds
 /// a project to a template with a trigger. Cron schedules require cron_expr;
@@ -72,9 +91,12 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
       });
     } catch (e) {
       if (!mounted) return;
+      final l10n = AppLocalizations.of(context)!;
+      final projects =
+          ref.read(vocabularyProvider).term(VocabAxis.entityProject).pluralLower;
       setState(() {
         _loadingProjects = false;
-        _error = 'Load projects: $e';
+        _error = l10n.loadProjectsError(projects, '$e');
       });
     }
   }
@@ -90,16 +112,19 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
   Future<void> _submit() async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
+    final l10n = AppLocalizations.of(context)!;
     if (_projectId == null || _projectId!.isEmpty) {
-      setState(() => _error = 'Project required');
+      final project =
+          ref.read(vocabularyProvider).term(VocabAxis.entityProject).title;
+      setState(() => _error = l10n.projectRequired(project));
       return;
     }
     if (_template.text.trim().isEmpty) {
-      setState(() => _error = 'Template id required');
+      setState(() => _error = l10n.templateIdRequired);
       return;
     }
     if (_triggerKind == 'cron' && _cron.text.trim().isEmpty) {
-      setState(() => _error = 'Cron expression required for cron trigger');
+      setState(() => _error = l10n.cronExprRequired);
       return;
     }
     Map<String, dynamic>? parameters;
@@ -110,7 +135,7 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
         if (decoded is! Map) throw const FormatException('not an object');
         parameters = decoded.cast<String, dynamic>();
       } catch (e) {
-        setState(() => _error = 'Parameters must be JSON object: $e');
+        setState(() => _error = l10n.paramsMustBeJsonObjectError('$e'));
         return;
       }
     }
@@ -137,6 +162,10 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final scheduleTerm = voc.term(VocabAxis.entitySchedule);
+    final projectTerm = voc.term(VocabAxis.entityProject);
     final insets = MediaQuery.of(context).viewInsets;
     return Padding(
       padding: EdgeInsets.only(bottom: insets.bottom),
@@ -148,7 +177,10 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(widget.initial == null ? 'New schedule' : 'Duplicate schedule',
+              Text(
+                  widget.initial == null
+                      ? l10n.newSchedule(scheduleTerm.lower)
+                      : l10n.duplicateSchedule(scheduleTerm.lower),
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 16),
@@ -160,9 +192,9 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
               else
                 DropdownButtonFormField<String>(
                   value: _projectId,
-                  decoration: const InputDecoration(
-                    labelText: 'Project',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: projectTerm.title,
+                    border: const OutlineInputBorder(),
                   ),
                   items: [
                     for (final p in _projects)
@@ -177,23 +209,24 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
               TextField(
                 controller: _template,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Template id',
+                decoration: InputDecoration(
+                  labelText: l10n.fieldTemplateId,
                   hintText: 'agents/steward.v1.yaml',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                 ),
                 style: GoogleFonts.jetBrainsMono(fontSize: 13),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _triggerKind,
-                decoration: const InputDecoration(
-                  labelText: 'Trigger',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.fieldTrigger,
+                  border: const OutlineInputBorder(),
                 ),
                 items: [
                   for (final t in _triggers)
-                    DropdownMenuItem(value: t, child: Text(t)),
+                    DropdownMenuItem(
+                        value: t, child: Text(scheduleTriggerLabel(l10n, t))),
                 ],
                 onChanged: (v) => setState(() => _triggerKind = v ?? 'cron'),
               ),
@@ -202,10 +235,10 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
                 TextField(
                   controller: _cron,
                   style: GoogleFonts.jetBrainsMono(fontSize: 13),
-                  decoration: const InputDecoration(
-                    labelText: 'Cron expression',
+                  decoration: InputDecoration(
+                    labelText: l10n.fieldCronExpr,
                     hintText: '0 9 * * *',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                   ),
                 ),
               if (_triggerKind == 'cron') const SizedBox(height: 12),
@@ -213,10 +246,10 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
                 controller: _params,
                 maxLines: 4,
                 style: GoogleFonts.jetBrainsMono(fontSize: 12),
-                decoration: const InputDecoration(
-                  labelText: 'Parameters (JSON, optional)',
+                decoration: InputDecoration(
+                  labelText: l10n.fieldParamsJsonOptional,
                   hintText: '{"key": "value"}',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                 ),
               ),
               if (_error != null) ...[
@@ -231,7 +264,7 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
                   TextButton(
                     onPressed:
                         _busy ? null : () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
+                    child: Text(l10n.buttonCancel),
                   ),
                   const Spacer(),
                   FilledButton.icon(
@@ -243,7 +276,7 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.check, size: 16),
-                    label: const Text('Create'),
+                    label: Text(l10n.buttonCreate),
                   ),
                 ],
               ),

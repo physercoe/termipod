@@ -18,6 +18,15 @@ Long answer: the architecture is **better positioned than you'd
 expect** for content-shaped domain packs, but the "OS plugin" framing
 is misleading and may push toward expensive solutions to non-problems.
 
+> **Update (2026-06-10).** The **vocabulary** row of a content pack
+> (per-domain role wording) has **graduated from post-MVP to MVP** —
+> a tester was blocked by the fixed "steward" wording. It ships as a
+> standalone `VocabPack` overlay (vocabulary preset × language), not the
+> full pack machinery — see [ADR-048](../decisions/048-themed-vocabulary-overlay.md)
+> and [the program plan](../plans/themed-vocabulary-and-i18n-sweep.md).
+> This is the first concrete validation slice of the content-pack thesis
+> below.
+
 ---
 
 ## 1. Reframe the question first: code packs vs content packs

@@ -1575,5 +1575,15 @@
   "createRunButton": "Create {run}",
   "@createRunButton": { "placeholders": { "run": { "type": "String" } } },
   "pickProject": "Pick a {project}",
-  "@pickProject": { "placeholders": { "project": { "type": "String" } } }
+  "@pickProject": { "placeholders": { "project": { "type": "String" } } },
+  "runStatusRunning": "running",
+  "runStatusSucceeded": "succeeded",
+  "runStatusFailed": "failed",
+  "runStatusCancelled": "cancelled",
+  "runsNoneMatch": "No {runs} match the current filters.",
+  "@runsNoneMatch": { "placeholders": { "runs": { "type": "String" } } },
+  "runsNoneYet": "No {runs} yet.",
+  "@runsNoneYet": { "placeholders": { "runs": { "type": "String" } } },
+  "runsNoneStatus": "No {status} {runs}.",
+  "@runsNoneStatus": { "placeholders": { "status": { "type": "String" }, "runs": { "type": "String" } } }
 }

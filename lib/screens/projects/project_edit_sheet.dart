@@ -4,6 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -112,6 +114,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
   }
 
   Future<void> _submit() async {
+    final l10n = AppLocalizations.of(context)!;
     final projectId = (widget.project['id'] ?? '').toString();
     if (projectId.isEmpty) return;
     final client = ref.read(hubProvider.notifier).client;
@@ -138,7 +141,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
     final budgetRaw = _budgetUsd.text.trim();
     if (budgetRaw.isNotEmpty && double.tryParse(budgetRaw) == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Budget must be a dollar amount')),
+        SnackBar(content: Text(l10n.budgetMustBeDollar)),
       );
       return;
     }
@@ -146,8 +149,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
       final raw = c.text.trim();
       if (raw.isNotEmpty && int.tryParse(raw) == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Loop deadlines must be whole minutes')),
+          SnackBar(content: Text(l10n.loopDeadlinesWholeMinutes)),
         );
         return;
       }
@@ -187,13 +189,19 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Update failed: $e')),
+        SnackBar(content: Text(l10n.updateFailedError('$e'))),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final isWorkspace =
+        (widget.project['kind'] ?? 'goal').toString() == 'standing';
+    final entityTerm = ref
+        .watch(vocabularyProvider)
+        .term(isWorkspace ? VocabAxis.entityWorkspace : VocabAxis.entityProject);
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
       minChildSize: 0.5,
@@ -224,66 +232,61 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
                 ),
               ),
             ),
-            Builder(builder: (ctx) {
-              final l10n = AppLocalizations.of(ctx)!;
-              final isWorkspace =
-                  (widget.project['kind'] ?? 'goal').toString() == 'standing';
-              return Text(
-                isWorkspace ? l10n.workspaceEditTitle : l10n.projectEditTitle,
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              );
-            }),
+            Text(
+              isWorkspace ? l10n.workspaceEditTitle : l10n.projectEditTitle,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 16),
             _field(
-              label: 'Name',
+              label: l10n.fieldName,
               controller: _name,
-              hint: 'Project name',
+              hint: l10n.entityNameHint(entityTerm.title),
             ),
             _field(
-              label: 'Goal',
+              label: l10n.fieldGoal,
               controller: _goal,
-              hint: 'What this project aims to achieve',
+              hint: l10n.goalHint(entityTerm.lower),
               maxLines: 4,
             ),
             _field(
-              label: 'Project template',
+              label: l10n.projectTemplateLabel,
               controller: _template,
               hint: 'e.g. agents/steward.v1.yaml',
               mono: true,
             ),
             _field(
-              label: 'On-create template',
+              label: l10n.onCreateTemplateLabel,
               controller: _onCreate,
               hint: 'e.g. prompts/onboarding.md',
               mono: true,
             ),
             _field(
-              label: 'Docs root',
+              label: l10n.docsRootLabel,
               controller: _docsRoot,
-              hint: 'relative path under the hub dataRoot',
+              hint: l10n.docsRootEditHint,
               mono: true,
             ),
             _field(
-              label: 'Budget (USD)',
+              label: l10n.budgetUsdLabel,
               controller: _budgetUsd,
-              hint: 'e.g. 25.00 — leave blank to keep current',
+              hint: l10n.budgetHint,
               mono: true,
               keyboard: const TextInputType.numberWithOptions(decimal: true),
             ),
             _field(
-              label: 'Loop stall deadline (minutes)',
+              label: l10n.loopStallLabel,
               controller: _loopInactivity,
-              hint: 'inactivity before a hop escalates — blank = hub default',
+              hint: l10n.loopStallHint,
               mono: true,
               keyboard: TextInputType.number,
             ),
             _field(
-              label: 'Loop hard cap (minutes)',
+              label: l10n.loopHardCapLabel,
               controller: _loopAbsoluteCap,
-              hint: 'absolute cap before a hop times out — blank = hub default',
+              hint: l10n.loopHardCapHint,
               mono: true,
               keyboard: TextInputType.number,
             ),
@@ -296,7 +299,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Save changes'),
+                  : Text(l10n.saveChanges),
             ),
           ],
         ),

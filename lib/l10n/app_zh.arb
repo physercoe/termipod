@@ -1952,5 +1952,8 @@
   "@addConnectionFromHostHint": { "placeholders": { "host": { "type": "String" } } },
   "openPrefilledHostData": "打开已填入此{host}数据的表单",
   "@openPrefilledHostData": { "placeholders": { "host": { "type": "String" } } },
-  "matchLabel": "匹配"
+  "matchLabel": "匹配",
+  "copyPublicKey": "复制公钥",
+  "keySourceGenerated": "已生成",
+  "keySourceImported": "已导入"
 }

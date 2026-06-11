@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'package:termipod/l10n/app_localizations.dart';
+
 import '../../../providers/key_provider.dart';
 import '../../../theme/tokens.dart';
 
-/// SSH鍵を表示するタイルウィジェット
+/// Tile widget that displays an SSH key.
 class KeyTile extends StatelessWidget {
   final SshKeyMeta keyMeta;
   final VoidCallback? onTap;
@@ -20,6 +22,7 @@ class KeyTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return ListTile(
       leading: CircleAvatar(
         child: Icon(_getKeyTypeIcon()),
@@ -71,13 +74,13 @@ class KeyTile extends StatelessWidget {
           }
         },
         itemBuilder: (context) => [
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'copy',
             child: Row(
               children: [
                 Icon(Icons.copy),
-                SizedBox(width: 8),
-                Text('Copy Public Key'),
+                const SizedBox(width: 8),
+                Text(l10n.copyPublicKey),
               ],
             ),
           ),
@@ -87,7 +90,7 @@ class KeyTile extends StatelessWidget {
               children: [
                 Icon(Icons.delete, color: Theme.of(context).colorScheme.error),
                 const SizedBox(width: 8),
-                Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                Text(l10n.buttonDelete, style: TextStyle(color: Theme.of(context).colorScheme.error)),
               ],
             ),
           ),
@@ -128,7 +131,7 @@ class KeyTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
-        isGenerated ? 'Generated' : 'Imported',
+        isGenerated ? l10n.keySourceGenerated : l10n.keySourceImported,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
               fontSize: FontSizes.label,
               color: isGenerated

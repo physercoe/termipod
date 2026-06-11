@@ -1,10 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
@@ -59,11 +62,12 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
       setState(() => _loadingContext = false);
       return;
     }
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       setState(() {
         _loadingContext = false;
-        _contextError = 'Hub not configured.';
+        _contextError = l10n.hubNotConfigured;
       });
       return;
     }
@@ -85,6 +89,8 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -111,13 +117,14 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Approval detail',
+          l10n.approvalDetailTitle(vocab.term(VocabAxis.surfaceApproval).title),
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
         actions: [
           if (attentionId.isNotEmpty)
             IconButton(
-              tooltip: 'Discuss with steward',
+              tooltip: l10n.discussWithStewardTip(
+                  vocab.term(VocabAxis.roleSteward).lower),
               icon: const Icon(Icons.forum_outlined),
               // ADR-009 D7 + Phase 2: open a session scoped to this
               // attention item so the steward sees the request's
@@ -157,14 +164,15 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
               if (kind == 'help_request' && pending != null)
                 AppStatusChip(
                   label: (pending['mode'] ?? 'clarify').toString() == 'handoff'
-                      ? 'hand-back'
-                      : 'clarify',
+                      ? l10n.modeHandBack
+                      : l10n.modeClarify,
                   color: (pending['mode'] ?? 'clarify').toString() == 'handoff'
                       ? DesignColors.warning
                       : DesignColors.primary,
                 ),
               if (kind == 'elicit')
-                AppStatusChip(label: 'fill', color: DesignColors.terminalCyan),
+                AppStatusChip(
+                    label: l10n.modeFill, color: DesignColors.terminalCyan),
             ],
           ),
           const SizedBox(height: 20),
@@ -206,11 +214,11 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
           if (status != 'resolved') const SizedBox(height: 24),
 
           // --- Where: agent + session + project pointers. ---
-          _Section(title: 'Origin', children: [
+          _Section(title: l10n.sectionOrigin, children: [
             if (ctxAgentHandle.isNotEmpty)
-              _Field(label: 'Agent', value: ctxAgentHandle),
+              _Field(label: vocab.agent, value: ctxAgentHandle),
             if (createdAt.isNotEmpty)
-              _Field(label: 'Raised', value: _formatTs(createdAt)),
+              _Field(label: l10n.fieldRaised, value: _formatTs(createdAt)),
             if (ctxSessionID.isNotEmpty || _projectScope() != null)
               Padding(
                 padding: const EdgeInsets.only(top: Spacing.s8),
@@ -221,7 +229,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
                     if (ctxSessionID.isNotEmpty)
                       OutlinedButton.icon(
                         icon: const Icon(Icons.open_in_new, size: 16),
-                        label: const Text('Open in chat'),
+                        label: Text(l10n.openInChat),
                         onPressed: () => _openSession(
                           context,
                           sessionID: ctxSessionID,
@@ -233,7 +241,8 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
                     if (_projectScope() != null)
                       OutlinedButton.icon(
                         icon: const Icon(Icons.folder_open, size: 16),
-                        label: const Text('Open project'),
+                        label: Text(l10n.openProjectEntity(
+                            vocab.term(VocabAxis.entityProject).lower)),
                         onPressed: () => _openProject(context),
                       ),
                   ],
@@ -248,14 +257,14 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
           // ones; for multi-approver quorums each partial vote shows up
           // alongside the final resolution.
           if (decisions.isNotEmpty)
-            _Section(title: 'Decision history', children: [
+            _Section(title: l10n.decisionHistory, children: [
               for (final d in decisions)
                 _DecisionTile(decision: d, kind: kind),
               if (status == 'resolved' && resolvedAt.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'Resolved ${_formatTs(resolvedAt)}',
+                    l10n.resolvedAtTs(_formatTs(resolvedAt)),
                     style: GoogleFonts.jetBrainsMono(
                       fontSize: FontSizes.label,
                       color: muted,
@@ -275,7 +284,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
-                'Could not load context: $_contextError',
+                l10n.couldNotLoadContext(_contextError ?? ''),
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: 11,
                   color: DesignColors.error,
@@ -283,7 +292,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
               ),
             )
           else if (ctxEvents.isNotEmpty)
-            _Section(title: 'Recent transcript', children: [
+            _Section(title: l10n.recentTranscript, children: [
               for (final e in ctxEvents.reversed)
                 _TranscriptTile(event: (e as Map).cast<String, dynamic>()),
             ])
@@ -291,7 +300,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
-                'No transcript context recorded for this attention.',
+                l10n.noTranscriptContext,
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: 11,
                   color: muted,
@@ -302,7 +311,7 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
 
           if (pending != null && pending.isNotEmpty) ...[
             const SizedBox(height: 16),
-            _Section(title: 'Pending payload', children: [
+            _Section(title: l10n.pendingPayloadSection, children: [
               _PayloadBlock(payload: pending, muted: muted),
             ]),
           ],
@@ -332,7 +341,9 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
         builder: (_) => SessionChatScreen(
           sessionId: sessionID,
           agentId: agentID,
-          title: handle.isNotEmpty ? handle : 'Session',
+          title: handle.isNotEmpty
+              ? handle
+              : AppLocalizations.of(context)!.sessionFallbackTitle,
           initialSeq: targetSeq,
         ),
       ),
@@ -712,6 +723,7 @@ class _DecisionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -724,7 +736,7 @@ class _DecisionTile extends StatelessWidget {
 
     final approve = verdict == 'approve';
     final accent = approve ? DesignColors.success : DesignColors.error;
-    final headline = _headline(kind, verdict, optionID);
+    final headline = _headline(l10n, kind, verdict, optionID);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -773,7 +785,7 @@ class _DecisionTile extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 2, left: Spacing.s16),
               child: Text(
-                'by $by',
+                l10n.decidedByActor(by),
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: FontSizes.label,
                   color: muted,
@@ -798,7 +810,7 @@ class _DecisionTile extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(left: Spacing.s16),
               child: SelectableText(
-                'Reason: $reason',
+                l10n.decisionReasonLine(reason),
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: 11,
                   color: muted,
@@ -811,24 +823,27 @@ class _DecisionTile extends StatelessWidget {
     );
   }
 
-  static String _headline(String kind, String verdict, String optionID) {
+  static String _headline(
+      AppLocalizations l10n, String kind, String verdict, String optionID) {
     final approve = verdict == 'approve';
     switch (kind) {
       case 'select':
         if (approve) {
           return optionID.isNotEmpty
-              ? 'Selected: $optionID'
-              : 'Selected';
+              ? l10n.decisionSelectedOption(optionID)
+              : l10n.decisionSelected;
         }
-        return 'No option chosen';
+        return l10n.decisionNoOption;
       case 'help_request':
       case 'elicit':
-        return approve ? 'Replied' : 'Dismissed';
+        return approve ? l10n.decisionReplied : l10n.dismissed;
       case 'template_proposal':
-        return approve ? 'Approved template' : 'Rejected template';
+        return approve
+            ? l10n.decisionApprovedTemplate
+            : l10n.decisionRejectedTemplate;
       case 'approval_request':
       default:
-        return approve ? 'Approved' : 'Rejected';
+        return approve ? l10n.decisionApproved : l10n.decisionRejected;
     }
   }
 }
@@ -949,6 +964,8 @@ class _RevisionRequestedBlockState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
@@ -969,7 +986,7 @@ class _RevisionRequestedBlockState
                   size: 16, color: DesignColors.warning),
               const SizedBox(width: 6),
               Text(
-                'Director note',
+                l10n.principalNote(vocab.principal),
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -981,7 +998,7 @@ class _RevisionRequestedBlockState
           ),
           const SizedBox(height: 6),
           Text(
-            _note.isEmpty ? '(no note)' : _note,
+            _note.isEmpty ? l10n.noNotePlaceholder : _note,
             style: GoogleFonts.spaceGrotesk(fontSize: 14, height: 1.4),
           ),
           if (widget.projectId.isNotEmpty && _deliverableId.isNotEmpty) ...[
@@ -989,8 +1006,8 @@ class _RevisionRequestedBlockState
             OutlinedButton.icon(
               icon: const Icon(Icons.layers_outlined, size: 16),
               label: Text(_deliverableLabel == null
-                  ? 'Open deliverable'
-                  : 'Open deliverable · $_deliverableLabel'),
+                  ? l10n.openDeliverable
+                  : l10n.openDeliverableNamed(_deliverableLabel!)),
               onPressed: _firstDocumentId == null
                   ? null
                   : () => _openDocument(context, _firstDocumentId!),
@@ -999,7 +1016,7 @@ class _RevisionRequestedBlockState
           if (_annotationIDs.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text(
-              'Linked annotations (${_annotationIDs.length})',
+              l10n.linkedAnnotationsCount(_annotationIDs.length),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
@@ -1055,6 +1072,7 @@ class _LinkedAnnotationRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final r = resolved;
     final missing = r == null;
     final kind = (r?['kind'] ?? 'comment').toString();
@@ -1087,7 +1105,7 @@ class _LinkedAnnotationRow extends StatelessWidget {
                 children: [
                   Text(
                     missing
-                        ? '(annotation $id no longer available)'
+                        ? l10n.annotationUnavailable(id)
                         : body,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -1174,6 +1192,7 @@ class _TemplateProposalPreviewState
   }
 
   Future<void> _load() async {
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null || _sha.isEmpty) {
       setState(() {
@@ -1205,13 +1224,14 @@ class _TemplateProposalPreviewState
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'Failed to load proposal: $e';
+        _error = l10n.failedToLoadProposal('$e');
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
@@ -1234,7 +1254,7 @@ class _TemplateProposalPreviewState
                   size: 16, color: DesignColors.primary),
               const SizedBox(width: 6),
               Text(
-                'Template proposal',
+                l10n.templateProposalTitle,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -1244,6 +1264,7 @@ class _TemplateProposalPreviewState
               const Spacer(),
               if (!_loading && _proposed != null)
                 _diffStatusChip(
+                  l10n: l10n,
                   isCreate: _currentMissing,
                   hasCurrent: _current != null,
                   isSame: _current != null && _current == _proposed,
@@ -1261,7 +1282,7 @@ class _TemplateProposalPreviewState
           if (_proposedBy.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
-              'Proposed by $_proposedBy',
+              l10n.proposedByHandle(_proposedBy),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 color: muted,
@@ -1271,7 +1292,7 @@ class _TemplateProposalPreviewState
           if (_rationale.isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
-              'Rationale',
+              l10n.rationaleLabel,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -1286,7 +1307,7 @@ class _TemplateProposalPreviewState
           ],
           const SizedBox(height: 12),
           Text(
-            'Proposed body',
+            l10n.proposedBody,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -1339,6 +1360,7 @@ class _TemplateProposalPreviewState
 /// Diff-status tag (NEW / unknown / no change / revise) rendered via the
 /// shared [AppStatusChip] (ADR-047 D-7).
 Widget _diffStatusChip({
+  required AppLocalizations l10n,
   required bool isCreate,
   required bool hasCurrent,
   required bool isSame,
@@ -1346,16 +1368,16 @@ Widget _diffStatusChip({
   String label;
   Color color;
   if (isCreate) {
-    label = 'NEW';
+    label = l10n.diffNew;
     color = DesignColors.terminalCyan;
   } else if (!hasCurrent) {
-    label = 'unknown';
+    label = l10n.diffUnknown;
     color = DesignColors.textMuted;
   } else if (isSame) {
-    label = 'no change';
+    label = l10n.diffNoChange;
     color = DesignColors.textMuted;
   } else {
-    label = 'revise';
+    label = l10n.diffRevise;
     color = DesignColors.warning;
   }
   return AppStatusChip(label: label, color: color);

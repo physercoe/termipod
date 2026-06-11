@@ -11,8 +11,8 @@ labels are the state machine, branches/PRs are the work units, CI is the
 gate. One **maintainer** decomposes work into specced **tickets** and is the
 sole merger; any number of **builders** (any vendor or model) claim tickets,
 implement them on their own host, and open PRs for review. The protocol is
-**vendor-agnostic** — agents are identified by their GitHub account, never by
-model name.
+**vendor-agnostic** — agents are identified by a `git config` **handle**,
+never by model name, and builders may share a single GitHub account.
 
 ---
 
@@ -30,20 +30,41 @@ Roles are not vendors. A new CLI or model joins by configuring a GitHub
 identity (§2) and reading this doc and `AGENTS.md` — no code or label
 changes, no name baked anywhere.
 
-## 2. Identity (operator setup, per host)
+## 2. Identity — two separate axes
 
-Each builder runs on its own host with its **own GitHub account**, so every
-commit and claim is attributable. The operator configures this once per host
-— it is **not** set by ticket specs:
+Identity splits into two axes that are easy to conflate. Only one of them
+costs a GitHub account, so the account count stays **constant** no matter how
+many agents you run.
+
+- **Attribution** — *which agent wrote this* — is pure commit metadata, set
+  per host with `git config`. No account needed; scales to any number of
+  agents for free.
+- **Acting account** — *who pushes, opens the PR, can approve/merge* — is
+  decided by the auth credential (token), **not** by `git config`. A token
+  always acts as the account that owns it.
+
+**Operator setup, per host** (not set by ticket specs):
 
 ```bash
-git config user.name  "<handle>"          # the builder's GitHub login
+# Attribution — a distinct handle per agent (free, no account):
+git config user.name  "<handle>"          # e.g. builder-1; how we tell agents apart
 git config user.email "<handle>@users.noreply.github.com"
-gh auth login                              # as that same account
+
+# Acting account — authenticate gh with a token. All builders MAY share a
+# single builder account/token; the maintainer uses a different account.
+gh auth login
 ```
 
-`<handle>` is whatever GitHub login the operator assigned that agent.
-Builders add a `Co-Authored-By: <handle> <email>` trailer to their commits.
+`<handle>` is the agent's attribution handle (any string the operator picks)
+— it appears in the branch name and the claim comment, and is how we
+distinguish agents. Builders add a `Co-Authored-By: <handle> <email>` trailer
+to their commits.
+
+Because `git config` carries attribution, **builders can share one GitHub
+account** (one token) — you do not create an account per agent. Keeping the
+builder account distinct from the maintainer account is optional; it is only
+required if you want the *enforced* approval gate (§7). With a single shared
+account, maintainer-only merge stays a convention enforced by CI + review.
 
 ## 3. The ticket lifecycle
 
@@ -83,16 +104,20 @@ builder at launch which tiers it may take (e.g. "mechanical only").
 
 A builder claims a `ticket:ready` issue at a tier it is cleared for:
 
-1. self-assign: `gh issue edit <N> --add-assignee @me`
-2. relabel: `--add-label ticket:claimed --remove-label ticket:ready`
-3. comment with an ETA.
+1. relabel: `gh issue edit <N> --add-label ticket:claimed --remove-label ticket:ready`
+2. **comment naming your handle and an ETA** — e.g. `claiming as <handle>, ETA ~30m`.
+
+The **claim comment (your `<handle>`) plus the branch name
+(`agent/<handle>/<N>-…`) is the source of truth** for who holds a ticket — not
+the GitHub assignee, which is unreliable when builders share one account. (You
+*may* also self-assign, but the handle is what counts.)
 
 Rules:
 
-- **One open PR per builder** at a time — keeps the review queue sane.
-- **2-hour claim TTL.** If no PR is open within 2h, any builder may reclaim
-  (re-assign, reset the label). The GitHub **assignee** is the source of
-  truth for who holds a ticket — there are no per-vendor labels.
+- **One open PR per handle** at a time — keeps the review queue sane.
+- **2-hour claim TTL.** If no branch/PR exists within 2h of the claim comment,
+  any builder may take it over: reset to `ticket:ready` is unnecessary — just
+  drop a new claim comment with your own handle and proceed.
 
 ## 5. Doing the work
 
@@ -131,6 +156,16 @@ A builder must confirm green *itself* before handing a PR to the maintainer:
 
 The maintainer re-verifies the same way before merging. Merges happen only on
 CI green (re-checked) **plus** maintainer approve.
+
+**Convention vs enforced gate.** With a single shared GitHub account (builders
+and maintainer the same account), "maintainer-only merge" is a *convention* —
+builders are told never to merge, and CI + maintainer review is the real
+safety net (sufficient in practice). To make it an *enforced* gate, the
+builder account must be **distinct** from the maintainer account; then enable
+branch protection on `main` (Settings → Branches → require a pull request +
+require 1 approval), and GitHub will block merge until the maintainer account
+approves — a builder cannot approve its own PR. A token's permission scope
+does **not** create this gate; only distinct accounts do.
 
 ## 8. Escalation — don't guess
 

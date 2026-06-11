@@ -10,7 +10,7 @@ import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
-/// スニペット一覧・管理画面
+/// Snippet list and management screen.
 ///
 /// Shows preset Agent CLI snippets (grouped by profile) first, then user
 /// snippets grouped by category. Presets can be edited in place — the
@@ -345,7 +345,7 @@ class _SnippetsScreenState extends ConsumerState<SnippetsScreen> {
 
 }
 
-/// スニペットタイル
+/// Snippet tile.
 class _SnippetTile extends ConsumerWidget {
   final Snippet snippet;
 
@@ -375,7 +375,8 @@ class _SnippetTile extends ConsumerWidget {
             context: context,
             builder: (ctx) => AlertDialog(
               title: Text(AppLocalizations.of(context)!.deleteSnippetTitle),
-              content: Text('Delete "${snippet.name}"?'),
+              content: Text(
+                  AppLocalizations.of(context)!.deleteNamedConfirm(snippet.name)),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
@@ -482,7 +483,7 @@ typedef SnippetEditSaveCallback = void Function(
   List<SnippetVariable> variables,
 );
 
-/// スニペット作成/編集ダイアログ
+/// Snippet create/edit dialog.
 class SnippetEditDialog extends ConsumerStatefulWidget {
   final Snippet? snippet;
 
@@ -1115,7 +1116,8 @@ class _PresetSnippetTile extends ConsumerWidget {
                 builder: (ctx) => AlertDialog(
                   title: Text(
                       AppLocalizations.of(context)!.deleteSnippetTitle),
-                  content: Text('Delete "${preset.name}"?'),
+                  content: Text(AppLocalizations.of(context)!
+                      .deleteNamedConfirm(preset.name)),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx, false),

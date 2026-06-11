@@ -2006,5 +2006,7 @@
   "privateKeyPemLabel": "Private Key (PEM format)",
   "selectFileOrPastePem": "Please select a file or paste the private key",
   "couldNotReadFile": "Could not read file content",
-  "wrongPassphrase": "Wrong passphrase. Please check and try again."
+  "wrongPassphrase": "Wrong passphrase. Please check and try again.",
+  "deleteNamedConfirm": "Delete \"{name}\"?",
+  "@deleteNamedConfirm": { "placeholders": { "name": { "type": "String" } } }
 }

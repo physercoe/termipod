@@ -2045,5 +2045,12 @@
   "connectedTerminalMenuTooltip": "Connected - disconnect from terminal menu",
   "vaultSectionTitle": "VAULT",
   "snippetsAndHistory": "Snippets & History",
-  "terminalShortcutsRecentCommands": "Terminal shortcuts and recent commands"
+  "terminalShortcutsRecentCommands": "Terminal shortcuts and recent commands",
+  "hubConfigTitle": "Hub config",
+  "hubConfigSubtitle": "roles.yaml - operation-scope manifest",
+  "hubConfigOwnerTokenRequired": "Hub config requires an owner-kind token.",
+  "savedReloaded": "Saved + reloaded",
+  "noChanges": "No changes",
+  "hubConfigResetBody": "Removes the on-disk roles.yaml override and reloads the embedded built-in. The MCP role gate falls back to the manifest the hub binary shipped with.\n\nAny local edits are discarded.",
+  "rolesYamlHint": "roles.yaml..."
 }

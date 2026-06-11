@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
@@ -30,6 +31,7 @@ class HubRolesConfigScreen extends ConsumerStatefulWidget {
 
 class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
   final TextEditingController _ctrl = TextEditingController();
+  bool _didLoad = false;
   bool _loading = true;
   bool _saving = false;
   bool _dirty = false;
@@ -40,6 +42,13 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
   void initState() {
     super.initState();
     _ctrl.addListener(_onChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didLoad) return;
+    _didLoad = true;
     _load();
   }
 
@@ -58,6 +67,7 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
   }
 
   Future<void> _load() async {
+    final l10n = AppLocalizations.of(context)!;
     setState(() {
       _loading = true;
       _error = null;
@@ -66,7 +76,7 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _error = l10n.hubNotConfigured;
       });
       return;
     }
@@ -84,7 +94,7 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
       setState(() {
         _loading = false;
         _error = e.status == 403
-            ? 'Hub config requires an owner-kind token.'
+            ? l10n.hubConfigOwnerTokenRequired
             : '${e.status}: ${e.message}';
       });
     } catch (e) {
@@ -97,6 +107,7 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
   }
 
   Future<void> _save() async {
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     setState(() => _saving = true);
@@ -110,45 +121,41 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
         _saving = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Saved + reloaded'),
-          duration: Duration(seconds: 2),
-        ),
+        SnackBar(
+            content: Text(l10n.savedReloaded),
+            duration: const Duration(seconds: 2)),
       );
     } on HubApiError catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed (${e.status}): ${e.message}')),
+        SnackBar(
+            content: Text(l10n.saveFailedError('${e.status}: ${e.message}'))),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: $e')),
+        SnackBar(content: Text(l10n.saveFailedError('$e'))),
       );
     }
   }
 
   Future<void> _resetToDefault() async {
+    final l10n = AppLocalizations.of(context)!;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reset to default?'),
-        content: const Text(
-          'Removes the on-disk roles.yaml override and reloads the '
-          'embedded built-in. The MCP role gate falls back to the '
-          'manifest the hub binary shipped with.\n\n'
-          'Any local edits are discarded.',
-        ),
+        title: Text(l10n.resetToDefaultTitle),
+        content: Text(l10n.hubConfigResetBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton.tonal(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Reset'),
+            child: Text(l10n.buttonReset),
           ),
         ],
       ),
@@ -167,22 +174,22 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
         _saving = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Reset to built-in default'),
-          duration: Duration(seconds: 2),
-        ),
+        SnackBar(
+            content: Text(l10n.resetToBuiltinDone),
+            duration: const Duration(seconds: 2)),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reset failed: $e')),
+        SnackBar(content: Text(l10n.resetFailedError('$e'))),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted = isDark
         ? DesignColors.textMuted
@@ -194,11 +201,11 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Hub config',
+              l10n.hubConfigTitle,
               style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
             ),
             Text(
-              'roles.yaml — operation-scope manifest',
+              l10n.hubConfigSubtitle,
               style: GoogleFonts.jetBrainsMono(
                 fontSize: FontSizes.label,
                 color: muted,
@@ -208,12 +215,12 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: 'Reset to default',
+            tooltip: l10n.menuResetToDefault,
             icon: const Icon(Icons.settings_backup_restore),
             onPressed: (_loading || _saving) ? null : _resetToDefault,
           ),
           IconButton(
-            tooltip: _dirty ? 'Save' : 'No changes',
+            tooltip: _dirty ? l10n.buttonSave : l10n.noChanges,
             icon: _saving
                 ? const SizedBox(
                     width: 18,
@@ -254,7 +261,7 @@ class _HubRolesConfigScreenState extends ConsumerState<HubRolesConfigScreen> {
                     textAlignVertical: TextAlignVertical.top,
                     style: GoogleFonts.jetBrainsMono(fontSize: 12),
                     decoration: InputDecoration(
-                      hintText: 'roles.yaml…',
+                      hintText: l10n.rolesYamlHint,
                       hintStyle: GoogleFonts.jetBrainsMono(
                         fontSize: 12,
                         color: muted,

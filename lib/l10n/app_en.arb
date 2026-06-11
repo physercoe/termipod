@@ -2000,5 +2000,11 @@
   "noSshKeysYet": "No SSH keys yet",
   "tapPlusToAddKey": "Tap + to add a key",
   "deleteKeyConfirm": "Are you sure you want to delete \"{name}\"?\n\nThis action cannot be undone.",
-  "@deleteKeyConfirm": { "placeholders": { "name": { "type": "String" } } }
+  "@deleteKeyConfirm": { "placeholders": { "name": { "type": "String" } } },
+  "selectPrivateKeyFile": "Select Private Key File",
+  "orPastePrivateKey": "Or paste the private key below:",
+  "privateKeyPemLabel": "Private Key (PEM format)",
+  "selectFileOrPastePem": "Please select a file or paste the private key",
+  "couldNotReadFile": "Could not read file content",
+  "wrongPassphrase": "Wrong passphrase. Please check and try again."
 }

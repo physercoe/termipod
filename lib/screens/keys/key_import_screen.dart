@@ -7,7 +7,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/key_provider.dart';
 
-/// SSH鍵インポート画面
+/// SSH key import screen.
 class KeyImportScreen extends ConsumerStatefulWidget {
   const KeyImportScreen({super.key});
 
@@ -64,18 +64,18 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
               icon: const Icon(Icons.file_upload),
               label: Text(_selectedFilePath != null
                   ? _selectedFilePath!.split('/').last
-                  : 'Select Private Key File'),
+                  : AppLocalizations.of(context)!.selectPrivateKeyFile),
             ),
             const SizedBox(height: 8),
             Text(
-              'Or paste the private key below:',
+              AppLocalizations.of(context)!.orPastePrivateKey,
               style: TextStyle(color: Theme.of(context).colorScheme.outline),
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _privateKeyController,
               decoration: InputDecoration(
-                labelText: 'Private Key (PEM format)',
+                labelText: AppLocalizations.of(context)!.privateKeyPemLabel,
                 hintText: AppLocalizations.of(context)!.pemFormatHint,
                 alignLabelWithHint: true,
                 errorText: _pemValidationError,
@@ -86,7 +86,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
               validator: (value) {
                 if ((value == null || value.isEmpty) &&
                     _selectedFilePath == null) {
-                  return 'Please select a file or paste the private key';
+                  return AppLocalizations.of(context)!.selectFileOrPastePem;
                 }
                 if (_pemValidationError != null) {
                   return _pemValidationError;
@@ -154,7 +154,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
 
     final keyService = ref.read(sshKeyServiceProvider);
 
-    // PEM形式の基本的なバリデーション
+    // Basic PEM-format validation.
     if (!value.contains('-----BEGIN') || !value.contains('-----END')) {
       setState(() {
         _pemValidationError = AppLocalizations.of(context)!.invalidPemFormat;
@@ -164,7 +164,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
     }
 
     try {
-      // 暗号化されているかチェック
+      // Check whether the key is encrypted.
       final isEncrypted = keyService.isEncrypted(value);
       setState(() {
         _pemValidationError = null;
@@ -192,14 +192,15 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
 
-        // ファイル内容を読み取る
+        // Read the file content.
         String content;
         if (file.bytes != null) {
           content = String.fromCharCodes(file.bytes!);
         } else {
-          // ファイルパスから読み取る（デスクトップ向け）
+          // Read from the file path (desktop).
           setState(() {
-            _pemValidationError = 'Could not read file content';
+            _pemValidationError =
+                AppLocalizations.of(context)!.couldNotReadFile;
           });
           return;
         }
@@ -209,7 +210,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
           _privateKeyController.text = content;
         });
 
-        // PEMの検証
+        // Validate the PEM.
         _onPemChanged(content);
       }
     } catch (e) {
@@ -243,21 +244,21 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
       final name = _nameController.text.trim();
       final keyId = const Uuid().v4();
 
-      // PEMをパース
+      // Parse the PEM.
       final keyPair = await keyService.parseFromPem(
         pemContent,
         passphrase: passphrase,
       );
 
-      // 秘密鍵をSecureStorageに保存
+      // Save the private key to secure storage.
       await storage.savePrivateKey(keyId, pemContent);
 
-      // パスフレーズがあれば保存
+      // Save the passphrase if present.
       if (passphrase != null) {
         await storage.savePassphrase(keyId, passphrase);
       }
 
-      // メタデータをKeysNotifierに保存
+      // Save the metadata to the keys notifier.
       final meta = SshKeyMeta(
         id: keyId,
         name: name,
@@ -278,10 +279,10 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
         );
       }
     } on FormatException catch (e) {
-      // 無効なPEM形式またはパスフレーズエラー
+      // Invalid PEM format or passphrase error.
       if (mounted) {
         final message = e.message.contains('passphrase')
-            ? 'Wrong passphrase. Please check and try again.'
+            ? AppLocalizations.of(context)!.wrongPassphrase
             : AppLocalizations.of(context)!.invalidKeyFormat(e.message);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

@@ -504,15 +504,24 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
     final refId = (widget.component['ref_id'] ?? '').toString();
     final required = widget.component['required'] == true;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Document / Run kinds carry a themable vocab axis, so their label
+    // re-words with the active preset; the other kinds stay plain l10n.
+    final vocab = ref.watch(vocabularyProvider);
+    final documentLabel = vocab.term(VocabAxis.entityDocument).title;
+    final runLabel = vocab.term(VocabAxis.entityRun).title;
     final primaryLabel = _primaryLine(
       l10n: widget.l10n,
       kind: kind,
       refId: refId,
+      documentLabel: documentLabel,
+      runLabel: runLabel,
     );
     final secondaryLabel = _secondaryLine(
       l10n: widget.l10n,
       kind: kind,
       refId: refId,
+      documentLabel: documentLabel,
+      runLabel: runLabel,
     );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -610,19 +619,28 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
     required AppLocalizations l10n,
     required String kind,
     required String refId,
+    required String documentLabel,
+    required String runLabel,
   }) {
     if (_resolving) return l10n.loading;
     final name = _resolvedName ?? '';
     if (name.isNotEmpty) return name;
-    return refId.isEmpty ? _labelFor(l10n, kind) : refId;
+    return refId.isEmpty
+        ? _labelFor(l10n, kind,
+            documentLabel: documentLabel, runLabel: runLabel)
+        : refId;
   }
 
   String _secondaryLine({
     required AppLocalizations l10n,
     required String kind,
     required String refId,
+    required String documentLabel,
+    required String runLabel,
   }) {
-    final base = _labelFor(l10n, kind).toLowerCase();
+    final base = _labelFor(l10n, kind,
+            documentLabel: documentLabel, runLabel: runLabel)
+        .toLowerCase();
     if (kind == 'artifact') {
       final sub = _artifactSubKind ?? '';
       if (sub.isNotEmpty) return '$base · $sub';
@@ -697,10 +715,16 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
     }
     // Any future component kind we don't yet render — surface the ref
     // so the user can at least locate it.
+    final vocab = ref.read(vocabularyProvider);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          l10n.componentRefMessage(_labelFor(l10n, kind), refId),
+          l10n.componentRefMessage(
+            _labelFor(l10n, kind,
+                documentLabel: vocab.term(VocabAxis.entityDocument).title,
+                runLabel: vocab.term(VocabAxis.entityRun).title),
+            refId,
+          ),
         ),
       ),
     );
@@ -736,14 +760,22 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
     }
   }
 
-  static String _labelFor(AppLocalizations l10n, String kind) {
+  // documentLabel / runLabel come from the active vocabulary preset
+  // (VocabAxis.entityDocument / entityRun); the remaining kinds have no
+  // matching axis and stay plain l10n strings.
+  static String _labelFor(
+    AppLocalizations l10n,
+    String kind, {
+    required String documentLabel,
+    required String runLabel,
+  }) {
     switch (kind) {
       case 'document':
-        return l10n.componentKindDocument;
+        return documentLabel;
       case 'artifact':
         return l10n.componentKindArtifact;
       case 'run':
-        return l10n.componentKindRun;
+        return runLabel;
       case 'commit':
         return l10n.componentKindCommit;
       default:

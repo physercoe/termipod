@@ -53,16 +53,26 @@
 #                  in preference order. Default: "mechanical".
 #                  e.g. "mechanical" or "mechanical,medium".
 #
-#   POLL_INTERVAL  (optional) Seconds to sleep between queue checks. Default 120.
+#   POLL_INTERVAL  (optional) Idle gap between queue checks when there is no
+#                  work. Accepts a unit suffix — 5m, 15m, 2h — or bare seconds
+#                  (300 == 300s). Default 120 (2m). NOTE this is the gap BETWEEN
+#                  tickets: while the agent is running a ticket the poller blocks
+#                  on it, so the interval only applies once the queue is idle.
+#
+#   LOG_DIR        (optional) Directory for a per-ticket transcript of the
+#                  agent's output (also streamed live to the terminal). Default
+#                  $TMPDIR/agent-poller-logs. Read these when a run blocks/hangs.
 #
 #   REPO           (optional) owner/name. Default: the repo `gh` infers here.
 #
 # ---------------------------------------------------------------------------
 # Flags
 # ---------------------------------------------------------------------------
-#   --once       Do a single iteration (claim + run at most one ticket) and exit.
-#   --dry-run    Print what it would do; never relabel, comment, branch, or run
-#                the agent. Safe for a first look at the queue.
+#   --once        Do a single iteration (claim + run at most one ticket) and exit.
+#   --dry-run     Print what it would do; never relabel, comment, branch, or run
+#                 the agent. Safe for a first look at the queue.
+#   --supervised  Ask for y/N confirmation before claiming + running each ticket,
+#                 so you can watch and step in before every run. Needs a TTY.
 #
 # ---------------------------------------------------------------------------
 # Guarantees / safety
@@ -77,16 +87,33 @@
 #     Foreground serialization keeps a single host to one in-flight ticket;
 #     cross-host ARB safety still rides on the agent's baton check.
 #
+# ---------------------------------------------------------------------------
+# Watching live / intervening
+# ---------------------------------------------------------------------------
+#   The agent runs in the FOREGROUND, so its output streams to this terminal
+#   live (and to a per-ticket file under $LOG_DIR). To watch and be able to
+#   step in:
+#     * Run the poller inside a terminal multiplexer on the BUILDER host, e.g.
+#         tmux new -s builder 'POLL_INTERVAL=5m bash scripts/agent-poller.sh'
+#       then `tmux attach -t builder` to watch, Ctrl-b d to detach (it keeps
+#       running), and Ctrl-C in the pane to abort the current run.
+#     * Use --supervised for a y/N confirmation before each run.
+#     * Use --once for a single, fully-watched ticket.
+#   (Run tmux on the builder host — not on a host whose tmux session you are
+#   already living inside.)
+#
 set -euo pipefail
 
 # ---- args ----------------------------------------------------------------
 ONCE=0
 DRY_RUN=0
+SUPERVISED=0
 for arg in "$@"; do
   case "$arg" in
-    --once)    ONCE=1 ;;
-    --dry-run) DRY_RUN=1 ;;
-    -h|--help) sed -n '2,80p' "$0"; exit 0 ;;
+    --once)       ONCE=1 ;;
+    --dry-run)    DRY_RUN=1 ;;
+    --supervised) SUPERVISED=1 ;;
+    -h|--help)    awk 'NR>=2 && /^set -euo pipefail$/{exit} NR>=2' "$0"; exit 0 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
@@ -96,6 +123,20 @@ done
 : "${AGENT_CMD:?set AGENT_CMD to your headless agent invocation (see header)}"
 AGENT_TIERS="${AGENT_TIERS:-mechanical}"
 POLL_INTERVAL="${POLL_INTERVAL:-120}"
+LOG_DIR="${LOG_DIR:-${TMPDIR:-/tmp}/agent-poller-logs}"
+
+# Accept 5m / 15m / 2h / 300 / 300s for POLL_INTERVAL → seconds.
+to_seconds() {
+  case "$1" in
+    *h) echo $(( ${1%h} * 3600 )) ;;
+    *m) echo $(( ${1%m} * 60 )) ;;
+    *s) echo "${1%s}" ;;
+    *)  echo "$1" ;;
+  esac
+}
+POLL_SECS="$(to_seconds "$POLL_INTERVAL")"
+[[ "$POLL_SECS" =~ ^[0-9]+$ ]] || { echo "POLL_INTERVAL invalid: '$POLL_INTERVAL' (use 5m, 15m, 2h, or seconds)" >&2; exit 2; }
+mkdir -p "$LOG_DIR"
 
 GH_REPO_ARGS=()
 if [[ -n "${REPO:-}" ]]; then GH_REPO_ARGS=(--repo "$REPO"); fi
@@ -113,7 +154,7 @@ if [[ "$git_name" != "$AGENT_HANDLE" ]]; then
   log "      Set:  git config user.name '$AGENT_HANDLE' && git config user.email '$AGENT_HANDLE@users.noreply.github.com'"
 fi
 
-log "poller up — handle=$AGENT_HANDLE tiers=[$AGENT_TIERS] interval=${POLL_INTERVAL}s dry_run=$DRY_RUN once=$ONCE"
+log "poller up — handle=$AGENT_HANDLE tiers=[$AGENT_TIERS] interval=${POLL_SECS}s log_dir=$LOG_DIR supervised=$SUPERVISED dry_run=$DRY_RUN once=$ONCE"
 
 # ---- helpers -------------------------------------------------------------
 
@@ -208,6 +249,15 @@ work_one() {
     return 0
   fi
 
+  if [[ "$SUPERVISED" -eq 1 ]]; then
+    printf '%s  claim and run #%s ("%s")? [y/N] ' "$(date -u +%H:%M:%S)" "$n" "$title" > /dev/tty
+    local reply=""; read -r reply < /dev/tty || true
+    if [[ ! "$reply" =~ ^[Yy] ]]; then
+      log "skipped #${n} by operator."
+      return 0
+    fi
+  fi
+
   log "claiming #${n} ('${title}') as ${AGENT_HANDLE}."
   gh issue edit "$n" "${GH_REPO_ARGS[@]}" \
       --add-label ticket:claimed --remove-label ticket:ready
@@ -221,10 +271,11 @@ work_one() {
   export PROMPT_FILE TICKET_NUMBER TICKET_SLUG BRANCH
   build_prompt "$n" "$slug" "$branch" "$title" > "$PROMPT_FILE"
 
-  log "handing ticket #${n} to the agent (foreground)..."
+  local logf="${LOG_DIR}/ticket-${n}-$(date -u +%Y%m%dT%H%M%SZ).log"
+  log "handing ticket #${n} to the agent (foreground; transcript → ${logf})..."
   set +e
-  ( eval "$AGENT_CMD" ) < "$PROMPT_FILE"
-  local rc=$?
+  ( eval "$AGENT_CMD" ) < "$PROMPT_FILE" 2>&1 | tee "$logf"
+  local rc=${PIPESTATUS[0]}
   set -e
   rm -f "$PROMPT_FILE"
 
@@ -244,5 +295,5 @@ fi
 
 while true; do
   work_one || log "iteration error (continuing)."
-  sleep "$POLL_INTERVAL"
+  sleep "$POLL_SECS"
 done

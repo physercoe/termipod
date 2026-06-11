@@ -11,6 +11,9 @@ import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../providers/project_filter_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
+import '../../services/vocab/vocab_term.dart';
 import 'projects_list_controller.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/steward_handle.dart';
@@ -60,13 +63,14 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final async = ref.watch(hubProvider);
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Projects',
+          l10n.tabProjects,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 22,
             fontWeight: FontWeight.w700,
@@ -79,14 +83,14 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
             enabled: async.value?.configured == true,
           ),
           IconButton(
-            tooltip: 'Team overview',
+            tooltip: l10n.teamOverview,
             icon: const Icon(Icons.insights_outlined),
             onPressed: async.value?.configured == true
                 ? () => _openTeamOverview(context, ref)
                 : null,
           ),
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: l10n.refresh,
             icon: const Icon(Icons.refresh),
             onPressed: async.value?.configured == true
                 ? () => ref.read(hubProvider.notifier).refreshAll()
@@ -147,25 +151,23 @@ Future<void> confirmAndRecreateSteward(
   WidgetRef ref,
   String stewardId,
 ) async {
+  final l10n = AppLocalizations.of(context)!;
+  final stewardTerm =
+      ref.read(vocabularyProvider).term(VocabAxis.roleSteward);
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('Replace steward?'),
-      content: const Text(
-        'The current steward will be terminated and a new one spawned in '
-        'this same session. The transcript stays visible — but the new '
-        'process starts with fresh context, so it will not "remember" '
-        'prior turns until you reference them.',
-      ),
+      title: Text(l10n.replaceStewardTitle(stewardTerm.lower)),
+      content: Text(l10n.replaceStewardBody(stewardTerm.lower)),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
           onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Replace'),
+          child: Text(l10n.buttonReplace),
         ),
       ],
     ),
@@ -279,6 +281,7 @@ class _NotConfiguredView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -289,21 +292,20 @@ class _NotConfiguredView extends StatelessWidget {
                 size: 72, color: DesignColors.primary.withValues(alpha: 0.7)),
             const SizedBox(height: 16),
             Text(
-              'Termipod Hub not configured',
+              l10n.hubNotConfiguredTitle,
               style: GoogleFonts.spaceGrotesk(
                   fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             Text(
-              'Paste a hub URL and bearer token to see attention items, '
-              'agents, and the live event feed.',
+              l10n.hubNotConfiguredBody,
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(fontSize: 13),
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
               icon: const Icon(Icons.login),
-              label: const Text('Configure Hub'),
+              label: Text(l10n.configureHub),
               onPressed: () {
                 Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => const HubBootstrapScreen(),
@@ -495,6 +497,9 @@ class _ProjectsTab extends ConsumerWidget {
     // list (HubNotifier.refreshAll → listAttention status=open), so this
     // is free: no extra fetch.
     final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final projectTerm = voc.term(VocabAxis.entityProject);
+    final workspaceTerm = voc.term(VocabAxis.entityWorkspace);
     final hub = ref.watch(hubProvider).value;
     final attention = hub?.attention ?? const [];
     final openByProject = <String, int>{};
@@ -542,7 +547,7 @@ class _ProjectsTab extends ConsumerWidget {
             // remembers to clear the filter. items is the unfiltered list.
             text: items.isEmpty
                 ? l10n.projectsEmpty
-                : 'No projects match the current filter.',
+                : l10n.projectsNoFilterMatch(projectTerm.pluralLower),
           )
         : RefreshIndicator(
             onRefresh: () async {
@@ -569,6 +574,9 @@ class _ProjectsTab extends ConsumerWidget {
                         goalRows[i],
                         openByProject,
                         byProject,
+                        l10n,
+                        projectTerm,
+                        workspaceTerm,
                       ),
                     ),
                   ),
@@ -587,6 +595,9 @@ class _ProjectsTab extends ConsumerWidget {
                         standingRows[i],
                         openByProject,
                         byProject,
+                        l10n,
+                        projectTerm,
+                        workspaceTerm,
                       ),
                     ),
                   ),
@@ -620,6 +631,9 @@ class _ProjectsTab extends ConsumerWidget {
     ProjectNode node,
     Map<String, int> openByProject,
     Map<String, ProjectInsight> byProject,
+    AppLocalizations l10n,
+    VocabTerm projectTerm,
+    VocabTerm workspaceTerm,
   ) {
     final p = node.project;
     final kind = (p['kind'] ?? 'goal').toString();
@@ -653,8 +667,9 @@ class _ProjectsTab extends ConsumerWidget {
         progress: stats.progress,
         subProjectsSuffix: node.depth == 0 && node.childCount > 0
             ? (node.childCount == 1
-                ? '1 sub-project'
-                : '${node.childCount} sub-projects')
+                ? l10n.subEntityCountOne(projectTerm.lower)
+                : l10n.subEntityCountMany(
+                    node.childCount, projectTerm.pluralLower))
             : null,
         onTap: () {
           Navigator.of(context).push(MaterialPageRoute(
@@ -668,12 +683,11 @@ class _ProjectsTab extends ConsumerWidget {
       // labels these as Projects vs. Workspaces.
       String subtitle;
       if (node.depth == 0 && node.childCount > 0) {
-        final childLabel = kind == 'standing'
-            ? (node.childCount == 1 ? 'sub-Workspace' : 'sub-Workspaces')
-            : (node.childCount == 1 ? 'sub-project' : 'sub-projects');
-        final parts = <String>[
-          '${node.childCount} $childLabel',
-        ];
+        final childTerm = kind == 'standing' ? workspaceTerm : projectTerm;
+        final countLabel = node.childCount == 1
+            ? l10n.subEntityCountOne(childTerm.lower)
+            : l10n.subEntityCountMany(node.childCount, childTerm.pluralLower);
+        final parts = <String>[countLabel];
         final status = (p['status'] ?? '').toString();
         if (status.isNotEmpty) parts.add(status);
         subtitle = parts.join(' · ');
@@ -800,12 +814,13 @@ class _ProjectsFilterButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final filter = ref.watch(projectFilterProvider);
     return Stack(
       clipBehavior: Clip.none,
       children: [
         IconButton(
-          tooltip: 'Filter and sort',
+          tooltip: l10n.filterAndSort,
           icon: const Icon(Icons.filter_list),
           onPressed: enabled
               ? () => showModalBottomSheet<void>(
@@ -842,6 +857,9 @@ class _ProjectsFilterSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final projectTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityProject);
     final filter = ref.watch(projectFilterProvider);
     final notifier = ref.read(projectFilterProvider.notifier);
     return SafeArea(
@@ -866,7 +884,7 @@ class _ProjectsFilterSheet extends ConsumerWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Filter and sort',
+                    l10n.filterAndSort,
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
@@ -878,26 +896,26 @@ class _ProjectsFilterSheet extends ConsumerWidget {
                     onPressed: () async {
                       await notifier.reset();
                     },
-                    child: const Text('Reset'),
+                    child: Text(l10n.buttonReset),
                   ),
               ],
             ),
             const SizedBox(height: 12),
-            _SectionLabel(text: 'Status'),
+            _SectionLabel(text: l10n.fieldStatus),
             const SizedBox(height: 6),
             SegmentedButton<ProjectStatusFilter>(
-              segments: const [
+              segments: [
                 ButtonSegment(
                   value: ProjectStatusFilter.active,
-                  label: Text('Active'),
+                  label: Text(l10n.filterStatusActive),
                 ),
                 ButtonSegment(
                   value: ProjectStatusFilter.all,
-                  label: Text('All'),
+                  label: Text(l10n.filterStatusAll),
                 ),
                 ButtonSegment(
                   value: ProjectStatusFilter.archived,
-                  label: Text('Archived'),
+                  label: Text(l10n.filterStatusArchived),
                 ),
               ],
               selected: {filter.status},
@@ -907,18 +925,18 @@ class _ProjectsFilterSheet extends ConsumerWidget {
               },
             ),
             const SizedBox(height: 14),
-            _SectionLabel(text: 'Needs me'),
+            _SectionLabel(text: l10n.needsMe),
             const SizedBox(height: 6),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
               value: filter.needsMeOnly,
               title: Text(
-                'Only projects with open attention or AC',
+                l10n.needsMeFilterTitle(projectTerm.pluralLower),
                 style: GoogleFonts.spaceGrotesk(fontSize: 13),
               ),
               subtitle: Text(
-                'Quick "what\'s parked on me?" shortcut',
+                l10n.needsMeFilterSubtitle,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 11,
                   color: DesignColors.textMuted,
@@ -927,21 +945,21 @@ class _ProjectsFilterSheet extends ConsumerWidget {
               onChanged: (v) => notifier.set(filter.copyWith(needsMeOnly: v)),
             ),
             const SizedBox(height: 14),
-            _SectionLabel(text: 'Sort by'),
+            _SectionLabel(text: l10n.sortBy),
             const SizedBox(height: 6),
             SegmentedButton<ProjectSortMode>(
-              segments: const [
+              segments: [
                 ButtonSegment(
                   value: ProjectSortMode.recentActivity,
-                  label: Text('Recent'),
+                  label: Text(l10n.sortRecent),
                 ),
                 ButtonSegment(
                   value: ProjectSortMode.name,
-                  label: Text('Name'),
+                  label: Text(l10n.fieldName),
                 ),
                 ButtonSegment(
                   value: ProjectSortMode.createdDesc,
-                  label: Text('Created'),
+                  label: Text(l10n.fieldCreated),
                 ),
               ],
               selected: {filter.sort},
@@ -955,7 +973,7 @@ class _ProjectsFilterSheet extends ConsumerWidget {
               alignment: Alignment.centerRight,
               child: FilledButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Done'),
+                child: Text(l10n.buttonDone),
               ),
             ),
           ],
@@ -1045,6 +1063,7 @@ class _ProjectListCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
@@ -1095,12 +1114,12 @@ class _ProjectListCard extends StatelessWidget {
               const SizedBox(width: 8),
               if (openCriteria > 0)
                 AppStatusChip(
-                    label: '$openCriteria open AC',
+                    label: l10n.openAcCount(openCriteria),
                     color: DesignColors.warning,
                     icon: Icons.check_circle_outline)
               else
                 Text(
-                  'no open AC',
+                  l10n.noOpenAc,
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: FontSizes.label,
                     color: muted,
@@ -1252,6 +1271,7 @@ class _AttentionBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: Spacing.s4),
       decoration: BoxDecoration(
@@ -1262,7 +1282,7 @@ class _AttentionBadge extends StatelessWidget {
         ),
       ),
       child: Text(
-        '$count open',
+        l10n.openCount(count),
         style: GoogleFonts.jetBrainsMono(
           fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,

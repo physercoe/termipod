@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -93,22 +94,23 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       Navigator.of(context).pop();
       return;
     }
+    final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete note?'),
-        content: const Text('This cannot be undone.'),
+        title: Text(l10n.deleteNoteTitle),
+        content: Text(l10n.cannotBeUndone),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -121,6 +123,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     return PopScope<Object?>(
       canPop: _saved,
@@ -138,12 +141,12 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            _id == null ? 'New note' : 'Note',
+            _id == null ? l10n.newNote : l10n.noteTitle,
             style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
           ),
           actions: [
             IconButton(
-              tooltip: _pinned ? 'Unpin' : 'Pin',
+              tooltip: _pinned ? l10n.unpin : l10n.pin,
               icon: Icon(_pinned ? Icons.push_pin : Icons.push_pin_outlined),
               onPressed: () => setState(() {
                 _pinned = !_pinned;
@@ -152,7 +155,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             ),
             if (_id != null)
               IconButton(
-                tooltip: 'Delete',
+                tooltip: l10n.buttonDelete,
                 icon: const Icon(Icons.delete_outline),
                 onPressed: _confirmDelete,
               ),
@@ -166,7 +169,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               Row(
                 children: [
                   ChoiceChip(
-                    label: const Text('Note'),
+                    label: Text(l10n.noteKindNote),
                     selected: _kind == NoteKind.note,
                     onSelected: (_) => setState(() {
                       _kind = NoteKind.note;
@@ -175,7 +178,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   ),
                   const SizedBox(width: 8),
                   ChoiceChip(
-                    label: const Text('Reminder'),
+                    label: Text(l10n.noteKindReminder),
                     selected: _kind == NoteKind.reminder,
                     onSelected: (_) => setState(() {
                       _kind = NoteKind.reminder;
@@ -187,7 +190,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('Done'),
+                        Text(l10n.buttonDone),
                         Checkbox(
                           value: _done,
                           onChanged: (v) => setState(() {
@@ -205,9 +208,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                 maxLength: 120,
                 style: GoogleFonts.spaceGrotesk(
                     fontSize: 18, fontWeight: FontWeight.w700),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   border: InputBorder.none,
-                  hintText: 'Title',
+                  hintText: l10n.hintTitle,
                   counterText: '',
                 ),
               ),
@@ -219,9 +222,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   expands: true,
                   textAlignVertical: TextAlignVertical.top,
                   style: GoogleFonts.jetBrainsMono(fontSize: 14),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     border: InputBorder.none,
-                    hintText: 'Body (markdown allowed)',
+                    hintText: l10n.noteBodyHint,
                   ),
                 ),
               ),

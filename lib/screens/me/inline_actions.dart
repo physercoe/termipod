@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/spawn_project_steward_sheet.dart';
@@ -40,6 +43,9 @@ class InlineApprovalActions extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final stewardTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     final options = _options();
     // ADR-025 W4 — the general steward raises this when it can't operate
     // inside a project without a project-bound steward. The principal's
@@ -53,12 +59,12 @@ class InlineApprovalActions extends ConsumerWidget {
         children: [
           FilledButton.icon(
             icon: const Icon(Icons.bolt, size: 16),
-            label: const Text('Spawn project steward'),
+            label: Text(l10n.spawnProjectSteward(stewardTerm.lower)),
             onPressed: () => _openProjectStewardSpawn(context, ref),
           ),
           OutlinedButton.icon(
             icon: const Icon(Icons.close, size: 16),
-            label: const Text('Reject'),
+            label: Text(l10n.buttonReject),
             style: OutlinedButton.styleFrom(
               foregroundColor: DesignColors.error,
             ),
@@ -83,7 +89,7 @@ class InlineApprovalActions extends ConsumerWidget {
             ),
           OutlinedButton.icon(
             icon: const Icon(Icons.close, size: 16),
-            label: const Text('Reject'),
+            label: Text(l10n.buttonReject),
             style: OutlinedButton.styleFrom(
               foregroundColor: DesignColors.error,
             ),
@@ -103,7 +109,7 @@ class InlineApprovalActions extends ConsumerWidget {
     if (_isInformational(kind)) {
       return OutlinedButton.icon(
         icon: const Icon(Icons.check_circle_outline, size: 16),
-        label: const Text('Dismiss'),
+        label: Text(l10n.buttonDismiss),
         onPressed: () => _decide(context, ref, 'approve'),
       );
     }
@@ -111,13 +117,13 @@ class InlineApprovalActions extends ConsumerWidget {
       children: [
         OutlinedButton.icon(
           icon: const Icon(Icons.check, size: 16),
-          label: const Text('Approve'),
+          label: Text(l10n.buttonApprove),
           onPressed: () => _decide(context, ref, 'approve'),
         ),
         const SizedBox(width: 8),
         OutlinedButton.icon(
           icon: const Icon(Icons.close, size: 16),
-          label: const Text('Reject'),
+          label: Text(l10n.buttonReject),
           style: OutlinedButton.styleFrom(
             foregroundColor: DesignColors.error,
           ),
@@ -153,6 +159,7 @@ class InlineApprovalActions extends ConsumerWidget {
     WidgetRef ref,
     String option,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     try {
       await ref.read(hubProvider.notifier).decide(
             id,
@@ -162,14 +169,14 @@ class InlineApprovalActions extends ConsumerWidget {
           );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Picked: $option')),
+          SnackBar(content: Text(l10n.pickedOption(option))),
         );
       }
       onResolved?.call();
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Decide failed: $e')),
+          SnackBar(content: Text(l10n.decideFailedError('$e'))),
         );
       }
     }
@@ -184,10 +191,13 @@ class InlineApprovalActions extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final stewardTerm =
+        ref.read(vocabularyProvider).term(VocabAxis.roleSteward);
     final projectId = (pendingPayload?['project_id'] ?? '').toString();
     if (projectId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Missing project_id on this request.'),
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(l10n.missingProjectId),
       ));
       return;
     }
@@ -207,14 +217,15 @@ class InlineApprovalActions extends ConsumerWidget {
           );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Project steward spawned.')),
+          SnackBar(
+              content: Text(l10n.projectStewardSpawnedOk(stewardTerm.lower))),
         );
       }
       onResolved?.call();
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Spawned, but resolve failed: $e')),
+          SnackBar(content: Text(l10n.spawnedResolveFailedError('$e'))),
         );
       }
     }
@@ -225,20 +236,21 @@ class InlineApprovalActions extends ConsumerWidget {
     WidgetRef ref,
     String decision,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     try {
       await ref
           .read(hubProvider.notifier)
           .decide(id, decision, by: '@mobile');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Decision recorded: $decision')),
+          SnackBar(content: Text(l10n.decisionRecorded(decision))),
         );
       }
       onResolved?.call();
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Decide failed: $e')),
+          SnackBar(content: Text(l10n.decideFailedError('$e'))),
         );
       }
     }
@@ -324,6 +336,9 @@ class InlineHelpRequestActionsState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final stewardTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -332,8 +347,9 @@ class InlineHelpRequestActionsState
     final chipColor = isHandoff
         ? DesignColors.warning
         : (isFill ? DesignColors.terminalCyan : DesignColors.primary);
-    final chipLabel =
-        isHandoff ? 'hand-back' : (isFill ? 'fill' : 'clarify');
+    final chipLabel = isHandoff
+        ? l10n.modeHandBack
+        : (isFill ? l10n.modeFill : l10n.modeClarify);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -371,10 +387,10 @@ class InlineHelpRequestActionsState
           maxLines: 6,
           decoration: InputDecoration(
             hintText: isFill
-                ? 'Reply (free text or JSON object)…'
+                ? l10n.replyHintFill
                 : isHandoff
-                    ? 'Tell the steward how to proceed (or take it from here yourself)'
-                    : 'Reply to the steward…',
+                    ? l10n.replyHintHandoff(stewardTerm.lower)
+                    : l10n.replyHintClarify(stewardTerm.lower),
             isDense: true,
             border: const OutlineInputBorder(),
             contentPadding:
@@ -386,13 +402,13 @@ class InlineHelpRequestActionsState
           children: [
             FilledButton.icon(
               icon: const Icon(Icons.send, size: 16),
-              label: const Text('Send'),
+              label: Text(l10n.buttonSend),
               onPressed: _sending ? null : _send,
             ),
             const SizedBox(width: 8),
             OutlinedButton.icon(
               icon: const Icon(Icons.close, size: 16),
-              label: const Text('Skip'),
+              label: Text(l10n.buttonSkip),
               style: OutlinedButton.styleFrom(
                 foregroundColor: DesignColors.error,
               ),
@@ -405,10 +421,11 @@ class InlineHelpRequestActionsState
   }
 
   Future<void> _send() async {
+    final l10n = AppLocalizations.of(context)!;
     final body = _controller.text.trim();
     if (body.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Type a reply or tap Skip')),
+        SnackBar(content: Text(l10n.typeReplyOrSkip)),
       );
       return;
     }
@@ -422,14 +439,14 @@ class InlineHelpRequestActionsState
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Reply sent')),
+          SnackBar(content: Text(l10n.replySent)),
         );
       }
       widget.onResolved?.call();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Send failed: $e')),
+          SnackBar(content: Text(l10n.sendFailedError('$e'))),
         );
       }
     } finally {
@@ -438,6 +455,7 @@ class InlineHelpRequestActionsState
   }
 
   Future<void> _skip() async {
+    final l10n = AppLocalizations.of(context)!;
     setState(() => _sending = true);
     try {
       await ref.read(hubProvider.notifier).decide(
@@ -448,14 +466,14 @@ class InlineHelpRequestActionsState
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Dismissed')),
+          SnackBar(content: Text(l10n.dismissed)),
         );
       }
       widget.onResolved?.call();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Dismiss failed: $e')),
+          SnackBar(content: Text(l10n.dismissFailedError('$e'))),
         );
       }
     } finally {

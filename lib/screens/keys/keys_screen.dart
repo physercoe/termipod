@@ -12,7 +12,7 @@ import 'key_generate_screen.dart';
 import 'key_import_screen.dart';
 import 'widgets/key_tile.dart';
 
-/// SSH鍵一覧画面（スタンドアロン版 - 後方互換のため残す）
+/// SSH key list screen (standalone — kept for backward compatibility).
 class KeysScreen extends ConsumerWidget {
   const KeysScreen({super.key});
 
@@ -53,7 +53,7 @@ class KeysScreen extends ConsumerWidget {
       flexibleSpace: FlexibleSpaceBar(
         titlePadding: const EdgeInsets.only(left: 24, bottom: 16),
         title: Text(
-          'Keys',
+          AppLocalizations.of(context)!.keysScreenTitle,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 24,
             fontWeight: FontWeight.w700,
@@ -118,7 +118,7 @@ class KeysScreen extends ConsumerWidget {
   }
 }
 
-/// 鍵一覧のコンテンツ部分を共有するヘルパー
+/// Helper that shares the key-list content body across surfaces.
 class _KeysBody {
   static Widget buildContent(BuildContext context, WidgetRef ref, KeysState state) {
     if (state.isLoading) {
@@ -167,11 +167,11 @@ class _KeysBody {
                     color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight),
               ),
               const SizedBox(height: 24),
-              Text('No SSH keys yet',
+              Text(AppLocalizations.of(context)!.noSshKeysYet,
                 style: GoogleFonts.spaceGrotesk(fontSize: 20, fontWeight: FontWeight.w600,
                     color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight)),
               const SizedBox(height: 8),
-              Text('Tap + to add a key',
+              Text(AppLocalizations.of(context)!.tapPlusToAddKey,
                 style: GoogleFonts.spaceGrotesk(fontSize: 14,
                     color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight)),
             ],
@@ -212,7 +212,7 @@ class _KeysBody {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(AppLocalizations.of(context)!.deleteKeyTitle),
-        content: Text('Are you sure you want to delete "${keyMeta.name}"?\n\nThis action cannot be undone.'),
+        content: Text(AppLocalizations.of(context)!.deleteKeyConfirm(keyMeta.name)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context)!.buttonCancel)),
           FilledButton(
@@ -285,7 +285,7 @@ class KeysScreenBody extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(vertical: 24),
         child: Center(
           child: Text(
-            'No SSH keys yet',
+            AppLocalizations.of(context)!.noSshKeysYet,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14,
               color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,

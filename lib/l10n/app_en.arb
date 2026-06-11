@@ -1995,5 +1995,10 @@
   "diffUnknown": "unknown",
   "diffNoChange": "no change",
   "diffRevise": "revise",
-  "sessionFallbackTitle": "Session"
+  "sessionFallbackTitle": "Session",
+  "keysScreenTitle": "Keys",
+  "noSshKeysYet": "No SSH keys yet",
+  "tapPlusToAddKey": "Tap + to add a key",
+  "deleteKeyConfirm": "Are you sure you want to delete \"{name}\"?\n\nThis action cannot be undone.",
+  "@deleteKeyConfirm": { "placeholders": { "name": { "type": "String" } } }
 }

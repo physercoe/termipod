@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -15,13 +16,14 @@ class VoiceSettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final settings = ref.watch(voiceSettingsProvider);
     final notifier = ref.read(voiceSettingsProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Voice input',
+          l10n.voiceInput,
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
       ),
@@ -30,12 +32,8 @@ class VoiceSettingsScreen extends ConsumerWidget {
         children: [
           SwitchListTile(
             secondary: const Icon(Icons.mic_outlined),
-            title: const Text('Voice input'),
-            subtitle: const Text(
-              'Long-press the mic button to dictate. Audio is sent to '
-              'DashScope; transcripts return as text. The hub never sees '
-              'audio.',
-            ),
+            title: Text(l10n.voiceInput),
+            subtitle: Text(l10n.voiceInputDesc),
             value: settings.enabled,
             onChanged: (v) => notifier.setEnabled(v),
           ),
@@ -43,21 +41,17 @@ class VoiceSettingsScreen extends ConsumerWidget {
             const Divider(height: 1),
             SwitchListTile(
               secondary: const Icon(Icons.send_outlined),
-              title: const Text('Auto-send puck transcripts'),
-              subtitle: const Text(
-                'When off, puck long-press opens the chat for review '
-                'before sending. The panel mic button always reviews '
-                'first.',
-              ),
+              title: Text(l10n.voiceAutoSend),
+              subtitle: Text(l10n.voiceAutoSendDesc),
               value: settings.autoSendPuckTranscripts,
               onChanged: (v) => notifier.setAutoSendPuckTranscripts(v),
             ),
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.vpn_key_outlined),
-              title: const Text('DashScope API key'),
+              title: Text(l10n.dashScopeApiKey),
               subtitle: Text(
-                settings.hasApiKey ? 'Stored securely • tap to replace' : 'Not set',
+                settings.hasApiKey ? l10n.apiKeyStored : l10n.apiKeyNotSet,
                 style: TextStyle(
                   color: settings.hasApiKey
                       ? DesignColors.success
@@ -66,7 +60,7 @@ class VoiceSettingsScreen extends ConsumerWidget {
               ),
               trailing: settings.hasApiKey
                   ? IconButton(
-                      tooltip: 'Clear stored key',
+                      tooltip: l10n.clearStoredKey,
                       icon: const Icon(Icons.delete_outline),
                       onPressed: () => _confirmClearKey(context, notifier),
                     )
@@ -76,14 +70,14 @@ class VoiceSettingsScreen extends ConsumerWidget {
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.public),
-              title: const Text('Region'),
+              title: Text(l10n.region),
               subtitle: Text(_regionLabel(settings.region)),
               onTap: () => _showRegionPicker(context, notifier, settings.region),
             ),
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.psychology_outlined),
-              title: const Text('Model'),
+              title: Text(l10n.model),
               subtitle: Text(_modelLabel(settings.model)),
               onTap: () => _showModelPicker(context, notifier, settings.model),
             ),
@@ -111,29 +105,30 @@ Future<void> _showApiKeyDialog(
   BuildContext context,
   VoiceSettingsNotifier notifier,
 ) async {
+  final l10n = AppLocalizations.of(context)!;
   final controller = TextEditingController();
   final next = await showDialog<String>(
     context: context,
     builder: (ctx) {
       return AlertDialog(
-        title: const Text('DashScope API key'),
+        title: Text(l10n.dashScopeApiKey),
         content: TextField(
           controller: controller,
           autofocus: true,
           obscureText: true,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'sk-…',
-            helperText: 'Stored on this device only. Never sent to the hub.',
+            helperText: l10n.apiKeyHelperText,
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('Save'),
+            child: Text(l10n.buttonSave),
           ),
         ],
       );
@@ -148,24 +143,23 @@ Future<void> _confirmClearKey(
   BuildContext context,
   VoiceSettingsNotifier notifier,
 ) async {
+  final l10n = AppLocalizations.of(context)!;
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('Clear API key?'),
-      content: const Text(
-        'Voice input will stop working until a new key is entered.',
-      ),
+      title: Text(l10n.clearApiKeyTitle),
+      content: Text(l10n.clearApiKeyBody),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(ctx).pop(false),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           style: FilledButton.styleFrom(
             backgroundColor: DesignColors.error,
           ),
           onPressed: () => Navigator.of(ctx).pop(true),
-          child: const Text('Clear'),
+          child: Text(l10n.buttonClear),
         ),
       ],
     ),
@@ -183,7 +177,7 @@ Future<void> _showRegionPicker(
   final next = await showDialog<DashScopeRegion>(
     context: context,
     builder: (ctx) => SimpleDialog(
-      title: const Text('Region'),
+      title: Text(AppLocalizations.of(ctx)!.region),
       children: [
         for (final r in DashScopeRegion.values)
           RadioListTile<DashScopeRegion>(
@@ -206,7 +200,7 @@ Future<void> _showModelPicker(
   final next = await showDialog<DashScopeAsrModel>(
     context: context,
     builder: (ctx) => SimpleDialog(
-      title: const Text('Model'),
+      title: Text(AppLocalizations.of(ctx)!.model),
       children: [
         for (final m in DashScopeAsrModel.values)
           RadioListTile<DashScopeAsrModel>(

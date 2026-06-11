@@ -1860,5 +1860,19 @@
   "buttonOk": "OK",
   "pickButtonForSlot": "Pick button for slot {slot}",
   "@pickButtonForSlot": { "placeholders": { "slot": { "type": "int" } } },
-  "tapSlotToReplaceFromCatalog": "Tap a button slot above to replace it from the catalog"
+  "tapSlotToReplaceFromCatalog": "Tap a button slot above to replace it from the catalog",
+  "voiceInput": "Voice input",
+  "voiceInputDesc": "Long-press the mic button to dictate. Audio is sent to DashScope; transcripts return as text. The hub never sees audio.",
+  "voiceAutoSend": "Auto-send puck transcripts",
+  "voiceAutoSendDesc": "When off, puck long-press opens the chat for review before sending. The panel mic button always reviews first.",
+  "dashScopeApiKey": "DashScope API key",
+  "apiKeyStored": "Stored securely • tap to replace",
+  "apiKeyNotSet": "Not set",
+  "clearStoredKey": "Clear stored key",
+  "region": "Region",
+  "model": "Model",
+  "apiKeyHelperText": "Stored on this device only. Never sent to the hub.",
+  "clearApiKeyTitle": "Clear API key?",
+  "clearApiKeyBody": "Voice input will stop working until a new key is entered.",
+  "fileBrowserUp": "Up"
 }

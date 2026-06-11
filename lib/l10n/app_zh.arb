@@ -1672,5 +1672,19 @@
   "buttonOk": "确定",
   "pickButtonForSlot": "为槽位 {slot} 选择按钮",
   "@pickButtonForSlot": { "placeholders": { "slot": { "type": "int" } } },
-  "tapSlotToReplaceFromCatalog": "点按上方的按钮槽位，即可从目录中替换"
+  "tapSlotToReplaceFromCatalog": "点按上方的按钮槽位，即可从目录中替换",
+  "voiceInput": "语音输入",
+  "voiceInputDesc": "长按麦克风按钮即可口述。音频将发送至 DashScope；转写文本将以文字返回。Hub 从不接触音频。",
+  "voiceAutoSend": "自动发送浮球转写",
+  "voiceAutoSendDesc": "关闭时，长按浮球会先打开聊天供你审阅再发送。面板上的麦克风按钮始终先审阅。",
+  "dashScopeApiKey": "DashScope API 密钥",
+  "apiKeyStored": "已安全存储 • 点按可替换",
+  "apiKeyNotSet": "未设置",
+  "clearStoredKey": "清除已存储的密钥",
+  "region": "区域",
+  "model": "模型",
+  "apiKeyHelperText": "仅存储在本设备上，绝不发送至 Hub。",
+  "clearApiKeyTitle": "清除 API 密钥？",
+  "clearApiKeyBody": "在输入新密钥之前，语音输入将停止工作。",
+  "fileBrowserUp": "上一级"
 }

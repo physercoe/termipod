@@ -317,7 +317,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                   IconButton(
                     icon: const Icon(Icons.arrow_upward),
                     onPressed: _goUp,
-                    tooltip: 'Up',
+                    tooltip: l10n.fileBrowserUp,
                   ),
                 Expanded(
                   child: Text(
@@ -329,7 +329,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                 IconButton(
                   icon: const Icon(Icons.refresh),
                   onPressed: _refreshEntries,
-                  tooltip: 'Refresh',
+                  tooltip: l10n.refresh,
                 ),
               ],
             ),

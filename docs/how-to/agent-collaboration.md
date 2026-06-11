@@ -239,6 +239,15 @@ The poller deliberately does **not** manage the `holds:arb` baton itself — the
 agent does, per §6, before it opens an ARB PR. Run the script with `--help`
 for the full configuration and safety notes.
 
+A builder must edit files, run scripts, and reach the network (`git push`,
+`gh`). If your runtime sandboxes each command (a per-command bubblewrap/seccomp
+jail) it may fail before startup on restricted hosts — a telltale is a
+network-namespace error such as `bwrap: loopback: Failed RTM_NEWADDR: Operation
+not permitted`. On a **trusted** builder host, pass the runtime's own
+bypass-sandbox / auto-approve flag in `$AGENT_CMD` (the poller never sandboxes
+anything itself); the flag name is runtime-specific — check the runtime's
+`--help`. Run the builder as a non-root user.
+
 ## 12. This protocol is general
 
 Nothing here is specific to any one workload. The i18n/ARB sweep was the

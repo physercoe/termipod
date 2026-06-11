@@ -37,6 +37,18 @@
 #                    # (set those in the same shell, NOT here):
 #                    AGENT_CMD='<runtime> -p "$(cat "$PROMPT_FILE")" --headless-no-prompt-flag'
 #
+#                  NOTE — sandboxed runtimes. A builder must edit files, run
+#                  scripts, and reach the network (git push, gh). If your
+#                  runtime sandboxes command execution (e.g. a per-command
+#                  bubblewrap/seccomp jail), it can fail before startup on
+#                  restricted hosts — a telltale is a network-namespace error
+#                  like "bwrap: loopback: Failed RTM_NEWADDR: Operation not
+#                  permitted". On a TRUSTED builder host, pass the runtime's
+#                  own "bypass sandbox + auto-approve" flag in AGENT_CMD (this
+#                  poller never sandboxes anything itself — it just runs
+#                  AGENT_CMD). The flag name is runtime-specific; check the
+#                  runtime's `--help`. Run the builder as a NON-root user.
+#
 #   AGENT_TIERS    (optional) Comma list of tiers this builder is cleared for,
 #                  in preference order. Default: "mechanical".
 #                  e.g. "mechanical" or "mechanical,medium".

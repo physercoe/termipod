@@ -1857,5 +1857,12 @@
   "connectedTerminalMenuTooltip": "已连接 - 可在终端菜单中断开",
   "vaultSectionTitle": "保险库",
   "snippetsAndHistory": "片段与历史",
-  "terminalShortcutsRecentCommands": "终端快捷方式和最近命令"
+  "terminalShortcutsRecentCommands": "终端快捷方式和最近命令",
+  "hubConfigTitle": "Hub 配置",
+  "hubConfigSubtitle": "roles.yaml - 操作范围清单",
+  "hubConfigOwnerTokenRequired": "Hub 配置需要 owner-kind token。",
+  "savedReloaded": "已保存并重新加载",
+  "noChanges": "无更改",
+  "hubConfigResetBody": "移除磁盘上的 roles.yaml 覆盖并重新加载内置默认值。MCP 角色门控会回退到 hub 二进制随附的清单。\n\n所有本地编辑都会被丢弃。",
+  "rolesYamlHint": "roles.yaml..."
 }

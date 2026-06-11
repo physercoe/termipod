@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/criterion_state_pip.dart';
@@ -96,6 +99,7 @@ class _StructuredDeliverableViewerState
       parseDeliverableState((_deliverable?['ratification_state'] ?? '').toString());
 
   Future<void> _ratify() async {
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     setState(() => _busy = true);
@@ -113,12 +117,15 @@ class _StructuredDeliverableViewerState
       if (!mounted) return;
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ratify failed: $e')),
+        SnackBar(content: Text(l10n.ratifyFailedError('$e'))),
       );
     }
   }
 
   Future<void> _sendBack() async {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.read(vocabularyProvider);
+    final steward = vocab.term(VocabAxis.roleSteward).lower;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     // Gather open annotations from each document component so the sheet
@@ -144,7 +151,11 @@ class _StructuredDeliverableViewerState
     final result = await showModalBottomSheet<_SendBackResult>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _SendBackSheet(annotations: openAnnotations),
+      builder: (_) => _SendBackSheet(
+        l10n: l10n,
+        steward: steward,
+        annotations: openAnnotations,
+      ),
     );
     if (!mounted || result == null) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -165,33 +176,32 @@ class _StructuredDeliverableViewerState
         _busy = false;
       });
       messenger.showSnackBar(
-        const SnackBar(content: Text('Sent back · steward will revise')),
+        SnackBar(content: Text(l10n.sentBackForRevision(steward))),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
       messenger.showSnackBar(
-        SnackBar(content: Text('Send back failed: $e')),
+        SnackBar(content: Text(l10n.sendBackFailedError('$e'))),
       );
     }
   }
 
   Future<void> _unratify() async {
+    final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Unratify deliverable?'),
-        content: const Text(
-          'This moves the deliverable back to draft. Director-only gesture.',
-        ),
+        title: Text(l10n.unratifyDeliverableTitle),
+        content: Text(l10n.unratifyDeliverableBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Unratify'),
+            child: Text(l10n.buttonUnratify),
           ),
         ],
       ),
@@ -214,15 +224,18 @@ class _StructuredDeliverableViewerState
       if (!mounted) return;
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unratify failed: $e')),
+        SnackBar(content: Text(l10n.unratifyFailedError('$e'))),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final steward = vocab.term(VocabAxis.roleSteward).lower;
     final d = _deliverable;
-    final title = (d?['kind'] ?? 'Deliverable').toString();
+    final title = (d?['kind'] ?? l10n.deliverableLabel).toString();
     final phase = (d?['phase'] ?? '').toString();
     final components = (d?['components'] as List? ?? const [])
         .map((e) => (e as Map).cast<String, dynamic>())
@@ -249,16 +262,16 @@ class _StructuredDeliverableViewerState
         actions: [
           if (_state != DeliverableState.ratified)
             PopupMenuButton<String>(
-              tooltip: 'More',
+              tooltip: l10n.moreTooltip,
               onSelected: (v) {
                 if (v == 'send_back' && !_busy) _sendBack();
               },
-              itemBuilder: (_) => const [
+              itemBuilder: (_) => [
                 PopupMenuItem(
                   value: 'send_back',
                   child: ListTile(
-                    leading: Icon(Icons.assignment_return_outlined),
-                    title: Text('Send back with notes'),
+                    leading: const Icon(Icons.assignment_return_outlined),
+                    title: Text(l10n.sendBackWithNotes),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
@@ -267,46 +280,55 @@ class _StructuredDeliverableViewerState
         ],
       ),
       body: _error != null
-          ? _ErrorView(error: _error!, onRetry: _load)
+          ? _ErrorView(l10n: l10n, error: _error!, onRetry: _load)
           : Stack(
               children: [
                 ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
                   children: [
-                    HubOfflineBanner(
-                        staleSince: _staleSince, onRetry: _load),
+                    HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
                     if (phase.isNotEmpty)
-                      _MetaRow(label: 'Phase', value: _prettyKind(phase)),
-                    _MetaRow(label: 'Kind', value: title),
+                      _MetaRow(
+                        label: l10n.fieldPhase,
+                        value: _prettyKind(phase),
+                      ),
+                    _MetaRow(label: l10n.fieldKind, value: title),
                     if ((d?['ratified_at'] ?? '').toString().isNotEmpty)
                       _MetaRow(
-                        label: 'Ratified',
+                        label: l10n.fieldRatified,
                         value: (d?['ratified_at'] ?? '').toString(),
                       ),
                     const SizedBox(height: 16),
-                    _SectionHeading(label: 'Components (${components.length})'),
+                    _SectionHeading(
+                      label: l10n.deliverableComponentsHeading(
+                        components.length,
+                      ),
+                    ),
                     if (components.isEmpty)
                       _EmptyCard(
-                        title: 'No components yet',
-                        body:
-                            'Components are added when the steward authors '
-                            'their underlying documents/artifacts/runs.',
+                        title: l10n.noComponentsYet,
+                        body: l10n.componentsAddedHint(steward),
                       )
                     else
                       for (final c in components)
-                        _ComponentCard(component: c, projectId: widget.projectId),
+                        _ComponentCard(
+                          l10n: l10n,
+                          component: c,
+                          projectId: widget.projectId,
+                        ),
                     const SizedBox(height: 24),
-                    _SectionHeading(label: 'Criteria (${_criteria.length})'),
+                    _SectionHeading(
+                      label: l10n.deliverableCriteriaHeading(_criteria.length),
+                    ),
                     if (_criteria.isEmpty)
                       _EmptyCard(
-                        title: 'No criteria declared',
-                        body:
-                            'Templates declare criteria per phase. Tap the '
-                            'criterion to mark it met / failed / waived.',
+                        title: l10n.noCriteriaDeclared,
+                        body: l10n.criteriaDeclaredHint,
                       )
                     else
                       for (final c in _criteria)
                         _CriterionRow(
+                          l10n: l10n,
                           criterion: c,
                           projectId: widget.projectId,
                           onChanged: _load,
@@ -318,6 +340,7 @@ class _StructuredDeliverableViewerState
                   right: 0,
                   bottom: 0,
                   child: _DeliverableActionBar(
+                    l10n: l10n,
                     state: _state,
                     busy: _busy,
                     onRatify: _busy || _state == DeliverableState.ratified
@@ -401,9 +424,14 @@ class _SectionHeading extends StatelessWidget {
 }
 
 class _ComponentCard extends ConsumerStatefulWidget {
+  final AppLocalizations l10n;
   final Map<String, dynamic> component;
   final String projectId;
-  const _ComponentCard({required this.component, required this.projectId});
+  const _ComponentCard({
+    required this.l10n,
+    required this.component,
+    required this.projectId,
+  });
 
   @override
   ConsumerState<_ComponentCard> createState() => _ComponentCardState();
@@ -476,8 +504,16 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
     final refId = (widget.component['ref_id'] ?? '').toString();
     final required = widget.component['required'] == true;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryLabel = _primaryLine(kind: kind, refId: refId);
-    final secondaryLabel = _secondaryLine(kind: kind, refId: refId);
+    final primaryLabel = _primaryLine(
+      l10n: widget.l10n,
+      kind: kind,
+      refId: refId,
+    );
+    final secondaryLabel = _secondaryLine(
+      l10n: widget.l10n,
+      kind: kind,
+      refId: refId,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Material(
@@ -532,7 +568,7 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
-                                'required',
+                                widget.l10n.requiredTag,
                                 style: GoogleFonts.jetBrainsMono(
                                   fontSize: FontSizes.label,
                                   color: DesignColors.warning,
@@ -570,15 +606,23 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
     );
   }
 
-  String _primaryLine({required String kind, required String refId}) {
-    if (_resolving) return 'Loading…';
+  String _primaryLine({
+    required AppLocalizations l10n,
+    required String kind,
+    required String refId,
+  }) {
+    if (_resolving) return l10n.loading;
     final name = _resolvedName ?? '';
     if (name.isNotEmpty) return name;
-    return refId.isEmpty ? _labelFor(kind) : refId;
+    return refId.isEmpty ? _labelFor(l10n, kind) : refId;
   }
 
-  String _secondaryLine({required String kind, required String refId}) {
-    final base = _labelFor(kind).toLowerCase();
+  String _secondaryLine({
+    required AppLocalizations l10n,
+    required String kind,
+    required String refId,
+  }) {
+    final base = _labelFor(l10n, kind).toLowerCase();
     if (kind == 'artifact') {
       final sub = _artifactSubKind ?? '';
       if (sub.isNotEmpty) return '$base · $sub';
@@ -593,6 +637,7 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
   }
 
   Future<void> _onTap(BuildContext context, WidgetRef ref) async {
+    final l10n = widget.l10n;
     final kind = (widget.component['kind'] ?? '').toString();
     final refId = (widget.component['ref_id'] ?? '').toString();
     if (refId.isEmpty) return;
@@ -630,17 +675,23 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
         showArtifactDetailSheet(context, row);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load artifact $refId')),
+          SnackBar(content: Text(l10n.couldNotLoadArtifact(refId))),
         );
       }
       return;
     }
     if (kind == 'commit') {
+      final vocab = ref.read(vocabularyProvider);
+      final project = vocab.term(VocabAxis.entityProject).lower;
       showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (_) => _CommitDetailSheet(ref: refId),
+        builder: (_) => _CommitDetailSheet(
+          l10n: l10n,
+          project: project,
+          ref: refId,
+        ),
       );
       return;
     }
@@ -648,7 +699,9 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
     // so the user can at least locate it.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${_labelFor(kind)} component → $refId'),
+        content: Text(
+          l10n.componentRefMessage(_labelFor(l10n, kind), refId),
+        ),
       ),
     );
   }
@@ -683,27 +736,29 @@ class _ComponentCardState extends ConsumerState<_ComponentCard> {
     }
   }
 
-  static String _labelFor(String kind) {
+  static String _labelFor(AppLocalizations l10n, String kind) {
     switch (kind) {
       case 'document':
-        return 'Document';
+        return l10n.componentKindDocument;
       case 'artifact':
-        return 'Artifact';
+        return l10n.componentKindArtifact;
       case 'run':
-        return 'Run';
+        return l10n.componentKindRun;
       case 'commit':
-        return 'Commit';
+        return l10n.componentKindCommit;
       default:
-        return 'Component';
+        return l10n.componentKindGeneric;
     }
   }
 }
 
 class _CriterionRow extends ConsumerStatefulWidget {
+  final AppLocalizations l10n;
   final Map<String, dynamic> criterion;
   final String projectId;
   final VoidCallback onChanged;
   const _CriterionRow({
+    required this.l10n,
     required this.criterion,
     required this.projectId,
     required this.onChanged,
@@ -725,16 +780,25 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
       : <String, dynamic>{};
 
   Future<void> _act(String action) async {
+    final l10n = widget.l10n;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     final messenger = ScaffoldMessenger.of(context);
     String? note;
     if (action == 'mark-met' && _kind == 'text') {
-      note = await _promptForNote(context, 'Evidence',
-          'Optional reference (e.g. document://doc-1#method)');
+      note = await _promptForNote(
+        context,
+        l10n,
+        l10n.evidenceTitle,
+        l10n.evidenceHint,
+      );
     } else if (action == 'mark-failed' || action == 'waive') {
-      note = await _promptForNote(context, 'Reason',
-          'Optional explanation, recorded in the audit log');
+      note = await _promptForNote(
+        context,
+        l10n,
+        l10n.reasonTitle,
+        l10n.reasonHint,
+      );
     }
     setState(() => _busy = true);
     try {
@@ -765,7 +829,9 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
       widget.onChanged();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Failed: $e')));
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.failedError('$e'))),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -773,7 +839,7 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
 
   @override
   Widget build(BuildContext context) {
-    final summary = _criterionSummary(_kind, _body);
+    final summary = _criterionSummary(widget.l10n, _kind, _body);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isGate = _kind == 'gate';
     final pipState = parseCriterionState(_state);
@@ -811,7 +877,8 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
                       Row(
                         children: [
                           Text(
-                            '$_kind · $_state',
+                            '${criterionKindLabel(widget.l10n, _kind)} · '
+                            '${criterionStateLabel(widget.l10n, _state)}',
                             style: GoogleFonts.jetBrainsMono(
                               fontSize: FontSizes.label,
                               color: DesignColors.textMuted,
@@ -820,7 +887,7 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
                           if (isGate) ...[
                             const SizedBox(width: 6),
                             Text(
-                              '· auto',
+                              widget.l10n.autoSuffix,
                               style: GoogleFonts.jetBrainsMono(
                                 fontSize: FontSizes.label,
                                 color: DesignColors.textMuted,
@@ -859,25 +926,25 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
               ListTile(
                 leading: const Icon(Icons.check_circle,
                     color: DesignColors.terminalGreen),
-                title: const Text('Mark met'),
+                title: Text(widget.l10n.markMet),
                 onTap: () => Navigator.pop(ctx, 'mark-met'),
               ),
             if (_state != 'failed')
               ListTile(
                 leading: const Icon(Icons.cancel, color: DesignColors.error),
-                title: const Text('Mark failed'),
+                title: Text(widget.l10n.markFailed),
                 onTap: () => Navigator.pop(ctx, 'mark-failed'),
               ),
             if (_state != 'waived')
               ListTile(
                 leading: const Icon(Icons.do_not_disturb,
                     color: DesignColors.textMuted),
-                title: const Text('Waive'),
+                title: Text(widget.l10n.waive),
                 onTap: () => Navigator.pop(ctx, 'waive'),
               ),
             ListTile(
               leading: const Icon(Icons.close),
-              title: const Text('Cancel'),
+              title: Text(widget.l10n.buttonCancel),
               onTap: () => Navigator.pop(ctx),
             ),
           ],
@@ -888,7 +955,11 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
   }
 
   static Future<String?> _promptForNote(
-      BuildContext context, String title, String hint) async {
+    BuildContext context,
+    AppLocalizations l10n,
+    String title,
+    String hint,
+  ) async {
     final ctrl = TextEditingController();
     final result = await showDialog<String?>(
       context: context,
@@ -902,11 +973,11 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, null),
-            child: const Text('Skip'),
+            child: Text(l10n.buttonSkip),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, ctrl.text.trim()),
-            child: const Text('OK'),
+            child: Text(l10n.buttonOk),
           ),
         ],
       ),
@@ -914,20 +985,52 @@ class _CriterionRowState extends ConsumerState<_CriterionRow> {
     return result;
   }
 
-  static String _criterionSummary(String kind, Map<String, dynamic> body) {
+  static String _criterionSummary(
+    AppLocalizations l10n,
+    String kind,
+    Map<String, dynamic> body,
+  ) {
     switch (kind) {
       case 'text':
-        return (body['text'] ?? body['body'] ?? '—').toString();
+        return (body['text'] ?? body['body'] ?? l10n.unavailable).toString();
       case 'metric':
         final m = (body['metric'] ?? '').toString();
         final op = (body['operator'] ?? '').toString();
         final t = body['threshold'];
         return '$m $op $t'.trim();
       case 'gate':
-        return (body['gate'] ?? '—').toString();
+        return (body['gate'] ?? l10n.unavailable).toString();
       default:
-        return '—';
+        return l10n.unavailable;
     }
+  }
+}
+
+String criterionKindLabel(AppLocalizations l10n, String kind) {
+  switch (kind) {
+    case 'text':
+      return l10n.criterionKindText;
+    case 'metric':
+      return l10n.criterionKindMetric;
+    case 'gate':
+      return l10n.criterionKindGate;
+    default:
+      return kind;
+  }
+}
+
+String criterionStateLabel(AppLocalizations l10n, String state) {
+  switch (state) {
+    case 'pending':
+      return l10n.criterionStatePending;
+    case 'met':
+      return l10n.criterionStateMet;
+    case 'failed':
+      return l10n.criterionStateFailed;
+    case 'waived':
+      return l10n.criterionStateWaived;
+    default:
+      return state;
   }
 }
 
@@ -976,9 +1079,14 @@ class _EmptyCard extends StatelessWidget {
 }
 
 class _ErrorView extends StatelessWidget {
+  final AppLocalizations l10n;
   final String error;
   final VoidCallback onRetry;
-  const _ErrorView({required this.error, required this.onRetry});
+  const _ErrorView({
+    required this.l10n,
+    required this.error,
+    required this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -992,7 +1100,7 @@ class _ErrorView extends StatelessWidget {
             const SizedBox(height: 8),
             Text(error, textAlign: TextAlign.center),
             const SizedBox(height: 12),
-            OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
+            OutlinedButton(onPressed: onRetry, child: Text(l10n.buttonRetry)),
           ],
         ),
       ),
@@ -1001,11 +1109,13 @@ class _ErrorView extends StatelessWidget {
 }
 
 class _DeliverableActionBar extends StatelessWidget {
+  final AppLocalizations l10n;
   final DeliverableState state;
   final bool busy;
   final VoidCallback? onRatify;
   final VoidCallback? onUnratify;
   const _DeliverableActionBar({
+    required this.l10n,
     required this.state,
     required this.busy,
     required this.onRatify,
@@ -1039,7 +1149,7 @@ class _DeliverableActionBar extends StatelessWidget {
             child: state == DeliverableState.ratified
                 ? OutlinedButton.icon(
                     icon: const Icon(Icons.undo, size: 16),
-                    label: const Text('Unratify'),
+                    label: Text(l10n.buttonUnratify),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: DesignColors.warning,
                     ),
@@ -1047,7 +1157,7 @@ class _DeliverableActionBar extends StatelessWidget {
                   )
                 : ElevatedButton.icon(
                     icon: const Icon(Icons.check_circle_outline, size: 16),
-                    label: const Text('Ratify deliverable'),
+                    label: Text(l10n.buttonRatify),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: DesignColors.terminalGreen,
                       foregroundColor: Colors.white,
@@ -1076,8 +1186,14 @@ class _SendBackResult {
 }
 
 class _SendBackSheet extends StatefulWidget {
+  final AppLocalizations l10n;
+  final String steward;
   final List<Map<String, dynamic>> annotations;
-  const _SendBackSheet({required this.annotations});
+  const _SendBackSheet({
+    required this.l10n,
+    required this.steward,
+    required this.annotations,
+  });
 
   @override
   State<_SendBackSheet> createState() => _SendBackSheetState();
@@ -1110,7 +1226,7 @@ class _SendBackSheetState extends State<_SendBackSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Send back with notes',
+                  widget.l10n.sendBackWithNotes,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -1118,7 +1234,7 @@ class _SendBackSheetState extends State<_SendBackSheet> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Steward gets a revision_requested attention item; the deliverable moves to in-review.',
+                  widget.l10n.sendBackSheetBody(widget.steward),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     color: DesignColors.textMuted,
@@ -1130,16 +1246,17 @@ class _SendBackSheetState extends State<_SendBackSheet> {
                   autofocus: true,
                   minLines: 3,
                   maxLines: 6,
-                  decoration: const InputDecoration(
-                    hintText:
-                        'What needs to change before this can be ratified?',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    hintText: widget.l10n.sendBackNoteHint,
+                    border: const OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 12),
                 if (hasAnnotations) ...[
                   Text(
-                    'Attach open annotations (${widget.annotations.length})',
+                    widget.l10n.attachOpenAnnotations(
+                      widget.annotations.length,
+                    ),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -1196,19 +1313,20 @@ class _SendBackSheetState extends State<_SendBackSheet> {
                   children: [
                     TextButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
+                      child: Text(widget.l10n.buttonCancel),
                     ),
                     const SizedBox(width: 8),
                     FilledButton.icon(
                       icon: const Icon(Icons.assignment_return_outlined,
                           size: 16),
-                      label: const Text('Send back'),
+                      label: Text(widget.l10n.sendBack),
                       onPressed: () {
                         final note = _ctl.text.trim();
                         if (note.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('Note required')),
+                            SnackBar(
+                              content: Text(widget.l10n.noteRequired),
+                            ),
                           );
                           return;
                         }
@@ -1236,8 +1354,14 @@ class _SendBackSheetState extends State<_SendBackSheet> {
 /// the host/repo/short-sha for display and offers open-in-browser +
 /// copy-ref buttons. Non-URL refs fall through to a raw view.
 class _CommitDetailSheet extends StatelessWidget {
+  final AppLocalizations l10n;
+  final String project;
   final String ref;
-  const _CommitDetailSheet({required this.ref});
+  const _CommitDetailSheet({
+    required this.l10n,
+    required this.project,
+    required this.ref,
+  });
 
   ({String host, String repo, String sha})? _parse() {
     final uri = Uri.tryParse(ref);
@@ -1293,7 +1417,7 @@ class _CommitDetailSheet extends StatelessWidget {
                     size: 20, color: DesignColors.warning),
                 const SizedBox(width: 8),
                 Text(
-                  'Commit',
+                  l10n.componentKindCommit,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -1334,7 +1458,7 @@ class _CommitDetailSheet extends StatelessWidget {
                   Expanded(
                     child: FilledButton.icon(
                       icon: const Icon(Icons.open_in_new, size: 16),
-                      label: const Text('Open commit'),
+                      label: Text(l10n.openCommit),
                       onPressed: () async {
                         final uri = Uri.tryParse(ref);
                         if (uri == null) return;
@@ -1347,12 +1471,12 @@ class _CommitDetailSheet extends StatelessWidget {
                 Expanded(
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.copy, size: 16),
-                    label: const Text('Copy ref'),
+                    label: Text(l10n.copyRef),
                     onPressed: () async {
                       await Clipboard.setData(ClipboardData(text: ref));
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Copied')),
+                          SnackBar(content: Text(l10n.copied)),
                         );
                       }
                     },
@@ -1362,7 +1486,7 @@ class _CommitDetailSheet extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Text(
-              'Commit components pin a deliverable to a specific revision of the project repo so reviewers can rebuild the same artifacts/runs from source.',
+              l10n.commitComponentDescription(project),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 12,
                 color: DesignColors.textMuted,

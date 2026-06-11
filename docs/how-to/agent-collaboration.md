@@ -190,11 +190,32 @@ each spec near-mechanical so a `tier:mechanical` builder can one-shot it: name
 the exact files, cite a reference PR to copy, list the rules and the deferral
 set, and give the verify commands.
 
+## 10. This protocol is general
+
+Nothing here is specific to any one workload. The i18n/ARB sweep was the
+proving pilot, but the same lifecycle, tiers, identity model, baton, and
+verify-before-merge govern **any** delegatable work, for example:
+
+- a mechanical refactor or rename across many files,
+- test backfill for an under-covered package,
+- dependency or API-migration bumps,
+- a documentation sweep,
+- generated-code regeneration.
+
+Two things are workload-specific, and both live in the **ticket spec**, not in
+this protocol: the **gate** the builder runs before review (e.g.
+`scripts/lint-arb.sh` for i18n, `go test ./...` for a Go change — §7 just says
+"the gate the ticket names"), and any **hot resource** that needs a baton (§6):
+`holds:arb` is one instance; give a new workload's hot file its own
+`holds:<resource>` by the same rule. See [ADR-049](../decisions/049-multi-agent-collaboration-via-github.md).
+
 ---
 
 ## See also
 
+- [ADR-049](../decisions/049-multi-agent-collaboration-via-github.md) — the
+  decision + rationale this how-to operationalizes.
 - [`AGENTS.md`](../../AGENTS.md) — the bootstrap a builder reads first.
 - [Localize a user-facing string](localize-a-string.md) — the recipe most
-  mechanical i18n tickets follow.
+  mechanical i18n tickets follow (one example workload).
 - [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — the human contributor guide.

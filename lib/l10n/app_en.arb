@@ -1848,5 +1848,17 @@
   "@needsMeFilterTitle": { "placeholders": { "projects": { "type": "String" } } },
   "needsMeFilterSubtitle": "Quick \"what's parked on me?\" shortcut",
   "sortBy": "Sort by",
-  "sortRecent": "Recent"
+  "sortRecent": "Recent",
+  "stewardOverlayTitle": "{steward} overlay",
+  "@stewardOverlayTitle": { "placeholders": { "steward": { "type": "String" } } },
+  "stewardOverlayDesc": "Floating chat puck for {agent}-driven navigation. Drag the puck or panel header; resize from the bottom-right corner. Disable to hide entirely.",
+  "@stewardOverlayDesc": { "placeholders": { "agent": { "type": "String" } } },
+  "panelOpacity": "Panel opacity",
+  "navPadTapSlotThenPick": "Tap a button slot above, then pick a replacement",
+  "customTmuxKeyLabel": "Custom (tmux key name)",
+  "customTmuxKeyHint": "e.g. C-x or F5",
+  "buttonOk": "OK",
+  "pickButtonForSlot": "Pick button for slot {slot}",
+  "@pickButtonForSlot": { "placeholders": { "slot": { "type": "int" } } },
+  "tapSlotToReplaceFromCatalog": "Tap a button slot above to replace it from the catalog"
 }

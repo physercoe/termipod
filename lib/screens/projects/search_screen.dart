@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import 'search_event_sheet.dart';
@@ -85,9 +86,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       if (!mounted) return;
+      final l10n = AppLocalizations.of(context)!;
       setState(() {
         _loading = false;
-        _error = 'Hub not configured';
+        _error = l10n.hubNotConfigured;
         _results = const [];
       });
       return;
@@ -126,13 +128,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: TextField(
           controller: _q,
           autofocus: true,
-          decoration: const InputDecoration.collapsed(
-            hintText: 'Search events…',
+          decoration: InputDecoration.collapsed(
+            hintText: l10n.searchEventsHint,
           ),
           style: GoogleFonts.spaceGrotesk(fontSize: 16),
           onSubmitted: (_) => _run(),
@@ -140,7 +143,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.clear),
-            tooltip: 'Clear',
+            tooltip: l10n.buttonClear,
             onPressed: _clear,
           ),
         ],
@@ -150,6 +153,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _body() {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -175,7 +179,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     if (query.length < _minQueryLen) {
       return Center(
         child: Text(
-          'type to search',
+          l10n.typeToSearch,
           style: GoogleFonts.jetBrainsMono(fontSize: 12, color: muted),
         ),
       );
@@ -183,7 +187,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     if (_results.isEmpty) {
       return Center(
         child: Text(
-          'No matches',
+          l10n.noMatches,
           style: GoogleFonts.jetBrainsMono(fontSize: 12, color: muted),
         ),
       );
@@ -206,13 +210,15 @@ class _ResultRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final type = (event['type'] ?? '').toString();
     final fromId = (event['from_id'] ?? '').toString();
     final ts = (event['received_ts'] ?? '').toString();
-    final title = _titleFromParts(event['parts'], fallback: type);
+    final title = _titleFromParts(event['parts'],
+        fallback: type, eventFallback: l10n.eventFallback);
 
     return ListTile(
       leading: Icon(_iconForType(type), size: 20),
@@ -238,7 +244,8 @@ class _ResultRow extends StatelessWidget {
     );
   }
 
-  String _titleFromParts(dynamic rawParts, {required String fallback}) {
+  String _titleFromParts(dynamic rawParts,
+      {required String fallback, required String eventFallback}) {
     if (rawParts is List) {
       for (final raw in rawParts) {
         if (raw is! Map) continue;
@@ -248,7 +255,7 @@ class _ResultRow extends StatelessWidget {
         }
       }
     }
-    return fallback.isEmpty ? '(event)' : fallback;
+    return fallback.isEmpty ? eventFallback : fallback;
   }
 
   IconData _iconForType(String type) {

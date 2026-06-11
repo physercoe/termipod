@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../team/team_channel_screen.dart';
@@ -32,6 +35,8 @@ class SearchEventSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final channelTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityChannel);
     final type = (event['type'] ?? '').toString();
     final fromId = (event['from_id'] ?? '').toString();
     final channelId = (event['channel_id'] ?? '').toString();
@@ -64,25 +69,25 @@ class SearchEventSheet extends ConsumerWidget {
               ),
             ),
             Text(
-              type.isEmpty ? '(event)' : type,
+              type.isEmpty ? l10n.eventFallback : type,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 8),
-            if (fromId.isNotEmpty) _metaRow('from', fromId),
+            if (fromId.isNotEmpty) _metaRow(l10n.fromLabel, fromId),
             if (channelId.isNotEmpty)
               _metaRow(
-                'channel',
+                channelTerm.lower,
                 channelName == null
                     ? channelId
                     : '#$channelName · $channelId',
               ),
-            if (ts.isNotEmpty) _metaRow('received', ts),
+            if (ts.isNotEmpty) _metaRow(l10n.receivedLabel, ts),
             const SizedBox(height: 14),
-            _sectionLabel('Parts'),
-            ..._renderParts(event['parts']),
+            _sectionLabel(l10n.partsLabel),
+            ..._renderParts(event['parts'], l10n.noParts),
             if (channelName != null) ...[
               const SizedBox(height: 16),
               FilledButton.icon(
@@ -96,7 +101,7 @@ class SearchEventSheet extends ConsumerWidget {
                   ));
                 },
                 icon: const Icon(Icons.forum_outlined, size: 18),
-                label: Text('Open #$channelName'),
+                label: Text(l10n.openChannelNamed(channelName)),
               ),
             ],
           ],
@@ -105,11 +110,11 @@ class SearchEventSheet extends ConsumerWidget {
     );
   }
 
-  List<Widget> _renderParts(dynamic raw) {
+  List<Widget> _renderParts(dynamic raw, String noParts) {
     if (raw is! List || raw.isEmpty) {
       return [
         Text(
-          '(no parts)',
+          noParts,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 11,
             color: DesignColors.textMuted,

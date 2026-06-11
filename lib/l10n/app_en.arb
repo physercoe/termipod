@@ -1704,5 +1704,15 @@
   "totalSpendLabel": "Total spend",
   "spawnSpecLabel": "Spawn spec",
   "journalLabel": "Journal",
-  "noJournalEntries": "(no journal entries)"
+  "noJournalEntries": "(no journal entries)",
+  "searchEventsHint": "Search events…",
+  "typeToSearch": "type to search",
+  "noMatches": "No matches",
+  "eventFallback": "(event)",
+  "fromLabel": "from",
+  "receivedLabel": "received",
+  "partsLabel": "Parts",
+  "noParts": "(no parts)",
+  "openChannelNamed": "Open #{name}",
+  "@openChannelNamed": { "placeholders": { "name": { "type": "String" } } }
 }

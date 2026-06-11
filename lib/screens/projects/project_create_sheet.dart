@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../team/template_icon.dart';
@@ -74,10 +76,11 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
   }
 
   Future<void> _submit() async {
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     if (_name.text.trim().isEmpty) {
-      setState(() => _error = 'Name required');
+      setState(() => _error = l10n.nameRequired);
       return;
     }
     setState(() {
@@ -172,6 +175,9 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
     final insets = MediaQuery.of(context).viewInsets;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final stewardTerm = vocab.term(VocabAxis.roleSteward);
+    final projectTerm = vocab.term(VocabAxis.entityProject);
     return Padding(
       padding: EdgeInsets.only(bottom: insets.bottom),
       child: SafeArea(
@@ -196,15 +202,15 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
               TextField(
                 controller: _name,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.fieldName,
+                  border: const OutlineInputBorder(),
                 ),
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 16),
               Text(
-                'Kind',
+                l10n.fieldKind,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -252,22 +258,20 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                 TextField(
                   controller: _goal,
                   maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Goal (what success looks like)',
-                    hintText:
-                        'e.g. "Reproduce the attention-is-all-you-need '
-                        'ablation and write a memo."',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: l10n.goalFieldLabel,
+                    hintText: l10n.goalFieldHint,
+                    border: const OutlineInputBorder(),
                   ),
                 ),
               ],
               const SizedBox(height: 20),
               _TemplateField(
-                label: 'Project template',
+                label: l10n.projectTemplateLabel,
                 // Both fields point at the same picker source (project rows
                 // with is_template=1). Different copy here distinguishes
                 // the *timing* — ongoing recipe vs. one-shot at create.
-                hint: 'Recipe the steward follows over the project lifetime',
+                hint: l10n.projectTemplateHint(stewardTerm.lower),
                 value: _templateId,
                 onTap: () => _pickTemplate(forOnCreate: false),
                 onClear: _templateId == null
@@ -292,7 +296,7 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: EdgeInsets.zero,
                 title: Text(
-                  'Advanced',
+                  l10n.advancedLabel,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -301,8 +305,8 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                 children: [
                   const SizedBox(height: 4),
                   _TemplateField(
-                    label: 'On-create template',
-                    hint: 'Optional — fires once when the project is created',
+                    label: l10n.onCreateTemplateLabel,
+                    hint: l10n.onCreateTemplateHint(projectTerm.lower),
                     value: _onCreateTemplateId,
                     onTap: () => _pickTemplate(forOnCreate: true),
                     onClear: _onCreateTemplateId == null
@@ -318,9 +322,9 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _docsRoot,
-                    decoration: const InputDecoration(
-                      labelText: 'Docs root (optional, e.g. docs/)',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.docsRootCreateLabel,
+                      border: const OutlineInputBorder(),
                     ),
                     textInputAction: TextInputAction.next,
                   ),
@@ -329,9 +333,9 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                     controller: _configYaml,
                     maxLines: 4,
                     style: GoogleFonts.jetBrainsMono(fontSize: 12),
-                    decoration: const InputDecoration(
-                      labelText: 'Config YAML (optional)',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.configYamlLabel,
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                 ],
@@ -347,7 +351,7 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                 children: [
                   TextButton(
                     onPressed: _busy ? null : () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
+                    child: Text(l10n.buttonCancel),
                   ),
                   const Spacer(),
                   FilledButton.icon(
@@ -359,7 +363,7 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.check, size: 16),
-                    label: const Text('Create'),
+                    label: Text(l10n.buttonCreate),
                   ),
                 ],
               ),
@@ -377,13 +381,13 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
   String _subProjectTitle(AppLocalizations l10n) {
     if (widget.isTemplate) {
       return _kind == 'standing'
-          ? 'New workspace template'
-          : 'New project template';
+          ? l10n.newWorkspaceTemplate
+          : l10n.newProjectTemplate;
     }
     if (widget.parentProjectId == null) {
       return _kind == 'standing' ? l10n.newWorkspace : l10n.newProject;
     }
-    return _kind == 'standing' ? 'New sub-Workspace' : 'New sub-project';
+    return _kind == 'standing' ? l10n.newSubWorkspace : l10n.newSubProject;
   }
 }
 
@@ -397,11 +401,13 @@ class _ParentHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
-    final kindLabel = kind == 'standing' ? 'sub-Workspace' : 'sub-project';
+    final kindLabel =
+        kind == 'standing' ? l10n.subWorkspaceWord : l10n.subProjectWord;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: 8),
       decoration: BoxDecoration(
@@ -416,7 +422,7 @@ class _ParentHint extends StatelessWidget {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              'Creating $kindLabel under $name',
+              l10n.creatingUnder(kindLabel, name),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 12,
                 color: DesignColors.textMuted,
@@ -448,6 +454,7 @@ class _TemplateField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasValue = value != null && value!.isNotEmpty;
     return InkWell(
@@ -459,7 +466,7 @@ class _TemplateField extends StatelessWidget {
           border: const OutlineInputBorder(),
           suffixIcon: hasValue
               ? IconButton(
-                  tooltip: 'Clear',
+                  tooltip: l10n.buttonClear,
                   icon: const Icon(Icons.close, size: 18),
                   onPressed: onClear,
                 )
@@ -502,6 +509,7 @@ class _TemplatePickerSheet extends ConsumerStatefulWidget {
 class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
   List<Map<String, dynamic>>? _rows;
   bool _loading = true;
+  bool _hubMissing = false;
   String? _error;
 
   @override
@@ -515,7 +523,7 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -542,6 +550,9 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final l10n = AppLocalizations.of(context)!;
+    final templateTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.entityTemplate);
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.6,
@@ -556,7 +567,7 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Pick a template',
+                      l10n.pickTemplateTitle(templateTerm.lower),
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
@@ -575,7 +586,7 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: OutlinedButton.icon(
                   icon: const Icon(Icons.link_off, size: 16),
-                  label: const Text('Clear selection'),
+                  label: Text(l10n.clearSelection),
                   onPressed: () =>
                       Navigator.of(context).pop(const _TemplatePickResult('')),
                 ),
@@ -589,17 +600,18 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
   }
 
   Widget _list(ScrollController controller, bool isDark) {
+    final l10n = AppLocalizations.of(context)!;
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null) {
+    if (_hubMissing || _error != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_error!,
+              Text(_hubMissing ? l10n.hubNotConfigured : _error!,
                   textAlign: TextAlign.center,
                   style: GoogleFonts.jetBrainsMono(
                       fontSize: 12, color: DesignColors.error)),
@@ -609,11 +621,12 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
                   setState(() {
                     _loading = true;
                     _error = null;
+                    _hubMissing = false;
                   });
                   _load();
                 },
                 icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Retry'),
+                label: Text(l10n.buttonRetry),
               ),
             ],
           ),
@@ -626,8 +639,7 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            'No project templates yet. Mark an existing project as a '
-            'template (is_template=true) or seed built-in ones from the hub.',
+            l10n.noProjectTemplates,
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 12,
@@ -759,6 +771,7 @@ class _ParameterSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final entries = parameters.entries.toList();
     return Container(
@@ -776,7 +789,7 @@ class _ParameterSummary extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  'Template parameters',
+                  l10n.templateParameters,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -790,7 +803,7 @@ class _ParameterSummary extends StatelessWidget {
                 ),
                 onPressed: onEdit,
                 icon: const Icon(Icons.edit, size: 14),
-                label: const Text('Edit'),
+                label: Text(l10n.buttonEdit),
               ),
             ],
           ),
@@ -884,10 +897,11 @@ class _TemplateParameterSheetState extends State<_TemplateParameterSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final insets = MediaQuery.of(context).viewInsets;
     final title = widget.templateName == null || widget.templateName!.isEmpty
-        ? 'Template parameters'
-        : 'Parameters for ${widget.templateName}';
+        ? l10n.templateParameters
+        : l10n.parametersFor(widget.templateName!);
     return Padding(
       padding: EdgeInsets.only(bottom: insets.bottom),
       child: SafeArea(
@@ -907,7 +921,7 @@ class _TemplateParameterSheetState extends State<_TemplateParameterSheet> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Defaults come from the template. Adjust what you need.',
+                l10n.parametersDefaultsBlurb,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 11,
                   color: DesignColors.textMuted,
@@ -927,13 +941,13 @@ class _TemplateParameterSheetState extends State<_TemplateParameterSheet> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
+                    child: Text(l10n.buttonCancel),
                   ),
                   const Spacer(),
                   FilledButton.icon(
                     onPressed: _submit,
                     icon: const Icon(Icons.check, size: 16),
-                    label: const Text('Use these values'),
+                    label: Text(l10n.useTheseValues),
                   ),
                 ],
               ),

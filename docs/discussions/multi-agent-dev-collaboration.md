@@ -15,10 +15,13 @@
 **TL;DR.** We delegate this repo's *development* across heterogeneous AI coding
 agents, coordinated only through GitHub ([ADR-049](../decisions/049-multi-agent-collaboration-via-github.md)).
 That is one point in a large, fast-moving design space. This note maps the
-space along five axes — **(1) when multi-agent is worth it at all**, **(2) the
+space along six axes — **(1) when multi-agent is worth it at all**, **(2) the
 SOTA collaboration patterns**, **(3) the coordination substrate** (GitHub is
-one of ~six), **(4) the inter-agent protocols**, and **(5) how an agent stays
-running** (poller / TUI / daemon / cloud / app) — and says, for each, what it
+one of ~six, and §3.7 covers self-hosting it), **(4) the inter-agent
+protocols**, **(5) how an agent stays running** (poller / TUI / daemon / cloud
+/ app), and **(6) the human↔agent day/night asymmetry** (humans decide on a
+daytime clock; agents run 24/7 — so work allocation and the run mode must be
+designed around *when* a human is available) — and says, for each, what it
 costs, when it fits, and why TermiPod's dev workflow landed where it did. The
 through-line: for **write-heavy** work (editing one shared codebase), the
 expensive thing is not parallelism, it is **keeping the implicit decisions in
@@ -318,6 +321,53 @@ three constraints in ADR-049's Context. The forge gives for free what every
 other substrate makes you build: a permissioned, replayable, attributable trail
 plus a native gate (CI) and a native review surface.
 
+### 3.7 Self-hosting the substrate (if you can't use GitHub SaaS)
+
+"GitHub" in §3.1 is a *shape* (forge primitives: issues, labels, branches, PRs,
+CI), not a hard dependency on github.com. If the constraint is data residency,
+air-gap, cost, vendor independence, or running on the same NAT'd GPU boxes the
+product targets, the same protocol runs on a **self-hosted forge** — the
+attraction is that **ADR-049 changes by one environment variable** (`REPO` /
+the `gh`/API base URL), because the protocol lives in forge primitives every
+option below implements. Solutions, lightest to heaviest:
+
+- **Forgejo** (Codeberg's community-governed Gitea fork) — the 2026 default
+  recommendation for self-hosting. A single Go binary, runs on ~256 MB with
+  SQLite, ships issues + labels + milestones + PRs, and **Forgejo/Gitea
+  Actions runs GitHub-Actions-compatible workflow YAML** (move
+  `.github/workflows/*` → `.forgejo/workflows/*` with near-zero edits — our CI
+  gate ports almost unchanged). Non-profit governance (no single owner who can
+  walk away) is the durability argument over Gitea.
+- **Gitea** — the upstream Forgejo forked from; functionally equivalent for our
+  needs (same Actions, issues, labels). Fine if you're already on it; otherwise
+  Forgejo's governance + faster feature cadence wins.
+- **GitLab CE** — heaviest (Ruby/Go, PostgreSQL + Redis + Sidekiq + Gitaly, ~8
+  GB floor) but the richest **built-in CI/CD**; choose it only if you want
+  GitLab-native pipelines and merge-request approval rules out of the box. Note
+  the vocabulary maps but isn't identical (merge requests, not PRs; its own
+  approval-rule model) — the *spec* the maintainer writes would name GitLab's
+  gate, per ADR-049 §D-10.
+- **Plain git + a thin coordination layer** — the minimal path: a bare git
+  remote (or `git` over SSH) plus a self-hosted issue/label store. This is
+  really §3.2's blackboard with version control; you'd rebuild the gate and the
+  review surface a forge gives for free, so it's rarely worth it over Forgejo.
+- **The product's own hub** — TermiPod *is* a self-hosted agent-coordination
+  substrate (events, references, A2A relay through a NAT-piercing reverse
+  tunnel). It is deliberately **not** used for *dev* coordination (ADR-049
+  rejected alternative: the hub is the product runtime, not a dev tool) — but it
+  is the existence proof that we can self-host coordination, and the natural
+  substrate if the product itself ever needs to dogfood its own dev loop.
+
+**Trade-off of self-hosting at all.** You trade github.com's zero-ops,
+high-availability convenience for **control, residency, and no per-seat/CI
+cost** — and you take on the ops burden (uptime, backups, runner fleet,
+patching) that the forge previously absorbed. For a small builder fleet that is
+usually not worth it *yet*; the value rises with data-sensitivity, air-gap
+requirements, or builder count. The decisive point is that the **migration cost
+is low by design** — keep the protocol in forge primitives and the substrate
+stays swappable. The CI gate is the one piece that needs real porting work
+(Actions-compatible forges minimize even that).
+
 ---
 
 ## 4. The protocols
@@ -485,9 +535,116 @@ which is literally **what TermiPod's product is** (the Flutter cockpit + hub).
 
 ---
 
-## 6. What TermiPod's dev workflow chose, and why
+## 6. Human-in-the-loop and the day/night asymmetry
 
-Reading the five axes together, ADR-049 is a coherent point, not an arbitrary
+The previous five axes treat agents as the only actors. They aren't: some work
+**needs a human** — architecture calls, vocabulary/glossary decisions,
+ambiguous specs, risky merges — and some is safely **delegable**. The two
+actors run on **different clocks**: a human decides on a daytime schedule and
+needs rest and focus; agents run **24/7**. A design that ignores this either
+**starves the agents** (they idle overnight waiting on a human) or **buries the
+human** (they wake to a hundred things demanding judgment). The fix is to make
+*when a human is available* a first-class input to work allocation and to the
+run mode — not an afterthought.
+
+### 6.1 Allocate by decision type, not by task
+
+The right primitive is **"classify decisions, not tasks"** (see
+[`coordination-basis-and-decision-classification.md`](coordination-basis-and-decision-classification.md)).
+Split work by *who must decide*:
+
+- **Delegable now** — mechanical/medium tickets whose decisions are already
+  made in the spec. These can run **unattended, overnight**. Our `tier:` labels
+  already encode this: `tier:mechanical|medium` is "an agent may decide";
+  `tier:judgment` is "a human must."
+- **Needs a human** — anything where the decision isn't pre-made: writing the
+  spec itself, reviewing a diff, merging, resolving a `ticket:blocked`, picking
+  a vocabulary axis. This is **daytime work**, and it is the scarce resource.
+
+The maintainer's (and increasingly the human director's) **judgment + merge** is
+the bottleneck, exactly as in [§1](#1-why--and-when--multi-agent-at-all). So the
+scheduling goal is: **spend the human's daytime on the judgment-dense work
+(specs, reviews, merges, unblocks), and leave behind enough pre-decided,
+delegable work to keep agents busy through the night.**
+
+### 6.2 Queue depth is a function of the human's clock
+
+[§7](#7-what-termipods-dev-workflow-chose-and-why) notes one ready ticket is the
+right depth *while the human is online* to feed the queue continuously. But that
+inverts overnight: if the human is asleep, a depth-1 queue means agents finish
+one ticket and **starve**. So depth should track availability:
+
+- **Human online:** shallow (≈1 ready) — the human feeds it just-in-time and
+  avoids stale specs.
+- **Human offline (overnight):** **stock the ready queue deep** with
+  pre-specced, **baton-free** tickets so agents never idle — *bounded by hot
+  resources*. A deep queue of `holds:arb`-touching tickets doesn't help: the
+  baton serializes them to one-at-a-time anyway ([§4.2](#42-the-coordination-protocol-ours-application-level)).
+  So: deep on parallelizable work, shallow on baton-serialized work.
+
+Practically: before going offline, the human **batch-writes a night's worth of
+mechanical specs** (front-loaded judgment) so cheap agents convert them to PRs
+overnight.
+
+### 6.3 Park, don't block — and batch the review
+
+An agent that hits a judgment call at 03:00 must do **neither** of the two bad
+things: it must not **burn tokens waiting** for a human who's asleep, and it
+must not **guess** (the whole point of the tier system). The correct move is to
+**park**: drop `ticket:blocked` + a specific question, release any baton, and
+**move to the next ready ticket**. Escalation becomes a *queue the human drains
+in the morning*, not a synchronous stall — the industry "async approval / batch
+review" pattern: an agent that produced N actions overnight needs a **batch
+review surface** (group similar items, approve/reject in bulk), not N popups.
+Our substrate gives this for free: the morning review is just
+`gh pr list --label ticket:in-review` + `gh issue list --label ticket:blocked`.
+
+One thing must **not** go async, though: **irreversible or risky actions block
+synchronously even overnight.** Reversibility is the dial (the same principle the
+product's propose→approve gate encodes — see
+[`governed-actions-and-propose-verb.md`](governed-actions-and-propose-verb.md)):
+
+- **Reversible / low-risk** (a mechanical PR awaiting review) → **async**:
+  accumulate in `ticket:in-review` overnight, reviewed in a morning batch.
+- **Irreversible / high-risk** (the **merge** itself, anything touching prod) →
+  **sync**: it waits for the human. This is already true — **maintainer-only
+  merge** means no merge happens unattended; PRs pile up green-and-ready and the
+  human merges a batch when online.
+
+### 6.4 The run mode/script must encode the clock
+
+This is why "how an agent keeps running" ([§5](#5-how-an-agent-keeps-running-the-run-mode))
+can't be clock-blind. Concretely, the poller should grow a few controls:
+
+- **Mode by time of day.** Unattended **headless/autonomous** overnight
+  (auto-approve within cleared tiers); **supervised/`--interactive`** during the
+  day when the human can watch and steer. The poller already has both modes and
+  a `--supervised` confirm; the missing piece is **driving them on a schedule**
+  (a `QUIET_HOURS` / cadence window).
+- **Park-and-continue, not stall.** In unattended mode the loop must treat a
+  `ticket:blocked` as "skip to next ready," never as "wait." (This is the open
+  `ticket:changes`/escalation-autonomy follow-up — the loop currently only
+  claims `ticket:ready`.)
+- **Back-pressure on the human's queue.** Stop claiming new work once the
+  `ticket:in-review` + `ticket:blocked` backlog exceeds a threshold — so the
+  human wakes to a *reviewable* batch, not an unbounded pile. (Bounded
+  overnight throughput beats maximal throughput the human can't absorb.)
+- **Notify, then sleep.** A daemon/managed mode ([§5.4](#54-persistent-local-daemon)/[§5.5](#55-cloud--managed-background-agent))
+  that push-notifies on a blocked escalation lets the human *optionally* step in
+  off-hours without being forced to — human-**on**-the-loop, not in it.
+
+The deep point: the human is a **scarce, time-boxed approver**, and the system's
+job is to **buy back their attention** — do all the collection, drafting, and
+mechanical execution autonomously, and present judgment-ready batches when the
+human is actually online (cf.
+[`attention-interaction-model.md`](attention-interaction-model.md),
+[`feedback-loop-closure.md`](feedback-loop-closure.md)).
+
+---
+
+## 7. What TermiPod's dev workflow chose, and why
+
+Reading the six axes together, ADR-049 is a coherent point, not an arbitrary
 one:
 
 - **When (Axis 1):** write-heavy, low-context-per-unit, high per-unit cost
@@ -504,15 +661,23 @@ one:
 - **Run mode (Axis 5):** a **host-side poller** with an interactive take-over
   escape hatch, designed so a **cloud/managed builder** can slot in unchanged
   when we outgrow local hosts.
+- **Human clock (Axis 6):** **maintainer-only merge** keeps the irreversible
+  step synchronous (human-gated), while builders accumulate reviewable PRs
+  asynchronously; `tier:` labels split human-decision from delegable work, and
+  `ticket:blocked` parks escalations for a morning batch instead of stalling.
+  The gap is the poller's *overnight ergonomics* (schedule-driven mode, park-
+  and-continue, queue back-pressure) — see [§6.4](#64-the-run-modescript-must-encode-the-clock).
 
-The single thread tying all five: for write-heavy work the scarce resource is
-**coherence of the implicit decisions in edits**, so every choice favours a
+The single thread tying all six: for write-heavy work the scarce resource is
+**coherence of the implicit decisions in edits** — and the second scarce
+resource is the **human's time-boxed judgment**. So every choice favours a
 durable shared record + a single integration authority + serialized hot
-resources over fast-but-fragile agent-to-agent autonomy.
+resources + asynchronous, batched human review over fast-but-fragile
+agent-to-agent autonomy.
 
 ---
 
-## 7. Open questions / when to revisit
+## 8. Open questions / when to revisit
 
 - **`ticket:changes` autonomy.** The poller claims `ticket:ready` but doesn't
   yet re-engage a bounced PR. Full autonomy wants a builder that also services
@@ -530,6 +695,14 @@ resources over fast-but-fragile agent-to-agent autonomy.
 - **Protocol convergence.** If A2A/ACP consolidation produces a clean
   cross-vendor *delegation* standard, re-evaluate whether a builder should be
   reachable over it — but only if it buys something labels don't.
+- **Overnight ergonomics ([§6.4](#64-the-run-modescript-must-encode-the-clock)).**
+  The poller is clock-blind today. Add schedule-driven mode selection (autonomous
+  overnight / supervised daytime), park-and-continue on `ticket:blocked`, and
+  queue back-pressure so the human wakes to a bounded, reviewable batch.
+- **Self-hosting trigger ([§3.7](#37-self-hosting-the-substrate-if-you-cant-use-github-saas)).**
+  Stay on GitHub SaaS until data-residency, air-gap, cost, or builder count
+  justify a Forgejo/GitLab move; keep the protocol in forge primitives so the
+  migration stays a one-variable change.
 
 This doc **stays Open** as a living map; it resolves only if the design space
 itself stabilizes. The *decision* it accompanies is settled in
@@ -568,3 +741,12 @@ Run modes:
 - MindStudio — [Claude Code "Chyros" background daemon](https://www.mindstudio.ai/blog/what-is-claude-code-chyros-background-daemon)
 - amux — [Best Multi-Agent Coding Orchestrators in 2026 (Claude Squad, Conductor, Codex)](https://amux.io/blog/best-multi-agent-orchestrators-2026/)
 - SitePoint — [Claude Code as an Autonomous Agent: Advanced Workflows (2026)](https://www.sitepoint.com/claude-code-as-an-autonomous-agent-advanced-workflows-2026/)
+
+Self-hosting the substrate:
+- elest.io — [Gitea vs Forgejo vs GitLab: Which Self-Hosted Git Server in 2026?](https://blog.elest.io/gitea-vs-forgejo-vs-gitlab-which-self-hosted-git-server-in-2026/)
+- TechVerdict — [Self-Hosted Git in 2026: Forgejo vs Gitea vs GitLab CE Compared](https://www.techverdict.io/articles/self-hosted-git-2026)
+
+Human-in-the-loop / day-night asymmetry:
+- DigitalApplied — [Human-in-the-Loop Escalation Design for AI Agents 2026](https://www.digitalapplied.com/blog/human-in-the-loop-escalation-design-ai-agents-2026)
+- Galileo — [How to Build Human-in-the-Loop Oversight for AI Agents](https://galileo.ai/blog/human-in-the-loop-agent-oversight)
+- Waxell — [Human-in-the-Loop vs Human-on-the-Loop for AI Agents](https://www.waxell.ai/blog/human-in-the-loop-vs-human-on-the-loop-ai-agents)

@@ -10,7 +10,9 @@ import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/ssh_provider.dart' show activeSshConnectionIdsProvider;
+import '../../providers/vocab_provider.dart';
 import '../../services/keychain/secure_storage.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/hub_tile.dart';
@@ -84,6 +86,8 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final host = vocab.term(VocabAxis.entityHost);
     final colorScheme = Theme.of(context).colorScheme;
 
     final connections = ref.watch(connectionsProvider).connections;
@@ -98,6 +102,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
       connections: connections,
       bindings: bindings,
       hubHosts: hubHosts,
+      l10n: l10n,
     );
     _sortRows(rows);
     // Group rows by their relationship to the hub. teamPersonal hosts
@@ -137,30 +142,30 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
             actions: [
               const TeamSwitcher(),
               PopupMenuButton<_HostSort>(
-                tooltip: 'Sort',
+                tooltip: l10n.sortTooltip,
                 icon: const Icon(Icons.sort),
                 onSelected: (v) => setState(() => _sort = v),
                 itemBuilder: (_) => [
                   CheckedPopupMenuItem(
                     value: _HostSort.name,
                     checked: _sort == _HostSort.name,
-                    child: const Text('Name (A→Z)'),
+                    child: Text(l10n.sortNameAsc),
                   ),
                   CheckedPopupMenuItem(
                     value: _HostSort.lastActive,
                     checked: _sort == _HostSort.lastActive,
-                    child: const Text('Last active (newest first)'),
+                    child: Text(l10n.hostsSortLastActiveNewest),
                   ),
                   CheckedPopupMenuItem(
                     value: _HostSort.status,
                     checked: _sort == _HostSort.status,
-                    child: const Text('Status (online first)'),
+                    child: Text(l10n.hostsSortStatusOnlineFirst),
                   ),
                 ],
               ),
               IconButton(
                 icon: const Icon(Icons.refresh),
-                tooltip: 'Refresh',
+                tooltip: l10n.buttonRefresh,
                 onPressed: () async {
                   ref.invalidate(connectionsProvider);
                   final notifier = ref.read(hubProvider.notifier);
@@ -174,7 +179,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
           if (hubConfigured) ...[
             SliverToBoxAdapter(
               child: _CollapsibleHeader(
-                label: 'Hub',
+                label: l10n.tabHub,
                 count: hubChildRows.length,
                 expanded: _hubHostsExpanded,
                 onTap: () => setState(
@@ -185,7 +190,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
               sliver: SliverToBoxAdapter(
                 child: HubTile(
-                  name: _hubDisplayName(hubStats, hubBaseUrl),
+                  name: _hubDisplayName(hubStats, hubBaseUrl, l10n),
                   stats: hubStats,
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
@@ -214,16 +219,18 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
                 ),
               ),
             if (_hubHostsExpanded && hubChildRows.isEmpty)
-              const SliverToBoxAdapter(
+              SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(32, 0, 16, 12),
-                  child: _NoHostsHint(text: 'No hub-registered hosts yet.'),
+                  padding: const EdgeInsets.fromLTRB(32, 0, 16, 12),
+                  child: _NoHostsHint(
+                    text: l10n.noHubRegisteredHostsYet(host.pluralLower),
+                  ),
                 ),
               ),
           ],
           SliverToBoxAdapter(
             child: _CollapsibleHeader(
-              label: 'Personal',
+              label: l10n.hostScopePersonal,
               count: personalRows.length,
               expanded: _personalHostsExpanded,
               onTap: () => setState(
@@ -246,11 +253,10 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
               ),
             )
           else if (_personalHostsExpanded && rows.isNotEmpty)
-            const SliverToBoxAdapter(
+            SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(Spacing.s16, 0, 16, 12),
-                child:
-                    _NoHostsHint(text: 'No personal-only bookmarks yet.'),
+                padding: const EdgeInsets.fromLTRB(Spacing.s16, 0, 16, 12),
+                child: _NoHostsHint(text: l10n.noPersonalOnlyBookmarksYet),
               ),
             ),
           const SliverToBoxAdapter(child: _VaultSection()),
@@ -276,6 +282,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
     required List<Connection> connections,
     required Map<String, String> bindings,
     required List<Map<String, dynamic>> hubHosts,
+    required AppLocalizations l10n,
   }) {
     // connectionId → hub host map, via inverted bindings.
     final connIdToHubHost = <String, Map<String, dynamic>>{};
@@ -312,7 +319,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
       if (hubId.isEmpty || boundHubIds.contains(hubId)) continue;
       rows.add(_HostRow(
         displayName: h['name']?.toString() ?? hubId,
-        subtitle: _hubHostSubtitle(h),
+        subtitle: _hubHostSubtitle(h, l10n),
         scope: HostScope.team,
         hubHost: h,
       ));
@@ -378,7 +385,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
   }
 
   String _hubDisplayName(
-      Map<String, dynamic>? stats, String? baseUrl) {
+      Map<String, dynamic>? stats, String? baseUrl, AppLocalizations l10n) {
     final machine = stats?['machine'];
     if (machine is Map) {
       final hostname = machine['hostname']?.toString();
@@ -392,10 +399,10 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
       if (s.endsWith('/')) s = s.substring(0, s.length - 1);
       return s;
     }
-    return 'Hub';
+    return l10n.tabHub;
   }
 
-  String _hubHostSubtitle(Map<String, dynamic> h) {
+  String _hubHostSubtitle(Map<String, dynamic> h, AppLocalizations l10n) {
     final hint = h['ssh_hint_json'];
     Map<String, dynamic>? parsed;
     if (hint is Map) {
@@ -420,7 +427,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
         return '$userPart$host$portPart';
       }
     }
-    return 'status: ${h['status'] ?? 'unknown'}';
+    return l10n.hostStatusSubtitle('${h['status'] ?? 'unknown'}');
   }
 }
 
@@ -457,6 +464,7 @@ class _HostTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg =
         isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
@@ -511,8 +519,8 @@ class _HostTile extends ConsumerWidget {
                 IconButton(
                   icon: const Icon(Icons.bolt),
                   tooltip: row.connection!.isRawMode
-                      ? 'Raw shell'
-                      : 'Open raw shell (bypass tmux)',
+                      ? l10n.rawShellTooltip
+                      : l10n.openRawShellTooltip,
                   onPressed: () => _openTerminal(context, ref, raw: true),
                 ),
             ],
@@ -550,6 +558,8 @@ class _HostTile extends ConsumerWidget {
   }
 
   void _showActionSheet(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final host = ref.read(vocabularyProvider).term(VocabAxis.entityHost);
     showModalBottomSheet<void>(
       context: context,
       builder: (ctx) {
@@ -560,7 +570,7 @@ class _HostTile extends ConsumerWidget {
               if (row.hubHost != null)
                 ListTile(
                   leading: const Icon(Icons.cloud_outlined),
-                  title: const Text('Team host details'),
+                  title: Text(l10n.teamHostDetails(host.lower)),
                   onTap: () {
                     Navigator.pop(ctx);
                     openHostDetail(context, row.hubHost!);
@@ -569,7 +579,7 @@ class _HostTile extends ConsumerWidget {
               if (row.connection != null)
                 ListTile(
                   leading: const Icon(Icons.edit_outlined),
-                  title: const Text('Edit bookmark'),
+                  title: Text(l10n.editBookmark),
                   onTap: () async {
                     Navigator.pop(ctx);
                     final result = await Navigator.of(context).push<bool>(
@@ -586,7 +596,7 @@ class _HostTile extends ConsumerWidget {
                 ListTile(
                   leading: Icon(Icons.delete_outline,
                       color: Theme.of(context).colorScheme.error),
-                  title: Text('Remove local bookmark',
+                  title: Text(l10n.removeLocalBookmark,
                       style: TextStyle(
                           color: Theme.of(context).colorScheme.error)),
                   onTap: () async {
@@ -603,26 +613,24 @@ class _HostTile extends ConsumerWidget {
 
   Future<void> _confirmDeleteBookmark(
       BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
+    final host = ref.read(vocabularyProvider).term(VocabAxis.entityHost);
     final c = row.connection;
     if (c == null) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
-        title: Text('Remove "${c.name}"?'),
-        content: const Text(
-          'Deletes this device\'s credentials for the host. If the host is '
-          'also team-registered, the row stays visible until credentials '
-          'are re-added. Team state is untouched.',
-        ),
+        title: Text(l10n.removeNamedConfirm(c.name)),
+        content: Text(l10n.removeLocalBookmarkContent(host.lower)),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(dctx, false),
-              child: const Text('Cancel')),
+              child: Text(l10n.buttonCancel)),
           TextButton(
             style: TextButton.styleFrom(
                 foregroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(dctx, true),
-            child: const Text('Remove'),
+            child: Text(l10n.buttonRemove),
           ),
         ],
       ),
@@ -643,8 +651,9 @@ class _LiveDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Tooltip(
-      message: 'Connected · disconnect from terminal menu',
+      message: l10n.connectedTerminalMenuTooltip,
       child: Container(
         width: 8,
         height: 8,
@@ -805,6 +814,7 @@ class _VaultSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
@@ -818,7 +828,7 @@ class _VaultSection extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(Spacing.s16, 12, Spacing.s16, 4),
           child: Text(
-            'VAULT',
+            l10n.vaultSectionTitle,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -853,14 +863,14 @@ class _VaultSection extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Snippets & History',
+                          Text(l10n.snippetsAndHistory,
                               style: GoogleFonts.spaceGrotesk(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
                               )),
                           const SizedBox(height: 2),
                           Text(
-                            'Terminal shortcuts and recent commands',
+                            l10n.terminalShortcutsRecentCommands,
                             style: GoogleFonts.jetBrainsMono(
                               fontSize: 11,
                               color: muted,

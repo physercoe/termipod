@@ -2140,5 +2140,8 @@
   "@addConnectionFromHostHint": { "placeholders": { "host": { "type": "String" } } },
   "openPrefilledHostData": "Open the form pre-filled with data for this {host}",
   "@openPrefilledHostData": { "placeholders": { "host": { "type": "String" } } },
-  "matchLabel": "match"
+  "matchLabel": "match",
+  "copyPublicKey": "Copy Public Key",
+  "keySourceGenerated": "Generated",
+  "keySourceImported": "Imported"
 }

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../admin/admin_screen.dart';
@@ -28,6 +31,9 @@ class HubDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final agent = vocab.term(VocabAxis.roleAgent);
     final hubAsync = ref.watch(hubProvider);
     final stats = hubAsync.value?.hubStats;
     final cfg = hubAsync.value?.config;
@@ -35,7 +41,7 @@ class HubDetailScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Hub',
+          l10n.tabHub,
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
         actions: [
@@ -45,7 +51,7 @@ class HubDetailScreen extends ConsumerWidget {
           // AppBar (vs the overflow) keeps it discoverable but the
           // owner audience small. ADR-016 + Q1a 2026-05-13.
           IconButton(
-            tooltip: 'Hub config (owner)',
+            tooltip: l10n.hubConfigOwnerTooltip,
             icon: const Icon(Icons.tune),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
@@ -58,14 +64,14 @@ class HubDetailScreen extends ConsumerWidget {
           // surfacing idiom, so the Admin pane is one AppBar action
           // here rather than a sixth bottom-nav tab.
           IconButton(
-            tooltip: 'Admin (owner)',
+            tooltip: l10n.adminOwnerTooltip,
             icon: const Icon(Icons.admin_panel_settings_outlined),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const AdminScreen()),
             ),
           ),
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             icon: const Icon(Icons.refresh),
             onPressed: () =>
                 ref.read(hubProvider.notifier).refreshHubStats(),
@@ -79,20 +85,24 @@ class HubDetailScreen extends ConsumerWidget {
             : ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                 children: [
-                  _IdentityCard(stats: stats, baseUrl: cfg?.baseUrl),
+                  _IdentityCard(
+                      stats: stats, baseUrl: cfg?.baseUrl, l10n: l10n),
                   const SizedBox(height: 16),
-                  _SectionHeader(label: 'MACHINE'),
-                  _MachineCard(machine: stats['machine']),
+                  _SectionHeader(label: l10n.sectionMachine),
+                  _MachineCard(machine: stats['machine'], l10n: l10n),
                   const SizedBox(height: 16),
-                  _SectionHeader(label: 'DATABASE'),
-                  _DatabaseCard(db: stats['db']),
+                  _SectionHeader(label: l10n.sectionDatabase),
+                  _DatabaseCard(db: stats['db'], l10n: l10n),
                   const SizedBox(height: 16),
-                  _SectionHeader(label: 'LIVE'),
-                  _LiveCard(live: stats['live']),
+                  _SectionHeader(label: l10n.sectionLive),
+                  _LiveCard(
+                      live: stats['live'],
+                      l10n: l10n,
+                      agent: agent.pluralLower),
                   if (_hasRelayBlock(stats['live'])) ...[
                     const SizedBox(height: 16),
-                    _SectionHeader(label: 'A2A RELAY'),
-                    _RelayCard(live: stats['live']),
+                    _SectionHeader(label: l10n.sectionA2aRelay),
+                    _RelayCard(live: stats['live'], l10n: l10n),
                   ],
                 ],
               ),
@@ -196,7 +206,9 @@ class _Row extends StatelessWidget {
 class _IdentityCard extends StatelessWidget {
   final Map<String, dynamic> stats;
   final String? baseUrl;
-  const _IdentityCard({required this.stats, this.baseUrl});
+  final AppLocalizations l10n;
+  const _IdentityCard(
+      {required this.stats, this.baseUrl, required this.l10n});
 
   @override
   Widget build(BuildContext context) {
@@ -208,11 +220,11 @@ class _IdentityCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (baseUrl != null && baseUrl!.isNotEmpty)
-            _Row(label: 'URL', value: baseUrl!),
-          _Row(label: 'Version', value: version),
+            _Row(label: l10n.fieldUrl, value: baseUrl!),
+          _Row(label: l10n.fieldVersion, value: version),
           if (commit != null && commit.isNotEmpty)
-            _Row(label: 'Commit', value: _shortCommit(commit)),
-          _Row(label: 'Uptime', value: _humanDuration(uptimeSec)),
+            _Row(label: l10n.fieldCommit, value: _shortCommit(commit)),
+          _Row(label: l10n.fieldUptime, value: _humanDuration(l10n, uptimeSec)),
         ],
       ),
     );
@@ -221,11 +233,12 @@ class _IdentityCard extends StatelessWidget {
 
 class _MachineCard extends StatelessWidget {
   final Object? machine;
-  const _MachineCard({required this.machine});
+  final AppLocalizations l10n;
+  const _MachineCard({required this.machine, required this.l10n});
 
   @override
   Widget build(BuildContext context) {
-    if (machine is! Map) return const _Card(child: Text('—'));
+    if (machine is! Map) return _Card(child: Text(l10n.unavailable));
     final m = (machine as Map).cast<String, dynamic>();
     final hostname = m['hostname']?.toString();
     final os = m['os']?.toString() ?? '';
@@ -238,12 +251,12 @@ class _MachineCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (hostname != null && hostname.isNotEmpty)
-            _Row(label: 'Hostname', value: hostname),
-          _Row(label: 'OS / Arch', value: '$os / $arch'),
-          _Row(label: 'CPU', value: '$cpu cores'),
-          _Row(label: 'Memory', value: _bytesToHuman(mem)),
+            _Row(label: l10n.fieldHostname, value: hostname),
+          _Row(label: l10n.fieldOsArch, value: '$os / $arch'),
+          _Row(label: l10n.fieldCpu, value: l10n.coreCount(cpu)),
+          _Row(label: l10n.fieldMemory, value: _bytesToHuman(l10n, mem)),
           if (kernel != null && kernel.isNotEmpty)
-            _Row(label: 'Kernel', value: kernel),
+            _Row(label: l10n.fieldKernel, value: kernel),
         ],
       ),
     );
@@ -252,11 +265,12 @@ class _MachineCard extends StatelessWidget {
 
 class _DatabaseCard extends StatelessWidget {
   final Object? db;
-  const _DatabaseCard({required this.db});
+  final AppLocalizations l10n;
+  const _DatabaseCard({required this.db, required this.l10n});
 
   @override
   Widget build(BuildContext context) {
-    if (db is! Map) return const _Card(child: Text('—'));
+    if (db is! Map) return _Card(child: Text(l10n.unavailable));
     final d = (db as Map).cast<String, dynamic>();
     final size = _toInt(d['size_bytes']);
     final wal = _toInt(d['wal_bytes']);
@@ -275,21 +289,23 @@ class _DatabaseCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Row(label: 'Size', value: _bytesToHuman(size)),
-          if (wal > 0) _Row(label: 'WAL', value: _bytesToHuman(wal)),
-          _Row(label: 'Schema', value: 'v$schema'),
+          _Row(label: l10n.fieldSize, value: _bytesToHuman(l10n, size)),
+          if (wal > 0)
+            _Row(label: l10n.fieldWal, value: _bytesToHuman(l10n, wal)),
+          _Row(label: l10n.fieldSchema, value: 'v$schema'),
           if (entries.isNotEmpty) ...[
             const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.only(bottom: 4, top: 4),
-              child: Text('TABLES',
+              child: Text(l10n.sectionTables,
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: FontSizes.label,
                       fontWeight: FontWeight.w700,
                       color: muted,
                       letterSpacing: 0.8)),
             ),
-            for (final e in entries) _TableRow(name: e.key, data: e.value),
+            for (final e in entries)
+              _TableRow(name: e.key, data: e.value, l10n: l10n),
           ],
         ],
       ),
@@ -300,7 +316,9 @@ class _DatabaseCard extends StatelessWidget {
 class _TableRow extends StatelessWidget {
   final String name;
   final Object? data;
-  const _TableRow({required this.name, required this.data});
+  final AppLocalizations l10n;
+  const _TableRow(
+      {required this.name, required this.data, required this.l10n});
 
   @override
   Widget build(BuildContext context) {
@@ -321,12 +339,12 @@ class _TableRow extends StatelessWidget {
                 style: GoogleFonts.jetBrainsMono(
                     fontSize: 12, fontWeight: FontWeight.w600)),
           ),
-          Text('${_humanCount(rows)} rows',
+          Text(l10n.tableRows(_humanCount(rows)),
               style:
                   GoogleFonts.jetBrainsMono(fontSize: 11, color: muted)),
           if (bytes > 0) ...[
             const SizedBox(width: 8),
-            Text(_bytesToHuman(bytes),
+            Text(_bytesToHuman(l10n, bytes),
                 style:
                     GoogleFonts.jetBrainsMono(fontSize: 11, color: muted)),
           ],
@@ -338,20 +356,27 @@ class _TableRow extends StatelessWidget {
 
 class _LiveCard extends StatelessWidget {
   final Object? live;
-  const _LiveCard({required this.live});
+  final AppLocalizations l10n;
+  final String agent;
+  const _LiveCard(
+      {required this.live, required this.l10n, required this.agent});
 
   @override
   Widget build(BuildContext context) {
-    if (live is! Map) return const _Card(child: Text('—'));
+    if (live is! Map) return _Card(child: Text(l10n.unavailable));
     final l = (live as Map).cast<String, dynamic>();
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Row(label: 'Active agents', value: _toInt(l['active_agents']).toString()),
-          _Row(label: 'Open sessions', value: _toInt(l['open_sessions']).toString()),
           _Row(
-              label: 'SSE subscribers',
+              label: l10n.activeAgents(agent),
+              value: _toInt(l['active_agents']).toString()),
+          _Row(
+              label: l10n.openSessions,
+              value: _toInt(l['open_sessions']).toString()),
+          _Row(
+              label: l10n.sseSubscribers,
               value: _toInt(l['sse_subscribers']).toString()),
         ],
       ),
@@ -375,11 +400,12 @@ bool _hasRelayBlock(Object? live) {
 /// can't observe the source agent — see relay_metrics.go.
 class _RelayCard extends StatelessWidget {
   final Object? live;
-  const _RelayCard({required this.live});
+  final AppLocalizations l10n;
+  const _RelayCard({required this.live, required this.l10n});
 
   @override
   Widget build(BuildContext context) {
-    if (live is! Map) return const _Card(child: Text('—'));
+    if (live is! Map) return _Card(child: Text(l10n.unavailable));
     final l = (live as Map).cast<String, dynamic>();
     final active = _toInt(l['a2a_relay_active']);
     final dropped = _toInt(l['a2a_dropped_total']);
@@ -396,9 +422,9 @@ class _RelayCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Row(label: 'In-flight', value: active.toString()),
-          _Row(label: 'Throughput', value: _bytesPerSec(bps)),
-          _Row(label: 'Dropped', value: dropped.toString()),
+          _Row(label: l10n.relayInFlight, value: active.toString()),
+          _Row(label: l10n.relayThroughput, value: _bytesPerSec(l10n, bps)),
+          _Row(label: l10n.relayDropped, value: dropped.toString()),
           if (pairs.isNotEmpty) ...[
             const SizedBox(height: 8),
             const Divider(height: 1),
@@ -408,6 +434,7 @@ class _RelayCard extends StatelessWidget {
                 host: p['host']?.toString() ?? '',
                 agent: p['agent']?.toString() ?? '',
                 bytesPerSec: _toInt(p['bytes_per_sec']),
+                l10n: l10n,
               ),
           ],
         ],
@@ -420,10 +447,12 @@ class _PairRow extends StatelessWidget {
   final String host;
   final String agent;
   final int bytesPerSec;
+  final AppLocalizations l10n;
   const _PairRow({
     required this.host,
     required this.agent,
     required this.bytesPerSec,
+    required this.l10n,
   });
 
   @override
@@ -440,7 +469,7 @@ class _PairRow extends StatelessWidget {
                 style: GoogleFonts.jetBrainsMono(
                     fontSize: 12, fontWeight: FontWeight.w600)),
           ),
-          Text(_bytesPerSec(bytesPerSec),
+          Text(_bytesPerSec(l10n, bytesPerSec),
               style:
                   GoogleFonts.jetBrainsMono(fontSize: 11, color: muted)),
         ],
@@ -449,9 +478,9 @@ class _PairRow extends StatelessWidget {
   }
 }
 
-String _bytesPerSec(int bps) {
-  if (bps <= 0) return '0 B/s';
-  return '${_bytesToHuman(bps)}/s';
+String _bytesPerSec(AppLocalizations l10n, int bps) {
+  if (bps <= 0) return l10n.zeroBytesPerSecond;
+  return l10n.bytesPerSecond(_bytesToHuman(l10n, bps));
 }
 
 int _toInt(Object? v) {
@@ -461,8 +490,8 @@ int _toInt(Object? v) {
   return 0;
 }
 
-String _bytesToHuman(int bytes) {
-  if (bytes <= 0) return '0 B';
+String _bytesToHuman(AppLocalizations l10n, int bytes) {
+  if (bytes <= 0) return l10n.zeroBytes;
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   var v = bytes.toDouble();
   var i = 0;
@@ -470,10 +499,10 @@ String _bytesToHuman(int bytes) {
     v /= 1024;
     i++;
   }
-  if (i == 0) return '$bytes ${units[i]}';
-  if (v >= 100) return '${v.toStringAsFixed(0)} ${units[i]}';
-  if (v >= 10) return '${v.toStringAsFixed(1)} ${units[i]}';
-  return '${v.toStringAsFixed(2)} ${units[i]}';
+  if (i == 0) return l10n.bytesValue('$bytes', units[i]);
+  if (v >= 100) return l10n.bytesValue(v.toStringAsFixed(0), units[i]);
+  if (v >= 10) return l10n.bytesValue(v.toStringAsFixed(1), units[i]);
+  return l10n.bytesValue(v.toStringAsFixed(2), units[i]);
 }
 
 String _humanCount(int n) {
@@ -483,15 +512,15 @@ String _humanCount(int n) {
   return '${(n / 1000000000).toStringAsFixed(1)}B';
 }
 
-String _humanDuration(int seconds) {
-  if (seconds <= 0) return '—';
+String _humanDuration(AppLocalizations l10n, int seconds) {
+  if (seconds <= 0) return l10n.unavailable;
   final d = seconds ~/ 86400;
   final h = (seconds % 86400) ~/ 3600;
   final m = (seconds % 3600) ~/ 60;
-  if (d > 0) return '${d}d ${h}h';
-  if (h > 0) return '${h}h ${m}m';
-  if (m > 0) return '${m}m';
-  return '${seconds}s';
+  if (d > 0) return l10n.durationDaysHours(d, h);
+  if (h > 0) return l10n.durationHoursMinutes(h, m);
+  if (m > 0) return l10n.durationMinutes(m);
+  return l10n.durationSeconds(seconds);
 }
 
 String _shortCommit(String c) =>

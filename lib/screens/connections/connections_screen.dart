@@ -18,7 +18,7 @@ import 'connection_form_screen.dart';
 import '../terminal/terminal_screen.dart';
 import '../terminal/widgets/new_session_dialog.dart';
 
-/// 検索バーの表示状態を管理するNotifier
+/// Notifier managing the search bar's visibility state.
 class _SearchVisibleNotifier extends Notifier<bool> {
   @override
   bool build() => false;
@@ -31,7 +31,7 @@ final _searchVisibleProvider = NotifierProvider<_SearchVisibleNotifier, bool>(()
   return _SearchVisibleNotifier();
 });
 
-/// 接続一覧画面
+/// Connections list screen.
 class ConnectionsScreen extends ConsumerWidget {
   const ConnectionsScreen({super.key});
 
@@ -114,11 +114,13 @@ class ConnectionsScreen extends ConsumerWidget {
             final wasVisible = isSearchVisible;
             ref.read(_searchVisibleProvider.notifier).toggle();
             if (wasVisible) {
-              // 検索を閉じる際にクエリをクリア
+              // Clear the query when closing search.
               ref.read(connectionSearchProvider.notifier).clear();
             }
           },
-          tooltip: isSearchVisible ? 'Close Search' : 'Search',
+          tooltip: isSearchVisible
+              ? AppLocalizations.of(context)!.closeSearchTooltip
+              : AppLocalizations.of(context)!.searchTooltip,
         ),
         IconButton(
           icon: Icon(Icons.sort, color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight),
@@ -163,7 +165,7 @@ class ConnectionsScreen extends ConsumerWidget {
                     Icon(Icons.sort, color: sheetColorScheme.primary),
                     const SizedBox(width: 8),
                     Text(
-                      'Sort Connections',
+                      AppLocalizations.of(context)!.sortConnectionsTitle,
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
@@ -175,7 +177,7 @@ class ConnectionsScreen extends ConsumerWidget {
               ),
               Divider(height: 1, color: isDark ? DesignColors.borderDark : DesignColors.borderLight),
               _SortOptionTile(
-                title: 'Name (A-Z)',
+                title: AppLocalizations.of(context)!.sortNameAsc,
                 option: ConnectionSortOption.nameAsc,
                 currentOption: currentSort,
                 onTap: () {
@@ -184,7 +186,7 @@ class ConnectionsScreen extends ConsumerWidget {
                 },
               ),
               _SortOptionTile(
-                title: 'Name (Z-A)',
+                title: AppLocalizations.of(context)!.sortNameDesc,
                 option: ConnectionSortOption.nameDesc,
                 currentOption: currentSort,
                 onTap: () {
@@ -193,7 +195,7 @@ class ConnectionsScreen extends ConsumerWidget {
                 },
               ),
               _SortOptionTile(
-                title: 'Last Connected (Recent First)',
+                title: AppLocalizations.of(context)!.sortLastConnectedRecent,
                 option: ConnectionSortOption.lastConnectedDesc,
                 currentOption: currentSort,
                 onTap: () {
@@ -202,7 +204,7 @@ class ConnectionsScreen extends ConsumerWidget {
                 },
               ),
               _SortOptionTile(
-                title: 'Last Connected (Oldest First)',
+                title: AppLocalizations.of(context)!.sortLastConnectedOldest,
                 option: ConnectionSortOption.lastConnectedAsc,
                 currentOption: currentSort,
                 onTap: () {
@@ -211,7 +213,7 @@ class ConnectionsScreen extends ConsumerWidget {
                 },
               ),
               _SortOptionTile(
-                title: 'Host (A-Z)',
+                title: AppLocalizations.of(context)!.sortHostAsc,
                 option: ConnectionSortOption.hostAsc,
                 currentOption: currentSort,
                 onTap: () {
@@ -220,7 +222,7 @@ class ConnectionsScreen extends ConsumerWidget {
                 },
               ),
               _SortOptionTile(
-                title: 'Host (Z-A)',
+                title: AppLocalizations.of(context)!.sortHostDesc,
                 option: ConnectionSortOption.hostDesc,
                 currentOption: currentSort,
                 onTap: () {
@@ -339,7 +341,7 @@ class ConnectionsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           Text(
-            'No matching connections',
+            AppLocalizations.of(context)!.noMatchingConnections,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 20,
               fontWeight: FontWeight.w600,
@@ -348,7 +350,7 @@ class ConnectionsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Try a different search term',
+            AppLocalizations.of(context)!.tryDifferentSearch,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14,
               color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -379,7 +381,7 @@ class ConnectionsScreen extends ConsumerWidget {
           const Icon(Icons.error_outline, size: 64, color: DesignColors.error),
           const SizedBox(height: 16),
           Text(
-            'Error loading connections',
+            AppLocalizations.of(context)!.errorLoadingConnections,
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
@@ -416,7 +418,7 @@ class ConnectionsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           Text(
-            'No connections yet',
+            AppLocalizations.of(context)!.noConnectionsYet,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 20,
               fontWeight: FontWeight.w600,
@@ -425,7 +427,7 @@ class ConnectionsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Tap the button below to add your first server',
+            AppLocalizations.of(context)!.tapToAddFirstServer,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14,
               color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -474,7 +476,8 @@ class ConnectionsScreen extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(l10n.deleteConnectionTitle),
-        content: Text('Are you sure you want to delete "${connection.name}"?'),
+        content: Text(
+            AppLocalizations.of(context)!.deleteAreYouSure(connection.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -512,7 +515,7 @@ class ConnectionsScreen extends ConsumerWidget {
     bool forceRawMode = false,
   }) {
     ref.read(connectionsProvider.notifier).updateLastConnected(connection.id);
-    // 既存セッションを開く場合は最終アクセス日時を更新
+    // Update the last-access time when opening an existing session.
     if (sessionName != null) {
       ref.read(activeSessionsProvider.notifier).touchSession(
             connection.id,
@@ -531,7 +534,7 @@ class ConnectionsScreen extends ConsumerWidget {
   }
 }
 
-/// 接続カード（展開可能、tmuxセッション表示）
+/// Connection card (expandable, shows tmux sessions).
 class _ConnectionCard extends ConsumerStatefulWidget {
   final Connection connection;
   final void Function(String? sessionName) onConnect;
@@ -595,7 +598,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
         : activeSessionsState.getSessionsForConnection(widget.connection.id);
     final hasActiveSessions = activeSessions.isNotEmpty;
 
-    // 接続状態の判定（アクティブセッションがあるか、lastConnectedAtがあるか）
+    // Determine connection state (active session present, or lastConnectedAt set).
     final isConnected = hasActiveSessions || widget.connection.lastConnectedAt != null;
     final statusColor = hasActiveSessions
         ? DesignColors.success
@@ -784,7 +787,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
     });
     // Raw PTY connections have no tmux sessions to fetch — skip entirely.
     if (widget.connection.isRawMode) return;
-    // 展開時にセッション情報をフェッチ
+    // Fetch session info on expand.
     if (_isExpanded && _sessions.isEmpty && !_isLoadingSessions) {
       _fetchSessions();
     }
@@ -800,7 +803,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
       final connection = widget.connection;
       final storage = SecureStorageService();
 
-      // 認証オプションを取得
+      // Get the authentication options.
       String? password;
       String? privateKey;
       String? passphrase;
@@ -839,7 +842,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
         proxyPassword: connection.proxyPassword,
       );
 
-      // SSH接続してセッション一覧を取得
+      // Connect over SSH and fetch the session list.
       final sshClient = SshClient();
       await sshClient.connect(
         host: connection.host,
@@ -860,7 +863,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
       final sessions = TmuxParser.parseSessions(result.stdout);
       debugPrint('_fetchSessions: parsed ${sessions.length} sessions');
 
-      // 切断
+      // Disconnect.
       await sshClient.disconnect();
 
       if (!mounted) return;
@@ -870,7 +873,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
         _isLoadingSessions = false;
       });
 
-      // ActiveSessionsProviderを更新
+      // Update the ActiveSessionsProvider.
       ref.read(activeSessionsProvider.notifier).updateSessionsForConnection(
             connectionId: connection.id,
             connectionName: connection.name,
@@ -1052,7 +1055,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
               ),
             )
           else
-            // セッションリスト（_sessionsまたはactiveSessionsを使用）
+            // Session list (uses _sessions or activeSessions).
             ..._buildSessionItems(isDark, colorScheme),
           // New Session Button
           Padding(
@@ -1120,7 +1123,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
   }
 
   List<Widget> _buildSessionItems(bool isDark, ColorScheme colorScheme) {
-    // _sessionsを使用（フェッチ結果）
+    // Use _sessions (the fetch result).
     final sessions = _sessions;
     if (sessions.isEmpty) return [];
 
@@ -1193,7 +1196,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
   }
 }
 
-/// 検索フィールドウィジェット
+/// Search field widget.
 class _SearchField extends StatefulWidget {
   final String initialValue;
   final ValueChanged<String> onChanged;
@@ -1278,7 +1281,7 @@ class _SearchFieldState extends State<_SearchField> {
   }
 }
 
-/// ソートオプションタイル
+/// Sort option tile.
 class _SortOptionTile extends StatelessWidget {
   final String title;
   final ConnectionSortOption option;

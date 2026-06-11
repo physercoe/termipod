@@ -1820,5 +1820,21 @@
   "couldNotReadFile": "无法读取文件内容",
   "wrongPassphrase": "口令错误，请检查后重试。",
   "deleteNamedConfirm": "删除“{name}”？",
-  "@deleteNamedConfirm": { "placeholders": { "name": { "type": "String" } } }
+  "@deleteNamedConfirm": { "placeholders": { "name": { "type": "String" } } },
+  "closeSearchTooltip": "关闭搜索",
+  "searchTooltip": "搜索",
+  "sortConnectionsTitle": "排序连接",
+  "sortNameAsc": "名称（A-Z）",
+  "sortNameDesc": "名称（Z-A）",
+  "sortLastConnectedRecent": "最近连接（由近及远）",
+  "sortLastConnectedOldest": "最近连接（由远及近）",
+  "sortHostAsc": "主机（A-Z）",
+  "sortHostDesc": "主机（Z-A）",
+  "noMatchingConnections": "没有匹配的连接",
+  "tryDifferentSearch": "换个搜索词试试",
+  "errorLoadingConnections": "加载连接出错",
+  "noConnectionsYet": "暂无连接",
+  "tapToAddFirstServer": "点按下方按钮添加你的第一台服务器",
+  "deleteAreYouSure": "确定要删除“{name}”吗？",
+  "@deleteAreYouSure": { "placeholders": { "name": { "type": "String" } } }
 }

@@ -2008,5 +2008,21 @@
   "couldNotReadFile": "Could not read file content",
   "wrongPassphrase": "Wrong passphrase. Please check and try again.",
   "deleteNamedConfirm": "Delete \"{name}\"?",
-  "@deleteNamedConfirm": { "placeholders": { "name": { "type": "String" } } }
+  "@deleteNamedConfirm": { "placeholders": { "name": { "type": "String" } } },
+  "closeSearchTooltip": "Close Search",
+  "searchTooltip": "Search",
+  "sortConnectionsTitle": "Sort Connections",
+  "sortNameAsc": "Name (A-Z)",
+  "sortNameDesc": "Name (Z-A)",
+  "sortLastConnectedRecent": "Last Connected (Recent First)",
+  "sortLastConnectedOldest": "Last Connected (Oldest First)",
+  "sortHostAsc": "Host (A-Z)",
+  "sortHostDesc": "Host (Z-A)",
+  "noMatchingConnections": "No matching connections",
+  "tryDifferentSearch": "Try a different search term",
+  "errorLoadingConnections": "Error loading connections",
+  "noConnectionsYet": "No connections yet",
+  "tapToAddFirstServer": "Tap the button below to add your first server",
+  "deleteAreYouSure": "Are you sure you want to delete \"{name}\"?",
+  "@deleteAreYouSure": { "placeholders": { "name": { "type": "String" } } }
 }

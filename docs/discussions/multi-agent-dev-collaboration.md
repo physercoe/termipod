@@ -19,9 +19,10 @@ space along six axes — **(1) when multi-agent is worth it at all**, **(2) the
 SOTA collaboration patterns**, **(3) the coordination substrate** (GitHub is
 one of ~six, and §3.7 covers self-hosting it), **(4) the inter-agent
 protocols**, **(5) how an agent stays running** (poller / TUI / daemon / cloud
-/ app), and **(6) the human↔agent day/night asymmetry** (humans decide on a
-daytime clock; agents run 24/7 — so work allocation and the run mode must be
-designed around *when* a human is available) — and says, for each, what it
+/ app), and **(6) the human↔agent cooperation surface** — shared norms, earned
+trust, who originates work, intent confirmation, the safety/permission boundary,
+reviewability, the teaching loop, and the day/night clock (humans decide on a
+daytime schedule; agents run 24/7) — and says, for each, what it
 costs, when it fits, and why TermiPod's dev workflow landed where it did. The
 through-line: for **write-heavy** work (editing one shared codebase), the
 expensive thing is not parallelism, it is **keeping the implicit decisions in
@@ -535,17 +536,34 @@ which is literally **what TermiPod's product is** (the Flutter cockpit + hub).
 
 ---
 
-## 6. Human-in-the-loop and the day/night asymmetry
+## 6. Human–agent cooperation
 
-The previous five axes treat agents as the only actors. They aren't: some work
-**needs a human** — architecture calls, vocabulary/glossary decisions,
-ambiguous specs, risky merges — and some is safely **delegable**. The two
-actors run on **different clocks**: a human decides on a daytime schedule and
-needs rest and focus; agents run **24/7**. A design that ignores this either
-**starves the agents** (they idle overnight waiting on a human) or **buries the
-human** (they wake to a hundred things demanding judgment). The fix is to make
-*when a human is available* a first-class input to work allocation and to the
-run mode — not an afterthought.
+The previous five axes treat agents as the only actors. They aren't — the
+whole point is **a human and agents cooperating**, and cooperation is a
+**lifecycle**, not a single property. You *establish* it (shared norms, earned
+trust, who is even allowed to originate work), *align* on each unit (a spec, a
+confirmed intent), *stay coordinated* during execution (permissions,
+interruptibility, and the clock), *review and accept* the result, and *learn*
+from corrections. A delegation model that nails the substrate and the protocol
+but mishandles these will still fail in practice.
+
+The most **operationally concrete** of these aspects is the day/night clock, so
+we treat it first (§6.1–6.4); the rest of the section broadens to the other
+cooperation aspects an ADR-049-style delegation must get right (§6.5–6.11). The
+through-line for all of them: the human is a **scarce, accountable approver**,
+and the system's job is to **spend their judgment only where judgment is
+genuinely needed** — buying back their attention everywhere else (cf.
+[`attention-interaction-model.md`](attention-interaction-model.md),
+[`coordination-basis-and-decision-classification.md`](coordination-basis-and-decision-classification.md)).
+
+**The clock (§6.1–6.4).** Some work **needs a human** — architecture calls,
+vocabulary/glossary decisions, ambiguous specs, risky merges — and some is
+safely **delegable**. The two actors run on **different clocks**: a human
+decides on a daytime schedule and needs rest and focus; agents run **24/7**. A
+design that ignores this either **starves the agents** (they idle overnight
+waiting on a human) or **buries the human** (they wake to a hundred things
+demanding judgment). The fix is to make *when a human is available* a
+first-class input to work allocation and to the run mode — not an afterthought.
 
 ### 6.1 Allocate by decision type, not by task
 
@@ -640,6 +658,114 @@ human is actually online (cf.
 [`attention-interaction-model.md`](attention-interaction-model.md),
 [`feedback-loop-closure.md`](feedback-loop-closure.md)).
 
+### 6.5 Shared norms as the standing cooperation substrate
+
+The clock is about *timing*; this is about *context*. Most human↔agent friction
+is dissolved **before any ticket** by **encoded norms** — `CLAUDE.md`,
+[`AGENTS.md`](../../AGENTS.md), the [glossary](../reference/glossary.md), the
+coding conventions — the standing context both actors load so they share
+premises without renegotiating per task. This is Cognition's "share context"
+principle ([§1](#1-why--and-when--multi-agent-at-all)) lifted to the *repo*
+scale, and it's why ADR-049 says its **living spec is the docs/scripts**, not
+this rationale. The design consequence: norms are the highest-leverage place to
+spend effort — a convention written once is honoured by every builder, every
+night, for free; it is also the substrate the teaching loop ([§6.11](#611-the-teaching-loop-corrections-become-durable-norms))
+writes back into. Treat the norm corpus as load-bearing infrastructure, not
+documentation overhead.
+
+### 6.6 Trust calibration and graduated autonomy
+
+Our `tier:` labels classify the **work**, not the **agent's track record** — but
+real cooperation calibrates how much autonomy an agent has *earned*. The natural
+shape is graduated: a new builder runs **supervised** ([§5.1](#51-human-in-the-loop-interactive-the-tui))
+on `tier:mechanical`, graduates to **unattended** as it shows a high
+first-pass-green rate, and is **demoted** (escalate a tier, or back to
+supervised) after repeated `ticket:changes` bounces — exactly the
+"repeated-bounces-escalate" reflex ADR-049 already names, but made into a
+standing per-handle signal rather than a one-off. Today clearance is **operator-
+set and static** (the launch flag says which tiers a builder may take); the
+missing piece is a recorded **reliability signal per handle** (the claim/PR
+history is already in the substrate) that informs it. Until then, start every
+new builder/model supervised and widen its tier clearance by hand — don't grant
+overnight autonomy on trust you haven't observed. *(Open question — §8.)*
+
+### 6.7 Mixed-initiative: agents surface work, the human disposes
+
+ADR-049 D-1 makes **decomposition human-only** — agents execute, they don't
+decide what to build. That's right for *authority*, but it leaves value on the
+table: a builder editing a file often **notices** a needed refactor, a latent
+bug, or a missing test the maintainer hasn't ticketed. Healthy cooperation is
+**mixed-initiative** — initiative flows *both* ways while authority stays
+one-way. The clean split: an agent **may surface** candidate work (open a
+`ticket:ready` *draft* tagged `tier:judgment` for maintainer triage, or note it
+on the current ticket), but **may not self-promote** it into work it then does.
+This mirrors the product's propose→approve verb
+([`governed-actions-and-propose-verb.md`](governed-actions-and-propose-verb.md)):
+the agent *proposes*, the human *disposes*. Currently unspecified in the dev
+flow — adding it turns idle observations into a cheap backlog instead of losing
+them. *(Open question — §8.)*
+
+### 6.8 Intent confirmation before sunk cost
+
+The cheapest correction happens **before** the tokens are spent. The
+bidirectional move that buys it: the agent surfaces its **plan / understanding
+of the ticket**, the human ratifies (or corrects) it, *then* the agent
+implements — plan-then-approve, again the propose→approve shape. Our dev flow
+today is `claim → PR`: there's **no intent gate**, so a builder that
+misread the spec only reveals it at review, after a full diff's worth of tokens.
+That's fine for `tier:mechanical` (the spec *is* the plan), but wasteful for
+`tier:medium`+ where interpretation varies. The proportionate rule: for
+`tier:medium` and up, a builder posts a **short plan comment** and waits for a
+👍 before producing a large diff; mechanical tickets skip it. Cheap insurance
+against the most expensive failure mode — confidently building the wrong thing.
+
+### 6.9 Permission, blast-radius, and the safety boundary
+
+Cooperation needs an explicit line of **what an agent may touch**. We have
+several boundary pieces already — **maintainer-only merge** (the irreversible
+integration step stays human-gated, [§6.3](#63-park-dont-block--and-batch-the-review)),
+**verify-before-merge** (the CI gate), branch isolation, and the deliberate
+**trusted-host + sandbox-bypass** decision ([§5.3](#53-host-side-poller--loop-our-default))
+— but the boundary is stated thinly. The under-specified spots: **least-
+privilege on the builder account** (a shared builder token should hold no more
+scope than building needs), **secrets hygiene** (credentials never go in a
+ticket, a prompt, or a log the agent emits), and the explicit framing that
+**sandbox-bypass is a *trust* decision** scoped to a host you control, running
+non-root. The principle is reversibility-graded blast radius: the higher the
+blast radius and the lower the reversibility, the more an action must be human-
+gated or forbidden to the agent outright. The enforced-gate upgrade (distinct
+builder account + branch protection, ADR-049 follow-up) is what turns this
+convention into an actual boundary. See [`security-audit.md`](security-audit.md).
+
+### 6.10 Reviewability as a builder obligation
+
+The maintainer can only stay a *fast* reviewer ([§6.3](#63-park-dont-block--and-batch-the-review))
+if every unit is **legible**: a small, scoped diff; a PR body that explains the
+decisions it made; a self-review pass before handing over; a pointer to the
+reference PR it copied. A **correct-but-unreviewable** PR (5,000 lines, no
+rationale) breaks cooperation *even when the code is right*, because it dumps the
+implicit-decision-checking back onto the human the whole model exists to spare.
+This is the dev-flow face of [`ai-native-codebase-legibility.md`](ai-native-codebase-legibility.md),
+and it's *why* ADR-049 specs cite a reference PR and name exact files — that
+**bounds the diff** up front. The obligation runs both ways: the maintainer
+**caps ticket scope** so a one-sitting review is possible, and **bounces
+oversized PRs to split** rather than rubber-stamping them. Reviewability is a
+property the *spec* designs in, not something the reviewer recovers at the end.
+
+### 6.11 The teaching loop: corrections become durable norms
+
+A `ticket:changes` bounce should fix more than the PR — it should fix the
+**class**. When a builder hits a trap (the pilot's #211 case: an `l10n` resolved
+in `build()` but used in a helper), the durable fix isn't re-reviewing that one
+diff; it's writing the lesson **back into the norms** ([§6.5](#65-shared-norms-as-the-standing-cooperation-substrate)) —
+a line in the spec template, `AGENTS.md`, the coding conventions, or the
+glossary — so **no future builder repeats it**. This closes the loop:
+corrections compound into a growing corpus of encoded lessons, and the
+maintainer's per-review tokens buy a *permanent* improvement, not a one-shot fix.
+It is the CLAUDE.md "fix the class, not the instance" rule applied to the
+collaboration itself, and the compounding return that makes delegation get
+*cheaper* over time. See [`feedback-loop-closure.md`](feedback-loop-closure.md).
+
 ---
 
 ## 7. What TermiPod's dev workflow chose, and why
@@ -661,12 +787,17 @@ one:
 - **Run mode (Axis 5):** a **host-side poller** with an interactive take-over
   escape hatch, designed so a **cloud/managed builder** can slot in unchanged
   when we outgrow local hosts.
-- **Human clock (Axis 6):** **maintainer-only merge** keeps the irreversible
-  step synchronous (human-gated), while builders accumulate reviewable PRs
-  asynchronously; `tier:` labels split human-decision from delegable work, and
-  `ticket:blocked` parks escalations for a morning batch instead of stalling.
-  The gap is the poller's *overnight ergonomics* (schedule-driven mode, park-
-  and-continue, queue back-pressure) — see [§6.4](#64-the-run-modescript-must-encode-the-clock).
+- **Human cooperation (Axis 6):** **encoded norms** (`CLAUDE.md`/`AGENTS.md`/
+  glossary) carry the shared context; `tier:` labels split human-decision from
+  delegable work; **maintainer-only merge** keeps the irreversible step
+  synchronous while reviewable PRs accumulate async; `ticket:blocked` parks
+  escalations for a batch; reference-PR-bound specs design in **reviewability**;
+  and corrections feed the **teaching loop** back into the norms. The known gaps
+  are **earned-trust calibration** ([§6.6](#66-trust-calibration-and-graduated-autonomy)),
+  **mixed-initiative** ([§6.7](#67-mixed-initiative-agents-surface-work-the-human-disposes)),
+  an **intent-confirmation gate** for `tier:medium`+ ([§6.8](#68-intent-confirmation-before-sunk-cost)),
+  a sharper **permission boundary** ([§6.9](#69-permission-blast-radius-and-the-safety-boundary)),
+  and the poller's **overnight ergonomics** ([§6.4](#64-the-run-modescript-must-encode-the-clock)).
 
 The single thread tying all six: for write-heavy work the scarce resource is
 **coherence of the implicit decisions in edits** — and the second scarce
@@ -703,6 +834,15 @@ agent-to-agent autonomy.
   Stay on GitHub SaaS until data-residency, air-gap, cost, or builder count
   justify a Forgejo/GitLab move; keep the protocol in forge primitives so the
   migration stays a one-variable change.
+- **Earned-trust calibration ([§6.6](#66-trust-calibration-and-graduated-autonomy)).**
+  Tier clearance is operator-set and static. Derive a per-handle reliability
+  signal (first-pass-green rate from the claim/PR history already in the
+  substrate) to graduate or demote a builder's autonomy automatically.
+- **Mixed-initiative ([§6.7](#67-mixed-initiative-agents-surface-work-the-human-disposes)) +
+  intent gate ([§6.8](#68-intent-confirmation-before-sunk-cost)).** Let a builder
+  *surface* candidate work as a `tier:judgment` draft (propose, not dispose), and
+  require a short plan-comment 👍 before a `tier:medium`+ builder produces a large
+  diff — both currently unspecified in the dev flow.
 
 This doc **stays Open** as a living map; it resolves only if the design space
 itself stabilizes. The *decision* it accompanies is settled in
@@ -718,6 +858,7 @@ itself stabilizes. The *decision* it accompanies is settled in
 - [`orchestration-contract.md`](orchestration-contract.md) · [`coordination-basis-and-decision-classification.md`](coordination-basis-and-decision-classification.md) — coordination as a typed contract / decision-classification basis.
 - [`intra-vs-inter-engine-delegation.md`](intra-vs-inter-engine-delegation.md) — fan-out-in-engine vs spawn-a-worker, the product analogue of Axis 1.
 - [`integrating-open-source-agents.md`](integrating-open-source-agents.md) — the vendor landscape a builder can be drawn from.
+- Axis-6 cooperation precedents (product side): [`governed-actions-and-propose-verb.md`](governed-actions-and-propose-verb.md) (propose→approve / intent confirmation) · [`attention-interaction-model.md`](attention-interaction-model.md) (attention buyback) · [`feedback-loop-closure.md`](feedback-loop-closure.md) (teaching loop) · [`ai-native-codebase-legibility.md`](ai-native-codebase-legibility.md) (reviewability) · [`security-audit.md`](security-audit.md) (permission boundary).
 
 ## Sources (web research, 2026-06-11)
 

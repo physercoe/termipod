@@ -121,6 +121,7 @@ class KeyTile extends StatelessWidget {
   }
 
   Widget _buildSourceBadge(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isGenerated = keyMeta.source == KeySource.generated;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Spacing.s8, vertical: Spacing.s2),

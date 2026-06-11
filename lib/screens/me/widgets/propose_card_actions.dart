@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'override_sheet.dart';
 
 /// ADR-030 W15-W18 — shared action-row widgets for the per-kind
@@ -25,17 +26,18 @@ class PrimaryProposeActions extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       children: [
         OutlinedButton.icon(
           icon: const Icon(Icons.check, size: 16),
-          label: const Text('Approve'),
+          label: Text(l10n.buttonApprove),
           onPressed: () => _decide(context, ref, 'approve'),
         ),
         const SizedBox(width: 8),
         OutlinedButton.icon(
           icon: const Icon(Icons.close, size: 16),
-          label: const Text('Reject'),
+          label: Text(l10n.buttonReject),
           style: OutlinedButton.styleFrom(foregroundColor: DesignColors.error),
           onPressed: () => _decide(context, ref, 'reject'),
         ),
@@ -44,18 +46,19 @@ class PrimaryProposeActions extends ConsumerWidget {
   }
 
   Future<void> _decide(BuildContext context, WidgetRef ref, String decision) async {
+    final l10n = AppLocalizations.of(context)!;
     try {
       await ref.read(hubProvider.notifier).decide(id, decision, by: '@mobile');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Decision recorded: $decision')),
+          SnackBar(content: Text(l10n.decisionRecorded(decision))),
         );
       }
       onResolved?.call();
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Decide failed: $e')),
+          SnackBar(content: Text(l10n.decideFailedError('$e'))),
         );
       }
     }
@@ -69,31 +72,32 @@ class StalledProposeActions extends ConsumerWidget {
   /// reads hub entities as JSON maps per repo convention).
   final Map<String, dynamic> attention;
   final VoidCallback? onResolved;
-  final String viewSourceLabel;
+  final String? viewSourceLabel;
   final VoidCallback? onViewSource;
 
   const StalledProposeActions({
     super.key,
     required this.attention,
     this.onResolved,
-    this.viewSourceLabel = 'View source',
+    this.viewSourceLabel,
     this.onViewSource,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
         FilledButton.icon(
           icon: const Icon(Icons.gavel, size: 16),
-          label: const Text('Override'),
+          label: Text(l10n.buttonOverride),
           onPressed: () => _override(context),
         ),
         OutlinedButton.icon(
           icon: const Icon(Icons.open_in_new, size: 16),
-          label: Text(viewSourceLabel),
+          label: Text(viewSourceLabel ?? l10n.viewSource),
           onPressed: onViewSource,
         ),
       ],
@@ -101,6 +105,7 @@ class StalledProposeActions extends ConsumerWidget {
   }
 
   Future<void> _override(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     // ADR-030 W20 — modal bottom sheet replaces the inline AlertDialog
     // that v1.0.688's W15 shipped. The sheet handles the decide call
     // internally + surfaces errors via inline copy; returns true on
@@ -109,7 +114,7 @@ class StalledProposeActions extends ConsumerWidget {
     if (!ok) return;
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Override recorded')),
+        SnackBar(content: Text(l10n.overrideRecorded)),
       );
     }
     onResolved?.call();

@@ -23,6 +23,13 @@ workspace / task / plan / run / …) it is **role-bound**. Otherwise — generic
 UI, errors, SSH/tmux/terminal vocabulary, settings chrome — it is
 **neutral** (~80% of strings).
 
+> **Don't trust appearances — grep `lib/services/vocab/vocab_axis.dart`.** A
+> noun that reads like a fixed type label can still have a `VocabAxis`
+> (`entityDocument`, `entityRun`, … exist). If an axis matches the concept,
+> the string is **role-bound** and must route through `vocab.term(axis)` — even
+> a one-word label like "Document" or "Run". Hardcoding it as a plain ARB
+> string means it won't re-word when the director themes their vocabulary.
+
 ## 2. Neutral string → plain ARB
 
 1. Add the key to **both** `lib/l10n/app_en.arb` and `app_zh.arb`.

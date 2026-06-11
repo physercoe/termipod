@@ -475,7 +475,7 @@ Ours is [`scripts/agent-poller.sh`](../../scripts/agent-poller.sh).
   `ticket:changes` rounds (open follow-up); needs a trusted host because
   unattended edits + network require bypassing per-command sandboxes.
 - **Fits:** **the autonomous builder.** ADR-049 §D-9 + the
-  [how-to §11](../how-to/agent-collaboration.md).
+  [how-to §12](../how-to/agent-collaboration.md).
 
 ### 5.4 Persistent local daemon
 
@@ -765,6 +765,19 @@ maintainer's per-review tokens buy a *permanent* improvement, not a one-shot fix
 It is the CLAUDE.md "fix the class, not the instance" rule applied to the
 collaboration itself, and the compounding return that makes delegation get
 *cheaper* over time. See [`feedback-loop-closure.md`](feedback-loop-closure.md).
+
+**Who fixes the instance is a separate question from how you stop the class**
+— and conflating them wastes tokens. A full `ticket:changes` bounce is not the
+only repair path: for *trivial-mechanical* changes the maintainer fixes inline
+(that's review, not implementation); for *non-blocking* ones it merges and logs
+a follow-up; only *blocking + substantial* work bounces. The recurrence is
+killed by the **norm edit** regardless of who touched the diff. The decision
+matrix, the role-boundary guardrails, and the suggested-change / inline-fix /
+bounce spectrum live in [how-to §9 "Handling review changes"](../how-to/agent-collaboration.md).
+A worked example: the #216 review's `componentKindDocument`/`Run` nit was
+non-blocking, so it merged with a `tier:mechanical` follow-up plus a one-line
+rule added to [`localize-a-string.md`](../how-to/localize-a-string.md) — no
+round-trip, recurrence closed.
 
 ---
 

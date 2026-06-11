@@ -176,7 +176,47 @@ question, and stops. Guessing on judgment calls is what the tier system
 exists to prevent. The maintainer resolves and flips it back to `ticket:ready`
 or `ticket:claimed`.
 
-## 9. Maintainer one-time setup
+## 9. Handling review changes — who fixes what
+
+When review finds something to change, a full `ticket:changes` bounce isn't
+always the cheapest fix: it makes the builder cold-start (re-load context,
+re-claim, re-edit, re-push), re-runs CI, and makes the maintainer **re-review**.
+For a two-line tweak that overhead can dwarf the fix. Pick the lane by two
+questions — **does it block merge?** and **is it trivial-mechanical (no
+judgment, ≈≤5 lines)?**
+
+| | **Trivial-mechanical** | **Substantial / needs judgment** |
+|---|---|---|
+| **Blocking** (correctness, regression, CI-red) | **Maintainer fixes inline** on the PR branch (`Co-Authored-By` the builder), then merges. `main` is protected, the `agent/*` branch is not, so the maintainer can push to it. | **Bounce** `ticket:changes` with a specific comment. The work is real and `main` can't take it — the round-trip is justified. |
+| **Non-blocking** (cosmetic, consistency) | **Merge now, log a follow-up** ticket (`tier:mechanical`) for a cheap builder to sweep later. | **Merge now, log a follow-up** ticket. |
+
+Two finer mechanisms sit between inline-fix and bounce:
+
+- **GitHub suggested change** — for a 1–3 line fix where you want the *builder*
+  to stay the author: leave a suggestion block, the builder one-click-applies.
+  Only works if the builder is **interactive/online**; a fire-and-forget poller
+  has no one to click, so for autonomous builders the lanes are inline-fix /
+  merge-and-log / bounce.
+- Because an autonomous poller can't yet service a `ticket:changes` round, a
+  bounce **stalls** until a human re-runs the builder — which makes
+  maintainer-inline-fix for *blocking trivia* the way to unblock without waiting.
+
+**Two rules keep this from eroding the role boundary:**
+
+1. **The maintainer never spends *implementation* tokens.** A one-line
+   mechanical correction the maintainer already sees while reviewing is part of
+   *review*. The moment fixing it needs a design decision or leaving the review
+   context, it is *implementation* → bounce. Several nits in one PR → bounce, and
+   treat it as a **spec-quality signal** (the spec was underspecified) — don't
+   hand-patch a systematically weak PR; that data feeds tier/trust calibration.
+2. **Prevent recurrence in the norm, not the bounce.** Whoever fixes the
+   instance, if the mistake is a *class* a future builder could repeat, write the
+   lesson into the durable norm (this how-to, [`localize-a-string.md`](localize-a-string.md),
+   the issue template, the glossary) in the same breath. The norm edit teaches
+   *every* future builder; the bounce teaches only this one. This decouples
+   "who fixes this diff" from "how we stop it happening again."
+
+## 10. Maintainer one-time setup
 
 Create the labels (idempotent):
 
@@ -190,7 +230,7 @@ each spec near-mechanical so a `tier:mechanical` builder can one-shot it: name
 the exact files, cite a reference PR to copy, list the rules and the deferral
 set, and give the verify commands.
 
-## 10. A builder is a runtime plus a model
+## 11. A builder is a runtime plus a model
 
 "Builder" names a **role**, not a program. Concretely a builder is two
 interchangeable parts the operator chooses:
@@ -211,7 +251,7 @@ model under a builder without touching its handle, its account, or any ticket.
 Pick the model tier to match the work tier (§3): a cheap model on
 `tier:mechanical`, a stronger one when you clear a builder for `tier:medium`.
 
-## 11. Running a builder autonomously
+## 12. Running a builder autonomously
 
 A builder need not be driven by a human typing a prompt per ticket. The
 reference poller [`scripts/agent-poller.sh`](../../scripts/agent-poller.sh)
@@ -256,7 +296,7 @@ builder host and blocks until the agent exits — so you can `tmux attach`,
 argument, not stdin), and tune the idle cadence with `POLL_INTERVAL` (`5m`,
 `15m`, …). See `scripts/agent-poller.sh --help`.
 
-## 12. This protocol is general
+## 13. This protocol is general
 
 Nothing here is specific to any one workload. The i18n/ARB sweep was the
 proving pilot, but the same lifecycle, tiers, identity model, baton, and

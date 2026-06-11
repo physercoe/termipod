@@ -207,9 +207,20 @@ directly; maximal flexibility, but O(n²) communication and the hardest to audit
 
 ## 3. The coordination substrate — GitHub is one of ~six
 
-Whatever the pattern, agents need a **shared medium** to coordinate through:
-where work is queued, who owns what, how handoffs and results are recorded.
-This is the most consequential and least-discussed choice. Six families:
+Whatever the pattern, agents need a **shared medium** to coordinate through.
+From first principles a coordination substrate supplies **five primitives**: a
+**state store** (what the work is, who owns it, what's done), a **message
+channel** (handoffs, questions, corrections), a **gate** (verification before
+acceptance), an **identity/auth** layer, and an **artifact store** (the code
+itself). Substrates differ in *which* primitives they bundle — and in a
+dimension that is almost never named: **what it costs to *use* the channel.**
+That cost has three parts — latency, durability, and **context warmth**:
+does the substrate keep a participant's working context *alive* between
+messages, or force a cold reconstruction each time? Warmth barely matters for
+humans (we reconstruct context cheaply); it dominates for AI agents, who pay a
+**re-tokenization tax** every time they rebuild state from a thread (§3.8).
+This is the most consequential and least-discussed choice. Six families bundle
+the five primitives differently:
 
 ### 3.1 Issue tracker / VCS forge (GitHub — our choice)
 
@@ -307,20 +318,65 @@ framework now ships multi-agent primitives as first-class.
 
 ### Substrate picker
 
-| Substrate | Durable/auditable | Cross-host | Cross-vendor | Latency | Best for |
-|---|---|---|---|---|---|
-| **Issue tracker / forge** | **Yes (native)** | **Yes** | **Yes** | sec | **delegated dev (ours)** |
-| Shared task file / blackboard | If versioned | No (shared FS) | Yes | sub-sec | single-host todo |
-| Message / event bus | No (add store) | Yes | Yes | ms | high-freq prod mesh |
-| Direct A2A / mesh | No (add store) | Yes | Yes (w/ protocol) | ms | cross-org live deleg. |
-| Worktree (isolation) | via git | No | Yes | n/a | single-host fleet |
-| In-process framework | In-mem only | No | No | µs | one app, one host |
+| Substrate | Durable/auditable | Cross-host | Cross-vendor | Latency | Builder warmth | Best for |
+|---|---|---|---|---|---|---|
+| **Issue tracker / forge** | **Yes (native)** | **Yes** | **Yes** | sec | **Cold** (reload tax) | **delegated dev (ours)** |
+| Shared task file / blackboard | If versioned | No (shared FS) | Yes | sub-sec | Cold→warm (if same proc) | single-host todo |
+| Message / event bus | No (add store) | Yes | Yes | ms | Cold (unless live consumer) | high-freq prod mesh |
+| Direct A2A / mesh | No (add store) | Yes | Yes (w/ protocol) | ms | **Warm** (live session) | cross-org live deleg. |
+| Worktree (isolation) | via git | No | Yes | n/a | n/a | single-host fleet |
+| In-process framework | In-mem only | No | No | µs | **Warm** (shared memory) | one app, one host |
 
 **Why GitHub wins for us:** it is the only row that is durable+auditable,
 cross-host, *and* cross-vendor with **zero new infrastructure** — the exact
 three constraints in ADR-049's Context. The forge gives for free what every
 other substrate makes you build: a permissioned, replayable, attributable trail
-plus a native gate (CI) and a native review surface.
+plus a native gate (CI) and a native review surface. The price it charges back
+is in the last column — **it runs cold** (§3.8).
+
+### 3.8 The AI-native critique: GitHub is human-native, and runs cold
+
+Step back and ask what GitHub *is*, as a substrate. It bundles all five
+primitives — issues = state, comments = channel, CI = gate, accounts =
+identity, git = artifacts — which is its great convenience. But every one of
+those primitives is **human-shaped**: asynchronous, **document-grained**
+(issue / PR / comment), and built for a participant who reads on their own
+schedule and **reconstructs context from the thread** before acting. That is
+exactly how a human works and exactly the wrong shape for an AI agent.
+
+- **The warmth tax.** When a maintainer leaves a review comment, a
+  *fire-and-forget* builder must (a) notice it (poll), then (b) **rebuild its
+  entire working context** — re-read the repo, the PR, the diff, the thread — to
+  act on a two-line note. That re-tokenization is often the **dominant cost of a
+  correction**, dwarfing the fix itself. The expense isn't "who edits the code";
+  it's the **cold reconstruction** the substrate forces.
+- **Durability ⟂ warmth.** GitHub maximizes durability and auditability by
+  putting *all* state in the substrate and keeping **none** in the agent — which
+  is precisely why it's cold. The two properties trade off: the more the
+  substrate is the system of record, the less any participant stays warm.
+- **Grain mismatch.** The substrate's unit is a document (a comment, a PR).
+  Agents could coordinate at finer grain — a correction *streamed into a live
+  context* — but the forge forces everything through the coarse async document.
+
+The **AI-native move** is to separate the two things GitHub fuses: keep the
+forge as the **durable record** (state, gate, artifacts, audit — it's excellent
+at this) but add a **warm channel** that relays corrections into a builder whose
+context is still **alive**, so a fix costs only the fix (no reload). Concretely
+that warm channel is either (i) a **persistent builder session** that stays
+resident across claim→review→fix→merge (§5.7), or (ii) a **direct relay** —
+maintainer → live builder — which is exactly what an **A2A/hub** provides. So
+the hybrid is *durable forge + warm side-channel*, not one or the other.
+
+There is a pointed irony here: **TermiPod's own product *is* that AI-native
+substrate** — the hub (events, references), A2A through a NAT-piercing relay,
+and persistent agent sessions that survive respawn. It is warm, fine-grained,
+and agent-shaped by construction. ADR-049 deliberately does **not** use it for
+*dev* coordination (the hub is the product runtime, not a dev tool), and for
+**mechanical, fire-and-forget** work that's the right call — there's no warm
+context worth preserving, so cold GitHub is free and durable. But for
+**iterative, correction-heavy** work, the cold tax is real, and the
+warm-channel hybrid is the AI-native answer the product already embodies. The
+choice is therefore **work-shaped**, not absolute (see §8).
 
 ### 3.7 Self-hosting the substrate (if you can't use GitHub SaaS)
 
@@ -523,16 +579,39 @@ which is literally **what TermiPod's product is** (the Flutter cockpit + hub).
 - **Fits:** coordinating the *director's* agent fleet (the product). For *our
   dev*, GitHub + a poller is right-sized.
 
+### 5.7 Session persistence — the context-warmth lever
+
+The run mode decides whether a builder stays **warm**, and that — not "is a
+human watching" — is the "interactive" that matters for cost. A poller that
+spawns a fresh headless agent per ticket and exits (§5.2/§5.3) is **cold**:
+every correction reloads context (the §3.8 tax). A **persistent session** — the
+builder process stays resident across claim → review → fix → merge — is
+**warm**: a maintainer's review note relayed into the live session is read *with
+the full context still loaded*, and the builder **edits in place and pushes,
+without restarting**. That is the model behind "let the maintainer just tell the
+builder" — the builder is *on its context* and applies the fix directly.
+
+This collapses the correction cost: a `ticket:changes` round goes from "cold
+reconstruction + re-review" to "just the fix." And it **changes the §9 calculus**
+— with a warm builder, bouncing is cheap, so you can bounce *freely* (preserving
+the role boundary and the learning signal) instead of reaching for a
+maintainer-inline-fix to dodge the reload tax. **Inline-fix is the workaround for
+*cold* builders; warm builders make the clean path cheap.** The cost of warmth:
+a resident process per active builder (memory, lifecycle) plus a relay path into
+it. The interactive TUI (§5.1) and the daemon (§5.4) are warm; the per-ticket
+poller and one-shot are cold; cloud/managed is warm only if the platform keeps
+the session resident between turns.
+
 ### Run-mode picker
 
-| Mode | Autonomy | Observability | Ops weight | Best for |
-|---|---|---|---|---|
-| Interactive TUI | Low | **Highest** | Low | risky/novel tickets, steering |
-| Headless one-shot | Med | Low | None | one mechanical ticket |
-| **Poller loop (ours)** | High | Med (logs) | Low | **unattended builder** |
-| Local daemon | High | Med | Med | event-driven future poller |
-| Cloud / managed | High | Med–high | Low (hosted) | scaling past local hosts |
-| App / control-plane | High | **Highest** | **Highest** | the product fleet |
+| Mode | Autonomy | Observability | Warmth | Ops weight | Best for |
+|---|---|---|---|---|---|
+| Interactive TUI | Low | **Highest** | **Warm** | Low | risky/novel tickets, steering |
+| Headless one-shot | Med | Low | Cold (exits) | None | one mechanical ticket |
+| **Poller loop (ours)** | High | Med (logs) | **Cold** (per-ticket) | Low | **unattended builder** |
+| Local daemon | High | Med | **Warm** (resident) | Med | event-driven future poller |
+| Cloud / managed | High | Med–high | Varies | Low (hosted) | scaling past local hosts |
+| App / control-plane | High | **Highest** | **Warm** (sessions) | **Highest** | the product fleet |
 
 ---
 
@@ -779,6 +858,65 @@ non-blocking, so it merged with a `tier:mechanical` follow-up plus a one-line
 rule added to [`localize-a-string.md`](../how-to/localize-a-string.md) — no
 round-trip, recurrence closed.
 
+**The bounce cost is not inherent — it's the *warmth tax* (§3.8).** The reason a
+`ticket:changes` round looks expensive is the **cold reconstruction** a
+fire-and-forget builder pays to re-engage. With a **warm builder** (§5.7), the
+maintainer simply **relays the review note into the still-live session** and the
+builder fixes in place — the correction costs only the fix. That **inverts the
+§9 default**: the maintainer-inline-fix lane exists mainly to dodge the cold
+reload, so once builders are warm, the clean path (relay → builder fixes →
+re-review) is *both* cheap *and* better — it keeps the builder as author and
+preserves the learning signal. Conclusion: **invest in builder warmth before
+investing in maintainer-fix workarounds.**
+
+### 6.12 Executable learning — lessons graduate to CI
+
+The teaching loop (§6.11) has a *terminal form*, and reaching it is what makes
+delegation structurally cheaper instead of just disciplined. A lesson can live
+at three enforcement strengths:
+
+1. **Prose norm** — a line in a how-to / `AGENTS.md`. The builder must *read and
+   obey* it; **model-dependent** and easily missed.
+2. **Spec-template field** — a checklist item in the ticket. Structurally
+   present in the builder's input, but still honoured only on compliance.
+3. **Executable rule** — a lint check / analyzer rule / test. **CI catches it
+   mechanically on every PR, model-independent, and never forgets.**
+
+The design principle: **migrate every recurring error-class *down* toward an
+executable rule.** A bounce teaches one builder; a norm line teaches readers; a
+lint rule teaches the *machine* — and, decisively, removes the class from the
+**maintainer's** review burden, because CI now catches it. Both spec-quality
+traps we hit are executable: the helper-scope `l10n` bug and the #216 "noun with
+a `VocabAxis` rendered as a plain string" are each detectable by an analyzer/lint
+rule. Promoting them is the **compounding token lever** — after promotion the
+maintainer never re-catches the class and no builder, cheap or not, can land it.
+The teaching loop's terminal form is a **CI check**.
+
+### 6.13 Graduated autonomy and async checkpoints
+
+The interactive TUI (§5.1) and the autonomous poller (§5.3) are not a binary —
+they are two ends of one **trust dial**. Interactive's real value is *catching a
+wrong path before the diff exists* (the most expensive failure is a builder
+confidently building the wrong thing); its real cost is **human attention**, the
+scarcest resource. You capture the benefit without the cost by inserting **async
+checkpoints** at the two highest-leverage points only: a **plan-approval**
+checkpoint before a `tier:medium`+ diff (the builder posts its intent and merges
+only after a 👍 — §6.8 made structural) and the **merge gate** (already
+enforced). Checkpoints are async — answered when the human is available — and
+their **density scales inversely with trust** (§6.6): low-trust/novel → many
+checkpoints ≈ interactive; high-trust/mechanical → only the merge gate ≈ full
+autonomy. One dial spans the whole spectrum, and a new builder/model **starts
+interactive and earns autonomy** — interactive is the on-ramp and the escape
+hatch, not the destination.
+
+**Synthesis of §6.5–6.13:** *autonomous-by-default, checkpoint-gated, warm where
+the work is correction-heavy, with a learning loop that terminates in executable
+enforcement.* That is the architecture the cooperation axes point at once you
+make them enforced rather than aspirational — and the strongest enforcement is
+always **executable**, because it removes work from the human instead of
+reminding them to do it. *(Still under discussion — see §8; an ADR is deferred
+until it's clarified.)*
+
 ---
 
 ## 7. What TermiPod's dev workflow chose, and why
@@ -793,7 +931,10 @@ one:
   overlay (CI + review). No swarm, no mesh — they lose exactly the
   decision-coherence that write-heavy work needs.
 - **Substrate (Axis 3):** **GitHub forge** — the only durable+auditable,
-  cross-host, cross-vendor, zero-new-infra option.
+  cross-host, cross-vendor, zero-new-infra option. It trades away **context
+  warmth** (it runs cold, [§3.8](#38-the-ai-native-critique-github-is-human-native-and-runs-cold)) —
+  fine for mechanical fire-and-forget work, a real tax on correction-heavy work,
+  where a warm side-channel / persistent session is the AI-native complement.
 - **Protocol (Axis 4):** an **application-level convention in labels + branches
   + a baton**, not a wire protocol — the substrate is the protocol. Wire
   protocols (MCP/A2A) stay where they belong: the product.
@@ -829,9 +970,12 @@ agent-to-agent autonomy.
 - **Event-driven vs poll.** If dev cadence rises, move §5.3 toward §5.4/§5.5
   (a daemon or managed agent reacting to issue/PR webhooks) — the substrate
   already emits the events.
-- **Enforced gate.** Today maintainer-only merge is a *convention* under one
-  shared account; a distinct builder account + branch protection makes it an
-  *enforced* gate (ADR-049 follow-up) — do it when >1 builder runs in parallel.
+- **Enforced gate — DONE (2026-06-11).** A distinct builder account
+  (`agentfleets`, write collaborator) + branch protection on `main` (require PR +
+  1 approval, `enforce_admins:false`) now makes maintainer-only merge an
+  *enforced* gate, not a convention — verified end-to-end on PR #216 (the builder
+  could not self-approve/merge). Remaining: add the required CI status-check
+  contexts to the protection once they're confirmed.
 - **Contention.** One ready-queue + one ARB baton suffices now. If a second hot
   resource or a second workload causes queue contention, add a
   `holds:<resource>` baton and/or a per-workload routing label before reaching
@@ -856,10 +1000,30 @@ agent-to-agent autonomy.
   *surface* candidate work as a `tier:judgment` draft (propose, not dispose), and
   require a short plan-comment 👍 before a `tier:medium`+ builder produces a large
   diff — both currently unspecified in the dev flow.
+- **Work-shaped substrate + warm channel ([§3.8](#38-the-ai-native-critique-github-is-human-native-and-runs-cold),
+  [§5.7](#57-session-persistence--the-context-warmth-lever)).** GitHub runs cold;
+  the cold tax only bites on *correction-heavy* work. Open: should iterative
+  tickets run on a **persistent (warm) builder session** with the maintainer
+  relaying review notes into the live context (cheap bounces), while mechanical
+  tickets stay on the cold poller? What is the minimal warm side-channel — a
+  resident session, an A2A relay, the product hub itself — and is it worth the
+  per-builder process cost?
+- **Executable learning ([§6.12](#612-executable-learning--lessons-graduate-to-ci)).**
+  Promote the two recurring i18n traps (helper-scope `l10n`, noun-with-a-`VocabAxis`)
+  from prose into analyzer/lint rules so CI catches them model-independently —
+  the compounding lever that drops maintainer review cost. Pure-Dart/shell,
+  locally testable.
+- **Graduated autonomy + async checkpoints ([§6.13](#613-graduated-autonomy-and-async-checkpoints)).**
+  A structural plan-approval checkpoint before `tier:medium`+ diffs, with
+  checkpoint density tied to a builder's earned trust. Candidate basis for a
+  future **ADR-050** (graduated-autonomy + executable-learning), deferred until
+  §3.8 / §5.7 / §6.12–6.13 are clarified through use.
 
 This doc **stays Open** as a living map; it resolves only if the design space
 itself stabilizes. The *decision* it accompanies is settled in
-[ADR-049](../decisions/049-multi-agent-collaboration-via-github.md).
+[ADR-049](../decisions/049-multi-agent-collaboration-via-github.md); the warm-
+substrate, executable-learning, and graduated-autonomy threads above are the
+**deferred ADR-050 material** still under discussion.
 
 ---
 

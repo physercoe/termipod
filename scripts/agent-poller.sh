@@ -49,6 +49,18 @@
 #                  AGENT_CMD). The flag name is runtime-specific; check the
 #                  runtime's `--help`. Run the builder as a NON-root user.
 #
+#   AGENT_INTERACTIVE_CMD
+#                  (required only for --interactive take-over mode) The command
+#                  that launches the runtime's INTERACTIVE TUI seeded with the
+#                  ticket prompt. Pass the prompt as an ARGUMENT (not stdin) so
+#                  the TTY stays free for you to type — e.g.
+#                    AGENT_INTERACTIVE_CMD='<agent-cli> "$(cat "$PROMPT_FILE")"'
+#                  Do NOT add a headless/-p/exec flag here; this one is meant to
+#                  drop you into the live agent so you can take over.
+#
+#   TMUX_SESSION   (optional) tmux session name for --interactive runs.
+#                  Default: agent-<handle>. One window per ticket (t<N>).
+#
 #   AGENT_TIERS    (optional) Comma list of tiers this builder is cleared for,
 #                  in preference order. Default: "mechanical".
 #                  e.g. "mechanical" or "mechanical,medium".
@@ -73,6 +85,11 @@
 #                 the agent. Safe for a first look at the queue.
 #   --supervised  Ask for y/N confirmation before claiming + running each ticket,
 #                 so you can watch and step in before every run. Needs a TTY.
+#   --interactive Take-over mode: claim the ticket, then launch the runtime's
+#                 INTERACTIVE TUI (AGENT_INTERACTIVE_CMD) seeded with the prompt
+#                 inside a tmux session on this host. Attach to watch AND type
+#                 into the agent; the poller blocks until the agent exits, then
+#                 moves on. Needs tmux + AGENT_INTERACTIVE_CMD.
 #
 # ---------------------------------------------------------------------------
 # Guarantees / safety
@@ -99,6 +116,20 @@
 #       running), and Ctrl-C in the pane to abort the current run.
 #     * Use --supervised for a y/N confirmation before each run.
 #     * Use --once for a single, fully-watched ticket.
+#
+#   TRUE TAKE-OVER (--interactive). For full hands-on control, run with
+#   --interactive and set AGENT_INTERACTIVE_CMD to the runtime's interactive
+#   launch. The poller claims the ticket, opens the live agent TUI in a tmux
+#   window (session $TMUX_SESSION, default agent-<handle>), and blocks until it
+#   exits. From another terminal on the builder host:
+#       tmux attach -t agent-<handle>      # watch AND type into the agent
+#       Ctrl-b d                            # detach, leave it running
+#       tmux kill-window -t agent-<handle>:t<N>   # abort a single ticket
+#   When the agent exits (you finish, or it opens its PR) the window stays open
+#   for review and the poller advances to the next ticket. Example one-shot:
+#       AGENT_INTERACTIVE_CMD='<agent-cli> "$(cat "$PROMPT_FILE")"' \
+#         bash scripts/agent-poller.sh --interactive --once
+#
 #   (Run tmux on the builder host — not on a host whose tmux session you are
 #   already living inside.)
 #
@@ -108,19 +139,20 @@ set -euo pipefail
 ONCE=0
 DRY_RUN=0
 SUPERVISED=0
+INTERACTIVE=0
 for arg in "$@"; do
   case "$arg" in
-    --once)       ONCE=1 ;;
-    --dry-run)    DRY_RUN=1 ;;
-    --supervised) SUPERVISED=1 ;;
-    -h|--help)    awk 'NR>=2 && /^set -euo pipefail$/{exit} NR>=2' "$0"; exit 0 ;;
+    --once)        ONCE=1 ;;
+    --dry-run)     DRY_RUN=1 ;;
+    --supervised)  SUPERVISED=1 ;;
+    --interactive) INTERACTIVE=1 ;;
+    -h|--help)     awk 'NR>=2 && /^set -euo pipefail$/{exit} NR>=2' "$0"; exit 0 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
 
 # ---- config / preflight --------------------------------------------------
 : "${AGENT_HANDLE:?set AGENT_HANDLE to your builder handle (e.g. builder-1)}"
-: "${AGENT_CMD:?set AGENT_CMD to your headless agent invocation (see header)}"
 AGENT_TIERS="${AGENT_TIERS:-mechanical}"
 POLL_INTERVAL="${POLL_INTERVAL:-120}"
 LOG_DIR="${LOG_DIR:-${TMPDIR:-/tmp}/agent-poller-logs}"
@@ -137,6 +169,14 @@ to_seconds() {
 POLL_SECS="$(to_seconds "$POLL_INTERVAL")"
 [[ "$POLL_SECS" =~ ^[0-9]+$ ]] || { echo "POLL_INTERVAL invalid: '$POLL_INTERVAL' (use 5m, 15m, 2h, or seconds)" >&2; exit 2; }
 mkdir -p "$LOG_DIR"
+
+TMUX_SESSION="${TMUX_SESSION:-agent-${AGENT_HANDLE}}"
+if [[ "$INTERACTIVE" -eq 1 ]]; then
+  command -v tmux >/dev/null || { echo "--interactive needs tmux on this host" >&2; exit 1; }
+  : "${AGENT_INTERACTIVE_CMD:?--interactive needs AGENT_INTERACTIVE_CMD (interactive launch, prompt as an arg — see header)}"
+else
+  : "${AGENT_CMD:?set AGENT_CMD to your headless agent invocation (see header)}"
+fi
 
 GH_REPO_ARGS=()
 if [[ -n "${REPO:-}" ]]; then GH_REPO_ARGS=(--repo "$REPO"); fi
@@ -271,7 +311,48 @@ work_one() {
   export PROMPT_FILE TICKET_NUMBER TICKET_SLUG BRANCH
   build_prompt "$n" "$slug" "$branch" "$title" > "$PROMPT_FILE"
 
-  local logf="${LOG_DIR}/ticket-${n}-$(date -u +%Y%m%dT%H%M%SZ).log"
+  local stamp; stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+
+  if [[ "$INTERACTIVE" -eq 1 ]]; then
+    # Take-over mode: launch the runtime's interactive TUI in a tmux window,
+    # seeded with the prompt; block until the agent exits. Attach any time to
+    # watch AND type into it. Completion is signalled by an rc-file the wrapper
+    # writes on agent exit (race-free, unlike `tmux wait-for`).
+    local win="t${n}"
+    local rcfile="${LOG_DIR}/ticket-${n}-${stamp}.rc"
+    local wrapper="${LOG_DIR}/ticket-${n}-${stamp}.wrapper.sh"
+    {
+      printf '#!/usr/bin/env bash\n'
+      printf 'export PROMPT_FILE=%q TICKET_NUMBER=%q TICKET_SLUG=%q BRANCH=%q RC_FILE=%q\n' \
+        "$PROMPT_FILE" "$n" "$slug" "$branch" "$rcfile"
+      printf 'export AGENT_INTERACTIVE_CMD=%q\n' "$AGENT_INTERACTIVE_CMD"
+      printf 'eval "$AGENT_INTERACTIVE_CMD"; rc=$?\n'
+      printf 'echo "$rc" > "$RC_FILE"\n'
+      printf 'echo; echo "[poller] agent exited rc=$rc — window kept for review; type exit to close."\n'
+      printf 'exec bash\n'
+    } > "$wrapper"
+    chmod +x "$wrapper"
+
+    if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+      tmux new-window  -t "$TMUX_SESSION" -n "$win" "bash $wrapper"
+    else
+      tmux new-session -d -s "$TMUX_SESSION" -n "$win" "bash $wrapper"
+    fi
+    log "interactive #${n} live — attach:  tmux attach -t ${TMUX_SESSION}  (window ${win}). Waiting for the agent to exit..."
+    while [[ ! -f "$rcfile" ]] && tmux has-session -t "$TMUX_SESSION" 2>/dev/null; do
+      sleep 3
+    done
+    rm -f "$PROMPT_FILE"
+    if [[ -f "$rcfile" ]]; then
+      log "interactive #${n}: agent exited (rc=$(cat "$rcfile")). Review the tmux window; poller advancing."
+    else
+      log "interactive #${n}: tmux session gone before agent exit (aborted?). Poller advancing."
+    fi
+    return 0
+  fi
+
+  # Headless mode: run in the foreground, stream + capture a transcript.
+  local logf="${LOG_DIR}/ticket-${n}-${stamp}.log"
   log "handing ticket #${n} to the agent (foreground; transcript → ${logf})..."
   set +e
   ( eval "$AGENT_CMD" ) < "$PROMPT_FILE" 2>&1 | tee "$logf"

@@ -248,6 +248,14 @@ bypass-sandbox / auto-approve flag in `$AGENT_CMD` (the poller never sandboxes
 anything itself); the flag name is runtime-specific — check the runtime's
 `--help`. Run the builder as a non-root user.
 
+For hands-on control, `--interactive` (take-over) mode launches the runtime's
+**interactive TUI** seeded with the ticket prompt inside a tmux session on the
+builder host and blocks until the agent exits — so you can `tmux attach`,
+**watch and type into the agent**, then let it finish. Set
+`AGENT_INTERACTIVE_CMD` to the interactive launch (prompt passed as an
+argument, not stdin), and tune the idle cadence with `POLL_INTERVAL` (`5m`,
+`15m`, …). See `scripts/agent-poller.sh --help`.
+
 ## 12. This protocol is general
 
 Nothing here is specific to any one workload. The i18n/ARB sweep was the

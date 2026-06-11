@@ -1906,5 +1906,22 @@
   "deleteProfileBody": "Removes \"{name}\" and its saved token. The offline cache for this hub will be wiped. This cannot be undone.",
   "@deleteProfileBody": { "placeholders": { "name": { "type": "String" } } },
   "noHubProfiles": "No hub profiles yet",
-  "noHubProfilesDesc": "Use the + button above to add one."
+  "noHubProfilesDesc": "Use the + button above to add one.",
+  "sessions": "Sessions",
+  "decisionHistory": "Decision history",
+  "searchEvents": "Search events",
+  "buttonDismiss": "Dismiss",
+  "dismissed": "Dismissed",
+  "dismissFailedError": "Dismiss failed: {error}",
+  "@dismissFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "deleteNoteTitle": "Delete note?",
+  "cannotBeUndone": "This cannot be undone.",
+  "newNote": "New note",
+  "noteTitle": "Note",
+  "pin": "Pin",
+  "unpin": "Unpin",
+  "noteKindNote": "Note",
+  "noteKindReminder": "Reminder",
+  "hintTitle": "Title",
+  "noteBodyHint": "Body (markdown allowed)"
 }

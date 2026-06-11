@@ -144,7 +144,7 @@ class MeScreen extends ConsumerWidget {
                 const TeamSwitcher(),
                 IconButton(
                   icon: const Icon(Icons.forum_outlined),
-                  tooltip: 'Sessions',
+                  tooltip: l10n.sessions,
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const SessionsScreen(),
@@ -153,7 +153,7 @@ class MeScreen extends ConsumerWidget {
                 ),
                 IconButton(
                   icon: const Icon(Icons.history),
-                  tooltip: 'Decision history',
+                  tooltip: l10n.decisionHistory,
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const DecisionHistoryScreen(),
@@ -162,7 +162,7 @@ class MeScreen extends ConsumerWidget {
                 ),
                 IconButton(
                   icon: const Icon(Icons.search),
-                  tooltip: 'Search events',
+                  tooltip: l10n.searchEvents,
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const SearchScreen(),
@@ -569,6 +569,7 @@ class _MeCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
     final accent = _accentColor(item);
@@ -706,7 +707,7 @@ class _MeCard extends ConsumerWidget {
                     TextButton.icon(
                       onPressed: () => _dismiss(context, ref),
                       icon: const Icon(Icons.check_circle_outline, size: 14),
-                      label: const Text('Dismiss'),
+                      label: Text(l10n.buttonDismiss),
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
                         textStyle: GoogleFonts.jetBrainsMono(fontSize: 11),
@@ -721,7 +722,7 @@ class _MeCard extends ConsumerWidget {
                       ),
                     ),
                     icon: const Icon(Icons.info_outline, size: 14),
-                    label: const Text('Details'),
+                    label: Text(l10n.details),
                     style: TextButton.styleFrom(
                       visualDensity: VisualDensity.compact,
                       textStyle: GoogleFonts.jetBrainsMono(fontSize: 11),
@@ -755,17 +756,18 @@ class _MeCard extends ConsumerWidget {
   // agent a reply, so this is only wired for the Messages filter; on
   // success the row drops out of the open list via _reloadAttention.
   Future<void> _dismiss(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
     try {
       await ref.read(hubProvider.notifier).resolve(item.id);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Dismissed')),
+          SnackBar(content: Text(l10n.dismissed)),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Dismiss failed: $e')),
+          SnackBar(content: Text(l10n.dismissFailedError('$e'))),
         );
       }
     }

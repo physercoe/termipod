@@ -1718,5 +1718,22 @@
   "deleteProfileBody": "将移除“{name}”及其已保存的令牌。此 hub 的离线缓存将被清除。此操作无法撤销。",
   "@deleteProfileBody": { "placeholders": { "name": { "type": "String" } } },
   "noHubProfiles": "暂无 Hub 配置",
-  "noHubProfilesDesc": "使用上方的 + 按钮添加一个。"
+  "noHubProfilesDesc": "使用上方的 + 按钮添加一个。",
+  "sessions": "会话",
+  "decisionHistory": "决策历史",
+  "searchEvents": "搜索事件",
+  "buttonDismiss": "忽略",
+  "dismissed": "已忽略",
+  "dismissFailedError": "忽略失败：{error}",
+  "@dismissFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "deleteNoteTitle": "删除笔记？",
+  "cannotBeUndone": "此操作无法撤销。",
+  "newNote": "新建笔记",
+  "noteTitle": "笔记",
+  "pin": "置顶",
+  "unpin": "取消置顶",
+  "noteKindNote": "笔记",
+  "noteKindReminder": "提醒",
+  "hintTitle": "标题",
+  "noteBodyHint": "正文（支持 markdown）"
 }

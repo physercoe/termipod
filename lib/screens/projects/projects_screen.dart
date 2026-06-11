@@ -376,10 +376,14 @@ class _HostAgentsSection extends StatefulWidget {
   final List<Map<String, dynamic>> live;
   final List<Map<String, dynamic>> dead;
   final Color muted;
+  final String agents;
+  final String host;
   const _HostAgentsSection({
     required this.live,
     required this.dead,
     required this.muted,
+    required this.agents,
+    required this.host,
   });
 
   @override
@@ -432,12 +436,15 @@ class _HostAgentsSectionState extends State<_HostAgentsSection> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'AGENTS · ${widget.live.length} live'
-          '${widget.dead.isEmpty ? '' : ' · ${widget.dead.length} dead'}',
+          widget.dead.isEmpty
+              ? l10n.hostAgentsSummaryLive(widget.agents, widget.live.length)
+              : l10n.hostAgentsSummaryWithDead(
+                  widget.agents, widget.live.length, widget.dead.length),
           style: GoogleFonts.jetBrainsMono(
             fontSize: FontSizes.label,
             fontWeight: FontWeight.w700,
@@ -450,7 +457,7 @@ class _HostAgentsSectionState extends State<_HostAgentsSection> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 2),
             child: Text(
-              'no live agents on this host',
+              l10n.noLiveAgentsOnHost(widget.agents, widget.host),
               style: GoogleFonts.jetBrainsMono(
                   fontSize: 11, color: widget.muted),
             ),
@@ -470,7 +477,7 @@ class _HostAgentsSectionState extends State<_HostAgentsSection> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'show ${widget.dead.length} dead',
+                    l10n.showDeadAgents(widget.dead.length),
                     style: GoogleFonts.jetBrainsMono(
                         fontSize: FontSizes.label, color: widget.muted),
                   ),
@@ -1440,6 +1447,7 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
     final hint = _parsedHint();
     final hostName = widget.host['name']?.toString() ?? '';
     final hostHostname = hint['host']?.toString() ?? '';
+    final hostTerm = ref.read(vocabularyProvider).term(VocabAxis.entityHost);
     final ranked = [...connections];
     ranked.sort((a, b) {
       final sa = _matchScore(a, hostName, hostHostname);
@@ -1458,6 +1466,8 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
         connections: ranked,
         hostName: hostName,
         hostHostname: hostHostname,
+        host: hostTerm.title,
+        hostLower: hostTerm.lower,
         scoreOf: (c) => _matchScore(c, hostName, hostHostname),
       ),
     );
@@ -1529,28 +1539,29 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
   }
 
   Future<void> _delete() async {
-    final name = widget.host['name']?.toString() ?? 'this host';
+    final l10n = AppLocalizations.of(context)!;
+    final hostTerm = ref.read(vocabularyProvider).term(VocabAxis.entityHost);
+    final agentTerm = ref.read(vocabularyProvider).term(VocabAxis.roleAgent);
+    final name =
+        widget.host['name']?.toString() ?? l10n.thisEntity(hostTerm.lower);
     final id = widget.host['id']?.toString() ?? '';
     if (id.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Delete "$name"?'),
-        content: const Text(
-          'Removes the host row from the hub. The host-runner, if still '
-          'running, will register a fresh row on its next boot. The hub '
-          'refuses the delete if any agents are still alive on this host.',
-        ),
+        title: Text(l10n.deleteNamedConfirm(name)),
+        content: Text(l10n.hostDeleteBody(
+            hostTerm.lower, agentTerm.pluralLower)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
                 backgroundColor: Theme.of(ctx).colorScheme.error),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -1576,6 +1587,10 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final hostTerm = vocab.term(VocabAxis.entityHost);
+    final agentTerm = vocab.term(VocabAxis.roleAgent);
     final h = widget.host;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final mutedColor = isDark
@@ -1601,7 +1616,7 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                 AppStatusChip(label: status, color: _agentStatusColor(status)),
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Edit host',
+                  tooltip: l10n.editHost(hostTerm.lower),
                   onPressed: _busy ? null : _edit,
                 ),
                 IconButton(
@@ -1611,31 +1626,36 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
               ],
             ),
             const SizedBox(height: 8),
-            _kv('Host ID', h['id']?.toString() ?? '', mutedColor),
+            _kv(l10n.hostEntityId(hostTerm.title), h['id']?.toString() ?? '',
+                mutedColor),
             _kv(
-                'Last seen',
+                l10n.fieldLastSeen,
                 lastSeen.isEmpty
-                    ? 'never'
-                    : '${_shortTs(lastSeen)} ago · $lastSeen',
+                    ? l10n.neverValue
+                    : l10n.lastSeenAgo(_shortTs(lastSeen), lastSeen),
                 mutedColor),
             Builder(builder: (_) {
               final commit = h['runner_commit']?.toString() ?? '';
               final buildTime = h['runner_build_time']?.toString() ?? '';
               final modified = h['runner_modified'] == true;
               if (commit.isEmpty && buildTime.isEmpty) {
-                return _kv('Runner', 'unknown', mutedColor);
+                return _kv(l10n.fieldRunner, l10n.diffUnknown, mutedColor);
               }
               final parts = <String>[];
               if (commit.isNotEmpty) {
                 final short = commit.length > 7 ? commit.substring(0, 7) : commit;
-                parts.add('commit $short${modified ? '+dirty' : ''}');
+                parts.add(modified
+                    ? l10n.runnerCommitDirty(short)
+                    : l10n.runnerCommit(short));
               }
               if (buildTime.isNotEmpty) {
-                parts.add('built ${buildTime.length > 10 ? buildTime.substring(0, 10) : buildTime}');
+                parts.add(l10n.runnerBuilt(
+                    buildTime.length > 10 ? buildTime.substring(0, 10) : buildTime));
               }
-              return _kv('Runner', parts.join(' · '), mutedColor);
+              return _kv(l10n.fieldRunner, parts.join(' · '), mutedColor);
             }),
-            _kv('Created', h['created_at']?.toString() ?? '', mutedColor),
+            _kv(l10n.fieldCreated, h['created_at']?.toString() ?? '',
+                mutedColor),
             // System info is a sibling to "Capabilities" but distinct — it
             // describes the box (OS, CPU, memory, kernel), not the agent
             // tools available on it. Empty for hosts whose host-runner
@@ -1644,11 +1664,14 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
             ..._systemInfoRows(h, mutedColor),
             ..._capabilitiesRows(h, mutedColor),
             if (_parsedHint().isNotEmpty)
-              _kv('SSH hint', _formatHint(_parsedHint()), mutedColor),
+              _kv(l10n.hostSshHintSection, _formatHint(_parsedHint()),
+                  mutedColor),
             Builder(builder: (_) {
               final hostId = h['id']?.toString() ?? '';
               final bindingId = ref.watch(hostBindingsProvider)[hostId];
-              if (bindingId == null) return _kv('Bound', 'none', mutedColor);
+              if (bindingId == null) {
+                return _kv(l10n.fieldBound, l10n.noneValue, mutedColor);
+              }
               final conns = ref.watch(connectionsProvider).connections;
               Connection? bound;
               for (final c in conns) {
@@ -1657,8 +1680,11 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                   break;
                 }
               }
-              if (bound == null) return _kv('Bound', 'none', mutedColor);
-              return _kv('Bound', '${bound.name} (${bound.host})', mutedColor);
+              if (bound == null) {
+                return _kv(l10n.fieldBound, l10n.noneValue, mutedColor);
+              }
+              return _kv(
+                  l10n.fieldBound, '${bound.name} (${bound.host})', mutedColor);
             }),
             const SizedBox(height: 12),
             // Agents on this host. Sourced from hubProvider so it picks
@@ -1685,13 +1711,15 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
               if (live.isEmpty && dead.isEmpty) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: _kv('Agents', 'none', mutedColor),
+                  child: _kv(agentTerm.plural, l10n.noneValue, mutedColor),
                 );
               }
               return _HostAgentsSection(
                 live: live,
                 dead: dead,
                 muted: mutedColor,
+                agents: agentTerm.pluralLower,
+                host: hostTerm.lower,
               );
             }),
             const SizedBox(height: 8),
@@ -1707,7 +1735,7 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                 foregroundColor: Colors.white,
               ),
               icon: const Icon(Icons.terminal),
-              label: const Text('Enter pane'),
+              label: Text(l10n.enterPane),
             ),
             const SizedBox(height: 8),
             Builder(builder: (_) {
@@ -1720,7 +1748,7 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                   child: OutlinedButton.icon(
                     onPressed: _busy ? null : _unbind,
                     icon: const Icon(Icons.link_off, size: 18),
-                    label: const Text('Unbind connection'),
+                    label: Text(l10n.unbindConnection),
                   ),
                 );
               }
@@ -1729,7 +1757,7 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                 child: OutlinedButton.icon(
                   onPressed: _busy ? null : _bindToExisting,
                   icon: const Icon(Icons.link, size: 18),
-                  label: const Text('Bind to a connection'),
+                  label: Text(l10n.bindToConnection),
                 ),
               );
             }),
@@ -1748,7 +1776,7 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                 ));
               },
               icon: const Icon(Icons.insights_outlined, size: 18),
-              label: const Text('Insights'),
+              label: Text(l10n.openInsights),
             ),
             const SizedBox(height: 8),
             FilledButton.icon(
@@ -1757,7 +1785,7 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                 backgroundColor: Theme.of(context).colorScheme.error,
               ),
               icon: const Icon(Icons.delete_outline),
-              label: const Text('Delete host'),
+              label: Text(l10n.deleteEntity(hostTerm.lower)),
             ),
           ],
         ),
@@ -1825,6 +1853,7 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
   /// Sourced from capabilities.host (host-runner v1.0.337+); empty for
   /// older runners that didn't probe these fields.
   List<Widget> _systemInfoRows(Map<String, dynamic> h, Color mutedColor) {
+    final l10n = AppLocalizations.of(context)!;
     final caps = _parsedCapabilities(h);
     final hostInfo = caps['host'];
     if (hostInfo is! Map) return const [];
@@ -1840,16 +1869,17 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
       if (os.isNotEmpty) os,
       if (arch.isNotEmpty) arch,
     ].join('/');
-    if (platform.isNotEmpty) rows.add(_kv('OS', platform, mutedColor));
-    if (kernel.isNotEmpty) rows.add(_kv('Kernel', kernel, mutedColor));
+    if (platform.isNotEmpty) rows.add(_kv(l10n.fieldOs, platform, mutedColor));
+    if (kernel.isNotEmpty) rows.add(_kv(l10n.fieldKernel, kernel, mutedColor));
     if (cpuCount is num && cpuCount > 0) {
-      rows.add(_kv('CPU',
-          '${cpuCount.toInt()} core${cpuCount == 1 ? '' : 's'}', mutedColor));
+      rows.add(_kv(l10n.fieldCpu, l10n.coreCount(cpuCount.toInt()), mutedColor));
     }
     if (memBytes is num && memBytes > 0) {
-      rows.add(_kv('Memory', _humanBytes(memBytes.toInt()), mutedColor));
+      rows.add(_kv(l10n.fieldMemory, _humanBytes(memBytes.toInt()), mutedColor));
     }
-    if (hostname.isNotEmpty) rows.add(_kv('Hostname', hostname, mutedColor));
+    if (hostname.isNotEmpty) {
+      rows.add(_kv(l10n.fieldHostname, hostname, mutedColor));
+    }
     return rows;
   }
 
@@ -1858,10 +1888,11 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
   /// the sheet doesn't list every supported engine just to say "no".
   /// The user only cares about what *is* available on this box.
   List<Widget> _capabilitiesRows(Map<String, dynamic> h, Color mutedColor) {
+    final l10n = AppLocalizations.of(context)!;
     final caps = _parsedCapabilities(h);
     final agents = caps['agents'];
     if (agents is! Map || agents.isEmpty) {
-      return [_kv('Engines', 'none', mutedColor)];
+      return [_kv(l10n.fieldEngines, l10n.noneValue, mutedColor)];
     }
     final installed = <String>[];
     for (final entry in agents.entries) {
@@ -1873,24 +1904,25 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
       installed.add(version.isEmpty ? name : '$name $version');
     }
     if (installed.isEmpty) {
-      return [_kv('Engines', 'none installed', mutedColor)];
+      return [_kv(l10n.fieldEngines, l10n.noneInstalled, mutedColor)];
     }
-    return [_kv('Engines', installed.join(' · '), mutedColor)];
+    return [_kv(l10n.fieldEngines, installed.join(' · '), mutedColor)];
   }
 
   /// Friendly bytes — the host's `mem_bytes` is always GiB-scale, so
   /// we render `xx.x GiB` and skip the unit ladder. Keep the threshold
   /// loose so a 0.5 GiB VM still renders sensibly.
   String _humanBytes(int b) {
-    if (b <= 0) return '0';
+    final l10n = AppLocalizations.of(context)!;
+    if (b <= 0) return l10n.zeroBytes;
     const gib = 1 << 30;
     if (b >= gib) {
       final gb = b / gib;
-      return '${gb.toStringAsFixed(gb >= 10 ? 0 : 1)} GiB';
+      return l10n.bytesValue(gb.toStringAsFixed(gb >= 10 ? 0 : 1), 'GiB');
     }
     const mib = 1 << 20;
     final mb = b / mib;
-    return '${mb.toStringAsFixed(0)} MiB';
+    return l10n.bytesValue(mb.toStringAsFixed(0), 'MiB');
   }
 }
 
@@ -1903,16 +1935,21 @@ class _ConnectionPickerSheet extends StatelessWidget {
   final List<Connection> connections;
   final String hostName;
   final String hostHostname;
+  final String host;
+  final String hostLower;
   final int Function(Connection) scoreOf;
   const _ConnectionPickerSheet({
     required this.connections,
     required this.hostName,
     required this.hostHostname,
+    required this.host,
+    required this.hostLower,
     required this.scoreOf,
   });
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     final maxHeight = MediaQuery.of(context).size.height * 0.7;
     return SafeArea(
@@ -1929,7 +1966,7 @@ class _ConnectionPickerSheet extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Bind to a connection',
+                      l10n.bindToConnection,
                       style: GoogleFonts.spaceGrotesk(
                           fontSize: 16, fontWeight: FontWeight.w700),
                     ),
@@ -1945,7 +1982,8 @@ class _ConnectionPickerSheet extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: Text(
-                  'Host: ${hostName.isNotEmpty ? hostName : ''}'
+                  '${l10n.hostTargetLabel(host)} '
+                  '${hostName.isNotEmpty ? hostName : ''}'
                   '${hostName.isNotEmpty && hostHostname.isNotEmpty ? ' · ' : ''}'
                   '${hostHostname.isNotEmpty ? hostHostname : ''}',
                   style: GoogleFonts.jetBrainsMono(
@@ -1962,12 +2000,11 @@ class _ConnectionPickerSheet extends StatelessWidget {
                     return ListTile(
                       leading: Icon(Icons.add, color: colorScheme.primary),
                       title: Text(
-                        'Add new connection from host hint',
+                        l10n.addConnectionFromHostHint(hostLower),
                         style: GoogleFonts.spaceGrotesk(
                             fontWeight: FontWeight.w600),
                       ),
-                      subtitle: const Text(
-                          'Open the form pre-filled with this host\'s data'),
+                      subtitle: Text(l10n.openPrefilledHostData(hostLower)),
                       onTap: () => Navigator.pop(ctx, _kAddNewSentinel),
                     );
                   }
@@ -1994,7 +2031,7 @@ class _ConnectionPickerSheet extends StatelessWidget {
                     ),
                     trailing: score >= 3
                         ? Chip(
-                            label: const Text('match'),
+                            label: Text(l10n.matchLabel),
                             visualDensity: VisualDensity.compact,
                             backgroundColor:
                                 colorScheme.primaryContainer,

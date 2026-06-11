@@ -6,7 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../../providers/hub_provider.dart';
+import '../../../providers/vocab_provider.dart';
+import '../../../services/vocab/vocab_axis.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/artifact_viewers/metric_chart_viewer.dart';
@@ -216,18 +219,19 @@ class _DeliverableLine extends StatelessWidget {
   }
 }
 
-class IdeaConversationHero extends StatelessWidget {
+class IdeaConversationHero extends ConsumerWidget {
   final OverviewContext ctx;
   const IdeaConversationHero({super.key, required this.ctx});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final stewardTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     return _PhaseHero(
       ctx: ctx,
-      headline: 'Direct the steward',
-      subhead:
-          'No formal deliverable in this phase. Talk through scope, ratify the '
-          'scope criterion when ready, then advance to Lit-review.',
+      headline: l10n.ideaConvHeadline(stewardTerm.title),
+      subhead: l10n.ideaConvSubhead,
       icon: Icons.forum_outlined,
       tone: DesignColors.primary,
       extrasBuilder: (context, overview) => _ScopeCriterionEmbed(
@@ -244,12 +248,11 @@ class DeliverableFocusHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return _PhaseHero(
       ctx: ctx,
-      headline: 'Active deliverable',
-      subhead:
-          'Tap to open the structured viewer; ratify sections one by one or '
-          'ratify the deliverable as a whole.',
+      headline: l10n.deliverableFocusHeadline,
+      subhead: l10n.deliverableFocusSubhead,
       icon: Icons.description_outlined,
       tone: DesignColors.primary,
       extrasBuilder: (context, overview) => _NextSectionEmbed(
@@ -266,12 +269,11 @@ class ExperimentDashHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return _PhaseHero(
       ctx: ctx,
-      headline: 'Experiment dashboard',
-      subhead:
-          'Mixed-component deliverable: report doc + artifacts + runs. Metric '
-          'criterion auto-fires when threshold is met.',
+      headline: l10n.experimentDashHeadline,
+      subhead: l10n.experimentDashSubhead,
       icon: Icons.science_outlined,
       tone: DesignColors.terminalBlue,
       extrasBuilder: (context, overview) =>
@@ -435,12 +437,11 @@ class PaperAcceptanceHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return _PhaseHero(
       ctx: ctx,
-      headline: 'Paper draft',
-      subhead:
-          'Synthesise method + experiment-report into the paper. Ratify the '
-          'draft to close the project.',
+      headline: l10n.paperDraftHeadline,
+      subhead: l10n.paperDraftSubhead,
       icon: Icons.menu_book_outlined,
       tone: DesignColors.warning,
       extrasBuilder: (context, overview) =>
@@ -723,6 +724,7 @@ class _NextSectionEmbedState extends ConsumerState<_NextSectionEmbed> {
       // already exposes ratify-as-whole + the chassis exposes counts.
       return const SizedBox.shrink();
     }
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final border =
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
@@ -764,7 +766,7 @@ class _NextSectionEmbedState extends ConsumerState<_NextSectionEmbed> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Next: $title',
+                    l10n.nextLabel(title),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.spaceGrotesk(
@@ -879,6 +881,7 @@ class _ScopeCriterionEmbedState
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     final messenger = ScaffoldMessenger.of(context);
+    final l10n = AppLocalizations.of(context)!;
     setState(() => _busy = true);
     try {
       switch (action) {
@@ -905,13 +908,14 @@ class _ScopeCriterionEmbedState
       await _load();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Failed: $e')));
+      messenger.showSnackBar(SnackBar(content: Text(l10n.failedError('$e'))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _showActions(String criterionId, String currentState) async {
+    final l10n = AppLocalizations.of(context)!;
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -922,25 +926,25 @@ class _ScopeCriterionEmbedState
               ListTile(
                 leading: const Icon(Icons.check_circle,
                     color: DesignColors.terminalGreen),
-                title: const Text('Mark met'),
+                title: Text(l10n.markMet),
                 onTap: () => Navigator.pop(ctx, 'mark-met'),
               ),
             if (currentState != 'failed')
               ListTile(
                 leading: const Icon(Icons.cancel, color: DesignColors.error),
-                title: const Text('Mark failed'),
+                title: Text(l10n.markFailed),
                 onTap: () => Navigator.pop(ctx, 'mark-failed'),
               ),
             if (currentState != 'waived')
               ListTile(
                 leading: const Icon(Icons.do_not_disturb,
                     color: DesignColors.textMuted),
-                title: const Text('Waive'),
+                title: Text(l10n.waive),
                 onTap: () => Navigator.pop(ctx, 'waive'),
               ),
             ListTile(
               leading: const Icon(Icons.close),
-              title: const Text('Cancel'),
+              title: Text(l10n.buttonCancel),
               onTap: () => Navigator.pop(ctx),
             ),
           ],

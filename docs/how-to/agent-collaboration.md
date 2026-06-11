@@ -190,7 +190,56 @@ each spec near-mechanical so a `tier:mechanical` builder can one-shot it: name
 the exact files, cite a reference PR to copy, list the rules and the deferral
 set, and give the verify commands.
 
-## 10. This protocol is general
+## 10. A builder is a runtime plus a model
+
+"Builder" names a **role**, not a program. Concretely a builder is two
+interchangeable parts the operator chooses:
+
+- a **runtime** — the agent harness that reads files, edits code, runs `git`
+  and `gh`, and drives a loop; and
+- a **model** — the LLM the runtime calls for reasoning.
+
+Some CLIs bundle both (the runtime *is* the model's first-party tool). Other
+runtimes are model-agnostic: they speak a provider API, so you can point them
+at a **cheaper model** through that provider's endpoint — typically by setting
+the runtime's base-URL / auth-token / model environment variables before
+launch. Either shape is a valid builder; the protocol never sees the
+difference. This is why §2 keeps identity (`git config` handle + shared
+account) separate from *which* runtime or model is running — you can swap the
+model under a builder without touching its handle, its account, or any ticket.
+
+Pick the model tier to match the work tier (§3): a cheap model on
+`tier:mechanical`, a stronger one when you clear a builder for `tier:medium`.
+
+## 11. Running a builder autonomously
+
+A builder need not be driven by a human typing a prompt per ticket. The
+reference poller [`scripts/agent-poller.sh`](../../scripts/agent-poller.sh)
+runs the loop on the builder's host:
+
+1. it does the cheap GitHub orchestration in shell — finds a `ticket:ready`
+   issue at a tier the builder is cleared for, claims it (relabel + handle
+   comment, §4), and writes the standing prompt of §5;
+2. it hands that prompt to **your** agent via the `$AGENT_CMD` you set — the
+   one place a runtime/model is named, and only in the operator's environment,
+   never in the repo;
+3. the agent runs in the **foreground**, so the loop is one-in-flight by
+   construction; and it won't claim more while this builder still has an open
+   PR awaiting review.
+
+```bash
+export AGENT_HANDLE=builder-1          # = your git config user.name
+export AGENT_TIERS=mechanical          # tiers this builder may take
+export AGENT_CMD='<your headless agent invocation; prompt on stdin or $PROMPT_FILE>'
+bash scripts/agent-poller.sh --dry-run --once   # inspect first
+bash scripts/agent-poller.sh                    # then run the loop
+```
+
+The poller deliberately does **not** manage the `holds:arb` baton itself — the
+agent does, per §6, before it opens an ARB PR. Run the script with `--help`
+for the full configuration and safety notes.
+
+## 12. This protocol is general
 
 Nothing here is specific to any one workload. The i18n/ARB sweep was the
 proving pilot, but the same lifecycle, tiers, identity model, baton, and

@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+#
+# agent-poller.sh — autonomous builder loop for the multi-agent protocol.
+#
+# A host-side poller that lets ANY builder agent work the GitHub ticket queue
+# without a human typing a prompt each time. It does the cheap, deterministic
+# GitHub orchestration in bash (find a ready ticket → claim it → hand the agent
+# a standing prompt), so the expensive agent only spends tokens on the actual
+# implementation.
+#
+# It is VENDOR-AGNOSTIC by design (ADR-049 D-9): no model or CLI name appears
+# here. You plug in your agent via $AGENT_CMD. A "builder" is a RUNTIME + a
+# MODEL — e.g. a CLI that is its own runtime, or a generic agent runtime driving
+# a cheap model through a compatible API. The poller does not care which.
+#
+# See: docs/how-to/agent-collaboration.md, AGENTS.md, ADR-049.
+#
+# ---------------------------------------------------------------------------
+# Configuration (environment variables)
+# ---------------------------------------------------------------------------
+#   AGENT_HANDLE   (required) Your attribution handle, e.g. "builder-1".
+#                  Should match `git config user.name`. Used in the branch
+#                  name (agent/<handle>/<N>-...) and the claim comment — the
+#                  protocol's source of truth for who holds a ticket.
+#
+#   AGENT_CMD      (required) The command that runs ONE headless agent session.
+#                  The ticket prompt is provided BOTH on stdin AND in the file
+#                  $PROMPT_FILE (env var, exported before AGENT_CMD runs). It is
+#                  evaluated with `eval`, so you may reference $PROMPT_FILE,
+#                  $TICKET_NUMBER, $TICKET_SLUG, and $BRANCH. Examples:
+#
+#                    # a CLI that is its own runtime, reads the prompt as an arg:
+#                    AGENT_CMD='<agent-cli> exec "$(cat "$PROMPT_FILE")"'
+#
+#                    # a generic agent runtime in non-interactive/headless mode,
+#                    # pointed at a cheap model via its provider env vars
+#                    # (set those in the same shell, NOT here):
+#                    AGENT_CMD='<runtime> -p "$(cat "$PROMPT_FILE")" --headless-no-prompt-flag'
+#
+#   AGENT_TIERS    (optional) Comma list of tiers this builder is cleared for,
+#                  in preference order. Default: "mechanical".
+#                  e.g. "mechanical" or "mechanical,medium".
+#
+#   POLL_INTERVAL  (optional) Seconds to sleep between queue checks. Default 120.
+#
+#   REPO           (optional) owner/name. Default: the repo `gh` infers here.
+#
+# ---------------------------------------------------------------------------
+# Flags
+# ---------------------------------------------------------------------------
+#   --once       Do a single iteration (claim + run at most one ticket) and exit.
+#   --dry-run    Print what it would do; never relabel, comment, branch, or run
+#                the agent. Safe for a first look at the queue.
+#
+# ---------------------------------------------------------------------------
+# Guarantees / safety
+# ---------------------------------------------------------------------------
+#   * One-in-flight: the agent runs in the FOREGROUND, so the loop naturally
+#     serializes — a poller process works at most one ticket at a time.
+#   * Won't pile up review: if this handle already has an OPEN PR
+#     (branch agent/<handle>/*), the poller waits instead of claiming more.
+#   * Never merges. Merging is the maintainer's sole action (ADR-049 D-7).
+#   * Baton: this poller does NOT manage the holds:arb baton itself — the agent
+#     does, per AGENTS.md §6 (it checks the baton before opening an ARB PR).
+#     Foreground serialization keeps a single host to one in-flight ticket;
+#     cross-host ARB safety still rides on the agent's baton check.
+#
+set -euo pipefail
+
+# ---- args ----------------------------------------------------------------
+ONCE=0
+DRY_RUN=0
+for arg in "$@"; do
+  case "$arg" in
+    --once)    ONCE=1 ;;
+    --dry-run) DRY_RUN=1 ;;
+    -h|--help) sed -n '2,80p' "$0"; exit 0 ;;
+    *) echo "unknown flag: $arg" >&2; exit 2 ;;
+  esac
+done
+
+# ---- config / preflight --------------------------------------------------
+: "${AGENT_HANDLE:?set AGENT_HANDLE to your builder handle (e.g. builder-1)}"
+: "${AGENT_CMD:?set AGENT_CMD to your headless agent invocation (see header)}"
+AGENT_TIERS="${AGENT_TIERS:-mechanical}"
+POLL_INTERVAL="${POLL_INTERVAL:-120}"
+
+GH_REPO_ARGS=()
+if [[ -n "${REPO:-}" ]]; then GH_REPO_ARGS=(--repo "$REPO"); fi
+
+log() { printf '%s  %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+
+command -v gh  >/dev/null || { echo "gh not found" >&2; exit 1; }
+command -v jq  >/dev/null || { echo "jq not found" >&2; exit 1; }
+gh auth status >/dev/null 2>&1 || { echo "gh not authenticated — run 'gh auth login'" >&2; exit 1; }
+
+# Attribution sanity check (non-fatal): the commit identity should be the handle.
+git_name="$(git config user.name || true)"
+if [[ "$git_name" != "$AGENT_HANDLE" ]]; then
+  log "WARN: git config user.name='$git_name' != AGENT_HANDLE='$AGENT_HANDLE'."
+  log "      Set:  git config user.name '$AGENT_HANDLE' && git config user.email '$AGENT_HANDLE@users.noreply.github.com'"
+fi
+
+log "poller up — handle=$AGENT_HANDLE tiers=[$AGENT_TIERS] interval=${POLL_INTERVAL}s dry_run=$DRY_RUN once=$ONCE"
+
+# ---- helpers -------------------------------------------------------------
+
+# Is there already an OPEN PR from this handle's branch namespace? (review queue)
+have_open_pr() {
+  local n
+  n=$(gh pr list "${GH_REPO_ARGS[@]}" --state open --limit 100 \
+        --json headRefName \
+        --jq "[.[] | select(.headRefName | startswith(\"agent/${AGENT_HANDLE}/\"))] | length")
+  [[ "${n:-0}" -gt 0 ]]
+}
+
+# Print the number of the first ready ticket matching a cleared tier, or empty.
+# Preference order follows AGENT_TIERS.
+pick_ticket() {
+  local ready_json
+  ready_json=$(gh issue list "${GH_REPO_ARGS[@]}" --state open \
+      --label ticket:ready --limit 100 \
+      --json number,title,labels)
+  IFS=',' read -ra tiers <<< "$AGENT_TIERS"
+  local tier
+  for tier in "${tiers[@]}"; do
+    tier="$(echo "$tier" | tr -d '[:space:]')"
+    [[ -z "$tier" ]] && continue
+    echo "$ready_json" | jq -r --arg t "tier:$tier" '
+      [ .[] | select(.labels | map(.name) | index($t)) ] | sort_by(.number) | .[0].number // empty
+    ' | head -1 | grep -E '^[0-9]+$' && return 0
+  done
+  return 0
+}
+
+# Slug from an issue title: lowercase, alnum→-, collapse, first ~6 words.
+slugify() {
+  echo "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+    | cut -d- -f1-6
+}
+
+# Build the standing prompt handed to the agent for ticket N.
+build_prompt() {
+  local n="$1" slug="$2" branch="$3" title="$4"
+  cat <<EOF
+You are a BUILDER named "${AGENT_HANDLE}" in this repository's multi-agent
+workflow. Read AGENTS.md and docs/how-to/agent-collaboration.md first, then
+CLAUDE.md for repo conventions.
+
+GitHub issue #${n} ("${title}") has ALREADY been claimed for you and labeled
+ticket:claimed — do NOT re-claim it. Your job is to implement it end to end:
+
+1. Branch off the latest main:  git checkout main && git pull && git checkout -b ${branch}
+2. Implement EXACTLY per issue #${n}'s spec. Follow the reference PR it cites,
+   file for file. Do not expand scope.
+3. If the change touches lib/l10n/*.arb, FIRST check no other open ticket holds
+   the holds:arb baton (gh issue list --label holds:arb --state open). If free,
+   add holds:arb to issue #${n}; if held, set ticket:blocked, comment why, stop.
+4. Self-verify: run the gate the spec names (e.g. bash scripts/lint-arb.sh),
+   push, wait for CI, and confirm 'gh pr checks <PR>' shows EVERY row 'pass'
+   (do not trust the --watch exit code).
+5. Open a PR with body "Closes #${n}", set the issue to ticket:in-review, and
+   request review from the maintainer. NEVER merge — that is the maintainer's.
+6. If anything is ambiguous (vocabulary axis, ICU/placeholder trap, spec vs
+   code mismatch), set ticket:blocked, comment your specific question, and stop.
+   Do not guess on judgment calls.
+
+Commit as your configured git identity ("${AGENT_HANDLE}") and add a
+Co-Authored-By trailer. English only in code, comments, and docs.
+EOF
+}
+
+# ---- one iteration -------------------------------------------------------
+work_one() {
+  if have_open_pr; then
+    log "handle ${AGENT_HANDLE} already has an open PR — waiting for review, not claiming."
+    return 0
+  fi
+
+  local n
+  n="$(pick_ticket || true)"
+  if [[ -z "${n:-}" ]]; then
+    log "no ready ticket at tiers [$AGENT_TIERS]."
+    return 0
+  fi
+
+  local title slug branch
+  title="$(gh issue view "$n" "${GH_REPO_ARGS[@]}" --json title --jq .title)"
+  slug="$(slugify "$title")"
+  branch="agent/${AGENT_HANDLE}/${n}-${slug}"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] would claim #${n} ('${title}') → branch ${branch} → run agent."
+    return 0
+  fi
+
+  log "claiming #${n} ('${title}') as ${AGENT_HANDLE}."
+  gh issue edit "$n" "${GH_REPO_ARGS[@]}" \
+      --add-label ticket:claimed --remove-label ticket:ready
+  gh issue comment "$n" "${GH_REPO_ARGS[@]}" \
+      --body "claiming as ${AGENT_HANDLE}, branch \`${branch}\`. ETA ~30m."
+
+  PROMPT_FILE="$(mktemp -t agent-ticket-${n}.XXXXXX.txt)"
+  TICKET_NUMBER="$n"
+  TICKET_SLUG="$slug"
+  BRANCH="$branch"
+  export PROMPT_FILE TICKET_NUMBER TICKET_SLUG BRANCH
+  build_prompt "$n" "$slug" "$branch" "$title" > "$PROMPT_FILE"
+
+  log "handing ticket #${n} to the agent (foreground)..."
+  set +e
+  ( eval "$AGENT_CMD" ) < "$PROMPT_FILE"
+  local rc=$?
+  set -e
+  rm -f "$PROMPT_FILE"
+
+  if [[ $rc -ne 0 ]]; then
+    log "agent exited non-zero (rc=$rc) on #${n}. Leaving the ticket claimed for inspection."
+  else
+    log "agent finished #${n} (rc=0). Maintainer review is next; poller will wait while the PR is open."
+  fi
+  return 0
+}
+
+# ---- loop ----------------------------------------------------------------
+if [[ "$ONCE" -eq 1 ]]; then
+  work_one
+  exit 0
+fi
+
+while true; do
+  work_one || log "iteration error (continuing)."
+  sleep "$POLL_INTERVAL"
+done

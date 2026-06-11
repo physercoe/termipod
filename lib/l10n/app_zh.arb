@@ -1660,5 +1660,17 @@
   "@needsMeFilterTitle": { "placeholders": { "projects": { "type": "String" } } },
   "needsMeFilterSubtitle": "快速查看“有什么在等我？”",
   "sortBy": "排序方式",
-  "sortRecent": "最近"
+  "sortRecent": "最近",
+  "stewardOverlayTitle": "{steward}悬浮层",
+  "@stewardOverlayTitle": { "placeholders": { "steward": { "type": "String" } } },
+  "stewardOverlayDesc": "用于{agent}驱动导航的悬浮聊天球。拖动浮球或面板标题栏可移动；从右下角可调整大小。关闭即可完全隐藏。",
+  "@stewardOverlayDesc": { "placeholders": { "agent": { "type": "String" } } },
+  "panelOpacity": "面板不透明度",
+  "navPadTapSlotThenPick": "请先点按上方的按钮槽位，再选择替换项",
+  "customTmuxKeyLabel": "自定义（tmux 按键名）",
+  "customTmuxKeyHint": "例如 C-x 或 F5",
+  "buttonOk": "确定",
+  "pickButtonForSlot": "为槽位 {slot} 选择按钮",
+  "@pickButtonForSlot": { "placeholders": { "slot": { "type": "int" } } },
+  "tapSlotToReplaceFromCatalog": "点按上方的按钮槽位，即可从目录中替换"
 }

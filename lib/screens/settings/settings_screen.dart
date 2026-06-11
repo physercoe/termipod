@@ -13,6 +13,7 @@ import '../../providers/hub_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/key_provider.dart';
 import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../services/vocab/vocab_preset.dart';
 import '../../services/vocab/vocabulary.dart';
 import '../../services/data_port_service.dart';
@@ -648,11 +649,10 @@ class _CategoryPage extends ConsumerWidget {
       //    floating-overlay UI surfaces). ────────────────────────
       SwitchListTile(
         secondary: const Icon(Icons.support_agent_outlined),
-        title: const Text('Steward overlay'),
-        subtitle: const Text(
-            'Floating chat puck for agent-driven navigation. '
-            'Drag the puck or panel header; resize from the '
-            'bottom-right corner. Disable to hide entirely.'),
+        title: Text(l10n.stewardOverlayTitle(
+            ref.watch(vocabularyProvider).term(VocabAxis.roleSteward).title)),
+        subtitle: Text(l10n.stewardOverlayDesc(
+            ref.watch(vocabularyProvider).term(VocabAxis.roleAgent).lower)),
         value: settings.stewardOverlayEnabled,
         onChanged: (value) {
           ref
@@ -663,7 +663,7 @@ class _CategoryPage extends ConsumerWidget {
       if (settings.stewardOverlayEnabled)
         ListTile(
           leading: const Icon(Icons.opacity),
-          title: const Text('Panel opacity'),
+          title: Text(l10n.panelOpacity),
           subtitle: Slider(
             value:
                 settings.stewardOverlayPanelOpacity.clamp(0.5, 1.0),
@@ -1477,10 +1477,9 @@ class _CategoryPage extends ConsumerWidget {
                         scrollController: scrollController,
                         onPick: (button) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                  'Tap a button slot above, then pick a replacement'),
-                              duration: Duration(seconds: 2),
+                            SnackBar(
+                              content: Text(l10n.navPadTapSlotThenPick),
+                              duration: const Duration(seconds: 2),
                             ),
                           );
                         },
@@ -1498,6 +1497,7 @@ class _CategoryPage extends ConsumerWidget {
 
   void _showFloatingPadCenterKeyPicker(
       BuildContext context, WidgetRef ref, AppSettings settings) {
+    final l10n = AppLocalizations.of(context)!;
     const commonKeys = <(String, String)>[
       ('Enter', 'Enter (⏎)'),
       ('Escape', 'Escape (ESC)'),
@@ -1541,10 +1541,10 @@ class _CategoryPage extends ConsumerWidget {
                 Expanded(
                   child: TextField(
                     controller: customController,
-                    decoration: const InputDecoration(
-                      labelText: 'Custom (tmux key name)',
-                      hintText: 'e.g. C-x or F5',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.customTmuxKeyLabel,
+                      hintText: l10n.customTmuxKeyHint,
+                      border: const OutlineInputBorder(),
                       isDense: true,
                     ),
                   ),
@@ -1560,7 +1560,7 @@ class _CategoryPage extends ConsumerWidget {
                     }
                     Navigator.pop(ctx);
                   },
-                  child: const Text('OK'),
+                  child: Text(l10n.buttonOk),
                 ),
               ],
             ),
@@ -2235,7 +2235,8 @@ class _NavPadSlot extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 8),
                   child: Text(
-                    'Pick button for slot ${index + 1}',
+                    AppLocalizations.of(context)!
+                        .pickButtonForSlot(index + 1),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
@@ -2321,7 +2322,7 @@ class _NavPadButtonCatalog extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Text(
-          'Tap a button slot above to replace it from the catalog',
+          AppLocalizations.of(context)!.tapSlotToReplaceFromCatalog,
           textAlign: TextAlign.center,
           style: TextStyle(
             color: isDark ? Colors.white38 : Colors.black38,

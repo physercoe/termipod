@@ -1955,5 +1955,16 @@
   "matchLabel": "匹配",
   "copyPublicKey": "复制公钥",
   "keySourceGenerated": "已生成",
-  "keySourceImported": "已导入"
+  "keySourceImported": "已导入",
+  "sectionEditedElsewhere": "此章节已在其他位置编辑。请重新加载以查看最新内容。",
+  "statusChangeFailedError": "状态变更失败：{error}",
+  "@statusChangeFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "unratifySectionTitle": "取消批准章节？",
+  "unratifySectionBody": "这会将章节移回草稿。仅限 director 操作。",
+  "buttonUnratify": "取消批准",
+  "buttonWrite": "撰写",
+  "buttonRatify": "批准",
+  "sectionNotAuthored": "此章节尚未撰写。",
+  "sectionEmptyGuidance": "使用下方编辑器手动撰写内容，或从{project} Overview 上的条带指示{project}{steward}。",
+  "@sectionEmptyGuidance": { "placeholders": { "project": { "type": "String" }, "steward": { "type": "String" } } }
 }

@@ -3,8 +3,11 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/hub_client.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/annotation_overlay.dart';
@@ -51,6 +54,7 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
   }
 
   Future<void> _edit() async {
+    final l10n = AppLocalizations.of(context)!;
     final messenger = ScaffoldMessenger.of(context);
     final next = await MarkdownSectionEditor.show(
       context,
@@ -78,23 +82,26 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
       setState(() => _busy = false);
       if (e.status == 412) {
         messenger.showSnackBar(
-          const SnackBar(
-            content: Text(
-              'This section was edited elsewhere. Reload to see the latest.',
-            ),
+          SnackBar(
+            content: Text(l10n.sectionEditedElsewhere),
           ),
         );
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('Save failed: $e')));
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.saveFailedError('$e'))),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
-      messenger.showSnackBar(SnackBar(content: Text('Save failed: $e')));
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.saveFailedError('$e'))),
+      );
     }
   }
 
   Future<void> _setStatus(String status) async {
+    final l10n = AppLocalizations.of(context)!;
     final messenger = ScaffoldMessenger.of(context);
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
@@ -114,33 +121,32 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
       if (!mounted) return;
       setState(() => _busy = false);
       messenger.showSnackBar(
-        SnackBar(content: Text('Status change failed: ${e.message}')),
+        SnackBar(content: Text(l10n.statusChangeFailedError(e.message))),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
       messenger.showSnackBar(
-        SnackBar(content: Text('Status change failed: $e')),
+        SnackBar(content: Text(l10n.statusChangeFailedError('$e'))),
       );
     }
   }
 
   Future<void> _confirmUnratify() async {
+    final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Unratify section?'),
-        content: const Text(
-          'This moves the section back to draft. Director-only gesture.',
-        ),
+        title: Text(l10n.unratifySectionTitle),
+        content: Text(l10n.unratifySectionBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Unratify'),
+            child: Text(l10n.buttonUnratify),
           ),
         ],
       ),
@@ -150,6 +156,7 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final title = (_section['title'] ?? widget.slug).toString();
     return Scaffold(
       appBar: AppBar(
@@ -188,6 +195,7 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
             right: 0,
             bottom: 0,
             child: _ActionBar(
+              l10n: l10n,
               state: _state,
               busy: _busy,
               onEdit: _busy ? null : _edit,
@@ -207,7 +215,11 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
   }
 
   Widget _bodyView() {
+    final l10n = AppLocalizations.of(context)!;
     if (_state == SectionState.empty) {
+      final vocab = ref.watch(vocabularyProvider);
+      final steward = vocab.term(VocabAxis.roleSteward).lower;
+      final project = vocab.term(VocabAxis.entityProject).lower;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -223,7 +235,7 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "This section hasn't been authored yet.",
+                  l10n.sectionNotAuthored,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -231,7 +243,7 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Write content manually with the editor below, or direct the project steward from the strip on the project Overview.',
+                  l10n.sectionEmptyGuidance(project, steward),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     color: DesignColors.textMuted,
@@ -259,12 +271,14 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
 }
 
 class _ActionBar extends StatelessWidget {
+  final AppLocalizations l10n;
   final SectionState state;
   final bool busy;
   final VoidCallback? onEdit;
   final VoidCallback? onRatify;
   final VoidCallback? onUnratify;
   const _ActionBar({
+    required this.l10n,
     required this.state,
     required this.busy,
     required this.onEdit,
@@ -298,7 +312,11 @@ class _ActionBar extends StatelessWidget {
           Expanded(
             child: OutlinedButton.icon(
               icon: const Icon(Icons.edit_outlined, size: 16),
-              label: Text(state == SectionState.empty ? 'Write' : 'Edit'),
+              label: Text(
+                state == SectionState.empty
+                    ? l10n.buttonWrite
+                    : l10n.buttonEdit,
+              ),
               onPressed: onEdit,
             ),
           ),
@@ -307,7 +325,7 @@ class _ActionBar extends StatelessWidget {
             child: state == SectionState.ratified
                 ? OutlinedButton.icon(
                     icon: const Icon(Icons.undo, size: 16),
-                    label: const Text('Unratify'),
+                    label: Text(l10n.buttonUnratify),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: DesignColors.warning,
                     ),
@@ -315,7 +333,7 @@ class _ActionBar extends StatelessWidget {
                   )
                 : ElevatedButton.icon(
                     icon: const Icon(Icons.check_circle_outline, size: 16),
-                    label: const Text('Ratify'),
+                    label: Text(l10n.buttonRatify),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: DesignColors.terminalGreen,
                       foregroundColor: Colors.white,

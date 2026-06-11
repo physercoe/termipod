@@ -2143,5 +2143,16 @@
   "matchLabel": "match",
   "copyPublicKey": "Copy Public Key",
   "keySourceGenerated": "Generated",
-  "keySourceImported": "Imported"
+  "keySourceImported": "Imported",
+  "sectionEditedElsewhere": "This section was edited elsewhere. Reload to see the latest.",
+  "statusChangeFailedError": "Status change failed: {error}",
+  "@statusChangeFailedError": { "placeholders": { "error": { "type": "String" } } },
+  "unratifySectionTitle": "Unratify section?",
+  "unratifySectionBody": "This moves the section back to draft. Director-only gesture.",
+  "buttonUnratify": "Unratify",
+  "buttonWrite": "Write",
+  "buttonRatify": "Ratify",
+  "sectionNotAuthored": "This section hasn't been authored yet.",
+  "sectionEmptyGuidance": "Write content manually with the editor below, or direct the {project} {steward} from the strip on the {project} Overview.",
+  "@sectionEmptyGuidance": { "placeholders": { "project": { "type": "String" }, "steward": { "type": "String" } } }
 }

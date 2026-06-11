@@ -7,6 +7,8 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../services/hub/agent_status.dart';
 import '../../services/id_format.dart';
 import '../../widgets/agent_actions_menu.dart';
@@ -186,6 +188,8 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
     final l10n = AppLocalizations.of(context)!;
     final kind = (_project['kind'] ?? 'goal').toString();
     final isWorkspace = kind == 'standing';
+    final entityTerm = ref.watch(vocabularyProvider).term(
+        isWorkspace ? VocabAxis.entityWorkspace : VocabAxis.entityProject);
     final name = (_project['name'] ??
             (isWorkspace ? l10n.kindWorkspace : l10n.kindProject))
         .toString();
@@ -237,7 +241,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
           // single-project actions — keeps `more_vert` honest about
           // what it offers.
           PopupMenuButton<String>(
-            tooltip: 'More actions',
+            tooltip: l10n.moreActions,
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
               switch (v) {
@@ -251,12 +255,9 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
                 case 'new_sub':
                   if (atMaxDepth) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Max sub-project depth is 2 — this project '
-                          'is already nested.',
-                        ),
-                        duration: Duration(seconds: 3),
+                      SnackBar(
+                        content: Text(l10n.maxSubProjectDepth),
+                        duration: const Duration(seconds: 3),
                       ),
                     );
                   } else {
@@ -281,13 +282,13 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
                   ),
                 ),
                 if (hasTemplate)
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'template_yaml',
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, size: 16),
-                        SizedBox(width: 8),
-                        Text('View template YAML'),
+                        const Icon(Icons.info_outline, size: 16),
+                        const SizedBox(width: 8),
+                        Text(l10n.viewTemplateYaml),
                       ],
                     ),
                   ),
@@ -298,9 +299,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
                     children: [
                       const Icon(Icons.account_tree_outlined, size: 16),
                       const SizedBox(width: 8),
-                      Text(isWorkspace
-                          ? 'New sub-Workspace'
-                          : 'New sub-project'),
+                      Text(l10n.newSubEntity(entityTerm.lower)),
                     ],
                   ),
                 ),
@@ -445,6 +444,8 @@ class _TasksViewState extends ConsumerState<_TasksView> {
         ),
       );
     }
+    final l10n = AppLocalizations.of(context)!;
+    final taskTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityTask);
     final list = _buildTaskList();
     return Stack(
       children: [
@@ -480,9 +481,9 @@ class _TasksViewState extends ConsumerState<_TasksView> {
           child: FloatingActionButton.extended(
             heroTag: 'project-tasks-fab',
             onPressed: _openCreate,
-            tooltip: 'New task',
+            tooltip: l10n.newTask(taskTerm.lower),
             icon: const Icon(Icons.add),
-            label: const Text('New task'),
+            label: Text(l10n.newTask(taskTerm.lower)),
           ),
         ),
       ],
@@ -490,6 +491,8 @@ class _TasksViewState extends ConsumerState<_TasksView> {
   }
 
   Widget _buildTaskList() {
+    final l10n = AppLocalizations.of(context)!;
+    final taskTerm = ref.watch(vocabularyProvider).term(VocabAxis.entityTask);
     if (_tasks.isEmpty) {
       // W11: pull-to-refresh works in the empty state too, so a user
       // who just created a task elsewhere can pull the list down to
@@ -505,8 +508,8 @@ class _TasksViewState extends ConsumerState<_TasksView> {
               height: MediaQuery.of(context).size.height * 0.5,
               child: _Placeholder(
                 text: _statusFilter == null
-                    ? 'No tasks yet — tap + to create'
-                    : 'No $_statusFilter tasks.',
+                    ? l10n.noTasksYet(taskTerm.pluralLower)
+                    : l10n.noStatusTasks(_statusFilter!, taskTerm.pluralLower),
               ),
             ),
           ],
@@ -642,13 +645,14 @@ class _PriorityFilterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final tint = selected == null
         ? DesignColors.textMuted
         : taskPriorityColor(selected!);
     return PopupMenuButton<String>(
       tooltip: selected == null
-          ? 'Filter by priority'
-          : 'Priority: ${selected!.label}',
+          ? l10n.filterByPriority
+          : l10n.priorityValue(selected!.label),
       onSelected: (v) =>
           onChanged(v == _anyValue ? null : _parsePriorityWire(v)),
       icon: Icon(Icons.filter_list, size: 20, color: tint),
@@ -656,7 +660,7 @@ class _PriorityFilterButton extends StatelessWidget {
         CheckedPopupMenuItem<String>(
           value: _anyValue,
           checked: selected == null,
-          child: const Text('Any priority'),
+          child: Text(l10n.anyPriority),
         ),
         for (final p in TaskPriority.values)
           CheckedPopupMenuItem<String>(
@@ -742,6 +746,7 @@ class _TaskTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final title = (task['title'] ?? '?').toString();
     final preview = _previewLine((task['body_md'] ?? '').toString());
@@ -794,7 +799,7 @@ class _TaskTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Tooltip(
-              message: 'Priority: ${priority.label}',
+              message: l10n.priorityValue(priority.label),
               child: Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: TaskPriorityDot(priority: priority),
@@ -820,7 +825,7 @@ class _TaskTile extends StatelessWidget {
                       if (fromPlan) ...[
                         const SizedBox(width: 6),
                         Tooltip(
-                          message: 'Generated by a plan step',
+                          message: l10n.generatedByPlanStep,
                           child: Icon(
                             Icons.playlist_play_outlined,
                             size: 13,
@@ -1047,6 +1052,9 @@ class _AgentsView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final agentTerm = voc.term(VocabAxis.roleAgent);
+    final stewardTerm = voc.term(VocabAxis.roleSteward);
     final hubState = ref.watch(hubProvider).value;
     final all = hubState?.agents ?? const <Map<String, dynamic>>[];
     final hosts = hubState?.hosts ?? const [];
@@ -1178,7 +1186,7 @@ class _AgentsView extends ConsumerWidget {
                       // session rows): the shared agent-lifecycle menu. Respawn
                       // (needs the spawn spec) stays in the detail sheet.
                       PopupMenuButton<String>(
-                        tooltip: 'Agent actions',
+                        tooltip: l10n.agentActionsMenu(agentTerm.lower),
                         icon: Icon(Icons.more_vert, size: 18, color: mutedC),
                         onSelected: (v) async {
                           final id = (a['id'] ?? '').toString();
@@ -1199,11 +1207,11 @@ class _AgentsView extends ConsumerWidget {
                           // hubProvider, so the row re-renders on its own.
                         },
                         itemBuilder: (_) => [
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: AgentAction.config,
                             child: ListTile(
-                              leading: Icon(Icons.account_tree_outlined),
-                              title: Text('View agent config'),
+                              leading: const Icon(Icons.account_tree_outlined),
+                              title: Text(l10n.viewAgentConfig(agentTerm.lower)),
                               contentPadding: EdgeInsets.zero,
                               dense: true,
                             ),
@@ -1236,7 +1244,7 @@ class _AgentsView extends ConsumerWidget {
                 children: [
                   const Spacer(),
                   IconButton(
-                    tooltip: 'Agent history (terminated + archived)',
+                    tooltip: l10n.agentHistory(agentTerm.lower),
                     icon: const Icon(Icons.history),
                     onPressed: () => Navigator.of(context)
                         .push(MaterialPageRoute(
@@ -1272,9 +1280,8 @@ class _AgentsView extends ConsumerWidget {
                   projectId,
                 ),
                 icon: const Icon(Icons.forum_outlined),
-                label: const Text('Ask steward'),
-                tooltip:
-                    'Ask the project steward (long-press for Advanced direct spawn)',
+                label: Text(l10n.askSteward(stewardTerm.lower)),
+                tooltip: l10n.askStewardTooltip(stewardTerm.lower),
               ),
             ),
           ),
@@ -1294,6 +1301,9 @@ Future<void> _askProjectSteward(
   WidgetRef ref,
   String projectId,
 ) async {
+  final l10n = AppLocalizations.of(context)!;
+  final stewardTerm =
+      ref.read(vocabularyProvider).term(VocabAxis.roleSteward);
   final hub = ref.read(hubProvider).value;
   Map<String, dynamic>? stewardAgent;
   for (final a in hub?.agents ?? const <Map<String, dynamic>>[]) {
@@ -1342,7 +1352,9 @@ Future<void> _askProjectSteward(
       builder: (_) => SessionChatScreen(
         sessionId: (stewardSession?['id'] ?? '').toString(),
         agentId: stewardID,
-        title: (stewardSession?['title'] ?? 'Project steward').toString(),
+        title: (stewardSession?['title'] ??
+                l10n.projectStewardTitle(stewardTerm.title))
+            .toString(),
       ),
     ),
   );
@@ -1367,6 +1379,9 @@ class _AgentsEmptyStateCta extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final stewardTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Padding(
@@ -1407,19 +1422,19 @@ class _AgentsEmptyStateCta extends ConsumerWidget {
                           context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(
-                                'Project steward spawned ($agentId).'),
+                            content: Text(l10n.projectStewardSpawned(
+                                stewardTerm.lower, agentId)),
                           ),
                         );
                       }
                     },
               icon: const Icon(Icons.bolt_outlined),
-              label: const Text('Spawn project steward'),
+              label: Text(l10n.spawnProjectSteward(stewardTerm.lower)),
             ),
             if (!hasHost) ...[
               const SizedBox(height: 8),
               Text(
-                'Register a host-runner first.',
+                l10n.registerHostFirst,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 11,
                   color: Colors.redAccent,
@@ -1472,19 +1487,20 @@ class _OverviewView extends ConsumerWidget {
         .where((a) => (a['project_id'] ?? '').toString() == projectId)
         .length;
     final rows = <MapEntry<String, String>>[
-      MapEntry('Name', (project['name'] ?? '').toString()),
-      MapEntry('Kind', kindLabel),
-      MapEntry('Status', (project['status'] ?? '').toString()),
+      MapEntry(l10n.fieldName, (project['name'] ?? '').toString()),
+      MapEntry(l10n.fieldKind, kindLabel),
+      MapEntry(l10n.fieldStatus, (project['status'] ?? '').toString()),
       if ((project['goal'] ?? '').toString().isNotEmpty)
-        MapEntry('Goal', (project['goal'] ?? '').toString()),
+        MapEntry(l10n.fieldGoal, (project['goal'] ?? '').toString()),
       if ((project['template_id'] ?? '').toString().isNotEmpty)
-        MapEntry('Project template', (project['template_id'] ?? '').toString()),
+        MapEntry(
+            l10n.projectTemplateLabel, (project['template_id'] ?? '').toString()),
       if ((project['on_create_template_id'] ?? '').toString().isNotEmpty)
-        MapEntry('On-create template',
+        MapEntry(l10n.onCreateTemplateLabel,
             (project['on_create_template_id'] ?? '').toString()),
-      MapEntry('ID', (project['id'] ?? '').toString()),
-      MapEntry('Docs root', (project['docs_root'] ?? '').toString()),
-      MapEntry('Created', (project['created_at'] ?? '').toString()),
+      MapEntry(l10n.fieldId, (project['id'] ?? '').toString()),
+      MapEntry(l10n.docsRootLabel, (project['docs_root'] ?? '').toString()),
+      MapEntry(l10n.fieldCreated, (project['created_at'] ?? '').toString()),
     ];
     final isGoal = kind != 'standing';
     final overviewWidget = (project['overview_widget'] ?? '').toString();
@@ -1557,7 +1573,7 @@ class _OverviewView extends ConsumerWidget {
             tilePadding: EdgeInsets.zero,
             childrenPadding: const EdgeInsets.only(top: 8, bottom: 4),
             title: Text(
-              'Details',
+              l10n.details,
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
@@ -1613,6 +1629,7 @@ class _OverviewView extends ConsumerWidget {
     String projectId,
   ) async {
     if (projectId.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
@@ -1621,7 +1638,7 @@ class _OverviewView extends ConsumerWidget {
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Refresh failed: $e')),
+        SnackBar(content: Text(l10n.refreshFailedError('$e'))),
       );
     }
   }
@@ -1645,11 +1662,11 @@ class _OverviewView extends ConsumerWidget {
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+              child: Text(l10n.buttonCancel)),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Archive'),
+            child: Text(l10n.buttonArchive),
           ),
         ],
       ),
@@ -1664,7 +1681,7 @@ class _OverviewView extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Archive failed: $e')),
+          SnackBar(content: Text(l10n.archiveFailedError('$e'))),
         );
       }
     }
@@ -1852,6 +1869,9 @@ class _StartBannerState extends ConsumerState<_StartBanner> {
   }
 
   Future<void> _start() async {
+    final l10n = AppLocalizations.of(context)!;
+    final stewardTerm =
+        ref.read(vocabularyProvider).term(VocabAxis.roleSteward);
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     final id = (widget.project['id'] ?? '').toString();
@@ -1866,7 +1886,7 @@ class _StartBannerState extends ConsumerState<_StartBanner> {
       await ref.read(hubProvider.notifier).refreshAll();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Project started — steward spawning')),
+          SnackBar(content: Text(l10n.projectStarted(stewardTerm.lower))),
         );
       }
     } catch (e) {
@@ -1878,7 +1898,7 @@ class _StartBannerState extends ConsumerState<_StartBanner> {
       } catch (_) {}
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Start: $e')),
+          SnackBar(content: Text(l10n.startFailedError('$e'))),
         );
       }
     } finally {
@@ -1889,6 +1909,9 @@ class _StartBannerState extends ConsumerState<_StartBanner> {
   @override
   Widget build(BuildContext context) {
     if (!_shouldShow) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
+    final stewardTerm =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final steward =
         (widget.project['on_create_template_id'] ?? '').toString();
@@ -1908,7 +1931,7 @@ class _StartBannerState extends ConsumerState<_StartBanner> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Not started',
+                  l10n.notStarted,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -1916,8 +1939,8 @@ class _StartBannerState extends ConsumerState<_StartBanner> {
                 ),
                 Text(
                   steward.isEmpty
-                      ? 'Review the project, then Start its steward.'
-                      : 'Review the project, then Start to spawn $steward.',
+                      ? l10n.reviewThenStart(stewardTerm.lower)
+                      : l10n.reviewThenStartNamed(steward),
                   style: GoogleFonts.spaceGrotesk(fontSize: 11, color: muted),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -1935,7 +1958,7 @@ class _StartBannerState extends ConsumerState<_StartBanner> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.play_arrow, size: 18),
-            label: const Text('Start'),
+            label: Text(l10n.startAction),
           ),
         ],
       ),

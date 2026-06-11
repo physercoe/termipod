@@ -1756,5 +1756,21 @@
   "noProjectTemplates": "No project templates yet. Mark an existing project as a template (is_template=true) or seed built-in ones from the hub.",
   "parametersFor": "Parameters for {name}",
   "@parametersFor": { "placeholders": { "name": { "type": "String" } } },
-  "parametersDefaultsBlurb": "Defaults come from the template. Adjust what you need."
+  "parametersDefaultsBlurb": "Defaults come from the template. Adjust what you need.",
+  "ideaConvHeadline": "Direct the {steward}",
+  "@ideaConvHeadline": { "placeholders": { "steward": { "type": "String" } } },
+  "ideaConvSubhead": "No formal deliverable in this phase. Talk through scope, ratify the scope criterion when ready, then advance to Lit-review.",
+  "deliverableFocusHeadline": "Active deliverable",
+  "deliverableFocusSubhead": "Tap to open the structured viewer; ratify sections one by one or ratify the deliverable as a whole.",
+  "experimentDashHeadline": "Experiment dashboard",
+  "experimentDashSubhead": "Mixed-component deliverable: report doc + artifacts + runs. Metric criterion auto-fires when threshold is met.",
+  "paperDraftHeadline": "Paper draft",
+  "paperDraftSubhead": "Synthesise method + experiment-report into the paper. Ratify the draft to close the project.",
+  "nextLabel": "Next: {title}",
+  "@nextLabel": { "placeholders": { "title": { "type": "String" } } },
+  "failedError": "Failed: {error}",
+  "@failedError": { "placeholders": { "error": { "type": "String" } } },
+  "markMet": "Mark met",
+  "markFailed": "Mark failed",
+  "waive": "Waive"
 }

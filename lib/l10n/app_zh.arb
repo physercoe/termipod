@@ -1568,5 +1568,21 @@
   "noProjectTemplates": "还没有项目模板。将现有项目标记为模板（is_template=true），或从 hub 植入内置模板。",
   "parametersFor": "{name} 的参数",
   "@parametersFor": { "placeholders": { "name": { "type": "String" } } },
-  "parametersDefaultsBlurb": "默认值来自模板。按需调整。"
+  "parametersDefaultsBlurb": "默认值来自模板。按需调整。",
+  "ideaConvHeadline": "指导{steward}",
+  "@ideaConvHeadline": { "placeholders": { "steward": { "type": "String" } } },
+  "ideaConvSubhead": "本阶段没有正式交付物。讨论范围，准备好后批准范围标准，然后推进到文献综述。",
+  "deliverableFocusHeadline": "活跃交付物",
+  "deliverableFocusSubhead": "点按以打开结构化查看器；逐节批准，或整体批准该交付物。",
+  "experimentDashHeadline": "实验仪表板",
+  "experimentDashSubhead": "混合组件交付物：报告文档 + 工件 + 运行。达到阈值时指标标准自动触发。",
+  "paperDraftHeadline": "论文草稿",
+  "paperDraftSubhead": "将方法与实验报告综合成论文。批准草稿以结束项目。",
+  "nextLabel": "下一项：{title}",
+  "@nextLabel": { "placeholders": { "title": { "type": "String" } } },
+  "failedError": "失败：{error}",
+  "@failedError": { "placeholders": { "error": { "type": "String" } } },
+  "markMet": "标记为达成",
+  "markFailed": "标记为未达成",
+  "waive": "豁免"
 }

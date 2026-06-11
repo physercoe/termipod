@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -151,7 +152,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Probe failed: $e');
+      setState(() => _error = AppLocalizations.of(context)!.probeFailedError('$e'));
     } finally {
       probe.close();
       if (mounted) setState(() => _busy = false);
@@ -207,7 +208,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Could not connect: $e');
+      setState(() => _error = AppLocalizations.of(context)!.couldNotConnectError('$e'));
     } finally {
       verifier.close();
       if (mounted) setState(() => _busy = false);
@@ -216,14 +217,15 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
 
     final title = widget.addNew && widget.profileId == null
-        ? 'Add hub profile'
+        ? l10n.hubProfileAddTitle
         : (widget.profileId != null
-            ? 'Edit hub profile'
-            : 'Termipod Hub');
+            ? l10n.hubProfileEditTitle
+            : l10n.hubBootstrapTitle);
 
     return Scaffold(
       appBar: AppBar(
@@ -239,7 +241,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
             padding: const EdgeInsets.all(Spacing.s16),
             children: [
               Text(
-                'Point this app at a running hub-server.',
+                l10n.hubBootstrapIntro,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 14,
                   color: isDark
@@ -249,8 +251,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                'The URL must be reachable from the phone (LAN IP, Tailscale, '
-                'ngrok, etc.). The bearer token is issued by the hub admin.',
+                l10n.hubBootstrapIntro2,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
                   color: isDark
@@ -262,10 +263,10 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
               TextFormField(
                 controller: _nameCtrl,
                 autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: 'Display name (optional)',
-                  helperText: 'Defaults to "team @ host"',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.displayNameOptional,
+                  helperText: l10n.displayNameOptionalHelp,
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 16),
@@ -273,17 +274,17 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
                 controller: _urlCtrl,
                 keyboardType: TextInputType.url,
                 autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: 'Base URL',
+                decoration: InputDecoration(
+                  labelText: l10n.fieldBaseUrl,
                   hintText: 'https://hub.example.org:8443',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (v) {
                   final s = v?.trim() ?? '';
-                  if (s.isEmpty) return 'required';
+                  if (s.isEmpty) return l10n.requiredTag;
                   final u = Uri.tryParse(s);
                   if (u == null || !u.hasScheme || u.host.isEmpty) {
-                    return 'must be a full URL';
+                    return l10n.validatorFullUrl;
                   }
                   return null;
                 },
@@ -292,26 +293,26 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
               TextFormField(
                 controller: _teamCtrl,
                 autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: 'Team ID',
-                  helperText: 'Defaults to "default" for a single-team install',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.fieldTeamId,
+                  helperText: l10n.fieldTeamIdHelp,
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (v) =>
-                    (v?.trim().isEmpty ?? true) ? 'required' : null,
+                    (v?.trim().isEmpty ?? true) ? l10n.requiredTag : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _tokenCtrl,
                 obscureText: true,
                 autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: 'Bearer Token',
-                  helperText: 'Stored in the device keychain',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.fieldBearerToken,
+                  helperText: l10n.fieldBearerTokenHelp,
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (v) =>
-                    (v?.trim().isEmpty ?? true) ? 'required' : null,
+                    (v?.trim().isEmpty ?? true) ? l10n.requiredTag : null,
               ),
               const SizedBox(height: 24),
               Row(
@@ -319,7 +320,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: _busy ? null : _probeOnly,
-                      child: const Text('Probe URL'),
+                      child: Text(l10n.probeUrl),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -332,7 +333,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('Save & Connect'),
+                          : Text(l10n.saveAndConnect),
                     ),
                   ),
                 ],
@@ -350,7 +351,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
               ],
               const SizedBox(height: 32),
               Text(
-                'Security',
+                l10n.securityHeading,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -360,9 +361,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Use HTTPS or a private network overlay (Tailscale, WireGuard). '
-                'The bearer token grants full team access — treat it like an '
-                'SSH key.',
+                l10n.hubSecurityNote,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
                   color: isDark

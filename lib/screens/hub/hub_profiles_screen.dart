@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -17,6 +18,7 @@ class HubProfilesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final hub = ref.watch(hubProvider).value;
     final profiles = hub?.profiles ?? const <HubProfile>[];
     final activeId = hub?.activeProfileId;
@@ -24,12 +26,12 @@ class HubProfilesScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Hub profiles',
+          l10n.hubProfilesTitle,
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
         actions: [
           IconButton(
-            tooltip: 'Add profile',
+            tooltip: l10n.addProfile,
             icon: const Icon(Icons.add),
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => const HubBootstrapScreen(addNew: true),
@@ -66,6 +68,7 @@ class _ProfileTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final scheme = Theme.of(context).colorScheme;
     return ListTile(
       leading: Icon(
@@ -93,9 +96,10 @@ class _ProfileTile extends StatelessWidget {
       trailing: PopupMenuButton<String>(
         onSelected: (action) => _handleAction(context, action),
         itemBuilder: (_) => [
-          const PopupMenuItem(value: 'rename', child: Text('Rename…')),
-          const PopupMenuItem(value: 'edit', child: Text('Edit connection…')),
-          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+          PopupMenuItem(value: 'rename', child: Text(l10n.renameAction)),
+          PopupMenuItem(
+              value: 'edit', child: Text(l10n.editConnectionAction)),
+          PopupMenuItem(value: 'delete', child: Text(l10n.buttonDelete)),
         ],
       ),
     );
@@ -118,24 +122,25 @@ class _ProfileTile extends StatelessWidget {
   }
 
   Future<void> _renameDialog(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     final ctrl = TextEditingController(text: profile.name);
     final newName = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Rename profile'),
+        title: Text(l10n.renameProfileTitle),
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          decoration: const InputDecoration(labelText: 'Display name'),
+          decoration: InputDecoration(labelText: l10n.fieldDisplayName),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-            child: const Text('Save'),
+            child: Text(l10n.buttonSave),
           ),
         ],
       ),
@@ -146,23 +151,21 @@ class _ProfileTile extends StatelessWidget {
   }
 
   Future<void> _confirmDelete(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete profile?'),
-        content: Text(
-          'Removes "${profile.name}" and its saved token. The offline '
-          'cache for this hub will be wiped. This cannot be undone.',
-        ),
+        title: Text(l10n.deleteProfileTitle),
+        content: Text(l10n.deleteProfileBody(profile.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -177,6 +180,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -186,7 +190,7 @@ class _EmptyState extends StatelessWidget {
             const Icon(Icons.cloud_off_outlined, size: 48),
             const SizedBox(height: 12),
             Text(
-              'No hub profiles yet',
+              l10n.noHubProfiles,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -194,7 +198,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Use the + button above to add one.',
+              l10n.noHubProfilesDesc,
               style: GoogleFonts.spaceGrotesk(fontSize: 13),
               textAlign: TextAlign.center,
             ),

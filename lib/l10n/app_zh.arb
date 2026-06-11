@@ -1818,5 +1818,7 @@
   "privateKeyPemLabel": "私钥（PEM 格式）",
   "selectFileOrPastePem": "请选择文件或粘贴私钥",
   "couldNotReadFile": "无法读取文件内容",
-  "wrongPassphrase": "口令错误，请检查后重试。"
+  "wrongPassphrase": "口令错误，请检查后重试。",
+  "deleteNamedConfirm": "删除“{name}”？",
+  "@deleteNamedConfirm": { "placeholders": { "name": { "type": "String" } } }
 }

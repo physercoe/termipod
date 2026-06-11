@@ -1966,5 +1966,7 @@
   "buttonRatify": "批准",
   "sectionNotAuthored": "此章节尚未撰写。",
   "sectionEmptyGuidance": "使用下方编辑器手动撰写内容，或从{project} Overview 上的条带指示{project}{steward}。",
-  "@sectionEmptyGuidance": { "placeholders": { "project": { "type": "String" }, "steward": { "type": "String" } } }
+  "@sectionEmptyGuidance": { "placeholders": { "project": { "type": "String" }, "steward": { "type": "String" } } },
+  "viewSource": "查看来源",
+  "overrideRecorded": "覆盖已记录"
 }

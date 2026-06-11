@@ -2154,5 +2154,7 @@
   "buttonRatify": "Ratify",
   "sectionNotAuthored": "This section hasn't been authored yet.",
   "sectionEmptyGuidance": "Write content manually with the editor below, or direct the {project} {steward} from the strip on the {project} Overview.",
-  "@sectionEmptyGuidance": { "placeholders": { "project": { "type": "String" }, "steward": { "type": "String" } } }
+  "@sectionEmptyGuidance": { "placeholders": { "project": { "type": "String" }, "steward": { "type": "String" } } },
+  "viewSource": "View source",
+  "overrideRecorded": "Override recorded"
 }

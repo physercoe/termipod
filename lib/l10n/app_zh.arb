@@ -1812,5 +1812,11 @@
   "noSshKeysYet": "暂无 SSH 密钥",
   "tapPlusToAddKey": "点按 + 添加密钥",
   "deleteKeyConfirm": "确定要删除“{name}”吗？\n\n此操作无法撤销。",
-  "@deleteKeyConfirm": { "placeholders": { "name": { "type": "String" } } }
+  "@deleteKeyConfirm": { "placeholders": { "name": { "type": "String" } } },
+  "selectPrivateKeyFile": "选择私钥文件",
+  "orPastePrivateKey": "或在下方粘贴私钥：",
+  "privateKeyPemLabel": "私钥（PEM 格式）",
+  "selectFileOrPastePem": "请选择文件或粘贴私钥",
+  "couldNotReadFile": "无法读取文件内容",
+  "wrongPassphrase": "口令错误，请检查后重试。"
 }

@@ -1807,5 +1807,10 @@
   "diffUnknown": "未知",
   "diffNoChange": "无变化",
   "diffRevise": "修订",
-  "sessionFallbackTitle": "会话"
+  "sessionFallbackTitle": "会话",
+  "keysScreenTitle": "密钥",
+  "noSshKeysYet": "暂无 SSH 密钥",
+  "tapPlusToAddKey": "点按 + 添加密钥",
+  "deleteKeyConfirm": "确定要删除“{name}”吗？\n\n此操作无法撤销。",
+  "@deleteKeyConfirm": { "placeholders": { "name": { "type": "String" } } }
 }

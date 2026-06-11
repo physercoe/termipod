@@ -25,6 +25,8 @@ first — it defines what every doc must declare and where it lives.
 4. [`how-to/release-testing.md`](how-to/release-testing.md)
 5. [`how-to/export-traces-to-otlp.md`](how-to/export-traces-to-otlp.md)
    — ship agent-run traces to Jaeger / a Collector / Phoenix.
+6. [`how-to/agent-collaboration.md`](how-to/agent-collaboration.md)
+   — how multiple AI agents on different hosts share this repo via GitHub.
 
 **I'm trying to understand a piece of the system.**
 1. Start with [`spine/blueprint.md`](spine/blueprint.md) for the

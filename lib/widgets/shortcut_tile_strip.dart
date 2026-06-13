@@ -5,6 +5,10 @@ import 'package:google_fonts/google_fonts.dart';
 import '../l10n/app_localizations.dart';
 import '../models/artifact_kinds.dart';
 import '../providers/hub_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
+import '../services/vocab/vocab_preset.dart';
+import '../services/vocab/vocabulary.dart';
 import '../screens/artifacts/artifacts_by_kind_screen.dart';
 import '../screens/deliverables/structured_deliverable_viewer.dart';
 import '../screens/projects/acceptance_criteria_screen.dart';
@@ -516,7 +520,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
       if (!mounted) return;
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.failedError('$e'))),
       );
     }
   }
@@ -543,7 +547,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
       if (!mounted) return;
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reset failed: $e')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.failedError('$e'))),
       );
     }
   }
@@ -623,7 +627,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                   if (_isOverridden)
                     TextButton(
                       onPressed: _busy ? null : _reset,
-                      child: const Text('Reset'),
+                      child: Text(l10n.buttonReset),
                     ),
                 ],
               ),
@@ -755,7 +759,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                     onPressed: _busy
                         ? null
                         : () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
+                    child: Text(l10n.buttonCancel),
                   ),
                   const Spacer(),
                   FilledButton(
@@ -766,7 +770,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Save'),
+                        : Text(l10n.buttonSave),
                   ),
                 ],
               ),
@@ -778,7 +782,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
   }
 }
 
-class _TileEditorRow extends StatelessWidget {
+class _TileEditorRow extends ConsumerWidget {
   final TileSlug slug;
   final bool selected;
   final bool isDark;
@@ -795,8 +799,10 @@ class _TileEditorRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final spec = tileSpecFor(slug);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final spec = tileSpecFor(l10n, slug, vocab: voc);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: InkWell(
@@ -893,8 +899,10 @@ class _TileRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final spec = tileSpecFor(slug);
+    final voc = ref.watch(vocabularyProvider);
+    final spec = tileSpecFor(l10n, slug, vocab: voc);
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () => _open(context, ref),
@@ -1104,71 +1112,72 @@ class TileSpec {
 
 /// Public for tests / future template-yaml lookup. The chassis owns the
 /// label + icon mapping; templates only pick which slugs to surface.
-TileSpec tileSpecFor(TileSlug slug) {
+TileSpec tileSpecFor(AppLocalizations l10n, TileSlug slug, {Vocabulary? vocab}) {
+  final v = vocab ?? const Vocabulary(VocabPreset.tech, 'en');
   switch (slug) {
     case TileSlug.outputs:
-      return const TileSpec(
-        label: 'Outputs',
+      return TileSpec(
+        label: v.term(VocabAxis.entityOutput).plural,
         subtitle: 'Outputs runs produce · checkpoints, curves, reports',
         icon: Icons.output_outlined,
       );
     case TileSlug.documents:
-      return const TileSpec(
-        label: 'Documents',
+      return TileSpec(
+        label: v.term(VocabAxis.entityDocument).plural,
         subtitle: 'Authored writeups · memos, drafts, reports',
         icon: Icons.article_outlined,
       );
     case TileSlug.schedules:
-      return const TileSpec(
-        label: 'Schedules',
+      return TileSpec(
+        label: v.term(VocabAxis.entitySchedule).plural,
         subtitle: 'Recurring firings across the team',
         icon: Icons.schedule_outlined,
       );
     case TileSlug.plans:
-      return const TileSpec(
-        label: 'Plans',
+      return TileSpec(
+        label: v.term(VocabAxis.entityPlan).plural,
         subtitle: 'Plan templates the steward executes',
         icon: Icons.playlist_play_outlined,
       );
     case TileSlug.assets:
-      return const TileSpec(
-        label: 'Assets',
+      return TileSpec(
+        label: l10n.shortcutTileAssets,
         subtitle: 'Browse media from channels · standalone uploads',
         icon: Icons.perm_media_outlined,
       );
     case TileSlug.experiments:
-      return const TileSpec(
-        label: 'Experiments',
+      return TileSpec(
+        label: l10n.shortcutTileExperiments,
         subtitle: 'ML training/eval runs (blueprint §6.5)',
         icon: Icons.science_outlined,
       );
     case TileSlug.references:
-      return const TileSpec(
-        label: 'References',
+      return TileSpec(
+        label: l10n.shortcutTileReferences,
         subtitle: 'Citations · SOTA library · prior art',
         icon: Icons.menu_book_outlined,
       );
     case TileSlug.risks:
-      return const TileSpec(
-        label: 'Risks',
+      return TileSpec(
+        label: l10n.shortcutTileRisks,
         subtitle: 'Open risks · mitigations · status',
         icon: Icons.warning_amber_outlined,
       );
     case TileSlug.discussion:
-      return const TileSpec(
-        label: 'Discussion',
+      return TileSpec(
+        label: l10n.shortcutTileDiscussion,
         subtitle: 'Channels · steward thread',
         icon: Icons.chat_outlined,
       );
     case TileSlug.deliverables:
-      return const TileSpec(
-        label: 'Deliverables',
+      return TileSpec(
+        label: l10n.shortcutTileDeliverables,
         subtitle: 'Phase deliverables · documents + components',
         icon: Icons.description_outlined,
       );
     case TileSlug.acceptanceCriteria:
-      return const TileSpec(
-        label: 'Acceptance',
+      return TileSpec(
+        label: l10n.shortcutTileAcceptanceCriteria,
         subtitle: 'Open criteria · gates · ratification checklist',
         icon: Icons.checklist_outlined,
       );

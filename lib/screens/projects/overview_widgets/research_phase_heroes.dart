@@ -171,6 +171,7 @@ class _DeliverableLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final id = (deliverable['id'] ?? '').toString();
     final kind = (deliverable['kind'] ?? '').toString();
     final state = parseDeliverableState(
@@ -197,7 +198,7 @@ class _DeliverableLine extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                _prettyKind(kind),
+                _prettyKind(l10n, kind),
                 style: GoogleFonts.spaceGrotesk(fontSize: 13),
               ),
             ),
@@ -208,8 +209,8 @@ class _DeliverableLine extends StatelessWidget {
     );
   }
 
-  static String _prettyKind(String slug) {
-    if (slug.isEmpty) return 'Deliverable';
+  static String _prettyKind(AppLocalizations l10n, String slug) {
+    if (slug.isEmpty) return l10n.deliverableFallback;
     final parts = slug.split(RegExp(r'[-_]'));
     return parts
         .map((p) => p.isEmpty

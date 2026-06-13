@@ -12,7 +12,6 @@
 8 lib/screens/projects/overview_widgets/registry.dart
 1 lib/screens/projects/overview_widgets/research_phase_heroes.dart
 7 lib/screens/projects/project_create_sheet.dart
-5 lib/screens/projects/project_detail_screen.dart
 6 lib/screens/projects/runs_screen.dart
 1 lib/screens/projects/spawn_agent_sheet.dart
 4 lib/screens/sessions/sessions_list_controller.dart

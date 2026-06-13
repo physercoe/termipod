@@ -87,6 +87,8 @@ String taskStatusLabel(AppLocalizations l10n, String wire) {
       return l10n.taskStatusBlocked;
     case 'done':
       return l10n.taskStatusDone;
+    case 'cancelled':
+      return l10n.taskStatusCancelled;
     default:
       return wire;
   }

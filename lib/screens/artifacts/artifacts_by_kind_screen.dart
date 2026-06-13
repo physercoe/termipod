@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../models/artifact_kinds.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -51,6 +52,7 @@ class _ArtifactsByKindScreenState
   }
 
   Future<void> _load() async {
+    final l10n = AppLocalizations.of(context)!;
     setState(() {
       _loading = true;
       _error = null;
@@ -59,7 +61,7 @@ class _ArtifactsByKindScreenState
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _error = l10n.hubNotConfigured;
       });
       return;
     }
@@ -95,6 +97,7 @@ class _ArtifactsByKindScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final spec = kArtifactKindSpecs[widget.kind]!;
     final title = widget.title ??
         (widget.schema == null
@@ -110,7 +113,7 @@ class _ArtifactsByKindScreenState
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
         ],
@@ -172,7 +175,8 @@ class _Row extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = (row['name'] ?? '(unnamed)').toString();
+    final l10n = AppLocalizations.of(context)!;
+    final name = (row['name'] ?? l10n.unnamedValue).toString();
     final mime = (row['mime'] ?? '').toString();
     final created = (row['created_at'] ?? '').toString();
     return ListTile(

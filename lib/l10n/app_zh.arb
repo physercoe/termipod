@@ -2034,5 +2034,15 @@
   "viewProject": "查看{project}",
   "@viewProject": { "placeholders": { "project": { "type": "String" } } },
   "viewTask": "查看{task}",
-  "@viewTask": { "placeholders": { "task": { "type": "String" } } }
+  "@viewTask": { "placeholders": { "task": { "type": "String" } } },
+  "searchSessionsHint": "搜索历史会话",
+  "sessionDefaultTitle": "会话",
+  "searchFailed": "搜索失败：{error}",
+  "@searchFailed": { "placeholders": { "error": { "type": "String" } } },
+  "searchTranscriptsHint": "输入以搜索对话记录，结果按最近活跃排序。",
+  "searchNoMatchesFor": "未找到匹配 \"{query}\" 的结果。",
+  "@searchNoMatchesFor": { "placeholders": { "query": { "type": "String" } } },
+  "untitledSession": "（未命名会话）",
+  "scopeProjectWithName": "项目：{name}",
+  "@scopeProjectWithName": { "placeholders": { "name": { "type": "String" } } }
 }

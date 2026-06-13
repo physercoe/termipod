@@ -2222,5 +2222,15 @@
   "viewProject": "View {project}",
   "@viewProject": { "placeholders": { "project": { "type": "String" } } },
   "viewTask": "View {task}",
-  "@viewTask": { "placeholders": { "task": { "type": "String" } } }
+  "@viewTask": { "placeholders": { "task": { "type": "String" } } },
+  "searchSessionsHint": "Search past sessions",
+  "sessionDefaultTitle": "Session",
+  "searchFailed": "Search failed: {error}",
+  "@searchFailed": { "placeholders": { "error": { "type": "String" } } },
+  "searchTranscriptsHint": "Type to search transcripts. Matches are ranked by recency.",
+  "searchNoMatchesFor": "No matches for \"{query}\".",
+  "@searchNoMatchesFor": { "placeholders": { "query": { "type": "String" } } },
+  "untitledSession": "(untitled session)",
+  "scopeProjectWithName": "Project: {name}",
+  "@scopeProjectWithName": { "placeholders": { "name": { "type": "String" } } }
 }

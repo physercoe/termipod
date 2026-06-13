@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
@@ -82,6 +83,7 @@ class _SessionSearchScreenState extends ConsumerState<SessionSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -92,7 +94,7 @@ class _SessionSearchScreenState extends ConsumerState<SessionSearchScreen> {
           autofocus: true,
           onChanged: _onChanged,
           decoration: InputDecoration(
-            hintText: 'Search past sessions',
+            hintText: l10n.searchSessionsHint,
             border: InputBorder.none,
             hintStyle: GoogleFonts.spaceGrotesk(color: muted),
           ),
@@ -101,7 +103,7 @@ class _SessionSearchScreenState extends ConsumerState<SessionSearchScreen> {
         actions: [
           if (_ctrl.text.isNotEmpty)
             IconButton(
-              tooltip: 'Clear',
+              tooltip: l10n.buttonClear,
               icon: const Icon(Icons.close),
               onPressed: () {
                 _ctrl.clear();
@@ -115,12 +117,13 @@ class _SessionSearchScreenState extends ConsumerState<SessionSearchScreen> {
   }
 
   Widget _body(Color muted) {
+    final l10n = AppLocalizations.of(context)!;
     if (_error != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            'Search failed: $_error',
+            l10n.searchFailed(_error!),
             textAlign: TextAlign.center,
             style: GoogleFonts.jetBrainsMono(fontSize: 12, color: muted),
           ),
@@ -135,7 +138,7 @@ class _SessionSearchScreenState extends ConsumerState<SessionSearchScreen> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            'Type to search transcripts. Matches are ranked by recency.',
+            l10n.searchTranscriptsHint,
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted),
           ),
@@ -147,7 +150,7 @@ class _SessionSearchScreenState extends ConsumerState<SessionSearchScreen> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            'No matches for "$_lastQuery".',
+            l10n.searchNoMatchesFor(_lastQuery),
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted),
           ),
@@ -169,6 +172,7 @@ class _ResultTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -182,12 +186,12 @@ class _ResultTile extends ConsumerWidget {
     final hint = (row['session_name_hint'] ?? '').toString().trim();
     final displayTitle = title.isNotEmpty
         ? title
-        : (hint.isNotEmpty ? hint : '(untitled session)');
+        : (hint.isNotEmpty ? hint : l10n.untitledSession);
     final scopeKind = (row['scope_kind'] ?? '').toString();
     final scopeID = (row['scope_id'] ?? '').toString();
     final snippet = (row['snippet'] ?? '').toString();
     final ts = (row['ts'] ?? '').toString();
-    final scopeLabel = _scopeLabel(ref, scopeKind, scopeID);
+    final scopeLabel = _scopeLabel(l10n, ref, scopeKind, scopeID);
     return ListTile(
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -247,7 +251,7 @@ class _ResultTile extends ConsumerWidget {
   static String _stripMarks(String s) =>
       s.replaceAll('<mark>', '').replaceAll('</mark>', '');
 
-  String _scopeLabel(WidgetRef ref, String kind, String id) {
+  String _scopeLabel(AppLocalizations l10n, WidgetRef ref, String kind, String id) {
     switch (kind) {
       case 'project':
         final hub = ref.read(hubProvider).value;
@@ -255,18 +259,18 @@ class _ResultTile extends ConsumerWidget {
           for (final p in hub.projects) {
             if ((p['id'] ?? '').toString() == id) {
               final name = (p['name'] ?? p['title'] ?? '').toString();
-              if (name.isNotEmpty) return 'Project: $name';
+              if (name.isNotEmpty) return l10n.scopeProjectWithName(name);
             }
           }
         }
-        return 'Project';
+        return l10n.kindProject;
       case 'attention':
-        return 'Approving';
+        return l10n.scopeApproving;
       case 'team':
       case '':
         // Team scope reads "Team", not "General" (#65) — "General" is
         // the steward taxonomy's term, not a session-scope label.
-        return 'Team';
+        return l10n.hostScopeTeam;
       default:
         return kind;
     }
@@ -278,6 +282,7 @@ class _ResultTile extends ConsumerWidget {
     String sessionId,
     String title,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     // Resolve agent_id by walking the hub's session list. Cheap —
     // sessions provider already holds the rows.
     final hub = ref.read(hubProvider).value;
@@ -297,7 +302,7 @@ class _ResultTile extends ConsumerWidget {
         builder: (_) => SessionChatScreen(
           sessionId: sessionId,
           agentId: agentId,
-          title: title.isEmpty ? 'Session' : title,
+          title: title.isEmpty ? l10n.sessionDefaultTitle : title,
         ),
       ),
     );

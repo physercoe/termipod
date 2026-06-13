@@ -111,7 +111,7 @@ class TeamSwitcher extends ConsumerWidget {
   ) {
     final scheme = Theme.of(ctx).colorScheme;
     final l10n = AppLocalizations.of(ctx)!;
-    final vocab = ctx.read(vocabularyProvider);
+    final vocab = ProviderScope.containerOf(ctx).read(vocabularyProvider);
     final items = <PopupMenuEntry<_MenuAction>>[];
 
     if (profiles.isNotEmpty) {

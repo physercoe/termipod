@@ -450,6 +450,7 @@ class _ArchivedAgentDetailScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final handle = (widget.summary['handle'] ?? _id).toString();
     final row = _full ?? widget.summary;
     final kind = (row['kind'] ?? '').toString();

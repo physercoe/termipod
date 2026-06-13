@@ -2208,5 +2208,7 @@
   "meFilterEmpty": "此处无内容",
   "meSeverityCritical": "严重",
   "meSeverityMajor": "重要",
-  "meSeverityMinor": "轻微"
+  "meSeverityMinor": "轻微",
+  "projectStatusActive": "活跃",
+  "projectStatusArchived": "已归档"
 }

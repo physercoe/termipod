@@ -2396,5 +2396,7 @@
   "meFilterEmpty": "Nothing here",
   "meSeverityCritical": "critical",
   "meSeverityMajor": "major",
-  "meSeverityMinor": "minor"
+  "meSeverityMinor": "minor",
+  "projectStatusActive": "Active",
+  "projectStatusArchived": "Archived"
 }

@@ -92,6 +92,21 @@ String taskStatusLabel(AppLocalizations l10n, String wire) {
   }
 }
 
+/// Localized user-visible label for a project status wire value
+/// (`active` / `archived`). Empty wire is treated as `active`.
+/// Unknown values fall back to the raw wire string.
+String projectStatusLabel(AppLocalizations l10n, String wire) {
+  final s = wire.isEmpty ? 'active' : wire;
+  switch (s) {
+    case 'active':
+      return l10n.projectStatusActive;
+    case 'archived':
+      return l10n.projectStatusArchived;
+    default:
+      return s;
+  }
+}
+
 /// Single source of truth for the priority dot color. Kept separate from
 /// [DesignColors] so the palette file stays a generic token bag.
 Color taskPriorityColor(TaskPriority p) {

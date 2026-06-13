@@ -6,7 +6,6 @@ import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../providers/vocab_provider.dart';
 import '../services/vocab/vocab_axis.dart';
-import '../services/vocab/vocabulary.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 

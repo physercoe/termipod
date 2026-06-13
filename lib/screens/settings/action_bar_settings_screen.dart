@@ -597,7 +597,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
               ),
               const SizedBox(height: 1),
               Text(
-                _buttonTypeLabel(button.type),
+                _buttonTypeLabel(button.type, AppLocalizations.of(context)!),
                 style: TextStyle(
                   fontSize: FontSizes.label,
                   fontWeight: FontWeight.w500,
@@ -637,7 +637,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    _buttonTypeLabel(button.type),
+                    _buttonTypeLabel(button.type, l10n),
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: DesignColors.primary,
                           fontWeight: FontWeight.w600,
@@ -697,16 +697,16 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
     );
   }
 
-  static String _buttonTypeLabel(ActionBarButtonType type) {
+  String _buttonTypeLabel(ActionBarButtonType type, AppLocalizations l10n) {
     return switch (type) {
-      ActionBarButtonType.specialKey => 'Key',
-      ActionBarButtonType.literal => 'Literal',
-      ActionBarButtonType.ctrlCombo => 'Ctrl',
-      ActionBarButtonType.altCombo => 'Alt',
-      ActionBarButtonType.shiftCombo => 'Shift',
-      ActionBarButtonType.modifier => 'Modifier',
-      ActionBarButtonType.action => 'Action',
-      ActionBarButtonType.confirm => 'Confirm',
+      ActionBarButtonType.specialKey => l10n.buttonTypeSpecialKey,
+      ActionBarButtonType.literal => l10n.buttonTypeLiteral,
+      ActionBarButtonType.ctrlCombo => l10n.buttonTypeCtrl,
+      ActionBarButtonType.altCombo => l10n.buttonTypeAlt,
+      ActionBarButtonType.shiftCombo => l10n.buttonTypeShift,
+      ActionBarButtonType.modifier => l10n.buttonTypeModifier,
+      ActionBarButtonType.action => l10n.buttonTypeAction,
+      ActionBarButtonType.confirm => l10n.buttonTypeConfirm,
     };
   }
 
@@ -742,14 +742,14 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
     // Type display names
     String typeLabel(ActionBarButtonType type) {
       return switch (type) {
-        ActionBarButtonType.specialKey => 'Special Keys',
-        ActionBarButtonType.ctrlCombo => 'Ctrl Combos',
-        ActionBarButtonType.altCombo => 'Alt Combos',
-        ActionBarButtonType.shiftCombo => 'Shift Combos',
-        ActionBarButtonType.literal => 'Characters',
-        ActionBarButtonType.modifier => 'Modifiers',
-        ActionBarButtonType.action => 'Actions',
-        ActionBarButtonType.confirm => 'Confirm (y/n)',
+        ActionBarButtonType.specialKey => l10n.actionBarTypeSpecialKeys,
+        ActionBarButtonType.ctrlCombo => l10n.actionBarTypeCtrlCombos,
+        ActionBarButtonType.altCombo => l10n.actionBarTypeAltCombos,
+        ActionBarButtonType.shiftCombo => l10n.actionBarTypeShiftCombos,
+        ActionBarButtonType.literal => l10n.actionBarTypeCharacters,
+        ActionBarButtonType.modifier => l10n.actionBarTypeModifiers,
+        ActionBarButtonType.action => l10n.actionBarTypeActions,
+        ActionBarButtonType.confirm => l10n.actionBarTypeConfirm,
       };
     }
 
@@ -911,7 +911,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                   items: ActionBarButtonType.values
                       .map((t) => DropdownMenuItem(
                             value: t,
-                            child: Text(_buttonTypeLabel(t)),
+                            child: Text(_buttonTypeLabel(t, AppLocalizations.of(context)!)),
                           ))
                       .toList(),
                   onChanged: (v) {

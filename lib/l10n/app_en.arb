@@ -2578,5 +2578,13 @@
   "actionBarTypeCharacters": "Characters",
   "actionBarTypeModifiers": "Modifiers",
   "actionBarTypeActions": "Actions",
-  "actionBarTypeConfirm": "Confirm (y/n)"
+  "actionBarTypeConfirm": "Confirm (y/n)",
+  "buttonTypeSpecialKey": "Key",
+  "buttonTypeLiteral": "Literal",
+  "buttonTypeCtrl": "Ctrl",
+  "buttonTypeAlt": "Alt",
+  "buttonTypeShift": "Shift",
+  "buttonTypeModifier": "Modifier",
+  "buttonTypeAction": "Action",
+  "buttonTypeConfirm": "Confirm"
 }

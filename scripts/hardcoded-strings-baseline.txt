@@ -41,7 +41,6 @@
 4 lib/widgets/file_transfer_confirm_dialog.dart
 9 lib/widgets/floating_joystick.dart
 3 lib/widgets/help_sheet.dart
-1 lib/widgets/home/persistent_steward_card.dart
 9 lib/widgets/image_transfer_confirm_dialog.dart
 5 lib/widgets/insight_transcript.dart
 2 lib/widgets/insights_breakdown_section.dart

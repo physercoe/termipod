@@ -4,10 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:termipod/l10n/app_localizations.dart';
+
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../screens/sessions/sessions_screen.dart';
 import '../../services/steward_handle.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -78,7 +82,8 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
   /// hosts that haven't probed yet, or report claude-code missing,
   /// stay tappable but show a warning subtitle so the call lands the
   /// real "not installed on host" error rather than masking it.
-  Future<String?> _pickHost(List<Map<String, dynamic>> hosts) {
+  Future<String?> _pickHost(AppLocalizations l10n, String stewardTerm,
+      String hostTerm, List<Map<String, dynamic>> hosts) {
     return showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -94,7 +99,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Choose a host',
+                  l10n.meChooseHost(hostTerm),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -102,14 +107,14 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'The general steward will run on this host.',
+                  l10n.meGeneralStewardRunsOnHost(stewardTerm, hostTerm),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     color: muted,
                   ),
                 ),
                 const SizedBox(height: 12),
-                for (final h in hosts) _hostTile(sheetCtx, h, muted),
+                for (final h in hosts) _hostTile(l10n, sheetCtx, h, muted),
               ],
             ),
           ),
@@ -123,7 +128,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
   /// the spawn would still fail there, and surfacing that ahead of
   /// time saves the user a round-trip.
   Widget _hostTile(
-      BuildContext sheetCtx, Map<String, dynamic> host, Color muted) {
+      AppLocalizations l10n, BuildContext sheetCtx, Map<String, dynamic> host, Color muted) {
     final id = (host['id'] ?? '').toString();
     final name = (host['name'] ?? '').toString();
     final displayName = name.isEmpty ? 'host:${id.substring(0, 8)}' : name;
@@ -138,7 +143,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
     final installed = claude['installed'] == true;
     final probed = agents.isNotEmpty;
     final subtitle = !probed
-        ? 'No probe yet · status=$status'
+        ? l10n.meNoProbeYet(status)
         : installed
             ? 'claude-code ready · status=$status'
             : 'claude-code NOT installed · status=$status';
@@ -166,6 +171,10 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
 
   Future<void> _open() async {
     if (_busy) return;
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.read(vocabularyProvider);
+    final stewardTerm = vocab.term(VocabAxis.roleSteward);
+    final hostTerm = vocab.term(VocabAxis.entityHost);
     final client = ref.read(hubProvider.notifier).client;
     final hubState = ref.read(hubProvider).value;
     if (client == null || hubState == null || !hubState.configured) return;
@@ -177,7 +186,8 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
     String? pinnedHostId;
     final isLive = _findRunning() != null;
     if (!isLive && hubState.hosts.length >= 2) {
-      pinnedHostId = await _pickHost(hubState.hosts);
+      pinnedHostId = await _pickHost(
+          l10n, stewardTerm.lower, hostTerm.lower, hubState.hosts);
       if (pinnedHostId == null) return; // user dismissed
     }
 
@@ -219,7 +229,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
             sessionId: (session!['id'] ?? '').toString(),
             agentId: agentId,
             title: (session['title'] ?? '').toString().isEmpty
-                ? 'General Steward'
+                ? l10n.meGeneralSteward(stewardTerm.title)
                 : (session['title'] ?? '').toString(),
           ),
         ));
@@ -231,7 +241,9 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('General steward: $e')),
+        SnackBar(
+            content: Text(l10n.meGeneralStewardError(
+                stewardTerm.lower, '$e'))),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -240,6 +252,9 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final stewardTerm = vocab.term(VocabAxis.roleSteward);
     final hub = ref.watch(hubProvider).value;
     if (hub == null || !hub.configured) {
       return const SizedBox.shrink();
@@ -250,10 +265,10 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final isLive = running != null;
-    final actionLabel = isLive ? 'Open' : 'Start';
+    final actionLabel = isLive ? l10n.meOpen : l10n.meStart;
     final statusText = isLive
-        ? 'Running · concierge'
-        : 'Tap to start the team concierge';
+        ? l10n.meRunningConcierge
+        : l10n.meTapToStartConcierge;
     final tintBg = scheme.primary.withValues(alpha: isDark ? 0.10 : 0.08);
     final borderColor = scheme.primary.withValues(alpha: 0.35);
     return Padding(
@@ -294,7 +309,7 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
                       Row(
                         children: [
                           Text(
-                            'General Steward',
+                            l10n.meGeneralSteward(stewardTerm.title),
                             style: GoogleFonts.spaceGrotesk(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,

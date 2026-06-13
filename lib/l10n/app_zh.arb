@@ -2214,5 +2214,19 @@
   "teamSwitcherChooseProfile": "选择配置",
   "teamSwitcherProfilesHeader": "配置",
   "teamSwitcherAddProfile": "添加配置…",
-  "teamSwitcherManageProfiles": "管理配置…"
+  "teamSwitcherManageProfiles": "管理配置…",
+  "meOpen": "打开",
+  "meStart": "启动",
+  "meRunningConcierge": "运行中 · 管家",
+  "meTapToStartConcierge": "点击启动团队管家",
+  "meGeneralSteward": "通用{steward}",
+  "@meGeneralSteward": { "placeholders": { "steward": { "type": "String" } } },
+  "meGeneralStewardError": "通用{steward}：{error}",
+  "@meGeneralStewardError": { "placeholders": { "steward": { "type": "String" }, "error": { "type": "String" } } },
+  "meChooseHost": "选择{host}",
+  "@meChooseHost": { "placeholders": { "host": { "type": "String" } } },
+  "meGeneralStewardRunsOnHost": "{steward}将在此{host}上运行。",
+  "@meGeneralStewardRunsOnHost": { "placeholders": { "steward": { "type": "String" }, "host": { "type": "String" } } },
+  "meNoProbeYet": "尚未探测 · 状态={status}",
+  "@meNoProbeYet": { "placeholders": { "status": { "type": "String" } } }
 }

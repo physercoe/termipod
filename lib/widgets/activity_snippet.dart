@@ -215,7 +215,7 @@ class _SnippetRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '$actor · ${activityActionLabel(action, l10n,
+                  '$actor · ${activityActionLabel(action, l10n: l10n,
                     project: project, agent: agent, run: run,
                     document: document, review: review, plan: plan)}',
                   style: GoogleFonts.jetBrainsMono(
@@ -248,14 +248,14 @@ class _SnippetRow extends StatelessWidget {
 /// available and falling back to tech-default English for unit-test callers.
 /// Role-bound entity nouns come from the active vocabulary preset via the
 /// optional named parameters.
-String activityActionLabel(String action, [AppLocalizations? l10n, {
+String activityActionLabel(String action, {AppLocalizations? l10n,
   String project = 'Project',
   String agent = 'Agent',
   String run = 'Run',
   String document = 'Document',
   String review = 'Review',
   String plan = 'Plan',
-}]) {
+}) {
   if (l10n != null) {
     switch (action) {
       case 'project.phase_advanced': return l10n.activityEventPhaseAdvanced;

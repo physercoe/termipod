@@ -1630,7 +1630,7 @@ class _CategoryPage extends ConsumerWidget {
                 final profile = ActionBarProfile(
                   id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
                   name: name,
-                  groups: const [
+                  groups: [
                     ActionBarGroup(
                       id: 'default-keys',
                       name: 'Keys',

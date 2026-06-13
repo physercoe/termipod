@@ -727,7 +727,7 @@ class _ChatInputState extends State<_ChatInput> {
       _attachError = null;
     });
     try {
-      final att = await pickMultimodalFile(chosen!);
+      final att = await pickMultimodalFile(chosen);
       if (att == null) return;
       if (!mounted) return;
       setState(() => _pendingMultimodal[chosen!] = att.toJson());

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/insights_provider.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
@@ -27,6 +28,7 @@ class InsightsToolsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final async = ref.watch(insightsProvider(scope));
     final body = async.value?.body;
     if (body == null) return const SizedBox.shrink();
@@ -60,7 +62,7 @@ class InsightsToolsSection extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
             child: Text(
-              'TOOL CALLS',
+              l10n.insightsToolCallsHeader,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
@@ -80,12 +82,12 @@ class InsightsToolsSection extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _StatRow(
-                  label: 'Total calls',
+                  label: l10n.insightsTotalCalls,
                   value: _human(toolCalls),
                   muted: muted,
                 ),
                 _StatRow(
-                  label: 'Per turn',
+                  label: l10n.insightsPerTurn,
                   value: toolsPerTurn > 0
                       ? toolsPerTurn.toStringAsFixed(2)
                       : '—',
@@ -98,13 +100,13 @@ class InsightsToolsSection extends ConsumerWidget {
                     color: border.withValues(alpha: 0.5),
                   ),
                   _StatRow(
-                    label: 'Approvals',
+                    label: l10n.insightsApprovals,
                     value:
-                        '$approvalsApproved/$approvalsTotal approved',
+                        l10n.insightsApprovedFraction(approvalsApproved.toString(), approvalsTotal.toString()),
                     muted: muted,
                   ),
                   _StatRow(
-                    label: 'Approval rate',
+                    label: l10n.insightsApprovalRate,
                     value: '${(approvalRate * 100).toStringAsFixed(0)}%',
                     muted: muted,
                     accent: _approvalAccent(approvalRate),

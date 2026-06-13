@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/insights_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../screens/insights/insights_screen.dart';
 import '../services/steward_handle.dart';
 import '../theme/design_colors.dart';
@@ -25,6 +28,8 @@ class InsightsByAgentSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
     final async = ref.watch(insightsProvider(scope));
     final body = async.value?.body;
     if (body == null) return const SizedBox.shrink();
@@ -59,8 +64,8 @@ class InsightsByAgentSection extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _Header(label: 'BY AGENT'),
-          _AgentTable(rows: rows),
+          _Header(label: l10n.insightsHeaderByDimension(vocab.term(VocabAxis.roleAgent).title.toUpperCase())),
+          _AgentTable(l10n: l10n, rows: rows),
         ],
       ),
     );
@@ -116,8 +121,9 @@ class _Header extends StatelessWidget {
 }
 
 class _AgentTable extends StatelessWidget {
+  final AppLocalizations l10n;
   final List<_AgentRow> rows;
-  const _AgentTable({required this.rows});
+  const _AgentTable({required this.l10n, required this.rows});
 
   @override
   Widget build(BuildContext context) {
@@ -148,6 +154,7 @@ class _AgentTable extends StatelessWidget {
                   thickness: 1,
                   color: border.withValues(alpha: 0.5)),
             _AgentTile(
+              l10n: l10n,
               row: rows[i],
               maxTokens: maxTokens,
               muted: muted,
@@ -160,10 +167,12 @@ class _AgentTable extends StatelessWidget {
 }
 
 class _AgentTile extends StatelessWidget {
+  final AppLocalizations l10n;
   final _AgentRow row;
   final int maxTokens;
   final Color muted;
   const _AgentTile({
+    required this.l10n,
     required this.row,
     required this.maxTokens,
     required this.muted,
@@ -257,12 +266,12 @@ class _AgentTile extends StatelessWidget {
       parts.add(row.engine);
     }
     if (row.turns > 0) {
-      parts.add('${row.turns} turns · ${_human(row.tokensPerTurn)}/turn');
+      parts.add(l10n.insightsBreakdownTurnsPerToken(row.turns.toString(), _human(row.tokensPerTurn)));
     } else {
-      parts.add('no turns');
+      parts.add(l10n.insightsNoTurns);
     }
     if (row.errors > 0) {
-      parts.add('${row.errors} failed');
+      parts.add(l10n.insightsByAgentFailed(row.errors.toString()));
     }
     return parts.join(' · ');
   }

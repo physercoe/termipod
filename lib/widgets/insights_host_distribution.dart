@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../providers/insights_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -38,6 +41,8 @@ class InsightsHostDistribution extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
     final hub = ref.watch(hubProvider).value;
     if (hub == null) return const SizedBox.shrink();
 
@@ -84,8 +89,13 @@ class InsightsHostDistribution extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 16),
-        const _Header(label: 'BY HOST'),
-        _HostTable(rows: rows),
+        _Header(label: l10n.insightsHeaderByDimension(vocab.term(VocabAxis.entityHost).title.toUpperCase())),
+        _HostTable(
+          l10n: l10n,
+          agentPlural: vocab.term(VocabAxis.roleAgent).pluralLower,
+          agentSingular: vocab.term(VocabAxis.roleAgent).lower,
+          rows: rows,
+        ),
       ],
     );
   }
@@ -180,8 +190,16 @@ class _Header extends StatelessWidget {
 }
 
 class _HostTable extends StatelessWidget {
+  final AppLocalizations l10n;
+  final String agentPlural;
+  final String agentSingular;
   final List<_HostRow> rows;
-  const _HostTable({required this.rows});
+  const _HostTable({
+    required this.l10n,
+    required this.agentPlural,
+    required this.agentSingular,
+    required this.rows,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -212,6 +230,9 @@ class _HostTable extends StatelessWidget {
                 color: border.withValues(alpha: 0.5),
               ),
             _Row(
+              l10n: l10n,
+              agentPlural: agentPlural,
+              agentSingular: agentSingular,
               row: rows[i],
               maxCount: maxCount,
               muted: muted,
@@ -224,10 +245,16 @@ class _HostTable extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
+  final AppLocalizations l10n;
+  final String agentPlural;
+  final String agentSingular;
   final _HostRow row;
   final int maxCount;
   final Color muted;
   const _Row({
+    required this.l10n,
+    required this.agentPlural,
+    required this.agentSingular,
     required this.row,
     required this.maxCount,
     required this.muted,
@@ -269,7 +296,7 @@ class _Row extends StatelessWidget {
                 const SizedBox(width: 6),
               ],
               Text(
-                '${row.agentCount} agent${row.agentCount == 1 ? '' : 's'}',
+                l10n.insightsHostAgentCount(row.agentCount.toString(), row.agentCount == 1 ? agentSingular : agentPlural),
                 style: GoogleFonts.jetBrainsMono(
                     fontSize: 11, fontWeight: FontWeight.w700),
               ),

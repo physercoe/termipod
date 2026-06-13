@@ -1117,7 +1117,7 @@ class _ActiveSessionsStrip extends StatelessWidget {
               // glance across the strip. Classifier is shared
               // (agentCategory) so the taxonomy never forks.
               final style =
-                  agentCategoryStyle(agentCategory(_agentFor(agentId), session: s));
+                  agentCategoryStyle(agentCategory(_agentFor(agentId), session: s), l10n);
               return InkWell(
                 onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
                   builder: (_) => SessionChatScreen(

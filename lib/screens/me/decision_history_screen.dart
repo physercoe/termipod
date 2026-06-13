@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
@@ -64,6 +65,7 @@ class _DecisionHistoryScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -71,7 +73,7 @@ class _DecisionHistoryScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Decision history',
+          l10n.decisionHistory,
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
       ),
@@ -82,7 +84,7 @@ class _DecisionHistoryScreenState
             : _error != null
                 ? Center(
                     child: Text(
-                      'Failed: $_error',
+                      l10n.decisionFailed(_error!),
                       style: GoogleFonts.jetBrainsMono(
                         fontSize: 12,
                         color: DesignColors.error,
@@ -92,7 +94,7 @@ class _DecisionHistoryScreenState
                 : _items.isEmpty
                     ? Center(
                         child: Text(
-                          'No decisions yet.',
+                          l10n.decisionNoDecisionsYet,
                           style: GoogleFonts.jetBrainsMono(
                             fontSize: 12,
                             color: muted,
@@ -118,6 +120,7 @@ class _HistoryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -133,7 +136,7 @@ class _HistoryRow extends StatelessWidget {
         : approve
             ? DesignColors.success
             : DesignColors.error;
-    final headline = _headline(kind, verdict, lastDecision);
+    final headline = _headline(l10n, kind, verdict, lastDecision);
 
     return Material(
       color: isDark
@@ -207,7 +210,7 @@ class _HistoryRow extends StatelessWidget {
               if (actor.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'by $actor · ${kind.replaceAll('_', ' ')}',
+                  l10n.decisionByActor(actor, kind.replaceAll('_', ' ')),
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: FontSizes.label,
                     color: muted,
@@ -249,27 +252,28 @@ class _HistoryRow extends StatelessWidget {
   }
 
   static String _headline(
+    AppLocalizations l10n,
     String kind,
     String verdict,
     Map<String, dynamic>? last,
   ) {
-    if (verdict.isEmpty) return 'Resolved';
+    if (verdict.isEmpty) return l10n.decisionResolved;
     final approve = verdict == 'approve';
     switch (kind) {
       case 'select':
         if (approve) {
           final opt = (last?['option_id'] ?? '').toString();
-          return opt.isNotEmpty ? 'Selected: $opt' : 'Selected';
+          return opt.isNotEmpty ? l10n.decisionSelectedOption(opt) : l10n.decisionSelected;
         }
-        return 'No option chosen';
+        return l10n.decisionNoOption;
       case 'help_request':
       case 'elicit':
-        return approve ? 'Replied' : 'Dismissed';
+        return approve ? l10n.decisionReplied : l10n.decisionDismissed;
       case 'template_proposal':
-        return approve ? 'Approved template' : 'Rejected template';
+        return approve ? l10n.decisionApprovedTemplate : l10n.decisionRejectedTemplate;
       case 'approval_request':
       default:
-        return approve ? 'Approved' : 'Rejected';
+        return approve ? l10n.decisionApproved : l10n.decisionRejected;
     }
   }
 

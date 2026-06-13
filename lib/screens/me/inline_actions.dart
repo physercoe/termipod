@@ -308,6 +308,7 @@ class InlineHelpRequestActionsState
   }
 
   String? get _agentContext {
+    final l10n = AppLocalizations.of(context)!;
     if (widget.kind == 'elicit') {
       // For elicit, surface the message + the schema (if any) as
       // context so the principal knows what shape of reply is wanted.
@@ -322,10 +323,10 @@ class InlineHelpRequestActionsState
         // nested `params` key; surface its requestedSchema if there.
         final inner = params['params'];
         if (inner is Map && inner['requestedSchema'] != null) {
-          return 'Reply with JSON matching: ${inner['requestedSchema']}';
+          return l10n.elicitReplyJsonHint('${inner['requestedSchema']}');
         }
         if (params['requestedSchema'] != null) {
-          return 'Reply with JSON matching: ${params['requestedSchema']}';
+          return l10n.elicitReplyJsonHint('${params['requestedSchema']}');
         }
       }
       return null;

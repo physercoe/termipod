@@ -437,7 +437,7 @@ class _UnifiedFilterChips extends StatelessWidget {
       if (showActors)
         for (final entry in actors)
           ChoiceChip(
-            label: Text('@${entry.key} (${entry.value})'),
+            label: Text(l10n.activityActorChipLabel(entry.key, entry.value)),
             selected: selectedActor == entry.key,
             onSelected: (_) =>
                 onActor(selectedActor == entry.key ? null : entry.key),

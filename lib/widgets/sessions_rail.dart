@@ -242,6 +242,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
   }
 
   Widget _body(Color fg, Color muted) {
+    final l10n = AppLocalizations.of(context)!;
     final hub = ref.watch(hubProvider).value;
     final projects = hub?.projects ?? const <Map<String, dynamic>>[];
     // Project roster once it lands (live + terminated); warm (live only) paints
@@ -329,7 +330,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
           if (sessions.isEmpty)
             _emptyRow('No sessions in scope.', muted)
           else
-            for (final s in sessions) _sessionRow(s, all, fg, muted),
+            for (final s in sessions) _sessionRow(s, all, fg, muted, l10n),
         ],
       );
     }
@@ -514,12 +515,13 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
     List<Map<String, dynamic>> all,
     Color fg,
     Color muted,
+    AppLocalizations l10n,
   ) {
     final sid = (s['id'] ?? '').toString();
     final agentId = (s['current_agent_id'] ?? '').toString();
     final agent = _agentFor(all, agentId);
     final title = sessionDisplayTitle(s);
-    final style = agentCategoryStyle(agentCategory(agent, session: s));
+    final style = agentCategoryStyle(agentCategory(agent, session: s), l10n);
     final steward = stewardLabel((agent?['handle'] ?? '').toString());
     final status = (s['status'] ?? '').toString();
     final band = _sessionBand(status);

@@ -3,7 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -48,7 +51,9 @@ class _TemplateYamlSheetState extends ConsumerState<TemplateYamlSheet> {
     final client = ref.read(hubProvider.notifier).client;
     final tpl = widget.templateId.trim();
     if (client == null || tpl.isEmpty) {
-      if (mounted) setState(() => _error = 'No template id on this project.');
+      final l10n = AppLocalizations.of(context)!;
+      final term = ref.read(vocabularyProvider).term(VocabAxis.entityTemplate);
+      if (mounted) setState(() => _error = l10n.templateYamlNoId(term.lower));
       return;
     }
     try {
@@ -63,6 +68,8 @@ class _TemplateYamlSheetState extends ConsumerState<TemplateYamlSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final tpl = ref.watch(vocabularyProvider).term(VocabAxis.entityTemplate);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return DraggableScrollableSheet(
       initialChildSize: 0.7,
@@ -95,7 +102,7 @@ class _TemplateYamlSheetState extends ConsumerState<TemplateYamlSheet> {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      'Template · ${widget.templateId}',
+                      l10n.templateYamlTitle(tpl.title, widget.templateId),
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -105,14 +112,14 @@ class _TemplateYamlSheetState extends ConsumerState<TemplateYamlSheet> {
                   if (_yaml != null)
                     IconButton(
                       icon: const Icon(Icons.copy, size: 18),
-                      tooltip: 'Copy YAML',
+                      tooltip: l10n.templateYamlCopyTooltip,
                       onPressed: () async {
                         final messenger = ScaffoldMessenger.of(context);
                         await Clipboard.setData(
                             ClipboardData(text: _yaml!));
                         if (!mounted) return;
                         messenger.showSnackBar(
-                          const SnackBar(content: Text('YAML copied')),
+                          SnackBar(content: Text(l10n.templateYamlCopied)),
                         );
                       },
                     ),

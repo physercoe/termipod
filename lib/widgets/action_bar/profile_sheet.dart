@@ -226,7 +226,7 @@ class ProfileSheet extends ConsumerWidget {
             },
             icon: const Icon(Icons.help_outline, size: 18),
             color: DesignColors.primary,
-            tooltip: 'Help',
+            tooltip: AppLocalizations.of(context)!.helpSheetTitle,
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.symmetric(horizontal: Spacing.s8),
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),

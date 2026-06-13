@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../services/steward_handle.dart';
 import '../theme/design_colors.dart';
 
@@ -19,31 +20,31 @@ class AgentCategoryStyle {
   });
 }
 
-AgentCategoryStyle agentCategoryStyle(AgentCategory category) {
+AgentCategoryStyle agentCategoryStyle(AgentCategory category, AppLocalizations l10n) {
   switch (category) {
     case AgentCategory.teamSteward:
-      return const AgentCategoryStyle(
-        color: DesignColors.primary, // cyan — the always-on concierge
+      return AgentCategoryStyle(
+        color: DesignColors.primary,
         icon: Icons.support_agent,
-        label: 'steward · general',
+        label: l10n.agentCategoryTeamSteward,
       );
     case AgentCategory.projectSteward:
-      return const AgentCategoryStyle(
+      return AgentCategoryStyle(
         color: DesignColors.terminalBlue,
         icon: Icons.account_tree,
-        label: 'project steward',
+        label: l10n.agentCategoryProjectSteward,
       );
     case AgentCategory.domainSteward:
-      return const AgentCategoryStyle(
-        color: DesignColors.terminalMagenta, // violet
+      return AgentCategoryStyle(
+        color: DesignColors.terminalMagenta,
         icon: Icons.hub,
-        label: 'domain steward',
+        label: l10n.agentCategoryDomainSteward,
       );
     case AgentCategory.worker:
-      return const AgentCategoryStyle(
-        color: DesignColors.secondary, // amber — the executor tier
+      return AgentCategoryStyle(
+        color: DesignColors.secondary,
         icon: Icons.bolt,
-        label: 'worker',
+        label: l10n.agentCategoryWorker,
       );
   }
 }

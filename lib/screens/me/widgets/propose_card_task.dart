@@ -56,6 +56,8 @@ class ProposeCardTask extends ConsumerWidget {
 
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.read(vocabularyProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -115,7 +117,8 @@ class ProposeCardTask extends ConsumerWidget {
           StalledProposeActions(
             attention: attention,
             onResolved: onResolved,
-            viewSourceLabel: 'View task',
+            viewSourceLabel:
+                l10n.viewTask(voc.term(VocabAxis.entityTask).title),
             onViewSource: taskId.isEmpty
                 ? null
                 : () => _viewTask(context, ref, taskId),

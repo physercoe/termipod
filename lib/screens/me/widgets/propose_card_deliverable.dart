@@ -53,6 +53,7 @@ class ProposeCardDeliverable extends ConsumerWidget {
 
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final l10n = AppLocalizations.of(context)!;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -85,7 +86,7 @@ class ProposeCardDeliverable extends ConsumerWidget {
           StalledProposeActions(
             attention: attention,
             onResolved: onResolved,
-            viewSourceLabel: 'View deliverable',
+            viewSourceLabel: l10n.viewDeliverable,
             onViewSource: deliverableId.isEmpty
                 ? null
                 : () => _viewDeliverable(context, deliverableId),

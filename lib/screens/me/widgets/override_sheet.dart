@@ -188,8 +188,7 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
               enabled: !_submitting,
               decoration: InputDecoration(
                 labelText: l10n.fieldReason,
-                hintText:
-                    'Why are you overriding the addressee\'s decision?',
+                hintText: l10n.overrideReasonHint,
                 border: OutlineInputBorder(),
                 isDense: true,
               ),

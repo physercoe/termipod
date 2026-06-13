@@ -2216,5 +2216,11 @@
   "sourceProject": "Source {project}: {id}",
   "@sourceProject": { "placeholders": { "project": { "type": "String" }, "id": { "type": "String" } } },
   "sourceTask": "Source {task}: {id}",
-  "@sourceTask": { "placeholders": { "task": { "type": "String" }, "id": { "type": "String" } } }
+  "@sourceTask": { "placeholders": { "task": { "type": "String" }, "id": { "type": "String" } } },
+  "overrideReasonHint": "Why are you overriding the addressee's decision?",
+  "viewDeliverable": "View deliverable",
+  "viewProject": "View {project}",
+  "@viewProject": { "placeholders": { "project": { "type": "String" } } },
+  "viewTask": "View {task}",
+  "@viewTask": { "placeholders": { "task": { "type": "String" } } }
 }

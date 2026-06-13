@@ -2028,5 +2028,11 @@
   "sourceProject": "来源{project}：{id}",
   "@sourceProject": { "placeholders": { "project": { "type": "String" }, "id": { "type": "String" } } },
   "sourceTask": "来源{task}：{id}",
-  "@sourceTask": { "placeholders": { "task": { "type": "String" }, "id": { "type": "String" } } }
+  "@sourceTask": { "placeholders": { "task": { "type": "String" }, "id": { "type": "String" } } },
+  "overrideReasonHint": "您为何要覆盖收件人的决定？",
+  "viewDeliverable": "查看交付物",
+  "viewProject": "查看{project}",
+  "@viewProject": { "placeholders": { "project": { "type": "String" } } },
+  "viewTask": "查看{task}",
+  "@viewTask": { "placeholders": { "task": { "type": "String" } } }
 }

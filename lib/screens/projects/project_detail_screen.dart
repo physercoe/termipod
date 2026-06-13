@@ -34,7 +34,6 @@ import 'docs_section.dart';
 import '../../services/hub/open_steward_session.dart' show openAgentSession;
 import 'overview_widgets/portfolio_header.dart';
 import 'overview_widgets/registry.dart';
-import 'overview_widgets/workspace_overview.dart' show formatRelative;
 import 'overview_widgets/workspace_overview.dart';
 import 'project_create_sheet.dart';
 import 'project_edit_sheet.dart';
@@ -116,14 +115,6 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
   // Pill order locked by IA §6.2 (W2 — Channel demoted to AppBar).
   static const _tabCount = 5;
 
-  List<String> _buildLabels(AppLocalizations l10n, VocabTerm agentTerm, VocabTerm taskTerm) => [
-    l10n.projectTabOverview,
-    l10n.projectTabActivity,
-    agentTerm.title,
-    taskTerm.title,
-    l10n.projectTabFiles,
-  ];
-
   List<ViewOption> _buildViewOptions(AppLocalizations l10n, VocabTerm agentTerm, VocabTerm taskTerm) => [
     ViewOption(label: l10n.projectTabOverview, icon: Icons.dashboard_outlined),
     ViewOption(label: l10n.projectTabActivity, icon: Icons.bolt_outlined),
@@ -193,7 +184,6 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
         isWorkspace ? VocabAxis.entityWorkspace : VocabAxis.entityProject);
     final agentTerm = voc.term(VocabAxis.roleAgent);
     final taskTerm = voc.term(VocabAxis.entityTask);
-    final labels = _buildLabels(l10n, agentTerm, taskTerm);
     final viewOptions = _buildViewOptions(l10n, agentTerm, taskTerm);
     final name = (_project['name'] ??
             (isWorkspace ? l10n.kindWorkspace : l10n.kindProject))

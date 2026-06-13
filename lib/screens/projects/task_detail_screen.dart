@@ -3,8 +3,12 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:termipod/l10n/app_localizations.dart';
+
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../theme/task_priority_style.dart';
@@ -112,6 +116,7 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
   }
 
   Future<void> _setStatus(String s) async {
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
@@ -125,13 +130,14 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Status change failed: $e')),
+          SnackBar(content: Text(l10n.statusChangeFailedError('$e'))),
         );
       }
     }
   }
 
   Future<void> _setPriority(TaskPriority p) async {
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
@@ -145,7 +151,7 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Priority change failed: $e')),
+          SnackBar(content: Text(l10n.priorityChangeFailedError('$e'))),
         );
       }
     }
@@ -153,13 +159,16 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final taskTerm = vocab.term(VocabAxis.entityTask);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Task'),
+        title: Text(taskTerm.title),
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit task',
+            tooltip: l10n.taskDetailEditTooltip(taskTerm.lower),
             onPressed: _task == null ? null : _openEditSheet,
           ),
         ],
@@ -303,14 +312,15 @@ class _StateRow extends StatelessWidget {
   }
 
   Widget _statusPicker(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return PopupMenuButton<String>(
-      tooltip: 'Change status',
+      tooltip: l10n.changeStatusTooltip,
       itemBuilder: (_) => [
         for (final s in _statuses)
           PopupMenuItem<String>(
             value: s,
             child: Text(
-              s,
+              taskStatusLabel(l10n, s),
               style: GoogleFonts.spaceGrotesk(
                 fontWeight:
                     s == status ? FontWeight.w700 : FontWeight.w400,
@@ -319,13 +329,14 @@ class _StateRow extends StatelessWidget {
           ),
       ],
       onSelected: onStatus,
-      child: _pickerChip(label: 'STATUS', value: status),
+      child: _pickerChip(label: l10n.taskDetailStatusLabel, value: taskStatusLabel(l10n, status)),
     );
   }
 
   Widget _priorityPicker(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return PopupMenuButton<TaskPriority>(
-      tooltip: 'Change priority',
+      tooltip: l10n.changePriorityTooltip,
       itemBuilder: (_) => [
         for (final p in TaskPriority.values)
           PopupMenuItem<TaskPriority>(
@@ -336,7 +347,7 @@ class _StateRow extends StatelessWidget {
                 TaskPriorityDot(priority: p, size: 10),
                 const SizedBox(width: 8),
                 Text(
-                  p.label,
+                  p.localizedLabel(l10n),
                   style: GoogleFonts.spaceGrotesk(
                     fontWeight:
                         p == priority ? FontWeight.w700 : FontWeight.w400,
@@ -348,8 +359,8 @@ class _StateRow extends StatelessWidget {
       ],
       onSelected: onPriority,
       child: _pickerChip(
-        label: 'PRIORITY',
-        value: priority.label,
+        label: l10n.taskDetailPriorityLabel,
+        value: priority.localizedLabel(l10n),
         leading: TaskPriorityDot(priority: priority, size: 8),
       ),
     );
@@ -442,6 +453,7 @@ class _AttributionCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final assigneeID = (task['assignee_id'] ?? '').toString();
     final assigneeHandle = (task['assignee_handle'] ?? '').toString();
     final assigneeStatus = (task['assignee_status'] ?? '').toString();
@@ -520,6 +532,7 @@ class _AttributionCard extends ConsumerWidget {
           if (assigneeHandle.isNotEmpty)
             _assigneeRow(
               context,
+              l10n: l10n,
               handle: assigneeHandle,
               workerStatus: assigneeStatus,
               muted: muted,
@@ -529,6 +542,7 @@ class _AttributionCard extends ConsumerWidget {
             ),
           _provenanceRow(
             context,
+            l10n: l10n,
             isPlan: isPlan,
             assignerHandle: assignerHandle,
             muted: muted,
@@ -537,7 +551,7 @@ class _AttributionCard extends ConsumerWidget {
             _iconRow(
               icon: Icons.schedule,
               child: Text(
-                _timeLine(started, completed, cancelled, status),
+                _timeLine(l10n, started, completed, cancelled, status),
                 style: GoogleFonts.spaceGrotesk(fontSize: 12),
               ),
               muted: muted,
@@ -546,7 +560,7 @@ class _AttributionCard extends ConsumerWidget {
             _iconRow(
               icon: Icons.flag_outlined,
               child: Text(
-                'Closed: $terminalReason',
+                l10n.taskDetailClosedReason(terminalReason),
                 style: GoogleFonts.spaceGrotesk(fontSize: 12),
               ),
               muted: muted,
@@ -556,8 +570,7 @@ class _AttributionCard extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(left: 22),
               child: Text(
-                'Closing this task manually does not complete the '
-                'plan step; the executor owns that transition.',
+                l10n.taskDetailCloseWarning,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 11,
                   color: muted,
@@ -570,7 +583,7 @@ class _AttributionCard extends ConsumerWidget {
             const Divider(height: 1),
             const SizedBox(height: 8),
             Text(
-              'Result summary',
+              l10n.taskDetailResultSummary,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -591,6 +604,7 @@ class _AttributionCard extends ConsumerWidget {
 
   Widget _assigneeRow(
     BuildContext context, {
+    required AppLocalizations l10n,
     required String handle,
     required String workerStatus,
     required Color muted,
@@ -638,7 +652,7 @@ class _AttributionCard extends ConsumerWidget {
           if (sessionId.isNotEmpty)
             TextButton.icon(
               icon: const Icon(Icons.forum_outlined, size: 14),
-              label: const Text('Open'),
+              label: Text(l10n.taskDetailOpenLabel),
               style: TextButton.styleFrom(
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -659,7 +673,7 @@ class _AttributionCard extends ConsumerWidget {
             )
           else if (assigneeID.isNotEmpty)
             Text(
-              'no live session',
+              l10n.taskDetailNoLiveSession,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 fontStyle: FontStyle.italic,
@@ -673,6 +687,7 @@ class _AttributionCard extends ConsumerWidget {
 
   Widget _provenanceRow(
     BuildContext context, {
+    required AppLocalizations l10n,
     required bool isPlan,
     required String assignerHandle,
     required Color muted,
@@ -702,14 +717,7 @@ class _AttributionCard extends ConsumerWidget {
                   TextSpan(
                     style: GoogleFonts.spaceGrotesk(fontSize: 12),
                     children: [
-                      const TextSpan(text: 'Generated by plan step '),
-                      TextSpan(
-                        text: planStepId,
-                        style: GoogleFonts.jetBrainsMono(
-                          fontSize: 11,
-                          color: DesignColors.primary,
-                        ),
-                      ),
+                      TextSpan(text: l10n.taskDetailGeneratedByPlanStep(planStepId)),
                     ],
                   ),
                 ),
@@ -722,28 +730,19 @@ class _AttributionCard extends ConsumerWidget {
       );
     }
     if (assignerHandle.isNotEmpty) {
-      // For spawn-created or steward-created tasks we have an actual
-      // agent handle on the assigner side; surface it verbatim. The
-      // verb is the same for both ("assigned by") since spawn delegates
-      // and manual tasks.create both express "this agent originated
-      // the row" at the user-facing layer.
       return _iconRow(
         icon: Icons.swap_horiz,
         child: Text(
-          'assigned by @${_stripAt(assignerHandle)}',
+          l10n.taskDetailAssignedBy(_stripAt(assignerHandle)),
           style: GoogleFonts.spaceGrotesk(fontSize: 12),
         ),
         muted: muted,
       );
     }
-    // Only reach here when source=ad_hoc AND no agent assigner: a
-    // human typed the task in directly via the mobile sheet. This is
-    // the case the legacy "Created manually" label actually
-    // described — keep it for that path only.
     return _iconRow(
       icon: Icons.person_outline,
       child: Text(
-        'Created manually',
+        l10n.taskDetailCreatedManually,
         style: GoogleFonts.spaceGrotesk(fontSize: 12),
       ),
       muted: muted,
@@ -768,17 +767,20 @@ class _AttributionCard extends ConsumerWidget {
     );
   }
 
-  String _timeLine(DateTime? started, DateTime? completed,
-      DateTime? cancelled, String status) {
+  String _timeLine(AppLocalizations l10n, DateTime? started,
+      DateTime? completed, DateTime? cancelled, String status) {
     if (cancelled != null) {
-      return 'cancelled ${formatRelative(cancelled)} ago';
+      return l10n.taskDetailCancelledAgo(formatRelative(cancelled));
     }
     if (completed != null && status == 'done') {
-      return 'done ${formatRelative(completed)} ago'
-          '${started != null ? " · started ${formatRelative(started)} ago" : ""}';
+      final donePart = l10n.taskDetailDoneAgo(formatRelative(completed));
+      if (started != null) {
+        return '$donePart · ${l10n.taskDetailStartedAgo(formatRelative(started))}';
+      }
+      return donePart;
     }
     if (started != null) {
-      return 'started ${formatRelative(started)} ago';
+      return l10n.taskDetailStartedAgo(formatRelative(started));
     }
     return '';
   }
@@ -818,6 +820,7 @@ class _TaskAuditTimeline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final muted = isDark
         ? DesignColors.textMuted
         : DesignColors.textMutedLight;
@@ -825,7 +828,7 @@ class _TaskAuditTimeline extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'ACTIVITY',
+          l10n.taskDetailActivityHeading,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 11,
             fontWeight: FontWeight.w600,
@@ -836,7 +839,7 @@ class _TaskAuditTimeline extends StatelessWidget {
         const SizedBox(height: 6),
         if (rows.isEmpty)
           Text(
-            'No audit rows yet for this task.',
+            l10n.taskDetailNoAuditRows,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 12,
               color: muted,
@@ -951,9 +954,10 @@ class _TaskBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     if (body.isEmpty) {
       return Text(
-        '(no body)',
+        l10n.taskDetailNoBody,
         style: GoogleFonts.spaceGrotesk(
           fontSize: 13,
           height: 1.4,

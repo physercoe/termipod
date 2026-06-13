@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:termipod/l10n/app_localizations.dart';
+
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
@@ -85,6 +87,7 @@ class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg =
         isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
@@ -218,7 +221,7 @@ class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
               children: [
                 _statusChip(status.isEmpty ? 'active' : status),
                 if (budgetCents is int)
-                  _budgetChip(0, budgetCents),
+                  _budgetChip(l10n, 0, budgetCents),
               ],
             ),
             if (_loaded && _total > 0) ...[
@@ -249,11 +252,11 @@ Widget _statusChip(String label) {
 }
 
 /// Budget tag rendered via the shared [AppStatusChip] (ADR-047 D-7).
-Widget _budgetChip(int usedCents, int capCents) {
+Widget _budgetChip(AppLocalizations l10n, int usedCents, int capCents) {
   final used = (usedCents / 100).toStringAsFixed(0);
   final cap = (capCents / 100).toStringAsFixed(0);
   return AppStatusChip(
-    label: 'budget: \$$used / \$$cap',
+    label: l10n.portfolioBudget('\$$used', '\$$cap'),
     color: DesignColors.warning,
     icon: Icons.attach_money,
   );

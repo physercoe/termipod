@@ -4,13 +4,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/connection_provider.dart' show connectionsProvider;
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../screens/home_screen.dart';
 import '../../services/deep_link/uri_router.dart';
 import '../../services/hub/hub_client.dart';
 import '../../services/steward_handle.dart';
+import '../../services/vocab/vocab_axis.dart';
 
 /// Upper bound on the events we ask the hub for at cold open. Tool-
 /// heavy turns can fan out to 30+ events apiece (a single steward
@@ -163,22 +166,16 @@ const Duration _reconnectNoteGrace = Duration(seconds: 3);
 
 class StewardOverlayController extends Notifier<StewardOverlayState> {
   StreamSubscription<Map<String, dynamic>>? _sub;
-  /// Self-gate for in-flight find-only bootstraps. Replaces the old
-  /// one-shot `_initStarted` so a hub-state change (general steward
-  /// appearing after the user spawns one from Home) can trigger a
-  /// fresh attach attempt without reloading the controller.
   bool _attaching = false;
   bool _disposed = false;
   Timer? _reconnectTimer;
-  /// Defers the "stream — reconnecting…" system note so a healthy
-  /// reconnect within `_reconnectNoteGrace` stays invisible.
   Timer? _noteGraceTimer;
-  /// Backoff on consecutive reconnect attempts: 1s, 2s, 4s, 8s, 16s,
-  /// then capped. Resets on the next successful event.
   int _reconnectAttempts = 0;
-  /// Highest seq we've seen — used to resume the SSE without
-  /// replaying the entire backfill on reconnect.
   int? _lastSeq;
+
+  /// Cached localizations; set by the host widget before calling
+  /// [ensureStarted] so the SSE callbacks can produce localized text.
+  AppLocalizations? l10n;
 
   /// Idle-drop heuristic: matches the patterns mobile carriers /
   /// reverse proxies typically surface when they reap a quiet TCP
@@ -230,7 +227,8 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     final hub = ref.read(hubProvider).value;
     final client = ref.read(hubProvider.notifier).client;
     if (hub == null || client == null) {
-      state = state.copyWith(error: 'Hub not configured');
+      state = state.copyWith(
+          error: l10n!.stewardOverlayHubNotConfigured);
       return;
     }
     try {
@@ -251,7 +249,8 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       try {
         agents = await client.listAgents();
       } catch (e) {
-        state = state.copyWith(error: 'Lookup failed: $e');
+        state = state.copyWith(
+            error: l10n!.stewardOverlayLookupFailed(e.toString()));
         return;
       }
       for (final a in agents) {
@@ -324,7 +323,8 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       _lastSeq = sinceCursor;
       _attachStream(client, agentId, sessionId);
     } catch (e) {
-      state = state.copyWith(error: 'Bootstrap failed: $e');
+      state = state.copyWith(
+          error: l10n!.stewardOverlayBootstrapFailed(e.toString()));
     }
   }
 
@@ -392,9 +392,12 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       _noteGraceTimer?.cancel();
       _noteGraceTimer = Timer(_reconnectNoteGrace, () {
         if (_disposed) return;
+        final steward =
+            ref.read(vocabularyProvider).term(VocabAxis.roleSteward);
         _appendMessage(OverlayChatMessage(
           role: OverlayChatRole.system,
-          text: 'Steward stream $reason — reconnecting…',
+          text: l10n!.stewardOverlayStreamReconnecting(
+              steward.title, reason),
           ts: DateTime.now(),
         ));
       });
@@ -434,7 +437,7 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       final asc = trimmed.reversed.toList(growable: false);
       final messages = _hydrateFromEvents(asc);
       final warning = cached.staleSince != null
-          ? 'Showing cached history (offline)'
+          ? l10n!.stewardOverlayCachedHistory
           : null;
       return _BackfillResult(
         messages: messages,
@@ -448,7 +451,7 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       return _BackfillResult(
         messages: const [],
         events: const [],
-        warning: 'Could not load history: $e',
+        warning: l10n!.stewardOverlayLoadHistoryFailed(e.toString()),
       );
     }
   }
@@ -605,10 +608,12 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     final uri = Uri.tryParse(uriStr);
     if (uri == null) return null;
     final hub = ref.read(hubProvider).value;
+    final steward =
+        ref.read(vocabularyProvider).term(VocabAxis.roleSteward).title;
     final target = _describeIntentTarget(uri, hub);
     return OverlayChatMessage(
       role: OverlayChatRole.system,
-      text: 'Steward → $target',
+      text: l10n!.stewardOverlayIntentAction(steward, target),
       note: uriStr,
       ts: ts,
       intentAction: OverlayIntentAction(
@@ -629,23 +634,28 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   String _describeIntentTarget(Uri uri, HubState? hub) {
     final host = uri.host.toLowerCase();
     final segs = uri.pathSegments;
+    final proj =
+        ref.read(vocabularyProvider).term(VocabAxis.entityProject).lower;
+    final agent =
+        ref.read(vocabularyProvider).term(VocabAxis.roleAgent).lower;
     switch (host) {
       case 'projects':
-        return 'Projects';
+        return l10n!.tabProjects;
       case 'activity':
         final filter = uri.queryParameters['filter'];
-        return filter == null ? 'Activity' : 'Activity · $filter';
+        return filter == null
+            ? l10n!.tabActivity
+            : l10n!.stewardOverlayActivityRouteFilter(filter);
       case 'me':
-        return 'Me';
+        return l10n!.tabMe;
       case 'hosts':
-        return 'Hosts';
+        return l10n!.tabHosts;
       case 'settings':
-        return 'Settings';
+        return l10n!.tabSettings;
       case 'insights':
-        return 'Insights';
+        return l10n!.openInsights;
       case 'project':
-        if (segs.isEmpty) return 'a project';
-        // If the hub snapshot has the name, use it; otherwise the id.
+        if (segs.isEmpty) return l10n!.stewardOverlayAProject(proj);
         final id = segs[0];
         if (hub != null) {
           for (final p in hub.projects) {
@@ -655,11 +665,15 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
             }
           }
         }
-        return 'project $id';
+        return l10n!.stewardOverlayProjectId(proj, id);
       case 'session':
-        return segs.isEmpty ? 'a session' : 'session ${segs[0]}';
+        return segs.isEmpty
+            ? l10n!.stewardOverlayASession
+            : l10n!.stewardOverlaySessionId(segs[0]);
       case 'agent':
-        return segs.isEmpty ? 'an agent' : 'agent ${segs[0]}';
+        return segs.isEmpty
+            ? l10n!.stewardOverlayAnAgent(agent)
+            : l10n!.stewardOverlayAgentId(agent, segs[0]);
       default:
         return uri.toString();
     }
@@ -723,7 +737,7 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     if (uri == null) {
       _appendMessage(OverlayChatMessage(
         role: OverlayChatRole.system,
-        text: 'mobile.intent uri unparseable: $uriStr',
+        text: l10n!.stewardOverlayIntentUnparseable(uriStr),
         ts: DateTime.now(),
       ));
       return;
@@ -733,7 +747,7 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     if (ctx == null) {
       _appendMessage(OverlayChatMessage(
         role: OverlayChatRole.system,
-        text: 'Navigator not ready; intent dropped',
+        text: l10n!.stewardOverlayNavigatorNotReady,
         note: uriStr,
         ts: DateTime.now(),
       ));
@@ -759,23 +773,26 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       },
     );
     if (!result.ok) {
+      final steward =
+          ref.read(vocabularyProvider).term(VocabAxis.roleSteward).title;
       _appendMessage(OverlayChatMessage(
         role: OverlayChatRole.system,
-        text: 'Steward could not navigate to $uriStr',
+        text: l10n!.stewardOverlayNavigateFailed(steward, uriStr),
         ts: DateTime.now(),
       ));
       return;
     }
-    // Snackbar surfaces the nav even when the chat panel is
-    // collapsed. The chat bubble is already appended by
-    // `_handleEvent` via `_eventToMessage` — no double-append here.
     final messenger = ScaffoldMessenger.maybeOf(ctx);
+    final l10nCtx = AppLocalizations.of(ctx)!;
+    final stewardCtx =
+        ref.read(vocabularyProvider).term(VocabAxis.roleSteward).title;
     messenger?.hideCurrentSnackBar();
     messenger?.showSnackBar(
       SnackBar(
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
-        content: Text('Steward → ${result.label}'),
+        content: Text(
+            l10nCtx.stewardOverlayIntentAction(stewardCtx, result.label)),
       ),
     );
   }

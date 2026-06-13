@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../models/snippet_presets.dart';
 import '../../providers/snippet_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../screens/vault/snippets_screen.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import 'steward_overlay_controller.dart';
@@ -127,8 +130,9 @@ class _ManageChip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     return Tooltip(
-      message: 'Manage snippets',
+      message: l10n.manageSnippets,
       waitDuration: const Duration(milliseconds: 600),
       child: ActionChip(
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -144,7 +148,7 @@ class _ManageChip extends ConsumerWidget {
           color: DesignColors.primary.withValues(alpha: 0.85),
         ),
         label: Text(
-          'Edit',
+          l10n.buttonEdit,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 12,
             fontWeight: FontWeight.w500,
@@ -185,13 +189,15 @@ class _SnippetsManagePage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final s = ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Snippets'),
+        title: Text(l10n.manageSnippets),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            tooltip: 'Add steward snippet',
+            tooltip: l10n.stewardOverlayAddSnippet(s.lower),
             onPressed: () => _addSnippet(context, ref),
           ),
         ],

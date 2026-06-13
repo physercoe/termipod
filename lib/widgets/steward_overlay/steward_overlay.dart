@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../providers/voice_settings_provider.dart';
 import '../../screens/home_screen.dart';
 import '../../screens/sessions/sessions_screen.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../services/voice/cloud_stt.dart';
 import '../../services/voice/recording_controller.dart';
 import '../../services/voice/voice_recording_session.dart';
@@ -217,11 +220,12 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay>
   Future<void> _onPuckLongPressStart() async {
     if (_voiceSession != null || _voiceStarting) return;
     setState(() => _voiceStarting = true);
+    final l10n = AppLocalizations.of(context)!;
     VoiceRecordingSession? session;
     try {
       session = await _buildVoiceSession();
     } catch (e) {
-      _showSnack('Voice unavailable: $e');
+      _showSnack(l10n.stewardOverlayVoiceUnavailable(e.toString()));
     } finally {
       if (mounted) setState(() => _voiceStarting = false);
     }
@@ -242,13 +246,14 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay>
       await session.start();
       if (mounted) setState(() {});
     } catch (e) {
-      _showSnack('Mic unavailable: $e');
+      _showSnack(l10n.stewardOverlayMicUnavailable(e.toString()));
       await _cleanupVoiceSession();
     }
   }
 
   void _onVoiceEvent(VoiceSessionEvent e) {
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
     switch (e.kind) {
       case VoiceSessionEventKind.transcriptUpdated:
         setState(() => _voiceTranscript = e.text);
@@ -260,35 +265,31 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay>
           if (autoSend) {
             _autoSendTranscript(text);
           } else {
-            // Review fallback — open the panel and surface the text in
-            // a SnackBar so the tester can re-enter it for now. A
-            // first-class pre-fill into the chat input is a v1.0.537+
-            // follow-up (needs an injection signal from this state
-            // into the chat input controller).
             setState(() => _expanded = true);
-            _showSnack('Voice → review: "$text" (panel opened)');
+            _showSnack(l10n.stewardOverlayVoiceReviewFallback(text));
           }
         }
         _cleanupVoiceSession();
       case VoiceSessionEventKind.cancelled:
         _cleanupVoiceSession();
       case VoiceSessionEventKind.maxDurationReached:
-        // Auto-stop is called by the session; completed event follows.
         break;
       case VoiceSessionEventKind.error:
-        _showSnack('Voice error: ${e.error}');
+        _showSnack(l10n.stewardOverlayVoiceError(e.error.toString()));
         _cleanupVoiceSession();
     }
   }
 
   Future<void> _autoSendTranscript(String text) async {
+    final l10n = AppLocalizations.of(context)!;
     try {
       await ref
           .read(stewardOverlayControllerProvider.notifier)
           .sendUserText(text);
-      _showSnack('Sent: "${text.length > 60 ? '${text.substring(0, 60)}…' : text}"');
+      final short = text.length > 60 ? '${text.substring(0, 60)}…' : text;
+      _showSnack(l10n.stewardOverlaySentTranscript(short));
     } catch (e) {
-      _showSnack('Send failed: $e');
+      _showSnack(l10n.stewardOverlaySendFailed(e.toString()));
     }
   }
 
@@ -817,13 +818,9 @@ class _PanelHeader extends ConsumerWidget {
     final agentId = overlay.agentId;
     final sessionId = overlay.sessionId;
     if (agentId == null || sessionId.isEmpty) return;
-    // The panel's BuildContext sits OUTSIDE the inner Navigator
-    // (overlay is mounted via MaterialApp.builder, which wraps the
-    // Navigator widget). Navigator.of(context) from here either
-    // misses the inner Navigator entirely or resolves to the wrong
-    // one. Use the shared overlayNavigatorKeyProvider — same key
-    // MaterialApp.navigatorKey was overridden with — which is the
-    // pattern the live mobile.intent dispatch path already uses.
+    final l10n = AppLocalizations.of(context)!;
+    final steward =
+        ref.read(vocabularyProvider).term(VocabAxis.roleSteward);
     final navState = ref.read(overlayNavigatorKeyProvider).currentState;
     if (navState == null) return;
     navState.push(
@@ -831,7 +828,7 @@ class _PanelHeader extends ConsumerWidget {
         builder: (_) => SessionChatScreen(
           sessionId: sessionId,
           agentId: agentId,
-          title: 'Steward',
+          title: l10n.stewardOverlayPanelTitle(steward.title),
         ),
       ),
     );
@@ -849,6 +846,9 @@ class _PanelHeader extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final steward =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
     final attentionN = _stewardAttentionCount(ref);
     final overlayState = ref.watch(stewardOverlayControllerProvider);
     final canOpenFullSession = overlayState.agentId != null &&
@@ -877,7 +877,7 @@ class _PanelHeader extends ConsumerWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Steward',
+                  l10n.stewardOverlayPanelTitle(steward.title),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -891,8 +891,8 @@ class _PanelHeader extends ConsumerWidget {
                 ),
               IconButton(
                 tooltip: canOpenFullSession
-                    ? 'Open full session'
-                    : 'Steward not ready',
+                    ? l10n.stewardOverlayOpenFullSession
+                    : l10n.stewardOverlayNotReadyTooltip(steward.title),
                 iconSize: 18,
                 icon: const Icon(Icons.open_in_new),
                 onPressed: canOpenFullSession
@@ -900,7 +900,7 @@ class _PanelHeader extends ConsumerWidget {
                     : null,
               ),
               IconButton(
-                tooltip: 'Close',
+                tooltip: l10n.buttonClose,
                 iconSize: 20,
                 icon: const Icon(Icons.close),
                 onPressed: onClose,

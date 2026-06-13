@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/connection_provider.dart' show connectionsProvider;
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../providers/voice_settings_provider.dart';
 import '../../screens/home_screen.dart';
 import '../../services/deep_link/uri_router.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../services/voice/cloud_stt.dart';
 import '../../services/voice/recording_controller.dart';
 import '../../services/voice/voice_recording_session.dart';
@@ -212,9 +215,12 @@ class _ChatInputSlot extends ConsumerWidget {
       );
     }
 
+    final stewardLower =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward).lower;
     return _ChatInput(
       key: const ValueKey('steward-overlay-chat-input'),
       onSend: parent._sendMessage,
+      stewardLower: stewardLower,
       canAttachImages: parent._canAttachImages,
       canAttachPdfs: parent._canAttachPdfs,
       canAttachAudio: parent._canAttachAudio,
@@ -274,11 +280,13 @@ class _MessagesRegionState extends ConsumerState<_MessagesRegion> {
       return _ErrorView(error: state.error!);
     }
     if (state.noStewardYet) {
+      final l10n = AppLocalizations.of(context)!;
+      final s = ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            'No general steward yet.\nSpawn one from Home.',
+            l10n.stewardOverlayNoStewardYet(s.lower),
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 13,
@@ -293,15 +301,14 @@ class _MessagesRegionState extends ConsumerState<_MessagesRegion> {
     }
     if (state.messages.isEmpty) {
       _lastSeenLength = 0;
+      final l10n = AppLocalizations.of(context)!;
+      final s = ref.watch(vocabularyProvider).term(VocabAxis.roleSteward);
+      final p = ref.watch(vocabularyProvider).term(VocabAxis.entityProject);
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            'Tell the steward what you want to see.\n'
-            'Examples:\n'
-            '  • "Show me the steward insights view"\n'
-            '  • "Open project X"\n'
-            '  • "Take me to activity"\n',
+            l10n.stewardOverlayEmptyHint(s.lower, p.lower),
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 12,
@@ -385,9 +392,12 @@ class _ChatInput extends StatefulWidget {
   /// ref.watch) and the v1.0.466 IME rebuild path stays clear.
   final bool Function()? voiceAutoSendOnHold;
 
+  final String stewardLower;
+
   const _ChatInput({
     super.key,
     required this.onSend,
+    this.stewardLower = 'steward',
     this.canAttachImages = false,
     this.canAttachPdfs = false,
     this.canAttachAudio = false,
@@ -609,8 +619,10 @@ class _ChatInputState extends State<_ChatInput> {
 
   Future<void> _pickImage() async {
     if (_attaching || _sending) return;
+    final l10n = AppLocalizations.of(context)!;
     if (_pendingImages.length >= kMaxImagesPerTurn) {
-      setState(() => _attachError = 'Max $kMaxImagesPerTurn images per turn');
+      setState(() =>
+          _attachError = l10n.stewardOverlayMaxImages(kMaxImagesPerTurn));
       return;
     }
     setState(() {
@@ -627,7 +639,7 @@ class _ChatInputState extends State<_ChatInput> {
       setState(() => _attachError = e.message);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _attachError = 'Attach failed: $e');
+      setState(() => _attachError = l10n.attachFailedError(e.toString()));
     } finally {
       if (mounted) setState(() => _attaching = false);
     }
@@ -644,6 +656,7 @@ class _ChatInputState extends State<_ChatInput> {
   /// body) so no capability gate.
   Future<void> _pickTextFile() async {
     if (_attachingText || _sending) return;
+    final l10n = AppLocalizations.of(context)!;
     setState(() {
       _attachingText = true;
       _attachError = null;
@@ -669,7 +682,7 @@ class _ChatInputState extends State<_ChatInput> {
       setState(() => _attachError = e.message);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _attachError = 'Attach failed: $e');
+      setState(() => _attachError = l10n.attachFailedError(e.toString()));
     } finally {
       if (mounted) setState(() => _attachingText = false);
     }
@@ -680,6 +693,7 @@ class _ChatInputState extends State<_ChatInput> {
   /// picker shows a kind sheet first.
   Future<void> _pickMultimodal() async {
     if (_attachingMultimodal || _sending) return;
+    final l10n = AppLocalizations.of(context)!;
     final kinds = <MultimodalKind>[
       if (widget.canAttachPdfs) MultimodalKind.pdf,
       if (widget.canAttachAudio) MultimodalKind.audio,
@@ -699,7 +713,7 @@ class _ChatInputState extends State<_ChatInput> {
               for (final k in kinds)
                 ListTile(
                   leading: Icon(_iconForMultimodal(k)),
-                  title: Text('Attach ${k.label}'),
+                  title: Text(l10n.stewardOverlayAttachKind(k.label)),
                   onTap: () => Navigator.pop(sheetCtx, k),
                 ),
             ],
@@ -722,7 +736,7 @@ class _ChatInputState extends State<_ChatInput> {
       setState(() => _attachError = e.message);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _attachError = 'Attach failed: $e');
+      setState(() => _attachError = l10n.attachFailedError(e.toString()));
     } finally {
       if (mounted) setState(() => _attachingMultimodal = false);
     }
@@ -753,6 +767,7 @@ class _ChatInputState extends State<_ChatInput> {
   Future<bool> _startVoiceSession(_VoiceFlow flow) async {
     if (_voiceSession != null || _voiceStarting) return false;
     if (widget.voiceStarter == null) return false;
+    final l10n = AppLocalizations.of(context)!;
     setState(() => _voiceStarting = true);
     VoiceRecordingSession? session;
     try {
@@ -760,7 +775,8 @@ class _ChatInputState extends State<_ChatInput> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Voice unavailable: $e')),
+          SnackBar(
+              content: Text(l10n.stewardOverlayVoiceUnavailable(e.toString()))),
         );
       }
     } finally {
@@ -781,7 +797,8 @@ class _ChatInputState extends State<_ChatInput> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Mic unavailable: $e')),
+          SnackBar(
+              content: Text(l10n.stewardOverlayMicUnavailable(e.toString()))),
         );
       }
       await _cleanupVoiceSession();
@@ -803,6 +820,7 @@ class _ChatInputState extends State<_ChatInput> {
   }
 
   void _handleHoldToSpeakEvent(VoiceSessionEvent e) {
+    final l10n = AppLocalizations.of(context)!;
     switch (e.kind) {
       case VoiceSessionEventKind.transcriptUpdated:
         setState(() => _holdTranscript = e.text);
@@ -838,13 +856,15 @@ class _ChatInputState extends State<_ChatInput> {
         break;
       case VoiceSessionEventKind.error:
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Voice error: ${e.error}')),
+          SnackBar(
+              content: Text(l10n.stewardOverlayVoiceError(e.error.toString()))),
         );
         _cleanupVoiceSession();
     }
   }
 
   void _handleInlineStreamingEvent(VoiceSessionEvent e) {
+    final l10n = AppLocalizations.of(context)!;
     switch (e.kind) {
       case VoiceSessionEventKind.transcriptUpdated:
       case VoiceSessionEventKind.completed:
@@ -879,7 +899,8 @@ class _ChatInputState extends State<_ChatInput> {
         break;
       case VoiceSessionEventKind.error:
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Voice error: ${e.error}')),
+          SnackBar(
+              content: Text(l10n.stewardOverlayVoiceError(e.error.toString()))),
         );
         _cleanupVoiceSession();
     }
@@ -973,6 +994,7 @@ class _ChatInputState extends State<_ChatInput> {
   // ===== Center-surface builders =====
 
   Widget _buildTextField() {
+    final l10n = AppLocalizations.of(context)!;
     // **IME-friendly defaults.** Earlier revisions set
     // `autocorrect: false` + `enableSuggestions: false` as
     // belt-and-suspenders for the v1.0.466 deleted-text-returning
@@ -1027,7 +1049,7 @@ class _ChatInputState extends State<_ChatInput> {
       // matches the proven-good compose pattern.
       decoration: InputDecoration(
         isDense: true,
-        hintText: 'Ask the steward…',
+        hintText: l10n.stewardOverlayChatHint(widget.stewardLower),
         // **v1.0.563 — pin border color across focus states** so the
         // ghost-focus-bounce in `_bounceFocusForImeResync` doesn't
         // flicker the border between focused/unfocused colors every
@@ -1044,7 +1066,9 @@ class _ChatInputState extends State<_ChatInput> {
             horizontal: 12, vertical: Spacing.s8),
         suffixIcon: voiceEnabled
             ? IconButton(
-                tooltip: streaming ? 'Stop dictation' : 'Start dictation',
+                tooltip: streaming
+                    ? l10n.stewardOverlayStopDictation
+                    : l10n.stewardOverlayStartDictation,
                 icon: Icon(
                   streaming ? Icons.stop_circle : Icons.mic_none,
                   size: 20,
@@ -1066,14 +1090,15 @@ class _ChatInputState extends State<_ChatInput> {
   }
 
   Widget _buildHoldToSpeakSurface() {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final recording = _holdRecording;
     final starting = _voiceStarting;
     final hint = starting
-        ? 'Starting…'
+        ? l10n.buttonStarting
         : recording
-            ? (_holdTranscript.isEmpty ? 'Listening…' : _holdTranscript)
-            : 'Hold to speak';
+            ? (_holdTranscript.isEmpty ? l10n.stewardOverlayListening : _holdTranscript)
+            : l10n.stewardOverlayHoldToSpeak;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onLongPressStart: _onHoldToSpeakStart,
@@ -1173,8 +1198,10 @@ class _ChatInputState extends State<_ChatInput> {
         if (stagedMultimodal.isNotEmpty) {
           setState(() => _pendingMultimodal.addAll(stagedMultimodal));
         }
+        final l10n = AppLocalizations.of(context)!;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Send failed: $e')),
+          SnackBar(
+              content: Text(l10n.stewardOverlaySendFailed(e.toString()))),
         );
       }
     } finally {
@@ -1184,6 +1211,7 @@ class _ChatInputState extends State<_ChatInput> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final canAttach = widget.canAttachImages;
     final canAttachMulti = widget.canAttachPdfs ||
         widget.canAttachAudio ||
@@ -1288,8 +1316,8 @@ class _ChatInputState extends State<_ChatInput> {
                 IconButton(
                   key: const ValueKey('chat-row-voice-toggle'),
                   tooltip: _voiceComposeMode
-                      ? 'Switch to keyboard input'
-                      : 'Switch to voice input',
+                      ? l10n.stewardOverlaySwitchKeyboard
+                      : l10n.stewardOverlaySwitchVoice,
                   onPressed: (_sending || _voiceStarting)
                       ? null
                       : _toggleVoiceComposeMode,
@@ -1323,8 +1351,9 @@ class _ChatInputState extends State<_ChatInput> {
                 IconButton(
                   key: const ValueKey('chat-row-attach-image'),
                   tooltip: _pendingImages.length >= kMaxImagesPerTurn
-                      ? 'Max $kMaxImagesPerTurn images per turn'
-                      : 'Attach image (${_pendingImages.length}/$kMaxImagesPerTurn)',
+                      ? l10n.stewardOverlayMaxImages(kMaxImagesPerTurn)
+                      : l10n.stewardOverlayAttachImageCount(
+                          _pendingImages.length, kMaxImagesPerTurn),
                   onPressed: (_sending ||
                           _attaching ||
                           _pendingImages.length >= kMaxImagesPerTurn)
@@ -1344,7 +1373,7 @@ class _ChatInputState extends State<_ChatInput> {
                 ),
               IconButton(
                 key: const ValueKey('chat-row-attach-text'),
-                tooltip: 'Attach code or text file',
+                tooltip: l10n.stewardOverlayAttachCodeFile,
                 onPressed: (_sending || _attachingText) ? null : _pickTextFile,
                 icon: _attachingText
                     ? const SizedBox(
@@ -1361,7 +1390,7 @@ class _ChatInputState extends State<_ChatInput> {
               if (canAttachMulti)
                 IconButton(
                   key: const ValueKey('chat-row-attach-multimodal'),
-                  tooltip: 'Attach PDF, audio, or video',
+                  tooltip: l10n.stewardOverlayAttachPdfAudioVideo,
                   onPressed: (_sending || _attachingMultimodal)
                       ? null
                       : _pickMultimodal,
@@ -1379,7 +1408,7 @@ class _ChatInputState extends State<_ChatInput> {
                 ),
               IconButton(
                 key: const ValueKey('chat-row-send'),
-                tooltip: 'Send',
+                tooltip: l10n.buttonSend,
                 icon: _sending
                     ? const SizedBox(
                         width: 18,
@@ -1427,6 +1456,7 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     // Intent events render as a compact past-tense pill with
     // tap-through, NOT a regular chat bubble — it's the durable
     // record of what the steward DID, not what it said.
@@ -1476,7 +1506,7 @@ class _MessageBubble extends StatelessWidget {
               if (truncated) ...[
                 const SizedBox(height: 4),
                 Text(
-                  '… open full session for the rest',
+                  l10n.stewardOverlayTruncatedSuffix,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 11,
                     color: muted,
@@ -1528,6 +1558,9 @@ class _IntentPill extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final steward =
+        ref.watch(vocabularyProvider).term(VocabAxis.roleSteward).title;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Align(
       alignment: Alignment.center,
@@ -1560,7 +1593,8 @@ class _IntentPill extends ConsumerWidget {
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
-                    'Steward ${action.verb} ${action.target}',
+                    l10n.stewardOverlayIntentVerb(
+                        steward, action.verb, action.target),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,

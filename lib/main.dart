@@ -245,7 +245,10 @@ class _StewardOverlayHostState extends ConsumerState<_StewardOverlayHost> {
     if (hasConfig && overlayEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        ref.read(stewardOverlayControllerProvider.notifier).ensureStarted();
+        final notifier =
+            ref.read(stewardOverlayControllerProvider.notifier);
+        notifier.l10n = AppLocalizations.of(context)!;
+        notifier.ensureStarted();
       });
     }
     if (!hasConfig || !overlayEnabled) {

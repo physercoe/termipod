@@ -92,6 +92,17 @@
 #                 inside a tmux session on this host. Attach to watch AND type
 #                 into the agent; the poller blocks until the agent exits, then
 #                 moves on. Needs tmux + AGENT_INTERACTIVE_CMD.
+#   --warm        (alias --stay) Single warm session per ticket: hand the agent a
+#   --stay        prompt that tells it to open the PR and then STAY — watch its
+#                 own PR, service ticket:changes rounds IN THE SAME session
+#                 (warm context, no cold re-load), and exit only when the PR
+#                 merges. The poller blocks on that one long agent run for the
+#                 whole lifecycle. Needs a wait/monitor-capable agent CLI (it
+#                 sleeps between PR polls). The cold default (no flag) instead
+#                 runs a fresh agent session per round — cheaper + crash-resilient
+#                 but re-loads context each round. (If a warm agent dies leaving
+#                 an open PR, the normal per-round dispatch recovers it.)
+#                 Incompatible with --interactive.
 #
 # ---------------------------------------------------------------------------
 # Guarantees / safety
@@ -100,13 +111,21 @@
 #     serializes — a poller process works at most one ticket at a time.
 #   * Full ticket lifecycle: a builder carries ONE ticket from claim → PR →
 #     review → merge before taking anything new. Each pass, if this handle has
-#     an OPEN PR (branch agent/<handle>/*):
+#     an OPEN PR (branch agent/<handle>/*), it dispatches on the ticket state:
 #       - ticket:changes  → run the agent on the EXISTING branch to address the
 #         maintainer's review (a feedback round — fix in place, do not branch
-#         fresh, do not claim new work);
+#         fresh, do not claim new work). The agent flips it back to
+#         ticket:in-review when it has pushed the fix.
+#       - ticket:blocked  → the agent escalated a judgment call; WAIT (re-running
+#         would re-hit the same wall). The maintainer resolves it by flipping to
+#         ticket:changes (re-engage the builder) or ticket:in-review.
 #       - otherwise (in-review) → wait; the ball is in the maintainer's court.
-#     Only with NO open PR does it claim the next ready ticket. The agent flips
-#     ticket:changes → ticket:in-review when it has pushed the fix.
+#     Only with NO open PR does it claim the next ready ticket. The loop never
+#     deadlocks — at worst it idle-waits on a state only the maintainer can move.
+#   * Cold (default) vs --warm: cold runs a fresh agent session per round; --warm
+#     keeps ONE session alive across the whole lifecycle (see Flags). Either way
+#     the per-round dispatch above holds — under --warm it also recovers a warm
+#     agent that died leaving an open PR.
 #   * Never merges. Merging is the maintainer's sole action (ADR-049 D-7).
 #   * Baton: this poller does NOT manage the holds:arb baton itself — the agent
 #     does, per AGENTS.md §6 (it checks the baton before opening an ARB PR).
@@ -149,13 +168,15 @@ ONCE=0
 DRY_RUN=0
 SUPERVISED=0
 INTERACTIVE=0
+WARM=0
 for arg in "$@"; do
   case "$arg" in
-    --once)        ONCE=1 ;;
-    --dry-run)     DRY_RUN=1 ;;
-    --supervised)  SUPERVISED=1 ;;
-    --interactive) INTERACTIVE=1 ;;
-    -h|--help)     awk 'NR>=2 && /^set -euo pipefail$/{exit} NR>=2' "$0"; exit 0 ;;
+    --once)         ONCE=1 ;;
+    --dry-run)      DRY_RUN=1 ;;
+    --supervised)   SUPERVISED=1 ;;
+    --interactive)  INTERACTIVE=1 ;;
+    --warm|--stay)  WARM=1 ;;
+    -h|--help)      awk 'NR>=2 && /^set -euo pipefail$/{exit} NR>=2' "$0"; exit 0 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
@@ -181,6 +202,7 @@ mkdir -p "$LOG_DIR"
 
 TMUX_SESSION="${TMUX_SESSION:-agent-${AGENT_HANDLE}}"
 if [[ "$INTERACTIVE" -eq 1 ]]; then
+  [[ "$WARM" -eq 1 ]] && { echo "--warm and --interactive are incompatible (warm keeps ONE headless session alive across rounds; interactive is a human take-over)" >&2; exit 2; }
   command -v tmux >/dev/null || { echo "--interactive needs tmux on this host" >&2; exit 1; }
   : "${AGENT_INTERACTIVE_CMD:?--interactive needs AGENT_INTERACTIVE_CMD (interactive launch, prompt as an arg — see header)}"
 else
@@ -262,6 +284,31 @@ slugify() {
     | cut -d- -f1-6
 }
 
+# In --warm mode, the addendum that tells the agent to keep ONE session alive
+# across the whole lifecycle (open PR → watch → service changes in place →
+# repeat until merged → exit). Empty unless WARM=1. Needs a wait/monitor-capable
+# agent CLI. Issue number passed as $1.
+warm_note() {
+  local n="$1"
+  [[ "${WARM:-0}" -eq 1 ]] || return 0
+  cat <<EOF
+
+WARM MODE — stay in THIS single session for the whole lifecycle of issue #${n}.
+After you open the PR and set ticket:in-review, DO NOT EXIT. Watch the PR until
+it is merged or closed, using your wait/monitor tooling to sleep between polls:
+  * Poll periodically (~60s):
+      gh pr view <your-PR-number> --json state,reviewDecision
+      gh issue view ${n} --json labels
+  * If issue #${n} gets ticket:changes (or the PR gets a CHANGES_REQUESTED
+    review), address EVERY review point on the SAME branch, push, re-verify CI
+    is all-green, then flip ticket:changes -> ticket:in-review and resume
+    watching. Re-acquire the holds:arb baton + rebase first if you touch ARB.
+  * When the PR is MERGED or closed, you are DONE — exit 0.
+  * If a change needs a judgment call you cannot make, set ticket:blocked,
+    comment specifically, and exit; the maintainer will re-engage. NEVER merge.
+EOF
+}
+
 # Build the standing prompt handed to the agent for ticket N.
 build_prompt() {
   local n="$1" slug="$2" branch="$3" title="$4"
@@ -290,6 +337,7 @@ ticket:claimed — do NOT re-claim it. Your job is to implement it end to end:
 
 Commit as your configured git identity ("${AGENT_HANDLE}") and add a
 Co-Authored-By trailer. English only in code, comments, and docs.
+$(warm_note "$n")
 EOF
 }
 
@@ -325,6 +373,7 @@ NOT claim a new ticket, do NOT open a new PR. Fix THIS PR in place:
    comment your specific question, and stop. Do not guess.
 
 Read AGENTS.md and docs/how-to/agent-collaboration.md (§9) for the rules.
+$(warm_note "$n")
 EOF
 }
 
@@ -424,6 +473,13 @@ work_one() {
       if [[ "$AGENT_RC" -eq 0 ]] && issue_has_label "$issue" "ticket:changes"; then
         log "WARN: agent finished #${issue} (rc=0) but ticket:changes is still set — it may not have flipped to ticket:in-review (or stopped at a blocker). Will re-check next iteration."
       fi
+    elif [[ -n "$issue" ]] && issue_has_label "$issue" "ticket:blocked"; then
+      # The agent escalated a judgment call. Only the maintainer can resolve it;
+      # re-running the agent would just re-hit the same wall. Wait — and because
+      # of one-open-PR-per-handle this handle makes no further progress until the
+      # maintainer flips it (to ticket:changes to re-engage the builder, or
+      # ticket:in-review if they resolved it on the PR themselves).
+      log "PR #${pr} (issue #${issue}) is BLOCKED — agent escalated to the maintainer; waiting (flip to ticket:changes to re-engage). Not claiming new work."
     else
       log "PR #${pr} (issue #${issue:-?}) is in review — waiting for the maintainer; not claiming new work."
     fi

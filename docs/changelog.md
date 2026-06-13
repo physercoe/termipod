@@ -23,6 +23,46 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.818-alpha — 2026-06-13
+
+**The #138 i18n sweep is complete.** This device-test build closes out
+the tail: the last hardcoded user-facing strings across **Me**,
+**Insights**, the **operator admin cockpit**, and **Projects** are now
+localized (en/zh) and themed through the vocabulary axes. `lint-arb`
+reports 1822 resource keys in en/zh lockstep; `lint-vocab` is clean
+across 21 axes × 8 packs. Also ships the autonomous-builder poller's
+full ticket lifecycle, which drove most of this tail.
+
+### Changed
+
+- **Me propose-card residue localized (#224).** `override_sheet` hint +
+  reason/cancel/override buttons, and the four `propose_card_*` "View
+  source" snackbars/labels (project/task/deliverable/spec), task & project
+  terms resolved through `entity.task` / `entity.project` (lower-cased to
+  match the surrounding sentence).
+- **Misc tail localized (#225).** `search_screen` + `artifacts_by_kind`
+  — neutral chrome reusing `buttonClear` / `buttonRefresh` plus a new
+  `searchSessionsHint`.
+- **Insights localized (#226).** Remaining transcript/insights literals,
+  including a themed scope banner; en/zh lockstep.
+- **Operator admin cockpit localized (#227).** `admin_screen` +
+  `admin_audit_screen` — 73 new admin keys; host & team entities themed
+  via `entity.host` / `entity.team` (title/lower/plural/pluralLower),
+  fleet/host action verbs extracted, audit filter chips localized.
+- **Projects residue localized (#228).** `task_detail_screen` +
+  `portfolio_header` — the `entity.task` term (AppBar title, edit
+  tooltip), reusing the existing `taskStatusLabel` +
+  `TaskPriority.localizedLabel` helpers; budget chip + all attribution /
+  audit-timeline strings.
+
+### Added
+
+- **Autonomous-builder poller — full ticket lifecycle.** `agent-poller.sh`
+  now services `ticket:changes` feedback rounds (claim → PR → changes →
+  merge without a human), handles the `ticket:blocked` state, and adds a
+  `--warm`/`--stay` single-session mode. A busy `holds:arb` baton is
+  treated as transient (retry, not block).
+
 ## v1.0.817-alpha — 2026-06-10
 
 The i18n sweep (#138 / ADR-048) continues across the **Sessions**,

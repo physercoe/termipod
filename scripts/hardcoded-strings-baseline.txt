@@ -7,10 +7,8 @@
 2 lib/screens/me/decision_history_screen.dart
 2 lib/screens/me/inline_actions.dart
 1 lib/screens/me/widgets/stalled_decisions_digest.dart
-4 lib/screens/projects/archived_agents_screen.dart
-1 lib/screens/projects/document_create_sheet.dart
 7 lib/screens/projects/project_create_sheet.dart
-6 lib/screens/projects/runs_screen.dart
+1 lib/screens/projects/runs_screen.dart
 1 lib/screens/sessions/widgets/steward_propose_inbox.dart
 3 lib/screens/settings/voice_settings_screen.dart
 7 lib/screens/terminal/terminal_screen.dart

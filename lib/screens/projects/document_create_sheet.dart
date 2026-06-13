@@ -252,10 +252,10 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
           minLines: 8,
           maxLines: 20,
           style: GoogleFonts.jetBrainsMono(fontSize: 12, height: 1.4),
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
             isDense: true,
-            hintText: '## Summary\n...',
+            hintText: l10n.docContentHint,
           ),
         ),
         const SizedBox(height: 20),

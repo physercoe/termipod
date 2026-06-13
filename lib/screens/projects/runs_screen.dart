@@ -631,12 +631,12 @@ class RunDetailScreen extends ConsumerStatefulWidget {
 /// See docs/plans/run-detail-ui.md.
 enum _RunView { overview, charts, media, outputs, config }
 
-const _runViewOptions = <ViewOption>[
-  ViewOption(label: 'Overview', icon: Icons.dashboard_outlined),
-  ViewOption(label: 'Charts', icon: Icons.show_chart),
-  ViewOption(label: 'Media', icon: Icons.image_outlined),
-  ViewOption(label: 'Outputs', icon: Icons.folder_outlined),
-  ViewOption(label: 'Config', icon: Icons.tune),
+List<ViewOption> _runViewOptions(AppLocalizations l10n) => [
+  ViewOption(label: l10n.runViewOverview, icon: Icons.dashboard_outlined),
+  ViewOption(label: l10n.runViewCharts, icon: Icons.show_chart),
+  ViewOption(label: l10n.runViewMedia, icon: Icons.image_outlined),
+  ViewOption(label: l10n.runViewOutputs, icon: Icons.folder_outlined),
+  ViewOption(label: l10n.runViewConfig, icon: Icons.tune),
 ];
 
 class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
@@ -974,7 +974,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: ViewSwitcher(
-                views: _runViewOptions,
+                views: _runViewOptions(l10n),
                 currentView: _view.index,
                 onSelect: (i) =>
                     setState(() => _view = _RunView.values[i]),

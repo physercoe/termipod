@@ -122,7 +122,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Override'), findsOneWidget);
-      expect(find.text('View task'), findsOneWidget);
+      // The "View source" label themes the Task primitive via VocabAxis.entityTask;
+      // under the default (tech) preset entityTask renders as "Ticket" → "View ticket".
+      expect(find.text('View ticket'), findsOneWidget);
       expect(find.text('Approve'), findsNothing);
     });
 

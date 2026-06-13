@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
+import '../../../providers/vocab_provider.dart';
+import '../../../services/vocab/vocab_axis.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
 import 'propose_addressee.dart';
@@ -53,6 +56,8 @@ class ProposeCardTask extends ConsumerWidget {
 
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.read(vocabularyProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -112,18 +117,22 @@ class ProposeCardTask extends ConsumerWidget {
           StalledProposeActions(
             attention: attention,
             onResolved: onResolved,
-            viewSourceLabel: 'View task',
+            viewSourceLabel:
+                l10n.viewTask(voc.term(VocabAxis.entityTask).lower),
             onViewSource: taskId.isEmpty
                 ? null
-                : () => _viewTask(context, taskId),
+                : () => _viewTask(context, ref, taskId),
           ),
       ],
     );
   }
 
-  static void _viewTask(BuildContext context, String taskId) {
+  static void _viewTask(BuildContext context, WidgetRef ref, String taskId) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.read(vocabularyProvider);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Source task: $taskId')),
+      SnackBar(content: Text(l10n.sourceTask(
+        voc.term(VocabAxis.entityTask).lower, taskId))),
     );
   }
 }

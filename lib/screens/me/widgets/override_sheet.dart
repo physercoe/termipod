@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
@@ -74,6 +75,7 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final l10n = AppLocalizations.of(context)!;
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final changeKind =
@@ -184,10 +186,9 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
               autofocus: true,
               maxLines: 3,
               enabled: !_submitting,
-              decoration: const InputDecoration(
-                labelText: 'Reason (required)',
-                hintText:
-                    'Why are you overriding the addressee\'s decision?',
+              decoration: InputDecoration(
+                labelText: l10n.fieldReason,
+                hintText: l10n.overrideReasonHint,
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
@@ -214,7 +215,7 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
                 TextButton(
                   onPressed:
                       _submitting ? null : () => Navigator.pop(context, false),
-                  child: const Text('Cancel'),
+                  child: Text(l10n.buttonCancel),
                 ),
                 const SizedBox(width: 8),
                 FilledButton.icon(
@@ -225,7 +226,7 @@ class _OverrideSheetBodyState extends ConsumerState<_OverrideSheetBody> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.gavel, size: 16),
-                  label: const Text('Override'),
+                  label: Text(l10n.buttonOverride),
                   onPressed: _submitting ? null : _submit,
                 ),
               ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
@@ -52,6 +53,7 @@ class ProposeCardProjectCreate extends ConsumerWidget {
     final addressee = (attention['assigned_tier'] ?? '').toString();
     final id = (attention['id'] ?? '').toString();
 
+    final l10n = AppLocalizations.of(context)!;
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final phaseCount = _countPhases(configYaml);
@@ -115,7 +117,7 @@ class ProposeCardProjectCreate extends ConsumerWidget {
           StalledProposeActions(
             attention: attention,
             onResolved: onResolved,
-            viewSourceLabel: 'View spec',
+            viewSourceLabel: l10n.viewSpec,
             onViewSource: configYaml.isEmpty
                 ? null
                 : () => showProjectSpecSheet(context, nameLabel, configYaml),
@@ -166,9 +168,10 @@ class _ViewSpecButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return OutlinedButton.icon(
       icon: const Icon(Icons.description_outlined, size: 16),
-      label: const Text('View spec'),
+      label: Text(l10n.viewSpec),
       onPressed: () => showProjectSpecSheet(context, name, configYaml),
     );
   }

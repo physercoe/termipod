@@ -4,9 +4,11 @@
 #
 # A host-side poller that lets ANY builder agent work the GitHub ticket queue
 # without a human typing a prompt each time. It does the cheap, deterministic
-# GitHub orchestration in bash (find a ready ticket → claim it → hand the agent
-# a standing prompt), so the expensive agent only spends tokens on the actual
-# implementation.
+# GitHub orchestration in bash and drives the FULL ticket lifecycle: claim a
+# ready ticket → hand the agent a build prompt → on a ticket:changes bounce,
+# hand the agent a feedback-round prompt to fix the same PR in place → wait
+# while in review → and only take new work once the PR is gone (merged). So the
+# expensive agent only spends tokens on the actual implementation + revisions.
 #
 # It is VENDOR-AGNOSTIC by design (ADR-049 D-9): no model or CLI name appears
 # here. You plug in your agent via $AGENT_CMD. A "builder" is a RUNTIME + a
@@ -96,8 +98,15 @@
 # ---------------------------------------------------------------------------
 #   * One-in-flight: the agent runs in the FOREGROUND, so the loop naturally
 #     serializes — a poller process works at most one ticket at a time.
-#   * Won't pile up review: if this handle already has an OPEN PR
-#     (branch agent/<handle>/*), the poller waits instead of claiming more.
+#   * Full ticket lifecycle: a builder carries ONE ticket from claim → PR →
+#     review → merge before taking anything new. Each pass, if this handle has
+#     an OPEN PR (branch agent/<handle>/*):
+#       - ticket:changes  → run the agent on the EXISTING branch to address the
+#         maintainer's review (a feedback round — fix in place, do not branch
+#         fresh, do not claim new work);
+#       - otherwise (in-review) → wait; the ball is in the maintainer's court.
+#     Only with NO open PR does it claim the next ready ticket. The agent flips
+#     ticket:changes → ticket:in-review when it has pushed the fix.
 #   * Never merges. Merging is the maintainer's sole action (ADR-049 D-7).
 #   * Baton: this poller does NOT manage the holds:arb baton itself — the agent
 #     does, per AGENTS.md §6 (it checks the baton before opening an ARB PR).
@@ -198,13 +207,32 @@ log "poller up — handle=$AGENT_HANDLE tiers=[$AGENT_TIERS] interval=${POLL_SEC
 
 # ---- helpers -------------------------------------------------------------
 
-# Is there already an OPEN PR from this handle's branch namespace? (review queue)
-have_open_pr() {
-  local n
-  n=$(gh pr list "${GH_REPO_ARGS[@]}" --state open --limit 100 \
-        --json headRefName \
-        --jq "[.[] | select(.headRefName | startswith(\"agent/${AGENT_HANDLE}/\"))] | length")
-  [[ "${n:-0}" -gt 0 ]]
+# This handle's in-flight OPEN PR, if any. Echoes "PR<TAB>ISSUE<TAB>BRANCH"
+# (one line) or nothing. ISSUE is parsed from the branch name
+# (agent/<handle>/<N>-slug) so it works even before the "Closes #N" link
+# resolves. This is the ticket's open work unit — while it exists, the poller
+# never claims a new ticket (the "one open PR per handle" rule).
+find_my_open_pr() {
+  local row pr branch issue
+  row=$(gh pr list "${GH_REPO_ARGS[@]}" --state open --limit 100 \
+        --json number,headRefName \
+        --jq "[.[] | select(.headRefName | startswith(\"agent/${AGENT_HANDLE}/\"))]
+              | sort_by(.number) | .[0]
+              | select(. != null) | \"\(.number)\t\(.headRefName)\"" 2>/dev/null || true)
+  [[ -z "$row" ]] && return 0
+  pr=$(printf '%s' "$row" | cut -f1)
+  branch=$(printf '%s' "$row" | cut -f2)
+  issue=$(printf '%s' "$branch" | sed -E "s#^agent/${AGENT_HANDLE}/([0-9]+)-.*#\1#")
+  [[ "$issue" =~ ^[0-9]+$ ]] || issue=""
+  printf '%s\t%s\t%s\n' "$pr" "$issue" "$branch"
+}
+
+# True if issue $1 currently carries label $2.
+issue_has_label() {
+  local n="$1" want="$2" hit
+  hit=$(gh issue view "$n" "${GH_REPO_ARGS[@]}" --json labels \
+        --jq "any(.labels[]; .name==\"$want\")" 2>/dev/null || echo false)
+  [[ "$hit" == "true" ]]
 }
 
 # Print the number of the first ready ticket matching a cleared tier, or empty.
@@ -265,52 +293,51 @@ Co-Authored-By trailer. English only in code, comments, and docs.
 EOF
 }
 
-# ---- one iteration -------------------------------------------------------
-work_one() {
-  if have_open_pr; then
-    log "handle ${AGENT_HANDLE} already has an open PR — waiting for review, not claiming."
-    return 0
-  fi
+# Build the prompt for a ticket:changes FEEDBACK ROUND — fix the existing PR
+# in place, do not branch fresh, do not claim new work.
+build_resume_prompt() {
+  local n="$1" branch="$2" pr="$3" title="$4"
+  cat <<EOF
+You are BUILDER "${AGENT_HANDLE}". Your OPEN pull request #${pr} for issue
+#${n} ("${title}") was sent back: the maintainer set ticket:changes and
+requested changes. This is a FEEDBACK ROUND in the ticket's lifecycle — do
+NOT claim a new ticket, do NOT open a new PR. Fix THIS PR in place:
 
-  local n
-  n="$(pick_ticket || true)"
-  if [[ -z "${n:-}" ]]; then
-    log "no ready ticket at tiers [$AGENT_TIERS]."
-    return 0
-  fi
+1. Check out your existing branch (do NOT create a new one):
+     git fetch origin && git checkout ${branch} && git pull --ff-only
+   If the change touches lib/l10n/*.arb and you don't already hold the
+   holds:arb baton, re-acquire it (gh issue list --label holds:arb --state
+   open; if free add it to #${n}, else set ticket:blocked + comment, stop)
+   and rebase on origin/main first.
+2. Read EVERY review comment and address each point — do not expand scope:
+     gh pr view ${pr} --comments
+     gh api repos/{owner}/{repo}/pulls/${pr}/reviews   --jq '.[] | .user.login + ": " + .body'
+     gh api repos/{owner}/{repo}/pulls/${pr}/comments  --jq '.[] | .path + ": " + .body'
+3. Self-verify: run the gate the spec names (e.g. bash scripts/lint-arb.sh),
+   push to the SAME branch, wait for CI, and confirm 'gh pr checks ${pr}'
+   shows EVERY row 'pass' (do not trust the --watch exit code).
+4. Hand it back for re-review:
+     gh issue edit ${n} --add-label ticket:in-review --remove-label ticket:changes
+   Remove ticket:changes from PR #${pr} too if present, and comment a short
+   summary of what you changed. NEVER merge — that is the maintainer's.
+5. If a requested change needs a judgment call you cannot make (vocabulary
+   axis, ICU/placeholder trap, spec-vs-code conflict), set ticket:blocked,
+   comment your specific question, and stop. Do not guess.
 
-  local title slug branch
-  title="$(gh issue view "$n" "${GH_REPO_ARGS[@]}" --json title --jq .title)"
-  slug="$(slugify "$title")"
-  branch="agent/${AGENT_HANDLE}/${n}-${slug}"
+Read AGENTS.md and docs/how-to/agent-collaboration.md (§9) for the rules.
+EOF
+}
 
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    log "[dry-run] would claim #${n} ('${title}') → branch ${branch} → run agent."
-    return 0
-  fi
-
-  if [[ "$SUPERVISED" -eq 1 ]]; then
-    printf '%s  claim and run #%s ("%s")? [y/N] ' "$(date -u +%H:%M:%S)" "$n" "$title" > /dev/tty
-    local reply=""; read -r reply < /dev/tty || true
-    if [[ ! "$reply" =~ ^[Yy] ]]; then
-      log "skipped #${n} by operator."
-      return 0
-    fi
-  fi
-
-  log "claiming #${n} ('${title}') as ${AGENT_HANDLE}."
-  gh issue edit "$n" "${GH_REPO_ARGS[@]}" \
-      --add-label ticket:claimed --remove-label ticket:ready
-  gh issue comment "$n" "${GH_REPO_ARGS[@]}" \
-      --body "claiming as ${AGENT_HANDLE}, branch \`${branch}\`. ETA ~30m."
-
-  PROMPT_FILE="$(mktemp -t agent-ticket-${n}.XXXXXX.txt)"
-  TICKET_NUMBER="$n"
-  TICKET_SLUG="$slug"
-  BRANCH="$branch"
+# ---- agent execution (shared by fresh claim + changes round) -------------
+# Runs ONE agent session for ticket $1 (slug $2) on branch $3. The caller has
+# already written + exported $PROMPT_FILE. Sets the global AGENT_RC. The agent
+# runs in the FOREGROUND, so the loop serializes to one in-flight ticket.
+AGENT_RC=0
+run_agent() {
+  local n="$1" slug="$2" branch="$3"
+  TICKET_NUMBER="$n"; TICKET_SLUG="$slug"; BRANCH="$branch"
   export PROMPT_FILE TICKET_NUMBER TICKET_SLUG BRANCH
-  build_prompt "$n" "$slug" "$branch" "$title" > "$PROMPT_FILE"
-
+  AGENT_RC=0
   local stamp; stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 
   if [[ "$INTERACTIVE" -eq 1 ]]; then
@@ -356,12 +383,92 @@ work_one() {
   log "handing ticket #${n} to the agent (foreground; transcript → ${logf})..."
   set +e
   ( eval "$AGENT_CMD" ) < "$PROMPT_FILE" 2>&1 | tee "$logf"
-  local rc=${PIPESTATUS[0]}
+  AGENT_RC=${PIPESTATUS[0]}
   set -e
   rm -f "$PROMPT_FILE"
+  return 0
+}
 
-  if [[ $rc -ne 0 ]]; then
-    log "agent exited non-zero (rc=$rc) on #${n}. Leaving the ticket claimed for inspection."
+# ---- one iteration -------------------------------------------------------
+# The ticket lifecycle, as a loop. Each pass:
+#   * IN-FLIGHT PR + ticket:changes → run the agent on the EXISTING branch to
+#     address the maintainer's review (feedback round). No new claim.
+#   * IN-FLIGHT PR + in-review       → wait; the ball is in the maintainer's
+#     court (the agent already did its part).
+#   * NO in-flight PR                → claim the next ready ticket and run the
+#     agent fresh.
+# Because the agent runs in the foreground and there is at most one open PR per
+# handle, a builder carries a single ticket from claim → PR → changes → merge
+# before taking anything new.
+work_one() {
+  local row pr issue branch
+  row="$(find_my_open_pr)"
+  if [[ -n "$row" ]]; then
+    IFS=$'\t' read -r pr issue branch <<< "$row"
+    if [[ -n "$issue" ]] && issue_has_label "$issue" "ticket:changes"; then
+      local rtitle
+      rtitle="$(gh issue view "$issue" "${GH_REPO_ARGS[@]}" --json title --jq .title 2>/dev/null || echo "ticket #$issue")"
+      if [[ "$DRY_RUN" -eq 1 ]]; then
+        log "[dry-run] would service ticket:changes on PR #${pr} (issue #${issue}) on branch ${branch}."
+        return 0
+      fi
+      if [[ "$SUPERVISED" -eq 1 ]]; then
+        printf '%s  service changes on PR #%s (issue #%s)? [y/N] ' "$(date -u +%H:%M:%S)" "$pr" "$issue" > /dev/tty
+        local reply=""; read -r reply < /dev/tty || true
+        [[ "$reply" =~ ^[Yy] ]] || { log "skipped changes round on #${issue} by operator."; return 0; }
+      fi
+      log "servicing ticket:changes on PR #${pr} (issue #${issue}) — feedback round, not claiming new work."
+      PROMPT_FILE="$(mktemp -t agent-changes-${issue}.XXXXXX.txt)"
+      build_resume_prompt "$issue" "$branch" "$pr" "$rtitle" > "$PROMPT_FILE"
+      run_agent "$issue" "$(slugify "$rtitle")" "$branch"
+      if [[ "$AGENT_RC" -eq 0 ]] && issue_has_label "$issue" "ticket:changes"; then
+        log "WARN: agent finished #${issue} (rc=0) but ticket:changes is still set — it may not have flipped to ticket:in-review (or stopped at a blocker). Will re-check next iteration."
+      fi
+    else
+      log "PR #${pr} (issue #${issue:-?}) is in review — waiting for the maintainer; not claiming new work."
+    fi
+    return 0
+  fi
+
+  # No in-flight PR → claim the next ready ticket.
+  local n
+  n="$(pick_ticket || true)"
+  if [[ -z "${n:-}" ]]; then
+    log "no ready ticket at tiers [$AGENT_TIERS]."
+    return 0
+  fi
+
+  local title slug fbranch
+  title="$(gh issue view "$n" "${GH_REPO_ARGS[@]}" --json title --jq .title)"
+  slug="$(slugify "$title")"
+  fbranch="agent/${AGENT_HANDLE}/${n}-${slug}"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] would claim #${n} ('${title}') → branch ${fbranch} → run agent."
+    return 0
+  fi
+
+  if [[ "$SUPERVISED" -eq 1 ]]; then
+    printf '%s  claim and run #%s ("%s")? [y/N] ' "$(date -u +%H:%M:%S)" "$n" "$title" > /dev/tty
+    local reply=""; read -r reply < /dev/tty || true
+    if [[ ! "$reply" =~ ^[Yy] ]]; then
+      log "skipped #${n} by operator."
+      return 0
+    fi
+  fi
+
+  log "claiming #${n} ('${title}') as ${AGENT_HANDLE}."
+  gh issue edit "$n" "${GH_REPO_ARGS[@]}" \
+      --add-label ticket:claimed --remove-label ticket:ready
+  gh issue comment "$n" "${GH_REPO_ARGS[@]}" \
+      --body "claiming as ${AGENT_HANDLE}, branch \`${fbranch}\`. ETA ~30m."
+
+  PROMPT_FILE="$(mktemp -t agent-ticket-${n}.XXXXXX.txt)"
+  build_prompt "$n" "$slug" "$fbranch" "$title" > "$PROMPT_FILE"
+  run_agent "$n" "$slug" "$fbranch"
+
+  if [[ "$AGENT_RC" -ne 0 ]]; then
+    log "agent exited non-zero (rc=$AGENT_RC) on #${n}. Leaving the ticket claimed for inspection."
   else
     log "agent finished #${n} (rc=0). Maintainer review is next; poller will wait while the PR is open."
   fi

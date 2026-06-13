@@ -205,9 +205,14 @@ Two finer mechanisms sit between inline-fix and bounce:
   Only works if the builder is **interactive/online**; a fire-and-forget poller
   has no one to click, so for autonomous builders the lanes are inline-fix /
   merge-and-log / bounce.
-- Because an autonomous poller can't yet service a `ticket:changes` round, a
-  bounce **stalls** until a human re-runs the builder — which makes
-  maintainer-inline-fix for *blocking trivia* the way to unblock without waiting.
+- **Bounce works for autonomous builders.** `agent-poller.sh` services a
+  `ticket:changes` round: each pass it checks for its own open PR and, when the
+  ticket is `ticket:changes`, re-runs the agent on the *existing* branch with a
+  feedback-round prompt (read the review, fix in place, re-verify, flip back to
+  `ticket:in-review`) — it does not claim new work until the PR merges. So a
+  bounce no longer stalls waiting on a human. Maintainer-inline-fix is still the
+  cheaper lane for *blocking trivia* (a few lines), but the choice is now about
+  cost, not capability.
 
 **Two rules keep this from eroding the role boundary:**
 

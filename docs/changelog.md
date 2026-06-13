@@ -23,6 +23,43 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.819-alpha — 2026-06-13
+
+Device-test build for the **director-cockpit i18n sweep** — the tail of
+hardcoded strings #138's first pass missed, found during the v1.0.818
+device-test. Ten surfaces localized (en/zh) and vocabulary-themed, plus
+a new lint guard so this class can't silently recur, and three poller
+hardenings. `lint-hardcoded-strings` baseline ratcheted 312 → 241.
+
+### Added
+
+- **`lint-hardcoded-strings.sh` (ratchet) — the #138 guard.** lint-arb only
+  checks ARB key lockstep; nothing failed the build on a raw `Text('English')`
+  that never reached the ARB files, which is why #138 reopened. A forward-only
+  per-file baseline grandfathers the backlog and CI fails when a file's count
+  rises. Wired into `ci.yml`.
+
+### Changed
+
+- **Director-cockpit localized (#229–#238).** Me attention filter + scope
+  labels + General Steward card; the Insights panel + section widgets;
+  Project detail (tabs + task-status/priority filter) + overview cards;
+  Sessions list (categories/views/status); Projects-list row status; the
+  team/profile switcher; the live/Insight transcript rails; and the Activity
+  page (filters + event-type labels + detail). Entity/role nouns route through
+  the vocabulary axes; neutral chrome through `AppLocalizations`.
+- **Event-search field sizing (#239).** The Me/Projects event search was a
+  collapsed `TextField` jammed in the AppBar title; it's now a full-height
+  filled field matching the Settings `SearchBar`.
+
+### Fixed
+
+- **Poller hardening (`scripts/agent-poller.sh`).** The poller now owns the
+  `ticket:changes → in-review` flip (was delegated to the agent, which a cheap
+  model botched → re-service livelock); caps each agent run with a `timeout`
+  (a hung/idle agent had blocked the foreground queue ~78m); and derives that
+  timeout from the ticket's tier as a per-ticket ETA.
+
 ## v1.0.818-alpha — 2026-06-13
 
 **The #138 i18n sweep is complete.** This device-test build closes out

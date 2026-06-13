@@ -457,7 +457,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 for (final cat in orderedCats) ...[
                   _CategoryHeader(
                     label: stewardCategoryLabel(cat,
-                        steward: sTerm.lower, stewards: sTerm.pluralLower),
+                        steward: sTerm.lower, stewards: sTerm.pluralLower,
+                        l10n: l10n),
                     count: categoryDisplayCount(cat, byCategory[cat]!),
                     collapsed: _collapsedCategories.contains(cat),
                     onToggle: () => setState(() {
@@ -708,6 +709,7 @@ class _CategoryFilterStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     const order = [
       StewardCategory.general,
       StewardCategory.project,
@@ -723,7 +725,7 @@ class _CategoryFilterStrip extends StatelessWidget {
         padding: const EdgeInsets.only(right: 8),
         child: FilterChip(
           label: Text(
-              '${stewardCategoryLabel(c, steward: steward, stewards: stewards)} · $n'),
+              '${stewardCategoryLabel(c, steward: steward, stewards: stewards, l10n: l10n)} · $n'),
           selected: isActive,
           onSelected: (_) => onToggle(c),
           visualDensity: VisualDensity.compact,
@@ -1877,6 +1879,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -1940,7 +1943,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         onLongPress: id.isEmpty ? null : () => copyIdToClipboard(context, id),
         child: Text(
           [
-            status,
+            sessionStatusLabel(l10n, status),
             if (scopeKind.isNotEmpty) scopeKind,
             if (worktree.isNotEmpty) _shortPath(worktree),
             if (id.isNotEmpty) formatId(idKindFor('session'), id),
@@ -2704,11 +2707,11 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
                       dense: true,
                     )
                   : null,
-              views: const [
-                SessionView(label: 'Feed', icon: Icons.forum_outlined),
-                SessionView(label: 'Pane', icon: Icons.terminal),
-                SessionView(label: 'Journal', icon: Icons.menu_book_outlined),
-                SessionView(label: 'Insights', icon: Icons.insights_outlined),
+              views: [
+                SessionView(label: l10n.sessionViewFeed, icon: Icons.forum_outlined),
+                SessionView(label: l10n.sessionViewPane, icon: Icons.terminal),
+                SessionView(label: l10n.sessionViewJournal, icon: Icons.menu_book_outlined),
+                SessionView(label: l10n.sessionViewInsights, icon: Icons.insights_outlined),
               ],
               currentView: _view,
               onSelectView: (i) => setState(() => _view = i),

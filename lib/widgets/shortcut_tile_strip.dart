@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/artifact_kinds.dart';
 import '../providers/hub_provider.dart';
 import '../screens/artifacts/artifacts_by_kind_screen.dart';
@@ -569,6 +570,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final mq = MediaQuery.of(context);
     return Padding(
@@ -649,7 +651,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                       Padding(
                         padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
                         child: Text(
-                          overviewWidgetSpecFor(_selectedHero).label,
+                          overviewWidgetLabel(l10n, _selectedHero),
                           style: GoogleFonts.spaceGrotesk(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -675,7 +677,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                             for (final slug in kKnownOverviewWidgets)
                               ChoiceChip(
                                 label: Text(
-                                  overviewWidgetSpecFor(slug).label,
+                                  overviewWidgetLabel(l10n, slug),
                                   style: const TextStyle(fontSize: 11),
                                 ),
                                 selected: _selectedHero == slug,

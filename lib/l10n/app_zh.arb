@@ -2271,5 +2271,15 @@
   "taskFilterAll": "全部",
   "taskStatusCancelled": "已取消",
   "openAttentionItems": "{count, plural, =1{1 个待处理关注项} other{{count} 个待处理关注项}}",
-  "@openAttentionItems": { "placeholders": { "count": { "type": "int" } } }
+  "@openAttentionItems": { "placeholders": { "count": { "type": "int" } } },
+  "overviewWidgetTasksMilestones": "任务 + 里程碑",
+  "overviewWidgetRecentArtifacts": "最近产出",
+  "overviewWidgetChildrenStatus": "子项目状态",
+  "overviewWidgetRecentFirings": "最近运行",
+  "overviewWidgetIdeaConversation": "想法对话",
+  "overviewWidgetDeliverableFocus": "交付物聚焦",
+  "overviewWidgetExperimentDashboard": "实验仪表板",
+  "overviewWidgetPaperDraft": "论文草稿",
+  "overviewWidgetDefaultWidget": "默认组件",
+  "overviewWidgetCustomWidget": "自定义组件"
 }

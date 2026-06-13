@@ -9,7 +9,6 @@
 1 lib/screens/me/widgets/stalled_decisions_digest.dart
 4 lib/screens/projects/archived_agents_screen.dart
 1 lib/screens/projects/document_create_sheet.dart
-8 lib/screens/projects/overview_widgets/registry.dart
 1 lib/screens/projects/overview_widgets/research_phase_heroes.dart
 7 lib/screens/projects/project_create_sheet.dart
 6 lib/screens/projects/runs_screen.dart

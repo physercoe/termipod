@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/connection_provider.dart' show Connection;
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
@@ -13,7 +14,7 @@ import '../../screens/projects/deliverables_screen.dart'
 import '../../screens/projects/documents_screen.dart'
     show DocumentDetailScreen, DocumentsScreen;
 import '../../screens/projects/overview_widgets/registry.dart'
-    show normalizeOverviewWidget, overviewWidgetSpecFor;
+    show normalizeOverviewWidget, overviewWidgetLabel, overviewWidgetSpecFor;
 import '../../screens/projects/phase_summary_screen.dart'
     show PhaseSummaryScreen;
 import '../../screens/projects/plan_viewer_screen.dart'
@@ -597,6 +598,7 @@ Future<NavigateResult> _openHero(
   required Future<HubState?> Function()? refreshHub,
 }) async {
   if (projectId.isEmpty) return NavigateResult.unknown;
+  final l10n = AppLocalizations.of(context)!;
   var match = _findById(hub?.projects, projectId);
   if (match.isEmpty && refreshHub != null) {
     final fresh = await refreshHub();
@@ -611,8 +613,8 @@ Future<NavigateResult> _openHero(
     ),
   );
   final raw = (match['overview_widget'] ?? '').toString();
-  final spec = overviewWidgetSpecFor(normalizeOverviewWidget(raw));
-  return NavigateResult(true, 'Hero: ${spec.label}');
+  final resolved = normalizeOverviewWidget(raw);
+  return NavigateResult(true, 'Hero: ${overviewWidgetLabel(l10n, resolved)}');
 }
 
 /// `…/phases/<phase>` — the per-phase summary page. Resolves project

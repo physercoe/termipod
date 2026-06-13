@@ -2459,5 +2459,15 @@
   "taskFilterAll": "all",
   "taskStatusCancelled": "cancelled",
   "openAttentionItems": "{count, plural, =1{1 open attention item} other{{count} open attention items}}",
-  "@openAttentionItems": { "placeholders": { "count": { "type": "int" } } }
+  "@openAttentionItems": { "placeholders": { "count": { "type": "int" } } },
+  "overviewWidgetTasksMilestones": "Tasks + milestones",
+  "overviewWidgetRecentArtifacts": "Recent artifacts",
+  "overviewWidgetChildrenStatus": "Children status",
+  "overviewWidgetRecentFirings": "Recent firings",
+  "overviewWidgetIdeaConversation": "Idea conversation",
+  "overviewWidgetDeliverableFocus": "Deliverable focus",
+  "overviewWidgetExperimentDashboard": "Experiment dashboard",
+  "overviewWidgetPaperDraft": "Paper draft",
+  "overviewWidgetDefaultWidget": "Default widget",
+  "overviewWidgetCustomWidget": "Custom widget"
 }

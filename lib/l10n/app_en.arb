@@ -2386,5 +2386,15 @@
   "taskDetailNoAuditRows": "No audit rows yet for this task.",
   "taskDetailNoBody": "(no body)",
   "portfolioBudget": "budget: {used} / {cap}",
-  "@portfolioBudget": { "placeholders": { "used": { "type": "String" }, "cap": { "type": "String" } } }
+  "@portfolioBudget": { "placeholders": { "used": { "type": "String" }, "cap": { "type": "String" } } },
+  "meFilterAll": "All",
+  "meFilterRequests": "Requests",
+  "meFilterMessages": "Messages",
+  "meUrgentSection": "Urgent",
+  "meReviewRedlines": "Review redlines",
+  "meInboxEmpty": "Nothing in the inbox",
+  "meFilterEmpty": "Nothing here",
+  "meSeverityCritical": "critical",
+  "meSeverityMajor": "major",
+  "meSeverityMinor": "minor"
 }

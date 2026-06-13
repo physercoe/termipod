@@ -2198,5 +2198,15 @@
   "taskDetailNoAuditRows": "此任务暂无审计行。",
   "taskDetailNoBody": "（无正文）",
   "portfolioBudget": "预算：{used} / {cap}",
-  "@portfolioBudget": { "placeholders": { "used": { "type": "String" }, "cap": { "type": "String" } } }
+  "@portfolioBudget": { "placeholders": { "used": { "type": "String" }, "cap": { "type": "String" } } },
+  "meFilterAll": "全部",
+  "meFilterRequests": "请求",
+  "meFilterMessages": "消息",
+  "meUrgentSection": "紧急",
+  "meReviewRedlines": "审查批注",
+  "meInboxEmpty": "收件箱为空",
+  "meFilterEmpty": "此处无内容",
+  "meSeverityCritical": "严重",
+  "meSeverityMajor": "重要",
+  "meSeverityMinor": "轻微"
 }

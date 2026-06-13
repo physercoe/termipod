@@ -15,6 +15,8 @@ import '../../services/host_label.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../services/hub/session_display.dart';
 import '../../services/steward_handle.dart';
+import '../../services/vocab/vocab_axis.dart';
+import '../../services/vocab/vocabulary.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../theme/tokens.dart';
@@ -65,6 +67,7 @@ class MeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final hub = ref.watch(hubProvider);
     final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -184,6 +187,7 @@ class MeScreen extends ConsumerWidget {
                   agents: hubState.agents,
                   projects: hubState.projects,
                   hosts: hubState.hosts,
+                  vocab: vocab,
                 ),
               ),
             // ADR-030 W19.6-mobile — stalled-decisions digest card.
@@ -206,6 +210,8 @@ class MeScreen extends ConsumerWidget {
                 counts: _countsByFilter(items),
                 selected: filter,
                 onChanged: (f) => ref.read(_filterProvider.notifier).set(f),
+                l10n: l10n,
+                vocab: vocab,
               ),
             ),
             if (hubState.loading && items.isEmpty)
@@ -219,7 +225,7 @@ class MeScreen extends ConsumerWidget {
               SliverToBoxAdapter(
                 child: SizedBox(
                   height: 240,
-                  child: _EmptyState(filter: filter),
+                  child: _EmptyState(filter: filter, l10n: l10n),
                 ),
               )
             else
@@ -300,16 +306,16 @@ class MeScreen extends ConsumerWidget {
 enum _Filter { all, approvals, agents, messages }
 
 extension _FilterX on _Filter {
-  String get label {
+  String label(AppLocalizations l10n, Vocabulary vocab) {
     switch (this) {
       case _Filter.all:
-        return 'All';
+        return l10n.meFilterAll;
       case _Filter.approvals:
-        return 'Requests';
+        return l10n.meFilterRequests;
       case _Filter.agents:
-        return 'Agents';
+        return vocab.term(VocabAxis.roleAgent).plural;
       case _Filter.messages:
-        return 'Messages';
+        return l10n.meFilterMessages;
     }
   }
 
@@ -424,11 +430,15 @@ class _FilterBar extends StatelessWidget {
   final Map<_Filter, int> counts;
   final _Filter selected;
   final ValueChanged<_Filter> onChanged;
+  final AppLocalizations l10n;
+  final Vocabulary vocab;
 
   const _FilterBar({
     required this.counts,
     required this.selected,
     required this.onChanged,
+    required this.l10n,
+    required this.vocab,
   });
 
   @override
@@ -440,7 +450,7 @@ class _FilterBar extends StatelessWidget {
         children: [
           for (final f in _Filter.values) ...[
             _FilterChip(
-              label: f.label,
+              label: f.label(l10n, vocab),
               count: counts[f] ?? 0,
               selected: selected == f,
               onTap: () => onChanged(f),
@@ -533,7 +543,8 @@ class _FilterChip extends StatelessWidget {
 
 class _EmptyState extends StatelessWidget {
   final _Filter filter;
-  const _EmptyState({required this.filter});
+  final AppLocalizations l10n;
+  const _EmptyState({required this.filter, required this.l10n});
 
   @override
   Widget build(BuildContext context) {
@@ -541,8 +552,8 @@ class _EmptyState extends StatelessWidget {
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final msg = filter == _Filter.all
-        ? 'Nothing in the inbox'
-        : 'Nothing here';
+        ? l10n.meInboxEmpty
+        : l10n.meFilterEmpty;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -593,7 +604,7 @@ class _MeCard extends ConsumerWidget {
                 if (item.severity != null && item.severity!.isNotEmpty) ...[
                   const SizedBox(width: 6),
                   AppStatusChip(
-                    label: item.severity!,
+                    label: _severityLabel(l10n, item.severity!),
                     color: _severityColor(item.severity!),
                   ),
                 ],
@@ -685,7 +696,7 @@ class _MeCard extends ConsumerWidget {
                     size: 14,
                   ),
                   label: Text(
-                    item.kind == 'revision_requested' ? 'Review redlines' : 'Details',
+                    item.kind == 'revision_requested' ? l10n.meReviewRedlines : l10n.details,
                   ),
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
@@ -813,6 +824,19 @@ class _MeCard extends ConsumerWidget {
     }
   }
 
+  String _severityLabel(AppLocalizations l10n, String s) {
+    switch (s) {
+      case 'critical':
+        return l10n.meSeverityCritical;
+      case 'major':
+        return l10n.meSeverityMajor;
+      case 'minor':
+        return l10n.meSeverityMinor;
+      default:
+        return s;
+    }
+  }
+
   String _kindLabel(String kind) {
     if (kind.isEmpty) return 'event';
     return kind.replaceAll('_', ' ');
@@ -838,6 +862,7 @@ class _UrgentTasksSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final summary =
         ref.watch(urgentTasksProvider).value ?? UrgentTasksSummary.empty;
     if (summary.count == 0) return const SizedBox.shrink();
@@ -852,7 +877,7 @@ class _UrgentTasksSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionLabel(text: 'Urgent'),
+        _SectionLabel(text: l10n.meUrgentSection),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, Spacing.s8, 16, 4),
           child: Container(
@@ -988,36 +1013,34 @@ class _ActiveSessionsStrip extends StatelessWidget {
   final List<Map<String, dynamic>> agents;
   final List<Map<String, dynamic>> projects;
   final List<Map<String, dynamic>> hosts;
+  final Vocabulary vocab;
   const _ActiveSessionsStrip({
     required this.sessions,
     required this.agents,
     required this.projects,
     required this.hosts,
+    required this.vocab,
   });
 
-  String _scopeLabel(Map<String, dynamic> s) {
+  String _scopeLabel(AppLocalizations l10n, Vocabulary vocab, Map<String, dynamic> s) {
     final kind = (s['scope_kind'] ?? '').toString();
     final id = (s['scope_id'] ?? '').toString();
     switch (kind) {
       case 'project':
+        final projectTitle = vocab.term(VocabAxis.entityProject).title;
         for (final p in projects) {
           if ((p['id'] ?? '').toString() == id) {
             final name =
                 (p['name'] ?? p['title'] ?? '').toString();
-            return name.isEmpty ? 'Project' : 'Project: $name';
+            return name.isEmpty ? projectTitle : l10n.scopeProjectWithName(name);
           }
         }
-        return 'Project';
+        return projectTitle;
       case 'attention':
-        return 'Approving';
+        return l10n.scopeApproving;
       case 'team':
       case '':
-        // "General" is reserved for the general steward (@steward,
-        // steward.general.v1); a team-scoped session reads "Team" (#65). The
-        // Sessions page classifies stewards General/Project/Domain by
-        // handle+kind — that taxonomy is authoritative; this scope label must
-        // not collide with it.
-        return 'Team';
+        return vocab.term(VocabAxis.entityTeam).title;
       default:
         return kind;
     }
@@ -1086,7 +1109,7 @@ class _ActiveSessionsStrip extends StatelessWidget {
               // v1.0.705 polish — shared three-tier title precedence
               // (user title > session_name_hint > placeholder).
               final title = sessionDisplayTitle(s);
-              final scope = _scopeLabel(s);
+              final scope = _scopeLabel(l10n, vocab, s);
               final steward = _stewardName(agentId);
               final engineHost = _engineHost(agentId);
               // Category accent (ADR-/IA): color + icon distinguish team

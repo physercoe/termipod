@@ -15,7 +15,6 @@
 1 lib/screens/projects/spawn_agent_sheet.dart
 1 lib/screens/sessions/widgets/steward_propose_inbox.dart
 16 lib/screens/settings/action_bar_settings_screen.dart
-18 lib/screens/settings/settings_screen.dart
 3 lib/screens/settings/voice_settings_screen.dart
 8 lib/screens/team/spawn_steward_sheet.dart
 7 lib/screens/terminal/terminal_screen.dart

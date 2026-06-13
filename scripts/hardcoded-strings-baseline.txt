@@ -13,7 +13,6 @@
 7 lib/screens/projects/project_create_sheet.dart
 6 lib/screens/projects/runs_screen.dart
 1 lib/screens/projects/spawn_agent_sheet.dart
-4 lib/screens/sessions/sessions_list_controller.dart
 1 lib/screens/sessions/widgets/steward_propose_inbox.dart
 16 lib/screens/settings/action_bar_settings_screen.dart
 18 lib/screens/settings/settings_screen.dart

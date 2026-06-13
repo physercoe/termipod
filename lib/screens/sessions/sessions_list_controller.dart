@@ -128,38 +128,23 @@ List<MapEntry<String, List<Map<String, dynamic>>>> detachedScopeBuckets(
 
 /// Label for a steward category. The role noun is injected so the active
 /// vocabulary preset (ADR-048) can re-word it — pass the lower-case singular
-/// and plural of `role.steward` (e.g. "manager"/"managers"). Defaults keep
-/// the tech wording so existing call sites and unit tests are unaffected.
+/// and plural of `role.steward` (e.g. "manager"/"managers").
 /// "Detached sessions" is tech-neutral (no role term).
-/// When [l10n] is supplied the qualifiers are localized via ARB keys;
-/// otherwise the tech-default English strings are returned.
 String stewardCategoryLabel(
   StewardCategory c, {
   String steward = 'steward',
   String stewards = 'stewards',
-  AppLocalizations? l10n,
+  required AppLocalizations l10n,
 }) {
-  if (l10n != null) {
-    switch (c) {
-      case StewardCategory.general:
-        return l10n.sessionsCategoryGeneral(steward);
-      case StewardCategory.project:
-        return l10n.sessionsCategoryProject(stewards);
-      case StewardCategory.domain:
-        return l10n.sessionsCategoryDomain(stewards);
-      case StewardCategory.detached:
-        return l10n.sessionsCategoryDetached;
-    }
-  }
   switch (c) {
     case StewardCategory.general:
-      return 'General $steward';
+      return l10n.sessionsCategoryGeneral(steward);
     case StewardCategory.project:
-      return 'Project $stewards';
+      return l10n.sessionsCategoryProject(stewards);
     case StewardCategory.domain:
-      return 'Domain $stewards';
+      return l10n.sessionsCategoryDomain(stewards);
     case StewardCategory.detached:
-      return 'Detached sessions';
+      return l10n.sessionsCategoryDetached;
   }
 }
 

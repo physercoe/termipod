@@ -2402,5 +2402,19 @@
   "teamSwitcherChooseProfile": "Choose profile",
   "teamSwitcherProfilesHeader": "Profiles",
   "teamSwitcherAddProfile": "Add profile…",
-  "teamSwitcherManageProfiles": "Manage profiles…"
+  "teamSwitcherManageProfiles": "Manage profiles…",
+  "meOpen": "Open",
+  "meStart": "Start",
+  "meRunningConcierge": "Running · concierge",
+  "meTapToStartConcierge": "Tap to start the team concierge",
+  "meGeneralSteward": "General {steward}",
+  "@meGeneralSteward": { "placeholders": { "steward": { "type": "String" } } },
+  "meGeneralStewardError": "General {steward}: {error}",
+  "@meGeneralStewardError": { "placeholders": { "steward": { "type": "String" }, "error": { "type": "String" } } },
+  "meChooseHost": "Choose a {host}",
+  "@meChooseHost": { "placeholders": { "host": { "type": "String" } } },
+  "meGeneralStewardRunsOnHost": "The {steward} will run on this {host}.",
+  "@meGeneralStewardRunsOnHost": { "placeholders": { "steward": { "type": "String" }, "host": { "type": "String" } } },
+  "meNoProbeYet": "No probe yet · status={status}",
+  "@meNoProbeYet": { "placeholders": { "status": { "type": "String" } } }
 }

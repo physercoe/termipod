@@ -2390,5 +2390,13 @@
   "actionBarTypeCharacters": "字符",
   "actionBarTypeModifiers": "修饰键",
   "actionBarTypeActions": "操作",
-  "actionBarTypeConfirm": "确认 (y/n)"
+  "actionBarTypeConfirm": "确认 (y/n)",
+  "buttonTypeSpecialKey": "按键",
+  "buttonTypeLiteral": "字面",
+  "buttonTypeCtrl": "Ctrl",
+  "buttonTypeAlt": "Alt",
+  "buttonTypeShift": "Shift",
+  "buttonTypeModifier": "修饰键",
+  "buttonTypeAction": "操作",
+  "buttonTypeConfirm": "确认"
 }

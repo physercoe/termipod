@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/download_manager_provider.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
@@ -129,6 +130,7 @@ class _DownloadEntryTile extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black87;
     final mutedColor = isDark ? Colors.white54 : Colors.black54;
+    final l10n = AppLocalizations.of(context)!;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s8),
@@ -158,7 +160,7 @@ class _DownloadEntryTile extends ConsumerWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  _buildSubtitle(),
+                  _buildSubtitle(l10n),
                   style: TextStyle(fontSize: 12, color: mutedColor),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -189,7 +191,7 @@ class _DownloadEntryTile extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           // Action buttons
-          ..._buildActions(context, ref),
+          ..._buildActions(context, ref, l10n),
         ],
       ),
     );
@@ -216,23 +218,23 @@ class _DownloadEntryTile extends ConsumerWidget {
     }
   }
 
-  String _buildSubtitle() {
+  String _buildSubtitle(AppLocalizations l10n) {
     switch (entry.status) {
       case DownloadStatus.downloading:
         if (entry.totalBytes > 0) {
           return '${_formatBytes(entry.bytesReceived)} / ${_formatBytes(entry.totalBytes)} — ${entry.connectionName}';
         }
-        return 'Downloading... — ${entry.connectionName}';
+        return l10n.downloadManagerStatusDownloading(entry.connectionName);
       case DownloadStatus.completed:
         return '${_formatBytes(entry.totalBytes)} — ${entry.connectionName}';
       case DownloadStatus.failed:
-        return 'Failed — ${entry.connectionName}';
+        return l10n.downloadManagerStatusFailed(entry.connectionName);
       case DownloadStatus.cancelled:
-        return 'Cancelled — ${entry.connectionName}';
+        return l10n.downloadManagerStatusCancelled(entry.connectionName);
     }
   }
 
-  List<Widget> _buildActions(BuildContext context, WidgetRef ref) {
+  List<Widget> _buildActions(BuildContext context, WidgetRef ref, AppLocalizations l10n) {
     final notifier = ref.read(downloadManagerProvider.notifier);
 
     switch (entry.status) {
@@ -241,7 +243,7 @@ class _DownloadEntryTile extends ConsumerWidget {
           // Open/share
           IconButton(
             icon: const Icon(Icons.share, size: 20),
-            tooltip: 'Share',
+            tooltip: l10n.downloadManagerTooltipShare,
             onPressed: () {
               if (entry.localPath != null && File(entry.localPath!).existsSync()) {
                 Share.shareXFiles([XFile(entry.localPath!)]);
@@ -251,12 +253,12 @@ class _DownloadEntryTile extends ConsumerWidget {
           // Open in file manager
           IconButton(
             icon: const Icon(Icons.folder_open, size: 20),
-            tooltip: 'Open folder',
+            tooltip: l10n.downloadManagerTooltipOpenFolder,
             onPressed: () {
               if (entry.localPath != null) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Saved: ${entry.localPath}'),
+                    content: Text(l10n.downloadManagerSnackbarSaved(entry.localPath!)),
                     duration: const Duration(seconds: 3),
                   ),
                 );
@@ -266,7 +268,7 @@ class _DownloadEntryTile extends ConsumerWidget {
           // Remove from list
           IconButton(
             icon: const Icon(Icons.close, size: 18),
-            tooltip: 'Remove',
+            tooltip: l10n.buttonRemove,
             onPressed: () => notifier.removeEntry(entry.id),
           ),
         ];
@@ -275,7 +277,7 @@ class _DownloadEntryTile extends ConsumerWidget {
         return [
           IconButton(
             icon: const Icon(Icons.close, size: 18),
-            tooltip: 'Remove',
+            tooltip: l10n.buttonRemove,
             onPressed: () => notifier.removeEntry(entry.id),
           ),
         ];

@@ -361,7 +361,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               for (final k in kinds)
                 ListTile(
                   leading: Icon(_iconForMultimodal(k)),
-                  title: Text(l10n.stewardOverlayAttachKind(k.label)),
+                  title: Text(l10n.stewardOverlayAttachKind(multimodalKindLabel(k))),
                   onTap: () => Navigator.pop(sheetCtx, k),
                 ),
             ],
@@ -615,7 +615,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                       avatar: Icon(_iconForMultimodal(entry.key),
                           size: 14, color: muted),
                       label: Text(
-                        entry.value['filename'] ?? entry.key.label,
+                        entry.value['filename'] ?? multimodalKindLabel(entry.key),
                         style: GoogleFonts.jetBrainsMono(fontSize: 11),
                         overflow: TextOverflow.ellipsis,
                       ),

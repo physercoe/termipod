@@ -72,18 +72,21 @@ class MultimodalAttachError implements Exception {
 
 enum MultimodalKind { pdf, audio, video }
 
-extension MultimodalKindX on MultimodalKind {
-  String get label {
-    switch (this) {
-      case MultimodalKind.pdf:
-        return 'PDF';
-      case MultimodalKind.audio:
-        return 'audio';
-      case MultimodalKind.video:
-        return 'video';
-    }
+/// Returns the English label for a multimodal kind. For localized labels,
+/// use the corresponding ARB key (multimodalKindPdf / multimodalKindAudio /
+/// multimodalKindVideo) via AppLocalizations in widget code.
+String multimodalKindLabel(MultimodalKind kind) {
+  switch (kind) {
+    case MultimodalKind.pdf:
+      return 'PDF';
+    case MultimodalKind.audio:
+      return 'audio';
+    case MultimodalKind.video:
+      return 'video';
   }
+}
 
+extension MultimodalKindX on MultimodalKind {
   int get maxBytes {
     switch (this) {
       case MultimodalKind.pdf:
@@ -176,7 +179,7 @@ Future<MultimodalAttachment?> pickMultimodalFile(
     final mib = (bytes.length / 1024 / 1024).toStringAsFixed(1);
     final capMib = (kind.maxBytes / 1024 / 1024).toStringAsFixed(0);
     throw MultimodalAttachError(
-      '${kind.label} too large ($mib MiB > $capMib MiB)',
+      '${multimodalKindLabel(kind)} too large ($mib MiB > $capMib MiB)',
     );
   }
   final name = f.name;
@@ -185,7 +188,7 @@ Future<MultimodalAttachment?> pickMultimodalFile(
   final mime = mimeForExtension(ext, kind);
   if (mime == null || !kind.mimes.contains(mime)) {
     throw MultimodalAttachError(
-      'Unsupported ${kind.label} format: .$ext',
+      'Unsupported ${multimodalKindLabel(kind)} format: .$ext',
     );
   }
   return MultimodalAttachment(

@@ -23,14 +23,10 @@
 3 lib/widgets/agent_category_style.dart
 2 lib/widgets/agent_journal_view.dart
 1 lib/widgets/agent_pane_view.dart
-1 lib/widgets/artifact_viewers/canvas_viewer.dart
-4 lib/widgets/artifact_viewers/pdf_viewer.dart
 4 lib/widgets/custom_keyboard.dart
-8 lib/widgets/download_manager_sheet.dart
 4 lib/widgets/file_transfer_confirm_dialog.dart
 9 lib/widgets/floating_joystick.dart
 3 lib/widgets/help_sheet.dart
-9 lib/widgets/image_transfer_confirm_dialog.dart
 4 lib/widgets/live_feed.dart
 1 lib/widgets/multimodal_attach/composer_multimodal_attach.dart
 4 lib/widgets/navigation_pad.dart

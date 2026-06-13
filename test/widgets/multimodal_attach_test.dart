@@ -33,9 +33,9 @@ void main() {
 
   group('MultimodalKindX extension', () {
     test('label/maxBytes/mimes/extensions wired correctly', () {
-      expect(MultimodalKind.pdf.label, 'PDF');
-      expect(MultimodalKind.audio.label, 'audio');
-      expect(MultimodalKind.video.label, 'video');
+      expect(multimodalKindLabel(MultimodalKind.pdf), 'PDF');
+      expect(multimodalKindLabel(MultimodalKind.audio), 'audio');
+      expect(multimodalKindLabel(MultimodalKind.video), 'video');
       expect(MultimodalKind.pdf.maxBytes, kMaxPdfBytes);
       expect(MultimodalKind.audio.maxBytes, kMaxAudioBytes);
       expect(MultimodalKind.video.maxBytes, kMaxVideoBytes);

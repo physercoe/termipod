@@ -21,7 +21,14 @@ you authenticate with.
 4. **Implement** exactly per the issue's spec — follow the reference PR it
    cites, file for file.
 5. If the issue touches `lib/l10n/*.arb`, **acquire the `holds:arb` baton**
-   first — only one ticket may hold it at a time.
+   first — only one ticket may hold it at a time. **The baton is a merge-slot
+   mutex, not a coding lock: hold it only while progressing toward merge.** If
+   your ticket goes to `ticket:changes` or `ticket:blocked`, **release the
+   baton** (`gh issue edit <N> --remove-label holds:arb`) so other ARB tickets
+   are not deadlocked behind your parked one. When you resume, **re-acquire the
+   baton** (wait if held) and **rebase your branch on `main`** before pushing —
+   another ARB PR may have merged while you were parked (the append-only ARB
+   conflict is trivial to resolve).
 6. **Self-verify**: run the gate the spec names, push, wait for CI, and
    confirm `gh pr checks <PR>` shows **every row `pass`** (do not trust the
    `--watch` exit code).

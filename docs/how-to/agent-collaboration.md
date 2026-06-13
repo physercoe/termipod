@@ -138,7 +138,15 @@ the `holds:arb` baton:
 
 - Before opening a PR that touches `lib/l10n/*.arb`, check no open ticket
   holds `holds:arb`. If free, add it to your ticket; if held, wait.
-- The baton releases when your PR merges (or you drop the ticket).
+- The baton is a **merge-slot mutex, not a coding lock** — hold it only while
+  progressing toward merge. The baton releases when your PR merges, **or when
+  your ticket parks in `ticket:changes` / `ticket:blocked`** (a parked ticket
+  must not hold the baton, or it deadlocks every other ARB ticket behind a
+  holder that is itself waiting on a builder). The maintainer who sets
+  `ticket:changes` on an ARB PR removes `holds:arb` in the same action.
+- When a parked ticket **resumes**, it re-acquires the baton (waiting if held)
+  and **rebases on `main`** first — another ARB PR may have merged meanwhile;
+  the append-only conflict is trivial to resolve.
 - Tickets that don't touch ARB ignore the baton and parallelize freely.
 
 This generalizes to any other hot file a future workload reveals: name it, give

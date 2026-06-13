@@ -5,6 +5,10 @@ import 'package:google_fonts/google_fonts.dart';
 import '../l10n/app_localizations.dart';
 import '../models/artifact_kinds.dart';
 import '../providers/hub_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
+import '../services/vocab/vocab_preset.dart';
+import '../services/vocab/vocabulary.dart';
 import '../screens/artifacts/artifacts_by_kind_screen.dart';
 import '../screens/deliverables/structured_deliverable_viewer.dart';
 import '../screens/projects/acceptance_criteria_screen.dart';
@@ -778,7 +782,7 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
   }
 }
 
-class _TileEditorRow extends StatelessWidget {
+class _TileEditorRow extends ConsumerWidget {
   final TileSlug slug;
   final bool selected;
   final bool isDark;
@@ -795,9 +799,10 @@ class _TileEditorRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final spec = tileSpecFor(l10n, slug);
+    final voc = ref.watch(vocabularyProvider);
+    final spec = tileSpecFor(l10n, slug, vocab: voc);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: InkWell(
@@ -896,7 +901,8 @@ class _TileRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final spec = tileSpecFor(l10n, slug);
+    final voc = ref.watch(vocabularyProvider);
+    final spec = tileSpecFor(l10n, slug, vocab: voc);
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () => _open(context, ref),
@@ -1106,29 +1112,30 @@ class TileSpec {
 
 /// Public for tests / future template-yaml lookup. The chassis owns the
 /// label + icon mapping; templates only pick which slugs to surface.
-TileSpec tileSpecFor(AppLocalizations l10n, TileSlug slug) {
+TileSpec tileSpecFor(AppLocalizations l10n, TileSlug slug, {Vocabulary? vocab}) {
+  final v = vocab ?? const Vocabulary(VocabPreset.tech, 'en');
   switch (slug) {
     case TileSlug.outputs:
       return TileSpec(
-        label: l10n.shortcutTileOutputs,
+        label: v.term(VocabAxis.entityOutput).plural,
         subtitle: 'Outputs runs produce · checkpoints, curves, reports',
         icon: Icons.output_outlined,
       );
     case TileSlug.documents:
       return TileSpec(
-        label: l10n.shortcutTileDocuments,
+        label: v.term(VocabAxis.entityDocument).plural,
         subtitle: 'Authored writeups · memos, drafts, reports',
         icon: Icons.article_outlined,
       );
     case TileSlug.schedules:
       return TileSpec(
-        label: l10n.shortcutTileSchedules,
+        label: v.term(VocabAxis.entitySchedule).plural,
         subtitle: 'Recurring firings across the team',
         icon: Icons.schedule_outlined,
       );
     case TileSlug.plans:
       return TileSpec(
-        label: l10n.shortcutTilePlans,
+        label: v.term(VocabAxis.entityPlan).plural,
         subtitle: 'Plan templates the steward executes',
         icon: Icons.playlist_play_outlined,
       );

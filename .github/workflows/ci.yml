@@ -111,6 +111,14 @@ jobs:
         # as untranslated English. Pure bash + python3, no Flutter.
         run: scripts/lint-arb.sh
 
+      - name: Lint hardcoded UI strings
+        # Issue #138 — forward-only ratchet on un-localized UI text. lint-arb
+        # only checks ARB lockstep; it can't see a raw Text('English') that
+        # never reached the ARB files. Grandfathers today's backlog into
+        # scripts/hardcoded-strings-baseline.txt and fails only when a file's
+        # count RISES. New screens must route text through AppLocalizations.
+        run: scripts/lint-hardcoded-strings.sh
+
       - name: Validate OpenAPI spec
         # Enforces docs/reference/openapi.yaml validates against the
         # OpenAPI 3.x schema. Per docs/plans/doc-uplift.md P2.8 §5.8.

@@ -45,9 +45,5 @@
 1 lib/widgets/run_report_card.dart
 16 lib/widgets/shortcut_tile_strip.dart
 3 lib/widgets/spawn_project_steward_sheet.dart
-1 lib/widgets/steward_overlay/steward_overlay.dart
-10 lib/widgets/steward_overlay/steward_overlay_chat.dart
-2 lib/widgets/steward_overlay/steward_overlay_chips.dart
-11 lib/widgets/steward_overlay/steward_overlay_controller.dart
 2 lib/widgets/template_yaml_sheet.dart
 4 lib/widgets/tmux_tiles.dart

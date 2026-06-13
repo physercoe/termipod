@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
@@ -82,6 +83,7 @@ class _SessionSearchScreenState extends ConsumerState<SessionSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -92,7 +94,7 @@ class _SessionSearchScreenState extends ConsumerState<SessionSearchScreen> {
           autofocus: true,
           onChanged: _onChanged,
           decoration: InputDecoration(
-            hintText: 'Search past sessions',
+            hintText: l10n.searchSessionsHint,
             border: InputBorder.none,
             hintStyle: GoogleFonts.spaceGrotesk(color: muted),
           ),
@@ -101,7 +103,7 @@ class _SessionSearchScreenState extends ConsumerState<SessionSearchScreen> {
         actions: [
           if (_ctrl.text.isNotEmpty)
             IconButton(
-              tooltip: 'Clear',
+              tooltip: l10n.buttonClear,
               icon: const Icon(Icons.close),
               onPressed: () {
                 _ctrl.clear();

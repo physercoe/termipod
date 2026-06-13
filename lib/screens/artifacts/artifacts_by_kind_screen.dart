@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../models/artifact_kinds.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -95,6 +96,7 @@ class _ArtifactsByKindScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final spec = kArtifactKindSpecs[widget.kind]!;
     final title = widget.title ??
         (widget.schema == null
@@ -110,7 +112,7 @@ class _ArtifactsByKindScreenState
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             onPressed: _loading ? null : _load,
           ),
         ],

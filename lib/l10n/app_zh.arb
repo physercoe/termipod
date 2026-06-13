@@ -2034,5 +2034,6 @@
   "viewProject": "查看{project}",
   "@viewProject": { "placeholders": { "project": { "type": "String" } } },
   "viewTask": "查看{task}",
-  "@viewTask": { "placeholders": { "task": { "type": "String" } } }
+  "@viewTask": { "placeholders": { "task": { "type": "String" } } },
+  "searchSessionsHint": "搜索历史会话"
 }

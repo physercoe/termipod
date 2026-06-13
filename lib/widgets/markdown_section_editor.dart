@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
@@ -108,21 +109,20 @@ class _MarkdownSectionEditorState extends State<MarkdownSectionEditor> {
 
   Future<bool> _onWillPop() async {
     if (!_dirty) return true;
+    final l10n = AppLocalizations.of(context)!;
     final discard = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Discard changes?'),
-        content: const Text(
-          'You have unsaved edits to this section. Discard them?',
-        ),
+        title: Text(l10n.sectionEditorDiscardTitle),
+        content: Text(l10n.sectionEditorDiscardBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Keep editing'),
+            child: Text(l10n.sectionEditorKeepEditing),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Discard'),
+            child: Text(l10n.buttonDiscard),
           ),
         ],
       ),
@@ -132,6 +132,7 @@ class _MarkdownSectionEditorState extends State<MarkdownSectionEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
@@ -143,7 +144,7 @@ class _MarkdownSectionEditorState extends State<MarkdownSectionEditor> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            'Edit · ${widget.title}',
+            l10n.sectionEditorEditTitle(widget.title),
             overflow: TextOverflow.ellipsis,
             style: GoogleFonts.spaceGrotesk(
               fontSize: FontSizes.subtitle,
@@ -154,7 +155,7 @@ class _MarkdownSectionEditorState extends State<MarkdownSectionEditor> {
             TextButton(
               onPressed: _dirty ? _saveAndPop : null,
               child: Text(
-                'Save',
+                l10n.buttonSave,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -211,9 +212,9 @@ class _MarkdownSectionEditorState extends State<MarkdownSectionEditor> {
                     fontSize: 13,
                     height: 1.45,
                   ),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     border: InputBorder.none,
-                    hintText: 'Write the section here…',
+                    hintText: l10n.sectionEditorHint,
                   ),
                 ),
               ),
@@ -245,6 +246,7 @@ class _Toolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return SizedBox(
       height: 40,
       child: SingleChildScrollView(
@@ -252,19 +254,19 @@ class _Toolbar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8),
         child: Row(
           children: [
-            _Btn(label: 'H1', onTap: onH1),
-            _Btn(label: 'H2', onTap: onH2),
-            _Btn(label: 'H3', onTap: onH3),
+            _Btn(label: l10n.sectionEditorToolbarH1, onTap: onH1),
+            _Btn(label: l10n.sectionEditorToolbarH2, onTap: onH2),
+            _Btn(label: l10n.sectionEditorToolbarH3, onTap: onH3),
             const SizedBox(width: 8),
             const VerticalDivider(width: 1),
             const SizedBox(width: 8),
-            _Btn(label: '•', onTap: onList, tooltip: 'Bulleted list'),
-            _Btn(label: 'link', onTap: onLink, tooltip: 'Insert link'),
-            _Btn(label: '```', onTap: onCode, tooltip: 'Code block'),
+            _Btn(label: '•', onTap: onList, tooltip: l10n.sectionEditorToolbarBulletedList),
+            _Btn(label: l10n.sectionEditorToolbarLinkLabel, onTap: onLink, tooltip: l10n.sectionEditorToolbarInsertLink),
+            _Btn(label: '```', onTap: onCode, tooltip: l10n.sectionEditorToolbarCodeBlock),
             _Btn(
-              label: 'paste',
+              label: l10n.sectionEditorToolbarPasteLabel,
               onTap: onClipboardPaste,
-              tooltip: 'Paste from clipboard',
+              tooltip: l10n.sectionEditorToolbarPasteFromClipboard,
             ),
           ],
         ),

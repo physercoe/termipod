@@ -32,8 +32,6 @@
 3 lib/widgets/help_sheet.dart
 9 lib/widgets/image_transfer_confirm_dialog.dart
 4 lib/widgets/live_feed.dart
-2 lib/widgets/markdown_builders.dart
-11 lib/widgets/markdown_section_editor.dart
 1 lib/widgets/multimodal_attach/composer_multimodal_attach.dart
 4 lib/widgets/navigation_pad.dart
 1 lib/widgets/phase_ribbon.dart

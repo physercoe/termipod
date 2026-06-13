@@ -10,6 +10,7 @@
 // does not use Dart `part`-of files; symbols moving across files have
 // to be public).
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/atom-one-light.dart';
@@ -126,17 +127,18 @@ Future<void> openMarkdownLink(BuildContext ctx, String? href) async {
   if (href == null || href.isEmpty) return;
   final uri = Uri.tryParse(href);
   if (uri == null) return;
+  final l10n = AppLocalizations.of(ctx)!;
   try {
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && ctx.mounted) {
       ScaffoldMessenger.of(ctx).showSnackBar(
-        SnackBar(content: Text('Could not open $href')),
+        SnackBar(content: Text(l10n.markdownLinkOpenError(href))),
       );
     }
   } catch (e) {
     if (ctx.mounted) {
       ScaffoldMessenger.of(ctx).showSnackBar(
-        SnackBar(content: Text('Open failed: $e')),
+        SnackBar(content: Text(l10n.markdownLinkOpenFailed(e.toString()))),
       );
     }
   }

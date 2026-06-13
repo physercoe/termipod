@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 import 'search_event_sheet.dart';
 
 /// Full-screen full-text search over hub events. Debounces keystrokes by
@@ -131,24 +132,48 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
-        title: TextField(
-          controller: _q,
-          autofocus: true,
-          decoration: InputDecoration.collapsed(
-            hintText: l10n.searchEventsHint,
-          ),
-          style: GoogleFonts.spaceGrotesk(fontSize: 16),
-          onSubmitted: (_) => _run(),
+        title: Text(
+          l10n.searchEvents,
+          style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.clear),
-            tooltip: l10n.buttonClear,
-            onPressed: _clear,
+      ),
+      // Search field as a full-height filled pill in a body header, matching
+      // the Settings SearchBar (#239). Previously a collapsed TextField jammed
+      // into the AppBar title slot, which stripped padding and read cramped.
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: TextField(
+              controller: _q,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
+              style: GoogleFonts.spaceGrotesk(fontSize: 16),
+              decoration: InputDecoration(
+                hintText: l10n.searchEventsHint,
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.clear),
+                  tooltip: l10n.buttonClear,
+                  onPressed: _clear,
+                ),
+                filled: true,
+                fillColor:
+                    Theme.of(context).colorScheme.surfaceContainerHigh,
+                isDense: false,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                border: const OutlineInputBorder(
+                  borderRadius: Radii.stadiumBorder,
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onSubmitted: (_) => _run(),
+            ),
           ),
+          Expanded(child: _body()),
         ],
       ),
-      body: _body(),
     );
   }
 

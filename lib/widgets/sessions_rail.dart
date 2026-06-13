@@ -242,6 +242,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
   }
 
   Widget _body(Color fg, Color muted) {
+    final l10n = AppLocalizations.of(context)!;
     final hub = ref.watch(hubProvider).value;
     final projects = hub?.projects ?? const <Map<String, dynamic>>[];
     // Project roster once it lands (live + terminated); warm (live only) paints

@@ -483,11 +483,11 @@ class _ArchivedAgentDetailScreenState
               leading: const BackButton(),
               title: '@$handle',
               subtitle: subtitle.isEmpty ? null : subtitle,
-              views: const [
-                SessionView(label: 'Feed', icon: Icons.forum_outlined),
-                SessionView(label: 'Summary', icon: Icons.info_outline),
-                SessionView(label: 'Journal', icon: Icons.menu_book_outlined),
-                SessionView(label: 'Insights', icon: Icons.insights_outlined),
+              views: [
+                SessionView(label: l10n.sessionViewFeed, icon: Icons.forum_outlined),
+                SessionView(label: l10n.sessionViewSummary, icon: Icons.info_outline),
+                SessionView(label: l10n.sessionViewJournal, icon: Icons.menu_book_outlined),
+                SessionView(label: l10n.sessionViewInsights, icon: Icons.insights_outlined),
               ],
               currentView: _view,
               onSelectView: (i) => setState(() => _view = i),

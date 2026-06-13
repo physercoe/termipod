@@ -2723,5 +2723,12 @@
   "shortcutTileRisks": "Risks",
   "shortcutTileDiscussion": "Discussion",
   "shortcutTileDeliverables": "Deliverables",
-  "shortcutTileAcceptanceCriteria": "Acceptance"
+  "shortcutTileAcceptanceCriteria": "Acceptance",
+  "sessionViewSummary": "Summary",
+  "runViewOverview": "Overview",
+  "runViewCharts": "Charts",
+  "runViewMedia": "Media",
+  "runViewOutputs": "Outputs",
+  "runViewConfig": "Config",
+  "docContentHint": "## Summary\n..."
 }

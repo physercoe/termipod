@@ -2535,5 +2535,12 @@
   "shortcutTileRisks": "风险",
   "shortcutTileDiscussion": "讨论",
   "shortcutTileDeliverables": "交付物",
-  "shortcutTileAcceptanceCriteria": "验收标准"
+  "shortcutTileAcceptanceCriteria": "验收标准",
+  "sessionViewSummary": "摘要",
+  "runViewOverview": "概览",
+  "runViewCharts": "图表",
+  "runViewMedia": "媒体",
+  "runViewOutputs": "输出",
+  "runViewConfig": "配置",
+  "docContentHint": "## 摘要\n..."
 }

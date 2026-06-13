@@ -255,7 +255,7 @@ class _DocumentCreateSheetState extends ConsumerState<DocumentCreateSheet> {
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             isDense: true,
-            hintText: '## Summary\n...',
+            hintText: l10n.docContentHint,
           ),
         ),
         const SizedBox(height: 20),

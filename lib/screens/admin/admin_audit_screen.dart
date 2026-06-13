@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/hub_client.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -28,17 +31,18 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
   final TextEditingController _actorCtrl = TextEditingController();
 
   bool _loading = true;
+  bool _hubMissing = false;
   String? _error;
   List<Map<String, dynamic>> _events = const [];
 
-  static const _actionPrefixes = {
-    '': 'all',
-    'host.': 'host',
-    'db.': 'db',
-    'token.': 'token',
-    'agent.': 'agent',
-    'session.': 'session',
-  };
+  static const _actionPrefixes = [
+    '',
+    'host.',
+    'db.',
+    'token.',
+    'agent.',
+    'session.',
+  ];
   static const _targetKinds = ['', 'host', 'agent', 'session', 'hub', 'token'];
   static const _windows = <String, Duration?>{
     '1h': Duration(hours: 1),
@@ -73,13 +77,14 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
+      _hubMissing = false;
       _error = null;
     });
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -101,7 +106,7 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
       setState(() {
         _loading = false;
         _error = e.status == 403
-            ? 'The audit log requires an owner-kind token.'
+            ? AppLocalizations.of(context)!.adminAuditOwnerTokenRequired
             : '${e.status}: ${e.message}';
       });
     } catch (e) {
@@ -115,15 +120,16 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Audit log',
+          l10n.adminAuditTitle,
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             icon: const Icon(Icons.refresh),
             onPressed: _loading ? null : _load,
           ),
@@ -136,12 +142,12 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
-                : _error != null
+                : _hubMissing || _error != null
                     ? Center(
                         child: Padding(
                           padding: const EdgeInsets.all(24),
                           child: Text(
-                            _error!,
+                            _hubMissing ? l10n.hubNotConfigured : _error!,
                             textAlign: TextAlign.center,
                             style: GoogleFonts.jetBrainsMono(
                               fontSize: 12,
@@ -153,7 +159,7 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
                     : _events.isEmpty
                         ? Center(
                             child: Text(
-                              'No matching audit events.',
+                              l10n.adminAuditNoMatchingEvents,
                               style: GoogleFonts.jetBrainsMono(fontSize: 12),
                             ),
                           )
@@ -171,39 +177,53 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
   }
 
   Widget _filterBar() {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final host = vocab.term(VocabAxis.entityHost).lower;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _chipRow(
-            'action',
-            _actionPrefixes.entries
-                .map((e) => _filterChip(e.value, _actionPrefix == e.key, () {
-                      setState(() => _actionPrefix = e.key);
-                      _load();
-                    }))
+            l10n.adminAuditFilterAction,
+            _actionPrefixes
+                .map((prefix) => _filterChip(
+                      _actionPrefixLabel(l10n, host, prefix),
+                      _actionPrefix == prefix,
+                      () {
+                        setState(() => _actionPrefix = prefix);
+                        _load();
+                      },
+                    ))
                 .toList(),
           ),
           const SizedBox(height: 4),
           _chipRow(
-            'target',
+            l10n.adminAuditFilterTarget,
             _targetKinds
-                .map((k) => _filterChip(k.isEmpty ? 'all' : k,
-                        _targetKind == k, () {
-                      setState(() => _targetKind = k);
-                      _load();
-                    }))
+                .map((k) => _filterChip(
+                      _targetKindLabel(l10n, host, k),
+                      _targetKind == k,
+                      () {
+                        setState(() => _targetKind = k);
+                        _load();
+                      },
+                    ))
                 .toList(),
           ),
           const SizedBox(height: 4),
           _chipRow(
-            'window',
+            l10n.adminAuditFilterWindow,
             _windows.entries
-                .map((e) => _filterChip(e.key, _window == e.value, () {
-                      setState(() => _window = e.value);
-                      _load();
-                    }))
+                .map((e) => _filterChip(
+                      _windowLabel(l10n, e.key),
+                      _window == e.value,
+                      () {
+                        setState(() => _window = e.value);
+                        _load();
+                      },
+                    ))
                 .toList(),
           ),
           const SizedBox(height: 6),
@@ -214,7 +234,7 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
               style: GoogleFonts.jetBrainsMono(fontSize: 12),
               decoration: InputDecoration(
                 isDense: true,
-                hintText: 'actor handle (exact) — blank for any',
+                hintText: l10n.adminAuditActorHint,
                 hintStyle: GoogleFonts.jetBrainsMono(fontSize: 11),
                 prefixIcon: const Icon(Icons.person_search, size: 16),
                 border: OutlineInputBorder(
@@ -227,6 +247,50 @@ class _AdminAuditScreenState extends ConsumerState<AdminAuditScreen> {
         ],
       ),
     );
+  }
+
+  String _actionPrefixLabel(
+    AppLocalizations l10n,
+    String host,
+    String prefix,
+  ) {
+    switch (prefix) {
+      case '':
+        return l10n.adminAuditFilterAll;
+      case 'host.':
+        return host;
+      case 'db.':
+        return l10n.adminAuditFilterDb;
+      case 'token.':
+        return l10n.adminAuditFilterToken;
+      case 'agent.':
+        return l10n.adminAuditFilterAgent;
+      case 'session.':
+        return l10n.adminAuditFilterSession;
+    }
+    return prefix;
+  }
+
+  String _targetKindLabel(AppLocalizations l10n, String host, String kind) {
+    switch (kind) {
+      case '':
+        return l10n.adminAuditFilterAll;
+      case 'host':
+        return host;
+      case 'agent':
+        return l10n.adminAuditFilterAgent;
+      case 'session':
+        return l10n.adminAuditFilterSession;
+      case 'hub':
+        return l10n.adminAuditFilterHub;
+      case 'token':
+        return l10n.adminAuditFilterToken;
+    }
+    return kind;
+  }
+
+  String _windowLabel(AppLocalizations l10n, String key) {
+    return key == 'all' ? l10n.adminAuditFilterAll : key;
   }
 
   Widget _chipRow(String label, List<Widget> chips) {

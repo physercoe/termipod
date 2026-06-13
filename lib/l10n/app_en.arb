@@ -2208,5 +2208,13 @@
   "commitComponentDescription": "Commit components pin a deliverable to a specific revision of the {project} repo so reviewers can rebuild the same artifacts/runs from source.",
   "@commitComponentDescription": { "placeholders": { "project": { "type": "String" } } },
   "viewSource": "View source",
-  "overrideRecorded": "Override recorded"
+  "overrideRecorded": "Override recorded",
+  "fieldReason": "Reason (required)",
+  "viewSpec": "View spec",
+  "sourceDeliverable": "Source deliverable: {id}",
+  "@sourceDeliverable": { "placeholders": { "id": { "type": "String" } } },
+  "sourceProject": "Source {project}: {id}",
+  "@sourceProject": { "placeholders": { "project": { "type": "String" }, "id": { "type": "String" } } },
+  "sourceTask": "Source {task}: {id}",
+  "@sourceTask": { "placeholders": { "task": { "type": "String" }, "id": { "type": "String" } } }
 }

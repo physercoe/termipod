@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
+import '../../../providers/vocab_provider.dart';
+import '../../../services/vocab/vocab_axis.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
 import 'propose_addressee.dart';
@@ -83,15 +86,18 @@ class ProposeCardPhase extends ConsumerWidget {
             viewSourceLabel: 'View project',
             onViewSource: projectId.isEmpty
                 ? null
-                : () => _viewProject(context, projectId),
+                : () => _viewProject(context, ref, projectId),
           ),
       ],
     );
   }
 
-  static void _viewProject(BuildContext context, String projectId) {
+  static void _viewProject(BuildContext context, WidgetRef ref, String projectId) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.read(vocabularyProvider);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Source project: $projectId')),
+      SnackBar(content: Text(l10n.sourceProject(
+        voc.term(VocabAxis.entityProject).title, projectId))),
     );
   }
 }

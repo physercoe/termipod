@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
@@ -94,12 +95,9 @@ class ProposeCardDeliverable extends ConsumerWidget {
   }
 
   static void _viewDeliverable(BuildContext context, String deliverableId) {
-    // Phase 3 wire — the existing deliverable viewer takes a project
-    // context, which we don't have on a bare attention row. Until the
-    // W19.6-mobile digest card lands with the cross-screen nav helper,
-    // surface the id in a snack so the principal can copy/paste it.
+    final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Source deliverable: $deliverableId')),
+      SnackBar(content: Text(l10n.sourceDeliverable(deliverableId))),
     );
   }
 }

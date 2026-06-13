@@ -2020,5 +2020,13 @@
   "commitComponentDescription": "提交组件会将交付物固定到{project} repo 的特定修订版本，使评审者能从源码重新构建相同的工件/运行。",
   "@commitComponentDescription": { "placeholders": { "project": { "type": "String" } } },
   "viewSource": "查看来源",
-  "overrideRecorded": "覆盖已记录"
+  "overrideRecorded": "覆盖已记录",
+  "fieldReason": "理由（必填）",
+  "viewSpec": "查看规格",
+  "sourceDeliverable": "来源交付物：{id}",
+  "@sourceDeliverable": { "placeholders": { "id": { "type": "String" } } },
+  "sourceProject": "来源{project}：{id}",
+  "@sourceProject": { "placeholders": { "project": { "type": "String" }, "id": { "type": "String" } } },
+  "sourceTask": "来源{task}：{id}",
+  "@sourceTask": { "placeholders": { "task": { "type": "String" }, "id": { "type": "String" } } }
 }

@@ -2210,5 +2210,9 @@
   "meSeverityMajor": "重要",
   "meSeverityMinor": "轻微",
   "projectStatusActive": "活跃",
-  "projectStatusArchived": "已归档"
+  "projectStatusArchived": "已归档",
+  "teamSwitcherChooseProfile": "选择配置",
+  "teamSwitcherProfilesHeader": "配置",
+  "teamSwitcherAddProfile": "添加配置…",
+  "teamSwitcherManageProfiles": "管理配置…"
 }

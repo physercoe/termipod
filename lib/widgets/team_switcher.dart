@@ -5,6 +5,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../providers/hub_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../screens/hub/hub_bootstrap_screen.dart';
 import '../screens/hub/hub_profiles_screen.dart';
 import '../screens/team/team_screen.dart';
@@ -49,7 +51,7 @@ class TeamSwitcher extends ConsumerWidget {
         ? DesignColors.textSecondary
         : DesignColors.textSecondaryLight;
 
-    final pillLabel = active?.name ?? 'Choose profile';
+    final pillLabel = active?.name ?? l10n.teamSwitcherChooseProfile;
 
     return Center(
       child: Padding(
@@ -108,6 +110,8 @@ class TeamSwitcher extends ConsumerWidget {
     String? activeId,
   ) {
     final scheme = Theme.of(ctx).colorScheme;
+    final l10n = AppLocalizations.of(ctx)!;
+    final vocab = ProviderScope.containerOf(ctx).read(vocabularyProvider);
     final items = <PopupMenuEntry<_MenuAction>>[];
 
     if (profiles.isNotEmpty) {
@@ -115,7 +119,7 @@ class TeamSwitcher extends ConsumerWidget {
         enabled: false,
         height: 28,
         child: Text(
-          'Profiles',
+          l10n.teamSwitcherProfilesHeader,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 11,
             fontWeight: FontWeight.w700,
@@ -172,18 +176,18 @@ class TeamSwitcher extends ConsumerWidget {
 
     items.add(PopupMenuItem<_MenuAction>(
       value: const _MenuAction.addProfile(),
-      child: Row(children: const [
-        Icon(Icons.add, size: 18),
-        SizedBox(width: 10),
-        Text('Add profile…'),
+      child: Row(children: [
+        const Icon(Icons.add, size: 18),
+        const SizedBox(width: 10),
+        Text(l10n.teamSwitcherAddProfile),
       ]),
     ));
     items.add(PopupMenuItem<_MenuAction>(
       value: const _MenuAction.manageProfiles(),
-      child: Row(children: const [
-        Icon(Icons.tune, size: 18),
-        SizedBox(width: 10),
-        Text('Manage profiles…'),
+      child: Row(children: [
+        const Icon(Icons.tune, size: 18),
+        const SizedBox(width: 10),
+        Text(l10n.teamSwitcherManageProfiles),
       ]),
     ));
     items.add(const PopupMenuDivider());
@@ -197,7 +201,7 @@ class TeamSwitcher extends ConsumerWidget {
       enabled: false,
       height: 28,
       child: Text(
-        AppLocalizations.of(ctx)!.teamSwitcherSectionOnThisTeam,
+        l10n.teamSwitcherSectionOnThisTeam,
         style: GoogleFonts.spaceGrotesk(
           fontSize: 11,
           fontWeight: FontWeight.w700,
@@ -208,18 +212,18 @@ class TeamSwitcher extends ConsumerWidget {
     ));
     items.add(PopupMenuItem<_MenuAction>(
       value: const _MenuAction.openTemplates(),
-      child: Row(children: const [
-        Icon(Icons.description_outlined, size: 18),
-        SizedBox(width: 10),
-        Text('Templates & engines'),
+      child: Row(children: [
+        const Icon(Icons.description_outlined, size: 18),
+        const SizedBox(width: 10),
+        Text(l10n.menuTemplatesEngines),
       ]),
     ));
     items.add(PopupMenuItem<_MenuAction>(
       value: const _MenuAction.openTeamSettings(),
-      child: Row(children: const [
-        Icon(Icons.settings_outlined, size: 18),
-        SizedBox(width: 10),
-        Text('Team settings'),
+      child: Row(children: [
+        const Icon(Icons.settings_outlined, size: 18),
+        const SizedBox(width: 10),
+        Text(l10n.teamSettingsTitle(vocab.term(VocabAxis.entityTeam).title)),
       ]),
     ));
     return items;

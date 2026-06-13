@@ -65,6 +65,5 @@
 10 lib/widgets/steward_overlay/steward_overlay_chat.dart
 2 lib/widgets/steward_overlay/steward_overlay_chips.dart
 11 lib/widgets/steward_overlay/steward_overlay_controller.dart
-4 lib/widgets/team_switcher.dart
 2 lib/widgets/template_yaml_sheet.dart
 4 lib/widgets/tmux_tiles.dart

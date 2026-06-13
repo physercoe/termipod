@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
+import '../../services/vocab/vocabulary.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/insights_breakdown_section.dart';
@@ -75,6 +79,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -83,12 +88,12 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Insights',
+          l10n.openInsights,
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.invalidate(insightsProvider(scope)),
           ),
@@ -175,8 +180,10 @@ class _ScopeBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
     final hubState = ref.watch(hubProvider).value;
-    final label = _labelForScope(scope, hubState);
+    final label = _labelForScope(l10n, vocab, scope, hubState);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: Spacing.s8),
       decoration: BoxDecoration(
@@ -222,27 +229,45 @@ class _ScopeBanner extends ConsumerWidget {
     }
   }
 
-  static String _labelForScope(InsightsScope scope, HubState? hub) {
+  static String _labelForScope(
+    AppLocalizations l10n,
+    Vocabulary vocab,
+    InsightsScope scope,
+    HubState? hub,
+  ) {
     switch (scope.kind) {
       case InsightsScopeKind.project:
+        final project = vocab.term(VocabAxis.entityProject).title;
         final p = hub?.projects.firstWhere(
           (p) => (p['id']?.toString() ?? '') == scope.id,
           orElse: () => const <String, dynamic>{},
         );
         final name = (p?['name']?.toString() ?? '').trim();
         return name.isEmpty
-            ? 'Project · ${scope.id}'
-            : 'Project · $name';
+            ? l10n.insightsScopeLabel(project, scope.id)
+            : l10n.insightsScopeLabel(project, name);
       case InsightsScopeKind.team:
-        return 'Team · ${scope.id}';
+        return l10n.insightsScopeLabel(
+          vocab.term(VocabAxis.entityTeam).title,
+          scope.id,
+        );
       case InsightsScopeKind.teamStewards:
-        return 'Stewards · ${scope.id}';
+        return l10n.insightsScopeLabel(
+          vocab.term(VocabAxis.roleSteward).plural,
+          scope.id,
+        );
       case InsightsScopeKind.agent:
-        return 'Agent · ${scope.id}';
+        return l10n.insightsScopeLabel(
+          vocab.term(VocabAxis.roleAgent).title,
+          scope.id,
+        );
       case InsightsScopeKind.engine:
-        return 'Engine · ${scope.id}';
+        return l10n.insightsScopeLabel(l10n.insightsScopeEngine, scope.id);
       case InsightsScopeKind.host:
-        return 'Host · ${scope.id}';
+        return l10n.insightsScopeLabel(
+          vocab.term(VocabAxis.entityHost).title,
+          scope.id,
+        );
     }
   }
 }

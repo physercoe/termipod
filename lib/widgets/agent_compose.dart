@@ -347,6 +347,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       if (_canAttachVideo) MultimodalKind.video,
     ];
     if (kinds.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
     MultimodalKind? chosen;
     if (kinds.length == 1) {
       chosen = kinds.first;
@@ -360,7 +361,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               for (final k in kinds)
                 ListTile(
                   leading: Icon(_iconForMultimodal(k)),
-                  title: Text('Attach ${k.label}'),
+                  title: Text(l10n.stewardOverlayAttachKind(k.label)),
                   onTap: () => Navigator.pop(sheetCtx, k),
                 ),
             ],
@@ -567,6 +568,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark
         ? DesignColors.surfaceDark
@@ -643,7 +645,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               GestureDetector(
                 onLongPress: _sending ? null : _saveAsSnippet,
                 child: IconButton(
-                  tooltip: 'Snippets · long-press to save',
+                  tooltip: l10n.composeSnippetsTooltip,
                   onPressed: _sending
                       ? null
                       : () => SnippetPickerSheet.show(
@@ -698,7 +700,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               // as a fenced code block; nothing rides on the wire as a
               // multimodal content block.
               IconButton(
-                tooltip: 'Attach code or text file',
+                tooltip: l10n.stewardOverlayAttachCodeFile,
                 onPressed: (_sending || _attachingText) ? null : _pickTextFile,
                 icon: _attachingText
                     ? SizedBox(
@@ -720,7 +722,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               // >1 modality is supported, picks directly otherwise.
               if (_canAttachPdfs || _canAttachAudio || _canAttachVideo)
                 IconButton(
-                  tooltip: 'Attach PDF, audio, or video',
+                  tooltip: l10n.stewardOverlayAttachPdfAudioVideo,
                   onPressed: (_sending || _attachingMultimodal)
                       ? null
                       : _pickMultimodal,
@@ -757,7 +759,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                     style: GoogleFonts.jetBrainsMono(fontSize: 14),
                     decoration: InputDecoration(
                       isDense: true,
-                      hintText: 'Send to agent…',
+                      hintText: l10n.composeSendHint,
                       hintStyle: GoogleFonts.jetBrainsMono(
                           fontSize: 14, color: muted),
                       border: OutlineInputBorder(
@@ -840,7 +842,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                     );
                   }
                   return IconButton(
-                    tooltip: 'Send as text input',
+                    tooltip: l10n.composeSendTooltip,
                     onPressed: empty ? null : _send,
                     icon: Icon(Icons.send,
                         size: 20,

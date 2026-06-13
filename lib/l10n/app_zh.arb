@@ -2470,5 +2470,22 @@
   "stewardOverlayASession": "一个会话",
   "stewardOverlaySessionId": "会话 {id}",
   "@stewardOverlaySessionId": { "placeholders": { "id": { "type": "String" } } },
-  "stewardOverlayHubNotConfigured": "Hub 未配置"
+  "stewardOverlayHubNotConfigured": "Hub 未配置",
+  "engineLabelCodex": "Codex",
+  "engineLabelGeminiCli": "Gemini CLI",
+  "engineLabelKimiCode": "Kimi Code",
+  "engineLabelAntigravity": "Antigravity",
+  "engineLabelClaudeCode": "Claude Code",
+  "transportModeAcpStdio": "ACP stdio",
+  "transportModeJsonlTail": "JSONL tail",
+  "composeSnippetsTooltip": "代码片段 · 长按保存",
+  "composeSendHint": "发送给智能体…",
+  "composeSendTooltip": "以文本输入发送",
+  "agentConfigAskStewardReconfigure": "请求管家重新配置",
+  "agentConfigCopyYaml": "复制 YAML",
+  "agentConfigYamlCopied": "已复制 spawn_spec_yaml",
+  "agentConfigNoStewardSession": "管家尚无活跃会话 — 请稍后再试。",
+  "agentConfigNoLiveSteward": "此项目尚无活跃{steward} — 请打开项目{agents}选项卡先生成一个。",
+  "@agentConfigNoLiveSteward": { "placeholders": { "steward": { "type": "String" }, "agents": { "type": "String" } } },
+  "kindHint": "claude-code, kimi-code, antigravity, …"
 }

@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/vocab_provider.dart';
 import '../../services/hub/hub_client.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import 'admin_audit_screen.dart';
@@ -36,6 +39,7 @@ class AdminScreen extends ConsumerStatefulWidget {
 
 class _AdminScreenState extends ConsumerState<AdminScreen> {
   bool _loading = true;
+  bool _hubMissing = false;
   String? _error;
   List<Map<String, dynamic>> _hosts = const [];
   List<Map<String, dynamic>> _teams = const [];
@@ -58,13 +62,14 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
+      _hubMissing = false;
       _error = null;
     });
     final client = _client;
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _hubMissing = true;
       });
       return;
     }
@@ -84,7 +89,8 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       setState(() {
         _loading = false;
         _error = e.status == 403
-            ? 'The Admin pane requires an operator-kind token.'
+            ? AppLocalizations.of(context)!
+                .adminOperatorTokenRequiredForPane
             : '${e.status}: ${e.message}';
       });
     } catch (e) {
@@ -103,6 +109,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
     Future<Map<String, dynamic>> Function(HubClient) action,
     String Function(Map<String, dynamic>) summarise,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     final client = _client;
     if (client == null || _busyKey != null) return;
     setState(() => _busyKey = key);
@@ -112,10 +119,10 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       message = summarise(res);
     } on HubApiError catch (e) {
       message = e.status == 403
-          ? 'Operator token required.'
-          : 'Failed (${e.status}): ${e.message}';
+          ? l10n.adminOperatorTokenRequired
+          : l10n.failedStatusMessage(e.status, e.message);
     } catch (e) {
-      message = 'Failed: $e';
+      message = l10n.failedMessage('$e');
     }
     if (!mounted) return;
     setState(() => _busyKey = null);
@@ -127,50 +134,69 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
 
   // ---- action summarisers ----
 
-  String _fleetSummary(String verb, Map<String, dynamic> res) {
+  String _fleetSummary(
+    AppLocalizations l10n,
+    String verb,
+    String hostsLabel,
+    Map<String, dynamic> res,
+  ) {
     final hosts = (res['hosts'] as List?) ?? const [];
     final acked = hosts.where((h) => (h as Map)['acked'] == true).length;
-    return '$verb: $acked/${hosts.length} host(s) acked';
+    return l10n.adminFleetActionSummary(
+      verb,
+      acked,
+      hosts.length,
+      hostsLabel,
+    );
   }
 
-  String _hostSummary(String verb, Map<String, dynamic> res) {
+  String _hostSummary(
+    AppLocalizations l10n,
+    String verb,
+    Map<String, dynamic> res,
+  ) {
     final acked = res['acked'] == true;
     final err = (res['error'] as String?) ?? '';
-    if (acked) return '$verb acked';
-    return err.isEmpty ? '$verb sent' : '$verb: $err';
+    if (acked) return l10n.adminHostActionAcked(verb);
+    return err.isEmpty
+        ? l10n.adminHostActionSent(verb)
+        : l10n.adminHostActionError(verb, err);
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return DefaultTabController(
       length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            'Hub admin',
+            l10n.adminTitle,
             style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
           ),
           actions: [
             IconButton(
-              tooltip: 'Refresh',
+              tooltip: l10n.buttonRefresh,
               icon: const Icon(Icons.refresh),
               onPressed: _loading ? null : _load,
             ),
           ],
-          bottom: const TabBar(
+          bottom: TabBar(
             isScrollable: true,
             tabs: [
-              Tab(text: 'Fleet'),
-              Tab(text: 'Teams'),
-              Tab(text: 'Upkeep'),
-              Tab(text: 'Audit'),
+              Tab(text: l10n.adminTabFleet),
+              Tab(text: l10n.adminTabTeams),
+              Tab(text: l10n.adminTabUpkeep),
+              Tab(text: l10n.adminTabAudit),
             ],
           ),
         ),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? _ErrorState(message: _error!)
+            : _hubMissing || _error != null
+                ? _ErrorState(
+                    message: _hubMissing ? l10n.hubNotConfigured : _error!,
+                  )
                 : TabBarView(
                     children: [
                       _fleetTab(),
@@ -221,44 +247,65 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   // ---- Fleet tab: fleet-wide host ops + per-host cards ----
 
   Widget _fleetTab() {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final host = vocab.term(VocabAxis.entityHost);
+    final hostsLower = host.pluralLower;
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
-          _sectionHeader('FLEET-WIDE'),
+          _sectionHeader(l10n.adminSectionFleetWide),
           _bottomGap(ConfirmActionTile(
-            label: 'Update all hosts + hub',
+            label: l10n.adminUpdateAllHosts(hostsLower),
             icon: Icons.system_update_alt,
             destructive: false,
             busy: _busyKey == 'fleet.update',
             enabled: _busyKey == null,
-            hint: 'Long-press, then slide right to update the whole fleet.',
+            hint: l10n.adminUpdateAllHostsHint,
             onConfirmed: () => _run('fleet.update', (c) => c.adminFleetUpdate(),
-                (r) => _fleetSummary('update', r)),
+                (r) => _fleetSummary(
+                      l10n,
+                      l10n.adminVerbUpdate,
+                      hostsLower,
+                      r,
+                    )),
           )),
           _bottomGap(ConfirmActionTile(
-            label: 'Restart all hosts',
+            label: l10n.adminRestartAllHosts(hostsLower),
             icon: Icons.restart_alt,
             busy: _busyKey == 'fleet.restart',
             enabled: _busyKey == null,
-            hint: 'Long-press, then slide right to restart every host.',
+            hint: l10n.adminRestartAllHostsHint(host.lower),
             onConfirmed: () => _run('fleet.restart',
-                (c) => c.adminFleetRestart(), (r) => _fleetSummary('restart', r)),
+                (c) => c.adminFleetRestart(),
+                (r) => _fleetSummary(
+                      l10n,
+                      l10n.adminVerbRestart,
+                      hostsLower,
+                      r,
+                    )),
           )),
           _bottomGap(ConfirmActionTile(
-            label: 'Shutdown all hosts',
+            label: l10n.adminShutdownAllHosts(hostsLower),
             icon: Icons.power_settings_new,
             busy: _busyKey == 'fleet.shutdown',
             enabled: _busyKey == null,
-            hint: 'Long-press, then slide right to shut the fleet down.',
+            hint: l10n.adminShutdownAllHostsHint,
             onConfirmed: () => _run('fleet.shutdown',
-                (c) => c.adminFleetShutdown(), (r) => _fleetSummary('shutdown', r)),
+                (c) => c.adminFleetShutdown(),
+                (r) => _fleetSummary(
+                      l10n,
+                      l10n.adminVerbShutdown,
+                      hostsLower,
+                      r,
+                    )),
           )),
           const SizedBox(height: 20),
-          _sectionHeader('HOSTS (${_hosts.length})'),
+          _sectionHeader(l10n.adminHostsSection(host.plural, _hosts.length)),
           if (_hosts.isEmpty)
-            _emptyNote('No hosts registered.')
+            _emptyNote(l10n.adminNoHostsRegistered(hostsLower))
           else
             ..._hosts.map(_hostCard),
         ],
@@ -270,6 +317,9 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       Padding(padding: const EdgeInsets.only(bottom: 8), child: child);
 
   Widget _hostCard(Map<String, dynamic> h) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final host = vocab.term(VocabAxis.entityHost).lower;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final id = (h['host_id'] as String?) ?? '';
     final name = (h['name'] as String?)?.isNotEmpty == true
@@ -282,7 +332,9 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
 
-    final subtitle = StringBuffer(live ? 'live' : 'offline');
+    final subtitle = StringBuffer(
+      live ? l10n.adminHostStatusLive : l10n.adminHostStatusOffline,
+    );
     if (version.isNotEmpty) subtitle.write(' · $version');
     if (pingMs != null && pingMs > 0 && pingErr.isEmpty) {
       subtitle.write(' · ${pingMs}ms');
@@ -332,35 +384,37 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
           ),
           const SizedBox(height: 10),
           ConfirmActionTile(
-            label: 'Restart $name',
+            label: l10n.adminRestartNamedHost(name),
             icon: Icons.restart_alt,
             enabled: live && _busyKey == null,
             busy: _busyKey == 'host.restart.$id',
-            hint: 'Long-press, then slide right to restart this host.',
+            hint: l10n.adminRestartHostHint(host),
             onConfirmed: () => _run('host.restart.$id',
-                (c) => c.adminHostRestart(id), (r) => _hostSummary('restart', r)),
+                (c) => c.adminHostRestart(id),
+                (r) => _hostSummary(l10n, l10n.adminVerbRestart, r)),
           ),
           const SizedBox(height: 8),
           ConfirmActionTile(
-            label: 'Update $name',
+            label: l10n.adminUpdateNamedHost(name),
             icon: Icons.system_update_alt,
             destructive: false,
             enabled: live && _busyKey == null,
             busy: _busyKey == 'host.update.$id',
-            hint: 'Long-press, then slide right to update this host.',
+            hint: l10n.adminUpdateHostHint(host),
             onConfirmed: () => _run('host.update.$id',
-                (c) => c.adminHostUpdate(id), (r) => _hostSummary('update', r)),
+                (c) => c.adminHostUpdate(id),
+                (r) => _hostSummary(l10n, l10n.adminVerbUpdate, r)),
           ),
           const SizedBox(height: 8),
           ConfirmActionTile(
-            label: 'Shutdown $name',
+            label: l10n.adminShutdownNamedHost(name),
             icon: Icons.power_settings_new,
             enabled: live && _busyKey == null,
             busy: _busyKey == 'host.shutdown.$id',
-            hint: 'Long-press, then slide right to shut this host down.',
+            hint: l10n.adminShutdownHostHint(host),
             onConfirmed: () => _run('host.shutdown.$id',
                 (c) => c.adminHostShutdown(id),
-                (r) => _hostSummary('shutdown', r)),
+                (r) => _hostSummary(l10n, l10n.adminVerbShutdown, r)),
           ),
         ],
       ),
@@ -370,6 +424,9 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   // ---- Teams tab: list + create + rotate owner token (ADR-037 D3) ----
 
   Widget _teamsTab() {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final team = vocab.term(VocabAxis.entityTeam);
     final teams = sortTeamsForDisplay(_teams, _activeTeamId);
     return RefreshIndicator(
       onRefresh: _load,
@@ -379,16 +436,16 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _sectionHeader('TEAMS (${teams.length})'),
+              _sectionHeader(l10n.adminTeamsSection(team.plural, teams.length)),
               TextButton.icon(
                 onPressed: _busyKey == null ? _showCreateTeamDialog : null,
                 icon: const Icon(Icons.add, size: 16),
-                label: const Text('New team'),
+                label: Text(l10n.adminNewTeam(team.title)),
               ),
             ],
           ),
           if (teams.isEmpty)
-            _emptyNote('No teams found.')
+            _emptyNote(l10n.adminNoTeamsFound(team.pluralLower))
           else
             ...teams.map(_teamCard),
         ],
@@ -397,6 +454,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   }
 
   Widget _teamCard(Map<String, dynamic> t) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final id = (t['id'] as String?) ?? '';
     final name = (t['name'] as String?)?.isNotEmpty == true
@@ -446,11 +504,11 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
           ),
           const SizedBox(height: 10),
           ConfirmActionTile(
-            label: 'Rotate owner token',
+            label: l10n.adminRotateOwnerToken,
             icon: Icons.key,
             enabled: _busyKey == null,
             busy: _busyKey == 'team.rotate.$id',
-            hint: 'Long-press, then slide right to rotate $name’s owner token.',
+            hint: l10n.adminRotateOwnerTokenHint(name),
             onConfirmed: () => _rotateTeamToken(id, name),
           ),
         ],
@@ -466,7 +524,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
         borderRadius: Radii.smBorder,
       ),
       child: Text(
-        'ACTIVE',
+        AppLocalizations.of(context)!.adminActiveChip,
         style: GoogleFonts.jetBrainsMono(
           fontSize: FontSizes.label,
           fontWeight: FontWeight.w700,
@@ -478,15 +536,24 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   }
 
   Future<void> _showCreateTeamDialog() async {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.read(vocabularyProvider);
+    final team = vocab.term(VocabAxis.entityTeam);
     final result = await showDialog<_NewTeam>(
       context: context,
-      builder: (_) => const _TeamCreateDialog(),
+      builder: (_) => _TeamCreateDialog(
+        l10n: l10n,
+        teamTitle: team.title,
+      ),
     );
     if (result == null || !mounted) return;
     await _createTeam(result);
   }
 
   Future<void> _createTeam(_NewTeam spec) async {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.read(vocabularyProvider);
+    final team = vocab.term(VocabAxis.entityTeam);
     final client = _client;
     if (client == null || _busyKey != null) return;
     setState(() => _busyKey = 'team.create');
@@ -501,25 +568,28 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       await _load();
       if (!mounted) return;
       await _showSecretDialog(
-        title: 'Team “${res['team_id'] ?? spec.id}” created',
-        subtitle:
-            'This is the new team’s owner token — shown once. Hand it to '
-            'the team’s director, or add a hub profile with it to switch '
-            'into the team.',
+        title: l10n.adminTeamCreatedTitle(
+          team.title,
+          (res['team_id'] as String?) ?? spec.id,
+        ),
+        subtitle: l10n.adminTeamCreatedSubtitle(team.lower),
         secret: (res['owner_token'] as String?) ?? '',
       );
     } on HubApiError catch (e) {
       _failSnack(e.status == 409
-          ? 'A team with that id already exists.'
+          ? l10n.adminTeamAlreadyExists(team.lower)
           : e.status == 403
-              ? 'Operator token required.'
-              : 'Failed (${e.status}): ${e.message}');
+              ? l10n.adminOperatorTokenRequired
+              : l10n.failedStatusMessage(e.status, e.message));
     } catch (e) {
-      _failSnack('Failed: $e');
+      _failSnack(l10n.failedMessage('$e'));
     }
   }
 
   Future<void> _rotateTeamToken(String id, String name) async {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.read(vocabularyProvider);
+    final team = vocab.term(VocabAxis.entityTeam).lower;
     final client = _client;
     if (client == null || _busyKey != null) return;
     setState(() => _busyKey = 'team.rotate.$id');
@@ -531,23 +601,18 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       if (!mounted) return;
       final revoked = (res['revoked_count'] as num?)?.toInt() ?? 0;
       await _showSecretDialog(
-        title: 'Rotated $name’s owner token',
-        subtitle: revoked > 0
-            ? 'New owner token below — shown once. $revoked prior token(s) '
-                'revoked, so update any profile or director still on the old one.'
-            : 'New owner token below — shown once. No prior owner token existed '
-                '(this team’s director may be the operator credential), so '
-                'nothing was revoked.',
+        title: l10n.adminTeamOwnerTokenRotatedTitle(name),
+        subtitle: l10n.adminTeamOwnerTokenRotatedSubtitle(revoked, team),
         secret: (res['new_token'] as String?) ?? '',
       );
     } on HubApiError catch (e) {
       _failSnack(e.status == 404
-          ? 'Team not found.'
+          ? l10n.adminTeamNotFound(team)
           : e.status == 403
-              ? 'Operator token required.'
-              : 'Failed (${e.status}): ${e.message}');
+              ? l10n.adminOperatorTokenRequired
+              : l10n.failedStatusMessage(e.status, e.message));
     } catch (e) {
-      _failSnack('Failed: $e');
+      _failSnack(l10n.failedMessage('$e'));
     }
   }
 
@@ -603,18 +668,19 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
         actions: [
           TextButton.icon(
             icon: const Icon(Icons.copy, size: 16),
-            label: const Text('Copy'),
+            label: Text(AppLocalizations.of(context)!.buttonCopy),
             onPressed: () {
               Clipboard.setData(ClipboardData(text: secret));
               ScaffoldMessenger.of(ctx)
                 ..hideCurrentSnackBar()
-                ..showSnackBar(
-                    const SnackBar(content: Text('Token copied')));
+                ..showSnackBar(SnackBar(
+                  content: Text(AppLocalizations.of(ctx)!.tokenCopied),
+                ));
             },
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Done'),
+            child: Text(AppLocalizations.of(context)!.buttonDone),
           ),
         ],
       ),
@@ -624,38 +690,44 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   // ---- Upkeep tab: host-token rotation + DB vacuum ----
 
   Widget _upkeepTab() {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final host = vocab.term(VocabAxis.entityHost).lower;
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
-          _sectionHeader('CREDENTIALS'),
+          _sectionHeader(l10n.adminSectionCredentials),
           _bottomGap(ConfirmActionTile(
-            label: 'Rotate host tokens',
+            label: l10n.adminRotateHostTokens(host),
             icon: Icons.vpn_key,
             busy: _busyKey == 'tokens.rotate',
             enabled: _busyKey == null,
-            hint: 'Long-press, then slide right to rotate the host bearer.',
+            hint: l10n.adminRotateHostTokensHint(host),
             onConfirmed: () => _run('tokens.rotate',
                 (c) => c.adminRotateTokens(), (r) {
               final revoked = r['old_tokens_revoked'] == true;
               return revoked
-                  ? 'Token rotated — old tokens revoked'
-                  : 'Token rotated — old tokens kept (${r['note'] ?? 'not all hosts acked'})';
+                  ? l10n.adminHostTokensRotatedRevoked
+                  : l10n.adminHostTokensRotatedKept(
+                      (r['note'] as String?) ??
+                          l10n.adminNotAllHostsAcked(host),
+                    );
             }),
           )),
           const SizedBox(height: 20),
-          _sectionHeader('DATABASE'),
+          _sectionHeader(l10n.adminSectionDatabase),
           _bottomGap(ConfirmActionTile(
-            label: 'Vacuum hub database',
+            label: l10n.adminVacuumHubDatabase,
             icon: Icons.cleaning_services,
             destructive: false,
             busy: _busyKey == 'db.vacuum',
             enabled: _busyKey == null,
-            hint: 'Long-press, then slide right to vacuum the database.',
+            hint: l10n.adminVacuumHubDatabaseHint,
             onConfirmed: () => _run('db.vacuum', (c) => c.adminDbVacuum(), (r) {
               final kb = ((r['reclaimed'] as num?) ?? 0) / 1024;
-              return 'Vacuumed — ${kb.toStringAsFixed(1)} KiB reclaimed';
+              return l10n.adminVacuumedSummary(kb.toStringAsFixed(1));
             }),
           )),
         ],
@@ -666,6 +738,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   // ---- Audit tab: recent admin actions ----
 
   Widget _auditTab() {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -681,13 +754,13 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _sectionHeader('RECENT ADMIN ACTIONS'),
+                _sectionHeader(l10n.adminSectionRecentAdminActions),
                 Icon(Icons.chevron_right, size: 16, color: muted),
               ],
             ),
           ),
           if (_audit.isEmpty)
-            _emptyNote('No admin actions recorded yet.')
+            _emptyNote(l10n.adminNoAdminActionsRecorded)
           else
             ..._audit.take(50).map((e) => _auditRow(e, muted)),
         ],
@@ -742,7 +815,13 @@ class _NewTeam {
 /// cancel. The id is validated against the same slug shape the hub
 /// enforces so an obvious typo is caught before the round-trip.
 class _TeamCreateDialog extends StatefulWidget {
-  const _TeamCreateDialog();
+  const _TeamCreateDialog({
+    required this.l10n,
+    required this.teamTitle,
+  });
+
+  final AppLocalizations l10n;
+  final String teamTitle;
 
   @override
   State<_TeamCreateDialog> createState() => _TeamCreateDialogState();
@@ -768,8 +847,7 @@ class _TeamCreateDialogState extends State<_TeamCreateDialog> {
   void _submit() {
     final id = _id.text.trim();
     if (!_slug.hasMatch(id)) {
-      setState(() => _idError =
-          'Lowercase letters, digits and hyphens; no leading/trailing hyphen.');
+      setState(() => _idError = widget.l10n.adminTeamSlugError);
       return;
     }
     Navigator.of(context).pop(
@@ -780,7 +858,10 @@ class _TeamCreateDialogState extends State<_TeamCreateDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('New team', style: GoogleFonts.spaceGrotesk(fontSize: 16)),
+      title: Text(
+        widget.l10n.adminNewTeam(widget.teamTitle),
+        style: GoogleFonts.spaceGrotesk(fontSize: 16),
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -788,7 +869,7 @@ class _TeamCreateDialogState extends State<_TeamCreateDialog> {
             controller: _id,
             autofocus: true,
             decoration: InputDecoration(
-              labelText: 'Team ID',
+              labelText: widget.l10n.adminTeamIdLabel(widget.teamTitle),
               hintText: 'acme-research',
               errorText: _idError,
             ),
@@ -799,15 +880,15 @@ class _TeamCreateDialogState extends State<_TeamCreateDialog> {
           const SizedBox(height: 8),
           TextField(
             controller: _name,
-            decoration: const InputDecoration(
-              labelText: 'Display name (optional)',
+            decoration: InputDecoration(
+              labelText: widget.l10n.adminDisplayNameOptional,
             ),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _handle,
-            decoration: const InputDecoration(
-              labelText: 'Owner handle (optional)',
+            decoration: InputDecoration(
+              labelText: widget.l10n.adminOwnerHandleOptional,
             ),
           ),
         ],
@@ -815,9 +896,9 @@ class _TeamCreateDialogState extends State<_TeamCreateDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(widget.l10n.buttonCancel),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Create')),
+        FilledButton(onPressed: _submit, child: Text(widget.l10n.buttonCreate)),
       ],
     );
   }

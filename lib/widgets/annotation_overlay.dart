@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
 import 'app_chip.dart';
@@ -88,6 +89,7 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
   }
 
   Future<void> _addAnnotation() async {
+    final l10n = AppLocalizations.of(context)!;
     final result = await showModalBottomSheet<_NewAnnotation>(
       context: context,
       isScrollControlled: true,
@@ -106,11 +108,12 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
       );
       await _load();
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Failed to add: $e')));
+      messenger.showSnackBar(SnackBar(content: Text(l10n.annotationFailedToAdd(e.toString()))));
     }
   }
 
   Future<void> _toggleResolved(Map<String, dynamic> a) async {
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -124,12 +127,13 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
       }
       await _load();
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Failed: $e')));
+      messenger.showSnackBar(SnackBar(content: Text(l10n.failedError(e.toString()))));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
@@ -244,6 +248,7 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
             for (var i = 0; i < _items.length; i++) ...[
               if (i > 0) const Divider(height: 1, indent: 12, endIndent: 12),
               _AnnotationRow(
+                l10n: l10n,
                 annotation: _items[i],
                 onToggleResolved: _staleSince != null
                     ? null
@@ -263,9 +268,11 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
 }
 
 class _AnnotationRow extends StatelessWidget {
+  final AppLocalizations l10n;
   final Map<String, dynamic> annotation;
   final VoidCallback? onToggleResolved;
   const _AnnotationRow({
+    required this.l10n,
     required this.annotation,
     required this.onToggleResolved,
   });
@@ -316,7 +323,7 @@ class _AnnotationRow extends StatelessWidget {
                 Row(
                   children: [
                     Text(
-                      '$actorLabel · ${_kindLabel(kind)}',
+                      '$actorLabel · ${_kindLabel(l10n, kind)}',
                       style: GoogleFonts.jetBrainsMono(
                         fontSize: FontSizes.label,
                         color: isDark
@@ -377,6 +384,7 @@ class _AddAnnotationSheetState extends State<_AddAnnotationSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final media = MediaQuery.of(context);
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
@@ -406,7 +414,7 @@ class _AddAnnotationSheetState extends State<_AddAnnotationSheet> {
                     'question',
                   ])
                     ChoiceChip(
-                      label: Text(_kindLabel(k)),
+                      label: Text(_kindLabel(l10n, k)),
                       selected: _kind == k,
                       onSelected: (_) => setState(() => _kind = k),
                     ),
@@ -418,9 +426,9 @@ class _AddAnnotationSheetState extends State<_AddAnnotationSheet> {
                 autofocus: true,
                 minLines: 3,
                 maxLines: 6,
-                decoration: const InputDecoration(
-                  hintText: 'What needs attention here?',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: l10n.annotationAddHint,
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 12),
@@ -429,12 +437,12 @@ class _AddAnnotationSheetState extends State<_AddAnnotationSheet> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
+                    child: Text(l10n.buttonCancel),
                   ),
                   const SizedBox(width: 8),
                   FilledButton.icon(
                     icon: const Icon(Icons.send, size: 16),
-                    label: const Text('Post'),
+                    label: Text(l10n.annotationPost),
                     onPressed: () {
                       final body = _ctl.text.trim();
                       if (body.isEmpty) return;
@@ -478,15 +486,15 @@ Color _annotationColor(String kind) {
   }
 }
 
-String _kindLabel(String kind) {
+String _kindLabel(AppLocalizations l10n, String kind) {
   switch (kind) {
     case 'redline':
-      return 'Redline';
+      return l10n.annotationKindRedline;
     case 'suggestion':
-      return 'Suggestion';
+      return l10n.annotationKindSuggestion;
     case 'question':
-      return 'Question';
+      return l10n.annotationKindQuestion;
     default:
-      return 'Comment';
+      return l10n.annotationKindComment;
   }
 }

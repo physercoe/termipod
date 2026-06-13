@@ -29,7 +29,6 @@
 4 lib/widgets/agent_config_sheet.dart
 2 lib/widgets/agent_journal_view.dart
 1 lib/widgets/agent_pane_view.dart
-9 lib/widgets/annotation_overlay.dart
 1 lib/widgets/artifact_viewers/canvas_viewer.dart
 4 lib/widgets/artifact_viewers/pdf_viewer.dart
 4 lib/widgets/custom_keyboard.dart

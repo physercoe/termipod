@@ -2365,5 +2365,13 @@
   "activityEventSessionOpened": "会话已打开",
   "activityEventSessionArchived": "会话已归档",
   "activityEventDeliverableRatified": "交付物已批准",
-  "activityEventCriterionMet": "标准已达成"
+  "activityEventCriterionMet": "标准已达成",
+  "annotationFailedToAdd": "添加失败：{error}",
+  "@annotationFailedToAdd": { "placeholders": { "error": { "type": "String" } } },
+  "annotationAddHint": "这里需要注意什么？",
+  "annotationPost": "发布",
+  "annotationKindComment": "评论",
+  "annotationKindRedline": "红线",
+  "annotationKindSuggestion": "建议",
+  "annotationKindQuestion": "问题"
 }

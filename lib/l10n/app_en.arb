@@ -2553,5 +2553,13 @@
   "activityEventSessionOpened": "Session opened",
   "activityEventSessionArchived": "Session archived",
   "activityEventDeliverableRatified": "Deliverable ratified",
-  "activityEventCriterionMet": "Criterion met"
+  "activityEventCriterionMet": "Criterion met",
+  "annotationFailedToAdd": "Failed to add: {error}",
+  "@annotationFailedToAdd": { "placeholders": { "error": { "type": "String" } } },
+  "annotationAddHint": "What needs attention here?",
+  "annotationPost": "Post",
+  "annotationKindComment": "Comment",
+  "annotationKindRedline": "Redline",
+  "annotationKindSuggestion": "Suggestion",
+  "annotationKindQuestion": "Question"
 }

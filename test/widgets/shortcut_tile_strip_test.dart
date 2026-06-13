@@ -207,17 +207,15 @@ void main() {
   });
 
   group('overviewWidgetSpecFor (D10 hero picker labels)', () {
-    test('every known hero slug has a non-empty label + subtitle', () {
+    test('every known hero slug has a non-empty subtitle', () {
       for (final slug in kKnownOverviewWidgets) {
         final spec = overviewWidgetSpecFor(slug);
-        expect(spec.label, isNotEmpty, reason: 'slug=$slug');
         expect(spec.subtitle, isNotEmpty, reason: 'slug=$slug');
       }
     });
 
-    test('unknown slug falls back to a usable label', () {
+    test('unknown slug falls back to a usable subtitle', () {
       final spec = overviewWidgetSpecFor('unheard-of');
-      expect(spec.label, isNotEmpty);
       expect(spec.subtitle, isNotEmpty);
     });
   });

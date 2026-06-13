@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'overview_widgets/registry.dart';
 
 /// Standalone "Hero" host screen — wraps whichever `overview_widget` the
@@ -19,9 +20,9 @@ class ProjectHeroScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final raw = (project['overview_widget'] ?? '').toString();
     final resolved = normalizeOverviewWidget(raw);
-    final spec = overviewWidgetSpecFor(resolved);
     final projectName = (project['name'] ?? '').toString();
     return Scaffold(
       appBar: AppBar(
@@ -30,7 +31,7 @@ class ProjectHeroScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              spec.label,
+              overviewWidgetLabel(l10n, resolved),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,

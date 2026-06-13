@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
 import 'children_status.dart';
@@ -60,52 +61,63 @@ const String kDefaultOverviewWidget = 'task_milestone_list';
 /// slugs fall through to a generic "Custom widget" label so the picker
 /// stays useful across version drift.
 class OverviewWidgetSpec {
-  final String label;
   final String subtitle;
-  const OverviewWidgetSpec({required this.label, required this.subtitle});
+  const OverviewWidgetSpec({required this.subtitle});
 }
 
 const Map<String, OverviewWidgetSpec> kOverviewWidgetSpecs = {
   'task_milestone_list': OverviewWidgetSpec(
-    label: 'Tasks + milestones',
     subtitle: 'Default goal-project hero · task list with progress',
   ),
   'recent_artifacts': OverviewWidgetSpec(
-    label: 'Recent artifacts',
     subtitle: 'Latest outputs across the project · checkpoints + reports',
   ),
   'children_status': OverviewWidgetSpec(
-    label: 'Children status',
     subtitle: 'Tree of sub-projects · phase + status per child',
   ),
   'recent_firings_list': OverviewWidgetSpec(
-    label: 'Recent firings',
     subtitle: 'Standing-project default · last schedule firings',
   ),
   'idea_conversation': OverviewWidgetSpec(
-    label: 'Idea conversation',
     subtitle: 'Conversation-first; nudge to ratify scope criterion',
   ),
   'deliverable_focus': OverviewWidgetSpec(
-    label: 'Deliverable focus',
     subtitle: 'Single active deliverable · tap to ratify / send back',
   ),
   'experiment_dash': OverviewWidgetSpec(
-    label: 'Experiment dashboard',
     subtitle: 'Mixed deliverable: report + artifacts + runs',
   ),
   'paper_acceptance': OverviewWidgetSpec(
-    label: 'Paper draft',
     subtitle: 'Paper synthesis · ratify draft to close the project',
   ),
 };
 
 OverviewWidgetSpec overviewWidgetSpecFor(String slug) {
   return kOverviewWidgetSpecs[slug] ??
-      OverviewWidgetSpec(
-        label: slug.isEmpty ? 'Default widget' : slug,
-        subtitle: 'Custom widget',
-      );
+      OverviewWidgetSpec(subtitle: 'Custom widget');
+}
+
+String overviewWidgetLabel(AppLocalizations l10n, String slug) {
+  switch (slug) {
+    case 'task_milestone_list':
+      return l10n.overviewWidgetTasksMilestones;
+    case 'recent_artifacts':
+      return l10n.overviewWidgetRecentArtifacts;
+    case 'children_status':
+      return l10n.overviewWidgetChildrenStatus;
+    case 'recent_firings_list':
+      return l10n.overviewWidgetRecentFirings;
+    case 'idea_conversation':
+      return l10n.overviewWidgetIdeaConversation;
+    case 'deliverable_focus':
+      return l10n.overviewWidgetDeliverableFocus;
+    case 'experiment_dash':
+      return l10n.overviewWidgetExperimentDashboard;
+    case 'paper_acceptance':
+      return l10n.overviewWidgetPaperDraft;
+    default:
+      return slug.isEmpty ? l10n.overviewWidgetDefaultWidget : slug;
+  }
 }
 
 /// Resolve a wire value to the widget kind to actually render. Empty /

@@ -323,9 +323,18 @@ ticket:claimed — do NOT re-claim it. Your job is to implement it end to end:
 1. Branch off the latest main:  git checkout main && git pull && git checkout -b ${branch}
 2. Implement EXACTLY per issue #${n}'s spec. Follow the reference PR it cites,
    file for file. Do not expand scope.
-3. If the change touches lib/l10n/*.arb, FIRST check no other open ticket holds
-   the holds:arb baton (gh issue list --label holds:arb --state open). If free,
-   add holds:arb to issue #${n}; if held, set ticket:blocked, comment why, stop.
+3. If the change touches lib/l10n/*.arb, acquire the holds:arb baton FIRST:
+   run 'gh issue list --label holds:arb --state open'.
+     - If FREE: add holds:arb to issue #${n}, then RE-CHECK the list to confirm
+       you are the SOLE holder. If another ticket also holds it (a claim race),
+       the LOWEST issue number keeps it; a higher one removes its own holds:arb
+       and falls to the "held" case below.
+     - If HELD by another ticket: do NOT block — a busy baton is TRANSIENT (it
+       frees when the holder merges or parks). Reset this ticket to ticket:ready
+       (gh issue edit ${n} --add-label ticket:ready --remove-label ticket:claimed),
+       make NO code changes, and stop. The poller retries it on a later pass once
+       the baton is free. ticket:blocked is ONLY for a genuine judgment call —
+       NEVER for a busy baton.
 4. Self-verify: run the gate the spec names (e.g. bash scripts/lint-arb.sh),
    push, wait for CI, and confirm 'gh pr checks <PR>' shows EVERY row 'pass'
    (do not trust the --watch exit code).
@@ -354,9 +363,11 @@ NOT claim a new ticket, do NOT open a new PR. Fix THIS PR in place:
 1. Check out your existing branch (do NOT create a new one):
      git fetch origin && git checkout ${branch} && git pull --ff-only
    If the change touches lib/l10n/*.arb and you don't already hold the
-   holds:arb baton, re-acquire it (gh issue list --label holds:arb --state
-   open; if free add it to #${n}, else set ticket:blocked + comment, stop)
-   and rebase on origin/main first.
+   holds:arb baton, re-acquire it: if free, add it to #${n} and re-check you
+   are the sole holder (on a race the LOWEST issue number keeps it). If it is
+   HELD by another ticket, do NOT block — leave this ticket ticket:changes,
+   make no changes, and stop; the poller retries when the baton frees (a busy
+   baton is transient). Rebase on origin/main before pushing.
 2. Read EVERY review comment and address each point — do not expand scope:
      gh pr view ${pr} --comments
      gh api repos/{owner}/{repo}/pulls/${pr}/reviews   --jq '.[] | .user.login + ": " + .body'

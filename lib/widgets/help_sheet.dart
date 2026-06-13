@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/action_bar_config.dart';
 import '../providers/action_bar_provider.dart';
 import '../theme/design_colors.dart';
@@ -119,6 +120,7 @@ class _HelpSheetContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black87;
     final mutedColor = isDark ? Colors.white38 : Colors.black38;
@@ -147,7 +149,7 @@ class _HelpSheetContent extends StatelessWidget {
                 Icon(Icons.help_outline, color: DesignColors.primary),
                 const SizedBox(width: 8),
                 Text(
-                  'Help',
+                  l10n.helpSheetTitle,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -166,10 +168,10 @@ class _HelpSheetContent extends StatelessWidget {
               fontSize: 13,
               fontWeight: FontWeight.w700,
             ),
-            tabs: const [
-              Tab(text: 'ACTION BAR'),
-              Tab(text: 'CONTROLS'),
-              Tab(text: 'TMUX'),
+            tabs: [
+              Tab(text: l10n.helpSheetTabActionBar),
+              Tab(text: l10n.helpSheetTabControls),
+              Tab(text: l10n.helpSheetTabTmux),
             ],
           ),
           // Tab content
@@ -188,6 +190,7 @@ class _HelpSheetContent extends StatelessWidget {
   }
 
   Widget _buildActionBarTab(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black87;
     final mutedColor = isDark ? Colors.white54 : Colors.black54;
@@ -215,7 +218,7 @@ class _HelpSheetContent extends StatelessWidget {
                     size: 14, color: DesignColors.primary),
                 const SizedBox(width: 6),
                 Text(
-                  'Profile: ${profile.name}',
+                  l10n.helpSheetProfileHeader(profile.name),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

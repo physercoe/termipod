@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
@@ -81,6 +82,7 @@ class _AgentJournalViewState extends ConsumerState<AgentJournalView> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -92,12 +94,12 @@ class _AgentJournalViewState extends ConsumerState<AgentJournalView> {
                 style: const TextStyle(color: DesignColors.error)),
           ),
         _SectionHeader(
-          title: 'Journal',
+          title: l10n.journalLabel,
           trailing: TextButton.icon(
             onPressed: _busy ? null : _loadJournal,
             icon: Icon(_journalLoaded ? Icons.refresh : Icons.download,
                 size: 18),
-            label: Text(_journalLoaded ? 'Refresh' : 'Load'),
+            label: Text(_journalLoaded ? l10n.buttonRefresh : l10n.buttonLoad),
           ),
         ),
         if (_journalLoaded)
@@ -116,7 +118,7 @@ class _AgentJournalViewState extends ConsumerState<AgentJournalView> {
             ),
             child: SelectableText(
               (_journal ?? '').isEmpty
-                  ? '(empty — the agent hasn\'t written a journal yet)'
+                  ? l10n.journalEmpty
                   : _journal!,
               style: GoogleFonts.jetBrainsMono(fontSize: 11),
             ),
@@ -126,11 +128,11 @@ class _AgentJournalViewState extends ConsumerState<AgentJournalView> {
           controller: _noteCtl,
           maxLines: 3,
           decoration: InputDecoration(
-            hintText: 'Append a note to the journal…',
+            hintText: l10n.journalAppendHint,
             border: const OutlineInputBorder(),
             suffixIcon: IconButton(
               icon: const Icon(Icons.send),
-              tooltip: 'Append',
+              tooltip: l10n.journalAppendTooltip,
               onPressed: _busy ? null : _appendJournal,
             ),
           ),

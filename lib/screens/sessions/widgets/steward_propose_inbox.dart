@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
@@ -41,13 +42,14 @@ class StewardProposeInboxPill extends ConsumerWidget {
     if (!agentKind.startsWith('steward.') || projectId.isEmpty) {
       return const SizedBox.shrink();
     }
+    final l10n = AppLocalizations.of(context)!;
     final hubState = ref.watch(hubProvider).value;
     if (hubState == null) return const SizedBox.shrink();
     final rows = _matchingRows(hubState.attention, projectId);
     if (rows.isEmpty) return const SizedBox.shrink();
 
     return IconButton(
-      tooltip: 'Pending propose decisions (${rows.length})',
+      tooltip: l10n.stewardProposeInboxTooltip(rows.length),
       onPressed: () => Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => StewardProposeInboxScreen(
           projectId: projectId,
@@ -145,6 +147,7 @@ class StewardProposeInboxScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final hubState = ref.watch(hubProvider).value;
     final rows = hubState == null
         ? <Map<String, dynamic>>[]
@@ -160,12 +163,12 @@ class StewardProposeInboxScreen extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Pending decisions',
+              l10n.stewardProposeInboxTitle,
               style: GoogleFonts.spaceGrotesk(
                   fontSize: 16, fontWeight: FontWeight.w700),
             ),
             Text(
-              'project: $projectId',
+              l10n.stewardProposeInboxSubtitle(projectId),
               style: GoogleFonts.jetBrainsMono(
                   fontSize: FontSizes.label, color: mutedColor),
             ),
@@ -182,14 +185,13 @@ class StewardProposeInboxScreen extends ConsumerWidget {
                     Icon(Icons.inbox, size: 32, color: mutedColor),
                     const SizedBox(height: 8),
                     Text(
-                      'No pending decisions',
+                      l10n.stewardProposeInboxEmptyTitle,
                       style: GoogleFonts.spaceGrotesk(
                           fontSize: 14, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Workers in this project will route load-bearing '
-                      'state changes here via the `propose` MCP verb.',
+                      l10n.stewardProposeInboxEmptyBody,
                       textAlign: TextAlign.center,
                       style: GoogleFonts.jetBrainsMono(
                           fontSize: 11, color: mutedColor),

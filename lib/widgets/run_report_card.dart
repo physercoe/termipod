@@ -133,7 +133,7 @@ class _RunReportCardState extends State<RunReportCard> {
                     ),
                   ),
                   if (errors > 0) ...[
-                    AppStatusChip(label: '⚠ $errors', color: DesignColors.error),
+                    AppStatusChip(label: l10n.runErrorCountChip(errors), color: DesignColors.error),
                     const SizedBox(width: 6),
                   ],
                   Icon(

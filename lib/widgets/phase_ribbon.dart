@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -78,6 +79,7 @@ class _PhaseChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     Color background;
     Color foreground;
     Color border;
@@ -104,7 +106,7 @@ class _PhaseChip extends StatelessWidget {
     }
     return Semantics(
       button: onTap != null,
-      label: 'phase ${_pretty(phase)}, ${_stateLabel(state)}',
+      label: l10n.phaseSemanticsLabel(_pretty(phase), _stateLabel(l10n, state)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),
@@ -149,10 +151,10 @@ class _PhaseChip extends StatelessWidget {
         .join(' ');
   }
 
-  static String _stateLabel(_ChipState s) => switch (s) {
-        _ChipState.completed => 'completed',
-        _ChipState.current => 'current',
-        _ChipState.upcoming => 'upcoming',
+  static String _stateLabel(AppLocalizations l10n, _ChipState s) => switch (s) {
+        _ChipState.completed => l10n.phaseStateCompleted,
+        _ChipState.current => l10n.phaseStateCurrent,
+        _ChipState.upcoming => l10n.phaseStateUpcoming,
       };
 }
 

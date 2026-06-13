@@ -2469,5 +2469,19 @@
   "overviewWidgetExperimentDashboard": "Experiment dashboard",
   "overviewWidgetPaperDraft": "Paper draft",
   "overviewWidgetDefaultWidget": "Default widget",
-  "overviewWidgetCustomWidget": "Custom widget"
+  "overviewWidgetCustomWidget": "Custom widget",
+  "sessionsCategoryGeneral": "General {steward}",
+  "@sessionsCategoryGeneral": { "placeholders": { "steward": { "type": "String" } } },
+  "sessionsCategoryProject": "Project {stewards}",
+  "@sessionsCategoryProject": { "placeholders": { "stewards": { "type": "String" } } },
+  "sessionsCategoryDomain": "Domain {stewards}",
+  "@sessionsCategoryDomain": { "placeholders": { "stewards": { "type": "String" } } },
+  "sessionsCategoryDetached": "Detached sessions",
+  "sessionViewFeed": "Feed",
+  "sessionViewPane": "Pane",
+  "sessionViewJournal": "Journal",
+  "sessionViewInsights": "Insights",
+  "sessionStatusActive": "Active",
+  "sessionStatusPaused": "Paused",
+  "sessionStatusArchived": "Archived"
 }

@@ -2281,5 +2281,19 @@
   "overviewWidgetExperimentDashboard": "实验仪表板",
   "overviewWidgetPaperDraft": "论文草稿",
   "overviewWidgetDefaultWidget": "默认组件",
-  "overviewWidgetCustomWidget": "自定义组件"
+  "overviewWidgetCustomWidget": "自定义组件",
+  "sessionsCategoryGeneral": "通用{steward}",
+  "@sessionsCategoryGeneral": { "placeholders": { "steward": { "type": "String" } } },
+  "sessionsCategoryProject": "项目{stewards}",
+  "@sessionsCategoryProject": { "placeholders": { "stewards": { "type": "String" } } },
+  "sessionsCategoryDomain": "领域{stewards}",
+  "@sessionsCategoryDomain": { "placeholders": { "stewards": { "type": "String" } } },
+  "sessionsCategoryDetached": "游离会话",
+  "sessionViewFeed": "信息流",
+  "sessionViewPane": "窗格",
+  "sessionViewJournal": "日志",
+  "sessionViewInsights": "洞察",
+  "sessionStatusActive": "活跃",
+  "sessionStatusPaused": "已暂停",
+  "sessionStatusArchived": "已归档"
 }

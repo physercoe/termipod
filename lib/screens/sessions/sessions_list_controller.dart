@@ -1,3 +1,4 @@
+import '../../l10n/app_localizations.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/steward_handle.dart';
 
@@ -130,11 +131,26 @@ List<MapEntry<String, List<Map<String, dynamic>>>> detachedScopeBuckets(
 /// and plural of `role.steward` (e.g. "manager"/"managers"). Defaults keep
 /// the tech wording so existing call sites and unit tests are unaffected.
 /// "Detached sessions" is tech-neutral (no role term).
+/// When [l10n] is supplied the qualifiers are localized via ARB keys;
+/// otherwise the tech-default English strings are returned.
 String stewardCategoryLabel(
   StewardCategory c, {
   String steward = 'steward',
   String stewards = 'stewards',
+  AppLocalizations? l10n,
 }) {
+  if (l10n != null) {
+    switch (c) {
+      case StewardCategory.general:
+        return l10n.sessionsCategoryGeneral(steward);
+      case StewardCategory.project:
+        return l10n.sessionsCategoryProject(stewards);
+      case StewardCategory.domain:
+        return l10n.sessionsCategoryDomain(stewards);
+      case StewardCategory.detached:
+        return l10n.sessionsCategoryDetached;
+    }
+  }
   switch (c) {
     case StewardCategory.general:
       return 'General $steward';
@@ -269,4 +285,20 @@ List<StewardGroup> groupSessionsBySteward(
     ));
   }
   return groups;
+}
+
+/// Localized user-visible label for a raw session status wire value
+/// (`active` / `paused` / `archived`). Unknown values fall back to the
+/// raw wire string so a new hub status doesn't crash the client.
+String sessionStatusLabel(AppLocalizations l10n, String status) {
+  switch (status) {
+    case 'active':
+      return l10n.sessionStatusActive;
+    case 'paused':
+      return l10n.sessionStatusPaused;
+    case 'archived':
+      return l10n.sessionStatusArchived;
+    default:
+      return status;
+  }
 }

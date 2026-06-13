@@ -3,9 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../providers/sessions_provider.dart';
+import '../providers/vocab_provider.dart';
 import '../screens/sessions/sessions_screen.dart' show SessionChatScreen;
+import '../services/vocab/vocab_axis.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -137,6 +140,7 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
   }
 
   Widget _buildContent(BuildContext context, Color muted, bool isDark) {
+    final l10n = AppLocalizations.of(context)!;
     final a = _agent!;
     final handle = (a['handle'] ?? '').toString();
     final kind = (a['kind'] ?? '').toString();
@@ -243,7 +247,7 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
           onPressed: () => _askStewardToReconfigure(
             context, projectID, handle),
           icon: const Icon(Icons.forum_outlined, size: 16),
-          label: const Text('Ask steward to reconfigure'),
+          label: Text(l10n.agentConfigAskStewardReconfigure),
         ),
       ));
     }
@@ -264,13 +268,13 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
             ),
             const Spacer(),
             IconButton(
-              tooltip: 'Copy YAML',
+              tooltip: l10n.agentConfigCopyYaml,
               icon: const Icon(Icons.copy_outlined, size: 16),
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: spawnSpec));
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Copied spawn_spec_yaml')),
+                  SnackBar(content: Text(l10n.agentConfigYamlCopied)),
                 );
               },
               padding: EdgeInsets.zero,
@@ -335,6 +339,10 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
     String projectID,
     String agentHandle,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.read(vocabularyProvider);
+    final stewardTerm = voc.term(VocabAxis.roleSteward).lower;
+    final agentsTerm = voc.term(VocabAxis.roleAgent).plural;
     final hub = ref.read(hubProvider).value;
     Map<String, dynamic>? stewardAgent;
     for (final ag in hub?.agents ?? const <Map<String, dynamic>>[]) {
@@ -355,8 +363,7 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'No live steward for this project yet — open the project '
-            'Agents tab and spawn one first.',
+            l10n.agentConfigNoLiveSteward(stewardTerm, agentsTerm),
           ),
         ),
       );
@@ -378,8 +385,8 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
     if (stewardSession == null) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Steward has no live session yet — try again shortly.'),
+        SnackBar(
+          content: Text(l10n.agentConfigNoStewardSession),
         ),
       );
       return;

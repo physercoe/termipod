@@ -544,7 +544,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                     enabled: !_busy,
                     decoration: InputDecoration(
                       labelText: l10n.fieldName,
-                      hintText: 'steward, research, infra-east, …',
+                      hintText: l10n.stewardHandleHint,
                       helperText: _templatesLoading
                           ? l10n.loadingTemplates
                           : l10n.stewardHandleHelper(
@@ -841,7 +841,7 @@ class _BackendInfo extends StatelessWidget {
     switch (kind) {
       case 'codex':
         return _EngineInfo(
-          label: 'Codex',
+          label: l10n.engineLabelCodex,
           detail: _joinDetail([
             modeBlurb,
             'app-server JSON-RPC',
@@ -851,7 +851,7 @@ class _BackendInfo extends StatelessWidget {
         );
       case 'gemini-cli':
         return _EngineInfo(
-          label: 'Gemini CLI',
+          label: l10n.engineLabelGeminiCli,
           detail: _joinDetail([
             modeBlurb,
             'exec-per-turn with --resume',
@@ -861,7 +861,7 @@ class _BackendInfo extends StatelessWidget {
         );
       case 'kimi-code':
         return _EngineInfo(
-          label: 'Kimi Code',
+          label: l10n.engineLabelKimiCode,
           detail: _joinDetail([
             modeBlurb,
             'ACP over stdio',
@@ -871,7 +871,7 @@ class _BackendInfo extends StatelessWidget {
         );
       case 'antigravity':
         return _EngineInfo(
-          label: 'Antigravity',
+          label: l10n.engineLabelAntigravity,
           detail: _joinDetail([
             // M4-only (no ACP / no stream-json on agy); the launcher
             // tails agy's transcript snapshot and routes turns via
@@ -884,14 +884,14 @@ class _BackendInfo extends StatelessWidget {
         );
       case 'claude-code':
         return _EngineInfo(
-          label: 'Claude Code',
+          label: l10n.engineLabelClaudeCode,
           detail: _joinDetail([
             modeBlurb,
             (model == null || model.isEmpty) ? null : _shortModel(model),
             // Mode-derived transport hint: M2 streams stdio, M4 tails
             // a JSONL log. Without the mode-aware branch the chip used
             // to claim "stream-json" even on an M4 spawn.
-            _transportFor(mode),
+            _transportFor(mode, l10n),
             'MCP permission gate',
           ]),
           icon: Icons.radio_button_checked,
@@ -919,14 +919,14 @@ class _BackendInfo extends StatelessWidget {
 
   // Per-mode transport hint for claude-code. Other engines have a
   // single transport so we don't render a placeholder.
-  static String? _transportFor(String? mode) {
+  static String? _transportFor(String? mode, AppLocalizations l10n) {
     switch (mode) {
       case 'M1':
-        return 'ACP stdio';
+        return l10n.transportModeAcpStdio;
       case 'M2':
         return 'stream-json';
       case 'M4':
-        return 'JSONL tail';
+        return l10n.transportModeJsonlTail;
       default:
         return null;
     }

@@ -2658,5 +2658,22 @@
   "stewardOverlayASession": "a session",
   "stewardOverlaySessionId": "session {id}",
   "@stewardOverlaySessionId": { "placeholders": { "id": { "type": "String" } } },
-  "stewardOverlayHubNotConfigured": "Hub not configured"
+  "stewardOverlayHubNotConfigured": "Hub not configured",
+  "engineLabelCodex": "Codex",
+  "engineLabelGeminiCli": "Gemini CLI",
+  "engineLabelKimiCode": "Kimi Code",
+  "engineLabelAntigravity": "Antigravity",
+  "engineLabelClaudeCode": "Claude Code",
+  "transportModeAcpStdio": "ACP stdio",
+  "transportModeJsonlTail": "JSONL tail",
+  "composeSnippetsTooltip": "Snippets · long-press to save",
+  "composeSendHint": "Send to agent…",
+  "composeSendTooltip": "Send as text input",
+  "agentConfigAskStewardReconfigure": "Ask steward to reconfigure",
+  "agentConfigCopyYaml": "Copy YAML",
+  "agentConfigYamlCopied": "Copied spawn_spec_yaml",
+  "agentConfigNoStewardSession": "Steward has no live session yet — try again shortly.",
+  "agentConfigNoLiveSteward": "No live {steward} for this project yet — open the project {agents} tab and spawn one first.",
+  "@agentConfigNoLiveSteward": { "placeholders": { "steward": { "type": "String" }, "agents": { "type": "String" } } },
+  "kindHint": "claude-code, kimi-code, antigravity, …"
 }

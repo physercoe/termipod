@@ -12,10 +12,8 @@
 1 lib/screens/projects/overview_widgets/research_phase_heroes.dart
 7 lib/screens/projects/project_create_sheet.dart
 6 lib/screens/projects/runs_screen.dart
-1 lib/screens/projects/spawn_agent_sheet.dart
 1 lib/screens/sessions/widgets/steward_propose_inbox.dart
 3 lib/screens/settings/voice_settings_screen.dart
-8 lib/screens/team/spawn_steward_sheet.dart
 7 lib/screens/terminal/terminal_screen.dart
 6 lib/screens/terminal/widgets/ansi_text_view.dart
 2 lib/screens/terminal/widgets/new_window_dialog.dart
@@ -23,8 +21,6 @@
 1 lib/widgets/activity_feed.dart
 9 lib/widgets/activity_snippet.dart
 3 lib/widgets/agent_category_style.dart
-6 lib/widgets/agent_compose.dart
-4 lib/widgets/agent_config_sheet.dart
 2 lib/widgets/agent_journal_view.dart
 1 lib/widgets/agent_pane_view.dart
 1 lib/widgets/artifact_viewers/canvas_viewer.dart
@@ -44,6 +40,5 @@
 1 lib/widgets/remote_file_browser_dialog.dart
 1 lib/widgets/run_report_card.dart
 16 lib/widgets/shortcut_tile_strip.dart
-3 lib/widgets/spawn_project_steward_sheet.dart
 2 lib/widgets/template_yaml_sheet.dart
 4 lib/widgets/tmux_tiles.dart

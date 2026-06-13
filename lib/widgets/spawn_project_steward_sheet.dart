@@ -11,7 +11,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -107,6 +110,9 @@ class _SpawnProjectStewardSheetState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final steward = voc.term(VocabAxis.roleSteward);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final hosts = ref.watch(hubProvider).value?.hosts ?? const [];
     final mq = MediaQuery.of(context);
@@ -135,7 +141,7 @@ class _SpawnProjectStewardSheetState
                 ],
               ),
               const SizedBox(height: 12),
-              Text('Spawn project steward',
+              Text(l10n.spawnProjectSteward(steward.lower),
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 16, fontWeight: FontWeight.w700)),
               const SizedBox(height: 6),
@@ -150,7 +156,7 @@ class _SpawnProjectStewardSheetState
                 ),
               ),
               const SizedBox(height: 16),
-              Text('Host',
+              Text(l10n.hostLabel,
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 12, fontWeight: FontWeight.w600)),
               const SizedBox(height: 6),
@@ -182,7 +188,7 @@ class _SpawnProjectStewardSheetState
                   }).toList(),
                 ),
               const SizedBox(height: 16),
-              Text('Permission mode',
+              Text(l10n.toolPermissions,
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 12, fontWeight: FontWeight.w600)),
               const SizedBox(height: 6),

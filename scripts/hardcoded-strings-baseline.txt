@@ -43,12 +43,6 @@
 3 lib/widgets/help_sheet.dart
 9 lib/widgets/image_transfer_confirm_dialog.dart
 5 lib/widgets/insight_transcript.dart
-2 lib/widgets/insights_breakdown_section.dart
-1 lib/widgets/insights_by_agent_section.dart
-1 lib/widgets/insights_host_distribution.dart
-3 lib/widgets/insights_lifecycle_section.dart
-2 lib/widgets/insights_panel.dart
-4 lib/widgets/insights_tools_section.dart
 4 lib/widgets/live_feed.dart
 2 lib/widgets/markdown_builders.dart
 11 lib/widgets/markdown_section_editor.dart

@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/insights_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -28,6 +31,8 @@ class InsightsLifecycleSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
     final async = ref.watch(insightsProvider(scope));
     final body = async.value?.body;
     if (body == null) return const SizedBox.shrink();
@@ -75,7 +80,7 @@ class InsightsLifecycleSection extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Header(label: 'LIFECYCLE'),
+          _Header(label: l10n.insightsLifecycleHeader),
           if (phases.isNotEmpty)
             _PhaseTimeline(
               phases: phases,
@@ -98,7 +103,7 @@ class InsightsLifecycleSection extends ConsumerWidget {
                 children: [
                   if (delivTotal > 0) ...[
                     _RateRow(
-                      label: 'Deliverables ratified',
+                      label: l10n.insightsDeliverablesRatified,
                       countLabel: '$delivRatified/$delivTotal',
                       rate: ratificationRate,
                       muted: muted,
@@ -112,7 +117,7 @@ class InsightsLifecycleSection extends ConsumerWidget {
                   ],
                   if (critTotal > 0) ...[
                     _RateRow(
-                      label: 'Criteria met',
+                      label: l10n.insightsCriteriaMet,
                       countLabel: '$critMet/$critTotal',
                       rate: passRate,
                       muted: muted,
@@ -126,7 +131,7 @@ class InsightsLifecycleSection extends ConsumerWidget {
                                 size: 14, color: DesignColors.warning),
                             const SizedBox(width: 6),
                             Text(
-                              '$stuck stuck — clear with the steward',
+                              l10n.insightsStuckWarning('$stuck', vocab.term(VocabAxis.roleSteward).lower),
                               style: GoogleFonts.jetBrainsMono(
                                 fontSize: 11,
                                 color: DesignColors.warning,

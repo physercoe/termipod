@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/insights_provider.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
@@ -30,6 +31,7 @@ class InsightsBreakdownSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final async = ref.watch(insightsProvider(scope));
     final body = async.value?.body;
     if (body == null) return const SizedBox.shrink();
@@ -47,13 +49,13 @@ class InsightsBreakdownSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (engineRows.isNotEmpty) ...[
-          const _Header(label: 'BY ENGINE'),
-          _BreakdownTable(rows: engineRows),
+          _Header(label: l10n.insightsHeaderByDimension('ENGINE')),
+          _BreakdownTable(l10n: l10n, rows: engineRows),
           const SizedBox(height: 16),
         ],
         if (modelRows.isNotEmpty) ...[
-          const _Header(label: 'BY MODEL'),
-          _BreakdownTable(rows: modelRows),
+          _Header(label: l10n.insightsHeaderByDimension('MODEL')),
+          _BreakdownTable(l10n: l10n, rows: modelRows),
         ],
       ],
     );
@@ -127,8 +129,9 @@ class _Header extends StatelessWidget {
 }
 
 class _BreakdownTable extends StatelessWidget {
+  final AppLocalizations l10n;
   final List<_BreakdownRow> rows;
-  const _BreakdownTable({required this.rows});
+  const _BreakdownTable({required this.l10n, required this.rows});
 
   @override
   Widget build(BuildContext context) {
@@ -157,6 +160,7 @@ class _BreakdownTable extends StatelessWidget {
               Divider(
                   height: 12, thickness: 1, color: border.withValues(alpha: 0.5)),
             _Row(
+              l10n: l10n,
               row: rows[i],
               maxTokens: maxTokens,
               muted: muted,
@@ -169,10 +173,12 @@ class _BreakdownTable extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
+  final AppLocalizations l10n;
   final _BreakdownRow row;
   final int maxTokens;
   final Color muted;
   const _Row({
+    required this.l10n,
     required this.row,
     required this.maxTokens,
     required this.muted,
@@ -220,8 +226,8 @@ class _Row extends StatelessWidget {
           const SizedBox(height: 3),
           Text(
             row.turns > 0
-                ? '${row.turns} turns · ${_human(row.tokensPerTurn)}/turn'
-                : 'no turns',
+                ? l10n.insightsBreakdownTurnsPerToken(row.turns.toString(), _human(row.tokensPerTurn))
+                : l10n.insightsNoTurns,
             style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
           ),
         ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/insights_provider.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
@@ -29,6 +30,7 @@ class InsightsPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     if (scope.isEmpty) return const SizedBox.shrink();
     final async = ref.watch(insightsProvider(scope));
     final value = async.value;
@@ -62,7 +64,7 @@ class InsightsPanel extends ConsumerWidget {
               Icon(Icons.insights_outlined, size: 16, color: muted),
               const SizedBox(width: 6),
               Text(
-                'INSIGHTS · 24h',
+                l10n.insightsPanelHeader,
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: FontSizes.label,
                   fontWeight: FontWeight.w700,
@@ -73,7 +75,7 @@ class InsightsPanel extends ConsumerWidget {
               if (showStale) ...[
                 const SizedBox(width: 8),
                 Text(
-                  '· stale',
+                  '· ${l10n.insightsStale}',
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: FontSizes.label,
                     color: muted,
@@ -88,33 +90,33 @@ class InsightsPanel extends ConsumerWidget {
           runSpacing: 8,
           children: [
             _MetricTile(
-              label: 'tokens',
+              label: l10n.insightsStatTokens,
               primary: _shortNum(_int(spend?['tokens_in']) +
                   _int(spend?['tokens_out'])),
               secondary:
                   '${_shortNum(_int(spend?['tokens_in']))}↓ · ${_shortNum(_int(spend?['tokens_out']))}↑',
             ),
             _MetricTile(
-              label: 'cache hits',
+              label: l10n.insightsStatCacheHits,
               primary: _shortNum(_int(spend?['cache_read'])),
-              secondary: '${_shortNum(_int(spend?['cache_create']))} new',
+              secondary: l10n.insightsCacheNew(_shortNum(_int(spend?['cache_create']))),
             ),
             _MetricTile(
-              label: 'turn p95',
+              label: l10n.insightsStatTurnP95,
               primary: _msHuman(_int(latency?['turn_p95_ms'])),
-              secondary: 'p50 ${_msHuman(_int(latency?['turn_p50_ms']))}',
+              secondary: l10n.insightsStatTurnP50(_msHuman(_int(latency?['turn_p50_ms']))),
             ),
             _MetricTile(
-              label: 'errors',
+              label: l10n.insightsStatErrors,
               primary: _int(errors?['failed_turns']).toString(),
-              secondary: '${_int(errors?['open_attention'])} attention',
+              secondary: l10n.insightsAttentionCount(_int(errors?['open_attention']).toString()),
               warn: _int(errors?['failed_turns']) > 0,
             ),
             _MetricTile(
-              label: 'live',
+              label: l10n.insightsStatLive,
               primary: _int(concurrency?['active_agents']).toString(),
               secondary:
-                  '${_int(concurrency?['open_sessions'])} sessions',
+                  l10n.insightsSessionsCount(_int(concurrency?['open_sessions']).toString()),
             ),
           ],
         ),

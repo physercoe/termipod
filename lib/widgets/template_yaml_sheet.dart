@@ -5,6 +5,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -50,7 +52,8 @@ class _TemplateYamlSheetState extends ConsumerState<TemplateYamlSheet> {
     final tpl = widget.templateId.trim();
     if (client == null || tpl.isEmpty) {
       final l10n = AppLocalizations.of(context)!;
-      if (mounted) setState(() => _error = l10n.templateYamlNoId);
+      final term = ref.read(vocabularyProvider).term(VocabAxis.entityTemplate);
+      if (mounted) setState(() => _error = l10n.templateYamlNoId(term.lower));
       return;
     }
     try {
@@ -66,6 +69,7 @@ class _TemplateYamlSheetState extends ConsumerState<TemplateYamlSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final tpl = ref.watch(vocabularyProvider).term(VocabAxis.entityTemplate);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return DraggableScrollableSheet(
       initialChildSize: 0.7,
@@ -98,7 +102,7 @@ class _TemplateYamlSheetState extends ConsumerState<TemplateYamlSheet> {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      l10n.templateYamlTitle(widget.templateId),
+                      l10n.templateYamlTitle(tpl.title, widget.templateId),
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,

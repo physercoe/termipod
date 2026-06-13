@@ -139,13 +139,14 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   static String _localeLabelStatic(BuildContext context, String locale) {
+    final l10n = AppLocalizations.of(context)!;
     switch (locale) {
       case 'en':
-        return 'English';
+        return l10n.languageEnglish;
       case 'zh':
-        return '中文 (简体)';
+        return l10n.languageChineseSimplified;
       default:
-        return AppLocalizations.of(context)!.systemDefault;
+        return l10n.systemDefault;
     }
   }
 
@@ -1358,22 +1359,22 @@ class _CategoryPage extends ConsumerWidget {
     final defaults = [
       ActionBarButton(
           id: 'np-esc',
-          label: 'ESC',
+          label: l10n.keyLabelEscape,
           type: ActionBarButtonType.specialKey,
           value: 'Escape'),
       ActionBarButton(
           id: 'np-tab',
-          label: 'TAB',
+          label: l10n.keyLabelTab,
           type: ActionBarButtonType.specialKey,
           value: 'Tab'),
       ActionBarButton(
           id: 'np-cc',
-          label: 'C-C',
+          label: l10n.keyLabelCtrlC,
           type: ActionBarButtonType.ctrlCombo,
           value: 'C-c'),
       ActionBarButton(
           id: 'np-ent',
-          label: 'ENT',
+          label: l10n.keyLabelEnter,
           type: ActionBarButtonType.specialKey,
           value: 'Enter'),
     ];
@@ -1636,31 +1637,31 @@ class _CategoryPage extends ConsumerWidget {
                       buttons: [
                         ActionBarButton(
                           id: 'esc',
-                          label: 'ESC',
+                          label: l10n.keyLabelEscape,
                           type: ActionBarButtonType.specialKey,
                           value: 'Escape',
                         ),
                         ActionBarButton(
                           id: 'tab',
-                          label: 'TAB',
+                          label: l10n.keyLabelTab,
                           type: ActionBarButtonType.specialKey,
                           value: 'Tab',
                         ),
                         ActionBarButton(
                           id: 'ctrl',
-                          label: 'CTRL',
+                          label: l10n.keyLabelCtrl,
                           type: ActionBarButtonType.modifier,
                           value: 'ctrl',
                         ),
                         ActionBarButton(
                           id: 'alt',
-                          label: 'ALT',
+                          label: l10n.keyLabelAlt,
                           type: ActionBarButtonType.modifier,
                           value: 'alt',
                         ),
                         ActionBarButton(
                           id: 'enter',
-                          label: 'RET',
+                          label: l10n.keyLabelReturn,
                           type: ActionBarButtonType.specialKey,
                           value: 'Enter',
                         ),
@@ -2183,6 +2184,7 @@ class _NavPadSlot extends StatelessWidget {
   }
 
   void _pickButton(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final catalogByType = ActionBarPresets.buttonCatalogByType;
     const typeOrder = [
       ActionBarButtonType.specialKey,
@@ -2195,14 +2197,14 @@ class _NavPadSlot extends StatelessWidget {
 
     String typeLabel(ActionBarButtonType type) {
       return switch (type) {
-        ActionBarButtonType.specialKey => 'Special Keys',
-        ActionBarButtonType.ctrlCombo => 'Ctrl Combos',
-        ActionBarButtonType.altCombo => 'Alt Combos',
-        ActionBarButtonType.shiftCombo => 'Shift Combos',
-        ActionBarButtonType.literal => 'Characters',
-        ActionBarButtonType.modifier => 'Modifiers',
-        ActionBarButtonType.action => 'Actions',
-        ActionBarButtonType.confirm => 'Confirm (y/n)',
+        ActionBarButtonType.specialKey => l10n.actionBarTypeSpecialKeys,
+        ActionBarButtonType.ctrlCombo => l10n.actionBarTypeCtrlCombos,
+        ActionBarButtonType.altCombo => l10n.actionBarTypeAltCombos,
+        ActionBarButtonType.shiftCombo => l10n.actionBarTypeShiftCombos,
+        ActionBarButtonType.literal => l10n.actionBarTypeCharacters,
+        ActionBarButtonType.modifier => l10n.actionBarTypeModifiers,
+        ActionBarButtonType.action => l10n.actionBarTypeActions,
+        ActionBarButtonType.confirm => l10n.actionBarTypeConfirm,
       };
     }
 

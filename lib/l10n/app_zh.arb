@@ -2373,5 +2373,22 @@
   "annotationKindComment": "评论",
   "annotationKindRedline": "红线",
   "annotationKindSuggestion": "建议",
-  "annotationKindQuestion": "问题"
+  "annotationKindQuestion": "问题",
+  "languageEnglish": "英语",
+  "languageChineseSimplified": "中文 (简体)",
+  "keyLabelEscape": "ESC",
+  "keyLabelTab": "TAB",
+  "keyLabelCtrlC": "C-C",
+  "keyLabelEnter": "ENT",
+  "keyLabelCtrl": "CTRL",
+  "keyLabelAlt": "ALT",
+  "keyLabelReturn": "RET",
+  "actionBarTypeSpecialKeys": "特殊键",
+  "actionBarTypeCtrlCombos": "Ctrl 组合键",
+  "actionBarTypeAltCombos": "Alt 组合键",
+  "actionBarTypeShiftCombos": "Shift 组合键",
+  "actionBarTypeCharacters": "字符",
+  "actionBarTypeModifiers": "修饰键",
+  "actionBarTypeActions": "操作",
+  "actionBarTypeConfirm": "确认 (y/n)"
 }

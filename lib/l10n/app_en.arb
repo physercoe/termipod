@@ -2561,5 +2561,22 @@
   "annotationKindComment": "Comment",
   "annotationKindRedline": "Redline",
   "annotationKindSuggestion": "Suggestion",
-  "annotationKindQuestion": "Question"
+  "annotationKindQuestion": "Question",
+  "languageEnglish": "English",
+  "languageChineseSimplified": "Simplified Chinese",
+  "keyLabelEscape": "ESC",
+  "keyLabelTab": "TAB",
+  "keyLabelCtrlC": "C-C",
+  "keyLabelEnter": "ENT",
+  "keyLabelCtrl": "CTRL",
+  "keyLabelAlt": "ALT",
+  "keyLabelReturn": "RET",
+  "actionBarTypeSpecialKeys": "Special Keys",
+  "actionBarTypeCtrlCombos": "Ctrl Combos",
+  "actionBarTypeAltCombos": "Alt Combos",
+  "actionBarTypeShiftCombos": "Shift Combos",
+  "actionBarTypeCharacters": "Characters",
+  "actionBarTypeModifiers": "Modifiers",
+  "actionBarTypeActions": "Actions",
+  "actionBarTypeConfirm": "Confirm (y/n)"
 }

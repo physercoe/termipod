@@ -2295,5 +2295,11 @@
   "sessionViewInsights": "洞察",
   "sessionStatusActive": "活跃",
   "sessionStatusPaused": "已暂停",
-  "sessionStatusArchived": "已归档"
+  "sessionStatusArchived": "已归档",
+  "navigatorJump": "跳转",
+  "navigatorTurns": "轮次（{count}）",
+  "@navigatorTurns": { "placeholders": { "count": { "type": "int" } } },
+  "navigatorErrors": "错误（{count}）",
+  "@navigatorErrors": { "placeholders": { "count": { "type": "int" } } },
+  "navigatorMap": "图谱"
 }

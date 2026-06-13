@@ -2483,5 +2483,11 @@
   "sessionViewInsights": "Insights",
   "sessionStatusActive": "Active",
   "sessionStatusPaused": "Paused",
-  "sessionStatusArchived": "Archived"
+  "sessionStatusArchived": "Archived",
+  "navigatorJump": "Jump",
+  "navigatorTurns": "Turns ({count})",
+  "@navigatorTurns": { "placeholders": { "count": { "type": "int" } } },
+  "navigatorErrors": "Errors ({count})",
+  "@navigatorErrors": { "placeholders": { "count": { "type": "int" } } },
+  "navigatorMap": "Map"
 }

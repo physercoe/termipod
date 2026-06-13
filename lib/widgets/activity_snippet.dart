@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../services/vocab/vocab_axis.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 
@@ -62,6 +65,14 @@ class _ActivitySnippetState extends ConsumerState<ActivitySnippet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
+    final project = voc.term(VocabAxis.entityProject).title;
+    final agent = voc.term(VocabAxis.roleAgent).title;
+    final run = voc.term(VocabAxis.entityRun).title;
+    final document = voc.term(VocabAxis.entityDocument).title;
+    final review = voc.term(VocabAxis.entityReview).title;
+    final plan = voc.term(VocabAxis.entityPlan).title;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final border =
@@ -84,7 +95,7 @@ class _ActivitySnippetState extends ConsumerState<ActivitySnippet> {
                     size: 14, color: DesignColors.textMuted),
                 const SizedBox(width: 6),
                 Text(
-                  'Recent activity',
+                  l10n.activityRecentTitle,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -102,7 +113,7 @@ class _ActivitySnippetState extends ConsumerState<ActivitySnippet> {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
-                    'View all',
+                    l10n.activityViewAll,
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -130,7 +141,7 @@ class _ActivitySnippetState extends ConsumerState<ActivitySnippet> {
               padding: const EdgeInsets.all(16),
               child: Center(
                 child: Text(
-                  'No activity yet',
+                  l10n.activityNoActivityYet,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     color: DesignColors.textMuted,
@@ -141,7 +152,9 @@ class _ActivitySnippetState extends ConsumerState<ActivitySnippet> {
           else
             for (var i = 0; i < _events.length; i++) ...[
               if (i > 0) const Divider(height: 1, indent: 12, endIndent: 12),
-              _SnippetRow(evt: _events[i]),
+              _SnippetRow(evt: _events[i], l10n: l10n,
+                project: project, agent: agent, run: run,
+                document: document, review: review, plan: plan),
             ],
         ],
       ),
@@ -151,7 +164,16 @@ class _ActivitySnippetState extends ConsumerState<ActivitySnippet> {
 
 class _SnippetRow extends StatelessWidget {
   final Map<String, dynamic> evt;
-  const _SnippetRow({required this.evt});
+  final AppLocalizations l10n;
+  final String project;
+  final String agent;
+  final String run;
+  final String document;
+  final String review;
+  final String plan;
+  const _SnippetRow({required this.evt, required this.l10n,
+    required this.project, required this.agent, required this.run,
+    required this.document, required this.review, required this.plan});
 
   @override
   Widget build(BuildContext context) {
@@ -163,7 +185,7 @@ class _SnippetRow extends StatelessWidget {
     final actorKind = (evt['actor_kind'] ?? '').toString();
     final actor = actorHandle.isNotEmpty
         ? '@$actorHandle'
-        : (actorKind.isNotEmpty ? actorKind : 'system');
+        : (actorKind.isNotEmpty ? actorKind : l10n.activitySystemActor);
     final icon = activityIconForAction(action);
     final color = activityColorForAction(action);
     return Padding(
@@ -192,7 +214,9 @@ class _SnippetRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '$actor · ${activityActionLabel(action)}',
+                  '$actor · ${activityActionLabel(action, l10n: l10n,
+                    project: project, agent: agent, run: run,
+                    document: document, review: review, plan: plan)}',
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: FontSizes.label,
                     color: isDark
@@ -205,7 +229,7 @@ class _SnippetRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            shortRelativeTs(ts),
+            shortRelativeTs(ts, l10n),
             style: GoogleFonts.jetBrainsMono(
               fontSize: FontSizes.label,
               color: isDark
@@ -219,58 +243,69 @@ class _SnippetRow extends StatelessWidget {
   }
 }
 
-/// Maps an audit `action` to a human label. Lifecycle kinds added in W1
-/// (and the W5b/W6 kinds the plan locks in) are spelled out so the feed
-/// reads like a human narrative — "Phase advanced" rather than
-/// "project.phase_advanced". Unknown actions fall through to the raw key.
-String activityActionLabel(String action) {
+/// Maps an audit `action` to a human label, routing through [l10n] when
+/// available and falling back to tech-default English for unit-test callers.
+/// Role-bound entity nouns come from the active vocabulary preset via the
+/// optional named parameters.
+String activityActionLabel(String action, {AppLocalizations? l10n,
+  String project = 'Project',
+  String agent = 'Agent',
+  String run = 'Run',
+  String document = 'Document',
+  String review = 'Review',
+  String plan = 'Plan',
+}) {
+  if (l10n != null) {
+    switch (action) {
+      case 'project.phase_advanced': return l10n.activityEventPhaseAdvanced;
+      case 'project.phase_reverted': return l10n.activityEventPhaseReverted;
+      case 'project.phase_set': return l10n.activityEventPhaseSet;
+      case 'project.create': return l10n.activityEventProjectCreated(project);
+      case 'project.update': return l10n.activityEventProjectUpdated(project);
+      case 'project.archive': return l10n.activityEventProjectArchived(project);
+      case 'agent.spawn': return l10n.activityEventAgentSpawned(agent);
+      case 'agent.terminate': return l10n.activityEventAgentTerminated(agent);
+      case 'agent.archive': return l10n.activityEventAgentArchived(agent);
+      case 'run.create': return l10n.activityEventRunCreated(run);
+      case 'run.complete': return l10n.activityEventRunCompleted(run);
+      case 'document.create': return l10n.activityEventDocumentCreated(document);
+      case 'review.request': return l10n.activityEventReviewRequested(review);
+      case 'review.decide': return l10n.activityEventReviewDecided(review);
+      case 'attention.decide': return l10n.activityEventAttentionResolved;
+      case 'artifact.create': return l10n.activityEventArtifactCreated;
+      case 'session.open': return l10n.activityEventSessionOpened;
+      case 'session.archive': return l10n.activityEventSessionArchived;
+      case 'plan.create': return l10n.activityEventPlanCreated(plan);
+      case 'plan.update': return l10n.activityEventPlanUpdated(plan);
+      case 'deliverable.ratify': return l10n.activityEventDeliverableRatified;
+      case 'criterion.met': return l10n.activityEventCriterionMet;
+      default: return action;
+    }
+  }
   switch (action) {
-    case 'project.phase_advanced':
-      return 'Phase advanced';
-    case 'project.phase_reverted':
-      return 'Phase reverted';
-    case 'project.phase_set':
-      return 'Phase set';
-    case 'project.create':
-      return 'Project created';
-    case 'project.update':
-      return 'Project updated';
-    case 'project.archive':
-      return 'Project archived';
-    case 'agent.spawn':
-      return 'Agent spawned';
-    case 'agent.terminate':
-      return 'Agent terminated';
-    case 'agent.archive':
-      return 'Agent archived';
-    case 'run.create':
-      return 'Run created';
-    case 'run.complete':
-      return 'Run completed';
-    case 'document.create':
-      return 'Document created';
-    case 'review.request':
-      return 'Review requested';
-    case 'review.decide':
-      return 'Review decided';
-    case 'attention.decide':
-      return 'Attention resolved';
-    case 'artifact.create':
-      return 'Artifact created';
-    case 'session.open':
-      return 'Session opened';
-    case 'session.archive':
-      return 'Session archived';
-    case 'plan.create':
-      return 'Plan created';
-    case 'plan.update':
-      return 'Plan updated';
-    case 'deliverable.ratify':
-      return 'Deliverable ratified';
-    case 'criterion.met':
-      return 'Criterion met';
-    default:
-      return action;
+    case 'project.phase_advanced': return 'Phase advanced';
+    case 'project.phase_reverted': return 'Phase reverted';
+    case 'project.phase_set': return 'Phase set';
+    case 'project.create': return '$project created';
+    case 'project.update': return '$project updated';
+    case 'project.archive': return '$project archived';
+    case 'agent.spawn': return '$agent spawned';
+    case 'agent.terminate': return '$agent terminated';
+    case 'agent.archive': return '$agent archived';
+    case 'run.create': return '$run created';
+    case 'run.complete': return '$run completed';
+    case 'document.create': return '$document created';
+    case 'review.request': return '$review requested';
+    case 'review.decide': return '$review decided';
+    case 'attention.decide': return 'Attention resolved';
+    case 'artifact.create': return 'Artifact created';
+    case 'session.open': return 'Session opened';
+    case 'session.archive': return 'Session archived';
+    case 'plan.create': return '$plan created';
+    case 'plan.update': return '$plan updated';
+    case 'deliverable.ratify': return 'Deliverable ratified';
+    case 'criterion.met': return 'Criterion met';
+    default: return action;
   }
 }
 
@@ -316,16 +351,30 @@ Color activityColorForAction(String action) {
 
 /// Compact "5m / 2h / 3d / 1w" formatter matching the audit screen's
 /// shortTime feel but relative-to-now (the snippet doesn't have room for
-/// absolute timestamps).
-String shortRelativeTs(String raw) {
+/// absolute timestamps). When [l10n] is null, falls back to tech-default
+/// English abbreviations for unit-test callers.
+String shortRelativeTs(String raw, [AppLocalizations? l10n]) {
   if (raw.isEmpty) return '';
   final t = DateTime.tryParse(raw);
   if (t == null) return raw;
   final diff = DateTime.now().toUtc().difference(t.toUtc());
-  if (diff.inSeconds < 30) return 'now';
-  if (diff.inMinutes < 1) return '${diff.inSeconds}s';
-  if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-  if (diff.inHours < 24) return '${diff.inHours}h';
-  if (diff.inDays < 7) return '${diff.inDays}d';
-  return '${(diff.inDays / 7).floor()}w';
+  if (diff.inSeconds < 30) return l10n?.activityRelativeNow ?? 'now';
+  if (diff.inMinutes < 1) {
+    final s = diff.inSeconds;
+    return l10n?.activityRelativeSeconds(s) ?? '${s}s';
+  }
+  if (diff.inMinutes < 60) {
+    final m = diff.inMinutes;
+    return l10n?.activityRelativeMinutes(m) ?? '${m}m';
+  }
+  if (diff.inHours < 24) {
+    final h = diff.inHours;
+    return l10n?.activityRelativeHours(h) ?? '${h}h';
+  }
+  if (diff.inDays < 7) {
+    final d = diff.inDays;
+    return l10n?.activityRelativeDays(d) ?? '${d}d';
+  }
+  final w = (diff.inDays / 7).floor();
+  return l10n?.activityRelativeWeeks(w) ?? '${w}w';
 }

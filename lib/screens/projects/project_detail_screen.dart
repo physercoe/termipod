@@ -9,6 +9,7 @@ import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../providers/vocab_provider.dart';
 import '../../services/vocab/vocab_axis.dart';
+import '../../services/vocab/vocab_term.dart';
 import '../../services/hub/agent_status.dart';
 import '../../services/id_format.dart';
 import '../../widgets/agent_actions_menu.dart';
@@ -113,30 +114,29 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
   }
 
   // Pill order locked by IA §6.2 (W2 — Channel demoted to AppBar).
-  static const _labels = [
-    'Overview',
-    'Activity',
-    'Agents',
-    'Tasks',
-    'Files',
+  static const _tabCount = 5;
+
+  List<String> _buildLabels(AppLocalizations l10n, VocabTerm agentTerm, VocabTerm taskTerm) => [
+    l10n.projectTabOverview,
+    l10n.projectTabActivity,
+    agentTerm.title,
+    taskTerm.title,
+    l10n.projectTabFiles,
   ];
 
-  // The same surfaces, as `View ▾` entries — the header switcher replaces the
-  // old pill bar to reclaim a vertical row (parity with the run/session
-  // surfaces). Order matches _labels (and the PageView children).
-  static const _viewOptions = <ViewOption>[
-    ViewOption(label: 'Overview', icon: Icons.dashboard_outlined),
-    ViewOption(label: 'Activity', icon: Icons.bolt_outlined),
-    ViewOption(label: 'Agents', icon: Icons.smart_toy_outlined),
-    ViewOption(label: 'Tasks', icon: Icons.checklist_outlined),
-    ViewOption(label: 'Files', icon: Icons.folder_outlined),
+  List<ViewOption> _buildViewOptions(AppLocalizations l10n, VocabTerm agentTerm, VocabTerm taskTerm) => [
+    ViewOption(label: l10n.projectTabOverview, icon: Icons.dashboard_outlined),
+    ViewOption(label: l10n.projectTabActivity, icon: Icons.bolt_outlined),
+    ViewOption(label: agentTerm.title, icon: Icons.smart_toy_outlined),
+    ViewOption(label: taskTerm.title, icon: Icons.checklist_outlined),
+    ViewOption(label: l10n.projectTabFiles, icon: Icons.folder_outlined),
   ];
 
   @override
   void initState() {
     super.initState();
     _project = Map<String, dynamic>.from(widget.project);
-    _index = widget.initialTab.clamp(0, _labels.length - 1);
+    _index = widget.initialTab.clamp(0, _tabCount - 1);
     _pager = PageController(initialPage: _index);
   }
 
@@ -186,10 +186,15 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final voc = ref.watch(vocabularyProvider);
     final kind = (_project['kind'] ?? 'goal').toString();
     final isWorkspace = kind == 'standing';
-    final entityTerm = ref.watch(vocabularyProvider).term(
+    final entityTerm = voc.term(
         isWorkspace ? VocabAxis.entityWorkspace : VocabAxis.entityProject);
+    final agentTerm = voc.term(VocabAxis.roleAgent);
+    final taskTerm = voc.term(VocabAxis.entityTask);
+    final labels = _buildLabels(l10n, agentTerm, taskTerm);
+    final viewOptions = _buildViewOptions(l10n, agentTerm, taskTerm);
     final name = (_project['name'] ??
             (isWorkspace ? l10n.kindWorkspace : l10n.kindProject))
         .toString();
@@ -230,7 +235,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: ViewSwitcher(
-              views: _viewOptions,
+              views: viewOptions,
               currentView: _index,
               onSelect: _jump,
             ),
@@ -592,6 +597,7 @@ class _TaskFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 8, 8),
       child: Row(
@@ -603,7 +609,7 @@ class _TaskFilterBar extends StatelessWidget {
                 children: [
                   for (final s in statuses) ...[
                     AppChoiceChip(
-                      label: s ?? 'all',
+                      label: s == null ? l10n.taskFilterAll : taskStatusLabel(l10n, s),
                       selected: s == selectedStatus,
                       onTap: () => onStatusChanged(s),
                     ),
@@ -652,7 +658,7 @@ class _PriorityFilterButton extends StatelessWidget {
     return PopupMenuButton<String>(
       tooltip: selected == null
           ? l10n.filterByPriority
-          : l10n.priorityValue(selected!.label),
+          : l10n.priorityValue(selected!.localizedLabel(l10n)),
       onSelected: (v) =>
           onChanged(v == _anyValue ? null : _parsePriorityWire(v)),
       icon: Icon(Icons.filter_list, size: 20, color: tint),
@@ -677,7 +683,7 @@ class _PriorityFilterButton extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(p.label),
+                Text(p.localizedLabel(l10n)),
               ],
             ),
           ),
@@ -703,6 +709,7 @@ class _StatusSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -711,7 +718,7 @@ class _StatusSectionHeader extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            status.toUpperCase().replaceAll('_', ' '),
+            taskStatusLabel(l10n, status).toUpperCase(),
             style: GoogleFonts.spaceGrotesk(
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -799,7 +806,7 @@ class _TaskTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Tooltip(
-              message: l10n.priorityValue(priority.label),
+              message: l10n.priorityValue(priority.localizedLabel(l10n)),
               child: Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: TaskPriorityDot(priority: priority),
@@ -945,7 +952,7 @@ class _TaskTileAttribution extends StatelessWidget {
         style: GoogleFonts.spaceGrotesk(fontSize: FontSizes.label, color: muted),
       ));
     }
-    final timeText = _timeLabel();
+    final timeText = _timeLabel(context);
     if (timeText.isNotEmpty) {
       if (pieces.isNotEmpty) pieces.add(_sep());
       pieces.add(Text(
@@ -998,15 +1005,16 @@ class _TaskTileAttribution extends StatelessWidget {
   /// status. Cancelled paths get "cancelled <ago>" using the resolved
   /// cancelledAt; done gets "done <ago>"; in-progress gets "started
   /// <ago>"; everything else returns empty so the column collapses.
-  String _timeLabel() {
+  String _timeLabel(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     if (cancelledAt != null) {
-      return 'cancelled ${formatRelative(cancelledAt!)} ago';
+      return l10n.taskDetailCancelledAgo(formatRelative(cancelledAt!));
     }
     if (completedAt != null && status == 'done') {
-      return 'done ${formatRelative(completedAt!)} ago';
+      return l10n.taskDetailDoneAgo(formatRelative(completedAt!));
     }
     if (startedAt != null) {
-      return 'started ${formatRelative(startedAt!)} ago';
+      return l10n.taskDetailStartedAgo(formatRelative(startedAt!));
     }
     return '';
   }
@@ -1700,6 +1708,7 @@ class _AttentionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return InkWell(
       onTap: onTap,
       borderRadius: Radii.mdBorder,
@@ -1717,9 +1726,7 @@ class _AttentionBanner extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                count == 1
-                    ? '1 open attention item'
-                    : '$count open attention items',
+                l10n.openAttentionItems(count),
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -1758,7 +1765,8 @@ class _ParentBreadcrumb extends ConsumerWidget {
     }
     final parentName = (parent?['name'] ?? 'parent').toString();
     final parentKind = (parent?['kind'] ?? 'goal').toString();
-    final kindLabel = parentKind == 'standing' ? 'Workspace' : 'Project';
+    final kindLabel = ref.watch(vocabularyProvider).term(
+        parentKind == 'standing' ? VocabAxis.entityWorkspace : VocabAxis.entityProject).title;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,

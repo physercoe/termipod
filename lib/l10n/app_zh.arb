@@ -2264,5 +2264,12 @@
   "insightsApprovals": "审批",
   "insightsApprovedFraction": "{approved}/{total} 已批准",
   "@insightsApprovedFraction": { "placeholders": { "approved": { "type": "String" }, "total": { "type": "String" } } },
-  "insightsApprovalRate": "审批率"
+  "insightsApprovalRate": "审批率",
+  "projectTabOverview": "概览",
+  "projectTabActivity": "活动",
+  "projectTabFiles": "文件",
+  "taskFilterAll": "全部",
+  "taskStatusCancelled": "已取消",
+  "openAttentionItems": "{count, plural, =1{1 个待处理关注项} other{{count} 个待处理关注项}}",
+  "@openAttentionItems": { "placeholders": { "count": { "type": "int" } } }
 }

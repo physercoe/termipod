@@ -2452,5 +2452,12 @@
   "insightsApprovals": "Approvals",
   "insightsApprovedFraction": "{approved}/{total} approved",
   "@insightsApprovedFraction": { "placeholders": { "approved": { "type": "String" }, "total": { "type": "String" } } },
-  "insightsApprovalRate": "Approval rate"
+  "insightsApprovalRate": "Approval rate",
+  "projectTabOverview": "Overview",
+  "projectTabActivity": "Activity",
+  "projectTabFiles": "Files",
+  "taskFilterAll": "all",
+  "taskStatusCancelled": "cancelled",
+  "openAttentionItems": "{count, plural, =1{1 open attention item} other{{count} open attention items}}",
+  "@openAttentionItems": { "placeholders": { "count": { "type": "int" } } }
 }

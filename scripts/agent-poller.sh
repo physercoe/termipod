@@ -482,7 +482,18 @@ work_one() {
       build_resume_prompt "$issue" "$branch" "$pr" "$rtitle" > "$PROMPT_FILE"
       run_agent "$issue" "$(slugify "$rtitle")" "$branch"
       if [[ "$AGENT_RC" -eq 0 ]] && issue_has_label "$issue" "ticket:changes"; then
-        log "WARN: agent finished #${issue} (rc=0) but ticket:changes is still set — it may not have flipped to ticket:in-review (or stopped at a blocker). Will re-check next iteration."
+        if issue_has_label "$issue" "ticket:blocked"; then
+          log "agent finished #${issue} (rc=0) but escalated to ticket:blocked — leaving for the maintainer."
+        else
+          # The agent fixed the PR but didn't flip the label (cheap models
+          # botch multi-step gh ops). The POLLER owns this deterministic
+          # transition — otherwise work_one re-services ticket:changes every
+          # iteration, re-running the agent on an already-fixed PR and never
+          # advancing to the next ticket (the livelock that gated the queue).
+          log "agent finished #${issue} (rc=0) but left ticket:changes set — poller flipping → ticket:in-review."
+          gh issue edit "$issue" "${GH_REPO_ARGS[@]}" \
+              --remove-label ticket:changes --add-label ticket:in-review 2>/dev/null || true
+        fi
       fi
     elif [[ -n "$issue" ]] && issue_has_label "$issue" "ticket:blocked"; then
       # The agent escalated a judgment call. Only the maintainer can resolve it;

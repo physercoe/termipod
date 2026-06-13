@@ -14,7 +14,7 @@ import '../../screens/projects/deliverables_screen.dart'
 import '../../screens/projects/documents_screen.dart'
     show DocumentDetailScreen, DocumentsScreen;
 import '../../screens/projects/overview_widgets/registry.dart'
-    show normalizeOverviewWidget, overviewWidgetLabel, overviewWidgetSpecFor;
+    show normalizeOverviewWidget, overviewWidgetLabel;
 import '../../screens/projects/phase_summary_screen.dart'
     show PhaseSummaryScreen;
 import '../../screens/projects/plan_viewer_screen.dart'

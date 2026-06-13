@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
+import '../../providers/vocab_provider.dart';
+import '../../services/vocab/vocab_axis.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../projects/project_detail_screen.dart';
@@ -25,12 +28,15 @@ class TeamOverviewInsightsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.watch(vocabularyProvider);
+    final agentPlural = vocab.term(VocabAxis.roleAgent).pluralLower;
     final scope = InsightsScope.team(teamId);
     final async = ref.watch(insightsProvider(scope));
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Team overview',
+          l10n.teamOverview,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 18,
             fontWeight: FontWeight.w700,
@@ -38,7 +44,7 @@ class TeamOverviewInsightsScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.invalidate(insightsProvider(scope)),
           ),
@@ -46,14 +52,14 @@ class TeamOverviewInsightsScreen extends ConsumerWidget {
       ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => _ErrorView(message: '$e'),
+        error: (e, _) => _ErrorView(l10n: l10n, message: '$e'),
         data: (state) {
           final body = state.body;
-          if (body == null) return const _EmptyView();
+          if (body == null) return _EmptyView(l10n: l10n);
           final projects = _readProjects(body);
           final agents = _readAgents(body);
           if (projects.isEmpty && agents.isEmpty) {
-            return const _EmptyView();
+            return _EmptyView(l10n: l10n);
           }
           return RefreshIndicator(
             onRefresh: () async {
@@ -63,21 +69,21 @@ class TeamOverviewInsightsScreen extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.all(12),
               children: [
-                _SummaryRow(projects: projects),
+                _SummaryRow(projects: projects, l10n: l10n),
                 const SizedBox(height: 14),
                 if (projects.isNotEmpty) ...[
-                  _Section(title: 'Phase distribution'),
+                  _Section(title: l10n.insightsPhaseDistribution),
                   _PhaseDistribution(projects: projects),
                   const SizedBox(height: 14),
-                  _Section(title: 'Activity recency'),
-                  _ActivityRecency(projects: projects),
+                  _Section(title: l10n.insightsActivityRecency),
+                  _ActivityRecency(projects: projects, l10n: l10n),
                   const SizedBox(height: 14),
-                  _Section(title: 'Most recent · top 5'),
-                  _MostRecentList(projects: projects),
+                  _Section(title: l10n.insightsMostRecentTop5),
+                  _MostRecentList(projects: projects, l10n: l10n),
                   const SizedBox(height: 14),
                 ],
                 if (agents.isNotEmpty) ...[
-                  _Section(title: 'Top agents · by event volume'),
+                  _Section(title: l10n.insightsTopAgentsByVolume(agentPlural)),
                   _AgentLeaderboard(agents: agents),
                   const SizedBox(height: 14),
                 ],
@@ -181,7 +187,8 @@ List<_AgentAgg> _readAgents(Map<String, dynamic> body) {
 
 class _SummaryRow extends StatelessWidget {
   final List<_ProjectAgg> projects;
-  const _SummaryRow({required this.projects});
+  final AppLocalizations l10n;
+  const _SummaryRow({required this.projects, required this.l10n});
 
   @override
   Widget build(BuildContext context) {
@@ -194,12 +201,12 @@ class _SummaryRow extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: _StatTile(label: 'Active', value: '$active'),
+          child: _StatTile(label: l10n.insightsStatActive, value: '$active'),
         ),
         const SizedBox(width: 8),
         Expanded(
           child: _StatTile(
-            label: 'Open AC',
+            label: l10n.insightsStatOpenAc,
             value: '$openAcs',
             tone: openAcs > 0 ? DesignColors.warning : null,
           ),
@@ -207,14 +214,14 @@ class _SummaryRow extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: _StatTile(
-            label: 'Open attention',
+            label: l10n.insightsStatOpenAttention,
             value: '$openAttention',
             tone: openAttention > 0 ? DesignColors.warning : null,
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: _StatTile(label: 'Live <24h', value: '$live'),
+          child: _StatTile(label: l10n.insightsStatLive24h, value: '$live'),
         ),
       ],
     );
@@ -369,7 +376,8 @@ class _PhaseDistribution extends StatelessWidget {
 
 class _ActivityRecency extends StatelessWidget {
   final List<_ProjectAgg> projects;
-  const _ActivityRecency({required this.projects});
+  final AppLocalizations l10n;
+  const _ActivityRecency({required this.projects, required this.l10n});
 
   @override
   Widget build(BuildContext context) {
@@ -435,7 +443,7 @@ class _ActivityRecency extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: _Bucket(
-              label: 'idle',
+              label: l10n.insightsIdle,
               count: never.length,
               tone: DesignColors.textMuted,
             ),
@@ -484,7 +492,8 @@ class _Bucket extends StatelessWidget {
 
 class _MostRecentList extends ConsumerWidget {
   final List<_ProjectAgg> projects;
-  const _MostRecentList({required this.projects});
+  final AppLocalizations l10n;
+  const _MostRecentList({required this.projects, required this.l10n});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -538,7 +547,7 @@ class _MostRecentList extends ConsumerWidget {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      _relativeTime(top[i].lastActivity),
+                      _relativeTime(l10n, top[i].lastActivity),
                       style: GoogleFonts.jetBrainsMono(
                         fontSize: FontSizes.label,
                         color: DesignColors.textMuted,
@@ -641,7 +650,8 @@ class _AgentLeaderboard extends StatelessWidget {
 }
 
 class _EmptyView extends StatelessWidget {
-  const _EmptyView();
+  final AppLocalizations l10n;
+  const _EmptyView({required this.l10n});
 
   @override
   Widget build(BuildContext context) {
@@ -649,7 +659,7 @@ class _EmptyView extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          'No team activity yet.\nCreate a project or run an agent to populate this view.',
+          l10n.insightsTeamEmpty,
           textAlign: TextAlign.center,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 13,
@@ -662,8 +672,9 @@ class _EmptyView extends StatelessWidget {
 }
 
 class _ErrorView extends StatelessWidget {
+  final AppLocalizations l10n;
   final String message;
-  const _ErrorView({required this.message});
+  const _ErrorView({required this.l10n, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -671,7 +682,7 @@ class _ErrorView extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          'Could not load team overview.\n$message',
+          l10n.insightsTeamLoadError(message),
           textAlign: TextAlign.center,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 13,
@@ -705,14 +716,14 @@ bool _isWithin(String iso, Duration window) {
 }
 
 /// Format an ISO-8601 ts as a coarse relative time.
-String _relativeTime(String iso) {
+String _relativeTime(AppLocalizations l10n, String iso) {
   if (iso.isEmpty) return '—';
   final dt = DateTime.tryParse(iso);
   if (dt == null) return iso;
   final diff = DateTime.now().toUtc().difference(dt.toUtc());
-  if (diff.inMinutes < 1) return 'just now';
-  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-  if (diff.inHours < 24) return '${diff.inHours}h ago';
-  if (diff.inDays < 30) return '${diff.inDays}d ago';
+  if (diff.inMinutes < 1) return l10n.justNow;
+  if (diff.inMinutes < 60) return l10n.relativePast('${diff.inMinutes}m');
+  if (diff.inHours < 24) return l10n.relativePast('${diff.inHours}h');
+  if (diff.inDays < 30) return l10n.relativePast('${diff.inDays}d');
   return iso;
 }

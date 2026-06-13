@@ -18,6 +18,7 @@ import 'projects_list_controller.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/task_priority_style.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/app_chip.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -696,10 +697,10 @@ class _ProjectsTab extends ConsumerWidget {
             : l10n.subEntityCountMany(node.childCount, childTerm.pluralLower);
         final parts = <String>[countLabel];
         final status = (p['status'] ?? '').toString();
-        if (status.isNotEmpty) parts.add(status);
+        if (status.isNotEmpty) parts.add(projectStatusLabel(l10n, status));
         subtitle = parts.join(' · ');
       } else {
-        subtitle = (p['status'] ?? '').toString();
+        subtitle = projectStatusLabel(l10n, (p['status'] ?? '').toString());
       }
       tile = _InfoTile(
         title: p['name']?.toString() ?? '?',
@@ -1191,13 +1192,14 @@ class _StatusDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final color = switch (status) {
       'active' || '' => DesignColors.terminalGreen,
       'archived' => DesignColors.textMuted,
       _ => DesignColors.primary,
     };
     return Tooltip(
-      message: status.isEmpty ? 'active' : status,
+      message: projectStatusLabel(l10n, status),
       child: Container(
         width: 8,
         height: 8,

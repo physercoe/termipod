@@ -393,6 +393,27 @@ EOF
 # already written + exported $PROMPT_FILE. Sets the global AGENT_RC. The agent
 # runs in the FOREGROUND, so the loop serializes to one in-flight ticket.
 AGENT_RC=0
+# Estimate a run budget for a ticket from its REAL work — used as both the
+# claim-comment ETA and the agent-run timeout (so the announced ETA and the
+# kill deadline are the same number). Precedence:
+#   1. explicit per-ticket override — an `eta:<dur>` label (e.g. eta:25m, eta:2h)
+#   2. tier mapping — mechanical < medium < judgment carry rising budgets
+#   3. AGENT_TIMEOUT fallback (no tier on the ticket)
+# Tune the tier budgets with ETA_MECHANICAL / ETA_MEDIUM / ETA_JUDGMENT.
+resolve_ticket_eta() {
+  local n="$1" labels eta
+  labels=$(gh issue view "$n" "${GH_REPO_ARGS[@]}" --json labels \
+           --jq '[.labels[].name] | join(" ")' 2>/dev/null || echo "")
+  eta=$(printf '%s' "$labels" | grep -oE 'eta:[0-9]+[smh]' | head -1 | cut -d: -f2)
+  if [[ -n "$eta" ]]; then printf '%s' "$eta"; return 0; fi
+  case " $labels " in
+    *" tier:judgment "*)   printf '%s' "${ETA_JUDGMENT:-90m}" ;;
+    *" tier:medium "*)     printf '%s' "${ETA_MEDIUM:-45m}" ;;
+    *" tier:mechanical "*) printf '%s' "${ETA_MECHANICAL:-20m}" ;;
+    *)                     printf '%s' "${AGENT_TIMEOUT:-40m}" ;;
+  esac
+}
+
 run_agent() {
   local n="$1" slug="$2" branch="$3"
   TICKET_NUMBER="$n"; TICKET_SLUG="$slug"; BRANCH="$branch"
@@ -442,7 +463,9 @@ run_agent() {
   local logf="${LOG_DIR}/ticket-${n}-${stamp}.log"
   log "handing ticket #${n} to the agent (foreground; transcript → ${logf})..."
   set +e
-  local agent_timeout="${AGENT_TIMEOUT:-40m}"
+  # Per-ticket budget (TICKET_ETA, set by work_one from the ticket's tier /
+  # eta: label) is the timeout; AGENT_TIMEOUT is the fallback.
+  local agent_timeout="${TICKET_ETA:-${AGENT_TIMEOUT:-40m}}"
   if [[ "$agent_timeout" != "0" ]] && command -v timeout >/dev/null 2>&1; then
     # Cap a single agent run. A headless agent that doesn't terminate (e.g.
     # one blocked on a background task it never reaps) otherwise holds the
@@ -494,7 +517,8 @@ work_one() {
         local reply=""; read -r reply < /dev/tty || true
         [[ "$reply" =~ ^[Yy] ]] || { log "skipped changes round on #${issue} by operator."; return 0; }
       fi
-      log "servicing ticket:changes on PR #${pr} (issue #${issue}) — feedback round, not claiming new work."
+      TICKET_ETA="$(resolve_ticket_eta "$issue")"
+      log "servicing ticket:changes on PR #${pr} (issue #${issue}) — feedback round (budget ${TICKET_ETA}), not claiming new work."
       PROMPT_FILE="$(mktemp -t agent-changes-${issue}.XXXXXX.txt)"
       build_resume_prompt "$issue" "$branch" "$pr" "$rtitle" > "$PROMPT_FILE"
       run_agent "$issue" "$(slugify "$rtitle")" "$branch"
@@ -552,11 +576,12 @@ work_one() {
     fi
   fi
 
-  log "claiming #${n} ('${title}') as ${AGENT_HANDLE}."
+  TICKET_ETA="$(resolve_ticket_eta "$n")"
+  log "claiming #${n} ('${title}') as ${AGENT_HANDLE} (budget ${TICKET_ETA})."
   gh issue edit "$n" "${GH_REPO_ARGS[@]}" \
       --add-label ticket:claimed --remove-label ticket:ready
   gh issue comment "$n" "${GH_REPO_ARGS[@]}" \
-      --body "claiming as ${AGENT_HANDLE}, branch \`${fbranch}\`. ETA ~30m."
+      --body "claiming as ${AGENT_HANDLE}, branch \`${fbranch}\`. ETA ~${TICKET_ETA}."
 
   PROMPT_FILE="$(mktemp -t agent-ticket-${n}.XXXXXX.txt)"
   build_prompt "$n" "$slug" "$fbranch" "$title" > "$PROMPT_FILE"

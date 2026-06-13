@@ -442,8 +442,25 @@ run_agent() {
   local logf="${LOG_DIR}/ticket-${n}-${stamp}.log"
   log "handing ticket #${n} to the agent (foreground; transcript → ${logf})..."
   set +e
-  ( eval "$AGENT_CMD" ) < "$PROMPT_FILE" 2>&1 | tee "$logf"
-  AGENT_RC=${PIPESTATUS[0]}
+  local agent_timeout="${AGENT_TIMEOUT:-40m}"
+  if [[ "$agent_timeout" != "0" ]] && command -v timeout >/dev/null 2>&1; then
+    # Cap a single agent run. A headless agent that doesn't terminate (e.g.
+    # one blocked on a background task it never reaps) otherwise holds the
+    # FOREGROUND poller — and the whole ticket queue — hostage indefinitely.
+    # SIGTERM at the deadline, SIGKILL 30s later. AGENT_TIMEOUT=0 disables;
+    # tune it above your slowest legitimate run. AGENT_CMD is inherited from
+    # the environment, so the inner shell sees it (+ PROMPT_FILE et al.).
+    export AGENT_CMD
+    timeout --kill-after=30s "$agent_timeout" bash -c 'eval "$AGENT_CMD"' \
+        < "$PROMPT_FILE" 2>&1 | tee "$logf"
+    AGENT_RC=${PIPESTATUS[0]}
+    if [[ "$AGENT_RC" -eq 124 || "$AGENT_RC" -eq 137 ]]; then
+      log "WARN: agent on #${n} hit the ${agent_timeout} timeout (rc=$AGENT_RC) — killed. Leaving the ticket for inspection; poller continuing."
+    fi
+  else
+    ( eval "$AGENT_CMD" ) < "$PROMPT_FILE" 2>&1 | tee "$logf"
+    AGENT_RC=${PIPESTATUS[0]}
+  fi
   set -e
   rm -f "$PROMPT_FILE"
   return 0

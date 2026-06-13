@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:termipod/services/artifact_manifest/artifact_manifest.dart';
 import 'package:termipod/widgets/artifact_viewers/canvas_viewer.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -170,6 +171,7 @@ void main() {
         (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: ArtifactCanvasViewerScreen(
             uri: 'blob:mock/lifecycle/x',
             title: 'Eval curve',

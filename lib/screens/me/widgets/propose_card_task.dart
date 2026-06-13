@@ -118,7 +118,7 @@ class ProposeCardTask extends ConsumerWidget {
             attention: attention,
             onResolved: onResolved,
             viewSourceLabel:
-                l10n.viewTask(voc.term(VocabAxis.entityTask).title),
+                l10n.viewTask(voc.term(VocabAxis.entityTask).lower),
             onViewSource: taskId.isEmpty
                 ? null
                 : () => _viewTask(context, ref, taskId),
@@ -132,7 +132,7 @@ class ProposeCardTask extends ConsumerWidget {
     final voc = ref.read(vocabularyProvider);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(l10n.sourceTask(
-        voc.term(VocabAxis.entityTask).title, taskId))),
+        voc.term(VocabAxis.entityTask).lower, taskId))),
     );
   }
 }

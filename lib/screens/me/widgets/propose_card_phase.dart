@@ -86,7 +86,7 @@ class ProposeCardPhase extends ConsumerWidget {
             attention: attention,
             onResolved: onResolved,
             viewSourceLabel:
-                l10n.viewProject(voc.term(VocabAxis.entityProject).title),
+                l10n.viewProject(voc.term(VocabAxis.entityProject).lower),
             onViewSource: projectId.isEmpty
                 ? null
                 : () => _viewProject(context, ref, projectId),
@@ -100,7 +100,7 @@ class ProposeCardPhase extends ConsumerWidget {
     final voc = ref.read(vocabularyProvider);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(l10n.sourceProject(
-        voc.term(VocabAxis.entityProject).title, projectId))),
+        voc.term(VocabAxis.entityProject).lower, projectId))),
     );
   }
 }

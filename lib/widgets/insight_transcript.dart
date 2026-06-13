@@ -1197,7 +1197,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                         Navigator.of(sheetCtx).pop();
                         _jumpToOrdinal(val.round());
                       },
-                      child: const Text('Jump'),
+                      child: Text(AppLocalizations.of(context)!.navigatorJump),
                     ),
                   ),
                 ],
@@ -1229,6 +1229,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
   /// the drawer and lands the transcript on that seq in full context. (R2 adds a
   /// Map tab here and retires the floating minimap.)
   Widget _buildNavigatorOverlay(List<FeedMinimapMark> minimapMarks) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final panelBg =
         isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
@@ -1280,7 +1281,7 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                               ),
                               const Spacer(),
                               IconButton(
-                                tooltip: 'Close',
+                                tooltip: l10n.buttonClose,
                                 visualDensity: VisualDensity.compact,
                                 icon: Icon(Icons.close,
                                     size: 18, color: muted),
@@ -1297,9 +1298,9 @@ class _InsightTranscriptState extends ConsumerState<InsightTranscript> {
                           labelStyle: GoogleFonts.spaceGrotesk(
                               fontSize: 12, fontWeight: FontWeight.w700),
                           tabs: [
-                            Tab(text: 'Turns ($turnCount)'),
-                            Tab(text: 'Errors ($errorCount)'),
-                            const Tab(text: 'Map'),
+                            Tab(text: l10n.navigatorTurns(turnCount)),
+                            Tab(text: l10n.navigatorErrors(errorCount)),
+                            Tab(text: l10n.navigatorMap),
                           ],
                         ),
                         Divider(height: 1, color: border),

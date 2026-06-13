@@ -32,6 +32,7 @@ import '../providers/sessions_provider.dart';
 import '../services/hub/agent_status.dart';
 import '../services/hub/session_display.dart';
 import '../services/steward_handle.dart';
+import '../l10n/app_localizations.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 import 'agent_category_style.dart';
@@ -172,6 +173,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final panelBg =
         isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
@@ -218,7 +220,7 @@ class _SessionsRailState extends ConsumerState<SessionsRail> {
                             ),
                             const Spacer(),
                             IconButton(
-                              tooltip: 'Close',
+                              tooltip: l10n.buttonClose,
                               visualDensity: VisualDensity.compact,
                               icon: Icon(Icons.close, size: 18, color: muted),
                               onPressed: widget.onClose,

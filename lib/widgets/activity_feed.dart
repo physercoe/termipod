@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../providers/insights_provider.dart';
 import '../screens/insights/insights_screen.dart';
@@ -211,6 +212,7 @@ class _ActivityFeedState extends ConsumerState<ActivityFeed> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final projectNames = _projectNameMap();
     return Column(
       children: [
@@ -218,11 +220,13 @@ class _ActivityFeedState extends ConsumerState<ActivityFeed> {
         HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
         if (_searchVisible)
           _SearchField(
+            l10n: l10n,
             controller: _searchCtrl,
             onChanged: (v) => setState(() => _query = v),
           ),
         ActivityDigestCard(events: _filteredRows),
         _UnifiedFilterChips(
+          l10n: l10n,
           prefixes: _prefixCounts,
           actors: _actorCounts,
           projects: _projectCounts,
@@ -247,6 +251,7 @@ class _ActivityFeedState extends ConsumerState<ActivityFeed> {
   }
 
   Widget _toolbar() {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 2, 4, 0),
       child: Row(
@@ -255,7 +260,7 @@ class _ActivityFeedState extends ConsumerState<ActivityFeed> {
           IconButton(
             visualDensity: VisualDensity.compact,
             iconSize: 20,
-            tooltip: _searchVisible ? 'Hide search' : 'Search',
+            tooltip: _searchVisible ? l10n.activityHideSearchTooltip : l10n.activitySearchTooltip,
             icon: Icon(_searchVisible ? Icons.search_off : Icons.search),
             onPressed: () => setState(() {
               _searchVisible = !_searchVisible;
@@ -269,21 +274,21 @@ class _ActivityFeedState extends ConsumerState<ActivityFeed> {
             IconButton(
               visualDensity: VisualDensity.compact,
               iconSize: 20,
-              tooltip: 'Clear filters',
+              tooltip: l10n.activityClearFiltersTooltip,
               icon: const Icon(Icons.filter_alt_off),
               onPressed: _clearFilters,
             ),
           IconButton(
             visualDensity: VisualDensity.compact,
             iconSize: 20,
-            tooltip: 'Insights',
+            tooltip: l10n.activityInsightsTooltip,
             icon: const Icon(Icons.insights_outlined),
             onPressed: _openInsights,
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
             iconSize: 20,
-            tooltip: 'Refresh',
+            tooltip: l10n.buttonRefresh,
             icon: const Icon(Icons.refresh),
             onPressed: _loading ? null : _load,
           ),
@@ -293,6 +298,7 @@ class _ActivityFeedState extends ConsumerState<ActivityFeed> {
   }
 
   Widget _buildBody() {
+    final l10n = AppLocalizations.of(context)!;
     final rows = _filteredRows;
     final kindMap = _projectKindMap();
     if (_loading && _allRows.isEmpty) {
@@ -303,7 +309,9 @@ class _ActivityFeedState extends ConsumerState<ActivityFeed> {
         padding: const EdgeInsets.all(24),
         children: [
           Text(
-            _error!,
+            _error! == 'Hub not configured.'
+                ? l10n.activityHubNotConfigured
+                : _error!,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ],
@@ -316,8 +324,8 @@ class _ActivityFeedState extends ConsumerState<ActivityFeed> {
           Center(
             child: Text(
               _hasActiveFilter
-                  ? 'No events match the current filters.'
-                  : 'No activity yet.',
+                  ? l10n.activityNoMatchingEvents
+                  : l10n.activityNoActivityYet,
             ),
           ),
         ],
@@ -328,6 +336,7 @@ class _ActivityFeedState extends ConsumerState<ActivityFeed> {
       itemCount: rows.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (_, i) => _AuditRow(
+        l10n: l10n,
         data: rows[i],
         projectKindMap: kindMap,
       ),
@@ -373,6 +382,7 @@ List<MapEntry<String, int>> _countBy(
 /// visual prefix: bare (`agent`) = action prefix, `@foo` = actor, `#demo` =
 /// project. Axis dividers keep the strip structured.
 class _UnifiedFilterChips extends StatelessWidget {
+  final AppLocalizations l10n;
   final List<MapEntry<String, int>> prefixes;
   final List<MapEntry<String, int>> actors;
   final List<MapEntry<String, int>> projects;
@@ -386,6 +396,7 @@ class _UnifiedFilterChips extends StatelessWidget {
   final ValueChanged<String?> onProject;
 
   const _UnifiedFilterChips({
+    required this.l10n,
     required this.prefixes,
     required this.actors,
     required this.projects,
@@ -405,7 +416,7 @@ class _UnifiedFilterChips extends StatelessWidget {
     final showProjects = projects.length >= 2;
     final children = <Widget>[
       ChoiceChip(
-        label: Text('All ($totalCount)'),
+        label: Text(l10n.activityAllChip(totalCount)),
         selected: selectedPrefix == null &&
             selectedActor == null &&
             selectedProjectId == null,
@@ -479,9 +490,10 @@ class _AxisDivider extends StatelessWidget {
 /// is on. Stays inline (not a sheet) so it composes with the chip rows —
 /// text, prefix, actor and project filters all AND together.
 class _SearchField extends StatelessWidget {
+  final AppLocalizations l10n;
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
-  const _SearchField({required this.controller, required this.onChanged});
+  const _SearchField({required this.l10n, required this.controller, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -493,7 +505,7 @@ class _SearchField extends StatelessWidget {
         autofocus: true,
         style: const TextStyle(fontSize: 13),
         decoration: InputDecoration(
-          hintText: 'Search summary / action / target…',
+          hintText: l10n.activitySearchHint,
           prefixIcon: const Icon(Icons.search, size: 18),
           isDense: true,
           contentPadding:
@@ -508,9 +520,10 @@ class _SearchField extends StatelessWidget {
 }
 
 class _AuditRow extends StatelessWidget {
+  final AppLocalizations l10n;
   final Map<String, dynamic> data;
   final Map<String, String> projectKindMap;
-  const _AuditRow({required this.data, this.projectKindMap = const {}});
+  const _AuditRow({required this.l10n, required this.data, this.projectKindMap = const {}});
 
   @override
   Widget build(BuildContext context) {
@@ -523,7 +536,7 @@ class _AuditRow extends StatelessWidget {
     final color = _colorForAction(context, action);
     final actorLabel = actorHandle.isNotEmpty
         ? '@$actorHandle'
-        : (actorKind.isNotEmpty ? actorKind : 'system');
+        : (actorKind.isNotEmpty ? actorKind : l10n.activitySystemActor);
 
     return ListTile(
       leading: Icon(icon, color: color),
@@ -551,6 +564,7 @@ class _AuditRow extends StatelessWidget {
   }
 
   void _showDetail(BuildContext context) {
+    final l10n = this.l10n;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -562,7 +576,7 @@ class _AuditRow extends StatelessWidget {
         builder: (_, controller) => SingleChildScrollView(
           controller: controller,
           padding: const EdgeInsets.all(16),
-          child: _DetailView(data: data),
+          child: _DetailView(l10n: l10n, data: data),
         ),
       ),
     );
@@ -612,8 +626,9 @@ class _AuditRow extends StatelessWidget {
 }
 
 class _DetailView extends StatelessWidget {
+  final AppLocalizations l10n;
   final Map<String, dynamic> data;
-  const _DetailView({required this.data});
+  const _DetailView({required this.l10n, required this.data});
 
   @override
   Widget build(BuildContext context) {
@@ -627,20 +642,21 @@ class _DetailView extends StatelessWidget {
               fontSize: 16, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 12),
-        _kv(context, 'Action', (data['action'] ?? '').toString()),
-        _kv(context, 'Actor', [
+        _kv(context, l10n.activityDetailAction, (data['action'] ?? '').toString()),
+        _kv(context, l10n.activityDetailActor, [
           (data['actor_handle'] ?? '').toString(),
           (data['actor_kind'] ?? '').toString(),
         ].where((s) => s.isNotEmpty).join('  ·  ')),
         _TargetKv(
+          l10n: l10n,
           targetKind: (data['target_kind'] ?? '').toString(),
           targetId: (data['target_id'] ?? '').toString(),
         ),
-        _kv(context, 'Time', (data['ts'] ?? '').toString()),
+        _kv(context, l10n.activityDetailTime, (data['ts'] ?? '').toString()),
         if (meta is Map && meta.isNotEmpty) ...[
           const SizedBox(height: 12),
           Text(
-            'Metadata',
+            l10n.activityDetailMetadata,
             style: GoogleFonts.spaceGrotesk(
                 fontSize: 13, fontWeight: FontWeight.w600),
           ),
@@ -684,9 +700,10 @@ class _DetailView extends StatelessWidget {
 /// Target row in the detail panel — the kind plus a type-prefixed short form
 /// of the id, long-press to copy the full ULID.
 class _TargetKv extends StatelessWidget {
+  final AppLocalizations l10n;
   final String targetKind;
   final String targetId;
-  const _TargetKv({required this.targetKind, required this.targetId});
+  const _TargetKv({required this.l10n, required this.targetKind, required this.targetId});
 
   @override
   Widget build(BuildContext context) {
@@ -704,7 +721,7 @@ class _TargetKv extends StatelessWidget {
           SizedBox(
             width: 80,
             child: Text(
-              'Target',
+              l10n.activityDetailTarget,
               style: TextStyle(fontSize: 12, color: muted),
             ),
           ),

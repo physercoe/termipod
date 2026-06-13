@@ -22,8 +22,8 @@
 6 lib/screens/terminal/widgets/ansi_text_view.dart
 2 lib/screens/terminal/widgets/new_window_dialog.dart
 1 lib/widgets/action_bar/profile_sheet.dart
-6 lib/widgets/activity_feed.dart
-22 lib/widgets/activity_snippet.dart
+1 lib/widgets/activity_feed.dart
+9 lib/widgets/activity_snippet.dart
 3 lib/widgets/agent_category_style.dart
 6 lib/widgets/agent_compose.dart
 4 lib/widgets/agent_config_sheet.dart

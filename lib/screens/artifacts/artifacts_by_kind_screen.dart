@@ -52,6 +52,7 @@ class _ArtifactsByKindScreenState
   }
 
   Future<void> _load() async {
+    final l10n = AppLocalizations.of(context)!;
     setState(() {
       _loading = true;
       _error = null;
@@ -60,7 +61,7 @@ class _ArtifactsByKindScreenState
     if (client == null) {
       setState(() {
         _loading = false;
-        _error = 'Hub not configured.';
+        _error = l10n.hubNotConfigured;
       });
       return;
     }
@@ -174,7 +175,8 @@ class _Row extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = (row['name'] ?? '(unnamed)').toString();
+    final l10n = AppLocalizations.of(context)!;
+    final name = (row['name'] ?? l10n.unnamedValue).toString();
     final mime = (row['mime'] ?? '').toString();
     final created = (row['created_at'] ?? '').toString();
     return ListTile(

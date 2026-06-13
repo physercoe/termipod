@@ -2528,5 +2528,16 @@
   "canvasViewerReloadCanvas": "重新加载画布",
   "multimodalKindPdf": "PDF",
   "multimodalKindAudio": "音频",
-  "multimodalKindVideo": "视频"
+  "multimodalKindVideo": "视频",
+  "shortcutTileOutputs": "输出",
+  "shortcutTileDocuments": "文档",
+  "shortcutTileSchedules": "计划",
+  "shortcutTilePlans": "方案",
+  "shortcutTileAssets": "资源",
+  "shortcutTileExperiments": "实验",
+  "shortcutTileReferences": "参考文献",
+  "shortcutTileRisks": "风险",
+  "shortcutTileDiscussion": "讨论",
+  "shortcutTileDeliverables": "交付物",
+  "shortcutTileAcceptanceCriteria": "验收标准"
 }

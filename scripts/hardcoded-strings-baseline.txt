@@ -9,7 +9,6 @@
 1 lib/screens/me/widgets/stalled_decisions_digest.dart
 4 lib/screens/projects/archived_agents_screen.dart
 1 lib/screens/projects/document_create_sheet.dart
-1 lib/screens/projects/overview_widgets/research_phase_heroes.dart
 7 lib/screens/projects/project_create_sheet.dart
 6 lib/screens/projects/runs_screen.dart
 1 lib/screens/sessions/widgets/steward_propose_inbox.dart
@@ -33,6 +32,5 @@
 1 lib/widgets/phase_ribbon.dart
 1 lib/widgets/remote_file_browser_dialog.dart
 1 lib/widgets/run_report_card.dart
-16 lib/widgets/shortcut_tile_strip.dart
 2 lib/widgets/template_yaml_sheet.dart
 4 lib/widgets/tmux_tiles.dart

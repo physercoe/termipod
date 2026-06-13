@@ -2716,5 +2716,16 @@
   "canvasViewerReloadCanvas": "Reload canvas",
   "multimodalKindPdf": "PDF",
   "multimodalKindAudio": "audio",
-  "multimodalKindVideo": "video"
+  "multimodalKindVideo": "video",
+  "shortcutTileOutputs": "Outputs",
+  "shortcutTileDocuments": "Documents",
+  "shortcutTileSchedules": "Schedules",
+  "shortcutTilePlans": "Plans",
+  "shortcutTileAssets": "Assets",
+  "shortcutTileExperiments": "Experiments",
+  "shortcutTileReferences": "References",
+  "shortcutTileRisks": "Risks",
+  "shortcutTileDiscussion": "Discussion",
+  "shortcutTileDeliverables": "Deliverables",
+  "shortcutTileAcceptanceCriteria": "Acceptance"
 }

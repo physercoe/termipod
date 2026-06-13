@@ -1,4 +1,6 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:termipod/screens/projects/overview_widgets/registry.dart';
 import 'package:termipod/widgets/shortcut_tile_strip.dart';
 
@@ -165,12 +167,21 @@ void main() {
   });
 
   group('tileSpecFor', () {
-    test('every slug has a non-empty label and subtitle', () {
-      for (final s in TileSlug.values) {
-        final spec = tileSpecFor(s);
-        expect(spec.label, isNotEmpty, reason: 'slug=$s');
-        expect(spec.subtitle, isNotEmpty, reason: 'slug=$s');
-      }
+    testWidgets('every slug has a non-empty label and subtitle', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: Builder(
+          builder: (context) {
+            final l10n = AppLocalizations.of(context)!;
+            for (final s in TileSlug.values) {
+              final spec = tileSpecFor(l10n, s);
+              expect(spec.label, isNotEmpty, reason: 'slug=$s');
+              expect(spec.subtitle, isNotEmpty, reason: 'slug=$s');
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ));
     });
   });
 

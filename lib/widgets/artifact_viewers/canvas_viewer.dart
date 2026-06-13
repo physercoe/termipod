@@ -8,6 +8,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../services/artifact_manifest/artifact_manifest.dart';
+import '../../l10n/app_localizations.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -393,6 +394,7 @@ class _ArtifactCanvasViewerScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -404,7 +406,7 @@ class _ArtifactCanvasViewerScreenState
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, size: 18),
-            tooltip: 'Reload canvas',
+            tooltip: l10n.canvasViewerReloadCanvas,
             onPressed: () => setState(() => _viewerKey = UniqueKey()),
           ),
         ],

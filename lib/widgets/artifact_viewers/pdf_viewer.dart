@@ -7,6 +7,7 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../l10n/app_localizations.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 
@@ -250,6 +251,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   }
 
   Future<void> _showGoToPageDialog() async {
+    final l10n = AppLocalizations.of(context)!;
     final controller = TextEditingController(text: '$_currentPage');
     final formKey = GlobalKey<FormState>();
     final target = await showDialog<int>(
@@ -269,7 +271,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.go,
               decoration: InputDecoration(
-                hintText: '1 – $_pageCount',
+                hintText: l10n.pdfViewerGoToPageHint('$_pageCount'),
                 border: const OutlineInputBorder(),
               ),
               style: GoogleFonts.jetBrainsMono(fontSize: 13),
@@ -277,7 +279,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
                 if (s == null || s.isEmpty) return 'enter a page number';
                 final n = int.tryParse(s);
                 if (n == null) return 'not a number';
-                if (n < 1 || n > _pageCount) return '1 – $_pageCount';
+                if (n < 1 || n > _pageCount) return l10n.pdfViewerGoToPageHint('$_pageCount');
                 return null;
               },
               onFieldSubmitted: (_) {
@@ -290,7 +292,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
+              child: Text(l10n.buttonCancel),
             ),
             FilledButton(
               onPressed: () {
@@ -298,7 +300,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
                   Navigator.of(ctx).pop(int.parse(controller.text));
                 }
               },
-              child: const Text('Go'),
+              child: Text(l10n.buttonGo),
             ),
           ],
         );
@@ -388,6 +390,7 @@ class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final hasOutline = _outline != null && _outline!.isNotEmpty;
     return Scaffold(
       key: _scaffoldKey,
@@ -402,7 +405,7 @@ class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
           if (hasOutline)
             IconButton(
               icon: const Icon(Icons.menu_book_outlined),
-              tooltip: 'Outline',
+              tooltip: l10n.pdfViewerOutline,
               onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
             ),
         ],
@@ -454,6 +457,7 @@ class _OutlineDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final list = _flatten(outline, 0).toList();
     return Drawer(
       child: SafeArea(
@@ -463,7 +467,7 @@ class _OutlineDrawer extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text(
-                'Outline',
+                l10n.pdfViewerOutline,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,

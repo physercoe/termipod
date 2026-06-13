@@ -186,7 +186,7 @@ class _ImageTransferConfirmDialogState
 
   @override
   Widget build(BuildContext context) {
-    final l10n = l10n;
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final mutedColor = theme.brightness == Brightness.dark
         ? DesignColors.textMuted

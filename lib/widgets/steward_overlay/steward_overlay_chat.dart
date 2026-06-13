@@ -713,7 +713,7 @@ class _ChatInputState extends State<_ChatInput> {
               for (final k in kinds)
                 ListTile(
                   leading: Icon(_iconForMultimodal(k)),
-                  title: Text(l10n.stewardOverlayAttachKind(k.label)),
+                  title: Text(l10n.stewardOverlayAttachKind(multimodalKindLabel(k))),
                   onTap: () => Navigator.pop(sheetCtx, k),
                 ),
             ],
@@ -1268,7 +1268,7 @@ class _ChatInputState extends State<_ChatInput> {
                     InputChip(
                       avatar: Icon(_iconForMultimodal(entry.key), size: 14),
                       label: Text(
-                        entry.value['filename'] ?? entry.key.label,
+                        entry.value['filename'] ?? multimodalKindLabel(entry.key),
                         style: const TextStyle(fontSize: 11),
                         overflow: TextOverflow.ellipsis,
                       ),

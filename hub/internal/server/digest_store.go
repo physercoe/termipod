@@ -266,7 +266,11 @@ func (s *Server) foldEventIntoDigest(ctx context.Context, team, agent string, se
 	if err := foldEventIncremental(ctx, er, tx, agent, team, e); err != nil {
 		return
 	}
-	_ = tx.Commit()
+	if cerr := tx.Commit(); cerr != nil {
+		// A dropped commit silently loses this event's digest fold;
+		// surface it (read-repair on the next read can still recover).
+		s.log.Warn("digest store: commit", "agent", agent, "team", team, "err", cerr)
+	}
 }
 
 // finalizeDigestOutcome stamps the digest's terminal outcome when a session

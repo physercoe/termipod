@@ -248,7 +248,11 @@ func (s *Server) foldDirtyAgent(ctx context.Context, team, agent string) {
 			return
 		}
 	}
-	_ = tx.Commit()
+	if cerr := tx.Commit(); cerr != nil {
+		// A dropped commit silently loses the digest update for this
+		// batch; surface it so the watermark/read-repair gap is visible.
+		s.log.Warn("digest worker: commit", "agent", agent, "team", team, "err", cerr)
+	}
 }
 
 // digestEnvInt reads a non-negative integer override; ok is false if unset or

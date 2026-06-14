@@ -165,13 +165,24 @@ func rollbackDeliverableCreate(
 	if orig.DeliverableID == "" {
 		return nil, errors.New("rollback: original_executed missing deliverable_id")
 	}
-	if _, err := s.writeDB.ExecContext(ctx,
+	// Cascade the two deletes in one transaction: a deliverable row left
+	// behind with its components already gone (component DELETE ok, parent
+	// DELETE failed) is the inconsistent rollback state #76 flagged.
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() // no-op once Commit succeeds
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM deliverable_components WHERE deliverable_id = ?`, orig.DeliverableID); err != nil {
 		return nil, err
 	}
-	if _, err := s.writeDB.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM deliverables WHERE id = ? AND project_id = ?`,
 		orig.DeliverableID, orig.ProjectID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	s.recordAudit(ctx, ac.Team, "deliverable.deleted", "deliverable", orig.DeliverableID,

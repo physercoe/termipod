@@ -160,16 +160,30 @@ func (s *Server) fireSchedule(ctx context.Context, scheduleID string) (string, e
 	planID := NewID()
 	now := NowUTC()
 	specJSON := `{"parameters":` + params + `}`
-	if _, err := s.writeDB.ExecContext(ctx, `
+	// The plan INSERT and the schedule's last_run_at/last_plan_id UPDATE
+	// must commit together: an orphaned plan with no schedule pointing at
+	// it (INSERT ok, UPDATE dropped) is the inconsistency #76 flagged, and
+	// the UPDATE error was previously discarded. One transaction fixes both.
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback() // no-op once Commit succeeds
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO plans (
 			id, project_id, template_id, version, spec_json, status, created_at
 		) VALUES (?, ?, ?, ?, ?, 'ready', ?)`,
 		planID, projectID, templateID, 1, specJSON, now); err != nil {
 		return "", err
 	}
-	_, _ = s.writeDB.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE schedules SET last_run_at = ?, last_plan_id = ? WHERE id = ?`,
-		now, planID, scheduleID)
+		now, planID, scheduleID); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
 	return planID, nil
 }
 

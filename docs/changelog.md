@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-06-10)
+> **Status:** Current (2026-06-14)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.817
+> **Last verified vs code:** v1.0.820
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,48 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.820-alpha — 2026-06-14
+
+**Hub robustness sweep (#74–#79) + a Projects-tab UX fix.** Closes the
+backend-hardening backlog raised against the hub Go tree and reworks how
+the Projects surface separates goal-projects from standing workspaces.
+
+### Added
+- **Automated storage maintenance (ADR-045 D4, #79, #288).** New event/digest
+  shards are created `auto_vacuum=INCREMENTAL`; a background loop runs
+  `wal_checkpoint(TRUNCATE)` + a hysteresis-gated `incremental_vacuum` across
+  open shards, bounding `-wal` growth (the SSE-reader-pinning hazard) and
+  returning freed pages to the OS. `hub-server db vacuum` now doubles as the
+  one-time converter for pre-D4 shards. Tunable via
+  `HUB_STORE_MAINTENANCE_{DISABLE,INTERVAL}`.
+- **Segmented Projects | Workspaces sub-tabs (#289).** When both kinds are
+  present, the Projects screen shows a pinned segmented control so the standing
+  workspaces are one tap away instead of buried below a long goals list;
+  degrades to a single labelled scroll when only one kind exists.
+- **Additive list pagination (#78, #291, #293).** Optional `?limit` / `?before`
+  / `?after` keyset cursors on the audit, channel-events, and A2A-cards
+  endpoints. Purely additive — absent params return byte-identical responses.
+
+### Fixed
+- **Raw SQL errors no longer leak to clients (#74, #280/#283).** Central
+  `mapDBError`/`writeDBErr` maps DB errors to client-safe status + message and
+  logs the raw error; swept across ~408 handler sites.
+- **Missing `rows.Err()` checks (#79, #284/#286)** added after 28 handler
+  iteration loops, so partial/iteration read errors surface instead of
+  returning a truncated 200.
+- **Correct status codes (#74, #285/#287):** malformed FTS5 search queries now
+  return 400 (not 500); runtime-mode routing errors no longer leak raw text.
+- **Read-pool FD safety cap (#79, #290/#292):** a generous, env-tunable
+  (`HUB_DB_MAX_READ_CONNS`) cap on the reader pools, plus safe
+  `rows.Close()`→`defer` conversions on single-query handlers.
+
+### Changed
+- **Owner-or-steward gate (#75, #281)** on agent spawn/create and project
+  update/archive, replacing the unguarded team-scoped path without locking out
+  stewards (concrete project creation stays governed by the propose flow).
 
 ---
 

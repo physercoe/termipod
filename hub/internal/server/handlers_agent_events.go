@@ -430,6 +430,10 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 		evt.SessionOrdinal = sessionOrdinal.Int64
 		out = append(out, evt)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -535,6 +539,10 @@ func (s *Server) respondErrorEvents(w http.ResponseWriter, r *http.Request,
 		rows.Close()
 		if len(out) >= limit || scanned < scanBatch {
 			break // collected enough, or the candidate scan is exhausted
+		}
+		if err := rows.Err(); err != nil {
+			s.writeDBErr(w, err)
+			return
 		}
 	}
 	writeJSON(w, http.StatusOK, out)

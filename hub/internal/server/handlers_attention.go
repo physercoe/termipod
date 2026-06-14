@@ -228,6 +228,10 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, a)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -995,6 +999,10 @@ func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) 
 			"producer": producer,
 			"payload":  json.RawMessage(payload),
 		})
+	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }

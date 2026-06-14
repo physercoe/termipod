@@ -193,6 +193,10 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, ses)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

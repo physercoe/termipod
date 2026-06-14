@@ -136,6 +136,10 @@ func (s *Server) handleListReviews(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, rv)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

@@ -616,6 +616,10 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		p.StewardStarted = s.projectStewardStarted(r.Context(), team, p.ID)
 		out = append(out, p)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

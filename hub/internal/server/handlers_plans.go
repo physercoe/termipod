@@ -206,6 +206,10 @@ func (s *Server) handleListPlans(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, p)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -402,6 +406,10 @@ func (s *Server) handleListPlanSteps(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out = append(out, step)
+	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }

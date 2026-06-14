@@ -87,10 +87,7 @@ func (r *Runner) handleHostExit(env *a2a.TunnelEnvelope, exitCode int, verb stri
 	// host-command path before firing this verb, so in steady state
 	// this loop is a no-op — but if a stop command was racing or a
 	// driver outlived its agent record, this catches the stragglers.
-	agentIDs := make([]string, 0, len(r.drivers))
-	for id := range r.drivers {
-		agentIDs = append(agentIDs, id)
-	}
+	agentIDs := r.driverIDsSnapshot()
 	for _, id := range agentIDs {
 		r.stopDriver(id)
 	}

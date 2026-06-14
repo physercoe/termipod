@@ -71,7 +71,7 @@ class VoiceSettingsScreen extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.public),
               title: Text(l10n.region),
-              subtitle: Text(_regionLabel(settings.region)),
+              subtitle: Text(_regionLabel(l10n, settings.region)),
               onTap: () => _showRegionPicker(context, notifier, settings.region),
             ),
             const Divider(height: 1),
@@ -88,10 +88,10 @@ class VoiceSettingsScreen extends ConsumerWidget {
   }
 }
 
-String _regionLabel(DashScopeRegion r) => switch (r) {
-      DashScopeRegion.beijing => 'Beijing (default) — dashscope.aliyuncs.com',
-      DashScopeRegion.singapore => 'Singapore — dashscope-intl.aliyuncs.com',
-      DashScopeRegion.us => 'US — dashscope-us.aliyuncs.com',
+String _regionLabel(AppLocalizations l10n, DashScopeRegion r) => switch (r) {
+      DashScopeRegion.beijing => l10n.voiceRegionBeijing,
+      DashScopeRegion.singapore => l10n.voiceRegionSingapore,
+      DashScopeRegion.us => l10n.voiceRegionUs,
     };
 
 String _modelLabel(DashScopeAsrModel m) => switch (m) {
@@ -181,7 +181,7 @@ Future<void> _showRegionPicker(
       children: [
         for (final r in DashScopeRegion.values)
           RadioListTile<DashScopeRegion>(
-            title: Text(_regionLabel(r)),
+            title: Text(_regionLabel(AppLocalizations.of(ctx)!, r)),
             value: r,
             groupValue: current,
             onChanged: (v) => Navigator.of(ctx).pop(v),

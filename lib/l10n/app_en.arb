@@ -2790,5 +2790,11 @@
   "stewardProposeInboxSubtitle": "project: {id}",
   "@stewardProposeInboxSubtitle": { "placeholders": { "id": { "type": "String" } } },
   "stewardProposeInboxEmptyTitle": "No pending decisions",
-  "stewardProposeInboxEmptyBody": "Workers in this project will route load-bearing state changes here via the `propose` MCP verb."
+  "stewardProposeInboxEmptyBody": "Workers in this project will route load-bearing state changes here via the `propose` MCP verb.",
+  "voiceRegionBeijing": "Beijing (default) — dashscope.aliyuncs.com",
+  "voiceRegionSingapore": "Singapore — dashscope-intl.aliyuncs.com",
+  "voiceRegionUs": "US — dashscope-us.aliyuncs.com",
+  "stepLabel": "step {step}",
+  "@stepLabel": { "placeholders": { "step": { "type": "int" } } },
+  "stalledDigestTapHint": "Tap to narrow the list to stalled rows only."
 }

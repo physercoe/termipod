@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/hub_provider.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
@@ -96,6 +97,7 @@ class _AgentPaneViewState extends ConsumerState<AgentPaneView> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final mutedColor =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
@@ -114,7 +116,7 @@ class _AgentPaneViewState extends ConsumerState<AgentPaneView> {
               ? TextButton.icon(
                   onPressed: _busy ? null : () => _loadPane(refresh: true),
                   icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Refresh'),
+                  label: Text(l10n.buttonRefresh),
                 )
               : null,
         ),

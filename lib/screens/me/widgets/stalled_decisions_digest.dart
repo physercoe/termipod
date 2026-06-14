@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/tokens.dart';
 import 'propose_addressee.dart';
@@ -44,7 +45,8 @@ class StalledDecisionsDigest extends ConsumerWidget {
     final accentFg = isDark
         ? DesignColors.onWarningContainer
         : DesignColors.onWarningContainerLight;
-    final subtitle = _subtitle();
+    final l10n = AppLocalizations.of(context)!;
+    final subtitle = _subtitle(l10n);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: InkWell(
@@ -107,7 +109,7 @@ class StalledDecisionsDigest extends ConsumerWidget {
     );
   }
 
-  String _subtitle() {
+  String _subtitle(AppLocalizations l10n) {
     if (stalledOverDayCount > 0 && stalledCount > stalledOverDayCount) {
       final younger = stalledCount - stalledOverDayCount;
       return '$younger stalled at stewards · $stalledOverDayCount stalled with you. Tap to filter.';
@@ -115,7 +117,7 @@ class StalledDecisionsDigest extends ConsumerWidget {
     if (stalledOverDayCount > 0) {
       return '$stalledOverDayCount stalled with you. Tap to filter.';
     }
-    return 'Tap to narrow the list to stalled rows only.';
+    return l10n.stalledDigestTapHint;
   }
 }
 

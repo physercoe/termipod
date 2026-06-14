@@ -1494,6 +1494,7 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
   }
 
   Future<void> _onSetMode(String modeId) async {
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
@@ -1502,7 +1503,7 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('mode → $modeId'),
+          content: Text(l10n.liveFeedModeSet(modeId)),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -1510,7 +1511,7 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('set_mode failed: $e'),
+          content: Text(l10n.liveFeedSetModeFailed(e.toString())),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -1518,6 +1519,7 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
   }
 
   Future<void> _onSetModel(String modelId) async {
+    final l10n = AppLocalizations.of(context)!;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
@@ -1526,7 +1528,7 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('model → $modelId'),
+          content: Text(l10n.liveFeedModelSet(modelId)),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -1534,7 +1536,7 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('set_model failed: $e'),
+          content: Text(l10n.liveFeedSetModelFailed(e.toString())),
           duration: const Duration(seconds: 4),
         ),
       );

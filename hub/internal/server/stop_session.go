@@ -88,10 +88,24 @@ func (s *Server) stopSessionInternal(ctx context.Context, team, sessionID string
 	aid := agentID.String
 	now := NowUTC()
 
+	// Steps 1 + 2 mutate two rows that must agree: a terminated agent with
+	// a still-active session pointing at it is the inconsistent state #76
+	// flagged (a partial failure between the two auto-commits). Wrap them
+	// in one transaction so they commit together or not at all. The
+	// writeDB pool is SetMaxOpenConns(1), so the tx just borrows the sole
+	// writer for the pair — no new contention. Side-effects (token revoke,
+	// host command, audit) stay OUTSIDE the tx: they are best-effort and
+	// must run only after the core state has durably committed.
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return aid, err
+	}
+	defer tx.Rollback() // no-op once Commit succeeds
+
 	// 1. Agent → terminated (idempotent: skip if already in a terminal state).
 	terminal := agentState == "terminated" || agentState == "crashed" || agentState == "failed"
 	if !terminal {
-		_, err = s.writeDB.ExecContext(ctx,
+		_, err = tx.ExecContext(ctx,
 			`UPDATE agents SET status = 'terminated', terminated_at = ?
 			  WHERE team_id = ? AND id = ?`, now, team, aid)
 		if err != nil {
@@ -103,19 +117,22 @@ func (s *Server) stopSessionInternal(ctx context.Context, team, sessionID string
 	// the active-only WHERE. Archive also stamps closed_at; a stopped
 	// (paused) session has no close time because it can still be resumed.
 	if opts.Archive {
-		_, err = s.writeDB.ExecContext(ctx, `
+		_, err = tx.ExecContext(ctx, `
 			UPDATE sessions
 			   SET status = 'archived', closed_at = ?, last_active_at = ?
 			 WHERE team_id = ? AND current_agent_id = ? AND status = 'active'`,
 			now, now, team, aid)
 	} else {
-		_, err = s.writeDB.ExecContext(ctx, `
+		_, err = tx.ExecContext(ctx, `
 			UPDATE sessions
 			   SET status = 'paused', last_active_at = ?
 			 WHERE team_id = ? AND current_agent_id = ? AND status = 'active'`,
 			now, team, aid)
 	}
 	if err != nil {
+		return aid, err
+	}
+	if err = tx.Commit(); err != nil {
 		return aid, err
 	}
 

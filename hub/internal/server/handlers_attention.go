@@ -16,15 +16,15 @@ import (
 )
 
 type attentionIn struct {
-	ScopeKind   string   `json:"scope_kind"`            // 'team' | 'project' | 'channel'
-	ScopeID     string   `json:"scope_id,omitempty"`
-	ProjectID   string   `json:"project_id,omitempty"`
-	Kind        string   `json:"kind"`                  // 'select' | 'approval_request' | 'permission_prompt' | 'elicit' | 'template_proposal' | 'idle' | ...
-	Summary     string   `json:"summary"`
-	Severity    string   `json:"severity,omitempty"`
-	RefEventID  string   `json:"ref_event_id,omitempty"`
-	RefTaskID   string   `json:"ref_task_id,omitempty"`
-	Assignees   []string `json:"assignees,omitempty"`
+	ScopeKind  string   `json:"scope_kind"` // 'team' | 'project' | 'channel'
+	ScopeID    string   `json:"scope_id,omitempty"`
+	ProjectID  string   `json:"project_id,omitempty"`
+	Kind       string   `json:"kind"` // 'select' | 'approval_request' | 'permission_prompt' | 'elicit' | 'template_proposal' | 'idle' | ...
+	Summary    string   `json:"summary"`
+	Severity   string   `json:"severity,omitempty"`
+	RefEventID string   `json:"ref_event_id,omitempty"`
+	RefTaskID  string   `json:"ref_task_id,omitempty"`
+	Assignees  []string `json:"assignees,omitempty"`
 	// SessionID names the chat session the originating agent was in
 	// when the attention was raised. Drives the detail screen's
 	// "Open in chat" jump and the turn-based fan-out path
@@ -47,30 +47,30 @@ type attentionIn struct {
 }
 
 type attentionOut struct {
-	ID          string          `json:"id"`
-	ProjectID   string          `json:"project_id,omitempty"`
-	ScopeKind   string          `json:"scope_kind"`
-	ScopeID     string          `json:"scope_id,omitempty"`
-	Kind        string          `json:"kind"`
-	Summary     string          `json:"summary"`
-	Severity    string          `json:"severity"`
-	RefEventID  string          `json:"ref_event_id,omitempty"`
-	RefTaskID   string          `json:"ref_task_id,omitempty"`
-	ActorKind   string          `json:"actor_kind,omitempty"`
-	ActorHandle string          `json:"actor_handle,omitempty"`
+	ID          string `json:"id"`
+	ProjectID   string `json:"project_id,omitempty"`
+	ScopeKind   string `json:"scope_kind"`
+	ScopeID     string `json:"scope_id,omitempty"`
+	Kind        string `json:"kind"`
+	Summary     string `json:"summary"`
+	Severity    string `json:"severity"`
+	RefEventID  string `json:"ref_event_id,omitempty"`
+	RefTaskID   string `json:"ref_task_id,omitempty"`
+	ActorKind   string `json:"actor_kind,omitempty"`
+	ActorHandle string `json:"actor_handle,omitempty"`
 	// SessionID names the chat session the originating agent was running
 	// in when it raised this attention. Populated by the request_*
 	// MCP handlers; empty for system-originated attentions (budget,
 	// spawn approval) and pre-v1.0.336 rows. Drives the detail screen's
 	// "Open in chat" jump and the recent-transcript context block.
-	SessionID   string          `json:"session_id,omitempty"`
-	Assignees   json.RawMessage `json:"assignees"`
-	Decisions   json.RawMessage `json:"decisions"`
-	Escalation  json.RawMessage `json:"escalation_history"`
-	Status      string          `json:"status"`
-	CreatedAt   string          `json:"created_at"`
-	ResolvedAt  *string         `json:"resolved_at,omitempty"`
-	ResolvedBy  string          `json:"resolved_by,omitempty"`
+	SessionID  string          `json:"session_id,omitempty"`
+	Assignees  json.RawMessage `json:"assignees"`
+	Decisions  json.RawMessage `json:"decisions"`
+	Escalation json.RawMessage `json:"escalation_history"`
+	Status     string          `json:"status"`
+	CreatedAt  string          `json:"created_at"`
+	ResolvedAt *string         `json:"resolved_at,omitempty"`
+	ResolvedBy string          `json:"resolved_by,omitempty"`
 	// PendingPayload is the row's pending_payload_json (when present).
 	// W1.A reads it on the mobile side to render an inline approval card
 	// for kind=permission_prompt items: it carries tool_name, input,
@@ -142,7 +142,7 @@ func (s *Server) handleCreateAttention(w http.ResponseWriter, r *http.Request) {
 		actorKind, nullIfEmpty(actorHandle), in.SessionID,
 		pending)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "created_at": now})
@@ -188,7 +188,7 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 	q += " ORDER BY created_at DESC LIMIT 200"
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -205,7 +205,7 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 			&resolvedAt, &a.ResolvedBy, &pending,
 			&a.ChangeKind, &a.AssignedTier,
 			&changeSpec, &targetRef, &executed, &a.EscalationState); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		a.Assignees = json.RawMessage(assignees)
@@ -271,7 +271,7 @@ func (s *Server) handleGetAttention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	a.Assignees = json.RawMessage(assignees)
@@ -429,7 +429,7 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if status != "open" {
@@ -517,7 +517,7 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 			WHERE id = ?`, string(newDecisions), id)
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -714,7 +714,7 @@ func (s *Server) handleAttentionOverride(w http.ResponseWriter, r *http.Request,
 	if err := s.db.QueryRowContext(r.Context(),
 		`SELECT COALESCE(executed_json, '') FROM attention_items WHERE id = ?`,
 		a.ID).Scan(&executedJSON); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if executedJSON == "" {
@@ -769,7 +769,7 @@ func (s *Server) handleAttentionOverride(w http.ResponseWriter, r *http.Request,
 		   SET decisions_json = ?,
 		       executed_json  = ?
 		 WHERE id = ?`, string(newDecisions), string(rollbackExecuted), a.ID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -900,11 +900,11 @@ func (s *Server) installProposedTemplate(team, payload string) ([]byte, error) {
 // created_at to avoid leaking events that happened *after* the
 // attention was raised — those weren't context for the agent's ask.
 type attentionContextOut struct {
-	AttentionID string                   `json:"attention_id"`
-	SessionID   string                   `json:"session_id,omitempty"`
-	AgentID     string                   `json:"agent_id,omitempty"`
-	AgentHandle string                   `json:"agent_handle,omitempty"`
-	Events      []map[string]any         `json:"events"`
+	AttentionID string           `json:"attention_id"`
+	SessionID   string           `json:"session_id,omitempty"`
+	AgentID     string           `json:"agent_id,omitempty"`
+	AgentHandle string           `json:"agent_handle,omitempty"`
+	Events      []map[string]any `json:"events"`
 }
 
 func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) {
@@ -924,7 +924,7 @@ func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -962,7 +962,7 @@ func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) 
 	// created_at. Newest-first so the caller can slice without sorting.
 	er, err := s.eventsReader(team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	rows, err := er.QueryContext(r.Context(), `
@@ -973,7 +973,7 @@ func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) 
 		 ORDER BY seq DESC
 		 LIMIT 10`, sessionID, createdAt)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -983,7 +983,7 @@ func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) 
 			seq                                       int64
 		)
 		if err := rows.Scan(&eid, &agentID, &seq, &ts, &kind, &producer, &payload); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out.Events = append(out.Events, map[string]any{
@@ -1045,7 +1045,7 @@ func (s *Server) handleResolveAttention(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if status != "open" {
@@ -1071,7 +1071,7 @@ func (s *Server) handleResolveAttention(w http.ResponseWriter, r *http.Request) 
 		WHERE id = ? AND status = 'open'`,
 		now, in.ResolvedBy, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -1143,9 +1143,9 @@ type attentionReplyExtras struct {
 
 func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind string, in *attentionDecideIn, extras attentionReplyExtras) error {
 	var (
-		sessionID    sql.NullString
-		actorHandle  sql.NullString
-		cause        sql.NullString
+		sessionID   sql.NullString
+		actorHandle sql.NullString
+		cause       sql.NullString
 	)
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT session_id, actor_handle, cause

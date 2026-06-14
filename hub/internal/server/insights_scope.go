@@ -142,21 +142,21 @@ func parseInsightsScope(q url.Values) (*scopeFilter, error) {
 // The mapping is the source of truth for "what does X scope mean in
 // SQL"; consult the table below before adding a new branch.
 //
-//   project: agent_events has project_id directly (post-0036). Sessions
-//            uses (scope_kind='project', scope_id=?).
+//	project: agent_events has project_id directly (post-0036). Sessions
+//	         uses (scope_kind='project', scope_id=?).
 //
-//   team:    agent_events.agent_id → agents.team_id; the IN (SELECT...)
-//            keeps the index-friendly main query simple. Sessions has
-//            team_id directly.
+//	team:    agent_events.agent_id → agents.team_id; the IN (SELECT...)
+//	         keeps the index-friendly main query simple. Sessions has
+//	         team_id directly.
 //
-//   agent:   single-row filter on both tables.
+//	agent:   single-row filter on both tables.
 //
-//   engine:  agents.kind carries the engine identifier (claude-code,
-//            gemini-cli, codex). No separate engine column. Both events
-//            and sessions filter through agents.
+//	engine:  agents.kind carries the engine identifier (claude-code,
+//	         gemini-cli, codex). No separate engine column. Both events
+//	         and sessions filter through agents.
 //
-//   host:    agents.host_id is the spawn host. Sessions reaches host via
-//            sessions.current_agent_id → agents.host_id.
+//	host:    agents.host_id is the spawn host. Sessions reaches host via
+//	         sessions.current_agent_id → agents.host_id.
 func newScopeFilter(kind, id string) *scopeFilter {
 	switch kind {
 	case "project":

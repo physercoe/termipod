@@ -11,15 +11,15 @@ import (
 
 // AuditRow is the read shape for GET /v1/teams/{team}/audit.
 type AuditRow struct {
-	ID           string         `json:"id"`
-	TS           string         `json:"ts"`
-	ActorKind    string         `json:"actor_kind"`
-	ActorHandle  string         `json:"actor_handle,omitempty"`
-	Action       string         `json:"action"`
-	TargetKind   string         `json:"target_kind,omitempty"`
-	TargetID     string         `json:"target_id,omitempty"`
-	Summary      string         `json:"summary"`
-	Meta         map[string]any `json:"meta,omitempty"`
+	ID          string         `json:"id"`
+	TS          string         `json:"ts"`
+	ActorKind   string         `json:"actor_kind"`
+	ActorHandle string         `json:"actor_handle,omitempty"`
+	Action      string         `json:"action"`
+	TargetKind  string         `json:"target_kind,omitempty"`
+	TargetID    string         `json:"target_id,omitempty"`
+	Summary     string         `json:"summary"`
+	Meta        map[string]any `json:"meta,omitempty"`
 }
 
 // recordAudit inserts a row into audit_events. Errors are logged at warn

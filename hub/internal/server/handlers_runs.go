@@ -80,7 +80,7 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -95,7 +95,7 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
@@ -111,7 +111,7 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
@@ -146,7 +146,7 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 		now,
 	)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -212,7 +212,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -226,7 +226,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			&ro.StartedAt, &ro.FinishedAt,
 			&ro.TrackioHostID, &ro.TrackioRunURI,
 			&ro.ParentRunID, &ro.CreatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if seed.Valid {
@@ -269,7 +269,7 @@ func (s *Server) writeRunByID(w http.ResponseWriter, r *http.Request, team, runI
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if seed.Valid {
@@ -299,7 +299,7 @@ func (s *Server) handleCompleteRun(w http.ResponseWriter, r *http.Request) {
 		WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
 		in.Status, now, runID, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -418,7 +418,7 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		" WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)"
 	res, err := s.writeDB.ExecContext(r.Context(), q, vals...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
@@ -461,13 +461,13 @@ func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer tx.Rollback()
@@ -478,12 +478,12 @@ func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM runs WHERE id = ?`,
 	} {
 		if _, err := tx.ExecContext(r.Context(), stmt, runID); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -509,7 +509,7 @@ func (s *Server) handleDetachRunArtifact(w http.ResponseWriter, r *http.Request)
 		  AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
 		artID, runID, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
@@ -540,7 +540,7 @@ func (s *Server) handleAttachMetricURI(w http.ResponseWriter, r *http.Request) {
 		WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
 		in.TrackioHostID, in.TrackioRunURI, runID, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()

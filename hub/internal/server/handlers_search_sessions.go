@@ -17,14 +17,16 @@ import (
 // event seq.
 //
 // Query params:
-//   q     (required) — FTS5 MATCH expression
-//   limit (optional, default 50, max 200)
+//
+//	q     (required) — FTS5 MATCH expression
+//	limit (optional, default 50, max 200)
 //
 // Result row shape:
-//   {
-//     event_id, session_id, scope_kind, scope_id, session_title,
-//     seq, ts, kind, snippet
-//   }
+//
+//	{
+//	  event_id, session_id, scope_kind, scope_id, session_title,
+//	  seq, ts, kind, snippet
+//	}
 //
 // FTS (agent_events_fts + agent_events) lives in the event store, but the
 // team scope + result metadata come from `sessions` in the control store, so
@@ -58,7 +60,7 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(title, ''), COALESCE(session_name_hint, '')
 		  FROM sessions WHERE team_id = ? AND status != 'deleted'`, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	for srows.Next() {
@@ -66,7 +68,7 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 		var m sessMeta
 		if err := srows.Scan(&id, &m.scopeKind, &m.scopeID, &m.title, &m.hint); err != nil {
 			srows.Close()
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		metaByID[id] = m
@@ -74,7 +76,7 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	srows.Close()
 	if err := srows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if len(sessIDs) == 0 {
@@ -93,7 +95,7 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 	var cands []cand
 	er, err := s.eventsReader(team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	const chunk = 900
@@ -120,21 +122,21 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 			 ORDER BY ae.ts DESC
 			 LIMIT ?`, args...)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		for frows.Next() {
 			var c cand
 			if err := frows.Scan(&c.eventID, &c.sessionID, &c.seq, &c.ts, &c.kind, &c.snip); err != nil {
 				frows.Close()
-				writeErr(w, http.StatusInternalServerError, err.Error())
+				s.writeDBErr(w, err)
 				return
 			}
 			cands = append(cands, c)
 		}
 		frows.Close()
 		if err := frows.Err(); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}

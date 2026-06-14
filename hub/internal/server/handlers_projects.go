@@ -597,7 +597,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -605,7 +605,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var p projectOut
 		if err := scanProjectRow(rows, &p); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		overrides := parseOverviewWidgetOverrides(p.OverviewWidgetOverrides)
@@ -631,7 +631,7 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	overrides := parseOverviewWidgetOverrides(p.OverviewWidgetOverrides)
@@ -662,7 +662,7 @@ func (s *Server) handleArchiveProject(w http.ResponseWriter, r *http.Request) {
 		WHERE team_id = ? AND id = ? AND status != 'archived'`,
 		NowUTC(), team, proj)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -796,7 +796,7 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		"UPDATE projects SET "+strings.Join(sets, ", ")+
 			" WHERE team_id = ? AND id = ?", args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()

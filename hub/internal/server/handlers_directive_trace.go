@@ -43,35 +43,35 @@ func (s *Server) handleDirectiveTrace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
 	ctx := r.Context()
 	subtree, err := s.directiveSubtree(ctx, rootID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
 	events := []traceEvent{}
 	taskEvents, err := s.traceTaskEvents(ctx, subtree)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	events = append(events, taskEvents...)
 
 	questionIDs, questionEvents, err := s.traceQuestionEvents(ctx, subtree)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	events = append(events, questionEvents...)
 
 	auditEvents, err := s.traceLoopAuditEvents(ctx, append(subtree, questionIDs...))
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	events = append(events, auditEvents...)

@@ -95,11 +95,11 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 	}
 	// Baseline first, then the per-team overlay overwrites by key.
 	if err := collect(filepath.Join(s.cfg.DataRoot, "team", "templates")); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if err := collect(teamTemplatesDir(s.cfg.DataRoot, team)); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	out := make([]templateOut, 0, len(merged))
@@ -178,7 +178,7 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 	diskMissing := false
 	if err != nil {
 		if !os.IsNotExist(err) {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		// Disk overlay missing — fall back to the embedded built-in so
@@ -332,7 +332,7 @@ func (s *Server) handlePutTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	created := false
@@ -342,7 +342,7 @@ func (s *Server) handlePutTemplate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := os.WriteFile(path, body, 0o600); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	action := "template.updated"
@@ -392,7 +392,7 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "template not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "template.deleted", "template",
@@ -448,7 +448,7 @@ func (s *Server) handleRenameTemplate(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "template not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if _, err := os.Stat(dstPath); err == nil {
@@ -456,7 +456,7 @@ func (s *Server) handleRenameTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.Rename(srcPath, dstPath); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "template.renamed", "template",
@@ -678,7 +678,7 @@ func (s *Server) handleResetBundledTemplates(w http.ResponseWriter, r *http.Requ
 		return nil
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if firstErr != nil {

@@ -82,8 +82,8 @@ func (e *Escalator) sweep(ctx context.Context) {
 	defer rows.Close()
 
 	type row struct {
-		id, tier, createdAt    string
-		assignees, history     string
+		id, tier, createdAt string
+		assignees, history  string
 	}
 	var items []row
 	for rows.Next() {

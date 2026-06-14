@@ -86,7 +86,7 @@ func (s *Server) handleGetSessionCost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -101,7 +101,7 @@ func (s *Server) handleGetSessionCost(w http.ResponseWriter, r *http.Request) {
 
 	res, err := pricingSessionCost(r.Context(), s, team, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 

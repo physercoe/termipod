@@ -126,7 +126,7 @@ func (s *Server) handleCreatePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	ok, err := s.projectBelongsToTeam(r, team, in.ProjectID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -145,7 +145,7 @@ func (s *Server) handleCreatePlan(w http.ResponseWriter, r *http.Request) {
 		VALUES (?, ?, NULLIF(?, ''), ?, ?, 'draft', ?)`,
 		id, in.ProjectID, in.TemplateID, version, spec, now)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "plan.create", "plan", id,
@@ -193,7 +193,7 @@ func (s *Server) handleListPlans(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -201,7 +201,7 @@ func (s *Server) handleListPlans(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		p, err := scanPlan(rows)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, p)
@@ -224,7 +224,7 @@ func (s *Server) handleGetPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -243,7 +243,7 @@ func (s *Server) handleUpdatePlan(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "plan not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -279,7 +279,7 @@ func (s *Server) handleUpdatePlan(w http.ResponseWriter, r *http.Request) {
 	q := "UPDATE plans SET " + strings.Join(sets, ", ") + " WHERE id = ?"
 	res, err := s.writeDB.ExecContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -322,14 +322,14 @@ func (s *Server) handleCreatePlanStep(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "plan not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	spec := normalizeObjectJSON(in.SpecJSON)
 	id := NewID()
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -337,7 +337,7 @@ func (s *Server) handleCreatePlanStep(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO plan_steps (id, plan_id, phase_idx, step_idx, kind, spec_json, status)
 		VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
 		id, plan, in.PhaseIdx, in.StepIdx, in.Kind, spec); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// W2: plan steps that need human visibility materialize a task row so
@@ -346,11 +346,11 @@ func (s *Server) handleCreatePlanStep(w http.ResponseWriter, r *http.Request) {
 	// materializePlanStepTask for the policy matrix.
 	matTaskID, matTitle, err := s.materializePlanStepTask(r.Context(), tx, projectID, id, in.Kind, spec, "")
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// ADR-029 D-4 W4: audit the materialised task. source=plan flags
@@ -380,7 +380,7 @@ func (s *Server) handleListPlanSteps(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "plan not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	rows, err := s.db.QueryContext(r.Context(), `
@@ -390,7 +390,7 @@ func (s *Server) handleListPlanSteps(w http.ResponseWriter, r *http.Request) {
 		FROM plan_steps WHERE plan_id = ?
 		ORDER BY phase_idx, step_idx`, plan)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -398,7 +398,7 @@ func (s *Server) handleListPlanSteps(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		step, err := scanPlanStep(rows)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, step)
@@ -420,7 +420,7 @@ func (s *Server) handleUpdatePlanStep(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "plan not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -460,13 +460,13 @@ func (s *Server) handleUpdatePlanStep(w http.ResponseWriter, r *http.Request) {
 	q := "UPDATE plan_steps SET " + strings.Join(sets, ", ") + " WHERE id = ? AND plan_id = ?"
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
 	res, err := tx.ExecContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -496,7 +496,7 @@ func (s *Server) handleUpdatePlanStep(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err := s.syncPlanStepTaskStatus(r.Context(), tx, step, *in.Status); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
@@ -505,12 +505,12 @@ func (s *Server) handleUpdatePlanStep(w http.ResponseWriter, r *http.Request) {
 			UPDATE tasks SET assignee_id = ?, updated_at = ?
 			WHERE plan_step_id = ?`,
 			*in.AgentID, NowUTC(), step); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	summary := "update plan_step " + step

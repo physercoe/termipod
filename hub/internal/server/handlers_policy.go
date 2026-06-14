@@ -43,7 +43,7 @@ func (s *Server) handleGetPolicyKinds(w http.ResponseWriter, r *http.Request) {
 	path := filepath.Join(s.cfg.DataRoot, "team", "policy.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var parsed Policy
@@ -74,7 +74,7 @@ func (s *Server) handleGetPolicy(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
@@ -104,28 +104,28 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 
 	dir := filepath.Join(s.cfg.DataRoot, "team")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	tmp, err := os.CreateTemp(dir, "policy.yaml.*.tmp")
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }() // no-op after Rename
 	if _, err := tmp.Write(body); err != nil {
 		_ = tmp.Close()
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if err := tmp.Close(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	finalPath := filepath.Join(dir, "policy.yaml")
 	if err := os.Rename(tmpName, finalPath); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 

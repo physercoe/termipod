@@ -157,13 +157,13 @@ func rollbackAgentSpawn(
 	}
 	via := ac.ViaOrDefault()
 	meta := map[string]any{
-		"agent_id":     origExec.AgentID,
-		"handle":       origExec.Handle,
-		"via":          via,
-		"by_tier":      ac.AssignedTier,
-		"propose_id":   ac.AttentionID,
-		"rollback":     true,
-		"hint":         "agent.terminate is post-MVP; manually terminate via DELETE /v1/teams/{team}/agents/{id}",
+		"agent_id":   origExec.AgentID,
+		"handle":     origExec.Handle,
+		"via":        via,
+		"by_tier":    ac.AssignedTier,
+		"propose_id": ac.AttentionID,
+		"rollback":   true,
+		"hint":       "agent.terminate is post-MVP; manually terminate via DELETE /v1/teams/{team}/agents/{id}",
 	}
 	if ac.DeciderHandle != "" {
 		meta["by_actor"] = ac.DeciderHandle
@@ -173,11 +173,11 @@ func rollbackAgentSpawn(
 		"override of agent.spawn — manual terminate required for "+origExec.Handle,
 		meta)
 	return json.Marshal(map[string]any{
-		"kind":              "spawn_rollback_todo",
-		"agent_id":          origExec.AgentID,
-		"handle":            origExec.Handle,
-		"manual_terminate":  true,
-		"hint":              meta["hint"],
-		"rollback":          true,
+		"kind":             "spawn_rollback_todo",
+		"agent_id":         origExec.AgentID,
+		"handle":           origExec.Handle,
+		"manual_terminate": true,
+		"hint":             meta["hint"],
+		"rollback":         true,
 	})
 }

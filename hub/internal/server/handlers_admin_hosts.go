@@ -106,7 +106,7 @@ func (s *Server) handleAdminListHosts(w http.ResponseWriter, r *http.Request) {
 		  FROM hosts
 		 ORDER BY team_id, name`)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -116,14 +116,14 @@ func (s *Server) handleAdminListHosts(w http.ResponseWriter, r *http.Request) {
 		var live int
 		if err := rows.Scan(&h.HostID, &h.TeamID, &h.Name, &h.Status,
 			&h.LastSeenAt, &h.RunnerCommit, &h.RunnerBuildTime, &live); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		h.Live = live == 1
 		hosts = append(hosts, h)
 	}
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -167,7 +167,7 @@ func (s *Server) handleAdminHostPing(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "host not found")
 		return
 	default:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 

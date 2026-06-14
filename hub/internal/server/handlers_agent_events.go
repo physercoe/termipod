@@ -98,7 +98,7 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	ok, err := s.agentBelongsToTeam(r, team, agent)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -126,7 +126,7 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 		PayloadJSON: payload,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// ADR-038 (amended 2026-06-06, store-separation step 1): the digest fold
@@ -186,7 +186,7 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	if sessionFilter != "" {
 		ok, err := s.sessionBelongsToTeam(r, team, sessionFilter)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if !ok {
@@ -196,7 +196,7 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	} else {
 		ok, err := s.agentBelongsToTeam(r, team, agent)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if !ok {
@@ -401,12 +401,12 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 
 	er, err := s.eventsReader(team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	rows, err := er.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -422,7 +422,7 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 			&evt.ID, &evt.AgentID, &evt.Seq, &evt.TS, &evt.Kind,
 			&evt.Producer, &payload, &sessionID, &sessionOrdinal,
 		); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		evt.Payload = json.RawMessage(payload)
@@ -499,7 +499,7 @@ func (s *Server) respondErrorEvents(w http.ResponseWriter, r *http.Request,
 			" ORDER BY " + order + " LIMIT ?"
 		rows, err := er.QueryContext(r.Context(), q, args...)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		scanned := 0
@@ -511,7 +511,7 @@ func (s *Server) respondErrorEvents(w http.ResponseWriter, r *http.Request,
 			if err := rows.Scan(&evt.ID, &evt.AgentID, &evt.Seq, &evt.TS,
 				&evt.Kind, &evt.Producer, &payload, &sid, &sord); err != nil {
 				rows.Close()
-				writeErr(w, http.StatusInternalServerError, err.Error())
+				s.writeDBErr(w, err)
 				return
 			}
 			evt.SessionOrdinal = sord.Int64
@@ -548,7 +548,7 @@ func (s *Server) handleStreamAgentEvents(w http.ResponseWriter, r *http.Request)
 	agent := chi.URLParam(r, "agent")
 	ok, err := s.agentBelongsToTeam(r, team, agent)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {

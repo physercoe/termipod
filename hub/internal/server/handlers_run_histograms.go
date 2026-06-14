@@ -97,13 +97,13 @@ func (s *Server) handlePutRunHistograms(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -118,7 +118,7 @@ func (s *Server) handlePutRunHistograms(w http.ResponseWriter, r *http.Request) 
 		}
 		blob, err := json.Marshal(buckets)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if _, err := tx.ExecContext(r.Context(), `
@@ -129,12 +129,12 @@ func (s *Server) handlePutRunHistograms(w http.ResponseWriter, r *http.Request) 
 				buckets_json = excluded.buckets_json,
 				updated_at   = excluded.updated_at`,
 			NewID(), runID, h.Name, h.Step, string(blob), now); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(in.Histograms)})
@@ -155,7 +155,7 @@ func (s *Server) handleGetRunHistograms(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -176,7 +176,7 @@ func (s *Server) handleGetRunHistograms(w http.ResponseWriter, r *http.Request) 
 			ORDER BY metric_name, step`, runID)
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -188,7 +188,7 @@ func (s *Server) handleGetRunHistograms(w http.ResponseWriter, r *http.Request) 
 			step                         int64
 		)
 		if err := rows.Scan(&name, &step, &bucketsJSON, &updatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, histogramOut{
@@ -199,7 +199,7 @@ func (s *Server) handleGetRunHistograms(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)

@@ -99,7 +99,7 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if artProject != in.ProjectID {
@@ -121,7 +121,7 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if prevProject != in.ProjectID {
@@ -142,7 +142,7 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		id, in.ProjectID, in.Kind, in.SchemaID, in.Title, version, prevID,
 		in.ContentInline, in.ArtifactID, in.AuthorAgentID, now)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -152,7 +152,7 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 
 	out := documentOut{
 		ID: id, ProjectID: in.ProjectID, Kind: in.Kind, SchemaID: in.SchemaID,
-		Title: in.Title,
+		Title:   in.Title,
 		Version: version, PrevVersionID: in.PrevVersionID,
 		ArtifactID: in.ArtifactID, AuthorAgentID: in.AuthorAgentID,
 		CreatedAt: now,
@@ -190,7 +190,7 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -200,7 +200,7 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 		var prev, schemaID, artifact, author sql.NullString
 		if err := rows.Scan(&d.ID, &d.ProjectID, &d.Kind, &schemaID, &d.Title, &d.Version,
 			&prev, &artifact, &author, &d.CreatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if schemaID.Valid {
@@ -244,7 +244,7 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if schemaID.Valid {
@@ -291,7 +291,7 @@ func (s *Server) handleListDocumentVersions(w http.ResponseWriter, r *http.Reque
 			break
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if schemaID.Valid {

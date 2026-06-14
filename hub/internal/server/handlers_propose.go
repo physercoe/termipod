@@ -140,11 +140,11 @@ func (s *Server) mcpPropose(ctx context.Context, team, fromID string, raw json.R
 			}
 		}
 		out := map[string]any{
-			"status":         "dry_run",
-			"kind":           "propose",
-			"change_kind":    a.Kind,
-			"assigned_tier":  tier,
-			"would_address":  assignees,
+			"status":        "dry_run",
+			"kind":          "propose",
+			"change_kind":   a.Kind,
+			"assigned_tier": tier,
+			"would_address": assignees,
 		}
 		if preview != nil {
 			out["preview"] = preview

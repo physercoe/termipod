@@ -80,20 +80,20 @@ func (s *Server) handlePutRunMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(r.Context(),
 		`DELETE FROM run_metrics WHERE run_id = ?`, runID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	now := NowUTC()
@@ -105,12 +105,12 @@ func (s *Server) handlePutRunMetrics(w http.ResponseWriter, r *http.Request) {
 			NewID(), runID, m.Name, string(m.Points),
 			m.SampleCount, nullableInt64(m.LastStep), nullableFloat64(m.LastValue),
 			now); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(in.Metrics)})
@@ -131,7 +131,7 @@ func (s *Server) handleGetRunMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -139,7 +139,7 @@ func (s *Server) handleGetRunMetrics(w http.ResponseWriter, r *http.Request) {
 		SELECT metric_name, points_json, sample_count, last_step, last_value, updated_at
 		FROM run_metrics WHERE run_id = ? ORDER BY metric_name`, runID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -153,7 +153,7 @@ func (s *Server) handleGetRunMetrics(w http.ResponseWriter, r *http.Request) {
 			lastValue                   sql.NullFloat64
 		)
 		if err := rows.Scan(&name, &pointsJSON, &sampleCount, &lastStep, &lastValue, &updatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		row := metricPointsOut{
@@ -173,7 +173,7 @@ func (s *Server) handleGetRunMetrics(w http.ResponseWriter, r *http.Request) {
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)

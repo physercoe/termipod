@@ -52,7 +52,7 @@ func (s *Server) handleAdminCreateTeam(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	case err != nil:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// Attribute the genesis event to the new team so its own audit trail
@@ -107,7 +107,7 @@ func (s *Server) handleAdminRotateTeamToken(w http.ResponseWriter, r *http.Reque
 		writeErr(w, http.StatusNotFound, "team not found")
 		return
 	case err != nil:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -120,7 +120,7 @@ func (s *Server) handleAdminRotateTeamToken(w http.ResponseWriter, r *http.Reque
 		  WHERE kind = 'owner' AND revoked_at IS NULL
 		  ORDER BY created_at DESC`)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var staleIDs []string
@@ -129,7 +129,7 @@ func (s *Server) handleAdminRotateTeamToken(w http.ResponseWriter, r *http.Reque
 		var id, scopeJSON string
 		if err := rows.Scan(&id, &scopeJSON); err != nil {
 			rows.Close()
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		var sc struct {
@@ -147,7 +147,7 @@ func (s *Server) handleAdminRotateTeamToken(w http.ResponseWriter, r *http.Reque
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -198,7 +198,7 @@ func (s *Server) handleAdminListTeams(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.QueryContext(r.Context(),
 		`SELECT id, name, created_at FROM teams ORDER BY created_at`)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -206,7 +206,7 @@ func (s *Server) handleAdminListTeams(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var t teamOut
 		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, t)

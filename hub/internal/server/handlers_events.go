@@ -135,7 +135,7 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 		string(meta),
 	)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.logEventJSONL(r.Context(), id)
@@ -216,7 +216,7 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 			ORDER BY received_ts DESC LIMIT ?`, ch, limit)
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -225,7 +225,7 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		m, err := scanEventRow(rows)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, m)

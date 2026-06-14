@@ -48,7 +48,7 @@ func (s *Server) handleListHostCommands(w http.ResponseWriter, r *http.Request) 
 		ORDER BY created_at
 		LIMIT 50`, hostID, status)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -62,7 +62,7 @@ func (s *Server) handleListHostCommands(w http.ResponseWriter, r *http.Request) 
 		if err := rows.Scan(&c.ID, &c.HostID, &c.AgentID, &c.Kind, &args,
 			&c.Status, &result, &c.Error,
 			&c.CreatedAt, &delivered, &completed); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		c.Args = json.RawMessage(args)
@@ -124,7 +124,7 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -140,7 +140,7 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 	// were previously discarded. One transaction makes the pair atomic.
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer tx.Rollback() // no-op once Commit succeeds
@@ -149,7 +149,7 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 			status = ?, result_json = ?, error = NULLIF(?, ''), completed_at = ?
 		WHERE id = ?`,
 		in.Status, result, in.Error, now, cmdID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -161,7 +161,7 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 			if _, err := tx.ExecContext(r.Context(),
 				`UPDATE agents SET last_capture = ?, last_capture_at = ? WHERE id = ?`,
 				payload.Text, now, agentID); err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
+				s.writeDBErr(w, err)
 				return
 			}
 		}
@@ -173,19 +173,19 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 		case "pause":
 			if _, err := tx.ExecContext(r.Context(),
 				`UPDATE agents SET pause_state = 'paused' WHERE id = ?`, agentID); err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
+				s.writeDBErr(w, err)
 				return
 			}
 		case "resume":
 			if _, err := tx.ExecContext(r.Context(),
 				`UPDATE agents SET pause_state = 'running' WHERE id = ?`, agentID); err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
+				s.writeDBErr(w, err)
 				return
 			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

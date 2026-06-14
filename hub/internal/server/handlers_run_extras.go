@@ -61,7 +61,7 @@ func (s *Server) handlePutRunConfig(w http.ResponseWriter, r *http.Request) {
 
 	ok, err := s.runInTeam(r, runID, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -77,7 +77,7 @@ func (s *Server) handlePutRunConfig(w http.ResponseWriter, r *http.Request) {
 			config_json = excluded.config_json,
 			updated_at  = excluded.updated_at`,
 		runID, string(in.Config), NowUTC()); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -89,7 +89,7 @@ func (s *Server) handleGetRunConfig(w http.ResponseWriter, r *http.Request) {
 
 	ok, err := s.runInTeam(r, runID, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -107,7 +107,7 @@ func (s *Server) handleGetRunConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -144,7 +144,7 @@ func (s *Server) handlePutRunSystemMetrics(w http.ResponseWriter, r *http.Reques
 
 	ok, err := s.runInTeam(r, runID, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -154,14 +154,14 @@ func (s *Server) handlePutRunSystemMetrics(w http.ResponseWriter, r *http.Reques
 
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(r.Context(),
 		`DELETE FROM run_system_metrics WHERE run_id = ?`, runID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	now := NowUTC()
@@ -173,12 +173,12 @@ func (s *Server) handlePutRunSystemMetrics(w http.ResponseWriter, r *http.Reques
 			NewID(), runID, m.Name, string(m.Points),
 			m.SampleCount, nullableInt64(m.LastStep), nullableFloat64(m.LastValue),
 			now); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(in.Metrics)})
@@ -190,7 +190,7 @@ func (s *Server) handleGetRunSystemMetrics(w http.ResponseWriter, r *http.Reques
 
 	ok, err := s.runInTeam(r, runID, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -202,7 +202,7 @@ func (s *Server) handleGetRunSystemMetrics(w http.ResponseWriter, r *http.Reques
 		SELECT metric_name, points_json, sample_count, last_step, last_value, updated_at
 		FROM run_system_metrics WHERE run_id = ? ORDER BY metric_name`, runID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -216,7 +216,7 @@ func (s *Server) handleGetRunSystemMetrics(w http.ResponseWriter, r *http.Reques
 			lastValue                   sql.NullFloat64
 		)
 		if err := rows.Scan(&name, &pointsJSON, &sampleCount, &lastStep, &lastValue, &updatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		row := metricPointsOut{
@@ -236,7 +236,7 @@ func (s *Server) handleGetRunSystemMetrics(w http.ResponseWriter, r *http.Reques
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -285,7 +285,7 @@ func (s *Server) handlePutRunAlerts(w http.ResponseWriter, r *http.Request) {
 
 	ok, err := s.runInTeam(r, runID, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -295,14 +295,14 @@ func (s *Server) handlePutRunAlerts(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(r.Context(),
 		`DELETE FROM run_alerts WHERE run_id = ?`, runID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	now := NowUTC()
@@ -317,12 +317,12 @@ func (s *Server) handlePutRunAlerts(w http.ResponseWriter, r *http.Request) {
 			NewID(), runID, a.Title, nullableStr(a.Text), level,
 			nullableInt64(a.Step), nullableStr(a.TS), nullableStr(a.AlertID),
 			now); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(in.Alerts)})
@@ -334,7 +334,7 @@ func (s *Server) handleGetRunAlerts(w http.ResponseWriter, r *http.Request) {
 
 	ok, err := s.runInTeam(r, runID, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -347,7 +347,7 @@ func (s *Server) handleGetRunAlerts(w http.ResponseWriter, r *http.Request) {
 		FROM run_alerts WHERE run_id = ?
 		ORDER BY (ts IS NULL), ts ASC, id ASC`, runID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -360,7 +360,7 @@ func (s *Server) handleGetRunAlerts(w http.ResponseWriter, r *http.Request) {
 			step                    sql.NullInt64
 		)
 		if err := rows.Scan(&title, &body, &level, &step, &ts, &alertID, &updatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		row := alertOut{
@@ -378,7 +378,7 @@ func (s *Server) handleGetRunAlerts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)

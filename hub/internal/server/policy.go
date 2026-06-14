@@ -120,10 +120,10 @@ const (
 // Migration 0045 enforces the value set on `attention_items.assigned_tier`
 // via CHECK constraint.
 const (
-	GovTierWorker          = "worker"
-	GovTierProjectSteward  = "project-steward"
-	GovTierGeneralSteward  = "general-steward"
-	GovTierPrincipal       = "principal"
+	GovTierWorker         = "worker"
+	GovTierProjectSteward = "project-steward"
+	GovTierGeneralSteward = "general-steward"
+	GovTierPrincipal      = "principal"
 )
 
 // permissiveKindPolicy is the fall-through KindPolicy returned by

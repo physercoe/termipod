@@ -106,7 +106,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "project not found: "+proj)
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	status := in.Status
@@ -131,7 +131,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		id, proj, in.ParentTaskID, in.Title, in.BodyMD, in.BlockReason, status, priority,
 		in.AssigneeID, in.CreatedByID, in.MilestoneID, now, now)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), teamFromProject(r), "task.create", "task", id,
@@ -252,7 +252,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -265,7 +265,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 			&t.StartedAt, &t.CompletedAt, &t.ResultSummary,
 			&t.AssigneeHandle, &t.AssigneeStatus, &t.AssignerHandle,
 			&t.BlockReason); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		t.Source = taskSourceFor(t.PlanStepID)
@@ -378,7 +378,7 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 	q := "UPDATE tasks SET " + strings.Join(sets, ", ") + " WHERE project_id = ? AND id = ?"
 	res, err := s.writeDB.ExecContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -441,7 +441,7 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	res, err := s.writeDB.ExecContext(r.Context(),
 		`DELETE FROM tasks WHERE project_id = ? AND id = ?`, proj, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -504,7 +504,7 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
@@ -527,7 +527,7 @@ func (s *Server) handleGetTaskByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, t)

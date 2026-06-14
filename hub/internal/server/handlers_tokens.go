@@ -114,7 +114,7 @@ func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
 		  FROM auth_tokens
 		 ORDER BY created_at DESC`)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -126,7 +126,7 @@ func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
 		)
 		if err := rows.Scan(&id, &kind, &scopeJSON, &createdAt,
 			&expires, &revoked); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		var sc struct {
@@ -192,14 +192,14 @@ func (s *Server) handleIssueToken(w http.ResponseWriter, r *http.Request) {
 	now := NowUTC()
 	if err := auth.InsertToken(r.Context(), s.writeDB, in.Kind, string(scope),
 		plain, id, now); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if in.ExpiresAt != "" {
 		if _, err := s.writeDB.ExecContext(r.Context(),
 			`UPDATE auth_tokens SET expires_at = ? WHERE id = ?`,
 			in.ExpiresAt, id); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
@@ -232,7 +232,7 @@ func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "token not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if revoked.Valid {
@@ -242,7 +242,7 @@ func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 	now := NowUTC()
 	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE auth_tokens SET revoked_at = ? WHERE id = ?`, now, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "token.revoke", "token", id,

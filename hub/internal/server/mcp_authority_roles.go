@@ -34,9 +34,9 @@ var rolesEmbedFS []byte
 // rolesFile is the on-disk YAML schema. Field tags match the YAML 1:1.
 type rolesFile struct {
 	KindToRole struct {
-		Default        string            `yaml:"default"`
-		PrefixSteward  string            `yaml:"prefix_steward"`
-		Exact          map[string]string `yaml:"exact"`
+		Default       string            `yaml:"default"`
+		PrefixSteward string            `yaml:"prefix_steward"`
+		Exact         map[string]string `yaml:"exact"`
 	} `yaml:"kind_to_role"`
 	Roles map[string]roleSpec `yaml:"roles"`
 }

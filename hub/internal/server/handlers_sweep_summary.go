@@ -50,7 +50,7 @@ func (s *Server) handleGetProjectSweepSummary(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -59,7 +59,7 @@ func (s *Server) handleGetProjectSweepSummary(w http.ResponseWriter, r *http.Req
 		       COALESCE(finished_at, ''), COALESCE(trackio_run_uri, '')
 		FROM runs WHERE project_id = ? ORDER BY created_at`, projectID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer runRows.Close()
@@ -71,7 +71,7 @@ func (s *Server) handleGetProjectSweepSummary(w http.ResponseWriter, r *http.Req
 			id, status, configJSON, createdAt, finishedAt, trackioURI string
 		)
 		if err := runRows.Scan(&id, &status, &configJSON, &createdAt, &finishedAt, &trackioURI); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		// Map server 'completed' → UI 'succeeded' at the boundary, same
@@ -92,7 +92,7 @@ func (s *Server) handleGetProjectSweepSummary(w http.ResponseWriter, r *http.Req
 		byID[id] = row
 	}
 	if err := runRows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -104,7 +104,7 @@ func (s *Server) handleGetProjectSweepSummary(w http.ResponseWriter, r *http.Req
 			  AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 			projectID)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		defer metricRows.Close()
@@ -114,7 +114,7 @@ func (s *Server) handleGetProjectSweepSummary(w http.ResponseWriter, r *http.Req
 				lastValue   sql.NullFloat64
 			)
 			if err := metricRows.Scan(&runID, &name, &lastValue); err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
+				s.writeDBErr(w, err)
 				return
 			}
 			if !lastValue.Valid {
@@ -125,7 +125,7 @@ func (s *Server) handleGetProjectSweepSummary(w http.ResponseWriter, r *http.Req
 			}
 		}
 		if err := metricRows.Err(); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}

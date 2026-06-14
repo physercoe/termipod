@@ -73,7 +73,7 @@ func (s *Server) handleCreateReview(w http.ResponseWriter, r *http.Request) {
 		id, in.ProjectID, in.TargetKind, in.TargetID,
 		in.RequesterAgentID, in.Comment, now)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "review.request", "review", id,
@@ -123,7 +123,7 @@ func (s *Server) handleListReviews(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -131,7 +131,7 @@ func (s *Server) handleListReviews(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		rv, err := scanReview(rows)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, rv)
@@ -152,7 +152,7 @@ func (s *Server) handleGetReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rv)
@@ -180,7 +180,7 @@ func (s *Server) handleDecideReview(w http.ResponseWriter, r *http.Request) {
 		WHERE id = ? AND state = 'pending'`,
 		in.State, in.UserID, now, in.Comment, review)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -204,7 +204,7 @@ func (s *Server) handleDecideReview(w http.ResponseWriter, r *http.Request) {
 		FROM reviews WHERE id = ?`, review)
 	rv, err := scanReview(row)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "review.decide", "review", review,

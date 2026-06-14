@@ -494,11 +494,26 @@ class _HostAgentsSectionState extends State<_HostAgentsSection> {
   }
 }
 
-class _ProjectsTab extends ConsumerWidget {
+/// Trailing sliver that clears the floating "create" FAB at the bottom of a
+/// projects list. Defined once so the value is shared across the segmented and
+/// single-scroll layouts.
+const _projectsBottomPad = SliverPadding(padding: EdgeInsets.only(bottom: 96));
+
+class _ProjectsTab extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> items;
   const _ProjectsTab({required this.items});
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ProjectsTab> createState() => _ProjectsTabState();
+}
+
+class _ProjectsTabState extends ConsumerState<_ProjectsTab> {
+  /// Selected sub-tab: 0 = Projects (goal), 1 = Workspaces (standing). A plain
+  /// field — view selection is local ephemeral UI state, so it needs no
+  /// provider (the codebase routes shared state through NotifierProvider).
+  int _segment = 0;
+
+  @override
+  Widget build(BuildContext context) {
     // Roll up open attention items by project so each row can surface
     // how many things need you on that project — the canonical "needs
     // you" signal per blueprint §6.8. Uses the already-loaded attention
@@ -533,7 +548,8 @@ class _ProjectsTab extends ConsumerWidget {
     // by_project[].last_activity with a created_at fallback for rows
     // not yet seen by Insights.
     final filter = ref.watch(projectFilterProvider);
-    final filteredItems = applyProjectFilter(items, filter, openByProject, byProject);
+    final filteredItems =
+        applyProjectFilter(widget.items, filter, openByProject, byProject);
     // Partition on `kind` per blueprint §6.1: goal vs. standing. The
     // schema is one table; the mobile IA splits them into two named
     // sections (Projects vs. Workspaces) since the mental models differ
@@ -548,12 +564,106 @@ class _ProjectsTab extends ConsumerWidget {
     final goalRows = flattenProjectsWithChildren(goals);
     final standingRows = flattenProjectsWithChildren(standings);
 
+    // Segmented sub-tabs (Projects | Workspaces). When BOTH kinds are
+    // populated, a pinned Material 3 SegmentedButton (the same widget this
+    // screen's filter pickers use) switches between two independent scrolls,
+    // so the standing-Workspaces set isn't buried below a long goals list.
+    // When only one kind is present we keep the labelled single scroll — never
+    // a segmented control with an empty side to tap into.
+    final showSegments = goalRows.isNotEmpty && standingRows.isNotEmpty;
+    final segment = (showSegments && _segment == 1) ? 1 : 0;
+
+    Widget partitionSliver(List<ProjectNode> rows) => SliverList.separated(
+          itemCount: rows.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (_, i) => _projectRow(
+            context,
+            rows[i],
+            openByProject,
+            byProject,
+            l10n,
+            projectTerm,
+            workspaceTerm,
+          ),
+        );
+
+    // One partition's own scroll view. AlwaysScrollable so pull-to-refresh
+    // still fires when a partition is shorter than the viewport.
+    Widget partitionScroll(List<ProjectNode> rows) => CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              sliver: partitionSliver(rows),
+            ),
+            _projectsBottomPad,
+          ],
+        );
+
+    final Widget scroller;
+    if (showSegments) {
+      scroller = Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<int>(
+                segments: [
+                  ButtonSegment(
+                    value: 0,
+                    label: Text('${l10n.sectionProjects} (${goalRows.length})'),
+                  ),
+                  ButtonSegment(
+                    value: 1,
+                    label: Text(
+                        '${l10n.sectionWorkspaces} (${standingRows.length})'),
+                  ),
+                ],
+                selected: {segment},
+                showSelectedIcon: false,
+                onSelectionChanged: (s) => setState(() => _segment = s.first),
+              ),
+            ),
+          ),
+          Expanded(
+            child:
+                partitionScroll(segment == 0 ? goalRows : standingRows),
+          ),
+        ],
+      );
+    } else {
+      scroller = CustomScrollView(
+        slivers: [
+          if (goalRows.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: _ProjectsSectionLabel(text: l10n.sectionProjects),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              sliver: partitionSliver(goalRows),
+            ),
+          ],
+          if (standingRows.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: _ProjectsSectionLabel(text: l10n.sectionWorkspaces),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              sliver: partitionSliver(standingRows),
+            ),
+          ],
+          _projectsBottomPad,
+        ],
+      );
+    }
+
     final body = filteredItems.isEmpty
         ? _EmptyText(
             // Differentiate "no projects at all" from "filter hides them" so
             // a new user doesn't think nothing exists and a filtered user
             // remembers to clear the filter. items is the unfiltered list.
-            text: items.isEmpty
+            text: widget.items.isEmpty
                 ? l10n.projectsEmpty
                 : l10n.projectsNoFilterMatch(projectTerm.pluralLower),
           )
@@ -566,53 +676,7 @@ class _ProjectsTab extends ConsumerWidget {
               // the family so the next watch refetches /v1/insights.
               ref.invalidate(insightsProvider);
             },
-            child: CustomScrollView(
-              slivers: [
-                if (goalRows.isNotEmpty) ...[
-                  SliverToBoxAdapter(
-                    child: _ProjectsSectionLabel(text: l10n.sectionProjects),
-                  ),
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                    sliver: SliverList.separated(
-                      itemCount: goalRows.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (_, i) => _projectRow(
-                        context,
-                        goalRows[i],
-                        openByProject,
-                        byProject,
-                        l10n,
-                        projectTerm,
-                        workspaceTerm,
-                      ),
-                    ),
-                  ),
-                ],
-                if (standingRows.isNotEmpty) ...[
-                  SliverToBoxAdapter(
-                    child: _ProjectsSectionLabel(text: l10n.sectionWorkspaces),
-                  ),
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                    sliver: SliverList.separated(
-                      itemCount: standingRows.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (_, i) => _projectRow(
-                        context,
-                        standingRows[i],
-                        openByProject,
-                        byProject,
-                        l10n,
-                        projectTerm,
-                        workspaceTerm,
-                      ),
-                    ),
-                  ),
-                ],
-                const SliverPadding(padding: EdgeInsets.only(bottom: 96)),
-              ],
-            ),
+            child: scroller,
           );
     return Stack(
       children: [
@@ -652,7 +716,7 @@ class _ProjectsTab extends ConsumerWidget {
     // drill in" without hiding child signal behind the parent.
     var rolled = openCount;
     if (node.depth == 0 && node.childCount > 0) {
-      for (final p2 in items) {
+      for (final p2 in widget.items) {
         if ((p2['parent_project_id'] ?? '').toString() != pid) continue;
         rolled += openByProject[(p2['id'] ?? '').toString()] ?? 0;
       }

@@ -169,6 +169,7 @@ func (s *Server) bumpLoopProgress(ctx context.Context, agentID string) {
 		s.log.Warn("loop sweep: bump progress list failed", "agent", agentID, "err", err)
 		return
 	}
+	defer rows.Close()
 	type taskRef struct{ id, projectID string }
 	var refs []taskRef
 	for rows.Next() {
@@ -177,7 +178,6 @@ func (s *Server) bumpLoopProgress(ctx context.Context, agentID string) {
 			refs = append(refs, r)
 		}
 	}
-	rows.Close()
 	now := time.Now().UTC()
 	for _, r := range refs {
 		inactivity, _ := s.loopBudgets(ctx, r.projectID)

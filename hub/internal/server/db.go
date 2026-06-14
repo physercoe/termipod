@@ -106,6 +106,19 @@ func perTeamWriterCachePragma(maxOpen int) string {
 	return fmt.Sprintf("&_pragma=cache_size(-%d)", perKB)
 }
 
+// maxReadConns returns the generous reader-pool connection cap (default 64),
+// overridable via HUB_DB_MAX_READ_CONNS. This is an FD-exhaustion safety
+// bound, NOT a throughput cap — keep it generous.
+func maxReadConns() int {
+	n := 64
+	if v := os.Getenv("HUB_DB_MAX_READ_CONNS"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			n = parsed
+		}
+	}
+	return n
+}
+
 // OpenDB opens the SQLite database at path and runs pending migrations.
 // Callers must Close the returned *sql.DB.
 func OpenDB(path string) (*sql.DB, error) {
@@ -133,8 +146,9 @@ func OpenDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("close migrations db: %w", err)
 	}
 
-	// The general/reader pool is uncapped, so it gets pragmaCommon WITHOUT the
-	// big writer cache (cache_size is per-connection — see the const doc).
+	// The general/reader pool gets pragmaCommon WITHOUT the big writer cache
+	// (cache_size is per-connection — see the const doc). It carries a generous
+	// FD-safety cap (see maxReadConns).
 	dsn := path + "?_pragma=foreign_keys(1)&" + pragmaCommon
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

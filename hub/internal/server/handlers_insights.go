@@ -1040,6 +1040,7 @@ func (s *Server) fillInsightsByProject(
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 	type projRow struct {
 		id, name, phase, status, history, templateID string
 	}
@@ -1050,12 +1051,10 @@ func (s *Server) fillInsightsByProject(
 			&p.id, &p.name, &p.phase, &p.status,
 			&p.history, &p.templateID,
 		); err != nil {
-			rows.Close()
 			return err
 		}
 		projects = append(projects, p)
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}

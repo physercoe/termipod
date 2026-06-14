@@ -112,16 +112,15 @@ func ResetLifecycleDemo(ctx context.Context, db *sql.DB) (deleted bool, err erro
 	if err != nil {
 		return false, fmt.Errorf("lookup lifecycle demos: %w", err)
 	}
+	defer rows.Close()
 	var projectIDs []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
 			return false, err
 		}
 		projectIDs = append(projectIDs, id)
 	}
-	rows.Close()
 	if len(projectIDs) == 0 {
 		return false, nil
 	}

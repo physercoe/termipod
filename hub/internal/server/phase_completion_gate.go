@@ -67,6 +67,7 @@ func (s *Server) cascadeDeliverableUnratified(
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	type pending struct {
 		id    string
 		body  map[string]any
@@ -77,7 +78,6 @@ func (s *Server) cascadeDeliverableUnratified(
 		var id, bodyStr string
 		var delivNS sql.NullString
 		if err := rows.Scan(&id, &bodyStr, &delivNS); err != nil {
-			rows.Close()
 			return nil, err
 		}
 		body := map[string]any{}
@@ -88,7 +88,6 @@ func (s *Server) cascadeDeliverableUnratified(
 		}
 		candidates = append(candidates, pending{id: id, body: body, deliv: deliv})
 	}
-	rows.Close()
 
 	repended := []string{}
 	for _, p := range candidates {

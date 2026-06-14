@@ -57,7 +57,7 @@ type Config struct {
 
 type Server struct {
 	cfg     Config
-	db      *sql.DB // control reader pool — uncapped; reads + tests
+	db      *sql.DB // control reader pool — generous cap (HUB_DB_MAX_READ_CONNS); reads + tests
 	writeDB *sql.DB // control writer pool — SetMaxOpenConns(1); all writes, see New()
 	// Store separation + per-team sharding (ADR-045 D2 — the event log + the
 	// derived digest are separate data classes from the control plane, and both
@@ -142,9 +142,12 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(maxReadConns())
+	db.SetMaxIdleConns(maxReadConns())
 	// Writer/reader pool split — docs/discussions/hub-scaling-storage-and-
 	// concurrency.md §6 lever 3. SQLite is a single-writer store. s.db stays
-	// the uncapped general/reader pool (WAL lets readers run concurrently);
+	// the general/reader pool (WAL lets readers run concurrently; generous
+	// FD-safety cap via HUB_DB_MAX_READ_CONNS);
 	// s.writeDB is a dedicated ONE-connection writer pool that ALL writes go
 	// through, so writes queue cheaply in Go instead of colliding on the
 	// write lock and exhausting busy_timeout under many concurrent agents

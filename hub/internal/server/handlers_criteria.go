@@ -457,6 +457,7 @@ func (s *Server) cascadeDeliverableRatified(
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	type pending struct {
 		id    string
 		body  map[string]any
@@ -467,7 +468,6 @@ func (s *Server) cascadeDeliverableRatified(
 		var id, bodyStr string
 		var delivNS sql.NullString
 		if err := rows.Scan(&id, &bodyStr, &delivNS); err != nil {
-			rows.Close()
 			return nil, err
 		}
 		body := map[string]any{}
@@ -478,7 +478,6 @@ func (s *Server) cascadeDeliverableRatified(
 		}
 		candidates = append(candidates, pending{id: id, body: body, deliv: deliv})
 	}
-	rows.Close()
 
 	fired := []string{}
 	for _, p := range candidates {

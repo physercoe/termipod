@@ -5,7 +5,6 @@
 1 lib/screens/connections/connection_form_screen.dart
 2 lib/screens/keys/widgets/key_tile.dart
 1 lib/screens/me/widgets/stalled_decisions_digest.dart
-7 lib/screens/projects/project_create_sheet.dart
 1 lib/screens/projects/runs_screen.dart
 3 lib/screens/settings/voice_settings_screen.dart
 7 lib/screens/terminal/terminal_screen.dart

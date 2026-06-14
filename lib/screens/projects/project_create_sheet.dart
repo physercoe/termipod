@@ -988,25 +988,6 @@ class _ParamFieldSpec {
     return _ParamFieldSpec(key, _ParamKind.rawJson, value);
   }
 
-  String get hint {
-    switch (kind) {
-      case _ParamKind.intList:
-        return 'Comma-separated integers (e.g. 128, 256, 384)';
-      case _ParamKind.numList:
-        return 'Comma-separated numbers';
-      case _ParamKind.stringList:
-        return 'Comma-separated values';
-      case _ParamKind.intScalar:
-        return 'Integer';
-      case _ParamKind.numScalar:
-        return 'Number';
-      case _ParamKind.stringScalar:
-        return 'Text';
-      case _ParamKind.rawJson:
-        return 'Raw JSON';
-    }
-  }
-
   bool get multiline => kind == _ParamKind.rawJson;
 
   TextInputType get keyboardType {
@@ -1117,11 +1098,29 @@ class _ParamField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final mono = spec.kind == _ParamKind.rawJson ||
         spec.kind == _ParamKind.intList ||
         spec.kind == _ParamKind.numList ||
         spec.kind == _ParamKind.intScalar ||
         spec.kind == _ParamKind.numScalar;
+    String hintText;
+    switch (spec.kind) {
+      case _ParamKind.intList:
+        hintText = l10n.paramHintCommaIntegers;
+      case _ParamKind.numList:
+        hintText = l10n.paramHintCommaNumbers;
+      case _ParamKind.stringList:
+        hintText = l10n.paramHintCommaValues;
+      case _ParamKind.intScalar:
+        hintText = l10n.paramTypeInteger;
+      case _ParamKind.numScalar:
+        hintText = l10n.paramTypeNumber;
+      case _ParamKind.stringScalar:
+        hintText = l10n.paramTypeText;
+      case _ParamKind.rawJson:
+        hintText = l10n.paramTypeRawJson;
+    }
     return TextField(
       controller: controller,
       keyboardType: spec.keyboardType,
@@ -1129,7 +1128,7 @@ class _ParamField extends StatelessWidget {
       style: mono ? GoogleFonts.jetBrainsMono(fontSize: 12) : null,
       decoration: InputDecoration(
         labelText: spec.key,
-        hintText: spec.hint,
+        hintText: hintText,
         border: const OutlineInputBorder(),
         errorText: errorText,
       ),

@@ -15,7 +15,6 @@
 4 lib/widgets/custom_keyboard.dart
 4 lib/widgets/file_transfer_confirm_dialog.dart
 9 lib/widgets/floating_joystick.dart
-4 lib/widgets/live_feed.dart
 1 lib/widgets/multimodal_attach/composer_multimodal_attach.dart
 4 lib/widgets/navigation_pad.dart
 1 lib/widgets/remote_file_browser_dialog.dart

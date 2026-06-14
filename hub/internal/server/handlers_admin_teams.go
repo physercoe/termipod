@@ -123,12 +123,12 @@ func (s *Server) handleAdminRotateTeamToken(w http.ResponseWriter, r *http.Reque
 		s.writeDBErr(w, err)
 		return
 	}
+	defer rows.Close()
 	var staleIDs []string
 	var handle string
 	for rows.Next() {
 		var id, scopeJSON string
 		if err := rows.Scan(&id, &scopeJSON); err != nil {
-			rows.Close()
 			s.writeDBErr(w, err)
 			return
 		}
@@ -145,7 +145,6 @@ func (s *Server) handleAdminRotateTeamToken(w http.ResponseWriter, r *http.Reque
 			handle = sc.Handle // first match = newest (ORDER BY DESC)
 		}
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
 		s.writeDBErr(w, err)
 		return

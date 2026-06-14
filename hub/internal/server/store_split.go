@@ -150,16 +150,16 @@ func storePathsFor(controlPath string) (eventsPath, digestPath string) {
 	return filepath.Join(dir, "events.db"), filepath.Join(dir, "digest.db")
 }
 
-// openStorePool opens a reader (uncapped) or single-writer pool against an
+// openStorePool opens a reader (generous cap) or single-writer pool against an
 // already-schema'd store file. Mirrors the control reader/writer split (New(),
 // OpenWriterDB): writes serialize through one connection so they queue in Go
 // instead of colliding on SQLite's per-file write lock. The moving tables carry
 // no foreign keys post-split, but foreign_keys(1) is harmless and consistent.
 //
 // The writer cache (cachePragma) is applied only to the single-conn writer pool
-// — the uncapped reader pool gets pragmaCommon, so a per-connection cache can't
-// multiply across concurrent readers (db.go const doc). cachePragma is the
-// budget-divided per-team value (perTeamWriterCachePragma) threaded in by the
+// — the reader pool gets pragmaCommon (with a generous FD-safety cap), so a
+// per-connection cache can't multiply across concurrent readers (db.go const
+// doc). cachePragma is the budget-divided per-team value (perTeamWriterCachePragma) threaded in by the
 // registry; an empty string means no extra cache (reader pools pass "").
 func openStorePool(path string, writer bool, cachePragma string) (*sql.DB, error) {
 	dsn := path + "?_pragma=foreign_keys(1)&" + pragmaCommon
@@ -181,6 +181,9 @@ func openStorePool(path string, writer bool, cachePragma string) (*sql.DB, error
 	if writer {
 		db.SetMaxOpenConns(1)
 		db.SetMaxIdleConns(1)
+	} else {
+		db.SetMaxOpenConns(maxReadConns())
+		db.SetMaxIdleConns(maxReadConns())
 	}
 	return db, nil
 }

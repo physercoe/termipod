@@ -112,6 +112,7 @@ func (s *Server) onPreAgentIdle(ctx context.Context, agentID string) {
 	if err != nil {
 		return
 	}
+	defer rows.Close()
 	var open []string
 	for rows.Next() {
 		var title string
@@ -119,7 +120,6 @@ func (s *Server) onPreAgentIdle(ctx context.Context, agentID string) {
 			open = append(open, title)
 		}
 	}
-	rows.Close()
 	if len(open) == 0 {
 		return
 	}

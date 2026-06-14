@@ -78,6 +78,10 @@ func (s *Server) handleListHostCommands(w http.ResponseWriter, r *http.Request) 
 		out = append(out, c)
 		ids = append(ids, c.ID)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 
 	if status == "pending" && len(ids) > 0 {
 		now := NowUTC()

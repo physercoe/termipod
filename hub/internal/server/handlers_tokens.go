@@ -150,6 +150,10 @@ func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, row)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	// Active tokens first, revoked last; newest inside each group.
 	sort.SliceStable(out, func(i, j int) bool {
 		ai, aj := out[i].RevokedAt == nil, out[j].RevokedAt == nil

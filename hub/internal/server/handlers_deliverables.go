@@ -213,6 +213,10 @@ func (s *Server) handleListDeliverables(w http.ResponseWriter, r *http.Request) 
 		}
 		out = append(out, d)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 
@@ -825,6 +829,10 @@ func (s *Server) handleListProjectCriteria(w http.ResponseWriter, r *http.Reques
 		}
 		out = append(out, c)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 
@@ -899,6 +907,10 @@ func (s *Server) handleGetProjectOverview(w http.ResponseWriter, r *http.Request
 		}
 		d.Components = comps
 		out.Deliverables = append(out.Deliverables, d)
+	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
 	}
 
 	// Counts (active-phase scoped).

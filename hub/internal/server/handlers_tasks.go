@@ -271,6 +271,10 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		t.Source = taskSourceFor(t.PlanStepID)
 		out = append(out, t)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

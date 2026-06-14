@@ -179,6 +179,10 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, a)
 	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	// Hydrate last_event_at from the event store (ADR-045 D2 cross-store read).
 	ids := make([]string, len(out))
 	for i := range out {
@@ -1746,6 +1750,10 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 			sp.McpToken = ""
 		}
 		out = append(out, sp)
+	}
+	if err := rows.Err(); err != nil {
+		s.writeDBErr(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }

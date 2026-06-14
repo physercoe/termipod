@@ -1,9 +1,9 @@
 # Doc spec — the contract every doc honors
 
 > **Type:** axiom
-> **Status:** Current (2026-06-05)
+> **Status:** Current (2026-06-14)
 > **Audience:** contributors (humans + AI agents)
-> **Last verified vs code:** v1.0.814
+> **Last verified vs code:** v1.0.820
 > **Freshness:** contract
 
 **TL;DR.** This file defines what a doc *is* in this repo, what every

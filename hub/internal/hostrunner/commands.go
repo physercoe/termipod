@@ -109,7 +109,7 @@ func (a *Runner) terminatePane(ctx context.Context, cmd HostCommand) error {
 	// teardown also closes the engine's stdio cleanly so a follow-up
 	// kill-pane is purely cosmetic at that point.
 	if cmd.AgentID != "" {
-		if _, ok := a.drivers[cmd.AgentID]; ok {
+		if a.hasDriver(cmd.AgentID) {
 			a.stopDriver(cmd.AgentID)
 			// Brief flush window — the Closer just wrote a final
 			// "stopped at ..." line into the cosmetic log; the pane's
@@ -170,4 +170,3 @@ func (a *Runner) terminatePane(ctx context.Context, cmd HostCommand) error {
 	}
 	return nil
 }
-

@@ -75,7 +75,7 @@ func isM2TailCmd(cmd string) bool {
 //   - pane missing / dead → crashed
 //   - pane is `tail` w/o
 //     a Go driver         → crashed (M2 zombie — see "Why tail without a
-//                           driver = crashed" below)
+//     driver = crashed" below)
 //   - fg is a shell       → pending (CLI not running yet, or just exited)
 //   - fg is anything else → running
 //
@@ -119,7 +119,7 @@ func (a *Runner) tickReconcile(ctx context.Context) {
 			continue
 		}
 		info, ok := panes[ag.PaneID]
-		_, hasDriver := a.drivers[ag.ID]
+		hasDriver := a.hasDriver(ag.ID)
 		var want string
 		switch {
 		case !ok || info.dead:
@@ -158,7 +158,7 @@ func (a *Runner) tickReconcile(ctx context.Context) {
 	for _, ag := range agents {
 		hostStatus[ag.ID] = ag.Status
 	}
-	for id := range a.drivers {
+	for _, id := range a.driverIDsSnapshot() {
 		st, present := hostStatus[id]
 		if !present || st == "terminated" || st == "failed" || st == "crashed" || st == "stale" {
 			a.stopDriver(id)

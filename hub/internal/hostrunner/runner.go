@@ -102,8 +102,8 @@ type Runner struct {
 	EgressProxyAddr string
 	egressProxy     *egressProxy
 
-	idle      *IdleDetector
-	panes     map[string]paneState    // keyed by agent id
+	idle  *IdleDetector
+	panes map[string]paneState // keyed by agent id
 
 	// pollFail edge-triggers the metric-poll-failure log so a run that
 	// keeps failing logs once on the falling edge (and once on recovery),
@@ -112,9 +112,17 @@ type Runner struct {
 	// goroutines that share this map.
 	pollMu   sync.Mutex
 	pollFail map[string]bool
-	tailers   map[string]*Tailer      // keyed by agent id
-	drivers   map[string]Driver       // keyed by agent id (P1.1)
-	gateways  map[string]*McpGateway  // keyed by agent id (ADR-027 W5a)
+	tailers  map[string]*Tailer // keyed by agent id
+	// agentsMu guards drivers + gateways — the only agent-keyed maps
+	// reached from more than one goroutine. handleHostExit runs on the
+	// A2A tunnel goroutine (host_verbs.go) and ranges drivers + calls
+	// stopDriver (which deletes from drivers + gateways), concurrently
+	// with the single main-loop goroutine's tickPoll/tickReconcile/
+	// tickCommands that read/write the same maps. tailers/worktrees/panes
+	// are confined to the main loop and need no lock. #77.
+	agentsMu  sync.Mutex
+	drivers   map[string]Driver       // keyed by agent id (P1.1) — guard with agentsMu
+	gateways  map[string]*McpGateway  // keyed by agent id (ADR-027 W5a) — guard with agentsMu
 	worktrees map[string]WorktreeSpec // keyed by agent id
 	inputs    *InputRouter            // P1.8 — dispatches producer=user events
 	// a2aDisp owns A2A task correlation. Created in Start when A2AAddr
@@ -487,7 +495,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 	// never produced output), don't relaunch — that path leaks tmux
 	// panes one-per-tick until the agent is manually terminated. See
 	// docs/plans/spawn-robustness-and-validators.md W3.
-	if _, ok := a.drivers[sp.ChildID]; ok {
+	if a.hasDriver(sp.ChildID) {
 		a.Log.Debug("launchOne skip: driver already registered",
 			"agent", sp.ChildID, "handle", sp.Handle)
 		return
@@ -673,7 +681,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 			}
 			pane = res.PaneID
 			drv = res.Driver
-			a.gateways[sp.ChildID] = res.Gateway
+			a.putGateway(sp.ChildID, res.Gateway)
 		case "antigravity":
 			// ADR-035 W7: agy uses the LocalLogTail driver via its own
 			// (gateway-free, snapshot-reader) adapter. No PaneDriver
@@ -814,7 +822,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		}
 	}
 	if drv != nil {
-		a.drivers[sp.ChildID] = drv
+		a.putDriver(sp.ChildID, drv)
 		// Attach the input router if this driver speaks Inputter. Missing
 		// interface just means no user→agent routing for this mode, which
 		// is fine — Stop will still be called normally.
@@ -929,6 +937,43 @@ func (a *Runner) stopTailer(agentID string) {
 	delete(a.tailers, agentID)
 }
 
+// hasDriver reports whether a driver is registered for agentID. Guarded
+// by agentsMu (#77).
+func (a *Runner) hasDriver(agentID string) bool {
+	a.agentsMu.Lock()
+	defer a.agentsMu.Unlock()
+	_, ok := a.drivers[agentID]
+	return ok
+}
+
+// putDriver registers a driver under agentID. Guarded by agentsMu (#77).
+func (a *Runner) putDriver(agentID string, d Driver) {
+	a.agentsMu.Lock()
+	defer a.agentsMu.Unlock()
+	a.drivers[agentID] = d
+}
+
+// putGateway registers a per-spawn MCP gateway under agentID. Guarded by
+// agentsMu (#77).
+func (a *Runner) putGateway(agentID string, gw *McpGateway) {
+	a.agentsMu.Lock()
+	defer a.agentsMu.Unlock()
+	a.gateways[agentID] = gw
+}
+
+// driverIDsSnapshot returns a copy of the registered driver ids so callers
+// can iterate without holding agentsMu across per-agent work (which may
+// call back into stopDriver). Guarded by agentsMu (#77).
+func (a *Runner) driverIDsSnapshot() []string {
+	a.agentsMu.Lock()
+	defer a.agentsMu.Unlock()
+	ids := make([]string, 0, len(a.drivers))
+	for id := range a.drivers {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // stopDriver tears down the M4 driver (or whichever mode is wired) for an
 // agent leaving the running set. Emits lifecycle.stopped as a side effect.
 //
@@ -940,7 +985,24 @@ func (a *Runner) stopTailer(agentID string) {
 // own log stream was silent, leaving operators with no easy way to
 // confirm "did the kill actually run?" without per-agent log diving.
 func (a *Runner) stopDriver(agentID string) {
+	// Remove the driver + gateway from the maps under the lock, then do
+	// the blocking teardown (Detach/Stop/Close) outside it — agentsMu must
+	// never be held across a blocking call. Removing under the lock also
+	// makes concurrent stops idempotent: tickReconcile (main loop) and
+	// handleHostExit (A2A goroutine) can both target the same agent, and
+	// only the goroutine that wins the delete does the teardown. #77.
+	a.agentsMu.Lock()
 	d, ok := a.drivers[agentID]
+	if ok {
+		delete(a.drivers, agentID)
+	}
+	// ADR-027 W5a: the per-spawn UDS gateway is wired only for claude-code
+	// M4 LocalLogTail; other modes leave a.gateways empty so this is a nil.
+	gw := a.gateways[agentID]
+	if gw != nil {
+		delete(a.gateways, agentID)
+	}
+	a.agentsMu.Unlock()
 	if !ok {
 		if a.Log != nil {
 			a.Log.Debug("stopDriver no-op (driver not registered)", "agent_id", agentID)
@@ -957,13 +1019,8 @@ func (a *Runner) stopDriver(agentID string) {
 		a.inputs.Detach(agentID)
 	}
 	d.Stop()
-	delete(a.drivers, agentID)
-	// ADR-027 W5a: tear down the per-spawn UDS gateway if one was
-	// wired (claude-code M4 LocalLogTail). Other modes leave a.gateways
-	// untouched so this delete is a no-op for them.
-	if gw, ok := a.gateways[agentID]; ok && gw != nil {
+	if gw != nil {
 		_ = gw.Close()
-		delete(a.gateways, agentID)
 	}
 	if a.Log != nil {
 		a.Log.Info("agent driver stopped", "agent_id", agentID)

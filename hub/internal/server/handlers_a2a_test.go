@@ -250,3 +250,68 @@ func TestListTeamA2ACards_RewritesURLToRelay(t *testing.T) {
 		t.Errorf("name field lost: %+v", card)
 	}
 }
+
+func TestListTeamA2ACards_Limit(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	seedTestHost(t, s, defaultTeamID, "host-gpu", "gpu-1")
+
+	// PUT 5 cards on one host.
+	cards := make([]map[string]any, 5)
+	for i := 0; i < 5; i++ {
+		cards[i] = map[string]any{
+			"agent_id": "a" + itos(i),
+			"handle":   "w" + itos(i),
+			"card":     map[string]any{"name": "w" + itos(i)},
+		}
+	}
+	status, body := doReq(t, s, token, http.MethodPut,
+		"/v1/teams/"+defaultTeamID+"/hosts/host-gpu/a2a/cards",
+		map[string]any{"cards": cards})
+	if status != http.StatusOK {
+		t.Fatalf("put cards: %d %s", status, body)
+	}
+
+	// No params — returns all cards (unchanged).
+	_, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/a2a/cards", nil)
+	var all []a2aCardOut
+	if err := json.Unmarshal(body, &all); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(all) != 5 {
+		t.Fatalf("no-params got %d cards, want 5", len(all))
+	}
+
+	// ?limit=2 caps to 2.
+	_, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/a2a/cards?limit=2", nil)
+	var limited []a2aCardOut
+	if err := json.Unmarshal(body, &limited); err != nil {
+		t.Fatalf("decode limited: %v", err)
+	}
+	if len(limited) != 2 {
+		t.Fatalf("limit=2 got %d cards, want 2", len(limited))
+	}
+
+	// ?limit=0 is ignored (no cap, returns all).
+	_, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/a2a/cards?limit=0", nil)
+	var unlimited []a2aCardOut
+	if err := json.Unmarshal(body, &unlimited); err != nil {
+		t.Fatalf("decode limit=0: %v", err)
+	}
+	if len(unlimited) != 5 {
+		t.Fatalf("limit=0 got %d cards, want 5 (no cap)", len(unlimited))
+	}
+
+	// ?limit=9999 is clamped to 1000, returns all 5.
+	_, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/a2a/cards?limit=9999", nil)
+	var capped []a2aCardOut
+	if err := json.Unmarshal(body, &capped); err != nil {
+		t.Fatalf("decode limit=9999: %v", err)
+	}
+	if len(capped) != 5 {
+		t.Fatalf("limit=9999 got %d cards, want 5 (clamped but enough)", len(capped))
+	}
+}

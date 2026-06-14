@@ -185,6 +185,7 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	since := r.URL.Query().Get("since") // received_ts exclusive
+	before := r.URL.Query().Get("before")
 	limit := 100
 	if q := r.URL.Query().Get("limit"); q != "" {
 		if n, err := strconv.Atoi(q); err == nil && n > 0 && n <= 1000 {
@@ -196,7 +197,17 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		rows *sql.Rows
 		err  error
 	)
-	if since != "" {
+	switch {
+	case before != "":
+		rows, err = s.db.QueryContext(r.Context(), `
+			SELECT id, schema_version, ts, received_ts, channel_id, type,
+			       COALESCE(from_id, ''), to_ids_json, parts_json,
+			       task_id, correlation_id,
+			       pane_ref_json, usage_tokens_json, metadata_json
+			FROM events
+			WHERE channel_id = ? AND received_ts < ?
+			ORDER BY received_ts DESC LIMIT ?`, ch, before, limit)
+	case since != "":
 		rows, err = s.db.QueryContext(r.Context(), `
 			SELECT id, schema_version, ts, received_ts, channel_id, type,
 			       COALESCE(from_id, ''), to_ids_json, parts_json,
@@ -205,7 +216,7 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 			FROM events
 			WHERE channel_id = ? AND received_ts > ?
 			ORDER BY received_ts ASC LIMIT ?`, ch, since, limit)
-	} else {
+	default:
 		rows, err = s.db.QueryContext(r.Context(), `
 			SELECT id, schema_version, ts, received_ts, channel_id, type,
 			       COALESCE(from_id, ''), to_ids_json, parts_json,

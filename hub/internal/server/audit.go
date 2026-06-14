@@ -89,9 +89,13 @@ func actorFromContext(ctx context.Context) (tokenID, kind, handle string) {
 // whose meta_json carries a `project_id` matching it (covers agent.spawn,
 // run.create, document.create, review.request, artifact.create, etc.).
 // Project-scoped W2 Activity feed depends on this.
+//
+// Keyset pagination: before/after are ISO-8601 timestamps on the ts column
+// (the natural monotonic sort key). Modeled on the agent_events (ts, seq)
+// keyset pattern — ts alone sorts lexicographically correct for ISO-8601.
 func (s *Server) listAuditEvents(
 	ctx context.Context,
-	teamID, action, since, projectID string,
+	teamID, action, since, projectID, before, after string,
 	limit int,
 ) ([]AuditRow, error) {
 	if limit <= 0 {
@@ -116,8 +120,17 @@ func (s *Server) listAuditEvents(
 		         OR json_extract(meta_json, '$.project_id') = ?)`
 		args = append(args, projectID, projectID)
 	}
-	q += ` ORDER BY ts DESC LIMIT ?`
-	args = append(args, limit)
+	switch {
+	case before != "":
+		q += ` AND ts < ? ORDER BY ts DESC LIMIT ?`
+		args = append(args, before, limit)
+	case after != "":
+		q += ` AND ts > ? ORDER BY ts ASC LIMIT ?`
+		args = append(args, after, limit)
+	default:
+		q += ` ORDER BY ts DESC LIMIT ?`
+		args = append(args, limit)
+	}
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {

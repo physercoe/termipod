@@ -19,19 +19,19 @@ import (
 // Listing returns metadata only (id, kind, role, handle, timestamps).
 
 type tokenOut struct {
-	ID         string  `json:"id"`
-	Kind       string  `json:"kind"`
-	Role       string  `json:"role,omitempty"`
-	Handle     string  `json:"handle,omitempty"`
-	CreatedAt  string  `json:"created_at"`
-	ExpiresAt  *string `json:"expires_at,omitempty"`
-	RevokedAt  *string `json:"revoked_at,omitempty"`
+	ID        string  `json:"id"`
+	Kind      string  `json:"kind"`
+	Role      string  `json:"role,omitempty"`
+	Handle    string  `json:"handle,omitempty"`
+	CreatedAt string  `json:"created_at"`
+	ExpiresAt *string `json:"expires_at,omitempty"`
+	RevokedAt *string `json:"revoked_at,omitempty"`
 }
 
 type tokenIssueIn struct {
-	Kind      string `json:"kind"`               // 'owner' | 'user' | 'host' | 'agent'; default 'user'
-	Role      string `json:"role"`               // default 'principal' for kind=user, preserved otherwise
-	Handle    string `json:"handle"`             // display name (shown on Members tab)
+	Kind      string `json:"kind"`   // 'owner' | 'user' | 'host' | 'agent'; default 'user'
+	Role      string `json:"role"`   // default 'principal' for kind=user, preserved otherwise
+	Handle    string `json:"handle"` // display name (shown on Members tab)
 	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
@@ -72,6 +72,35 @@ func (s *Server) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// requireOwnerOrSteward gates team-state mutations that are not (yet) routed
+// through the governed propose flow — agent spawn/create and project update/
+// archive (#75). Legitimate callers are the human director (owner/operator)
+// and a steward-role agent acting on their behalf (ADR-005: "the steward
+// operates the system"). Worker agents, host tokens, and non-owner humans are
+// rejected with 403. This closes the "any team-scoped token can mutate" hole
+// (#75) WITHOUT the requireOwner blunt instrument, which would lock stewards
+// out of their core function. Concrete project CREATION stays governed
+// separately by the #59 agent→propose(project.create) gate in
+// handleCreateProject. Returns true if the caller passed; else writes 403.
+func (s *Server) requireOwnerOrSteward(w http.ResponseWriter, r *http.Request) bool {
+	tok, ok := auth.FromContext(r.Context())
+	if ok && tok != nil {
+		switch tok.Kind {
+		case "owner", "operator":
+			return true
+		case "agent":
+			var sc mcpScope
+			_ = json.Unmarshal([]byte(tok.ScopeJSON), &sc)
+			if s.resolveAgentRole(sc.AgentID, sc.Role) == "steward" {
+				return true
+			}
+		}
+	}
+	writeErr(w, http.StatusForbidden,
+		"this action requires an owner or steward token")
+	return false
 }
 
 func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {

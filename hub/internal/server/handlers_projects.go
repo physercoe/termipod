@@ -652,6 +652,9 @@ func (s *Server) projectStewardStarted(ctx context.Context, team, project string
 }
 
 func (s *Server) handleArchiveProject(w http.ResponseWriter, r *http.Request) {
+	if !s.requireOwnerOrSteward(w, r) { // #75
+		return
+	}
 	team := chi.URLParam(r, "team")
 	proj := chi.URLParam(r, "project")
 	res, err := s.writeDB.ExecContext(r.Context(), `
@@ -725,6 +728,9 @@ func positiveOrNull(n int64) any {
 }
 
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
+	if !s.requireOwnerOrSteward(w, r) { // #75
+		return
+	}
 	team := chi.URLParam(r, "team")
 	proj := chi.URLParam(r, "project")
 	var in projectPatch

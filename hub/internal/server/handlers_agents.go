@@ -67,6 +67,9 @@ type agentOut struct {
 }
 
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
+	if !s.requireOwnerOrSteward(w, r) { // #75
+		return
+	}
 	team := chi.URLParam(r, "team")
 	var in agentIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Handle == "" || in.Kind == "" {
@@ -960,6 +963,9 @@ func (s *Server) checkSpawnHostReachable(ctx context.Context, team, hostID strin
 // gated case we return 202 + attention_id and the actual spawn happens on
 // approve.
 func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
+	if !s.requireOwnerOrSteward(w, r) { // #75
+		return
+	}
 	team := chi.URLParam(r, "team")
 	var in spawnIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // F-08 — a posted channel event's sender and cost attribution are
@@ -116,5 +117,111 @@ func TestPostEvent_HostRelayUsesStampedAgentID(t *testing.T) {
 	}
 	if got := spentCents(t, s, worker); got != 300 {
 		t.Errorf("worker spent_cents = %d; want 300 (host-relayed cost)", got)
+	}
+}
+
+func TestListEvents_BeforeCursor(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	seedEventChannel(t, s, "chan-before")
+
+	// Post several events to the channel; they get sequential received_ts.
+	hostTok := mintToken(t, s, "host", map[string]any{"team": defaultTeamID, "role": "host"})
+	worker := seedAgentWithKind(t, s, defaultTeamID, "w1", "claude-code", "")
+	var recvTS []string
+	for i := 0; i < 5; i++ {
+		var buf bytes.Buffer
+		_ = json.NewEncoder(&buf).Encode(map[string]any{
+			"type":  "message",
+			"parts": []map[string]any{{"kind": "text", "text": "msg " + itos(i)}},
+		})
+		req := httptest.NewRequest(http.MethodPost,
+			"/v1/teams/"+defaultTeamID+"/channels/chan-before/events", &buf)
+		req.Header.Set("Authorization", "Bearer "+hostTok)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-Id", worker)
+		rr := httptest.NewRecorder()
+		s.router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("post event %d: %d body=%s", i, rr.Code, rr.Body.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+		// Read back the received_ts.
+		var evt struct {
+			ReceivedTS string `json:"received_ts"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &evt); err != nil {
+			t.Fatalf("decode event %d: %v", i, err)
+		}
+		recvTS = append(recvTS, evt.ReceivedTS)
+	}
+
+	// No params — returns events DESC (unchanged).
+	status, body := doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/channels/chan-before/events", nil)
+	if status != http.StatusOK {
+		t.Fatalf("list: %d body=%s", status, body)
+	}
+	var all []map[string]any
+	if err := json.Unmarshal(body, &all); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(all) != 5 {
+		t.Fatalf("no params got %d events, want 5", len(all))
+	}
+
+	// ?before=<newest+1> — all 5 should be returned DESC.
+	status, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/channels/chan-before/events?limit=10&before="+recvTS[4], nil)
+	if status != http.StatusOK {
+		t.Fatalf("before newest+1: %d body=%s", status, body)
+	}
+	var beforeAll []map[string]any
+	if err := json.Unmarshal(body, &beforeAll); err != nil {
+		t.Fatalf("decode before all: %v", err)
+	}
+	// All events except the cursor itself (strict <) should be returned.
+	if len(beforeAll) < 4 || len(beforeAll) > 5 {
+		t.Fatalf("before newest+1 got %d events, want 4 or 5", len(beforeAll))
+	}
+
+	// ?before=<oldest> — zero events (all have received_ts >= oldest).
+	status, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/channels/chan-before/events?limit=10&before="+recvTS[0], nil)
+	if status != http.StatusOK {
+		t.Fatalf("before oldest: %d body=%s", status, body)
+	}
+	var beforeNone []map[string]any
+	if err := json.Unmarshal(body, &beforeNone); err != nil {
+		t.Fatalf("decode before none: %v", err)
+	}
+	if len(beforeNone) != 0 {
+		t.Fatalf("before oldest got %d events, want 0", len(beforeNone))
+	}
+
+	// Walk backwards page by page with before=.
+	cursor := "9999"
+	var pages [][]map[string]any
+	for {
+		status, body = doReq(t, s, token, http.MethodGet,
+			"/v1/teams/"+defaultTeamID+"/channels/chan-before/events?limit=2&before="+cursor, nil)
+		if status != http.StatusOK {
+			t.Fatalf("walk page: %d body=%s", status, body)
+		}
+		var page []map[string]any
+		if err := json.Unmarshal(body, &page); err != nil {
+			t.Fatalf("decode walk page: %v", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		pages = append(pages, page)
+		cursor, _ = page[len(page)-1]["received_ts"].(string)
+	}
+	total := 0
+	for _, p := range pages {
+		total += len(p)
+	}
+	if total != 5 {
+		t.Errorf("before walk total = %d, want 5", total)
 	}
 }

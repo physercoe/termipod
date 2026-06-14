@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 )
 
 // countAuditActions returns a map of action → count of audit rows with that
@@ -188,7 +189,7 @@ func TestListAudit_ActionFilterAndTeamScope(t *testing.T) {
 	}
 
 	// No filter — the scoped team's rows only, never the "other" team's.
-	rows, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "", 100)
+	rows, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "", "", "", 100)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -197,7 +198,7 @@ func TestListAudit_ActionFilterAndTeamScope(t *testing.T) {
 	}
 
 	// action=run.create — filters down to the one matching row.
-	rows, err = s.listAuditEvents(ctx, defaultTeamID, "run.create", "", "", 100)
+	rows, err = s.listAuditEvents(ctx, defaultTeamID, "run.create", "", "", "", "", 100)
 	if err != nil {
 		t.Fatalf("list filtered: %v", err)
 	}
@@ -234,7 +235,7 @@ func TestListAudit_FiltersByProjectID(t *testing.T) {
 	// Row with neither target=project nor project_id meta — must NOT match.
 	mustExec("template.created", "template", "t1", "{}")
 
-	rows, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "p1", 100)
+	rows, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "p1", "", "", 100)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -254,3 +255,118 @@ func TestListAudit_FiltersByProjectID(t *testing.T) {
 	}
 }
 
+// TestListAudit_KeysetPagination verifies the before=/after= keyset cursors
+// on audit events. Seeds rows with distinct timestamps, walks both directions,
+// and confirms no-gap/no-overlap page boundaries.
+func TestListAudit_KeysetPagination(t *testing.T) {
+	s, _ := newA2ATestServer(t)
+	ctx := context.Background()
+
+	// Seed N audit rows with distinct timestamps so keyset boundaries are clean.
+	const N = 7
+	for i := 0; i < N; i++ {
+		ts := NowUTC()
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO audit_events (
+				id, team_id, ts, actor_kind, action, summary, meta_json
+			) VALUES (?, ?, ?, 'system', 'test.ping', ?, '{}')`,
+			NewID(), defaultTeamID, ts, "ping "+itos(i)); err != nil {
+			t.Fatalf("seed audit row %d: %v", i, err)
+		}
+		time.Sleep(10 * time.Millisecond) // ensure distinct ts
+	}
+
+	// No params — all rows returned DESC (unchanged behaviour).
+	all, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "", "", "", 100)
+	if err != nil {
+		t.Fatalf("full list: %v", err)
+	}
+	if len(all) != N {
+		t.Fatalf("full list got %d rows, want %d", len(all), N)
+	}
+
+	// ?limit=3 caps to 3 rows.
+	limited, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "", "", "", 3)
+	if err != nil {
+		t.Fatalf("limit 3: %v", err)
+	}
+	if len(limited) != 3 {
+		t.Fatalf("limit 3 got %d rows, want 3", len(limited))
+	}
+
+	// Walk backward with before= from newest to oldest.
+	cursor := "9999" // far future — all rows are before this
+	var backPages [][]AuditRow
+	for {
+		page, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "", cursor, "", 3)
+		if err != nil {
+			t.Fatalf("before page: %v", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		backPages = append(backPages, page)
+		cursor = page[len(page)-1].TS // oldest in this page = next cursor
+	}
+	if len(backPages) < 2 {
+		t.Fatalf("before walk got %d pages, want >=2 from %d rows with limit 3", len(backPages), N)
+	}
+	// Every page must be DESC.
+	for i, p := range backPages {
+		for j := 1; j < len(p); j++ {
+			if p[j].TS > p[j-1].TS {
+				t.Errorf("before page %d not DESC at index %d: %s > %s", i, j, p[j].TS, p[j-1].TS)
+			}
+		}
+	}
+	// No overlap between adjacent backward pages.
+	for i := 1; i < len(backPages); i++ {
+		prevNewest := backPages[i-1][0].TS
+		for _, r := range backPages[i] {
+			if r.TS >= prevNewest {
+				t.Errorf("backward page %d contains row ts=%s overlapping prior page newest=%s",
+					i, r.TS, prevNewest)
+			}
+		}
+	}
+	backTotal := 0
+	for _, p := range backPages {
+		backTotal += len(p)
+	}
+	if backTotal != N {
+		t.Errorf("backward walk total = %d, want %d", backTotal, N)
+	}
+
+	// Walk forward with after= from oldest to newest.
+	cursor = "0000" // far past
+	var fwdPages [][]AuditRow
+	for {
+		page, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "", "", cursor, 3)
+		if err != nil {
+			t.Fatalf("after page: %v", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		fwdPages = append(fwdPages, page)
+		cursor = page[len(page)-1].TS // newest in this page = next cursor
+	}
+	// Every page must be ASC.
+	for i, p := range fwdPages {
+		for j := 1; j < len(p); j++ {
+			if p[j].TS < p[j-1].TS {
+				t.Errorf("after page %d not ASC at index %d: %s < %s", i, j, p[j].TS, p[j-1].TS)
+			}
+		}
+	}
+	fwdTotal := 0
+	for _, p := range fwdPages {
+		fwdTotal += len(p)
+	}
+	if fwdTotal != N {
+		t.Errorf("forward walk total = %d, want %d", fwdTotal, N)
+	}
+}
+
+// itos converts int to string for seed summaries (tiny helper, avoids strconv import).
+func itos(n int) string { return string(rune('0' + n)) }

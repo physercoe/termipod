@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -117,7 +118,8 @@ func (s *Server) handlePutHostA2ACards(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleListTeamA2ACards returns cards across all hosts in the team.
-// Supports ?handle=<handle> to filter (steward calls this to find workers).
+// Supports ?handle=<handle> to filter (steward calls this to find workers)
+// and ?limit=N to cap rows (absent = unlimited, current behaviour).
 func (s *Server) handleListTeamA2ACards(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	handle := r.URL.Query().Get("handle")
@@ -130,6 +132,19 @@ func (s *Server) handleListTeamA2ACards(w http.ResponseWriter, r *http.Request) 
 		args = append(args, handle)
 	}
 	query += ` ORDER BY host_id, agent_id`
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
 
 	rows, err := s.db.QueryContext(r.Context(), query, args...)
 	if err != nil {

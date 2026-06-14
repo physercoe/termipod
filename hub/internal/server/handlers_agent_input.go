@@ -448,7 +448,7 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 
 	ok, err := s.agentBelongsToTeam(r, team, agent)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -492,7 +492,7 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 							"; pick a fresh template that exposes it")
 					return
 				default:
-					writeErr(w, http.StatusInternalServerError, err.Error())
+					s.writeDBErr(w, err)
 					return
 				}
 			}
@@ -579,7 +579,7 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 
 	payloadBytes, err := json.Marshal(payloadMap)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	payload := string(payloadBytes)
@@ -593,7 +593,7 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		PayloadJSON: payload,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.touchSession(r.Context(), sessionID)

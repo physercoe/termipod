@@ -62,7 +62,7 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	ok, err := s.projectBelongsToTeam(r, team, in.ProjectID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -134,7 +134,7 @@ func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 	q += ` ORDER BY s.created_at`
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -149,7 +149,7 @@ func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 			&sch.CronExpr, &params, &enabled,
 			&nextAt, &lastAt, &lastPlan, &sch.CreatedAt,
 		); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		sch.ParametersJSON = json.RawMessage(params)
@@ -197,7 +197,7 @@ func (s *Server) handlePatchSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -228,7 +228,7 @@ func (s *Server) handlePatchSchedule(w http.ResponseWriter, r *http.Request) {
 	args = append(args, id)
 	q := `UPDATE schedules SET ` + joinCSV(sets) + ` WHERE id = ?`
 	if _, err := s.writeDB.ExecContext(r.Context(), q, args...); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -250,7 +250,7 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 		 WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
 		id, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -276,7 +276,7 @@ func (s *Server) handleRunSchedule(w http.ResponseWriter, r *http.Request) {
 		SELECT COUNT(1) FROM schedules s JOIN projects p ON p.id = s.project_id
 		 WHERE s.id = ? AND p.team_id = ?`, id, team).Scan(&n)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if n == 0 {
@@ -285,7 +285,7 @@ func (s *Server) handleRunSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	planID, err := s.fireSchedule(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "schedule.run", "schedule", id,

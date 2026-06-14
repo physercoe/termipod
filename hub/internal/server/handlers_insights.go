@@ -100,7 +100,7 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	hubInsightsCache.mu.Unlock()
 
 	if err := s.buildInsightsShards(r.Context(), scope); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	out, err := s.buildInsightsResponse(r.Context(), scope, since, until)
@@ -113,13 +113,13 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 		err = s.fillInsightsByProject(r.Context(), scope, out)
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
 	body, err := json.Marshal(out)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	hubInsightsCache.mu.Lock()

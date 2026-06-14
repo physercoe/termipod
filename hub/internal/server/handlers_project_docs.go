@@ -102,7 +102,7 @@ func (s *Server) handleListProjectDocs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -146,7 +146,7 @@ func (s *Server) handleGetProjectDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	target := filepath.Join(root, filepath.Clean("/"+rel))
@@ -171,7 +171,7 @@ func (s *Server) handleGetProjectDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", mimeForDoc(target))

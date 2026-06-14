@@ -80,13 +80,13 @@ func (s *Server) handlePostRunImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -104,12 +104,12 @@ func (s *Server) handlePostRunImages(w http.ResponseWriter, r *http.Request) {
 				caption  = excluded.caption`,
 			NewID(), runID, img.MetricName, img.Step, img.BlobSHA, img.Caption, now,
 		); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"count": len(in.Images)})
@@ -129,7 +129,7 @@ func (s *Server) handleGetRunImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -144,7 +144,7 @@ func (s *Server) handleGetRunImages(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -154,13 +154,13 @@ func (s *Server) handleGetRunImages(w http.ResponseWriter, r *http.Request) {
 		var row runImageOut
 		if err := rows.Scan(&row.ID, &row.MetricName, &row.Step,
 			&row.BlobSHA, &row.Caption, &row.CreatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)

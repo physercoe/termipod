@@ -106,7 +106,7 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if !agentProjectID.Valid || agentProjectID.String != in.ScopeID {
@@ -127,7 +127,7 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 		now, now, in.WorktreePath, in.SpawnSpecYAML,
 	)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "session.open", "session", id,
@@ -170,7 +170,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	q += " ORDER BY last_active_at DESC LIMIT 200"
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -185,7 +185,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			&ses.Status, &ses.OpenedAt, &ses.LastActiveAt, &closedAt,
 			&ses.WorktreePath, &ses.SpawnSpecYAML,
 			&ses.SessionNameHint); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if closedAt.Valid {
@@ -222,7 +222,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if closedAt.Valid {
@@ -256,7 +256,7 @@ func (s *Server) handleArchiveSession(w http.ResponseWriter, r *http.Request) {
 		 WHERE team_id = ? AND id = ? AND status != 'archived'`,
 		now, now, team, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -296,7 +296,7 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 		 WHERE team_id = ? AND id = ? AND status != 'deleted'`,
 		*in.Title, team, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -334,7 +334,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if status == "active" || status == "paused" {
@@ -360,7 +360,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	// already-deleted (so unlisted) session, which the next delete heals.
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer tx.Rollback()
@@ -369,7 +369,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		`UPDATE sessions SET status='deleted', closed_at = COALESCE(closed_at, ?)
 		   WHERE team_id = ? AND id = ?`,
 		now, team, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	for _, table := range []string{
@@ -378,12 +378,12 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		if _, err := tx.ExecContext(r.Context(),
 			`UPDATE `+table+` SET session_id = NULL WHERE session_id = ?`,
 			id); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.clearSessionFromEvents(r.Context(), team, id)
@@ -464,7 +464,7 @@ func (s *Server) handleForkSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if srcStatus.String != "archived" {
@@ -496,7 +496,7 @@ func (s *Server) handleForkSession(w http.ResponseWriter, r *http.Request) {
 			 WHERE team_id = ? AND current_agent_id = ?
 			   AND status = 'active'`, team, targetAgent).Scan(&n)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if n > 0 {
@@ -539,7 +539,7 @@ func (s *Server) handleForkSession(w http.ResponseWriter, r *http.Request) {
 		targetAgent, forkStatus, now, now,
 	)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -754,7 +754,7 @@ func (s *Server) handleResumeAgentSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	out, code, rerr := s.resumePausedSession(r.Context(), team, sessionID)

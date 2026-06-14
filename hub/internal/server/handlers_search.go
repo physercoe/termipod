@@ -45,7 +45,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		ORDER BY e.received_ts DESC
 		LIMIT ?`, q, team, limit)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -53,7 +53,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, received, chID, typ, from, parts string
 		if err := rows.Scan(&id, &received, &chID, &typ, &from, &parts); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, map[string]any{

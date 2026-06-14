@@ -194,9 +194,7 @@ func TestSessions_RejectDuplicateActiveWorktree(t *testing.T) {
 	status, body = doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/sessions",
 		map[string]any{"title": "second", "worktree_path": "/tmp/wt/A"})
-	if status != http.StatusInternalServerError {
-		// SQLite UNIQUE constraint surfaces as 500 today; if we add a
-		// 409 path later this test becomes its anchor.
+	if status != http.StatusConflict {
 		t.Errorf("second open should fail; got status=%d body=%s",
 			status, body)
 	}

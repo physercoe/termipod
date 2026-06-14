@@ -18,7 +18,7 @@ func (s *Server) handleGetAgentDigest(w http.ResponseWriter, r *http.Request) {
 	agent := chi.URLParam(r, "agent")
 	ok, err := s.agentBelongsToTeam(r, team, agent)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -27,7 +27,7 @@ func (s *Server) handleGetAgentDigest(w http.ResponseWriter, r *http.Request) {
 	}
 	d, err := s.ensureAgentDigest(r.Context(), agent, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	out := digestJSON(d)
@@ -46,7 +46,7 @@ func (s *Server) handleGetSessionDigest(w http.ResponseWriter, r *http.Request) 
 	session := chi.URLParam(r, "session")
 	ok, err := s.sessionBelongsToTeam(r, team, session)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -56,7 +56,7 @@ func (s *Server) handleGetSessionDigest(w http.ResponseWriter, r *http.Request) 
 
 	agentIDs, err := s.sessionAgentIDs(r.Context(), team, session)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	rollup := newAgentDigest("", team)

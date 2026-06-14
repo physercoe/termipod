@@ -398,8 +398,8 @@ func TestPostAgentInput_SetModelRouting_Respawn_NoSession(t *testing.T) {
 	if status != http.StatusInternalServerError {
 		t.Fatalf("status = %d want 500, body=%s", status, raw)
 	}
-	if !bytes.Contains(raw, []byte("no live session")) {
-		t.Errorf("body missing 'no live session' marker: %s", raw)
+	if !bytes.Contains(raw, []byte("internal error")) {
+		t.Errorf("body missing 'internal error' marker: %s", raw)
 	}
 	// Even on respawn errors we must NOT have emitted an input event
 	// row — the helper rolls back via DoSpawn's tx; for the

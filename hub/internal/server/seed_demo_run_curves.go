@@ -25,32 +25,32 @@ type demoCurve struct {
 // of the dominant wandb/tensorboard plot archetypes is represented at least
 // once:
 //
-//   Type 1 (single scalar):
-//     - learning_rate, grad_norm, throughput/tokens_per_sec
+//	Type 1 (single scalar):
+//	  - learning_rate, grad_norm, throughput/tokens_per_sec
 //
-//   Type 2 (multi-series overlay, shared y-axis):
-//     - loss/{train,val}                 — train vs val loss
-//     - smooth/{train_raw,train_ema}     — raw curve vs EMA-smoothed
-//     - sys/{gpu_util,gpu_mem,cpu_util}  — three system metrics (%)
+//	Type 2 (multi-series overlay, shared y-axis):
+//	  - loss/{train,val}                 — train vs val loss
+//	  - smooth/{train_raw,train_ema}     — raw curve vs EMA-smoothed
+//	  - sys/{gpu_util,gpu_mem,cpu_util}  — three system metrics (%)
 //
-//   Type 3 (percentile band / distribution over time):
-//     - weights_dist/{p5,p25,p50,p75,p95} — weight-magnitude quantiles,
-//       all five overlaid so the UI sees a band thickening over training.
+//	Type 3 (percentile band / distribution over time):
+//	  - weights_dist/{p5,p25,p50,p75,p95} — weight-magnitude quantiles,
+//	    all five overlaid so the UI sees a band thickening over training.
 //
-//   Type 4 (sparse eval metrics — points every ~N steps, not every step):
-//     - eval/{perplexity,bleu,accuracy} — three eval metrics logged at
-//       10 checkpoints across training. Visually distinct from dense
-//       curves (each tile shows ~10 vertices, not 100).
+//	Type 4 (sparse eval metrics — points every ~N steps, not every step):
+//	  - eval/{perplexity,bleu,accuracy} — three eval metrics logged at
+//	    10 checkpoints across training. Visually distinct from dense
+//	    curves (each tile shows ~10 vertices, not 100).
 //
-//   Type 5 (non-monotone / phase transition):
-//     - grokking/success_rate — flat near zero for the first ~60% of
-//       training, then a sharp sigmoid ramp to near 1.0. Mirrors the
-//       canonical "grokking" shape.
+//	Type 5 (non-monotone / phase transition):
+//	  - grokking/success_rate — flat near zero for the first ~60% of
+//	    training, then a sharp sigmoid ramp to near 1.0. Mirrors the
+//	    canonical "grokking" shape.
 //
-//   Type 6 (per-layer overlay):
-//     - grads/{layer0,layer1,layer2,layer3} — layer-wise gradient
-//       norms, four series on one tile. Early-layer grads decay
-//       faster than late-layer grads, so the lines visibly diverge.
+//	Type 6 (per-layer overlay):
+//	  - grads/{layer0,layer1,layer2,layer3} — layer-wise gradient
+//	    norms, four series on one tile. Early-layer grads decay
+//	    faster than late-layer grads, so the lines visibly diverge.
 //
 // Same deterministic rng is shared across all curves so the seed=1
 // reproducible-demo guarantee still holds.
@@ -223,8 +223,8 @@ func synthRunCurves(rng *rand.Rand, size int, optimizer string, iters, points in
 	for i, p := range trainPts {
 		step := p[0].(int64)
 		frac := float64(step) / float64(iters)
-		center := 0.02 + 0.06*frac    // mean |w| drifts up over training
-		spread := 0.008 + 0.022*frac  // std of |w| grows ~3x
+		center := 0.02 + 0.06*frac   // mean |w| drifts up over training
+		spread := 0.008 + 0.022*frac // std of |w| grows ~3x
 		for k, off := range pOffsets {
 			v := center + off*spread + (rng.Float64()-0.5)*0.002
 			if v < 0 {

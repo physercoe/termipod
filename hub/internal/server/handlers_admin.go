@@ -81,7 +81,7 @@ func (s *Server) fleetStopVerb(w http.ResponseWriter, r *http.Request, verb stri
 
 	hosts, err := s.listLiveHosts(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -299,7 +299,7 @@ func (s *Server) handleAdminFleetUpdate(w http.ResponseWriter, r *http.Request) 
 	if in.Target == "hosts" || in.Target == "both" {
 		hosts, err := s.listLiveHosts(r.Context())
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		for _, h := range hosts {

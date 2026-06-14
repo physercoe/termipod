@@ -74,7 +74,7 @@ func (s *Server) handleAdminTokensRotate(w http.ResponseWriter, r *http.Request)
 			"no active host token to rotate — issue one with `tokens issue --kind host` first")
 		return
 	default:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -96,7 +96,7 @@ func (s *Server) handleAdminTokensRotate(w http.ResponseWriter, r *http.Request)
 	// Broadcast host.token_rotate to every live host.
 	hosts, err := s.listLiveHosts(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	allAcked := true

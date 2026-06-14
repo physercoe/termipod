@@ -46,8 +46,8 @@ func isValidSectionState(s string) bool {
 // structuredBody is the over-the-wire shape mirroring
 // docs/reference/project-phase-schema.md §4.1.
 type structuredBody struct {
-	SchemaVersion int                `json:"schema_version"`
-	SchemaID      string             `json:"schema_id"`
+	SchemaVersion int                 `json:"schema_version"`
+	SchemaID      string              `json:"schema_id"`
 	Sections      []structuredSection `json:"sections"`
 }
 
@@ -134,9 +134,9 @@ func (s *Server) writeStructuredDocument(
 
 // patchSectionIn carries the manual-edit payload for PATCH section.
 type patchSectionIn struct {
-	Body                     string `json:"body"`
-	ExpectedLastAuthoredAt   string `json:"expected_last_authored_at,omitempty"`
-	LastAuthoredBySessionID  string `json:"last_authored_by_session_id,omitempty"`
+	Body                    string `json:"body"`
+	ExpectedLastAuthoredAt  string `json:"expected_last_authored_at,omitempty"`
+	LastAuthoredBySessionID string `json:"last_authored_by_session_id,omitempty"`
 }
 
 // handlePatchDocumentSection — PATCH /documents/{doc}/sections/{slug}.
@@ -171,10 +171,10 @@ func (s *Server) handlePatchDocumentSection(w http.ResponseWriter, r *http.Reque
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusPreconditionFailed)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"error":             "section was modified elsewhere",
-			"server_section":    sec,
-			"expected":          in.ExpectedLastAuthoredAt,
-			"actual":            sec.LastAuthoredAt,
+			"error":          "section was modified elsewhere",
+			"server_section": sec,
+			"expected":       in.ExpectedLastAuthoredAt,
+			"actual":         sec.LastAuthoredAt,
 		})
 		return
 	}
@@ -197,17 +197,17 @@ func (s *Server) handlePatchDocumentSection(w http.ResponseWriter, r *http.Reque
 		body.SchemaVersion = 1
 	}
 	if err := s.writeStructuredDocument(r.Context(), docID, body); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "document.section_authored",
 		"document", docID,
 		fmt.Sprintf("authored %s · %s", sec.Title, slug),
 		map[string]any{
-			"project_id": projectID,
+			"project_id":  projectID,
 			"document_id": docID,
-			"section":    slug,
-			"status":     sec.Status,
+			"section":     slug,
+			"status":      sec.Status,
 		})
 	writeJSON(w, http.StatusOK, sec)
 }
@@ -267,7 +267,7 @@ func (s *Server) handleSetDocumentSectionStatus(w http.ResponseWriter, r *http.R
 	}
 	body.Sections[idx] = sec
 	if err := s.writeStructuredDocument(r.Context(), docID, body); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	auditAction := "document.section_authored"
@@ -277,10 +277,10 @@ func (s *Server) handleSetDocumentSectionStatus(w http.ResponseWriter, r *http.R
 	s.recordAudit(r.Context(), team, auditAction, "document", docID,
 		fmt.Sprintf("%s · %s · %s", in.Status, sec.Title, slug),
 		map[string]any{
-			"project_id": projectID,
+			"project_id":  projectID,
 			"document_id": docID,
-			"section":    slug,
-			"status":     in.Status,
+			"section":     slug,
+			"status":      in.Status,
 		})
 	writeJSON(w, http.StatusOK, sec)
 }

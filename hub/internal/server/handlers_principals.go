@@ -17,10 +17,10 @@ import (
 // deliberately small — last_seen_at is omitted until we add a touch-on-use
 // column to auth_tokens (tracked as roadmap).
 type principalOut struct {
-	Handle         string `json:"handle"`
-	FirstIssuedAt  string `json:"first_issued_at"`
-	TokenCount     int    `json:"token_count"`
-	Unnamed        bool   `json:"unnamed,omitempty"`
+	Handle        string `json:"handle"`
+	FirstIssuedAt string `json:"first_issued_at"`
+	TokenCount    int    `json:"token_count"`
+	Unnamed       bool   `json:"unnamed,omitempty"`
 }
 
 func (s *Server) handleListPrincipals(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +31,7 @@ func (s *Server) handleListPrincipals(w http.ResponseWriter, r *http.Request) {
 		  WHERE revoked_at IS NULL
 		  ORDER BY created_at`)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -46,7 +46,7 @@ func (s *Server) handleListPrincipals(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var scopeJSON, createdAt string
 		if err := rows.Scan(&scopeJSON, &createdAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		var sc struct {
@@ -72,7 +72,7 @@ func (s *Server) handleListPrincipals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 

@@ -46,7 +46,7 @@ func (s *Server) handleListAgentTurns(w http.ResponseWriter, r *http.Request) {
 	agent := chi.URLParam(r, "agent")
 	ok, err := s.agentBelongsToTeam(r, team, agent)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -57,14 +57,14 @@ func (s *Server) handleListAgentTurns(w http.ResponseWriter, r *http.Request) {
 	// same lazy backfill the digest read does, so a never-folded agent or a
 	// best-effort fold that lagged still lists every turn.
 	if _, err := s.ensureAgentDigest(r.Context(), agent, team); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
 	after, limit := turnQueryParams(r)
 	turns, err := s.listAgentTurns(r.Context(), agent, after, limit)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -78,7 +78,7 @@ func (s *Server) handleListSessionTurns(w http.ResponseWriter, r *http.Request) 
 	session := chi.URLParam(r, "session")
 	ok, err := s.sessionBelongsToTeam(r, team, session)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !ok {
@@ -88,7 +88,7 @@ func (s *Server) handleListSessionTurns(w http.ResponseWriter, r *http.Request) 
 
 	agentIDs, err := s.sessionAgentIDs(r.Context(), team, session)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	for _, aid := range agentIDs {
@@ -101,7 +101,7 @@ func (s *Server) handleListSessionTurns(w http.ResponseWriter, r *http.Request) 
 	afterTS, limit := turnSessionQueryParams(r)
 	turns, err := s.listSessionTurns(r.Context(), team, session, afterTS, limit)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

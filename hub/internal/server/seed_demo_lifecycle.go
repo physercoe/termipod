@@ -429,7 +429,7 @@ func lifecycleSpecs() []lifecycleSpec {
 			},
 			tasks: []lifecycleTaskSeed{
 				{title: "Sketch out the question on the whiteboard",
-					body: "Capture the framing before the steward formalises it.",
+					body:   "Capture the framing before the steward formalises it.",
 					status: "in_progress", parentIdx: -1},
 				{title: "Decide whether to compare Lion vs AdamW only or include Sophia",
 					status: "todo", parentIdx: -1},
@@ -487,7 +487,7 @@ func lifecycleSpecs() []lifecycleSpec {
 			},
 			tasks: []lifecycleTaskSeed{
 				{title: "Triage open redlines on the lit-review draft",
-					body: "Two annotations are open on the `gaps` section; resolve before ratifying.",
+					body:   "Two annotations are open on the `gaps` section; resolve before ratifying.",
 					status: "in_progress", parentIdx: -1},
 				{title: "Confirm Lin et al. 2025 §3.2 is the right citation",
 					status: "todo", parentIdx: 0},
@@ -557,9 +557,9 @@ func lifecycleSpecs() []lifecycleSpec {
 				deliv := findDeliverableByLogID(dls, "lit-review-doc")
 				return seedCriteria(c, []criterionSpec{
 					{
-						logID:        "lit-review-ratified",
-						phase:        "lit-review",
-						kind:         "gate",
+						logID:         "lit-review-ratified",
+						phase:         "lit-review",
+						kind:          "gate",
 						deliverableID: deliv,
 						body: map[string]any{
 							"gate":   "deliverable.ratified",
@@ -569,9 +569,9 @@ func lifecycleSpecs() []lifecycleSpec {
 						required: true,
 					},
 					{
-						logID:        "min-citations",
-						phase:        "lit-review",
-						kind:         "metric",
+						logID:         "min-citations",
+						phase:         "lit-review",
+						kind:          "metric",
 						deliverableID: deliv,
 						body: map[string]any{
 							"metric":     "lit_review.citation_count",
@@ -580,9 +580,9 @@ func lifecycleSpecs() []lifecycleSpec {
 							"evaluation": "auto",
 							"observed":   8,
 						},
-						state:        "met",
-						evidenceRef:  "metric:lit_review.citation_count=8",
-						required:     false,
+						state:       "met",
+						evidenceRef: "metric:lit_review.citation_count=8",
+						required:    false,
 					},
 				})
 			},
@@ -644,7 +644,7 @@ func lifecycleSpecs() []lifecycleSpec {
 			},
 			tasks: []lifecycleTaskSeed{
 				{title: "Address critic.v1's red-team findings on the method doc",
-					body: "Critic flagged two assumptions; reconcile before ratification.",
+					body:   "Critic flagged two assumptions; reconcile before ratification.",
 					status: "in_progress", parentIdx: -1},
 				{title: "Lock the eval metric set (loss + accuracy + token-count)",
 					status: "todo", parentIdx: -1},
@@ -738,36 +738,36 @@ func lifecycleSpecs() []lifecycleSpec {
 						deliverableID: lit,
 						body: map[string]any{"gate": "deliverable.ratified",
 							"params": map[string]any{"deliverable_id": lit}},
-						state:        "met",
-						evidenceRef:  "deliverable.ratified:" + lit,
-						required:     true,
+						state:       "met",
+						evidenceRef: "deliverable.ratified:" + lit,
+						required:    true,
 					},
 					{
 						logID: "min-citations", phase: "lit-review", kind: "metric",
 						deliverableID: lit,
 						body: map[string]any{"metric": "lit_review.citation_count",
 							"operator": ">=", "threshold": 5, "evaluation": "auto", "observed": 11},
-						state:        "met",
-						evidenceRef:  "metric:lit_review.citation_count=11",
-						required:     false,
+						state:       "met",
+						evidenceRef: "metric:lit_review.citation_count=11",
+						required:    false,
 					},
 					{
 						logID: "method-ratified", phase: "method", kind: "gate",
 						deliverableID: meth,
 						body: map[string]any{"gate": "deliverable.ratified",
 							"params": map[string]any{"deliverable_id": meth}},
-						state:        "met",
-						evidenceRef:  "deliverable.ratified:" + meth,
-						required:     true,
+						state:       "met",
+						evidenceRef: "deliverable.ratified:" + meth,
+						required:    true,
 					},
 					{
 						logID: "budget-within-cap", phase: "method", kind: "text",
 						deliverableID: meth,
 						body: map[string]any{
 							"text": "Budget cap declared; total estimated cost under budget."},
-						state:        "met",
-						evidenceRef:  "approved:director",
-						required:     true,
+						state:       "met",
+						evidenceRef: "approved:director",
+						required:    true,
 					},
 				})
 			},
@@ -827,7 +827,7 @@ func lifecycleSpecs() []lifecycleSpec {
 			},
 			tasks: []lifecycleTaskSeed{
 				{title: "Babysit the 384/Lion sweep — abort if loss diverges past iter 500",
-					body: "Director set the abort threshold; watch the eval curve.",
+					body:   "Director set the abort threshold; watch the eval curve.",
 					status: "in_progress", parentIdx: -1},
 				{title: "Tag the training revision once the run lands",
 					status: "todo", parentIdx: -1},
@@ -999,7 +999,7 @@ func lifecycleSpecs() []lifecycleSpec {
 					{logID: "budget-within-cap", phase: "method", kind: "text",
 						deliverableID: meth,
 						body:          map[string]any{"text": "Budget cap declared; total estimated cost under budget."},
-						state: "met", evidenceRef: "approved:director", required: true},
+						state:         "met", evidenceRef: "approved:director", required: true},
 					{logID: "best-metric-threshold", phase: "experiment", kind: "metric",
 						deliverableID: exp,
 						body: map[string]any{
@@ -1080,7 +1080,7 @@ func lifecycleSpecs() []lifecycleSpec {
 			},
 			tasks: []lifecycleTaskSeed{
 				{title: "Pick figure 3 caption — keep both candidates?",
-					body: "Paper-writer surfaced two variants; pick one before critic reviews.",
+					body:   "Paper-writer surfaced two variants; pick one before critic reviews.",
 					status: "in_progress", parentIdx: -1},
 				{title: "Confirm the abstract's headline numbers match the eval JSON",
 					status: "todo", parentIdx: -1},
@@ -1286,10 +1286,10 @@ func lifecycleSpecs() []lifecycleSpec {
 					// materials packaging since the venue accepts code-on-
 					// GitHub in place of an appendix.
 					{logID: "supplementary-materials-packaged", phase: "paper",
-						kind: "text",
+						kind:          "text",
 						deliverableID: paper,
 						body: map[string]any{
-							"check":     "Supplementary materials archive uploaded",
+							"check":      "Supplementary materials archive uploaded",
 							"acceptable": "zip of figures + scripts",
 						},
 						state:       "waived",
@@ -1846,7 +1846,7 @@ func demoRunBundle() map[string]any {
 		"version": 1,
 		"files": []map[string]any{
 			{
-				"path":    "train.py",
+				"path": "train.py",
 				"content": "" + `"""Single-file training loop used by the ablation sweep."""
 import torch
 from torch.optim import AdamW
@@ -1873,7 +1873,7 @@ if __name__ == "__main__":
 `,
 			},
 			{
-				"path":    "config.py",
+				"path": "config.py",
 				"content": "" + `from dataclasses import dataclass
 
 
@@ -1901,7 +1901,7 @@ class RunConfig:
 `,
 			},
 			{
-				"path":    "README.md",
+				"path": "README.md",
 				"content": "" + `# Optimizer ablation — run bundle
 
 Reference implementation that produced the eval curves on the

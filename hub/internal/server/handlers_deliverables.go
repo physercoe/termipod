@@ -171,7 +171,7 @@ func (s *Server) handleListDeliverables(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	q := `SELECT ` + deliverableSelectCols + `
@@ -189,7 +189,7 @@ func (s *Server) handleListDeliverables(w http.ResponseWriter, r *http.Request) 
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -198,7 +198,7 @@ func (s *Server) handleListDeliverables(w http.ResponseWriter, r *http.Request) 
 	for rows.Next() {
 		d, err := s.scanDeliverableRow(rows)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if include {
@@ -225,7 +225,7 @@ func (s *Server) handleGetDeliverable(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	row := s.db.QueryRowContext(r.Context(), `SELECT `+deliverableSelectCols+`
@@ -236,12 +236,12 @@ func (s *Server) handleGetDeliverable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	comps, err := s.loadDeliverableComponents(r, d.ID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	d.Components = comps
@@ -256,7 +256,7 @@ func (s *Server) handleCreateDeliverable(w http.ResponseWriter, r *http.Request)
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var in deliverableIn
@@ -292,7 +292,7 @@ func (s *Server) handleCreateDeliverable(w http.ResponseWriter, r *http.Request)
 	now := NowUTC()
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer tx.Rollback()
@@ -301,7 +301,7 @@ func (s *Server) handleCreateDeliverable(w http.ResponseWriter, r *http.Request)
 			ratification_state, required, ord, created_at, updated_at)
 		VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
 		id, project, in.Phase, in.Kind, required, ord, now, now); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	for _, c := range in.Components {
@@ -318,12 +318,12 @@ func (s *Server) handleCreateDeliverable(w http.ResponseWriter, r *http.Request)
 				ref_id, required, ord, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			NewID(), id, c.Kind, c.RefID, creq, cord, now); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -351,12 +351,12 @@ func (s *Server) handleCreateDeliverable(w http.ResponseWriter, r *http.Request)
 		FROM deliverables WHERE id = ?`, id)
 	d, err := s.scanDeliverableRow(row)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	comps, err := s.loadDeliverableComponents(r, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	d.Components = comps
@@ -372,7 +372,7 @@ func (s *Server) handlePatchDeliverable(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var in deliverablePatchIn
@@ -390,7 +390,7 @@ func (s *Server) handlePatchDeliverable(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if in.RatificationState != nil {
@@ -437,7 +437,7 @@ func (s *Server) handlePatchDeliverable(w http.ResponseWriter, r *http.Request) 
 	q += ` WHERE id = ? AND project_id = ?`
 	args = append(args, id, project)
 	if _, err := s.writeDB.ExecContext(r.Context(), q, args...); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "deliverable.updated",
@@ -453,12 +453,12 @@ func (s *Server) handlePatchDeliverable(w http.ResponseWriter, r *http.Request) 
 		FROM deliverables WHERE id = ?`, id)
 	d, err := s.scanDeliverableRow(row)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	comps, err := s.loadDeliverableComponents(r, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	d.Components = comps
@@ -474,7 +474,7 @@ func (s *Server) handleRatifyDeliverable(w http.ResponseWriter, r *http.Request)
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var in deliverableRatifyIn
@@ -494,7 +494,7 @@ func (s *Server) handleRatifyDeliverable(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if curState == deliverableStateRatified {
@@ -527,7 +527,7 @@ func (s *Server) handleRatifyDeliverable(w http.ResponseWriter, r *http.Request)
 		    updated_at = ?
 		WHERE id = ? AND project_id = ?`,
 		now, actor, now, id, project); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "deliverable.ratified",
@@ -545,7 +545,7 @@ func (s *Server) handleRatifyDeliverable(w http.ResponseWriter, r *http.Request)
 		FROM deliverables WHERE id = ?`, id)
 	d, err := s.scanDeliverableRow(row)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if _, cerr := s.cascadeDeliverableRatified(
@@ -555,7 +555,7 @@ func (s *Server) handleRatifyDeliverable(w http.ResponseWriter, r *http.Request)
 	}
 	comps, err := s.loadDeliverableComponents(r, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	d.Components = comps
@@ -571,7 +571,7 @@ func (s *Server) handleUnratifyDeliverable(w http.ResponseWriter, r *http.Reques
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var in deliverableRatifyIn
@@ -587,7 +587,7 @@ func (s *Server) handleUnratifyDeliverable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if curState != deliverableStateRatified {
@@ -602,7 +602,7 @@ func (s *Server) handleUnratifyDeliverable(w http.ResponseWriter, r *http.Reques
 		    ratified_by_actor = NULL,
 		    updated_at = ?
 		WHERE id = ? AND project_id = ?`, now, id, project); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "deliverable.unratified",
@@ -616,7 +616,7 @@ func (s *Server) handleUnratifyDeliverable(w http.ResponseWriter, r *http.Reques
 		FROM deliverables WHERE id = ?`, id)
 	d, err := s.scanDeliverableRow(row)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// Re-pend any gate criterion this deliverable's ratification had auto-
@@ -629,7 +629,7 @@ func (s *Server) handleUnratifyDeliverable(w http.ResponseWriter, r *http.Reques
 	}
 	comps, err := s.loadDeliverableComponents(r, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	d.Components = comps
@@ -645,7 +645,7 @@ func (s *Server) handleAddDeliverableComponent(w http.ResponseWriter, r *http.Re
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var in deliverableComponentIn
@@ -671,7 +671,7 @@ func (s *Server) handleAddDeliverableComponent(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	required := 1
@@ -689,7 +689,7 @@ func (s *Server) handleAddDeliverableComponent(w http.ResponseWriter, r *http.Re
 			required, ord, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		id, deliverable, in.Kind, in.RefID, required, ord, now); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "deliverable_component.added",
@@ -719,7 +719,7 @@ func (s *Server) handleRemoveDeliverableComponent(w http.ResponseWriter, r *http
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	res, err := s.writeDB.ExecContext(r.Context(), `
@@ -729,7 +729,7 @@ func (s *Server) handleRemoveDeliverableComponent(w http.ResponseWriter, r *http
 		   AND deliverable_id IN (SELECT id FROM deliverables WHERE project_id = ?)`,
 		component, deliverable, project)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -759,7 +759,7 @@ func (s *Server) handleListProjectCriteria(w http.ResponseWriter, r *http.Reques
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	q := `SELECT id, project_id, phase, deliverable_id, kind, body, state,
@@ -778,7 +778,7 @@ func (s *Server) handleListProjectCriteria(w http.ResponseWriter, r *http.Reques
 	q += ` ORDER BY ord ASC, id ASC`
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -803,7 +803,7 @@ func (s *Server) handleListProjectCriteria(w http.ResponseWriter, r *http.Reques
 		var req int
 		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Phase, &deliv, &c.Kind,
 			&body, &c.State, &metAt, &metBy, &evid, &req, &c.Ord); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		c.Required = req != 0
@@ -859,7 +859,7 @@ func (s *Server) handleGetProjectOverview(w http.ResponseWriter, r *http.Request
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	phases := s.templatePhases(templateID)
@@ -882,14 +882,14 @@ func (s *Server) handleGetProjectOverview(w http.ResponseWriter, r *http.Request
 	q += ` ORDER BY ord ASC, created_at ASC`
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
 		d, err := s.scanDeliverableRow(rows)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		comps, cerr := s.loadDeliverableComponents(r, d.ID)
@@ -950,7 +950,7 @@ func (s *Server) handleSendBackDeliverable(w http.ResponseWriter, r *http.Reques
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var in sendBackDeliverableIn
@@ -975,7 +975,7 @@ func (s *Server) handleSendBackDeliverable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if curState == deliverableStateRatified {
@@ -1011,7 +1011,7 @@ func (s *Server) handleSendBackDeliverable(w http.ResponseWriter, r *http.Reques
 			SET ratification_state = 'in-review', updated_at = ?
 			WHERE id = ? AND project_id = ?`,
 			now, id, project); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
@@ -1040,7 +1040,7 @@ func (s *Server) handleSendBackDeliverable(w http.ResponseWriter, r *http.Reques
 		summary, now, actorKind, nullIfEmpty(actorHandle),
 		string(payload),
 	); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -1057,12 +1057,12 @@ func (s *Server) handleSendBackDeliverable(w http.ResponseWriter, r *http.Reques
 		`SELECT `+deliverableSelectCols+` FROM deliverables WHERE id = ?`, id)
 	d, err := s.scanDeliverableRow(row)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	comps, err := s.loadDeliverableComponents(r, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	d.Components = comps

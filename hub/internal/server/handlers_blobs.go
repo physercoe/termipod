@@ -65,7 +65,7 @@ func (s *Server) handleUploadBlob(w http.ResponseWriter, r *http.Request) {
 	}
 	sha, err := s.storeBlob(r.Context(), body, mime)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -87,12 +87,12 @@ func (s *Server) handleGetBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer f.Close()

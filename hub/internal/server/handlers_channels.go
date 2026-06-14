@@ -52,7 +52,7 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 		SELECT id, COALESCE(project_id, ''), scope_kind, name, created_at
 		FROM channels WHERE project_id = ? ORDER BY created_at`, proj)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -60,7 +60,7 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c channelOut
 		if err := rows.Scan(&c.ID, &c.ProjectID, &c.ScopeKind, &c.Name, &c.CreatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, c)
@@ -81,7 +81,7 @@ func (s *Server) handleGetChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, c)
@@ -107,7 +107,7 @@ func (s *Server) requireChannelTeam(w http.ResponseWriter, r *http.Request, chan
 		return false
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return false
 	}
 	return true
@@ -151,7 +151,7 @@ func (s *Server) handleListTeamChannels(w http.ResponseWriter, r *http.Request) 
 		FROM channels WHERE scope_kind = 'team' AND project_id IS NULL AND team_id = ?
 		ORDER BY created_at`, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -159,7 +159,7 @@ func (s *Server) handleListTeamChannels(w http.ResponseWriter, r *http.Request) 
 	for rows.Next() {
 		var c channelOut
 		if err := rows.Scan(&c.ID, &c.ProjectID, &c.ScopeKind, &c.Name, &c.CreatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, c)
@@ -180,7 +180,7 @@ func (s *Server) handleGetTeamChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, c)

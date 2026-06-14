@@ -47,7 +47,7 @@ func (s *Server) handleGetRolesConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !os.IsNotExist(err) {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// No overlay on disk — return the embedded default so the mobile
@@ -101,7 +101,7 @@ func (s *Server) handlePutRolesConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	path := filepath.Join(dir, "roles.yaml")
@@ -115,7 +115,7 @@ func (s *Server) handlePutRolesConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := os.WriteFile(path, body, 0o644); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -156,7 +156,7 @@ func (s *Server) handleResetRolesConfig(w http.ResponseWriter, r *http.Request) 
 	}
 	path := filepath.Join(dir, "roles.yaml")
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if err := initRoles(dir); err != nil {

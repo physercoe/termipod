@@ -39,7 +39,7 @@ func (s *Server) handleAdminListAgents(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), q)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -48,13 +48,13 @@ func (s *Server) handleAdminListAgents(w http.ResponseWriter, r *http.Request) {
 		var a AdminAgentRow
 		if err := rows.Scan(&a.AgentID, &a.TeamID, &a.Handle, &a.Kind,
 			&a.Status, &a.HostID); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		agents = append(agents, a)
 	}
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"agents": agents})
@@ -83,7 +83,7 @@ func (s *Server) handleAdminKillAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "agent not found")
 		return
 	default:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -99,7 +99,7 @@ func (s *Server) handleAdminKillAgent(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE agents SET status = 'terminated', terminated_at = ? WHERE id = ?`,
 		NowUTC(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// archive=false: an admin kill is an emergency stop — the session

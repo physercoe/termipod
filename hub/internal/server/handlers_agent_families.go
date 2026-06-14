@@ -73,7 +73,7 @@ var allowedBillings = map[string]bool{
 func (s *Server) handleListAgentFamilies(w http.ResponseWriter, r *http.Request) {
 	views, err := s.agentFamilies.All()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	out := make([]map[string]any, 0, len(views))
@@ -104,7 +104,7 @@ func (s *Server) handleGetAgentFamily(w http.ResponseWriter, r *http.Request) {
 	}
 	views, err := s.agentFamilies.All()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	for _, v := range views {
@@ -164,7 +164,7 @@ func (s *Server) handlePutAgentFamily(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.MkdirAll(overlayDir, 0o700); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	path := filepath.Join(overlayDir, name+".yaml")
@@ -173,7 +173,7 @@ func (s *Server) handlePutAgentFamily(w http.ResponseWriter, r *http.Request) {
 		created = true
 	}
 	if err := os.WriteFile(path, body, 0o600); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -226,7 +226,7 @@ func (s *Server) handleDeleteAgentFamily(w http.ResponseWriter, r *http.Request)
 			writeErr(w, http.StatusNotFound, "family not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.agentFamilies.Invalidate()
@@ -301,7 +301,7 @@ func (s *Server) handleResetAgentFamilies(w http.ResponseWriter, r *http.Request
 	entries, err := os.ReadDir(overlayDir)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		// Overlay dir doesn't exist yet — nothing to remove, embedded

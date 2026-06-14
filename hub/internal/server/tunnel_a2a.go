@@ -191,7 +191,7 @@ func (s *Server) handleTunnelNext(w http.ResponseWriter, r *http.Request) {
 	host := chi.URLParam(r, "host")
 	if ok, err := s.authorizeHostInTeam(r.Context(), team, host); !ok {
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		writeErr(w, http.StatusNotFound, "host not found in team")
@@ -211,7 +211,7 @@ func (s *Server) handleTunnelNext(w http.ResponseWriter, r *http.Request) {
 			// Client went away; no response body needed.
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if req == nil {
@@ -229,7 +229,7 @@ func (s *Server) handleTunnelResponse(w http.ResponseWriter, r *http.Request) {
 	host := chi.URLParam(r, "host")
 	if ok, err := s.authorizeHostInTeam(r.Context(), team, host); !ok {
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		writeErr(w, http.StatusNotFound, "host not found in team")

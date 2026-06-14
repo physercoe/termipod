@@ -236,7 +236,7 @@ func (s *Server) handleCreateAnnotation(w http.ResponseWriter, r *http.Request) 
 		})
 	a, _, err := s.loadAnnotation(r, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, a)
@@ -283,7 +283,7 @@ func (s *Server) handleListAnnotations(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), q2, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -298,7 +298,7 @@ func (s *Server) handleListAnnotations(w http.ResponseWriter, r *http.Request) {
 			&a.AuthorKind, &authorHandle, &parentID,
 			&a.CreatedAt, &resolvedAt, &resolvedByActor,
 		); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if charStart.Valid {
@@ -376,7 +376,7 @@ func (s *Server) handlePatchAnnotation(w http.ResponseWriter, r *http.Request) {
 		`UPDATE document_annotations SET body = ?, kind = ? WHERE id = ?`,
 		body, kind, id,
 	); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	projectID, _, _ := s.projectIDForDocument(r, cur.DocumentID)
@@ -392,7 +392,7 @@ func (s *Server) handlePatchAnnotation(w http.ResponseWriter, r *http.Request) {
 		})
 	updated, _, err := s.loadAnnotation(r, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -439,7 +439,7 @@ func (s *Server) transitionAnnotation(
 		  WHERE id = ?`,
 		target, resolvedAt, resolvedBy, id,
 	); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	projectID, _, _ := s.projectIDForDocument(r, cur.DocumentID)
@@ -454,7 +454,7 @@ func (s *Server) transitionAnnotation(
 		})
 	updated, _, err := s.loadAnnotation(r, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -474,4 +474,3 @@ func truncateForAudit(s string, max int) string {
 	}
 	return s[:max] + "…"
 }
-

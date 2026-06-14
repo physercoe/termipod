@@ -17,11 +17,11 @@ import (
 // steward strip polls this every few seconds while the Project
 // Detail screen is visible (Cache-Control: private, no-cache).
 type stewardStateOut struct {
-	Scope         string             `json:"scope"`
-	AgentID       string             `json:"agent_id,omitempty"`
-	State         string             `json:"state"`
-	CurrentAction *stewardAction     `json:"current_action,omitempty"`
-	Handoff       *stewardHandoff    `json:"handoff,omitempty"`
+	Scope         string          `json:"scope"`
+	AgentID       string          `json:"agent_id,omitempty"`
+	State         string          `json:"state"`
+	CurrentAction *stewardAction  `json:"current_action,omitempty"`
+	Handoff       *stewardHandoff `json:"handoff,omitempty"`
 }
 
 type stewardAction struct {
@@ -32,11 +32,11 @@ type stewardAction struct {
 }
 
 type stewardHandoff struct {
-	FromScope  string `json:"from_scope"`
-	ToScope    string `json:"to_scope"`
-	ToAgentID  string `json:"to_agent_id,omitempty"`
-	Purpose    string `json:"purpose,omitempty"`
-	StartedAt  string `json:"started_at"`
+	FromScope string `json:"from_scope"`
+	ToScope   string `json:"to_scope"`
+	ToAgentID string `json:"to_agent_id,omitempty"`
+	Purpose   string `json:"purpose,omitempty"`
+	StartedAt string `json:"started_at"`
 }
 
 // State derivation thresholds. Tuned for demo cadence: a steward that
@@ -44,8 +44,8 @@ type stewardHandoff struct {
 // poll loop (default 5s on mobile); a handoff in flight clears within
 // 30s when the receiving steward responds.
 const (
-	stewardWorkingWindow  = 60 * time.Second
-	stewardHandoffWindow  = 30 * time.Second
+	stewardWorkingWindow = 60 * time.Second
+	stewardHandoffWindow = 30 * time.Second
 )
 
 func (s *Server) handleGetStewardState(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +58,7 @@ func (s *Server) handleGetStewardState(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 

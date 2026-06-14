@@ -86,7 +86,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -100,7 +100,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if runProject != in.ProjectID {
@@ -133,7 +133,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		id, in.ProjectID, in.RunID, in.Kind, in.Name, in.URI, in.SHA256, size,
 		in.MIME, in.ProducerAgentID, lineage, now)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -191,7 +191,7 @@ func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -199,7 +199,7 @@ func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		a, err := scanArtifact(rows)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, a)
@@ -223,7 +223,7 @@ func (s *Server) handleGetArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, a)

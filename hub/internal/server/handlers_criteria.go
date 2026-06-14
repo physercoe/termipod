@@ -126,7 +126,7 @@ func (s *Server) handleGetCriterion(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	c, err := s.loadCriterion(r.Context(), project, id)
@@ -135,7 +135,7 @@ func (s *Server) handleGetCriterion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, c)
@@ -149,7 +149,7 @@ func (s *Server) handleCreateCriterion(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var in criterionIn
@@ -176,7 +176,7 @@ func (s *Server) handleCreateCriterion(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
@@ -208,7 +208,7 @@ func (s *Server) handleCreateCriterion(w http.ResponseWriter, r *http.Request) {
 			kind, body, state, required, ord, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
 		id, project, in.Phase, deliv, in.Kind, bodyJSON, required, ord, now, now); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "criterion.created",
@@ -222,7 +222,7 @@ func (s *Server) handleCreateCriterion(w http.ResponseWriter, r *http.Request) {
 		})
 	c, err := s.loadCriterion(r.Context(), project, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, c)
@@ -237,7 +237,7 @@ func (s *Server) handlePatchCriterion(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	var in criterionPatchIn
@@ -254,7 +254,7 @@ func (s *Server) handlePatchCriterion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	now := NowUTC()
@@ -288,12 +288,12 @@ func (s *Server) handlePatchCriterion(w http.ResponseWriter, r *http.Request) {
 	q += ` WHERE id = ? AND project_id = ?`
 	args = append(args, id, project)
 	if _, err := s.writeDB.ExecContext(r.Context(), q, args...); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	c, err := s.loadCriterion(r.Context(), project, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, c)
@@ -345,7 +345,7 @@ func (s *Server) handleMarkCriterion(action string) http.HandlerFunc {
 				writeErr(w, http.StatusNotFound, "project not found")
 				return
 			}
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		var in criterionMarkIn
@@ -362,7 +362,7 @@ func (s *Server) handleMarkCriterion(action string) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		// Auto gate criteria are hub-internal-only — directors cannot
@@ -412,7 +412,7 @@ func (s *Server) handleMarkCriterion(action string) http.HandlerFunc {
 		out, err := s.transitionCriterion(r.Context(), project, id, newState,
 			in.EvidenceRef, actor)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		summary := fmt.Sprintf("%s criterion · %s", newState, c.Kind)

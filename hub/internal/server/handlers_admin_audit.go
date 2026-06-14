@@ -51,7 +51,7 @@ func (s *Server) handleAdminListAudit(w http.ResponseWriter, r *http.Request) {
 		limit:        limit,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": rows})

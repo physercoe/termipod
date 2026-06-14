@@ -29,7 +29,7 @@ func (s *Server) handlePauseAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if hostID == "" {
@@ -39,7 +39,7 @@ func (s *Server) handlePauseAgent(w http.ResponseWriter, r *http.Request) {
 	cmdID, err := s.enqueueHostCommand(r.Context(), hostID, id, "pause",
 		map[string]any{"pane_id": paneID})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"command_id": cmdID})
@@ -54,7 +54,7 @@ func (s *Server) handleResumeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if hostID == "" {
@@ -64,7 +64,7 @@ func (s *Server) handleResumeAgent(w http.ResponseWriter, r *http.Request) {
 	cmdID, err := s.enqueueHostCommand(r.Context(), hostID, id, "resume",
 		map[string]any{"pane_id": paneID})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"command_id": cmdID})
@@ -88,7 +88,7 @@ func (s *Server) handleGetAgentPane(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -99,7 +99,7 @@ func (s *Server) handleGetAgentPane(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := s.enqueueHostCommand(r.Context(), hostID, id, "capture",
 			map[string]any{"pane_id": paneID}); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}

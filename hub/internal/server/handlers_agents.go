@@ -166,7 +166,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	q += " ORDER BY created_at"
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -174,7 +174,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		a, err := scanAgent(rows)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		out = append(out, a)
@@ -261,7 +261,7 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// last_event_at from the event store (ADR-045 D2 cross-store read).
@@ -365,7 +365,7 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 				"handle already in use by another live agent on this team")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -483,7 +483,7 @@ func (s *Server) stopOrTerminateAgent(w http.ResponseWriter, r *http.Request, ar
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// Flip to terminated unless already in a terminal agent state — the
@@ -492,7 +492,7 @@ func (s *Server) stopOrTerminateAgent(w http.ResponseWriter, r *http.Request, ar
 		if _, err := s.writeDB.ExecContext(r.Context(),
 			`UPDATE agents SET status = 'terminated', terminated_at = ?
 			  WHERE team_id = ? AND id = ?`, NowUTC(), team, id); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
@@ -646,7 +646,7 @@ func (s *Server) handleArchiveAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if archived.Valid {
@@ -661,7 +661,7 @@ func (s *Server) handleArchiveAgent(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE agents SET archived_at = ? WHERE team_id = ? AND id = ?`,
 		now, team, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	s.recordAudit(r.Context(), team, "agent.archive", "agent", id,
@@ -1010,7 +1010,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 			if len(approvers) > 0 {
 				attID, err := s.createSpawnApproval(r.Context(), team, tier, approvers, in)
 				if err != nil {
-					writeErr(w, http.StatusInternalServerError, err.Error())
+					s.writeDBErr(w, err)
 					return
 				}
 				writeJSON(w, http.StatusAccepted, spawnOut{
@@ -1714,7 +1714,7 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -1735,7 +1735,7 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 			&sp.SpawnSpec, &authority, &task,
 			&sp.WorktreePath, &sp.SpawnedAt, &sp.Mode,
 			&sp.McpToken, &sp.ProjectID); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		sp.Authority = json.RawMessage(authority)

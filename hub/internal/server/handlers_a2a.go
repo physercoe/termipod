@@ -80,7 +80,7 @@ func (s *Server) handlePutHostA2ACards(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := s.writeDB.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -96,7 +96,7 @@ func (s *Server) handlePutHostA2ACards(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := tx.ExecContext(r.Context(),
 		`DELETE FROM a2a_cards WHERE team_id = ? AND host_id = ?`, team, host); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	now := NowUTC()
@@ -105,12 +105,12 @@ func (s *Server) handlePutHostA2ACards(w http.ResponseWriter, r *http.Request) {
 			INSERT INTO a2a_cards (id, team_id, host_id, agent_id, handle, card_json, registered_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			NewID(), team, host, c.AgentID, c.Handle, string(c.Card), now); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(in.Cards)})
@@ -133,7 +133,7 @@ func (s *Server) handleListTeamA2ACards(w http.ResponseWriter, r *http.Request) 
 
 	rows, err := s.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -145,7 +145,7 @@ func (s *Server) handleListTeamA2ACards(w http.ResponseWriter, r *http.Request) 
 			hostID, agentID, h, cardJSON, regAt string
 		)
 		if err := rows.Scan(&hostID, &agentID, &h, &cardJSON, &regAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		rewritten, err := rewriteCardURL([]byte(cardJSON), base, hostID, agentID)
@@ -164,7 +164,7 @@ func (s *Server) handleListTeamA2ACards(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)

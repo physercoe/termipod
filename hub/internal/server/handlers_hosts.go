@@ -124,7 +124,7 @@ func (s *Server) handleRegisterHost(w http.ResponseWriter, r *http.Request) {
 		    ssh_hint_json = COALESCE(excluded.ssh_hint_json, hosts.ssh_hint_json)`,
 		id, team, in.Name, now, caps, hintArg, now)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// Always read back: on conflict, the real id is the existing row's.
@@ -139,7 +139,7 @@ func (s *Server) handleRegisterHost(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, created_at, capabilities_json, ssh_hint_json, capabilities_probed_at
 		 FROM hosts WHERE team_id = ? AND name = ?`,
 		team, in.Name).Scan(&outID, &createdAt, &storedCaps, &storedHint, &probedAt); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	out := hostOut{
@@ -166,7 +166,7 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		       runner_commit, runner_build_time, runner_modified
 		FROM hosts WHERE team_id = ? ORDER BY created_at`, team)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -179,7 +179,7 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&h.ID, &h.TeamID, &h.Name, &h.Status, &lastSeen, &caps,
 			&hint, &probed, &h.CreatedAt,
 			&runnerCommit, &runnerBuild, &runnerMod); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if lastSeen.Valid {
@@ -246,7 +246,7 @@ func (s *Server) handleHostHeartbeat(w http.ResponseWriter, r *http.Request) {
 			WHERE team_id = ? AND id = ?`, now, team, host)
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -270,7 +270,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		WHERE team_id = ? AND host_id = ?
 		  AND status NOT IN ('terminated','failed')`, team, host).Scan(&alive)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if alive > 0 {
@@ -284,7 +284,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	res, err := s.writeDB.ExecContext(r.Context(),
 		`DELETE FROM hosts WHERE team_id = ? AND id = ?`, team, host)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -320,7 +320,7 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if lastSeen.Valid {
@@ -376,7 +376,7 @@ func (s *Server) handleUpdateHostSSHHint(w http.ResponseWriter, r *http.Request)
 		`UPDATE hosts SET ssh_hint_json = ? WHERE team_id = ? AND id = ?`,
 		hintArg, team, host)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -416,7 +416,7 @@ func (s *Server) handleUpdateHostCapabilities(w http.ResponseWriter, r *http.Req
 		 WHERE team_id = ? AND id = ?`,
 		payload, NowUTC(), team, host)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()

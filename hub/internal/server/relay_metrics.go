@@ -121,9 +121,9 @@ func (m *RelayMetrics) Snapshot() RelaySnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := RelaySnapshot{
-		Active:       m.active,
-		Dropped:      m.dropped,
-		BytesPerSec:  windowRate(&m.agg, cutoff),
+		Active:      m.active,
+		Dropped:     m.dropped,
+		BytesPerSec: windowRate(&m.agg, cutoff),
 	}
 	for k, w := range m.pairs {
 		rate := windowRate(w, cutoff)

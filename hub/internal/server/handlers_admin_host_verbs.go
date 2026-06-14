@@ -60,7 +60,7 @@ func (s *Server) adminHostStopVerb(w http.ResponseWriter, r *http.Request, verb 
 	}
 	h, found, err := s.getHostRow(r.Context(), host)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !found {
@@ -92,7 +92,7 @@ func (s *Server) handleAdminHostUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	h, found, err := s.getHostRow(r.Context(), host)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if !found {

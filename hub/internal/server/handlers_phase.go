@@ -251,7 +251,7 @@ func (s *Server) handleGetProjectPhase(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	out := phaseOut{
@@ -281,7 +281,7 @@ func (s *Server) handleAdvanceProjectPhase(w http.ResponseWriter, r *http.Reques
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -316,7 +316,7 @@ func (s *Server) handleAdvanceProjectPhase(w http.ResponseWriter, r *http.Reques
 	if phase != "" {
 		pending, err := s.requiredCriteriaPending(r.Context(), project, phase)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			s.writeDBErr(w, err)
 			return
 		}
 		if pending > 0 {
@@ -349,13 +349,13 @@ func (s *Server) handleAdvanceProjectPhase(w http.ResponseWriter, r *http.Reques
 	history.Transitions = append(history.Transitions, transition)
 	historyJSON, err := json.Marshal(history)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE projects SET phase = ?, phase_history = ? WHERE team_id = ? AND id = ?`,
 		to, string(historyJSON), team, project); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -405,7 +405,7 @@ func (s *Server) handleSetProjectPhase(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 
@@ -428,13 +428,13 @@ func (s *Server) handleSetProjectPhase(w http.ResponseWriter, r *http.Request) {
 	history.Transitions = append(history.Transitions, transition)
 	historyJSON, err := json.Marshal(history)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE projects SET phase = ?, phase_history = ? WHERE team_id = ? AND id = ?`,
 		in.Phase, string(historyJSON), team, project); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 

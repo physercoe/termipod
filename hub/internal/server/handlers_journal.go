@@ -58,7 +58,7 @@ func (s *Server) handleReadJournal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	path, err := s.journalPath(team, handle)
@@ -70,7 +70,7 @@ func (s *Server) handleReadJournal(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, os.ErrNotExist) {
 		body = nil
 	} else if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
@@ -98,7 +98,7 @@ func (s *Server) handleAppendJournal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	path, err := s.journalPath(team, handle)
@@ -107,12 +107,12 @@ func (s *Server) handleAppendJournal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	defer f.Close()
@@ -123,7 +123,7 @@ func (s *Server) handleAppendJournal(w http.ResponseWriter, r *http.Request) {
 		header = "## " + now
 	}
 	if _, err := io.WriteString(f, "\n"+header+"\n\n"+in.Entry+"\n"); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeDBErr(w, err)
 		return
 	}
 	// Cache the handle's last-known journal path on the agent row so the
@@ -133,7 +133,7 @@ func (s *Server) handleAppendJournal(w http.ResponseWriter, r *http.Request) {
 		path, team, agent)
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"path":       path,
+		"path":        path,
 		"appended_at": now,
 	})
 }

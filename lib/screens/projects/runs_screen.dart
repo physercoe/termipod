@@ -2645,6 +2645,7 @@ class _ImageSeriesTileState extends ConsumerState<_ImageSeriesTile> {
   @override
   Widget build(BuildContext context) {
     if (widget.rows.isEmpty) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
     final row = widget.rows[_index];
     final sha = (row['blob_sha'] ?? '').toString();
     final step = (row['step'] as num?)?.toInt() ?? 0;
@@ -2669,7 +2670,7 @@ class _ImageSeriesTileState extends ConsumerState<_ImageSeriesTile> {
                 ),
               ),
               Text(
-                'step $step',
+                l10n.stepLabel(step),
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: 11,
                   color: DesignColors.terminalCyan,
@@ -2698,7 +2699,7 @@ class _ImageSeriesTileState extends ConsumerState<_ImageSeriesTile> {
               max: (widget.rows.length - 1).toDouble(),
               divisions: widget.rows.length - 1,
               value: _index.toDouble(),
-              label: 'step $step',
+              label: l10n.stepLabel(step),
               onChanged: (v) {
                 final i = v.round();
                 if (i == _index) return;

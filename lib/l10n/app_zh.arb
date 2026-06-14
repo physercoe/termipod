@@ -2602,5 +2602,11 @@
   "stewardProposeInboxSubtitle": "项目: {id}",
   "@stewardProposeInboxSubtitle": { "placeholders": { "id": { "type": "String" } } },
   "stewardProposeInboxEmptyTitle": "无待定决策",
-  "stewardProposeInboxEmptyBody": "此项目中的工作者将通过 `propose` MCP 动词将关键状态变更提交至此处。"
+  "stewardProposeInboxEmptyBody": "此项目中的工作者将通过 `propose` MCP 动词将关键状态变更提交至此处。",
+  "voiceRegionBeijing": "北京（默认）— dashscope.aliyuncs.com",
+  "voiceRegionSingapore": "新加坡 — dashscope-intl.aliyuncs.com",
+  "voiceRegionUs": "美国 — dashscope-us.aliyuncs.com",
+  "stepLabel": "第 {step} 步",
+  "@stepLabel": { "placeholders": { "step": { "type": "int" } } },
+  "stalledDigestTapHint": "点击以仅显示停滞行。"
 }

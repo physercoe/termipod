@@ -298,6 +298,13 @@ func (s *Server) Serve(ctx context.Context) error {
 	if s.otlp != nil {
 		go s.runOTLPExport(ctx)
 	}
+	// Storage maintenance (ADR-045 D4): periodic wal_checkpoint(TRUNCATE) +
+	// bounded incremental_vacuum across open shards — bounds -wal growth (the
+	// SSE-reader-pinning hazard) and returns freed pages to the OS. Same ctx
+	// lifetime. Opt out with HUB_STORE_MAINTENANCE_DISABLE.
+	if os.Getenv("HUB_STORE_MAINTENANCE_DISABLE") == "" {
+		go s.runStoreMaintenance(ctx)
+	}
 
 	// SIGHUP → hot-reload policy.yaml. Lets an operator edit the file and
 	// signal the daemon without restarting and losing in-flight connections.

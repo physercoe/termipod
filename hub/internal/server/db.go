@@ -30,6 +30,16 @@ import (
 //     (≥800 concurrent agents, internal/server/load_test.go), a wash below it.
 const pragmaCommon = "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=temp_store(2)&_pragma=mmap_size(268435456)"
 
+// pragmaStoreAutoVacuum requests INCREMENTAL auto-vacuum (mode 2) for the
+// per-team event/digest shards (ADR-045 D4). auto_vacuum is a database-level
+// property fixed when the first table is created, so it MUST ride on the
+// schema-creating writer connection at first open (openStorePool); on an
+// already-populated file the pragma is a harmless no-op (the mode is set, and
+// changing it would require a full VACUUM — that path is the operator-only
+// `hub-server db vacuum`). It is deliberately kept OFF hub.db (control), which
+// has low delete volume and keeps plain freelist reuse.
+const pragmaStoreAutoVacuum = "&_pragma=auto_vacuum(2)"
+
 // pragmaWriterCache is resolved once at startup. Default 64 MiB; the size (in
 // KiB) is operator-tunable per VPS via HUB_SQLITE_WRITER_CACHE_KB (also used to
 // sweep the value in load tests). Applied to the SINGLE global control writer

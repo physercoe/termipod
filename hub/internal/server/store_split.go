@@ -164,7 +164,11 @@ func storePathsFor(controlPath string) (eventsPath, digestPath string) {
 func openStorePool(path string, writer bool, cachePragma string) (*sql.DB, error) {
 	dsn := path + "?_pragma=foreign_keys(1)&" + pragmaCommon
 	if writer {
-		dsn += cachePragma
+		// The writer is the schema-creating connection (ensureEventsSchema /
+		// ensureDigestSchema run on it), so auto_vacuum=INCREMENTAL must ride
+		// here to take effect on a fresh shard before its first table (ADR-045
+		// D4); no-op on an already-populated shard.
+		dsn += cachePragma + pragmaStoreAutoVacuum
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

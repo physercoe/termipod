@@ -133,7 +133,18 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 	if result == "" {
 		result = "{}"
 	}
-	if _, err := s.writeDB.ExecContext(r.Context(), `
+	// The command-completion UPDATE and the agent-state syncs it triggers
+	// (last_capture on a capture, pause_state on pause/resume) must commit
+	// together: a command marked `done` while the agent's pause_state stays
+	// stale is the inconsistency #76 flagged, and those agent UPDATE errors
+	// were previously discarded. One transaction makes the pair atomic.
+	tx, err := s.writeDB.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback() // no-op once Commit succeeds
+	if _, err := tx.ExecContext(r.Context(), `
 		UPDATE host_commands SET
 			status = ?, result_json = ?, error = NULLIF(?, ''), completed_at = ?
 		WHERE id = ?`,
@@ -147,9 +158,12 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 			Text string `json:"text"`
 		}
 		if err := json.Unmarshal(in.Result, &payload); err == nil && payload.Text != "" {
-			_, _ = s.writeDB.ExecContext(r.Context(),
+			if _, err := tx.ExecContext(r.Context(),
 				`UPDATE agents SET last_capture = ?, last_capture_at = ? WHERE id = ?`,
-				payload.Text, now, agentID)
+				payload.Text, now, agentID); err != nil {
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 	}
 
@@ -157,12 +171,22 @@ func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) 
 	if in.Status == "done" && agentID != "" {
 		switch kind {
 		case "pause":
-			_, _ = s.writeDB.ExecContext(r.Context(),
-				`UPDATE agents SET pause_state = 'paused' WHERE id = ?`, agentID)
+			if _, err := tx.ExecContext(r.Context(),
+				`UPDATE agents SET pause_state = 'paused' WHERE id = ?`, agentID); err != nil {
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		case "resume":
-			_, _ = s.writeDB.ExecContext(r.Context(),
-				`UPDATE agents SET pause_state = 'running' WHERE id = ?`, agentID)
+			if _, err := tx.ExecContext(r.Context(),
+				`UPDATE agents SET pause_state = 'running' WHERE id = ?`, agentID); err != nil {
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

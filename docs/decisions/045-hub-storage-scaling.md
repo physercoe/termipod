@@ -8,9 +8,10 @@
 > [`discussions/hub-scaling-storage-and-concurrency.md`](../discussions/hub-scaling-storage-and-concurrency.md)
 > and [`discussions/hub-store-separation-and-fold-policy.md`](../discussions/hub-store-separation-and-fold-policy.md).
 > **Amends [ADR-038](038-per-run-event-digest.md) §2** (synchronous
-> digest fold → bounded-staleness deferred fold). D1 + D2 are shipped (D2
-> via the P1 class split and the P2 per-team shard — see the
-> [plan](../plans/hub-storage-scaling.md)); D3 is decided, not yet built.
+> digest fold → bounded-staleness deferred fold). D1 + D2 + D4 are
+> shipped (D2 via the P1 class split and the P2 per-team shard — see the
+> [plan](../plans/hub-storage-scaling.md); D4 the storage-maintenance
+> loop); D3 is decided, not yet built.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.807-alpha
 
@@ -143,6 +144,61 @@ single-binary property when chosen. It does **not** shrink bytes
 independent of the DB choice. The D2 split is what makes D3 affordable —
 the backend choice is per-store, so a deployment can move one store
 (e.g. control → Postgres) without touching the others.
+
+### D4 — automated WAL-checkpoint + incremental reclamation (amends D2)
+
+The D2 split leaves two storage-hygiene gaps that bit an operator (#79):
+**WAL files grow unbounded** and **freed pages are never returned to the
+OS**. They are *different* mechanisms and are addressed separately — a
+common confusion that conflates checkpointing with `VACUUM`.
+
+- **WAL growth is a reader-pinning problem.** SQLite's auto-checkpoint
+  (default 1000 pages) can only reset the WAL up to the *oldest live
+  reader's snapshot*. The hub holds long-lived **SSE readers**
+  (Activity / transcript streams), so a continuous reader + continuous
+  firehose write keeps the checkpoint from ever reaching the WAL head —
+  it grows without bound. The fix is a periodic
+  `PRAGMA wal_checkpoint(TRUNCATE)` run by the hub, not a vacuum.
+
+- **Reclamation uses `auto_vacuum=INCREMENTAL`, not full `VACUUM`.** A
+  full `VACUUM` rewrites the whole file: it needs ~2× the DB size in
+  free disk (an ENOSPC risk on a 2 GB VPS), takes a global write lock
+  for an O(DB-size) duration (stop-the-world, *per shard*), and fights
+  the very SSE readers above. Incremental auto-vacuum instead returns
+  free pages to the OS in **bounded chunks**, each a short transaction
+  that interleaves with readers — the same pattern always-on embedded
+  SQLite uses (Chromium, Firefox, Android). Its two costs are immaterial
+  here: the per-commit pointer-map overhead is negligible against the
+  measured fold cost, and its no-defragment limitation barely bites an
+  **append-mostly** firehose (near-sequential inserts ⇒ low
+  fragmentation). Blob-ref externalization (the D2 prerequisite) already
+  removes the large transient payloads that would otherwise strand free
+  pages, so the residual reclamation need is modest — incremental is
+  cheap insurance, not a hot path.
+
+**The policy:**
+
+1. **New event/digest shards are created `auto_vacuum=INCREMENTAL`** (set
+   on the schema-creating writer connection at first open — it must
+   precede the first table). `hub.db` (control) keeps freelist reuse: low
+   delete volume, and converting an existing file needs a full VACUUM.
+2. **A background maintenance loop** (same ctx lifetime as the other
+   sweeps) runs every `HUB_STORE_MAINTENANCE_INTERVAL` (default 5 m). Per
+   currently-open shard writer (`hub.db` + each open team's events/digest
+   writer) it: (a) `wal_checkpoint(TRUNCATE)`; (b) a bounded
+   `incremental_vacuum` **with hysteresis** — only when the freelist is
+   ≥25 % of the file *and* above an absolute floor, reclaiming down to a
+   watermark (not to zero) and capped per pass, so a still-active
+   firehose can't thrash returning pages it immediately re-allocates.
+   `incremental_vacuum` is a no-op where `auto_vacuum≠INCREMENTAL`, so it
+   is safe on `hub.db` and pre-D4 shards. Disable with
+   `HUB_STORE_MAINTENANCE_DISABLE`. Evicted teams are checkpointed on
+   pool close (SQLite checkpoints when the last connection closes), so a
+   cold team needs no loop coverage.
+3. **Full `VACUUM` stays operator-only and offline** — the existing
+   `hub-server db vacuum` (now also sets `auto_vacuum=INCREMENTAL` before
+   the rebuild, so it doubles as the one-time pre-D4-shard converter).
+   It is never run automatically.
 
 ## Consequences
 

@@ -198,6 +198,29 @@ func (r *teamStores) openCount() int {
 	return r.lru.Len()
 }
 
+// maintenanceTargets snapshots the writer pool of every currently-open team's
+// events + digest shard (ADR-045 D4). It returns the *sql.DB handles under the
+// lock but performs no I/O — the caller (the maintenance loop) runs checkpoint /
+// incremental_vacuum on them outside the lock. A handle in the snapshot can be
+// evicted+closed before the caller uses it; (*sql.DB) operations on a closed
+// pool return an error the loop already treats as best-effort, so the race is
+// benign (the evicted file was checkpointed on close anyway).
+func (r *teamStores) maintenanceTargets() []maintTarget {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]maintTarget, 0, r.lru.Len()*2)
+	for el := r.lru.Front(); el != nil; el = el.Next() {
+		h := el.Value.(*teamHandles)
+		if h.eventsW != nil {
+			out = append(out, maintTarget{label: h.team + "/events.db", db: h.eventsW})
+		}
+		if h.digestW != nil {
+			out = append(out, maintTarget{label: h.team + "/digest.db", db: h.digestW})
+		}
+	}
+	return out
+}
+
 // ensurePerTeamLayout resolves the per-team store layout at startup (ADR-045
 // P2). Unlike P1's ensureStoreSplit it opens NO global store — the registry
 // opens each team's shard lazily — so its only job is to validate the boot state

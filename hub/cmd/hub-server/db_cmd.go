@@ -213,14 +213,23 @@ func vacuumTeamStores(dataRoot string) (reclaimed int64, files int, err error) {
 	return reclaimed, files, nil
 }
 
-// vacuumFile runs a whole-database VACUUM on a single sqlite store file.
+// vacuumFile runs a whole-database VACUUM on a single per-team store file. It
+// first sets auto_vacuum=INCREMENTAL: the following VACUUM rewrites the file in
+// that mode, so this offline command doubles as the one-time converter for
+// pre-D4 shards (created before ADR-045 D4; new shards are born INCREMENTAL).
+// Changing auto_vacuum only takes effect via the subsequent VACUUM; on an
+// already-INCREMENTAL shard it is a no-op.
 func vacuumFile(path string) error {
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(10000)")
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	_, err = db.ExecContext(context.Background(), "VACUUM")
+	ctx := context.Background()
+	if _, err = db.ExecContext(ctx, "PRAGMA auto_vacuum=INCREMENTAL"); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "VACUUM")
 	return err
 }
 

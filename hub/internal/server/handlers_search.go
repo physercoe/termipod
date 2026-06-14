@@ -2,8 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+
+	sqlite "modernc.org/sqlite"
 
 	"github.com/termipod/hub/internal/auth"
 )
@@ -45,6 +49,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		ORDER BY e.received_ts DESC
 		LIMIT ?`, q, team, limit)
 	if err != nil {
+		if isFTSQueryError(err) {
+			writeErr(w, http.StatusBadRequest, "invalid search query")
+			return
+		}
 		s.writeDBErr(w, err)
 		return
 	}
@@ -70,4 +78,16 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// isFTSQueryError reports whether err is an FTS5 query-syntax error
+// from a malformed user MATCH expression. SQLITE_ERROR (code 1) with
+// "fts5" in the message is the confirmed shape.
+func isFTSQueryError(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) || se.Code() != 1 {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "fts5") || strings.Contains(msg, "unterminated string")
 }

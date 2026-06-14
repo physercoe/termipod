@@ -467,7 +467,7 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	if in.Kind == "set_mode" || in.Kind == "set_model" {
 		route, routeErr := s.resolveRuntimeModeSwitch(r.Context(), agent)
 		if routeErr != nil {
-			writeErr(w, http.StatusInternalServerError, routeErr.Error())
+			s.writeDBErr(w, routeErr)
 			return
 		}
 		switch route {

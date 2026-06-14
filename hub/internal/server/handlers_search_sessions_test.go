@@ -108,3 +108,21 @@ func TestSessionSearch_RequiresQuery(t *testing.T) {
 		t.Errorf("empty q: status=%d; want 400", status)
 	}
 }
+
+// Malformed FTS5 query syntax (e.g. trailing AND) → 400, not 500.
+// Seeds a session so the FTS query actually runs (no sessions = early 200).
+func TestSessionSearch_MalformedQueryReturns400(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "host-x")
+	st, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "fts test", "agent_id": agentID})
+	if st != http.StatusCreated {
+		t.Fatalf("open session: %s", body)
+	}
+	status, _ := doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/sessions/search?q=a+AND", nil)
+	if status != http.StatusBadRequest {
+		t.Errorf("malformed q: status=%d; want 400", status)
+	}
+}

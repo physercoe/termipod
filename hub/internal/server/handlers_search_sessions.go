@@ -122,6 +122,10 @@ func (s *Server) handleSessionSearch(w http.ResponseWriter, r *http.Request) {
 			 ORDER BY ae.ts DESC
 			 LIMIT ?`, args...)
 		if err != nil {
+			if isFTSQueryError(err) {
+				writeErr(w, http.StatusBadRequest, "invalid search query")
+				return
+			}
 			s.writeDBErr(w, err)
 			return
 		}

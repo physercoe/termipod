@@ -56,7 +56,7 @@ dependencies:
   # Settings/notifications
   url_launcher: 6.3.2
   # Background SSH connection maintenance
-  flutter_foreground_task: 8.17.0
+  flutter_foreground_task: 9.2.2
   # Local notifications (Phase 1.5a — push notifications for new
   # attention items, agent finish, session paused). Killed-state
   # delivery comes via ntfy in Phase 1.5b.

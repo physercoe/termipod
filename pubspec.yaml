@@ -51,7 +51,7 @@ dependencies:
   crypto: 3.0.7
   # Image transfer
   image_picker: 1.2.1
-  image: 4.7.2
+  image: 4.8.0
   flutter_image_compress: 2.4.0
   # Settings/notifications
   url_launcher: 6.3.2

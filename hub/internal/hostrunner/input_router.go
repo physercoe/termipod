@@ -63,7 +63,20 @@ type inputAgentLoop struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	lastSeq int64
+	// dispatch tracks the per-event goroutines tick() spawns so the loop can
+	// drain them on teardown instead of letting them outlive Detach (#77.2).
+	dispatch sync.WaitGroup
 }
+
+// inputDispatchDrainTimeout bounds how long run() waits for in-flight dispatch
+// goroutines after its context is cancelled. A dispatch can be parked in a
+// ctx-ignoring driver.Input (StdioDriver.Input keeps its stdin Write
+// un-preempted on purpose); that straggler is unblocked moments later when
+// stopDriver calls the driver's Stop() — which closes the transport — right
+// after Detach. So the bound just keeps Detach from blocking on a wedged child;
+// it never has to be long, and nothing leaks when it elapses.
+// A var so teardown tests can shorten it.
+var inputDispatchDrainTimeout = 2 * time.Second
 
 // NewInputRouter returns a router wired against the host-runner client.
 // Log defaults to slog.Default() if nil.
@@ -145,6 +158,17 @@ func (r *InputRouter) StopAll() {
 
 func (r *InputRouter) run(ctx context.Context, agentID string, driver Inputter, loop *inputAgentLoop) {
 	defer close(loop.done)
+	// Drain in-flight dispatch goroutines before signalling done, so Detach /
+	// StopAll (which block on loop.done) observe a torn-down agent's dispatches
+	// having finished rather than racing them (#77.2). Bounded so a wedged
+	// driver.Input can't hang the stop path — see inputDispatchDrainTimeout.
+	// Registered after `defer close(loop.done)` so it runs first (LIFO).
+	defer func() {
+		if !waitTimeout(&loop.dispatch, inputDispatchDrainTimeout) {
+			r.Log.Warn("input dispatch drain timed out; abandoning straggler",
+				"agent", agentID)
+		}
+	}()
 	t := time.NewTicker(inputPollInterval)
 	defer t.Stop()
 	for {
@@ -236,7 +260,9 @@ func (r *InputRouter) tick(ctx context.Context, agentID string, driver Inputter,
 		// Spawning per-event is fine at user-input cardinality.
 		seq := ev.Seq
 		eventID := ev.ID
+		loop.dispatch.Add(1)
 		go func() {
+			defer loop.dispatch.Done()
 			if err := driver.Input(ctx, kind, payload); err != nil {
 				r.Log.Warn("input dispatch failed",
 					"agent", agentID, "seq", seq, "kind", kind, "err", err)

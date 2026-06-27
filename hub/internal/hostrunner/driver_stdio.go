@@ -106,7 +106,11 @@ func (d *StdioDriver) Stop() {
 	if closer != nil {
 		closer()
 	}
-	d.wg.Wait()
+	// Bounded so a nil/ineffective Closer (the readLoop only unwinds on pipe
+	// EOF, it doesn't select on ctx) can't hang Stop forever (#77.3).
+	if !waitTimeout(&d.wg, driverStopDrainTimeout) {
+		d.Log.Warn("stdio readLoop did not drain on Stop; abandoning", "agent", d.AgentID)
+	}
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

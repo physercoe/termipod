@@ -622,7 +622,11 @@ func (d *ACPDriver) Stop() {
 	if closer != nil {
 		closer()
 	}
-	d.wg.Wait()
+	// Bounded so a nil/ineffective Closer (the readLoop only unwinds on pipe
+	// EOF, it doesn't select on ctx) can't hang Stop forever (#77.3).
+	if !waitTimeout(&d.wg, driverStopDrainTimeout) {
+		d.Log.Warn("acp readLoop did not drain on Stop; abandoning", "agent", d.AgentID)
+	}
 
 	// Drain any stragglers waiting on responses so callers don't leak.
 	d.pendingMu.Lock()

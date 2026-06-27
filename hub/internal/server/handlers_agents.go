@@ -404,6 +404,12 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 			   AND status = 'active'`,
 			NowUTC(), team, id)
 		_, _ = auth.RevokeAgentTokens(r.Context(), s.writeDB, id, NowUTC())
+		// Fold + stamp the run digest now (#118 §4). The operator stop path
+		// finalizes via stopSessionInternal; a crash/failure flows through
+		// here instead, so without this the first Insight open after the crash
+		// pays the full O(n) backfill. finalizeDigestOutcome brings the digest
+		// current off the read path.
+		s.finalizeDigestOutcome(r.Context(), team, id)
 	}
 	// ADR-029 D-3: auto-derive the linked task's status from the
 	// agent's terminal transition. Most-recent-spawn drives; older
@@ -454,6 +460,9 @@ func (s *Server) applyAgentTerminationEffects(ctx context.Context, team, id, rea
 	}
 	s.recordAudit(ctx, team, "agent.terminate", "agent", id,
 		"terminate "+handle, map[string]any{"handle": handle})
+	// Seal the run digest for the session-less terminate too (#118 §4) — the
+	// live-session branch above already finalizes via stopSessionInternal.
+	s.finalizeDigestOutcome(ctx, team, id)
 }
 
 // handleStopAgent is POST /v1/teams/{team}/agents/{agent}/stop — the

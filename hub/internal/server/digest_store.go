@@ -446,10 +446,30 @@ func (s *Server) backfillAgentDigest(ctx context.Context, agentID, teamID string
 	return d, nil
 }
 
+// foldEventCols is the agent_events projection every fold loader shares. The
+// payload is shrunk server-side: the fold (brute + incremental) only reads small
+// structured keys — tokens, cost_usd, by_model, tool ids/names, status,
+// is_error, type, turn_id — and never the large display bodies (#118 §1). So
+// json_remove strips those bodies before the row crosses into Go, cutting the
+// bulk of the payload I/O + json.Unmarshal cost the text-heavy events carry (a
+// single `text` event can hold the run's whole accumulated transcript).
+//
+// SQLite silently ignores json_remove paths that don't exist, so listing a body
+// field an event lacks is a no-op — and removing a field the fold doesn't read
+// can never change the digest (the equivalence is pinned by
+// TestFoldStripsBodiesWithoutChangingDigest). json_valid guards a NULL/malformed
+// payload through untouched; scanFoldEvents already tolerates a non-JSON blob.
+const foldEventCols = `seq, session_ordinal, kind, ts, producer, session_id,
+	CASE WHEN json_valid(payload_json)
+	     THEN json_remove(payload_json,
+	            '$.text', '$.content', '$.message', '$.delta', '$.output',
+	            '$.thinking', '$.thought', '$.reasoning')
+	     ELSE payload_json END AS payload_json`
+
 // loadFoldEvents reads an agent's full ordered event log as foldEvents.
 func loadFoldEvents(ctx context.Context, q digestStore, agentID string) ([]foldEvent, error) {
 	return scanFoldEvents(q.QueryContext(ctx, `
-		SELECT seq, session_ordinal, kind, ts, producer, session_id, payload_json
+		SELECT `+foldEventCols+`
 		  FROM agent_events WHERE agent_id = ? ORDER BY seq ASC`, agentID))
 }
 
@@ -457,7 +477,7 @@ func loadFoldEvents(ctx context.Context, q digestStore, agentID string) ([]foldE
 // in-tx prefix backfill of a pre-existing agent.
 func loadFoldEventsBefore(ctx context.Context, q digestStore, agentID string, beforeSeq int64) ([]foldEvent, error) {
 	return scanFoldEvents(q.QueryContext(ctx, `
-		SELECT seq, session_ordinal, kind, ts, producer, session_id, payload_json
+		SELECT `+foldEventCols+`
 		  FROM agent_events WHERE agent_id = ? AND seq < ? ORDER BY seq ASC`, agentID, beforeSeq))
 }
 
@@ -465,7 +485,7 @@ func loadFoldEventsBefore(ctx context.Context, q digestStore, agentID string, be
 // deferred-fold worker still has to fold past the digest watermark.
 func loadFoldEventsAfter(ctx context.Context, q digestStore, agentID string, afterSeq int64) ([]foldEvent, error) {
 	return scanFoldEvents(q.QueryContext(ctx, `
-		SELECT seq, session_ordinal, kind, ts, producer, session_id, payload_json
+		SELECT `+foldEventCols+`
 		  FROM agent_events WHERE agent_id = ? AND seq > ? ORDER BY seq ASC`, agentID, afterSeq))
 }
 

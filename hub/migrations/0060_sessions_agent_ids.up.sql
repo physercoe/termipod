@@ -1,0 +1,14 @@
+-- Denormalize the per-session agent set onto the session row (#118 §1).
+--
+-- sessionAgentIDs (the agents that produced events in a session, ordered by
+-- first activity) was a `GROUP BY agent_id ORDER BY MIN(ts)` over the session's
+-- full agent_events span — run on EVERY digest/turns read, even when the digest
+-- itself is already fresh. For a 10k-event session that is a 10k-row index scan
+-- per Insight open.
+--
+-- This column caches that result as a JSON array of agent ids. It is populated
+-- lazily and ONLY for terminal (archived) sessions, whose agent set can no
+-- longer grow — a paused session can resume and bind a new agent, so those keep
+-- scanning. NULL means "not yet materialized"; the read path falls back to the
+-- authoritative scan and writes the result back once the session is archived.
+ALTER TABLE sessions ADD COLUMN agent_ids_json TEXT;

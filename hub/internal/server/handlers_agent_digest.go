@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -113,7 +115,29 @@ func (s *Server) sumTurnActiveMs(ctx context.Context, agentIDs []string) (int64,
 // URL, or (the OTLP export) by resolving it from the session row. Resolving it
 // here from control would add a round-trip and fail for a session with events
 // but no control row.
+//
+// #118 §1: the GROUP BY scan runs on every digest/turns read, so for a terminal
+// (archived) session — whose agent set can no longer grow — the result is cached
+// on sessions.agent_ids_json and served O(1) thereafter. A paused session can
+// still resume and bind a new agent, so non-archived sessions always re-scan.
 func (s *Server) sessionAgentIDs(ctx context.Context, team, session string) ([]string, error) {
+	// Control-store probe: is this session sealed, and do we already have its
+	// agent set cached? A session with events but no control row (the doc above)
+	// scans the same as before — status stays "" so the cache path is skipped.
+	var status string
+	var cached sql.NullString
+	_ = s.db.QueryRowContext(ctx,
+		`SELECT status, agent_ids_json FROM sessions WHERE id = ?`, session,
+	).Scan(&status, &cached)
+	sealed := status == "archived"
+	if sealed && cached.Valid && cached.String != "" {
+		var ids []string
+		if err := json.Unmarshal([]byte(cached.String), &ids); err == nil {
+			return ids, nil
+		}
+		// A malformed blob falls through to the authoritative scan.
+	}
+
 	er, err := s.eventsReader(team)
 	if err != nil {
 		return nil, err
@@ -135,7 +159,22 @@ func (s *Server) sessionAgentIDs(ctx context.Context, team, session string) ([]s
 		}
 		out = append(out, id)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Read-repair: materialize the set onto the archived session so the next
+	// read skips the scan. Best-effort — a write failure just means we scan
+	// again next time. Only when non-empty (an empty set would re-scan anyway,
+	// and avoids caching a transient "no events yet" state).
+	if sealed && !cached.Valid && len(out) > 0 {
+		if blob, err := json.Marshal(out); err == nil {
+			_, _ = s.db.ExecContext(ctx,
+				`UPDATE sessions SET agent_ids_json = ? WHERE id = ? AND agent_ids_json IS NULL`,
+				string(blob), session)
+		}
+	}
+	return out, nil
 }
 
 // mergeDigest folds src into dst (the session rollup): counts sum, taxonomies

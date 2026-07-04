@@ -1,9 +1,9 @@
 # Positioning & business analysis
 
 > **Type:** discussion
-> **Status:** Open (extended 2026-05-01 §1.5 strategic frame; reconciled 2026-05-18 — §5 multi-tenant contradiction fixed, §7 README-refresh marked shipped; reconciled 2026-05-21 — engine list corrected (no Aider; claude-code/codex/gemini-cli/kimi-code), single-session differentiator softened as competitors gained multi-session; extended 2026-06-07 — §3 cheap-hardware scale axis added after ADR-045 storage scaling shipped)
+> **Status:** Open (extended 2026-05-01 §1.5 strategic frame; reconciled 2026-05-18 — §5 multi-tenant contradiction fixed, §7 README-refresh marked shipped; reconciled 2026-05-21 — engine list corrected (no Aider; claude-code/codex/gemini-cli/kimi-code), single-session differentiator softened as competitors gained multi-session; extended 2026-06-07 — §3 cheap-hardware scale axis added after ADR-045 storage scaling shipped; extended 2026-07-04 — §3 third competitive axis: Claude Science (research-workbench agents) + §4 pick-guidance)
 > **Audience:** principal, reviewers, partners
-> **Last verified vs code:** v1.0.808
+> **Last verified vs code:** v1.0.820
 
 **TL;DR.** Business-side framing. Answers seven positioning
 questions (what is termipod / buyer / differentiator / competitive
@@ -235,6 +235,69 @@ The two categories can coexist on the same phone. Many TermiPod directors will a
 
 ---
 
+### Third competitive axis: research-workbench agents (Claude Science)
+
+A third category arrived on **2026-06-30**: **Claude Science** (Anthropic) — a
+**local-first desktop app that opens through a browser**, aimed at scientists.
+It is the closest architectural mirror of TermiPod any competitor has shipped,
+and it is worth reading precisely because the convergence is validation, and the
+divergence is the moat.
+
+| Product | What it is | Status |
+|---|---|---|
+| **Claude Science** (Anthropic) | Local-first research workbench: a **coordinating agent** orchestrating **specialist agents** (incl. a citation/calc **reviewer agent**), **compute orchestration** over local GPU / **HPC-over-SSH** / **Modal** ("drafts a plan, asks before reaching new resources"), **reproducible artifacts** bundling code + environment + description + full message history, data that **never leaves the machine** (only needed context is sent to Claude), **fork-the-session** to compare approaches, 60+ scientific databases + native rich artifact rendering (3D protein / genome / chemical). | Beta on macOS + Linux (Pro/Max/Team/Enterprise), June 2026. |
+
+**Why it validates the blueprint.** The mapping is almost line-for-line:
+coordinating agent = **steward**; specialist agents = the **fleet**;
+compute-over-SSH/HPC = **host-runners on NAT'd GPU boxes + A2A**; reproducible
+artifacts = **Run / Artifact / Deliverable + the transcript**; "only context is
+sent, data stays put" = the **data-ownership law** (hub holds names + events,
+hosts hold bytes); fork-to-compare = session branching. A frontier lab converged
+independently on TermiPod's three-layer split — the strongest external signal
+that the architecture is right.
+
+**Where Claude Science wins over TermiPod:**
+
+- **Best-in-class research workbench today.** Native rendering of scientific
+  artifacts, in-line figure/manuscript editing by plain-language instruction, 60+
+  curated databases and skills — a polished desktop *work* surface TermiPod does
+  not have.
+- **One-vendor coherence.** Single coordinating model, curated agent set, a
+  reviewer agent — tightly integrated, no assembly.
+- **Local compute-consent flow.** The "draft a plan, ask before reaching new
+  resources, data never leaves the machine" loop is shipped and smooth.
+
+**Where TermiPod wins over Claude Science:**
+
+- **A fleet across engines, not one Anthropic coordinating agent.** TermiPod runs
+  claude-code / codex / kimi / antigravity side by side; Claude Science is
+  Anthropic-only.
+- **A multi-host fleet as first-class**, reachable 24/7 from a phone — not "your
+  machine + SSH/HPC/Modal for compute bursts."
+- **A mobile ↔ desktop continuum on one hub.** Claude Science is desktop-only;
+  TermiPod's director glances and ratifies from a phone and does focused work on
+  desktop, over the *same* governed hub.
+- **Governance + provenance as a layer**, not a per-artifact convenience: budget
+  caps, policy, approval queues, immutable audit, team roles.
+- **Open, self-hosted, engine-agnostic** vs. a paid-plan vendor app.
+
+**Rule of thumb for the README:**
+
+> Use Claude Science when one scientist wants a polished desktop workbench with
+> Anthropic's agent doing the analysis on their machine. Use TermiPod when you're
+> directing a *fleet* of agents across *many* engines and *many* hosts — from
+> your phone and your desk — over infrastructure and governance you own.
+
+**Product implication.** Claude Science defines the bar for TermiPod's own
+**desktop** surface (focused research work: reading, authoring, debugging,
+graph-thinking, run-comparison) — see
+[desktop-research-surface.md](desktop-research-surface.md), which argues the
+desktop app is derived from that work (not a wide mobile layout) and that the
+delivery model should follow Claude Science's local-first, browser-through-local
+precedent for the workbench half.
+
+---
+
 ## 4. When should a user pick TermiPod — and when shouldn't they?
 
 ### Pick TermiPod when
@@ -264,7 +327,14 @@ The two categories can coexist on the same phone. Many TermiPod directors will a
 - You want **one agent with cross-platform memory** (same "self" on WhatsApp and Telegram), not a director/steward/worker topology.
 - Your work is **unbounded and conversational** (remind me, summarize, rewrite) — not research-ops with provenance.
 
-Being honest about all three saves us from trying to be everything and being nothing.
+### Use Claude Science instead when
+
+- You are **one scientist** who wants a **polished desktop workbench** and are happy for **Anthropic's** agent to do the analysis on your machine.
+- Your work is **single-host** (your laptop/workstation, with occasional SSH/HPC/Modal compute bursts) — not a standing multi-host fleet.
+- You want **native scientific artifact rendering** (3D structures, genome tracks) and curated database access out of the box, and don't need multi-engine or a phone cockpit.
+- You don't need governance, budgets, audit, or team roles — one user, one vendor plan.
+
+Being honest about all four saves us from trying to be everything and being nothing.
 
 ### Use OpenHands / CrewAI / LangGraph instead when
 

@@ -253,6 +253,10 @@ chassis) once the first-slice fork (§8.1) is chosen.
   — the `View ▾` / Navigator / wide-screen patterns reused here.
 - [`discussions/desktop-and-web-targets.md`](desktop-and-web-targets.md) —
   large-screen / adaptive-layout direction.
+- [`discussions/desktop-research-surface.md`](desktop-research-surface.md) —
+  places this reading/ideation surface inside the desktop cockpit and
+  reconsiders the "one re-flowing widget tree" delivery assumption (the
+  desktop *work* may justify a distinct web-tech workbench).
 - [`discussions/tasks-as-first-class-primitive.md`](tasks-as-first-class-primitive.md)
   — the "spin a cluster into directed work" target.
 - [`discussions/positioning.md`](positioning.md) — why agent-mediated reading is

@@ -152,6 +152,11 @@ the next time the question comes up.
 
 ## Related
 
+- [`desktop-research-surface.md`](desktop-research-surface.md) — the
+  *product/role* companion to this mechanical gap inventory: what work
+  the desktop app serves (reading, authoring, debugging, graph-thinking,
+  run-comparison) and how the delivery model follows from it. It
+  challenges this doc's "one adaptive Flutter tree" lean.
 - `spine/blueprint.md` — establishes mobile-first as the principal
   surface, with hub-TUI as an alternate cockpit.
 - `spine/information-architecture.md` — the IA that would need an

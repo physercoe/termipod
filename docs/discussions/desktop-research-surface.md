@@ -1,11 +1,17 @@
 # Desktop research surface
 
 > **Type:** discussion
-> **Status:** Open (2026-07-04) — raised by the director: the mobile app is the
-> 24/7 glance-and-nudge cockpit; a *desktop* app is needed for focused day-work
-> (designing models / algorithms). Prompted by Anthropic shipping **Claude
-> Science** (2026-06-30), a local-first research desktop app whose architecture
-> mirrors TermiPod's.
+> **Status:** Resolving (2026-07-04) — the delivery-model fork (§5.1) is
+> **decided: option C**, recorded in
+> [ADR-050](../decisions/050-desktop-workbench-delivery-model.md) (local-first,
+> hub-served web-tech workbench). The per-capability build/embed/integrate
+> register is [research-tooling-landscape.md](research-tooling-landscape.md).
+> This doc remains the role/work derivation; remaining forks are the web
+> framework/shell and first-surface sequencing. Raised by the director: the
+> mobile app is the 24/7 glance-and-nudge cockpit; a *desktop* app is needed for
+> focused day-work (designing models / algorithms). Prompted by Anthropic
+> shipping **Claude Science** (2026-06-30), a local-first research desktop app
+> whose architecture mirrors TermiPod's.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.820
 

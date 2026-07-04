@@ -68,6 +68,7 @@ next sequential number — don't reserve, don't skip.
 | [047](047-design-system-enforcement.md) | Design-system enforcement — named tokens as the single source of truth (M3-aligned spacing/radius/type scales), WCAG 2.1 AA floor, one central `chipTheme`, single brand accent, no-new-violations CI ratchet | Accepted 2026-06-09 | — |
 | [048](048-themed-vocabulary-overlay.md) | Themed vocabulary overlay — role terms swap by **vocabulary preset** (tech/business/political/research) × language via a `VocabPack`, orthogonal to gen-l10n; promotes the deferred wedge to MVP (tester-driven) | Accepted 2026-06-10 | — |
 | [049](049-multi-agent-collaboration-via-github.md) | Multi-agent collaboration via GitHub — delegate any dev work to heterogeneous agent CLIs on different hosts; maintainer/builder roles, ticket lifecycle + tiers, two-axis identity (git-config handle vs shared account), `holds:<resource>` baton, verify-before-merge; vendor-agnostic, general (i18n was the pilot) | Accepted 2026-06-11 | — |
+| [050](050-desktop-workbench-delivery-model.md) | Desktop research workbench delivery model — a local-first, hub-served **web-tech** app (second client on the client-agnostic API), not a wide Flutter layout; two-halves split (portable control plane vs component-heavy research workbench); operative rule build·embed·integrate·interop; BUILD the fleet-native surfaces (headline = multi-run comparison wall), EMBED/INTEGRATE the rest | Accepted 2026-07-04 | — |
 
 ---
 

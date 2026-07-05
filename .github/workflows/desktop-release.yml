@@ -83,7 +83,8 @@ jobs:
           # On a desktop-v* tag, create/attach a GitHub release; on manual runs,
           # tagName is empty so tauri-action just builds (artifacts uploaded below).
           tagName: ${{ startsWith(github.ref, 'refs/tags/desktop-v') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/desktop-v') && 'TermiPod Desktop ${{ github.ref_name }}' || '' }}
+          # format() — a nested ${{ }} inside a string literal is NOT expanded.
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/desktop-v') && format('TermiPod Desktop {0}', github.ref_name) || '' }}
           releaseDraft: true
 
       - name: Upload installers as run artifacts

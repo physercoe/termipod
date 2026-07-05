@@ -748,6 +748,22 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/run", s.handleRunSchedule)
 			})
 		})
+		// Zero-knowledge SSH key vault (ADR-052 D-4). Blind blob sync across a
+		// principal's devices; the hub stores only client-encrypted ciphertext.
+		r.Route("/vault", func(r chi.Router) {
+			r.Get("/", s.handlePullVault)
+			r.Put("/", s.handlePushVault)
+			r.Route("/recovery", func(r chi.Router) {
+				r.Get("/", s.handleGetVaultRecovery)
+				r.Put("/", s.handleSetVaultRecovery)
+				r.Delete("/", s.handleDeleteVaultRecovery)
+			})
+			r.Route("/devices", func(r chi.Router) {
+				r.Get("/", s.handleListVaultDevices)
+				r.Put("/{device}", s.handlePutVaultDevice)
+				r.Delete("/{device}", s.handleDeleteVaultDevice)
+			})
+		})
 		// Team-scope channels (project_id NULL, scope_kind='team'). Events +
 		// stream reuse the project-scope handlers — they only consume the
 		// channel URL param.

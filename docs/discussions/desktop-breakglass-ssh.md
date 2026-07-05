@@ -1,13 +1,15 @@
 # Desktop breakglass terminal — SSH backend & the shared-key / hub-safety model
 
 > **Type:** discussion
-> **Status:** Open (2026-07-05) — director directive: the desktop client
+> **Status:** Resolved (2026-07-05) → [ADR-052](../decisions/052-breakglass-ssh-and-key-vault.md).
+> Director directive: the desktop client
 > ([ADR-051](../decisions/051-desktop-client-stack.md)) needs an SSH connect
 > function mirroring mobile, sharing the same keys/host info, with the hub
 > brokering it safely. This reasons the **terminal backend** (is it `libghostty`?)
 > and the **shared-key model**, which collides with an *enforced* invariant (the
-> hub holds no SSH secret). Grounded in a code scan; feeds a later ADR once the
-> director picks the key-posture fork (§7).
+> hub holds no SSH secret). The key-posture fork (§7) was resolved to **B2
+> (zero-knowledge vault)**; ADR-052 records the design and amends
+> forbidden-pattern #15.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** v1.0.820
 

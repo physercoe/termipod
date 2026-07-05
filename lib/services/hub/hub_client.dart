@@ -18,6 +18,7 @@ import 'sessions_api.dart';
 import 'system_api.dart';
 import 'tasks_api.dart';
 import 'templates_api.dart';
+import 'vault_api.dart';
 
 // HubConfig, HubApiError, and HubTransport now live in hub_transport.dart;
 // re-exported here so the many `import '.../hub_client.dart'` call sites
@@ -105,6 +106,11 @@ class HubClient {
 
   /// Projects + their channels, channel events, principals, project docs.
   late final ProjectsApi projects = ProjectsApi(_t);
+
+  /// Zero-knowledge SSH key vault (ADR-052 D-4) — blind cross-device sync of
+  /// the client-encrypted connection+key bundle, its recovery envelope, and
+  /// per-device wrapped keys.
+  late final VaultApi vault = VaultApi(_t);
 
   /// Optional read-through cache for list/get responses. Set by the
   /// provider after construction; forwarded to the transport so the

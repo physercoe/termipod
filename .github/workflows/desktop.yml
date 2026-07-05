@@ -1,0 +1,82 @@
+name: Desktop
+
+# WS2 of docs/plans/desktop-control-plane.md. The desktop control plane is a
+# separate web-tech client (Tauri v2 + React + TS). This workflow is its gate:
+# the frontend typechecks + builds (browser target), and the Tauri Rust core
+# compiles (there is no local Rust toolchain, so CI is the Rust build gate).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'design-tokens/**'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'design-tokens/**'
+      - '.github/workflows/desktop.yml'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  frontend:
+    name: Frontend typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Typecheck + build (also verifies shared tokens flow into the CSS)
+        run: npm run build
+
+  tauri:
+    name: Tauri Rust compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libgtk-3-dev \
+            patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('desktop/src-tauri/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build frontend (generate_context! embeds ../dist)
+        working-directory: desktop
+        run: npm ci && npm run build
+
+      - name: Compile Tauri Rust core
+        working-directory: desktop/src-tauri
+        run: cargo build

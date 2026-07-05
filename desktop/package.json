@@ -1,0 +1,27 @@
+{
+  "name": "termipod-desktop",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "TermiPod desktop control plane — the unified web-tech client shell (WS2 of docs/plans/desktop-control-plane.md). Browser-target build; the Tauri v2 shell wraps this later.",
+  "scripts": {
+    "dev": "npm run sync:tokens && vite",
+    "build": "npm run sync:tokens && tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "sync:tokens": "node ../design-tokens/build.mjs && cp ../design-tokens/build/tokens.css src/styles/tokens.css"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.59.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.2",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8"
+  }
+}

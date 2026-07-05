@@ -210,12 +210,21 @@ one CSS artifact produced.** Two forks resolved during build:
   lighter deviation from ADR-051's letter; its intent — one shared DTCG pipeline
   — is preserved. Recorded here + in `design-tokens/README.md`.)
 
-**WS2 — App shell + hub SDK + streaming pipe.** Tauri v2 + React + TS scaffold; the
-Rust token-holding HTTP/SSE proxy (+ browser fetch-SSE fallback); the typed hub SDK
-(facade + subclients + transport, `/v1/_info` probe, bearer, teamGate 403); the
-three-region layout skeleton; command-palette shell; **one read-only surface** (the
-audit/activity console *or* fleet list) proving REST+SSE end to end with tokens.css
-applied. Exit: a real hub, live-streamed, themed by shared tokens.
+**WS2 — App shell + hub SDK + streaming pipe. 🚧 IN PROGRESS (foundation landed
+2026-07-05).** Scaffolded under `desktop/`: Vite + React + TS; the typed hub SDK
+(`src/hub/` — transport with bearer + `/v1/_info` probe + teamGate-403 mapping,
+`client.ts` facade, `sse.ts` **fetch-based** SSE reader that sets the auth header
+directly, so no `EventSource` limitation and the same code path serves browser +
+Tauri); the three-region `AppShell` (Navigator | Focus | Attention dock) + status
+chrome; the ⌘K command-palette shell; the shared-token CSS (WS1) driving the theme;
+and **one read-only surface** — the audit console over REST + TanStack Query (5 s
+refetch). The **Tauri v2 Rust core** (`src-tauri/`) is a minimal shell + a
+`hub_request` REST proxy (token-out-of-webview path). **Verified:** frontend
+typechecks + production-builds locally; the Rust core compiles via a new CI job
+(`.github/workflows/desktop.yml`) since the dev host has no cargo. **Remaining WS2
+exit:** point it at a real hub for the live end-to-end run (needs the director's
+hub). Rust keychain token storage + SSE proxy deferred to WS8; browser build is the
+default target meanwhile.
 
 **WS3 — Fleet mission-control.** Navigator tree (hosts ▸ agents ▸ sessions), status
 bar, agent lifecycle via REST (spawn/pause/resume/stop/archive/respawn —

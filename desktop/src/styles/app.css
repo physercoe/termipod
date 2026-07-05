@@ -1,0 +1,219 @@
+@import './tokens.css';
+
+/* TermiPod desktop control plane — shell styling.
+ * Consumes the shared DTCG tokens (--color-*, --spacing-*, --radius-*,
+ * --font-size-*) generated from design-tokens/tokens.json (WS1). Dark-first,
+ * matching the mobile app's backgroundDark palette. */
+
+:root {
+  color-scheme: dark;
+  --pane-gap: var(--spacing-s2, 2px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--font-size-body);
+  color: var(--color-text-primary);
+  background: var(--color-background-dark);
+}
+
+/* ---- app shell: titlebar / body(nav|focus|dock) / statusbar ---- */
+
+.shell {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+}
+
+.titlebar,
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s16);
+  padding: 0 var(--spacing-s16);
+  background: var(--color-surface-dark);
+  border-bottom: 1px solid var(--color-border-dark);
+}
+
+.titlebar {
+  height: 44px;
+  font-weight: 600;
+}
+
+.statusbar {
+  height: 28px;
+  border-top: 1px solid var(--color-border-dark);
+  border-bottom: none;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+}
+
+.shell-body {
+  display: grid;
+  grid-template-columns: 240px 1fr 320px;
+  gap: var(--pane-gap);
+  min-height: 0;
+  background: var(--color-border-dark);
+}
+
+.region {
+  min-height: 0;
+  overflow: auto;
+  background: var(--color-background-dark);
+}
+
+.region-header {
+  padding: var(--spacing-s8) var(--spacing-s12);
+  font-size: var(--font-size-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  position: sticky;
+  top: 0;
+  background: var(--color-canvas-dark);
+  border-bottom: 1px solid var(--color-border-dark);
+}
+
+.navigator,
+.dock {
+  background: var(--color-canvas-dark);
+}
+
+.region-pad {
+  padding: var(--spacing-s12);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* ---- generic bits ---- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--spacing-s8);
+  border-radius: var(--radius-stadium);
+  background: color-mix(in srgb, var(--color-slate) 22%, transparent);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-label);
+}
+
+button {
+  font: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-surface-dark);
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--color-primary);
+}
+button.primary {
+  background: var(--color-primary);
+  color: #00232a;
+  border-color: var(--color-primary);
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-input-dark);
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-body-small);
+}
+th,
+td {
+  text-align: left;
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--color-border-dark);
+  white-space: nowrap;
+}
+th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: var(--color-canvas-dark);
+}
+
+/* ---- connect panel ---- */
+
+.connect {
+  max-width: 420px;
+  margin: 10vh auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s24);
+  background: var(--color-surface-dark);
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-md);
+}
+.connect label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+}
+.error {
+  color: var(--color-error);
+  font-size: var(--font-size-caption);
+}
+
+/* ---- command palette ---- */
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.palette {
+  width: 560px;
+  max-width: 90vw;
+  background: var(--color-surface-dark);
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.palette input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--color-border-dark);
+  border-radius: 0;
+  padding: var(--spacing-s12) var(--spacing-s16);
+}
+.palette-item {
+  padding: var(--spacing-s8) var(--spacing-s16);
+  cursor: pointer;
+}
+.palette-item.active {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+}

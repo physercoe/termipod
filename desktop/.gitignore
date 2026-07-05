@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.local
+.vite/
+src/styles/tokens.css

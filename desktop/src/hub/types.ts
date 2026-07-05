@@ -18,3 +18,8 @@ export function num(e: Entity, key: string): number | undefined {
   const v = e[key];
   return typeof v === 'number' ? v : undefined;
 }
+
+export function obj(e: Entity, key: string): Entity | undefined {
+  const v = e[key];
+  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Entity) : undefined;
+}

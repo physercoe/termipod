@@ -44,9 +44,12 @@ Done:
   status bar, single-agent lifecycle (pause/resume/stop/terminate/archive).
 - **WS4** — agent transcript over the SSE stream (`tail` backfill + `seq` cursor)
   with a composer (`POST /input`) and a digest tab.
+- **WS5** — always-visible approvals dock: per-kind attention cards
+  (permission_prompt / propose+override / help_request / generic) driving
+  `POST /attention/{id}/decide`.
 
-Next: approvals dock (WS5), projects/tasks board (WS6), team/admin (WS7); Rust
-keychain token storage + SSE proxy, multi-select bulk ops, split-pane transcripts.
+Next: projects/tasks board (WS6), team/admin (WS7); Rust keychain token storage +
+SSE proxy, multi-select bulk ops, split-pane transcripts, stalled/ratify cards.
 
 ## Notes
 

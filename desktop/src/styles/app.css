@@ -253,6 +253,89 @@ body {
   font-size: var(--font-size-caption);
 }
 
+/* ---- attention dock cards ---- */
+
+.dock-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+}
+.card {
+  background: var(--color-surface-dark);
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.card-kind {
+  font-weight: 600;
+  color: var(--color-primary);
+  font-size: var(--font-size-caption);
+}
+.card-summary {
+  font-size: var(--font-size-body-small);
+}
+.card-detail {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+}
+.card-detail code {
+  color: var(--color-info);
+}
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.card-meta {
+  display: flex;
+  gap: var(--spacing-s4);
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+}
+.card-actions {
+  display: flex;
+  gap: var(--spacing-s8);
+  align-items: center;
+}
+.card-actions input {
+  flex: 1;
+  min-width: 0;
+}
+.card-actions button {
+  padding: var(--spacing-s4) var(--spacing-s12);
+  font-size: var(--font-size-caption);
+}
+.sev {
+  padding: 1px var(--spacing-s8);
+  border-radius: var(--radius-stadium);
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--color-slate) 22%, transparent);
+  color: var(--color-text-secondary);
+}
+.sev-high,
+.sev-critical {
+  background: color-mix(in srgb, var(--color-error) 22%, transparent);
+  color: var(--color-error);
+}
+.sev-warning,
+.sev-medium {
+  background: color-mix(in srgb, var(--color-warning) 22%, transparent);
+  color: var(--color-warning);
+}
+
 .spacer {
   flex: 1;
 }

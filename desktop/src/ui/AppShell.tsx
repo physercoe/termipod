@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { AgentTranscript } from '../surfaces/AgentTranscript';
+import { AttentionDock } from '../surfaces/AttentionDock';
 import { AuditConsole } from '../surfaces/AuditConsole';
 import { Navigator } from '../surfaces/Navigator';
 import { CommandPalette, type Command } from './CommandPalette';
@@ -37,6 +38,11 @@ export function AppShell(): JSX.Element {
       label: 'Refresh fleet',
       run: () => void qc.invalidateQueries({ queryKey: ['agents'] }),
     },
+    {
+      id: 'refresh-approvals',
+      label: 'Refresh approvals',
+      run: () => void qc.invalidateQueries({ queryKey: ['attention'] }),
+    },
     { id: 'disconnect', label: 'Disconnect from hub', run: disconnect },
   ];
 
@@ -64,7 +70,7 @@ export function AppShell(): JSX.Element {
 
         <div className="region dock">
           <div className="region-header">Attention</div>
-          <div className="region-pad muted">Approvals dock — WS5.</div>
+          <AttentionDock />
         </div>
       </div>
 

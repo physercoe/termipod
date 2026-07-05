@@ -239,10 +239,15 @@ composer (`POST …/input`, flat `{kind:'text',body}`), and a sibling **digest**
 (`GET …/digest`, ADR-038). **Remaining:** split-pane N transcripts, typed per-kind
 event rendering (currently best-effort text extraction), `/turns` filter, Insights.
 
-**WS5 — Attention/Approvals dock.** Always-visible right dock; per-kind approval
-cards (ProposeCardRouter parity); `GET /attention` + `POST /attention/{id}/decide`
-(approve/reject/override/option/help-reply); stalled digest; deliverable
-ratify/unratify + criteria mark-met/fail/waive. The governance moat surfaced.
+**WS5 — Attention/Approvals dock. 🚧 FIRST SLICE DONE (2026-07-05).** The
+always-visible right dock now renders open attention items as **per-kind cards**
+(permission_prompt → tool + input; propose → `change_kind` + spec/target preview +
+principal **override**; help_request → reply composer; generic → approve/reject),
+driving `POST /attention/{id}/decide` (approve | reject | override, ADR-030 W9;
+help-reply via `body`) with a 6 s refetch shared with the status-bar counter. The
+governance moat is surfaced across all three regions now. **Remaining:** stalled-card
+variant (escalation_state), deliverable ratify/unratify + criteria mark-met/fail/
+waive, option (`select`/`elicit`) buttons, originating-context jump.
 
 **WS6 — Projects/Tasks/Runs board + Activity console.** Master-detail project
 surface (overview / tasks-kanban / runs / plans / deliverables as panes); a live

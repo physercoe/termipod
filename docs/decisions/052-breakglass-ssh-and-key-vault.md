@@ -1,12 +1,15 @@
 # 052. Breakglass terminal, two SSH paths, and a zero-knowledge key vault
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-05) — resolves the key-posture fork in
+> **Status:** Accepted (2026-07-05) — resolves the key-posture fork in
 > [`discussions/desktop-breakglass-ssh.md`](../discussions/desktop-breakglass-ssh.md)
 > §7: the director chose **B2 (zero-knowledge encrypted vault)**. Records the
 > terminal backend, the two terminal paths, the cross-device sync model, and — the
-> load-bearing part — an **amendment to forbidden-pattern #15** so a hub that holds
-> only blind ciphertext is permitted.
+> load-bearing part — an **amendment to forbidden-pattern #15** (now in effect,
+> [`spine/forbidden-patterns.md`](../spine/forbidden-patterns.md) updated) so a hub
+> that holds only blind ciphertext is permitted. **D-6 (hub PTY-relay + A2A-relay
+> auth) is DEFERRED** by director direction (2026-07-05); the first build is the
+> **vault key-sync service** (D-4) — the hub as a blind cross-device blob store.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** v1.0.820
 
@@ -106,13 +109,15 @@ reconciles that by amending the rule to match its intent.
   passwords may be stored **only** as client-side-encrypted, zero-knowledge vault
   ciphertext the hub cannot decrypt (the hub never holds the vault key or any
   plaintext); everything else stays in device secure storage."* The vault is
-  key-material-scale, not bulk bytes, so forbidden-pattern #1 is not engaged. On
-  **acceptance** of this ADR, `docs/spine/forbidden-patterns.md` #15 (and the
-  blueprint §7 reference) is updated to this text; until then #15 stands and no
-  key-storing code lands.
+  key-material-scale, not bulk bytes, so forbidden-pattern #1 is not engaged.
+  **Applied 2026-07-05 on acceptance:** `docs/spine/forbidden-patterns.md` #15 now
+  carries this text; the zero-knowledge vault store (D-4) is thereby permitted.
 
-- **D-6 — Hub workstream: authenticate the relay + a streaming PTY channel.** Path 1
-  (D-2) needs a hub PTY-relay that does not exist today. Build: (a) a host-runner
+- **D-6 — Hub workstream: authenticate the relay + a streaming PTY channel.**
+  **DEFERRED (2026-07-05, director direction)** — tracked, not scheduled; the
+  managed-host PTY path (D-2 Path 1) waits on it, and personal direct-SSH (Path 2)
+  plus the vault sync (D-4) ship first. Path 1
+  needs a hub PTY-relay that does not exist today. Build: (a) a host-runner
   "open interactive shell PTY" capability, and (b) an **authenticated, streaming**
   channel — either upgrade the A2A tunnel's `Kind` to carry a bidirectional PTY
   stream, or add a dedicated authed `…/hosts/{host}/shell` (WebSocket) serviced over

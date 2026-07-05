@@ -89,9 +89,18 @@ see [`information-architecture.md §8`](information-architecture.md).
     binary presence and version only. Mixing the two reintroduces
     provider-specific logic into the deputy layer.
 
-15. **Hub storing SSH credentials to help with Enter-pane.** Only
-    non-secret `ssh_hint_json` (hostname, port, username) may live
-    in the hub. Secrets stay in the phone's secure storage.
+15. **Hub storing SSH secrets it can read or use.** Non-secret
+    `ssh_hint_json` (hostname, port, username) may live in the hub.
+    Private keys, passphrases, and passwords may be stored **only**
+    as client-side-encrypted, **zero-knowledge vault** ciphertext the
+    hub cannot decrypt — the hub never holds the vault key or any
+    plaintext (it is a blind blob store); everything else stays in
+    device secure storage. *(Amended 2026-07-05 by
+    [ADR-052](../decisions/052-breakglass-ssh-and-key-vault.md): the
+    rule's intent is that the hub can never authenticate as the user,
+    which opaque ciphertext preserves. Was: "Only non-secret
+    `ssh_hint_json` … may live in the hub. Secrets stay in the phone's
+    secure storage.")*
 
 ---
 

@@ -109,6 +109,33 @@ export class HubClient {
     return asArray(out);
   }
 
+  // --- team governance (WS7) ---
+  /** Team policy (`GET /policy`) — the governance policy document. */
+  getPolicy(): Promise<Entity> {
+    return this.transport.get(this.transport.team('/policy')) as Promise<Entity>;
+  }
+  async listPrincipals(): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/principals'));
+    return asArray(out);
+  }
+
+  // --- operator admin (WS7, cross-team; may 403 for non-operator tokens) ---
+  async adminListHosts(): Promise<Entity[]> {
+    return asArray(await this.transport.get('/v1/admin/hosts'));
+  }
+  adminHostAction(host: string, action: 'ping' | 'restart' | 'shutdown' | 'update'): Promise<unknown> {
+    return this.transport.post(`/v1/admin/hosts/${host}/${action}`, {});
+  }
+  async adminListAgents(): Promise<Entity[]> {
+    return asArray(await this.transport.get('/v1/admin/agents'));
+  }
+  adminKillAgent(agent: string): Promise<unknown> {
+    return this.transport.post(`/v1/admin/agents/${agent}/kill`, {});
+  }
+  async adminListTeams(): Promise<Entity[]> {
+    return asArray(await this.transport.get('/v1/admin/teams'));
+  }
+
   // --- live streams ---
   streamAgent(agentId: string, opts: SseOptions): SseHandle {
     return streamSse(this.cfg, this.transport.team(`/agents/${agentId}/stream`), opts);

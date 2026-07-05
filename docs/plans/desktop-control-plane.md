@@ -257,9 +257,13 @@ Focus selection is now a discriminated union (agent | project | none). The activ
 console already ships (WS2). **Remaining:** overview/runs/plans/deliverables panes,
 task detail + status change, streaming the audit console.
 
-**WS7 — Team/Governance + Admin cockpits.** Team 4-pill (members/policies/channels/
-governance) + operator Admin 4-tab (fleet/teams/upkeep/audit,
-`admin_screen.dart:17-32`); destructive-action confirmations.
+**WS7 — Team/Governance + Admin cockpits. 🚧 FIRST SLICE DONE (2026-07-05).** An
+**Admin & Governance** overlay (titlebar button + ⌘K) with tabs: **Team** (members
+`GET /principals` + policy `GET /policy`), **Hosts** (`GET /v1/admin/hosts` +
+ping/restart/update/shutdown, each a two-click `ConfirmButton`), **Agents**
+(`GET /v1/admin/agents` + confirmed kill). Admin endpoints 403 gracefully for
+non-operator tokens. **Remaining:** teams/upkeep tabs (token rotate, DB vacuum),
+policy editing (`PUT /policy`), channels.
 
 **WS8 — Packaging + continuum + breakglass terminal. 🚧 PACKAGING DONE (2026-07-05).**
 Tauri installers for all three desktop OSes are produced by

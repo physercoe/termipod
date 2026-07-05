@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
+import { AdminCockpit } from '../surfaces/AdminCockpit';
 import { AgentTranscript } from '../surfaces/AgentTranscript';
 import { AttentionDock } from '../surfaces/AttentionDock';
 import { AuditConsole } from '../surfaces/AuditConsole';
@@ -20,6 +21,7 @@ export function AppShell(): JSX.Element {
   const clear = useFocus((s) => s.clear);
   const qc = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -44,6 +46,7 @@ export function AppShell(): JSX.Element {
       label: 'Refresh approvals',
       run: () => void qc.invalidateQueries({ queryKey: ['attention'] }),
     },
+    { id: 'admin', label: 'Open admin & governance', run: () => setAdminOpen(true) },
     { id: 'disconnect', label: 'Disconnect from hub', run: disconnect },
   ];
 
@@ -53,6 +56,7 @@ export function AppShell(): JSX.Element {
         <strong>TermiPod</strong>
         <span className="pill">{teamId}</span>
         <span className="spacer" />
+        <button onClick={() => setAdminOpen(true)}>Admin</button>
         <button onClick={() => setPaletteOpen(true)}>⌘K</button>
       </div>
 
@@ -88,6 +92,7 @@ export function AppShell(): JSX.Element {
       <StatusBar />
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
+      {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
     </div>
   );
 }

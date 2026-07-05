@@ -61,10 +61,13 @@ Done:
   `POST /attention/{id}/decide`.
 - **WS6** — Projects section in the Navigator + a tasks kanban board (ADR-029
   statuses) in the Focus region.
+- **WS7** — Admin & Governance overlay (Team members/policy · admin Hosts with
+  ping/restart/update/shutdown · admin Agents with kill), destructive actions
+  gated by a two-click confirm.
 - **WS8 packaging** — installers via `desktop-release.yml` (see below).
 
-Next: team/admin cockpits (WS7); project overview/runs panes + task detail; Rust
-keychain + SSE proxy; multi-select bulk ops; split-pane transcripts.
+Next: project overview/runs panes + task detail; policy editing + teams/upkeep
+tabs; Rust keychain + SSE proxy; multi-select bulk ops; split-pane transcripts.
 
 ## Notes
 

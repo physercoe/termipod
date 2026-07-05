@@ -388,6 +388,66 @@ body {
   padding: var(--spacing-s4);
 }
 
+/* ---- admin & governance cockpit ---- */
+
+.admin {
+  width: 860px;
+  max-width: 94vw;
+  height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-dark);
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.admin-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--color-border-dark);
+}
+.admin-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-s12);
+}
+.admin-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-s16);
+}
+.admin-cols h3 {
+  margin: 0 0 var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.admin-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--spacing-s4) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border-dark) 45%, transparent);
+}
+.admin-actions {
+  display: flex;
+  gap: var(--spacing-s4);
+}
+.admin-actions button {
+  padding: 2px var(--spacing-s8);
+  font-size: var(--font-size-label);
+}
+button.danger {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+button.danger:hover {
+  background: color-mix(in srgb, var(--color-error) 16%, transparent);
+}
+
 .spacer {
   flex: 1;
 }

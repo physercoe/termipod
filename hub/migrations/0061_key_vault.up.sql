@@ -10,12 +10,18 @@
 --                       vault key wrapped to it (both opaque to the hub).
 
 CREATE TABLE key_vaults (
-    team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-    handle      TEXT NOT NULL,               -- principal owner (server-derived from token scope)
-    ciphertext  TEXT NOT NULL,               -- opaque AEAD-sealed vault, client-encrypted
-    version     INTEGER NOT NULL DEFAULT 1,  -- optimistic-concurrency counter
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
+    team_id             TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    handle              TEXT NOT NULL,               -- principal owner (server-derived from token scope)
+    ciphertext          TEXT NOT NULL,               -- opaque AEAD-sealed vault (connections + keys), client-encrypted
+    version             INTEGER NOT NULL DEFAULT 1,  -- optimistic-concurrency counter
+    -- Recovery escrow (ADR-052 D-4): the vault key wrapped under a director-held
+    -- recovery key. Opaque to the hub (it never holds the recovery key). Lets a
+    -- principal who has lost every enrolled device recover the vault.
+    recovery_envelope   TEXT,                        -- wrapped vault key; NULL until set
+    recovery_hint       TEXT,                        -- non-secret label, e.g. "recovery code created 2026-07-05"
+    recovery_updated_at TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
     PRIMARY KEY (team_id, handle)
 );
 

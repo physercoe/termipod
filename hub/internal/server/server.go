@@ -753,6 +753,11 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		r.Route("/vault", func(r chi.Router) {
 			r.Get("/", s.handlePullVault)
 			r.Put("/", s.handlePushVault)
+			r.Route("/recovery", func(r chi.Router) {
+				r.Get("/", s.handleGetVaultRecovery)
+				r.Put("/", s.handleSetVaultRecovery)
+				r.Delete("/", s.handleDeleteVaultRecovery)
+			})
 			r.Route("/devices", func(r chi.Router) {
 				r.Get("/", s.handleListVaultDevices)
 				r.Put("/{device}", s.handlePutVaultDevice)

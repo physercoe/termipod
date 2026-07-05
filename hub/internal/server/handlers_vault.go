@@ -152,6 +152,120 @@ func (s *Server) handlePushVault(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"version": newVersion, "updated_at": now})
 }
 
+type vaultRecoveryIn struct {
+	RecoveryEnvelope string `json:"recovery_envelope"`
+	RecoveryHint     string `json:"recovery_hint,omitempty"`
+}
+
+type vaultRecoveryOut struct {
+	RecoveryEnvelope string  `json:"recovery_envelope"`
+	RecoveryHint     *string `json:"recovery_hint,omitempty"`
+	UpdatedAt        *string `json:"updated_at,omitempty"`
+}
+
+// PUT /v1/teams/{team}/vault/recovery — set/replace the recovery envelope (the
+// vault key wrapped under the director's escrowed recovery key, opaque to the
+// hub). The vault must already exist. On a re-key the client re-wraps this too.
+func (s *Server) handleSetVaultRecovery(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	owner, ok := s.vaultOwner(w, r)
+	if !ok {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxVaultBytes)
+	var in vaultRecoveryIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "recovery payload too large")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if in.RecoveryEnvelope == "" {
+		writeErr(w, http.StatusBadRequest, "recovery_envelope required")
+		return
+	}
+	now := NowUTC()
+	res, err := s.writeDB.ExecContext(r.Context(),
+		`UPDATE key_vaults SET recovery_envelope = ?, recovery_hint = ?, recovery_updated_at = ?
+		  WHERE team_id = ? AND handle = ?`,
+		in.RecoveryEnvelope, nullIfEmpty(in.RecoveryHint), now, team, owner)
+	if err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeErr(w, http.StatusNotFound, "create the vault before setting recovery")
+		return
+	}
+	s.recordAudit(r.Context(), team, "vault.recovery.set", "vault", owner,
+		"set vault recovery envelope", nil)
+	writeJSON(w, http.StatusOK, map[string]any{"updated_at": now})
+}
+
+// GET /v1/teams/{team}/vault/recovery — fetch the recovery envelope for a
+// principal recovering on a fresh device. 404 when no vault or none set.
+func (s *Server) handleGetVaultRecovery(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	owner, ok := s.vaultOwner(w, r)
+	if !ok {
+		return
+	}
+	var env, hint, upd sql.NullString
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT recovery_envelope, recovery_hint, recovery_updated_at
+		   FROM key_vaults WHERE team_id = ? AND handle = ?`,
+		team, owner).Scan(&env, &hint, &upd)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "no vault for this principal")
+		return
+	}
+	if err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
+	if !env.Valid {
+		writeErr(w, http.StatusNotFound, "no recovery envelope set")
+		return
+	}
+	out := vaultRecoveryOut{RecoveryEnvelope: env.String}
+	if hint.Valid {
+		out.RecoveryHint = &hint.String
+	}
+	if upd.Valid {
+		out.UpdatedAt = &upd.String
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// DELETE /v1/teams/{team}/vault/recovery — clear the recovery envelope.
+func (s *Server) handleDeleteVaultRecovery(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	owner, ok := s.vaultOwner(w, r)
+	if !ok {
+		return
+	}
+	res, err := s.writeDB.ExecContext(r.Context(),
+		`UPDATE key_vaults SET recovery_envelope = NULL, recovery_hint = NULL, recovery_updated_at = NULL
+		  WHERE team_id = ? AND handle = ?`,
+		team, owner)
+	if err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeErr(w, http.StatusNotFound, "no vault for this principal")
+		return
+	}
+	s.recordAudit(r.Context(), team, "vault.recovery.clear", "vault", owner,
+		"clear vault recovery envelope", nil)
+	writeJSON(w, http.StatusOK, map[string]any{"cleared": true})
+}
+
 // GET /v1/teams/{team}/vault/devices — list the principal's enrolled devices
 // (their public keys and per-device wrapped keys, all opaque to the hub). A
 // new device polls this to discover when an enrolled device has wrapped the

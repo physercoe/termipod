@@ -94,6 +94,71 @@ func TestVault_MissingCiphertext(t *testing.T) {
 	}
 }
 
+func TestVault_RecoveryEscrow(t *testing.T) {
+	s, token := newA2ATestServer(t)
+
+	// Recovery can't be set before the vault exists.
+	status, _ := doReq(t, s, token, http.MethodPut, vaultPath("/recovery"),
+		map[string]any{"recovery_envelope": "wrapped-under-recovery-key"})
+	if status != http.StatusNotFound {
+		t.Fatalf("set recovery before vault: want 404, got %d", status)
+	}
+
+	// Create the vault, then no recovery envelope is set yet.
+	doReq(t, s, token, http.MethodPut, vaultPath(""),
+		map[string]any{"ciphertext": "sealed", "base_version": 0})
+	status, _ = doReq(t, s, token, http.MethodGet, vaultPath("/recovery"), nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("get recovery before set: want 404, got %d", status)
+	}
+
+	// A missing envelope is rejected.
+	status, _ = doReq(t, s, token, http.MethodPut, vaultPath("/recovery"),
+		map[string]any{"recovery_hint": "no envelope"})
+	if status != http.StatusBadRequest {
+		t.Fatalf("set recovery without envelope: want 400, got %d", status)
+	}
+
+	// Set, then read it back verbatim.
+	status, _ = doReq(t, s, token, http.MethodPut, vaultPath("/recovery"),
+		map[string]any{"recovery_envelope": "wrapped-under-recovery-key", "recovery_hint": "code 2026-07-05"})
+	if status != http.StatusOK {
+		t.Fatalf("set recovery: want 200, got %d", status)
+	}
+	status, body := doReq(t, s, token, http.MethodGet, vaultPath("/recovery"), nil)
+	if status != http.StatusOK {
+		t.Fatalf("get recovery: want 200, got %d", status)
+	}
+	var rec vaultRecoveryOut
+	if err := json.Unmarshal(body, &rec); err != nil {
+		t.Fatalf("decode recovery: %v", err)
+	}
+	if rec.RecoveryEnvelope != "wrapped-under-recovery-key" {
+		t.Fatalf("recovery envelope mismatch: %+v", rec)
+	}
+	if rec.RecoveryHint == nil || *rec.RecoveryHint != "code 2026-07-05" {
+		t.Fatalf("recovery hint mismatch: %+v", rec)
+	}
+
+	// Pushing a new vault version leaves the recovery envelope intact.
+	doReq(t, s, token, http.MethodPut, vaultPath(""),
+		map[string]any{"ciphertext": "sealed-2", "base_version": 1})
+	status, _ = doReq(t, s, token, http.MethodGet, vaultPath("/recovery"), nil)
+	if status != http.StatusOK {
+		t.Fatalf("recovery after vault update: want 200, got %d", status)
+	}
+
+	// Clear it; then it 404s again.
+	status, _ = doReq(t, s, token, http.MethodDelete, vaultPath("/recovery"), nil)
+	if status != http.StatusOK {
+		t.Fatalf("clear recovery: want 200, got %d", status)
+	}
+	status, _ = doReq(t, s, token, http.MethodGet, vaultPath("/recovery"), nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("get recovery after clear: want 404, got %d", status)
+	}
+}
+
 func TestVault_DeviceEnrollWrapListRevoke(t *testing.T) {
 	s, token := newA2ATestServer(t)
 

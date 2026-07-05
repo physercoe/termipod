@@ -145,6 +145,9 @@ The director resolved the two delivery forks left open in
   surface, so **shared design tokens ([ADR-047](047-design-system-enforcement.md))
   as the single source of truth across Flutter + web is now load-bearing**, not
   optional. Flutter remains the mobile client; the hub API is the meeting point.
+  The concrete stack (Tauri v2 + React + TypeScript, and the DTCG token pipeline
+  that carries ADR-047 to the web client) is decided in
+  [ADR-051](051-desktop-client-stack.md).
 
 Two director directives that extend *beyond* the delivery model open their own
 companion discussions (not part of this ADR's decision, cross-linked here):

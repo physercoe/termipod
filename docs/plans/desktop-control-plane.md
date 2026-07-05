@@ -5,8 +5,9 @@
 > workbench ([ADR-050](../decisions/050-desktop-workbench-delivery-model.md)) is
 > the **control plane itself**, rebuilt in web-tech as the unified client shell
 > that the research-workbench surfaces later mount into. This plan proposes the
-> **tech stack** and **UI design** and sequences the build (WS0–WS8). Needs a new
-> **ADR-051** (framework + shared-token pipeline) — WS0. Grounded in a three-scan
+> **tech stack** and **UI design** and sequences the build (WS0–WS8). Needs
+> **[ADR-051](../decisions/051-desktop-client-stack.md)** (framework + shared-token
+> pipeline), now **Proposed** (WS0 done). Grounded in a three-scan
 > survey of the hub API, the mobile control-plane IA, and the ADR-047 token
 > system; all `file:line` claims below were verified against HEAD.
 > **Audience:** principal · contributors
@@ -254,8 +255,8 @@ observe core and can parallelize; WS5 is the decide moat.
 
 ## Closes / advances
 
-Advances **ADR-050** (realizes the unified web-tech client), needs **ADR-051**
-(WS0). Establishes the shell the workbench first surface (the multi-run comparison
+Advances **ADR-050** (realizes the unified web-tech client);
+**[ADR-051](../decisions/051-desktop-client-stack.md)** (WS0) records the stack. Establishes the shell the workbench first surface (the multi-run comparison
 wall) mounts into. No hub Go changes except the *optional* WS-7-adjacent
 team-firehose SSE (Open question 2), which would be its own small PR.
 

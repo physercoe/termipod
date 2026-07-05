@@ -1,10 +1,13 @@
 # Embodied-AI research workbench
 
 > **Type:** discussion
-> **Status:** Open (2026-07-05) — director directive: the **first/pilot research
-> field** for the desktop workbench is embodied AI / robotics, and the workbench
-> must interoperate with **Isaac Lab** and other simulators. Companion to
-> [ADR-050](../decisions/050-desktop-workbench-delivery-model.md) and the
+> **Status:** Open (2026-07-05 · extended 2026-07-05) — director directive: the
+> **first/pilot research field** for the desktop workbench is embodied AI /
+> robotics, and the workbench must interoperate with **Isaac Lab** and other
+> simulators. Extended after a six-scan deep survey — the full per-tool register
+> and the **Rerun-is-not-deep-embeddable correction** live in the deep companion
+> [`embodied-ai-tooling-landscape.md`](embodied-ai-tooling-landscape.md). Companion
+> to [ADR-050](../decisions/050-desktop-workbench-delivery-model.md) and the
 > [research-material data model](research-material-data-model.md).
 > **Audience:** contributors · maintainers · principal
 > **Last verified vs code:** v1.0.820
@@ -98,8 +101,11 @@ against yet.
 3. **Live view — the highest-leverage integration:** Isaac Lab **already ships a
    built-in Rerun visualizer** (`RerunVisualizerCfg`, gRPC/web port). Point the
    job's Rerun sink through the **existing A2A reverse tunnel** (so a NAT'd GPU
-   box reaches the director's desktop/mobile) and **embed the Rerun web viewer** —
-   near-zero custom viewer code.
+   box reaches the director's desktop/mobile) and surface the **Rerun viewer as a
+   launchable companion** (iframe/`.rrd`) — near-zero custom code for general
+   multimodal replay. Design-system-native panels (interleaved with control-plane
+   widgets) build on **three.js + urdf-loader / Viser** instead, since Rerun's web
+   viewer is not deep-embeddable (§5).
 
 This is the same "remote host-runner launches a job, tails structured output, UI
 renders live" shape TermiPod already runs for LLM sessions — the robotics case is
@@ -107,23 +113,33 @@ a new *adapter + digest*, not a new architecture.
 
 ## 5. Web-embeddable viewers
 
-| Viewer | Handles | Embeddable? | License | Posture |
-|---|---|---|---|---|
-| **Rerun web viewer** | images, point clouds, transforms, scalars, tensors, text | **Yes** — `@rerun-io/web-viewer`(+React) or iframe; live gRPC | MIT/Apache-2 | **EMBED** (primary) |
-| **`urdf-loader`** (three.js) | live-articulated URDF robots (`setJointValue`) | Yes — production-proven (rosbridge-driven) | Apache-2 (ex-JPL) | EMBED (live-pose widget) |
-| **MuJoCo-WASM** | full client-side MuJoCo physics | Yes — official `@mujoco/mujoco` npm | Apache-2 | EMBED (checkpoint re-sim) |
-| `<model-viewer>` | static glTF/GLB | partial (no live joints) | Apache-2 | EMBED (static preview) |
-| HTML5 `<video>` | rollout MP4 | trivial | — | EMBED (rollouts) |
-| Babylon.js | general 3D | partial (no URDF ecosystem) | Apache-2 | skip |
+> **Corrected 2026-07-05** by the deep survey
+> ([`embodied-ai-tooling-landscape.md`](embodied-ai-tooling-landscape.md) §3.5).
+> The first pass called Rerun the primary EMBED; it is not deep-embeddable — see
+> below.
 
-**Rerun.io is directly web-embeddable** (official npm packages or iframe,
-MIT/Apache-2) and is *already* Isaac Lab's built-in sink — so it is the primary
-live-session + trajectory panel. `urdf-loader` backs a lightweight bespoke
-live-pose widget when Rerun's full UI is too heavy. **MuJoCo-WASM** (official
-Google DeepMind, real `mj_step` in-browser) enables a differentiating
-"re-simulate this checkpoint" feature no other engine offers. **Foxglove and
-Rerun are the closest existing robotics-workbench products** — treat as
-complementary embeds / positioning references, not something to out-build.
+| Viewer | Handles | Deep-embeddable in *our* UI? | License | Posture |
+|---|---|---|---|---|
+| **three.js + `urdf-loader`** | live-articulated URDF robots + point clouds/trajectories | **Yes** — Foxglove's own 3D panel uses it | Apache-2 (ex-JPL) | **EMBED** (reference base) |
+| **Viser** (nerfstudio) | web-native 3D robot/scene + joint control + GUI | **Yes, by design** — React + react-three-fiber, WS | Apache-2 | **EMBED** (strongest long-term) |
+| **Meshcat** | robot-state 3D scene (Drake's viewer) | **Yes** — `new MeshCat.Viewer(div)` | MIT | EMBED |
+| **MuJoCo-WASM** | full client-side MuJoCo physics | Yes — official `@mujoco/mujoco` npm | Apache-2 | EMBED (checkpoint re-sim) |
+| Gaussian-splat (Spark/SuperSplat) | splat scenes (world-models, sim2real) | Yes | OSS | EMBED (splat render) |
+| HTML5 `<video>` | rollout MP4 | trivial | — | EMBED (rollouts) |
+| **Rerun web viewer** | multimodal replay (images/clouds/transforms/scalars) | **No** — mounts the *whole app* in a `<div>`, no plugin/custom-element API, SDK↔viewer lock-step | MIT/Apache-2 | **INTEGRATE** (companion iframe / `.rrd` / MCAP) |
+| **Foxglove** | turnkey robotics panels + live bridge | **No** — closed since 2.0, embed paywalled | closed | **INTEROP only** (MCAP + open WS protocol) |
+
+**Build the bespoke 3D/analysis panels on three.js + `urdf-loader` / Viser /
+Meshcat** — they are design-system-native and deep-embeddable, so a robot-scene
+panel can sit interleaved with control-plane widgets. **Rerun is a launchable
+*companion*** for general multimodal replay (fed by Isaac Lab's built-in Rerun
+sink over A2A, embedded as an iframe or opened on an `.rrd`), **not** the
+architecture's center — its web viewer is whole-app-in-a-div with no plugin API
+and enforces SDK↔viewer version lock-step. **MCAP** is the open interchange/raw-log
+substrate (ROS2 default, seekable, browser-playable, now imported by Rerun); speak
+the open **Foxglove WebSocket protocol** for live telemetry without their app.
+**MuJoCo-WASM** (official Google DeepMind, real `mj_step` in-browser) enables a
+differentiating "re-simulate this checkpoint" feature.
 
 ## 6. Datasets & formats (interop)
 
@@ -146,20 +162,28 @@ GPU box, fetched on demand), and **recomposable** into a report/paper with full
 provenance back to the run + checkpoint that produced it. The claim/finding
 element type carries the sim-to-real results that feed comparison tables.
 
-## 8. Register (robotics rows for the landscape)
+## 8. Register (robotics rows)
+
+The **full per-tool register across all six layers** (simulators, benchmarks,
+data, policies, viz, assets/orchestration) is in
+[`embodied-ai-tooling-landscape.md`](embodied-ai-tooling-landscape.md) §4. The
+headline rows:
 
 | Capability | Posture | Concretely |
 |---|---|---|
-| Simulator launch/monitor | **BUILD (thin) + INTEGRATE** | host-runner **Isaac Lab adapter** normalizing `logs/` → robotics-run digest |
-| Live sim visualization | **EMBED** | **Rerun web viewer** fed by Isaac Lab's built-in Rerun sink over A2A |
-| Live robot pose | **EMBED** | three.js + `urdf-loader` |
+| Simulator launch/monitor | **BUILD (thin) + INTEGRATE** | one generic **sim-run adapter** on the convergent `<ts>/{ckpt,tfevents,videos}` tree → Isaac Lab / MuJoCo Playground / ManiSkill3 / robosuite / OmniGibson |
+| Policy training/finetune | **INTEGRATE** | YAML launch templates for LeRobot / π0(openpi) / GR00T / OpenVLA / Isaac RL |
+| **Multi-run comparison wall** | **BUILD** | success/reward curves + config diff + **synchronized multi-seed video-grid** (no tool does this) |
+| **Manipulation analysis** | **BUILD (moat)** | action-distribution · success-by-condition · real-to-sim overlay · VLA attention · failure-mode clustering |
+| Scene / robot 3D panel | **EMBED** | three.js + urdf-loader / Viser / Meshcat |
+| Multimodal replay | **INTEGRATE** | Rerun companion (iframe/`.rrd`) over A2A; MCAP raw-log; Foxglove WS protocol (INTEROP) |
 | Checkpoint re-simulation | **EMBED** | MuJoCo-WASM (`@mujoco/mujoco`) |
-| Rollout playback | **EMBED** | HTML5 `<video>` gallery keyed to run+checkpoint |
-| Learning curves / sim2real | **EMBED** | the plotting layer (Plotly/Vega-Lite) on digest scalars |
-| Trajectory/episode data | **INTEROP** | LeRobot Parquet+MP4 (primary); RLDS/HDF5 legacy adapters |
-| Robot/scene assets | **INTEROP** | URDF import, USD import/export |
-| Fleet-scale sim orchestration | **INTEGRATE** | **NVIDIA OSMO** (now Apache-2 OSS, CLI/YAML, *no UI of its own*) |
-| Embodied-AI connector pack | **BUILD (YAML)** | Isaac Lab / MuJoCo / LeRobot as MCP tools/skills |
+| **Episode / trajectory** | **BUILD(index) + INTEROP(bytes)** | `robot.episode` element; MCAP raw + LeRobot v3 export |
+| **Benchmark eval** | **BUILD(schema) + INTEGRATE** | eval-result schema + per-benchmark parsers; SIMPLER/ManiSkill3/AutoEval as run-types |
+| Datasets / assets / grasps | **INTEROP** | LeRobot/RLDS; Objaverse/PartNet/YCB/GraspNet — link+cache; URDF/USD |
+| Generative / synthetic data | **INTEGRATE** | RoboCasa/Infinigen/Holodeck/Cosmos as dispatch jobs |
+| Compute orchestration | **INTEGRATE + BUILD(driver)** | governed dispatch over **OSMO**/SkyPilot/dstack/Slurm/Ray |
+| Embodied-AI connector pack | **BUILD (YAML)** | Isaac Lab / LeRobot / π0 / GR00T / ManiSkill launch tools as MCP skills |
 
 ## 9. Positioning
 
@@ -188,6 +212,9 @@ the scheduler.
 
 ## Related
 
+- [`embodied-ai-tooling-landscape.md`](embodied-ai-tooling-landscape.md) — the
+  deep six-layer survey (simulators, benchmarks, data, policies, viz, assets/
+  orchestration) with the full build/embed/integrate/interop register.
 - [ADR-050](../decisions/050-desktop-workbench-delivery-model.md) — the workbench
   this pilot instantiates.
 - [`research-tooling-landscape.md`](research-tooling-landscape.md) — the

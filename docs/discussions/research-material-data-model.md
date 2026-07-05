@@ -213,9 +213,12 @@ several things already in flight:
   CompositeDocs and elements; the **References tile** (`citation` artifact-kind)
   is the `citation` element type; `paper`/`lit-review` document kinds are
   CompositeDocs.
-- The **embodied-AI** artifacts (companion doc) — rollout videos, trajectories,
-  3D/USD assets — are element types, so robotics materials compose into reports
-  the same way.
+- The **embodied-AI** artifacts — rollout videos, trajectories, 3D/USD assets —
+  are element types, so robotics materials compose into reports the same way. The
+  concrete `robot.episode` element (MCAP raw log + LeRobot v3 export, provenance +
+  physical-coherence, failure-as-data outcome) is specified in
+  [`embodied-ai-tooling-landscape.md`](embodied-ai-tooling-landscape.md) §3.3 — it
+  is a direct instance of this model (hub index + bytes-on-host).
 - **Agent memory** (skills/memory companion) is the *same shape* — typed,
   retrievable, backlinked knowledge with provenance. The lean is **one knowledge
   substrate, scoped views**: an agent's operational memory and the director's

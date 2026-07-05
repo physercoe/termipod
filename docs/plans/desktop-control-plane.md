@@ -11,7 +11,7 @@
 > survey of the hub API, the mobile control-plane IA, and the ADR-047 token
 > system; all `file:line` claims below were verified against HEAD.
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.820
+> **Last verified vs code:** v1.0.821
 
 **TL;DR.** Build the **portable control plane** half of ADR-050 first — a
 **Tauri v2 + React + TypeScript** desktop app (Win/Mac/Linux + plain-browser
@@ -192,12 +192,23 @@ replicates) the mobile tabs. Update `decisions/README.md`, `roadmap.md` (a
 "Desktop" Now/Next row), glossary ("unified client", "control-plane shell",
 "attention dock").
 
-**WS1 — Shared design-token pipeline (load-bearing prerequisite).** `tokens.json`
-(DTCG) as SoT; Style Dictionary → `tokens.dart`/`design_colors.dart` (byte-verified
-against current values; ratchet stays green) + `tokens.css`; feed
-`lint-design-tokens.sh` value-sets from the JSON. Gate: Flutter build unchanged,
-zero visual diff, one CSS artifact produced. De-risks the #1 divergence risk before
-any UI exists.
+**WS1 — Shared design-token pipeline (load-bearing prerequisite). ✅ DONE
+(2026-07-05).** `design-tokens/tokens.json` (DTCG) is the neutral SoT;
+`design-tokens/build.mjs` emits `build/tokens.css` (the web/desktop artifact) and
+verifies the Flutter mirror against the JSON. Wired into CI ("Verify shared design
+tokens (DTCG)" step). Gate met: **Flutter build byte-unchanged, zero visual diff,
+one CSS artifact produced.** Two forks resolved during build:
+- **Open Question 1 (SoT direction) → keep Dart hand-authored + verify.** Rather
+  than regenerate the richly-documented `tokens.dart`/`design_colors.dart` from
+  JSON (brittle to reproduce byte-identically, and unverifiable without the
+  Flutter SDK locally), `build.mjs --check` asserts every Dart constant matches
+  `tokens.json` **bidirectionally** — the JSON is authoritative-by-enforcement,
+  the Dart keeps its ADR-047 guidance docs, and the gate needs no Flutter to run.
+- **Emitter → zero-dependency Node, not Style Dictionary.** A ~60-value set
+  doesn't justify a `node_modules`/lockfile/`npm ci` + supply-chain surface in
+  CI; the input is standard DTCG so Style Dictionary remains a drop-in later. (A
+  lighter deviation from ADR-051's letter; its intent — one shared DTCG pipeline
+  — is preserved. Recorded here + in `design-tokens/README.md`.)
 
 **WS2 — App shell + hub SDK + streaming pipe.** Tauri v2 + React + TS scaffold; the
 Rust token-holding HTTP/SSE proxy (+ browser fetch-SSE fallback); the typed hub SDK
@@ -245,10 +256,12 @@ observe core and can parallelize; WS5 is the decide moat.
 
 ## 7. Open questions (forks to confirm — not blockers)
 
-1. **Token-pipeline direction** — generate Dart *from* `tokens.json` (recommended,
-   cleaner single source) vs. parse the existing Dart → emit CSS (less churn, keeps
-   Dart hand-authored). Recommend the former; both are viable since the Dart is
-   literal-only.
+1. ~~**Token-pipeline direction**~~ — **RESOLVED (WS1, 2026-07-05):** keep Dart
+   hand-authored and **verify** it against `tokens.json` bidirectionally
+   (`design-tokens/build.mjs --check`), emitting `tokens.css` for web. Chosen over
+   generating Dart because byte-identical regeneration of the doc-carrying Dart is
+   brittle and unverifiable without the Flutter SDK; verification gives the same
+   "JSON is authoritative" guarantee with zero Flutter-build churn.
 2. **Fleet liveness** — poll the REST-only surfaces now (recommended) vs. add a
    **hub-side team-firehose SSE** (a small Go addition — the hub streams per-agent/
    per-channel today, not team-wide). Poll now, add firehose if the polling cadence

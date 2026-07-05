@@ -96,6 +96,14 @@ jobs:
         # burns down opportunistically (WS6). Pure bash + python3, no Flutter.
         run: scripts/lint-design-tokens.sh
 
+      - name: Verify shared design tokens (DTCG)
+        # WS1 of docs/plans/desktop-control-plane.md (ADR-051). design-tokens/
+        # tokens.json is the neutral DTCG source of truth for both clients; this
+        # verifies the Flutter mirror (tokens.dart + design_colors.dart) matches
+        # it and that build/tokens.css (the web/desktop artifact) is current.
+        # Zero-dependency Node — no npm install.
+        run: node design-tokens/build.mjs --check
+
       - name: Lint vocabulary packs
         # ADR-048 completeness gate — fails when a (preset × language) pack in
         # lib/services/vocab/vocab_packs.dart is missing any VocabAxis. Term

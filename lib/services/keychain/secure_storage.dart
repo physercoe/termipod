@@ -65,6 +65,42 @@ class SecureStorageService {
     await _storage.delete(key: 'passphrase_$keyId');
   }
 
+  // ===== Vault sync (ADR-052 D-4) =====
+  // Zero-knowledge vault: this device's stable id + its X25519 seed, plus a
+  // cached copy of the symmetric vault key (base64). All three live in secure
+  // storage — the same trust boundary as the private keys they protect.
+
+  Future<void> saveVaultDeviceId(String id) async {
+    await _storage.write(key: 'vault_device_id', value: id);
+  }
+
+  Future<String?> getVaultDeviceId() async {
+    return await _storage.read(key: 'vault_device_id');
+  }
+
+  Future<void> saveVaultDeviceSeed(String seedBase64) async {
+    await _storage.write(key: 'vault_device_seed', value: seedBase64);
+  }
+
+  Future<String?> getVaultDeviceSeed() async {
+    return await _storage.read(key: 'vault_device_seed');
+  }
+
+  Future<void> saveVaultKey(String keyBase64) async {
+    await _storage.write(key: 'vault_key', value: keyBase64);
+  }
+
+  Future<String?> getVaultKey() async {
+    return await _storage.read(key: 'vault_key');
+  }
+
+  /// Forget this device's vault enrolment (leaves the remote vault intact).
+  Future<void> clearVaultLocal() async {
+    await _storage.delete(key: 'vault_device_id');
+    await _storage.delete(key: 'vault_device_seed');
+    await _storage.delete(key: 'vault_key');
+  }
+
   // ===== ユーティリティ =====
 
   /// すべてのデータを削除

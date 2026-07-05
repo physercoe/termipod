@@ -28,6 +28,7 @@ import '../../theme/tokens.dart';
 import 'action_bar_settings_screen.dart';
 import 'file_browser_screen.dart';
 import '../vault/vault_screen.dart';
+import '../vault/vault_sync_screen.dart';
 import '../../widgets/dialogs/font_size_dialog.dart';
 import '../../widgets/dialogs/font_family_dialog.dart';
 import '../../widgets/dialogs/min_font_size_dialog.dart';
@@ -890,6 +891,16 @@ class _CategoryPage extends ConsumerWidget {
         title: Text(l10n.importBackup),
         subtitle: Text(l10n.importBackupDesc),
         onTap: () => _handleImport(context, ref),
+      ),
+      ListTile(
+        leading: const Icon(Icons.sync_lock),
+        title: Text(l10n.vaultSyncTitle),
+        subtitle: Text(l10n.vaultSyncDesc),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const VaultSyncScreen()),
+          );
+        },
       ),
       ListTile(
         leading: const Icon(Icons.cloud_off_outlined),

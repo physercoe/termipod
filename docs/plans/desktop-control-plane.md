@@ -229,8 +229,14 @@ audit console (the Activity feed made streaming).
 governance) + operator Admin 4-tab (fleet/teams/upkeep/audit,
 `admin_screen.dart:17-32`); destructive-action confirmations.
 
-**WS8 — Packaging + continuum.** Tauri installers (Win/Mac/Linux) + browser build;
-keychain token storage; auto-update; phone↔desktop deep-link handoff.
+**WS8 — Packaging + continuum + breakglass terminal.** Tauri installers (Win/Mac/
+Linux) + browser build; keychain token storage; auto-update; phone↔desktop deep-link
+handoff. **Breakglass SSH terminal** mirroring the mobile Connections/Keys/Terminal
+surfaces — **xterm.js** + a Tauri Rust **`russh`** transport (not `libghostty`);
+host rows gain an "open terminal" action. Backend + the shared-key / hub-safety model
+(managed-host PTY relay vs personal direct-SSH; key-posture fork) are reasoned in
+[`../discussions/desktop-breakglass-ssh.md`](../discussions/desktop-breakglass-ssh.md);
+the hub-side PTY-relay + relay-auth piece is a separate hub workstream.
 
 **Sequencing:** WS0 → WS1 → WS2 → (WS3 ‖ WS4) → WS5 → WS6 → WS7 → WS8. WS1 before
 any UI (parity risk); WS2 is the spine everything hangs on; WS3/WS4 are the

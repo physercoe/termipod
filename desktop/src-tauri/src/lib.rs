@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+mod ssh;
+
 /// A REST request proxied through the Rust core (WS2/WS8). This lets the desktop
 /// build keep the bearer token out of the webview JS: the frontend calls this
 /// command instead of `fetch` when running under Tauri, and the token is
@@ -42,7 +44,14 @@ async fn hub_request(req: HubRequest) -> Result<HubResponse, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![hub_request])
+        .manage(ssh::SshState::default())
+        .invoke_handler(tauri::generate_handler![
+            hub_request,
+            ssh::ssh_connect,
+            ssh::ssh_write,
+            ssh::ssh_resize,
+            ssh::ssh_close,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

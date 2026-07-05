@@ -10,6 +10,7 @@ import { AuditConsole } from '../surfaces/AuditConsole';
 import { Navigator } from '../surfaces/Navigator';
 import { ProjectBoard } from '../surfaces/ProjectBoard';
 import { Settings } from '../surfaces/Settings';
+import { Terminal } from '../surfaces/Terminal';
 import { CommandPalette, type Command } from './CommandPalette';
 import { StatusBar } from './StatusBar';
 
@@ -26,6 +27,7 @@ export function AppShell(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -51,6 +53,7 @@ export function AppShell(): JSX.Element {
       run: () => void qc.invalidateQueries({ queryKey: ['attention'] }),
     },
     { id: 'admin', label: t('cmd.admin'), run: () => setAdminOpen(true) },
+    { id: 'terminal', label: t('cmd.terminal'), run: () => setTerminalOpen(true) },
     { id: 'settings', label: t('cmd.settings'), run: () => setSettingsOpen(true) },
     { id: 'disconnect', label: t('cmd.disconnect'), run: disconnect },
   ];
@@ -62,6 +65,7 @@ export function AppShell(): JSX.Element {
         <span className="pill">{teamId}</span>
         <span className="spacer" />
         <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
+        <button onClick={() => setTerminalOpen(true)}>{t('shell.terminal')}</button>
         <button onClick={() => setSettingsOpen(true)}>{t('shell.settings')}</button>
         <button onClick={() => setPaletteOpen(true)}>⌘K</button>
       </div>
@@ -99,6 +103,7 @@ export function AppShell(): JSX.Element {
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
+      {terminalOpen && <Terminal onClose={() => setTerminalOpen(false)} />}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>
   );

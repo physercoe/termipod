@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { str, type Entity } from '../hub/types';
+import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -9,24 +9,67 @@ function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/// Small "shown once" secret row — a fresh token / recovery string the operator
+/// must copy now (the hub never returns it again).
+function SecretReveal({ label, value }: { label: string; value: string }): JSX.Element {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="secret-reveal">
+      <div className="muted">{label}</div>
+      <div className="admin-row">
+        <code className="mono">{value}</code>
+        <button
+          onClick={() => {
+            void navigator.clipboard?.writeText(value);
+            setCopied(true);
+          }}
+        >
+          {copied ? t('admin.copied') : t('admin.copy')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TeamTab(): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
-  const policyQ = useQuery({
-    queryKey: ['policy'],
-    enabled: client !== null,
-    queryFn: () => client!.getPolicy(),
-  });
   const principalsQ = useQuery({
     queryKey: ['principals'],
     enabled: client !== null,
     queryFn: () => client!.listPrincipals(),
   });
+  const policyQ = useQuery({
+    queryKey: ['policy-text'],
+    enabled: client !== null,
+    queryFn: () => client!.getPolicyText(),
+  });
 
-  const policyText =
-    policyQ.data === undefined
-      ? ''
-      : (str(policyQ.data, 'yaml') ?? JSON.stringify(policyQ.data, null, 2));
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Seed the editor once the policy loads; keep the user's edits after that.
+  useEffect(() => {
+    if (policyQ.data !== undefined && draft === null) setDraft(policyQ.data);
+  }, [policyQ.data, draft]);
+
+  async function save(): Promise<void> {
+    if (client === null || draft === null) return;
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await client.putPolicy(draft);
+      setSaved(true);
+    } catch (e) {
+      setError(msg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="admin-cols">
@@ -47,11 +90,28 @@ function TeamTab(): JSX.Element {
         )}
       </section>
       <section>
-        <h3>{t('admin.policy')}</h3>
+        <h3>{t('admin.editPolicy')}</h3>
         {policyQ.isError ? (
           <div className="error">{msg(policyQ.error)}</div>
         ) : (
-          <pre className="mono">{policyText}</pre>
+          <>
+            <textarea
+              className="policy-edit mono"
+              spellCheck={false}
+              value={draft ?? ''}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setSaved(false);
+              }}
+            />
+            {error !== null && <div className="error">{error}</div>}
+            <div className="admin-row">
+              {saved ? <span className="muted">{t('admin.saved')}</span> : <span />}
+              <button className="primary" disabled={busy || draft === null} onClick={() => void save()}>
+                {t('admin.savePolicy')}
+              </button>
+            </div>
+          </>
         )}
       </section>
     </div>
@@ -187,25 +247,151 @@ function AgentsTab(): JSX.Element {
   );
 }
 
+function TeamsTab(): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const [error, setError] = useState<string | null>(null);
+  const [freshToken, setFreshToken] = useState<{ team: string; token: string } | null>(null);
+  const q = useQuery({
+    queryKey: ['admin-teams'],
+    enabled: client !== null,
+    queryFn: () => client!.adminListTeams(),
+  });
+
+  async function rotate(team: string): Promise<void> {
+    if (client === null) return;
+    setError(null);
+    try {
+      const res = await client.adminRotateTeamToken(team);
+      const tok = str(res, 'token') ?? str(res, 'value');
+      if (tok !== undefined) setFreshToken({ team, token: tok });
+    } catch (e) {
+      setError(msg(e));
+    }
+  }
+
+  if (q.isError) return <div className="error">{msg(q.error)}</div>;
+  const teams = q.data ?? [];
+
+  return (
+    <>
+      {error !== null && <div className="error">{error}</div>}
+      {freshToken !== null && (
+        <SecretReveal label={`${t('admin.newToken')} · ${freshToken.team}`} value={freshToken.token} />
+      )}
+      <table>
+        <thead>
+          <tr>
+            <th>{t('admin.team')}</th>
+            <th>{t('admin.name')}</th>
+            <th>{t('admin.actions')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {teams.map((tm, i) => {
+            const id = str(tm, 'id') ?? String(i);
+            return (
+              <tr key={id}>
+                <td className="mono">{id}</td>
+                <td>{str(tm, 'name') ?? ''}</td>
+                <td className="admin-actions">
+                  <ConfirmButton label={t('admin.rotateToken')} danger onConfirm={() => void rotate(id)} />
+                </td>
+              </tr>
+            );
+          })}
+          {teams.length === 0 && (
+            <tr>
+              <td colSpan={3} className="muted">
+                {t('admin.noTeams')}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+function UpkeepTab(): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const [error, setError] = useState<string | null>(null);
+  const [vacuum, setVacuum] = useState<Entity | null>(null);
+  const [hostToken, setHostToken] = useState<string | null>(null);
+
+  async function doVacuum(): Promise<void> {
+    if (client === null) return;
+    setError(null);
+    try {
+      setVacuum(await client.adminDBVacuum());
+    } catch (e) {
+      setError(msg(e));
+    }
+  }
+  async function rotateHost(): Promise<void> {
+    if (client === null) return;
+    setError(null);
+    try {
+      const res = await client.adminRotateHostTokens('desktop-upkeep');
+      const tok = str(res, 'token') ?? str(res, 'value');
+      if (tok !== undefined) setHostToken(tok);
+    } catch (e) {
+      setError(msg(e));
+    }
+  }
+
+  return (
+    <div className="upkeep">
+      <p className="muted">{t('admin.upkeepNote')}</p>
+      {error !== null && <div className="error">{error}</div>}
+
+      <div className="admin-row">
+        <div>
+          <div>{t('admin.dbVacuum')}</div>
+          {vacuum !== null && (
+            <div className="muted">
+              {t('admin.reclaimed')}: {num(vacuum, 'reclaimed') ?? 0} B
+            </div>
+          )}
+        </div>
+        <ConfirmButton label={t('admin.dbVacuum')} onConfirm={() => void doVacuum()} />
+      </div>
+
+      <div className="admin-row">
+        <div>{t('admin.rotateHostTokens')}</div>
+        <ConfirmButton label={t('admin.rotateHostTokens')} danger onConfirm={() => void rotateHost()} />
+      </div>
+      {hostToken !== null && <SecretReveal label={t('admin.newToken')} value={hostToken} />}
+    </div>
+  );
+}
+
+type AdminTab = 'team' | 'hosts' | 'agents' | 'teams' | 'upkeep';
+
 /// WS7 — Team governance + operator Admin cockpit as an overlay. Team tab
-/// (members + policy); Hosts/Agents admin tabs with confirmed destructive
-/// actions. Admin endpoints 403 gracefully for non-operator tokens.
+/// (members + editable policy); Hosts/Agents admin tabs with confirmed
+/// destructive actions; Teams (token rotation) and Upkeep (DB vacuum, host-
+/// token rotation). Admin endpoints 403 gracefully for non-operator tokens.
 export function AdminCockpit({ onClose }: { onClose: () => void }): JSX.Element {
   const t = useT();
-  const [tab, setTab] = useState<'team' | 'hosts' | 'agents'>('team');
+  const [tab, setTab] = useState<AdminTab>('team');
+  const tabs: { v: AdminTab; label: string }[] = [
+    { v: 'team', label: t('admin.team') },
+    { v: 'hosts', label: t('admin.hosts') },
+    { v: 'agents', label: t('admin.agents') },
+    { v: 'teams', label: t('admin.teams') },
+    { v: 'upkeep', label: t('admin.upkeep') },
+  ];
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
       <div className="admin" onMouseDown={(e) => e.stopPropagation()}>
         <div className="admin-tabs">
-          <button className={tab === 'team' ? 'tab active' : 'tab'} onClick={() => setTab('team')}>
-            {t('admin.team')}
-          </button>
-          <button className={tab === 'hosts' ? 'tab active' : 'tab'} onClick={() => setTab('hosts')}>
-            {t('admin.hosts')}
-          </button>
-          <button className={tab === 'agents' ? 'tab active' : 'tab'} onClick={() => setTab('agents')}>
-            {t('admin.agents')}
-          </button>
+          {tabs.map((x) => (
+            <button key={x.v} className={tab === x.v ? 'tab active' : 'tab'} onClick={() => setTab(x.v)}>
+              {x.label}
+            </button>
+          ))}
           <span className="spacer" />
           <button onClick={onClose}>{t('admin.close')}</button>
         </div>
@@ -213,6 +399,8 @@ export function AdminCockpit({ onClose }: { onClose: () => void }): JSX.Element 
           {tab === 'team' && <TeamTab />}
           {tab === 'hosts' && <HostsTab />}
           {tab === 'agents' && <AgentsTab />}
+          {tab === 'teams' && <TeamsTab />}
+          {tab === 'upkeep' && <UpkeepTab />}
         </div>
       </div>
     </div>

@@ -104,19 +104,40 @@ export class HubClient {
   getProject(id: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/projects/${id}`)) as Promise<Entity>;
   }
+  /** Composed project read — phase + phases + active-phase deliverables + counts. */
+  getProjectOverview(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/projects/${id}/overview`)) as Promise<Entity>;
+  }
   async listTasks(projectId: string): Promise<Entity[]> {
     const out = await this.transport.get(this.transport.team(`/projects/${projectId}/tasks`));
     return asArray(out);
   }
+  /** Patch a task — status / title / assignee / priority (ADR-029; `handlePatchTask`). */
+  patchTask(projectId: string, taskId: string, patch: Record<string, unknown>): Promise<unknown> {
+    return this.transport.patch(this.transport.team(`/projects/${projectId}/tasks/${taskId}`), patch);
+  }
+  async listRuns(projectId: string): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team(`/projects/${projectId}/runs`));
+    return asArray(out);
+  }
+  async listPlans(projectId: string): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team(`/projects/${projectId}/plans`));
+    return asArray(out);
+  }
 
   // --- team governance (WS7) ---
-  /** Team policy (`GET /policy`) — the governance policy document. */
-  getPolicy(): Promise<Entity> {
-    return this.transport.get(this.transport.team('/policy')) as Promise<Entity>;
+  /** Team policy as raw YAML text (`GET /policy` serves `application/yaml`, so
+   * this must not JSON-parse). Empty string when no policy file exists. */
+  getPolicyText(): Promise<string> {
+    return this.transport.getText(this.transport.team('/policy'));
   }
   async listPrincipals(): Promise<Entity[]> {
     const out = await this.transport.get(this.transport.team('/principals'));
     return asArray(out);
+  }
+  /** Replace the team policy document (`PUT /policy`) — raw YAML body. */
+  putPolicy(yamlText: string): Promise<unknown> {
+    return this.transport.putText(this.transport.team('/policy'), yamlText);
   }
 
   // --- operator admin (WS7, cross-team; may 403 for non-operator tokens) ---
@@ -134,6 +155,18 @@ export class HubClient {
   }
   async adminListTeams(): Promise<Entity[]> {
     return asArray(await this.transport.get('/v1/admin/teams'));
+  }
+  /** Rotate a team's owner token — returns the freshly-minted token. */
+  adminRotateTeamToken(team: string): Promise<Entity> {
+    return this.transport.post(`/v1/admin/teams/${team}/rotate-token`, {}) as Promise<Entity>;
+  }
+  /** Rotate the hub host token (upkeep). */
+  adminRotateHostTokens(reason?: string): Promise<Entity> {
+    return this.transport.post('/v1/admin/tokens/rotate', reason ? { reason } : {}) as Promise<Entity>;
+  }
+  /** VACUUM the hub database — returns bytes before/after/reclaimed. */
+  adminDBVacuum(): Promise<Entity> {
+    return this.transport.post('/v1/admin/db/vacuum', {}) as Promise<Entity>;
   }
 
   // --- live streams ---

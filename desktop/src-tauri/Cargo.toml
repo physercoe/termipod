@@ -19,3 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # rustls-tls avoids a system OpenSSL dependency in CI.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# Breakglass SSH terminal (ADR-052, personal direct-SSH path). russh is pure
+# Rust (no cgo/OpenSSL); tokio drives the per-session PTY actor.
+russh = "0.62"
+tokio = { version = "1", features = ["macros", "sync", "io-util", "net", "time", "rt-multi-thread"] }

@@ -59,19 +59,30 @@ Done:
 - **WS5** — always-visible approvals dock: per-kind attention cards
   (permission_prompt / propose+override / help_request / generic) driving
   `POST /attention/{id}/decide`.
-- **WS6** — Projects section in the Navigator + a tasks kanban board (ADR-029
-  statuses) in the Focus region.
-- **WS7** — Admin & Governance overlay (Team members/policy · admin Hosts with
-  ping/restart/update/shutdown · admin Agents with kill), destructive actions
-  gated by a two-click confirm.
+- **WS6** — Projects section in the Navigator + a tabbed project surface:
+  **Overview** (phase track + deliverables/counts), **Tasks** kanban (ADR-029
+  statuses) with a **task-detail modal that patches status/priority**
+  (`PATCH …/tasks/{task}`), **Runs**, and **Plans**.
+- **WS7** — Admin & Governance overlay: Team members + **editable policy**
+  (`PUT /policy`, raw YAML) · admin **Hosts** (ping/restart/update/shutdown) ·
+  admin **Agents** (kill) · **Teams** (rotate-token) · **Upkeep** (DB vacuum,
+  host-token rotation), destructive actions gated by a two-click confirm and
+  freshly-minted tokens shown once for copy.
+- **Terminal** — breakglass **SSH terminal** ([ADR-052](../docs/decisions/052-breakglass-ssh-and-key-vault.md),
+  personal direct-SSH path): xterm.js in the webview + a `russh` PTY transport
+  in the Tauri Rust core (`src-tauri/src/ssh.rs`). Password or private-key auth;
+  keys held in memory for the session only, never sent to the hub. Desktop-only
+  (the browser build shows a "desktop app only" notice). The managed-host
+  hub-brokered PTY (D-2 Path 1 / D-6) and the zero-knowledge key vault (D-4)
+  remain future workstreams.
 - **WS8 packaging** — installers via `desktop-release.yml` (see below).
 - **Shell** — Settings overlay (titlebar + ⌘K): **light / dark / system themes**
   (semantic CSS vars over the shared light+dark tokens, persisted) and **English /
   中文** i18n (`src/i18n/`, persisted, English fallback) across all UI strings.
 
-Next: project overview/runs panes + task detail; policy editing + teams/upkeep
-tabs; Rust keychain + SSE proxy; multi-select bulk ops; split-pane transcripts;
-the breakglass SSH terminal (ADR-052).
+Next: Rust keychain + SSE proxy; multi-select bulk ops; split-pane transcripts;
+managed-host hub-brokered PTY (ADR-052 D-6) + the zero-knowledge key vault
+(D-4); host-key pinning for the personal SSH path.
 
 ## Notes
 

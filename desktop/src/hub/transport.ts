@@ -58,14 +58,39 @@ export class HubTransport {
     return text ? (JSON.parse(text) as Json) : null;
   }
 
+  /** Send a raw (non-JSON) body — e.g. the policy document is YAML text the
+   * hub reads verbatim (`handlePutPolicy` yaml.Unmarshals the raw bytes). */
+  private async requestRaw(method: string, path: string, bodyText: string): Promise<Json> {
+    const h = this.headers(true);
+    h['content-type'] = 'application/yaml';
+    const res = await fetch(this.buildUrl(path), { method, headers: h, body: bodyText });
+    const text = await res.text();
+    if (!res.ok) throw new HubApiError(res.status, text);
+    return text ? (JSON.parse(text) as Json) : null;
+  }
+
   get(path: string, query?: Query, auth = true): Promise<Json> {
     return this.request('GET', path, { query, auth });
+  }
+  /** GET a raw text body (e.g. the policy document is YAML, not JSON — the hub
+   * serves it with `Content-Type: application/yaml` and JSON.parse would throw). */
+  async getText(path: string): Promise<string> {
+    const res = await fetch(this.buildUrl(path), { method: 'GET', headers: this.headers(true) });
+    const text = await res.text();
+    if (!res.ok) throw new HubApiError(res.status, text);
+    return text;
   }
   post(path: string, body: Json, query?: Query): Promise<Json> {
     return this.request('POST', path, { body, query });
   }
   put(path: string, body: Json): Promise<Json> {
     return this.request('PUT', path, { body });
+  }
+  putText(path: string, bodyText: string): Promise<Json> {
+    return this.requestRaw('PUT', path, bodyText);
+  }
+  patch(path: string, body: Json): Promise<Json> {
+    return this.request('PATCH', path, { body });
   }
   delete(path: string): Promise<Json> {
     return this.request('DELETE', path);

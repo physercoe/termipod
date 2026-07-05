@@ -520,6 +520,147 @@ button.danger:hover {
   color: #00232a;
 }
 
+/* ---- project overview + task detail (WS6 deepened) ---- */
+
+.phase-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+}
+.phase-pip {
+  padding: 2px var(--spacing-s8);
+  border-radius: var(--radius-stadium);
+  font-size: var(--font-size-label);
+  background: color-mix(in srgb, var(--color-slate) 22%, transparent);
+  color: var(--text-secondary);
+}
+.phase-pip.done {
+  background: color-mix(in srgb, var(--color-success) 20%, transparent);
+  color: var(--color-success);
+}
+.phase-pip.active {
+  background: var(--accent);
+  color: #00232a;
+  font-weight: 600;
+}
+.task-title {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  margin-bottom: var(--spacing-s8);
+}
+.task-body {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-small);
+  white-space: pre-wrap;
+  margin: 0 0 var(--spacing-s16);
+}
+.seg-wrap {
+  flex-wrap: wrap;
+}
+.kanban-card[role='button'] {
+  cursor: pointer;
+}
+.kanban-card[role='button']:hover {
+  border-color: var(--accent);
+}
+
+/* ---- policy editor + upkeep + secret reveal (WS7 deepened) ---- */
+
+.policy-edit {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--font-size-label);
+  white-space: pre;
+}
+.upkeep {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s16);
+}
+.secret-reveal {
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  margin-bottom: var(--spacing-s12);
+}
+.secret-reveal .mono {
+  color: var(--text);
+  word-break: break-all;
+}
+
+/* ---- ssh terminal (ADR-052, personal direct SSH) ---- */
+
+.term {
+  width: 900px;
+  max-width: 96vw;
+  height: 78vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.term-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: var(--spacing-s12);
+}
+.term-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-s12);
+}
+.term-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+.term-form .wide {
+  grid-column: 1 / -1;
+}
+.term-form textarea {
+  min-height: 96px;
+  resize: vertical;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--font-size-label);
+}
+.term-screen {
+  flex: 1;
+  min-height: 0;
+  background: #000;
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s4);
+  overflow: hidden;
+}
+.term-note {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+.term-banner {
+  padding: var(--spacing-s24);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
 .spacer {
   flex: 1;
 }

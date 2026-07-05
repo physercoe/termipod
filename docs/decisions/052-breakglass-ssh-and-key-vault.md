@@ -12,6 +12,14 @@
 > **vault key-sync service** (D-4) — the hub as a blind cross-device blob store.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** v1.0.820
+>
+> **Implementation status (2026-07-05).** D-1 + D-2 Path 2 (personal direct
+> SSH) are **built** in the desktop client: xterm.js in the webview + a `russh`
+> PTY transport in the Tauri Rust core (`desktop/src-tauri/src/ssh.rs`,
+> `desktop/src/surfaces/Terminal.tsx`), password / private-key auth, keys held
+> in-process only. Director directed this ahead of D-4 (vault) this session;
+> the vault sync (D-4), host-key pinning, and the managed-host hub-brokered PTY
+> (D-2 Path 1 / D-6) remain the open workstreams.
 
 **TL;DR.** The breakglass SSH terminal is **xterm.js + a Tauri Rust `russh`
 transport** (not `libghostty` — wrong layer), mirroring mobile. There are **two

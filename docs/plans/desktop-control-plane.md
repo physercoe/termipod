@@ -255,35 +255,43 @@ governance moat is surfaced across all three regions now. **Remaining:** stalled
 variant (escalation_state), deliverable ratify/unratify + criteria mark-met/fail/
 waive, option (`select`/`elicit`) buttons, originating-context jump.
 
-**WS6 — Projects/Tasks/Runs board + Activity console. 🚧 FIRST SLICE DONE
-(2026-07-05).** The Navigator gained a **Projects** section (`GET /projects`);
-selecting a project opens a **tasks kanban** in the Focus region (ADR-029 statuses
-todo/in_progress/blocked/done/cancelled via `GET /projects/{id}/tasks`, 8 s refetch).
-Focus selection is now a discriminated union (agent | project | none). The activity
-console already ships (WS2). **Remaining:** overview/runs/plans/deliverables panes,
-task detail + status change, streaming the audit console.
+**WS6 — Projects/Tasks/Runs board + Activity console. ✅ DEEPENED (2026-07-05).**
+The Navigator has a **Projects** section (`GET /projects`); selecting a project
+opens a **tabbed project surface** in the Focus region: **Overview**
+(`GET /projects/{id}/overview` — phase track + deliverables + ratified/criteria
+counts), **Tasks** kanban (ADR-029 statuses via `GET …/tasks`, 8 s refetch) whose
+cards open a **task-detail modal that patches status + priority**
+(`PATCH …/tasks/{task}`, `handlePatchTask`), **Runs** (`GET …/runs`), and **Plans**
+(`GET …/plans`). Focus selection is a discriminated union (agent | project | none).
+**Remaining:** deliverable detail/ratify actions, channels, streaming the audit
+console.
 
-**WS7 — Team/Governance + Admin cockpits. 🚧 FIRST SLICE DONE (2026-07-05).** An
-**Admin & Governance** overlay (titlebar button + ⌘K) with tabs: **Team** (members
-`GET /principals` + policy `GET /policy`), **Hosts** (`GET /v1/admin/hosts` +
-ping/restart/update/shutdown, each a two-click `ConfirmButton`), **Agents**
-(`GET /v1/admin/agents` + confirmed kill). Admin endpoints 403 gracefully for
-non-operator tokens. **Remaining:** teams/upkeep tabs (token rotate, DB vacuum),
-policy editing (`PUT /policy`), channels.
+**WS7 — Team/Governance + Admin cockpits. ✅ DEEPENED (2026-07-05).** An **Admin &
+Governance** overlay (titlebar button + ⌘K) with tabs: **Team** (members
+`GET /principals` + **editable policy** — `GET/PUT /policy` as raw YAML, seeded
+once then Save), **Hosts** (`GET /v1/admin/hosts` + ping/restart/update/shutdown,
+each a two-click `ConfirmButton`), **Agents** (`GET /v1/admin/agents` + confirmed
+kill), **Teams** (`GET /v1/admin/teams` + **rotate-token**, minted token shown once
+for copy), and **Upkeep** (`POST /v1/admin/db/vacuum` reporting reclaimed bytes +
+`POST /v1/admin/tokens/rotate`). Admin endpoints 403 gracefully for non-operator
+tokens. (Note: `GET /policy` serves `application/yaml`, so the client fetches it as
+raw text — the earlier JSON-parsing `getPolicy` was a latent bug masked by empty
+policies.) **Remaining:** channels, per-kind policy form (vs raw YAML).
 
-**WS8 — Packaging + continuum + breakglass terminal. 🚧 PACKAGING DONE (2026-07-05).**
-Tauri installers for all three desktop OSes are produced by
-`.github/workflows/desktop-release.yml` (matrix Linux/macOS-universal/Windows via
-`tauri-action`; run on demand or by a `desktop-v*` tag → draft release; installers
-also uploaded as run artifacts) — CI is the bundle factory since the dev host has no
-Rust. **Remaining WS8:** keychain token storage; auto-update; phone↔desktop deep-link
-handoff. **Breakglass SSH terminal** mirroring the mobile Connections/Keys/Terminal
-surfaces — **xterm.js** + a Tauri Rust **`russh`** transport (not `libghostty`);
-host rows gain an "open terminal" action. Backend + the shared-key / hub-safety model
-(managed-host PTY relay vs personal direct-SSH; **zero-knowledge key vault**) are
-decided in [ADR-052](../decisions/052-breakglass-ssh-and-key-vault.md) (amends
-forbidden-pattern #15); the hub-side PTY-relay + relay-auth piece is a separate hub
-workstream.
+**WS8 — Packaging + continuum + breakglass terminal. ✅ PACKAGING DONE + PERSONAL
+SSH TERMINAL BUILT (2026-07-05).** Tauri installers for all three desktop OSes are
+produced by `.github/workflows/desktop-release.yml` (matrix Linux/macOS-universal/
+Windows via `tauri-action`; run on demand or by a `desktop-v*` tag → draft release;
+installers also uploaded as run artifacts) — CI is the bundle factory since the dev
+host has no Rust. The **breakglass SSH terminal** (ADR-052, **personal direct-SSH**
+path) is built: **xterm.js** in the webview (`desktop/src/surfaces/Terminal.tsx`) +
+a Tauri Rust **`russh`** PTY transport (`desktop/src-tauri/src/ssh.rs`, per-session
+actor task streaming bytes over `ssh-data`/`ssh-exit` events); password or
+private-key auth, keys held in-process only (never sent to the hub). Desktop-only —
+the browser build shows a notice. **Remaining WS8:** keychain token storage;
+auto-update; phone↔desktop deep-link handoff; host-key pinning; the managed-host
+hub-brokered PTY relay + relay-auth (ADR-052 D-6) and the **zero-knowledge key
+vault** (D-4) as separate hub/crypto workstreams.
 
 **Sequencing:** WS0 → WS1 → WS2 → (WS3 ‖ WS4) → WS5 → WS6 → WS7 → WS8. WS1 before
 any UI (parity risk); WS2 is the spine everything hangs on; WS3/WS4 are the

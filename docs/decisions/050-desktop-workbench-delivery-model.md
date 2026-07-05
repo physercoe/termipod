@@ -1,9 +1,12 @@
 # 050. Desktop research workbench — delivery model
 
 > **Type:** decision
-> **Status:** Accepted (2026-07-04) — director-directed. The director chose
-> option **C** over the "one adaptive Flutter tree" lean of the sibling
-> discussion docs, after a full research-lifecycle × tooling landscape survey.
+> **Status:** Accepted (2026-07-04) · **Amended (2026-07-05)** — director-directed.
+> Chose option **C** over the "one adaptive Flutter tree" lean of the sibling
+> discussion docs, after a full research-lifecycle × tooling landscape survey. The
+> 2026-07-05 amendment resolves two open forks (cross-platform Tauri shell;
+> unified web-tech client with the control plane rebuilt, not embedded) — see
+> Amendment below.
 > **Audience:** contributors · maintainers
 > **Last verified vs code:** v1.0.820
 
@@ -120,6 +123,41 @@ path. The director chose the alternative.
 - `hub-tui/` (the terminal cockpit) is orthogonal and continues to serve the
   desktop-from-terminal niche.
 - The mobile app and its IA are unchanged by this decision.
+
+## Amendment (2026-07-05) — cross-platform shell + unified client
+
+The director resolved the two delivery forks left open in
+[`research-tooling-landscape.md`](../discussions/research-tooling-landscape.md) §6:
+
+- **A-1 — Cross-platform native shell (Tauri).** The web app is packaged as a
+  portable desktop app for **Windows, macOS, and Linux** via a **Tauri** shell
+  (Rust core + the OS-native webview): one web codebase → three native installers,
+  small footprint, and the local filesystem + OS integration the local-first
+  requirements need (data-on-host access, local compute-consent). The identical
+  build also runs in a plain browser against a remote hub (the no-install path).
+  Electron is the fallback only if a Tauri capability gap appears.
+- **A-2 — Unified web-tech client (control plane rebuilt, not embedded).** The
+  desktop app is a **single web-tech client covering both halves** — the control
+  plane (fleet / dispatch / approve / transcript) is **rebuilt in web-tech**, not
+  embedded from Flutter and not deferred to mobile. The two-halves split (D-2)
+  stays the *design* frame; there is one runtime and one design-system expression.
+  Consequence: the design-system-divergence risk now spans the whole desktop
+  surface, so **shared design tokens ([ADR-047](047-design-system-enforcement.md))
+  as the single source of truth across Flutter + web is now load-bearing**, not
+  optional. Flutter remains the mobile client; the hub API is the meeting point.
+
+Two director directives that extend *beyond* the delivery model open their own
+companion discussions (not part of this ADR's decision, cross-linked here):
+- **Embodied-AI / simulator pilot** — the first research field is embodied AI /
+  robotics; the workbench must interoperate with Isaac Lab and other simulators.
+  See [`discussions/embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md).
+- **Composable research-material data model** — all materials retrievable across
+  machines, and any paper/report/digest decomposable into reusable elements
+  (figure / table / chart / quote / …) for recomposition. See
+  [`discussions/research-material-data-model.md`](../discussions/research-material-data-model.md).
+- **Skills & memory management** — first-class surfaces for what the fleet can *do*
+  (skills) and *knows* (memory); memory shares the research-material knowledge
+  substrate. See [`discussions/agent-skills-and-memory-management.md`](../discussions/agent-skills-and-memory-management.md).
 
 ## References
 

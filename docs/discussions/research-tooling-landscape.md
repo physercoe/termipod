@@ -1,10 +1,12 @@
 # Research tooling landscape
 
 > **Type:** discussion
-> **Status:** Open (2026-07-04) — feeds [ADR-050](../decisions/050-desktop-workbench-delivery-model.md)
-> (desktop delivery model = local-first web-tech workbench). This doc is the
-> per-capability register that ADR-050 D-3 refers to. Resolves as each capability
-> is scheduled into a plan.
+> **Status:** Open (2026-07-04 · extended 2026-07-05) — feeds
+> [ADR-050](../decisions/050-desktop-workbench-delivery-model.md) (desktop
+> delivery model = local-first web-tech workbench). This doc is the per-capability
+> register that ADR-050 D-3 refers to; the 2026-07-05 extension adds the
+> embodied-AI/robotics, skills, and memory rows (detail in their companion docs).
+> Resolves as each capability is scheduled into a plan.
 > **Audience:** contributors · maintainers · principal
 > **Last verified vs code:** v1.0.820
 
@@ -316,6 +318,11 @@ The whole lifecycle, one table — what to do per capability.
 | Provenance / artifacts | **BUILD** | code+env+history bundle on `Deliverable` (Claude Science pattern) |
 | Fleet mission-control | **BUILD (have it)** | promote the control plane to a pinned desktop rail |
 | Domain connectors | **BUILD (YAML)** | 20–30 key science DBs as MCP tools |
+| Simulator run (Isaac Lab) | **BUILD (thin) + INTEGRATE** | host-runner adapter → robotics-run digest — see [embodied-ai companion](embodied-ai-research-workbench.md) |
+| Robotics viewers (3D/rollout/traj) | **EMBED** | Rerun web viewer, urdf-loader, MuJoCo-WASM, `<video>` |
+| Trajectory datasets | **INTEROP** | LeRobot Parquet+MP4 (primary); RLDS/HDF5 |
+| Skills authoring / catalog | **BUILD + INTEROP** | CRUD/versioning over agent-family YAML + tool refs; SKILL.md format — see [skills/memory companion](agent-skills-and-memory-management.md) |
+| Agent memory | **BUILD** | shared knowledge substrate with the element store; supersession + audit; sqlite-vec-class index |
 
 **Read of the table:** ~two-thirds of the surface is EMBED/INTEGRATE of proven
 components; the BUILD list is small and *fleet-native* — grounded Q&A, ideation

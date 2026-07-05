@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { str, type Entity } from '../hub/types';
+import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { ConfirmButton } from '../ui/ConfirmButton';
 
@@ -9,6 +10,7 @@ function msg(err: unknown): string {
 }
 
 function TeamTab(): JSX.Element {
+  const t = useT();
   const client = useSession((s) => s.client);
   const policyQ = useQuery({
     queryKey: ['policy'],
@@ -29,7 +31,7 @@ function TeamTab(): JSX.Element {
   return (
     <div className="admin-cols">
       <section>
-        <h3>Members</h3>
+        <h3>{t('admin.members')}</h3>
         {principalsQ.isError ? (
           <div className="error">{msg(principalsQ.error)}</div>
         ) : (
@@ -41,11 +43,11 @@ function TeamTab(): JSX.Element {
           ))
         )}
         {!principalsQ.isError && (principalsQ.data ?? []).length === 0 && (
-          <div className="muted">No members.</div>
+          <div className="muted">{t('admin.noMembers')}</div>
         )}
       </section>
       <section>
-        <h3>Policy</h3>
+        <h3>{t('admin.policy')}</h3>
         {policyQ.isError ? (
           <div className="error">{msg(policyQ.error)}</div>
         ) : (
@@ -57,6 +59,7 @@ function TeamTab(): JSX.Element {
 }
 
 function HostsTab(): JSX.Element {
+  const t = useT();
   const client = useSession((s) => s.client);
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -86,9 +89,9 @@ function HostsTab(): JSX.Element {
       <table>
         <thead>
           <tr>
-            <th>Host</th>
-            <th>Status</th>
-            <th>Actions</th>
+            <th>{t('admin.host')}</th>
+            <th>{t('admin.status')}</th>
+            <th>{t('admin.actions')}</th>
           </tr>
         </thead>
         <tbody>
@@ -99,10 +102,10 @@ function HostsTab(): JSX.Element {
                 <td>{str(h, 'name') ?? str(h, 'hostname') ?? id}</td>
                 <td>{str(h, 'status') ?? ''}</td>
                 <td className="admin-actions">
-                  <button onClick={() => void act(id, 'ping')}>Ping</button>
-                  <ConfirmButton label="Restart" onConfirm={() => void act(id, 'restart')} />
-                  <ConfirmButton label="Update" onConfirm={() => void act(id, 'update')} />
-                  <ConfirmButton label="Shutdown" danger onConfirm={() => void act(id, 'shutdown')} />
+                  <button onClick={() => void act(id, 'ping')}>{t('admin.ping')}</button>
+                  <ConfirmButton label={t('admin.restart')} onConfirm={() => void act(id, 'restart')} />
+                  <ConfirmButton label={t('admin.update')} onConfirm={() => void act(id, 'update')} />
+                  <ConfirmButton label={t('admin.shutdown')} danger onConfirm={() => void act(id, 'shutdown')} />
                 </td>
               </tr>
             );
@@ -110,7 +113,7 @@ function HostsTab(): JSX.Element {
           {hosts.length === 0 && (
             <tr>
               <td colSpan={3} className="muted">
-                No hosts (or token lacks operator scope).
+                {t('admin.noHosts')}
               </td>
             </tr>
           )}
@@ -121,6 +124,7 @@ function HostsTab(): JSX.Element {
 }
 
 function AgentsTab(): JSX.Element {
+  const t = useT();
   const client = useSession((s) => s.client);
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -150,10 +154,10 @@ function AgentsTab(): JSX.Element {
       <table>
         <thead>
           <tr>
-            <th>Agent</th>
-            <th>Team</th>
-            <th>Status</th>
-            <th>Actions</th>
+            <th>{t('admin.agents')}</th>
+            <th>{t('admin.team')}</th>
+            <th>{t('admin.status')}</th>
+            <th>{t('admin.actions')}</th>
           </tr>
         </thead>
         <tbody>
@@ -165,7 +169,7 @@ function AgentsTab(): JSX.Element {
                 <td>{str(a, 'team_id') ?? ''}</td>
                 <td>{str(a, 'status') ?? ''}</td>
                 <td className="admin-actions">
-                  <ConfirmButton label="Kill" danger onConfirm={() => void kill(id)} />
+                  <ConfirmButton label={t('admin.kill')} danger onConfirm={() => void kill(id)} />
                 </td>
               </tr>
             );
@@ -173,7 +177,7 @@ function AgentsTab(): JSX.Element {
           {agents.length === 0 && (
             <tr>
               <td colSpan={4} className="muted">
-                No agents (or token lacks operator scope).
+                {t('admin.noAgents')}
               </td>
             </tr>
           )}
@@ -187,22 +191,23 @@ function AgentsTab(): JSX.Element {
 /// (members + policy); Hosts/Agents admin tabs with confirmed destructive
 /// actions. Admin endpoints 403 gracefully for non-operator tokens.
 export function AdminCockpit({ onClose }: { onClose: () => void }): JSX.Element {
+  const t = useT();
   const [tab, setTab] = useState<'team' | 'hosts' | 'agents'>('team');
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
       <div className="admin" onMouseDown={(e) => e.stopPropagation()}>
         <div className="admin-tabs">
           <button className={tab === 'team' ? 'tab active' : 'tab'} onClick={() => setTab('team')}>
-            Team
+            {t('admin.team')}
           </button>
           <button className={tab === 'hosts' ? 'tab active' : 'tab'} onClick={() => setTab('hosts')}>
-            Hosts
+            {t('admin.hosts')}
           </button>
           <button className={tab === 'agents' ? 'tab active' : 'tab'} onClick={() => setTab('agents')}>
-            Agents
+            {t('admin.agents')}
           </button>
           <span className="spacer" />
-          <button onClick={onClose}>Close</button>
+          <button onClick={onClose}>{t('admin.close')}</button>
         </div>
         <div className="admin-body">
           {tab === 'team' && <TeamTab />}

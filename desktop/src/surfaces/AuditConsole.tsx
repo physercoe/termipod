@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { str, type Entity } from '../hub/types';
+import { useT } from '../i18n';
 import { useSession } from '../state/session';
 
 function field(row: Entity, keys: string[]): string {
@@ -14,6 +15,7 @@ function field(row: Entity, keys: string[]): string {
 /// rendered live-ish via a 5s TanStack-Query refetch — proving REST + tokens
 /// end to end. Upgradable to a hub team-firehose SSE later (plan Open Q2).
 export function AuditConsole(): JSX.Element {
+  const t = useT();
   const client = useSession((s) => s.client);
   const query = useQuery({
     queryKey: ['audit', client?.transport.teamId],
@@ -22,7 +24,7 @@ export function AuditConsole(): JSX.Element {
     queryFn: () => client!.listAudit({ limit: 100 }),
   });
 
-  if (query.isLoading) return <div className="region-pad">Loading audit…</div>;
+  if (query.isLoading) return <div className="region-pad">{t('audit.loading')}</div>;
   if (query.isError) {
     return <div className="region-pad error">{(query.error as Error).message}</div>;
   }
@@ -33,10 +35,10 @@ export function AuditConsole(): JSX.Element {
     <table>
       <thead>
         <tr>
-          <th>Time</th>
-          <th>Action</th>
-          <th>Actor</th>
-          <th>Target</th>
+          <th>{t('audit.time')}</th>
+          <th>{t('audit.action')}</th>
+          <th>{t('audit.actor')}</th>
+          <th>{t('audit.target')}</th>
         </tr>
       </thead>
       <tbody>
@@ -50,7 +52,7 @@ export function AuditConsole(): JSX.Element {
         ))}
         {rows.length === 0 && (
           <tr>
-            <td colSpan={4}>No audit events.</td>
+            <td colSpan={4}>{t('audit.empty')}</td>
           </tr>
         )}
       </tbody>

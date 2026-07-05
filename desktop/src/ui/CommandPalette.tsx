@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useT } from '../i18n';
 
 export interface Command {
   id: string;
@@ -15,6 +16,7 @@ interface Props {
 /// Minimal ⌘K command palette — the keyboard spine (WS2 stub; grows as surfaces
 /// land). Filter, arrow-navigate, Enter to run, Esc to close.
 export function CommandPalette({ open, commands, onClose }: Props): JSX.Element | null {
+  const t = useT();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
 
@@ -59,7 +61,7 @@ export function CommandPalette({ open, commands, onClose }: Props): JSX.Element 
         <input
           autoFocus
           value={query}
-          placeholder="Type a command…"
+          placeholder={t('palette.placeholder')}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
         />
@@ -77,7 +79,7 @@ export function CommandPalette({ open, commands, onClose }: Props): JSX.Element 
               {c.label}
             </div>
           ))}
-          {filtered.length === 0 && <div className="palette-item">No matches</div>}
+          {filtered.length === 0 && <div className="palette-item">{t('palette.noMatches')}</div>}
         </div>
       </div>
     </div>

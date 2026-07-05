@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAttention } from '../hub/queries';
 import { obj, str, type Entity } from '../hub/types';
+import { useT } from '../i18n';
 import { useSession } from '../state/session';
 
 function msg(err: unknown): string {
@@ -19,6 +20,7 @@ function preview(value: unknown, max = 160): string {
 /// `POST /attention/{id}/decide`. Decisions are approve | reject | override
 /// (override = principal path, ADR-030 W9); help_request approvals carry `body`.
 function AttentionCard({ item }: { item: Entity }): JSX.Element {
+  const t = useT();
   const client = useSession((s) => s.client);
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -81,7 +83,7 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
         <div className="card-actions">
           <input
             value={reply}
-            placeholder="Reply…"
+            placeholder={t('att.replyPlaceholder')}
             onChange={(e) => setReply(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && reply.trim() !== '') void decide('approve', { body: reply });
@@ -92,19 +94,19 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
             disabled={busy || reply.trim() === ''}
             onClick={() => void decide('approve', { body: reply })}
           >
-            Answer
+            {t('att.answer')}
           </button>
           <button disabled={busy} onClick={() => void decide('reject')}>
-            Dismiss
+            {t('att.dismiss')}
           </button>
         </div>
       ) : (
         <div className="card-actions">
           <button className="primary" disabled={busy} onClick={() => void decide('approve')}>
-            Approve
+            {t('att.approve')}
           </button>
           <button disabled={busy} onClick={() => void decide('reject')}>
-            Reject
+            {t('att.reject')}
           </button>
           {changeKind !== undefined && (
             <button
@@ -112,7 +114,7 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
               title="Principal override (ADR-030 W9)"
               onClick={() => void decide('override', { override: true })}
             >
-              Override
+              {t('att.override')}
             </button>
           )}
         </div>
@@ -124,12 +126,13 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
 /// The always-visible approvals dock (plan §4) — governance is the moat, so it
 /// never leaves the screen. Shows open attention items as per-kind cards.
 export function AttentionDock(): JSX.Element {
+  const t = useT();
   const query = useAttention();
   const items = (query.data ?? []).filter((a) => (str(a, 'status') ?? 'open') === 'open');
 
-  if (query.isLoading) return <div className="region-pad muted">Loading approvals…</div>;
+  if (query.isLoading) return <div className="region-pad muted">{t('att.loading')}</div>;
   if (query.isError) return <div className="region-pad error">{msg(query.error)}</div>;
-  if (items.length === 0) return <div className="region-pad muted">Nothing needs you.</div>;
+  if (items.length === 0) return <div className="region-pad muted">{t('att.empty')}</div>;
 
   return (
     <div className="dock-list">

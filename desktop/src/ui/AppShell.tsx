@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
@@ -8,6 +9,7 @@ import { AttentionDock } from '../surfaces/AttentionDock';
 import { AuditConsole } from '../surfaces/AuditConsole';
 import { Navigator } from '../surfaces/Navigator';
 import { ProjectBoard } from '../surfaces/ProjectBoard';
+import { Settings } from '../surfaces/Settings';
 import { CommandPalette, type Command } from './CommandPalette';
 import { StatusBar } from './StatusBar';
 
@@ -20,8 +22,10 @@ export function AppShell(): JSX.Element {
   const selection = useFocus((s) => s.selection);
   const clear = useFocus((s) => s.clear);
   const qc = useQueryClient();
+  const t = useT();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -35,19 +39,20 @@ export function AppShell(): JSX.Element {
   }, []);
 
   const commands: Command[] = [
-    { id: 'audit', label: 'Show activity / audit console', run: () => clear() },
+    { id: 'audit', label: t('cmd.audit'), run: () => clear() },
     {
       id: 'refresh-fleet',
-      label: 'Refresh fleet',
+      label: t('cmd.refreshFleet'),
       run: () => void qc.invalidateQueries({ queryKey: ['agents'] }),
     },
     {
       id: 'refresh-approvals',
-      label: 'Refresh approvals',
+      label: t('cmd.refreshApprovals'),
       run: () => void qc.invalidateQueries({ queryKey: ['attention'] }),
     },
-    { id: 'admin', label: 'Open admin & governance', run: () => setAdminOpen(true) },
-    { id: 'disconnect', label: 'Disconnect from hub', run: disconnect },
+    { id: 'admin', label: t('cmd.admin'), run: () => setAdminOpen(true) },
+    { id: 'settings', label: t('cmd.settings'), run: () => setSettingsOpen(true) },
+    { id: 'disconnect', label: t('cmd.disconnect'), run: disconnect },
   ];
 
   return (
@@ -56,23 +61,24 @@ export function AppShell(): JSX.Element {
         <strong>TermiPod</strong>
         <span className="pill">{teamId}</span>
         <span className="spacer" />
-        <button onClick={() => setAdminOpen(true)}>Admin</button>
+        <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
+        <button onClick={() => setSettingsOpen(true)}>{t('shell.settings')}</button>
         <button onClick={() => setPaletteOpen(true)}>⌘K</button>
       </div>
 
       <div className="shell-body">
         <div className="region navigator">
-          <div className="region-header">Fleet</div>
+          <div className="region-header">{t('nav.fleet')}</div>
           <Navigator />
         </div>
 
         <div className="region focus">
           <div className="region-header">
             {selection?.type === 'agent'
-              ? `Agent · ${selection.id}`
+              ? `${t('region.agent')} · ${selection.id}`
               : selection?.type === 'project'
-                ? `Project · ${selection.id}`
-                : 'Activity · Audit console'}
+                ? `${t('region.project')} · ${selection.id}`
+                : t('region.activity')}
           </div>
           {selection?.type === 'agent' ? (
             <AgentTranscript agentId={selection.id} />
@@ -84,7 +90,7 @@ export function AppShell(): JSX.Element {
         </div>
 
         <div className="region dock">
-          <div className="region-header">Attention</div>
+          <div className="region-header">{t('region.attention')}</div>
           <AttentionDock />
         </div>
       </div>
@@ -93,6 +99,7 @@ export function AppShell(): JSX.Element {
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

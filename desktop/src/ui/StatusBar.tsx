@@ -1,9 +1,11 @@
 import { useAgents, useAttention, useHosts } from '../hub/queries';
 import { str } from '../hub/types';
+import { useT } from '../i18n';
 
 /// Persistent ambient monitor (plan §4) — fleet counters + governance backlog +
 /// host connectivity, always in view.
 export function StatusBar(): JSX.Element {
+  const t = useT();
   const agents = useAgents().data ?? [];
   const hosts = useHosts().data ?? [];
   const attention = (useAttention().data ?? []).filter((a) => (str(a, 'status') ?? 'open') === 'open');
@@ -13,12 +15,11 @@ export function StatusBar(): JSX.Element {
 
   return (
     <div className="statusbar">
-      <span>{running} running</span>
-      <span>{paused} paused</span>
-      <span>{attention.length} need you</span>
+      <span>{running} {t('status.running')}</span>
+      <span>{paused} {t('status.paused')}</span>
+      <span>{attention.length} {t('status.needYou')}</span>
       <span className="spacer" />
-      <span>hosts {hosts.length}</span>
-      <span>· WS3–5</span>
+      <span>{t('status.hosts')} {hosts.length}</span>
     </div>
   );
 }

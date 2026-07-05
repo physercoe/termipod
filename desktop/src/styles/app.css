@@ -5,9 +5,32 @@
  * --font-size-*) generated from design-tokens/tokens.json (WS1). Dark-first,
  * matching the mobile app's backgroundDark palette. */
 
+/* Semantic theme layer — maps the shared light/dark tokens onto neutral names
+ * the components use, switched by <html data-theme>. Dark is the default. */
 :root {
   color-scheme: dark;
   --pane-gap: var(--spacing-s2, 2px);
+  --bg: var(--color-background-dark);
+  --surface: var(--color-surface-dark);
+  --canvas: var(--color-canvas-dark);
+  --input: var(--color-input-dark);
+  --border: var(--color-border-dark);
+  --text: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --accent: var(--color-primary);
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: var(--color-background-light);
+  --surface: var(--color-surface-light);
+  --canvas: var(--color-canvas-light);
+  --input: var(--color-input-light);
+  --border: var(--color-border-light);
+  --text: var(--color-text-primary-light);
+  --text-secondary: var(--color-text-secondary-light);
+  --text-muted: var(--color-text-muted-light);
+  --accent: var(--color-primary);
 }
 
 * {
@@ -24,8 +47,8 @@ body,
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: var(--font-size-body);
-  color: var(--color-text-primary);
-  background: var(--color-background-dark);
+  color: var(--text);
+  background: var(--bg);
 }
 
 /* ---- app shell: titlebar / body(nav|focus|dock) / statusbar ---- */
@@ -42,8 +65,8 @@ body {
   align-items: center;
   gap: var(--spacing-s16);
   padding: 0 var(--spacing-s16);
-  background: var(--color-surface-dark);
-  border-bottom: 1px solid var(--color-border-dark);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .titlebar {
@@ -53,10 +76,10 @@ body {
 
 .statusbar {
   height: 28px;
-  border-top: 1px solid var(--color-border-dark);
+  border-top: 1px solid var(--border);
   border-bottom: none;
   font-size: var(--font-size-caption);
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .shell-body {
@@ -64,13 +87,13 @@ body {
   grid-template-columns: 240px 1fr 320px;
   gap: var(--pane-gap);
   min-height: 0;
-  background: var(--color-border-dark);
+  background: var(--border);
 }
 
 .region {
   min-height: 0;
   overflow: auto;
-  background: var(--color-background-dark);
+  background: var(--bg);
 }
 
 .region-header {
@@ -78,16 +101,16 @@ body {
   font-size: var(--font-size-caption);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   position: sticky;
   top: 0;
-  background: var(--color-canvas-dark);
-  border-bottom: 1px solid var(--color-border-dark);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
 }
 
 .navigator,
 .dock {
-  background: var(--color-canvas-dark);
+  background: var(--canvas);
 }
 
 .region-pad {
@@ -95,7 +118,7 @@ body {
 }
 
 .muted {
-  color: var(--color-text-muted);
+  color: var(--text-muted);
 }
 
 /* Focus region owns an internal scroll (transcript feed / audit table). */
@@ -124,12 +147,12 @@ body {
   font-size: var(--font-size-label);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--color-primary);
+  color: var(--accent);
   font-weight: 600;
 }
 .tree-host {
   padding: var(--spacing-s4) var(--spacing-s12);
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   font-size: var(--font-size-label);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -142,10 +165,10 @@ body {
   cursor: pointer;
 }
 .tree-agent:hover {
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .tree-agent.selected {
-  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .tree-agent-label {
   flex: 1;
@@ -154,7 +177,7 @@ body {
   white-space: nowrap;
 }
 .tree-agent-kind {
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   font-size: var(--font-size-label);
 }
 
@@ -178,7 +201,7 @@ body {
   background: var(--color-error);
 }
 .dot.muted {
-  background: var(--color-text-muted);
+  background: var(--text-muted);
 }
 
 /* ---- transcript ---- */
@@ -195,7 +218,7 @@ body {
   align-items: center;
   gap: var(--spacing-s8);
   padding: var(--spacing-s8) var(--spacing-s12);
-  border-bottom: 1px solid var(--color-border-dark);
+  border-bottom: 1px solid var(--border);
 }
 .tabs {
   display: flex;
@@ -207,8 +230,8 @@ body {
   border: 1px solid transparent;
 }
 .tab.active {
-  border-color: var(--color-border-dark);
-  background: var(--color-canvas-dark);
+  border-color: var(--border);
+  background: var(--canvas);
 }
 .lifecycle {
   display: flex;
@@ -229,16 +252,16 @@ body {
   display: flex;
   gap: var(--spacing-s8);
   padding: var(--spacing-s4) 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border-dark) 45%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
 }
 .feed-kind {
-  color: var(--color-primary);
+  color: var(--accent);
   font-size: var(--font-size-label);
   flex: 0 0 auto;
   min-width: 88px;
 }
 .feed-role {
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   flex: 0 0 auto;
 }
 .feed-text {
@@ -250,7 +273,7 @@ body {
   display: flex;
   gap: var(--spacing-s8);
   padding: var(--spacing-s8);
-  border-top: 1px solid var(--color-border-dark);
+  border-top: 1px solid var(--border);
 }
 .composer input {
   flex: 1;
@@ -270,8 +293,8 @@ body {
   padding: var(--spacing-s8);
 }
 .card {
-  background: var(--color-surface-dark);
-  border: 1px solid var(--color-border-dark);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--spacing-s12);
   display: flex;
@@ -285,7 +308,7 @@ body {
 }
 .card-kind {
   font-weight: 600;
-  color: var(--color-primary);
+  color: var(--accent);
   font-size: var(--font-size-caption);
 }
 .card-summary {
@@ -293,7 +316,7 @@ body {
 }
 .card-detail {
   font-size: var(--font-size-caption);
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 .card-detail code {
   color: var(--color-info);
@@ -301,7 +324,7 @@ body {
 .mono {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--font-size-label);
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -309,7 +332,7 @@ body {
   display: flex;
   gap: var(--spacing-s4);
   font-size: var(--font-size-label);
-  color: var(--color-text-muted);
+  color: var(--text-muted);
 }
 .card-actions {
   display: flex;
@@ -331,7 +354,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   background: color-mix(in srgb, var(--color-slate) 22%, transparent);
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 .sev-high,
 .sev-critical {
@@ -364,13 +387,13 @@ body {
   align-items: center;
   gap: var(--spacing-s8);
   font-size: var(--font-size-caption);
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   padding-bottom: var(--spacing-s4);
-  border-bottom: 1px solid var(--color-border-dark);
+  border-bottom: 1px solid var(--border);
 }
 .kanban-card {
-  background: var(--color-surface-dark);
-  border: 1px solid var(--color-border-dark);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--spacing-s8);
 }
@@ -380,10 +403,10 @@ body {
 .kanban-card-meta {
   margin-top: var(--spacing-s4);
   font-size: var(--font-size-label);
-  color: var(--color-text-muted);
+  color: var(--text-muted);
 }
 .kanban-empty {
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   font-size: var(--font-size-label);
   padding: var(--spacing-s4);
 }
@@ -396,8 +419,8 @@ body {
   height: 70vh;
   display: flex;
   flex-direction: column;
-  background: var(--color-surface-dark);
-  border: 1px solid var(--color-border-dark);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
@@ -406,7 +429,7 @@ body {
   align-items: center;
   gap: var(--spacing-s4);
   padding: var(--spacing-s8) var(--spacing-s12);
-  border-bottom: 1px solid var(--color-border-dark);
+  border-bottom: 1px solid var(--border);
 }
 .admin-body {
   flex: 1;
@@ -422,7 +445,7 @@ body {
 .admin-cols h3 {
   margin: 0 0 var(--spacing-s8);
   font-size: var(--font-size-caption);
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -430,7 +453,7 @@ body {
   display: flex;
   justify-content: space-between;
   padding: var(--spacing-s4) 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border-dark) 45%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
 }
 .admin-actions {
   display: flex;
@@ -448,6 +471,55 @@ button.danger:hover {
   background: color-mix(in srgb, var(--color-error) 16%, transparent);
 }
 
+/* ---- settings ---- */
+
+.settings {
+  width: 520px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.setting-group {
+  margin-bottom: var(--spacing-s24);
+}
+.setting-group h3 {
+  margin: 0 0 var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s8) 0;
+}
+.setting-row label {
+  color: var(--text-secondary);
+}
+.seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.seg-btn {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--spacing-s4) var(--spacing-s12);
+}
+.seg-btn.active {
+  background: var(--accent);
+  color: #00232a;
+}
+
 .spacer {
   flex: 1;
 }
@@ -461,34 +533,34 @@ button.danger:hover {
   padding: 2px var(--spacing-s8);
   border-radius: var(--radius-stadium);
   background: color-mix(in srgb, var(--color-slate) 22%, transparent);
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   font-size: var(--font-size-label);
 }
 
 button {
   font: inherit;
-  color: var(--color-text-primary);
-  background: var(--color-surface-dark);
-  border: 1px solid var(--color-border-dark);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--spacing-s8) var(--spacing-s12);
   cursor: pointer;
 }
 button:hover {
-  border-color: var(--color-primary);
+  border-color: var(--accent);
 }
 button.primary {
-  background: var(--color-primary);
+  background: var(--accent);
   color: #00232a;
-  border-color: var(--color-primary);
+  border-color: var(--accent);
 }
 
 input,
 select {
   font: inherit;
-  color: var(--color-text-primary);
-  background: var(--color-input-dark);
-  border: 1px solid var(--color-border-dark);
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--spacing-s8);
 }
@@ -502,15 +574,15 @@ th,
 td {
   text-align: left;
   padding: var(--spacing-s8) var(--spacing-s12);
-  border-bottom: 1px solid var(--color-border-dark);
+  border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
 th {
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   font-weight: 600;
   position: sticky;
   top: 0;
-  background: var(--color-canvas-dark);
+  background: var(--canvas);
 }
 
 /* ---- connect panel ---- */
@@ -522,8 +594,8 @@ th {
   flex-direction: column;
   gap: var(--spacing-s12);
   padding: var(--spacing-s24);
-  background: var(--color-surface-dark);
-  border: 1px solid var(--color-border-dark);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 .connect label {
@@ -531,7 +603,7 @@ th {
   flex-direction: column;
   gap: var(--spacing-s4);
   font-size: var(--font-size-caption);
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 .error {
   color: var(--color-error);
@@ -552,15 +624,15 @@ th {
 .palette {
   width: 560px;
   max-width: 90vw;
-  background: var(--color-surface-dark);
-  border: 1px solid var(--color-border-dark);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
 .palette input {
   width: 100%;
   border: none;
-  border-bottom: 1px solid var(--color-border-dark);
+  border-bottom: 1px solid var(--border);
   border-radius: 0;
   padding: var(--spacing-s12) var(--spacing-s16);
 }
@@ -569,5 +641,5 @@ th {
   cursor: pointer;
 }
 .palette-item.active {
-  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }

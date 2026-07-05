@@ -65,9 +65,13 @@ Done:
   ping/restart/update/shutdown · admin Agents with kill), destructive actions
   gated by a two-click confirm.
 - **WS8 packaging** — installers via `desktop-release.yml` (see below).
+- **Shell** — Settings overlay (titlebar + ⌘K): **light / dark / system themes**
+  (semantic CSS vars over the shared light+dark tokens, persisted) and **English /
+  中文** i18n (`src/i18n/`, persisted, English fallback) across all UI strings.
 
 Next: project overview/runs panes + task detail; policy editing + teams/upkeep
-tabs; Rust keychain + SSE proxy; multi-select bulk ops; split-pane transcripts.
+tabs; Rust keychain + SSE proxy; multi-select bulk ops; split-pane transcripts;
+the breakglass SSH terminal (ADR-052).
 
 ## Notes
 

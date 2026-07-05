@@ -1,5 +1,6 @@
 import { useAgents, useHosts, useProjects } from '../hub/queries';
 import { str, type Entity } from '../hub/types';
+import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 
 function statusClass(status: string | undefined): string {
@@ -22,6 +23,7 @@ function statusClass(status: string | undefined): string {
 /// Left region — the persistent fleet + projects tree. Selection drives the
 /// Focus region (agent transcript / project board).
 export function Navigator(): JSX.Element {
+  const t = useT();
   const agentsQ = useAgents();
   const hostsQ = useHosts();
   const projectsQ = useProjects();
@@ -54,10 +56,10 @@ export function Navigator(): JSX.Element {
 
   return (
     <div className="tree">
-      <div className="tree-section">Fleet</div>
+      <div className="tree-section">{t('nav.fleet')}</div>
       {agentsQ.isError && <div className="region-pad error">{(agentsQ.error as Error).message}</div>}
       {!agentsQ.isError && hostIds.length === 0 && (
-        <div className="region-pad muted">{agentsQ.isLoading ? 'Loading…' : 'No agents.'}</div>
+        <div className="region-pad muted">{agentsQ.isLoading ? t('common.loading') : t('nav.noAgents')}</div>
       )}
       {hostIds.map((hid) => (
         <div key={hid || 'unassigned'} className="tree-group">
@@ -82,9 +84,9 @@ export function Navigator(): JSX.Element {
         </div>
       ))}
 
-      <div className="tree-section">Projects</div>
+      <div className="tree-section">{t('nav.projects')}</div>
       {projects.length === 0 && (
-        <div className="region-pad muted">{projectsQ.isLoading ? 'Loading…' : 'No projects.'}</div>
+        <div className="region-pad muted">{projectsQ.isLoading ? t('common.loading') : t('nav.noProjects')}</div>
       )}
       {projects.map((p) => {
         const id = str(p, 'id') ?? '';

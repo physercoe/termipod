@@ -1,18 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { str, type Entity } from '../hub/types';
+import { useT } from '../i18n';
 import { useSession } from '../state/session';
 
-const COLUMNS: { status: string; label: string }[] = [
-  { status: 'todo', label: 'To do' },
-  { status: 'in_progress', label: 'In progress' },
-  { status: 'blocked', label: 'Blocked' },
-  { status: 'done', label: 'Done' },
-  { status: 'cancelled', label: 'Cancelled' },
-];
+const COLUMNS = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
 
 /// Focus region for a selected project (WS6, first slice): a tasks kanban
 /// (ADR-029 statuses). Overview / runs / plans / deliverables panes follow.
 export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element {
+  const t = useT();
   const client = useSession((s) => s.client);
   const tasksQ = useQuery({
     queryKey: ['tasks', projectId],
@@ -21,7 +17,7 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
     queryFn: () => client!.listTasks(projectId),
   });
 
-  if (tasksQ.isLoading) return <div className="region-pad muted">Loading tasks…</div>;
+  if (tasksQ.isLoading) return <div className="region-pad muted">{t('kanban.loading')}</div>;
   if (tasksQ.isError) return <div className="region-pad error">{(tasksQ.error as Error).message}</div>;
 
   const tasks = tasksQ.data ?? [];
@@ -31,12 +27,12 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
   return (
     <div className="scroll">
       <div className="kanban">
-        {COLUMNS.map((col) => {
-          const items = inColumn(col.status);
+        {COLUMNS.map((status) => {
+          const items = inColumn(status);
           return (
-            <div key={col.status} className="kanban-col">
+            <div key={status} className="kanban-col">
               <div className="kanban-head">
-                {col.label} <span className="pill">{items.length}</span>
+                {t(`kanban.${status}`)} <span className="pill">{items.length}</span>
               </div>
               {items.map((t) => (
                 <div key={str(t, 'id')} className="kanban-card">

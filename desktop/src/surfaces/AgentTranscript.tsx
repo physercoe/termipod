@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
+import { useT } from '../i18n';
 import { useSession } from '../state/session';
 
 function eventText(e: Entity): string {
@@ -19,6 +20,7 @@ function msg(err: unknown): string {
 /// composer (`POST /input`), lifecycle actions (WS3), and a digest tab
 /// (`GET /digest`, ADR-038).
 export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
+  const t = useT();
   const client = useSession((s) => s.client);
   const qc = useQueryClient();
   const [events, setEvents] = useState<Entity[]>([]);
@@ -96,19 +98,19 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
       <div className="transcript-bar">
         <div className="tabs">
           <button className={tab === 'transcript' ? 'tab active' : 'tab'} onClick={() => setTab('transcript')}>
-            Transcript
+            {t('tx.transcript')}
           </button>
           <button className={tab === 'digest' ? 'tab active' : 'tab'} onClick={() => setTab('digest')}>
-            Digest
+            {t('tx.digest')}
           </button>
         </div>
         <span className="spacer" />
         <div className="lifecycle">
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.pauseAgent(id))}>Pause</button>
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.resumeAgent(id))}>Resume</button>
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.stopAgent(id))}>Stop</button>
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.terminateAgent(id))}>Terminate</button>
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.archiveAgent(id))}>Archive</button>
+          <button disabled={busy} onClick={() => void lifecycle((id) => client!.pauseAgent(id))}>{t('tx.pause')}</button>
+          <button disabled={busy} onClick={() => void lifecycle((id) => client!.resumeAgent(id))}>{t('tx.resume')}</button>
+          <button disabled={busy} onClick={() => void lifecycle((id) => client!.stopAgent(id))}>{t('tx.stop')}</button>
+          <button disabled={busy} onClick={() => void lifecycle((id) => client!.terminateAgent(id))}>{t('tx.terminate')}</button>
+          <button disabled={busy} onClick={() => void lifecycle((id) => client!.archiveAgent(id))}>{t('tx.archive')}</button>
         </div>
       </div>
 
@@ -124,13 +126,13 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
                 <span className="feed-text">{eventText(e)}</span>
               </div>
             ))}
-            {events.length === 0 && <div className="region-pad muted">No events yet.</div>}
+            {events.length === 0 && <div className="region-pad muted">{t('tx.noEvents')}</div>}
             <div ref={bottomRef} />
           </div>
           <div className="composer">
             <input
               value={draft}
-              placeholder="Send to agent…"
+              placeholder={t('tx.sendPlaceholder')}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -140,13 +142,13 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
               }}
             />
             <button className="primary" onClick={() => void send()} disabled={draft.trim() === ''}>
-              Send
+              {t('tx.send')}
             </button>
           </div>
         </>
       ) : (
         <div className="region-pad digest">
-          {digestQ.isLoading && <div className="muted">Loading digest…</div>}
+          {digestQ.isLoading && <div className="muted">{t('tx.loadingDigest')}</div>}
           {digestQ.isError && <div className="error">{msg(digestQ.error)}</div>}
           {digestQ.data !== undefined ? <pre>{JSON.stringify(digestQ.data, null, 2)}</pre> : null}
         </div>

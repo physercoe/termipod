@@ -178,6 +178,12 @@ config, session digest, task detail).
 Activity/Audit console · Command-palette dispatch · Team/Governance + operator
 Admin cockpits · thin device Settings.
 
+> **Shell parity with mobile (done 2026-07-05):** device **Settings** overlay,
+> **light/dark/system themes** (a semantic CSS layer over the shared light+dark
+> tokens — WS1 already carried both), and **en/zh i18n** (`desktop/src/i18n/`, the
+> web analogue of gen-l10n; vocabulary presets can layer later). All UI strings
+> route through it; both persist to `localStorage`.
+
 **Deferred to the workbench (mount into this shell later, ADR-050):** the multi-run
 comparison wall + robotics video-grid, the reader/author pair, the ideation canvas,
 the robotics viewers (three.js/urdf-loader/Viser/Rerun). This plan builds the shell

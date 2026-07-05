@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useT } from '../i18n';
 
 interface Props {
   label: string;
@@ -10,6 +11,7 @@ interface Props {
 /// A destructive-action button that requires a second click to fire (plan §5 /
 /// WS7 "destructive-action confirmations"). Reverts after 3s if not confirmed.
 export function ConfirmButton({ label, onConfirm, disabled, danger }: Props): JSX.Element {
+  const t = useT();
   const [armed, setArmed] = useState(false);
 
   useEffect(() => {
@@ -31,7 +33,7 @@ export function ConfirmButton({ label, onConfirm, disabled, danger }: Props): JS
         }
       }}
     >
-      {armed ? 'Confirm?' : label}
+      {armed ? t('confirm.confirm') : label}
     </button>
   );
 }

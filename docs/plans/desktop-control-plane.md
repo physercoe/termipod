@@ -226,15 +226,18 @@ exit:** point it at a real hub for the live end-to-end run (needs the director's
 hub). Rust keychain token storage + SSE proxy deferred to WS8; browser build is the
 default target meanwhile.
 
-**WS3 — Fleet mission-control.** Navigator tree (hosts ▸ agents ▸ sessions), status
-bar, agent lifecycle via REST (spawn/pause/resume/stop/archive/respawn —
-`agent_actions_menu.dart:7-16` semantics), multi-select bulk ops. Live via agent
-SSE + polled fleet refetch.
+**WS3 — Fleet mission-control. 🚧 FIRST SLICE DONE (2026-07-05).** Navigator tree
+(hosts ▸ agents, grouped, status dots), persistent status bar (running/paused/
+need-you/hosts, polled), single-agent lifecycle via REST (pause/resume/stop/
+terminate/archive — `agent_actions_menu.dart` semantics; DELETE = archive). Live via
+polled fleet refetch (5 s). **Remaining:** sessions branch, multi-select + bulk ops,
+respawn.
 
-**WS4 — Session/Transcript reader.** LiveFeed-equivalent over `streamAgentEvents`
-(SSE, `?since=` seq cursor, reconnect, composer via `POST …/input`); split-pane to
-run N transcripts; a sibling **digest/Insights** pane (`GET …/digest`, `/turns`).
-Reuses the transcript-analysis substrate (ADR-038/040).
+**WS4 — Session/Transcript reader. 🚧 FIRST SLICE DONE (2026-07-05).** LiveFeed over
+`streamAgentEvents` (fetch-SSE, `tail` backfill + `seq` cursor + reconnect), a text
+composer (`POST …/input`, flat `{kind:'text',body}`), and a sibling **digest** tab
+(`GET …/digest`, ADR-038). **Remaining:** split-pane N transcripts, typed per-kind
+event rendering (currently best-effort text extraction), `/turns` filter, Insights.
 
 **WS5 — Attention/Approvals dock.** Always-visible right dock; per-kind approval
 cards (ProposeCardRouter parity); `GET /attention` + `POST /attention/{id}/decide`

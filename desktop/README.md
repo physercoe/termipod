@@ -33,14 +33,20 @@ libraries; it is compiled in CI (`.github/workflows/desktop.yml`) since this
 repo's dev host has no Rust. To run it locally where cargo is available:
 `npm i -g @tauri-apps/cli && npm run tauri dev`.
 
-## Status (WS2)
+## Status (WS2–WS4)
 
-Done: app shell (3-region layout), typed hub SDK + fetch transport, fetch-based
-SSE reader (auth-header capable — no `EventSource` limitation), one read-only
-surface (audit console over REST + TanStack Query), ⌘K command-palette shell,
-shared-token theming (WS1), and the minimal Tauri Rust core (`hub_request`
-proxy). Next: fleet navigator (WS3), transcript reader (WS4), approvals dock
-(WS5); Rust keychain token storage + SSE proxy (WS8).
+Done:
+- **WS2** — app shell (3-region layout), typed hub SDK + fetch transport,
+  fetch-based SSE reader (auth-header capable — no `EventSource` limitation), the
+  audit console, ⌘K command-palette shell, shared-token theming (WS1), and the
+  minimal Tauri Rust core (`hub_request` proxy).
+- **WS3** — fleet Navigator (hosts ▸ agents tree + status dots), persistent
+  status bar, single-agent lifecycle (pause/resume/stop/terminate/archive).
+- **WS4** — agent transcript over the SSE stream (`tail` backfill + `seq` cursor)
+  with a composer (`POST /input`) and a digest tab.
+
+Next: approvals dock (WS5), projects/tasks board (WS6), team/admin (WS7); Rust
+keychain token storage + SSE proxy, multi-select bulk ops, split-pane transcripts.
 
 ## Notes
 

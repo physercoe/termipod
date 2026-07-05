@@ -54,6 +54,47 @@ export class HubClient {
     const out = await this.transport.get(this.transport.team('/hosts'));
     return asArray(out);
   }
+  async listSessions(): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/sessions'));
+    return asArray(out);
+  }
+
+  // --- agent detail + lifecycle (WS3) ---
+  getAgent(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/agents/${id}`)) as Promise<Entity>;
+  }
+  pauseAgent(id: string): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/pause`), {});
+  }
+  resumeAgent(id: string): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/resume`), {});
+  }
+  stopAgent(id: string): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/stop`), {});
+  }
+  terminateAgent(id: string): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/terminate`), {});
+  }
+  archiveAgent(id: string): Promise<unknown> {
+    return this.transport.delete(this.transport.team(`/agents/${id}`));
+  }
+
+  // --- transcript (WS4) ---
+  /** Backfill recent events (`tail` = last N, newest last after the hub's order). */
+  async listAgentEvents(id: string, opts: { tail?: number; since?: string } = {}): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team(`/agents/${id}/events`), {
+      tail: opts.tail !== undefined ? String(opts.tail) : undefined,
+      since: opts.since,
+    });
+    return asArray(out);
+  }
+  getAgentDigest(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/agents/${id}/digest`)) as Promise<Entity>;
+  }
+  /** Send director text into an agent (flat `{kind:'text', body}` per the hub). */
+  postAgentInput(id: string, body: string): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/input`), { kind: 'text', body });
+  }
 
   // --- live streams ---
   streamAgent(agentId: string, opts: SseOptions): SseHandle {

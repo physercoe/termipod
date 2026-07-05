@@ -29,6 +29,7 @@ export function AuditConsole(): JSX.Element {
   const rows = query.data ?? [];
 
   return (
+    <div className="scroll">
     <table>
       <thead>
         <tr>
@@ -54,5 +55,6 @@ export function AuditConsole(): JSX.Element {
         )}
       </tbody>
     </table>
+    </div>
   );
 }

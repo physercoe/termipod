@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
+import { AgentTranscript } from '../surfaces/AgentTranscript';
 import { AuditConsole } from '../surfaces/AuditConsole';
+import { Navigator } from '../surfaces/Navigator';
 import { CommandPalette, type Command } from './CommandPalette';
+import { StatusBar } from './StatusBar';
 
 /// The three-region mission-control frame (plan §4): titlebar · Navigator |
-/// Focus | Attention dock · statusbar. WS2 wires the Focus region to the audit
-/// console; Navigator (WS3) and Attention dock (WS5) are placeholders.
+/// Focus | Attention dock · status bar. WS3 wires the Navigator (fleet tree) and
+/// status counters; WS4 the Focus transcript. The Attention dock is WS5.
 export function AppShell(): JSX.Element {
   const disconnect = useSession((s) => s.disconnect);
   const teamId = useSession((s) => s.config.teamId);
+  const selectedAgentId = useFocus((s) => s.selectedAgentId);
+  const select = useFocus((s) => s.select);
   const qc = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
 
@@ -25,10 +31,11 @@ export function AppShell(): JSX.Element {
   }, []);
 
   const commands: Command[] = [
+    { id: 'audit', label: 'Show activity / audit console', run: () => select(null) },
     {
-      id: 'refresh',
-      label: 'Refresh audit feed',
-      run: () => void qc.invalidateQueries({ queryKey: ['audit'] }),
+      id: 'refresh-fleet',
+      label: 'Refresh fleet',
+      run: () => void qc.invalidateQueries({ queryKey: ['agents'] }),
     },
     { id: 'disconnect', label: 'Disconnect from hub', run: disconnect },
   ];
@@ -44,30 +51,24 @@ export function AppShell(): JSX.Element {
 
       <div className="shell-body">
         <div className="region navigator">
-          <div className="region-header">Navigator</div>
-          <div className="region-pad" style={{ color: 'var(--color-text-muted)' }}>
-            Fleet &amp; projects tree — WS3.
-          </div>
+          <div className="region-header">Fleet</div>
+          <Navigator />
         </div>
 
         <div className="region focus">
-          <div className="region-header">Activity · Audit console</div>
-          <AuditConsole />
+          <div className="region-header">
+            {selectedAgentId !== null ? `Agent · ${selectedAgentId}` : 'Activity · Audit console'}
+          </div>
+          {selectedAgentId !== null ? <AgentTranscript agentId={selectedAgentId} /> : <AuditConsole />}
         </div>
 
         <div className="region dock">
           <div className="region-header">Attention</div>
-          <div className="region-pad" style={{ color: 'var(--color-text-muted)' }}>
-            Approvals dock — WS5.
-          </div>
+          <div className="region-pad muted">Approvals dock — WS5.</div>
         </div>
       </div>
 
-      <div className="statusbar">
-        <span>hub · {teamId}</span>
-        <span className="spacer" />
-        <span>WS2 · read-only shell</span>
-      </div>
+      <StatusBar />
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
     </div>

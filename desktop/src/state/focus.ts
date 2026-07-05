@@ -1,13 +1,22 @@
 import { create } from 'zustand';
 
-/// What the Focus (center) region is showing. WS3/WS4: a selected agent drives
-/// the transcript; null falls back to the activity console.
+/// What the Focus (center) region is showing. WS4: an agent transcript; WS6: a
+/// project board; null falls back to the activity console.
+export type Selection =
+  | { type: 'agent'; id: string }
+  | { type: 'project'; id: string }
+  | null;
+
 interface FocusState {
-  selectedAgentId: string | null;
-  select: (id: string | null) => void;
+  selection: Selection;
+  selectAgent: (id: string) => void;
+  selectProject: (id: string) => void;
+  clear: () => void;
 }
 
 export const useFocus = create<FocusState>((set) => ({
-  selectedAgentId: null,
-  select: (id) => set({ selectedAgentId: id }),
+  selection: null,
+  selectAgent: (id) => set({ selection: { type: 'agent', id } }),
+  selectProject: (id) => set({ selection: { type: 'project', id } }),
+  clear: () => set({ selection: null }),
 }));

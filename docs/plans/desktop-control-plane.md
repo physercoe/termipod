@@ -249,9 +249,13 @@ governance moat is surfaced across all three regions now. **Remaining:** stalled
 variant (escalation_state), deliverable ratify/unratify + criteria mark-met/fail/
 waive, option (`select`/`elicit`) buttons, originating-context jump.
 
-**WS6 — Projects/Tasks/Runs board + Activity console.** Master-detail project
-surface (overview / tasks-kanban / runs / plans / deliverables as panes); a live
-audit console (the Activity feed made streaming).
+**WS6 — Projects/Tasks/Runs board + Activity console. 🚧 FIRST SLICE DONE
+(2026-07-05).** The Navigator gained a **Projects** section (`GET /projects`);
+selecting a project opens a **tasks kanban** in the Focus region (ADR-029 statuses
+todo/in_progress/blocked/done/cancelled via `GET /projects/{id}/tasks`, 8 s refetch).
+Focus selection is now a discriminated union (agent | project | none). The activity
+console already ships (WS2). **Remaining:** overview/runs/plans/deliverables panes,
+task detail + status change, streaming the audit console.
 
 **WS7 — Team/Governance + Admin cockpits.** Team 4-pill (members/policies/channels/
 governance) + operator Admin 4-tab (fleet/teams/upkeep/audit,

@@ -96,6 +96,19 @@ export class HubClient {
     return this.transport.post(this.transport.team(`/agents/${id}/input`), { kind: 'text', body });
   }
 
+  // --- projects / tasks (WS6) ---
+  async listProjects(): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/projects'));
+    return asArray(out);
+  }
+  getProject(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/projects/${id}`)) as Promise<Entity>;
+  }
+  async listTasks(projectId: string): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team(`/projects/${projectId}/tasks`));
+    return asArray(out);
+  }
+
   // --- live streams ---
   streamAgent(agentId: string, opts: SseOptions): SseHandle {
     return streamSse(this.cfg, this.transport.team(`/agents/${agentId}/stream`), opts);

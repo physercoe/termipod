@@ -119,6 +119,14 @@ body {
   padding: var(--spacing-s4) 0;
   font-size: var(--font-size-body-small);
 }
+.tree-section {
+  padding: var(--spacing-s8) var(--spacing-s12) var(--spacing-s4);
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primary);
+  font-weight: 600;
+}
 .tree-host {
   padding: var(--spacing-s4) var(--spacing-s12);
   color: var(--color-text-muted);
@@ -334,6 +342,50 @@ body {
 .sev-medium {
   background: color-mix(in srgb, var(--color-warning) 22%, transparent);
   color: var(--color-warning);
+}
+
+/* ---- project board (kanban) ---- */
+
+.kanban {
+  display: flex;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  align-items: flex-start;
+  min-width: min-content;
+}
+.kanban-col {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.kanban-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  padding-bottom: var(--spacing-s4);
+  border-bottom: 1px solid var(--color-border-dark);
+}
+.kanban-card {
+  background: var(--color-surface-dark);
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+}
+.kanban-card-title {
+  font-size: var(--font-size-body-small);
+}
+.kanban-card-meta {
+  margin-top: var(--spacing-s4);
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+}
+.kanban-empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  padding: var(--spacing-s4);
 }
 
 .spacer {

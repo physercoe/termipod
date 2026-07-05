@@ -25,6 +25,16 @@ export function useHosts(): UseQueryResult<Entity[]> {
   });
 }
 
+export function useProjects(): UseQueryResult<Entity[]> {
+  const client = useSession((s) => s.client);
+  return useQuery({
+    queryKey: ['projects', client?.transport.teamId],
+    enabled: client !== null,
+    refetchInterval: 15000,
+    queryFn: () => client!.listProjects(),
+  });
+}
+
 /// The approvals queue — shared by the dock (WS5) and the status-bar counter.
 export function useAttention(): UseQueryResult<Entity[]> {
   const client = useSession((s) => s.client);

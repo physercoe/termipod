@@ -6,6 +6,7 @@ import { AgentTranscript } from '../surfaces/AgentTranscript';
 import { AttentionDock } from '../surfaces/AttentionDock';
 import { AuditConsole } from '../surfaces/AuditConsole';
 import { Navigator } from '../surfaces/Navigator';
+import { ProjectBoard } from '../surfaces/ProjectBoard';
 import { CommandPalette, type Command } from './CommandPalette';
 import { StatusBar } from './StatusBar';
 
@@ -15,8 +16,8 @@ import { StatusBar } from './StatusBar';
 export function AppShell(): JSX.Element {
   const disconnect = useSession((s) => s.disconnect);
   const teamId = useSession((s) => s.config.teamId);
-  const selectedAgentId = useFocus((s) => s.selectedAgentId);
-  const select = useFocus((s) => s.select);
+  const selection = useFocus((s) => s.selection);
+  const clear = useFocus((s) => s.clear);
   const qc = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
 
@@ -32,7 +33,7 @@ export function AppShell(): JSX.Element {
   }, []);
 
   const commands: Command[] = [
-    { id: 'audit', label: 'Show activity / audit console', run: () => select(null) },
+    { id: 'audit', label: 'Show activity / audit console', run: () => clear() },
     {
       id: 'refresh-fleet',
       label: 'Refresh fleet',
@@ -63,9 +64,19 @@ export function AppShell(): JSX.Element {
 
         <div className="region focus">
           <div className="region-header">
-            {selectedAgentId !== null ? `Agent · ${selectedAgentId}` : 'Activity · Audit console'}
+            {selection?.type === 'agent'
+              ? `Agent · ${selection.id}`
+              : selection?.type === 'project'
+                ? `Project · ${selection.id}`
+                : 'Activity · Audit console'}
           </div>
-          {selectedAgentId !== null ? <AgentTranscript agentId={selectedAgentId} /> : <AuditConsole />}
+          {selection?.type === 'agent' ? (
+            <AgentTranscript agentId={selection.id} />
+          ) : selection?.type === 'project' ? (
+            <ProjectBoard projectId={selection.id} />
+          ) : (
+            <AuditConsole />
+          )}
         </div>
 
         <div className="region dock">

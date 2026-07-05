@@ -59,9 +59,12 @@ Done:
 - **WS5** — always-visible approvals dock: per-kind attention cards
   (permission_prompt / propose+override / help_request / generic) driving
   `POST /attention/{id}/decide`.
+- **WS6** — Projects section in the Navigator + a tasks kanban board (ADR-029
+  statuses) in the Focus region.
+- **WS8 packaging** — installers via `desktop-release.yml` (see below).
 
-Next: projects/tasks board (WS6), team/admin (WS7); Rust keychain token storage +
-SSE proxy, multi-select bulk ops, split-pane transcripts, stalled/ratify cards.
+Next: team/admin cockpits (WS7); project overview/runs panes + task detail; Rust
+keychain + SSE proxy; multi-select bulk ops; split-pane transcripts.
 
 ## Notes
 

@@ -30,8 +30,20 @@ npm run typecheck  # tsc --noEmit
 
 The desktop (Tauri) shell needs a Rust toolchain + the platform webview
 libraries; it is compiled in CI (`.github/workflows/desktop.yml`) since this
-repo's dev host has no Rust. To run it locally where cargo is available:
-`npm i -g @tauri-apps/cli && npm run tauri dev`.
+repo's dev host has no Rust. To run/bundle it locally where cargo is available:
+`npm run tauri dev` / `npm run tauri build`.
+
+## Installers
+
+Bundled installers (Linux `.deb`/`.rpm`/`.AppImage`, macOS universal `.dmg`,
+Windows `.msi`/`.exe`) are produced by `.github/workflows/desktop-release.yml`:
+
+- **On demand:** GitHub → Actions → *Desktop Release* → *Run workflow*. The
+  installers appear as run artifacts.
+- **Tagged:** push a `desktop-v*` tag to also attach them to a draft GitHub
+  release.
+
+Builds are unsigned (fine for internal testing).
 
 ## Status (WS2–WS4)
 

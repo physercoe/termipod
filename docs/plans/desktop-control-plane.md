@@ -257,8 +257,12 @@ audit console (the Activity feed made streaming).
 governance) + operator Admin 4-tab (fleet/teams/upkeep/audit,
 `admin_screen.dart:17-32`); destructive-action confirmations.
 
-**WS8 — Packaging + continuum + breakglass terminal.** Tauri installers (Win/Mac/
-Linux) + browser build; keychain token storage; auto-update; phone↔desktop deep-link
+**WS8 — Packaging + continuum + breakglass terminal. 🚧 PACKAGING DONE (2026-07-05).**
+Tauri installers for all three desktop OSes are produced by
+`.github/workflows/desktop-release.yml` (matrix Linux/macOS-universal/Windows via
+`tauri-action`; run on demand or by a `desktop-v*` tag → draft release; installers
+also uploaded as run artifacts) — CI is the bundle factory since the dev host has no
+Rust. **Remaining WS8:** keychain token storage; auto-update; phone↔desktop deep-link
 handoff. **Breakglass SSH terminal** mirroring the mobile Connections/Keys/Terminal
 surfaces — **xterm.js** + a Tauri Rust **`russh`** transport (not `libghostty`);
 host rows gain an "open terminal" action. Backend + the shared-key / hub-safety model

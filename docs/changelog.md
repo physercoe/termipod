@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-14)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.820
+> **Last verified vs code:** v1.0.821
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,32 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.821-alpha — 2026-07-05
+
+**Cross-device SSH key-vault sync (ADR-052 D-4).** The mobile app can now sync
+SSH connections and keys across devices through the hub as a **zero-knowledge**
+blob store — the hub only ever holds client-encrypted ciphertext it cannot
+decrypt.
+
+### Added
+- **Key vault sync (Settings › Data › Key vault sync).** Set up sync on one
+  device (minting a one-time recovery code), then join other devices with that
+  code. Syncs the whole connection + SSH-key + password bundle. `VaultService`
+  seals the bundle with a per-principal vault key (AES-256-GCM), escrows it under
+  the recovery code (Argon2id), and wraps it per device (X25519); the vault key
+  is cached in device secure storage for keyless syncing thereafter. Localized
+  en + zh.
+- **Hub vault sync service (#299).** Blind blob store: push/pull with optimistic
+  concurrency, a recovery-envelope escrow slot, and per-device wrapped-key
+  enrolment. Amends forbidden-pattern #15 to permit zero-knowledge ciphertext.
+- **Dart vault crypto core (#300) + `VaultApi` sync client.** On-device
+  seal/open, X25519 device wrap/unwrap, and Argon2id recovery wrap/unwrap.
+
+### Security
+- The hub never holds the vault key or any plaintext SSH secret; keys leave the
+  device only as ciphertext. Recovery is a director-escrowed code, stored in
+  plaintext nowhere.
 
 ## v1.0.820-alpha — 2026-06-14
 

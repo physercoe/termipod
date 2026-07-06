@@ -1166,6 +1166,103 @@ th {
 .clickable-row {
   cursor: pointer;
 }
+/* project overview hero */
+.proj-hero .proj-goal {
+  margin: 0 0 8px;
+  font-size: var(--font-size-body);
+}
+.proj-hero-stats {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.proj-hero-num {
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+}
+.proj-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+  margin-top: 8px;
+}
+.proj-progress-fill {
+  height: 100%;
+  background: var(--color-primary);
+}
+.deliv-open {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+.deliv-open:hover {
+  text-decoration: underline;
+}
+/* criteria rows */
+.crit-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.crit-main {
+  flex: 1;
+  min-width: 0;
+}
+.crit-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.chip {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+}
+.chip.active {
+  background: var(--color-primary);
+  color: var(--color-on-primary, #fff);
+  border-color: var(--color-primary);
+}
+/* files + activity */
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  cursor: pointer;
+  color: inherit;
+}
+.file-row:hover {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.1));
+}
+.file-name {
+  font-family: var(--font-mono, monospace);
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.activity-actor {
+  color: var(--text-secondary);
+}
 .clickable-row:hover {
   background: var(--surface-hover, rgba(127, 127, 127, 0.1));
 }

@@ -5,12 +5,13 @@ import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
+import { ActivityTab, CriteriaTab, DeliverableDetail, FilesTab } from './ProjectPanels';
 import { RunDetail } from './RunDetail';
 import { TaskDetail } from './TaskDetail';
 
 const COLUMNS = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'med', 'high', 'urgent'];
-type Tab = 'overview' | 'agents' | 'tasks' | 'runs' | 'plans';
+type Tab = 'overview' | 'agents' | 'tasks' | 'runs' | 'plans' | 'criteria' | 'files' | 'activity';
 
 function AgentsTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
@@ -133,23 +134,43 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const { run, busy, error } = useHubAction();
+  const [openDeliv, setOpenDeliv] = useState<string | null>(null);
   const q = useQuery({
     queryKey: ['project-overview', projectId],
     enabled: client !== null,
     refetchInterval: 15000,
     queryFn: () => client!.getProjectOverview(projectId),
   });
+  const projQ = useQuery({
+    queryKey: ['project', projectId],
+    enabled: client !== null,
+    queryFn: () => client!.getProject(projectId),
+  });
+  const tasksQ = useQuery({
+    queryKey: ['tasks', projectId],
+    enabled: client !== null,
+    queryFn: () => client!.listTasks(projectId),
+  });
 
   if (q.isLoading) return <div className="region-pad muted">{t('proj.loading')}</div>;
   if (q.isError) return <div className="region-pad error">{(q.error as Error).message}</div>;
 
   const ov = q.data ?? {};
+  const proj = projQ.data ?? {};
   const started = ov['steward_started'] === true;
   const phases = Array.isArray(ov['phases']) ? (ov['phases'] as string[]) : [];
   const phase = str(ov, 'phase') ?? '';
   const phaseIndex = num(ov, 'phase_index') ?? -1;
   const deliverables = Array.isArray(ov['deliverables']) ? (ov['deliverables'] as Entity[]) : [];
   const counts = (ov['counts'] as Entity | undefined) ?? {};
+
+  const goal = str(proj, 'goal') ?? str(ov, 'goal');
+  const budgetCents = num(proj, 'budget_cents');
+  const allTasks = tasksQ.data ?? [];
+  const closedTasks = allTasks.filter((tk) => {
+    const s = str(tk, 'status');
+    return s === 'done' || s === 'cancelled';
+  }).length;
 
   return (
     <div className="region-pad proj-overview">
@@ -170,6 +191,32 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
         </div>
         {error !== null && <div className="error">{error}</div>}
       </section>
+
+      {(goal !== undefined || allTasks.length > 0 || budgetCents !== undefined) && (
+        <section className="setting-group proj-hero">
+          {goal !== undefined && goal !== '' && <p className="proj-goal">{goal}</p>}
+          <div className="proj-hero-stats">
+            {allTasks.length > 0 && (
+              <span className="proj-hero-stat">
+                <span className="proj-hero-num">
+                  {closedTasks}/{allTasks.length}
+                </span>{' '}
+                {t('proj.tasksDone')}
+              </span>
+            )}
+            {budgetCents !== undefined && budgetCents > 0 && (
+              <span className="proj-hero-stat">
+                <span className="proj-hero-num">${(budgetCents / 100).toFixed(2)}</span> {t('proj.budget')}
+              </span>
+            )}
+          </div>
+          {allTasks.length > 0 && (
+            <div className="proj-progress">
+              <div className="proj-progress-fill" style={{ width: `${Math.round((closedTasks / allTasks.length) * 100)}%` }} />
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="setting-group">
         <h3>{t('proj.phase')}</h3>
@@ -204,7 +251,9 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
             const ratified = state === 'ratified';
             return (
               <div key={did} className="admin-row">
-                <span>{str(d, 'kind') ?? did}</span>
+                <button className="deliv-open" onClick={() => setOpenDeliv(did)} title={t('deliv.openHint')}>
+                  {str(d, 'kind') ?? did}
+                </button>
                 <span className="spacer" />
                 <span className={`sev${ratified ? ' sev-medium' : ''}`}>{state}</span>
                 {ratified ? (
@@ -237,6 +286,9 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
           })
         )}
       </section>
+      {openDeliv !== null && (
+        <DeliverableDetail projectId={projectId} deliverableId={openDeliv} onClose={() => setOpenDeliv(null)} />
+      )}
     </div>
   );
 }
@@ -418,8 +470,11 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
     { v: 'overview', label: t('proj.overview') },
     { v: 'agents', label: t('proj.agents') },
     { v: 'tasks', label: t('proj.tasks') },
+    { v: 'criteria', label: t('proj.criteria') },
     { v: 'runs', label: t('proj.runs') },
     { v: 'plans', label: t('proj.plans') },
+    { v: 'files', label: t('proj.files') },
+    { v: 'activity', label: t('proj.activity') },
   ];
   return (
     <div className="transcript">
@@ -436,8 +491,11 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
         {tab === 'overview' && <OverviewTab projectId={projectId} />}
         {tab === 'agents' && <AgentsTab projectId={projectId} />}
         {tab === 'tasks' && <TasksTab projectId={projectId} />}
+        {tab === 'criteria' && <CriteriaTab projectId={projectId} />}
         {tab === 'runs' && <RunsTab projectId={projectId} />}
         {tab === 'plans' && <PlansTab projectId={projectId} />}
+        {tab === 'files' && <FilesTab projectId={projectId} />}
+        {tab === 'activity' && <ActivityTab projectId={projectId} />}
       </div>
     </div>
   );

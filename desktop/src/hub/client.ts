@@ -41,10 +41,11 @@ export class HubClient {
   }
 
   // --- audit / activity console (read-only surface, WS2 exit) ---
-  async listAudit(params: { limit?: number; before?: string } = {}): Promise<Entity[]> {
+  async listAudit(params: { limit?: number; before?: string; project_id?: string } = {}): Promise<Entity[]> {
     const out = await this.transport.get(this.transport.team('/audit'), {
       limit: params.limit !== undefined ? String(params.limit) : undefined,
       before: params.before,
+      project_id: params.project_id,
     });
     return asArray(out);
   }
@@ -279,6 +280,51 @@ export class HubClient {
       this.transport.team(`/projects/${projectId}/deliverables/${deliverableId}`),
       patch,
     ) as Promise<Entity>;
+  }
+
+  /** One deliverable with its components (`handleGetDeliverable` — always
+   * includes components: `{kind: document|artifact|run|commit, ref_id, required}`). */
+  getDeliverable(projectId: string, deliverableId: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/projects/${projectId}/deliverables/${deliverableId}`)) as Promise<Entity>;
+  }
+
+  // --- acceptance criteria (Phase 4 / parity) ---
+  /** A project's acceptance criteria (`handleListCriteria` → `{items:[…]}`).
+   * Each: `{id, phase, kind: text|metric|gate, body, state: pending|met|failed|
+   * waived, deliverable_id, required, ord}`. Filter by `phase`/`deliverable_id`. */
+  async listCriteria(projectId: string, opts: { phase?: string; deliverable_id?: string } = {}): Promise<Entity[]> {
+    const out = (await this.transport.get(this.transport.team(`/projects/${projectId}/criteria`), {
+      phase: opts.phase,
+      deliverable_id: opts.deliverable_id,
+    })) as Entity;
+    return asArray(out?.items);
+  }
+  /** Act on a criterion (`POST …/criteria/{id}/{action}`, action ∈ mark-met |
+   * mark-failed | waive). Body carries optional evidence_ref / reason. */
+  criterionAction(
+    projectId: string,
+    criterionId: string,
+    action: 'mark-met' | 'mark-failed' | 'waive',
+    body: { evidence_ref?: string; reason?: string } = {},
+  ): Promise<Entity> {
+    return this.transport.post(
+      this.transport.team(`/projects/${projectId}/criteria/${criterionId}/${action}`),
+      body,
+    ) as Promise<Entity>;
+  }
+
+  // --- project docs_root files (parity Files tab) ---
+  /** The project's `docs_root` filesystem tree (`handleListProjectDocs` →
+   * `[{path, is_dir, size, mod_time}]`, metadata only). Distinct from the DB
+   * `documents` entity. */
+  async listProjectDocs(projectId: string): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team(`/projects/${projectId}/docs`)));
+  }
+  /** Raw text of one `docs_root` file (`handleGetProjectDoc` returns the file
+   * bytes inline with a by-extension content-type). */
+  getProjectDocText(projectId: string, path: string): Promise<string> {
+    const enc = path.split('/').map(encodeURIComponent).join('/');
+    return this.transport.getText(this.transport.team(`/projects/${projectId}/docs/${enc}`));
   }
 
   // --- documents (Phase 4) ---

@@ -1793,3 +1793,25 @@ th {
 .doc-compose-body { min-height: 200px; width: 100%; }
 
 .yaml-editor { width: 100%; min-height: 320px; font-size: 12px; line-height: 1.5; }
+
+/* ---- pluggable overview hero widgets ---- */
+.hero-widget h4 {
+  margin: var(--spacing-s8) 0 var(--spacing-s4);
+}
+.hero-pri-group {
+  display: flex;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) 0;
+}
+.hero-pri-tasks {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hero-task {
+  padding: 2px 0;
+}
+.hero-sub {
+  margin-top: var(--spacing-s8);
+  border-top: 1px solid var(--border);
+  padding-top: var(--spacing-s8);
+}

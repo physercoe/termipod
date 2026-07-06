@@ -6,6 +6,7 @@ import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { ActivityTab, CriteriaTab, DeliverableDetail, FilesTab } from './ProjectPanels';
+import { ProjectHero } from './ProjectHero';
 import { PlanDetail } from './PlanDetail';
 import { RunDetail } from './RunDetail';
 import { TaskDetail } from './TaskDetail';
@@ -167,6 +168,7 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
 
   const goal = str(proj, 'goal') ?? str(ov, 'goal');
   const budgetCents = num(proj, 'budget_cents');
+  const heroKind = str(proj, 'overview_widget') ?? '';
   const allTasks = tasksQ.data ?? [];
   const closedTasks = allTasks.filter((tk) => {
     const s = str(tk, 'status');
@@ -218,6 +220,8 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
           )}
         </section>
       )}
+
+      {heroKind !== '' && <ProjectHero projectId={projectId} kind={heroKind} />}
 
       <section className="setting-group">
         <h3>{t('proj.phase')}</h3>

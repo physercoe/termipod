@@ -5,6 +5,7 @@ import { bool, num, obj, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
+import { ArtifactViewer } from './ArtifactViewer';
 
 // ---- Acceptance Criteria (parity — AcceptanceCriteriaScreen) ----------------
 
@@ -366,6 +367,7 @@ export function FilesTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const [openDoc, setOpenDoc] = useState<string | null>(null);
+  const [openArt, setOpenArt] = useState<{ sha: string; name: string; mime?: string } | null>(null);
 
   const docsQ = useQuery({
     queryKey: ['project-docs', projectId],
@@ -416,16 +418,26 @@ export function FilesTab({ projectId }: { projectId: string }): JSX.Element {
         <h3>{t('files.artifacts')}</h3>
         {artifactsQ.isLoading && <div className="muted">{t('common.loading')}</div>}
         {!artifactsQ.isLoading && artifacts.length === 0 && <div className="muted">{t('files.noArtifacts')}</div>}
-        {artifacts.map((a, i) => (
-          <div key={str(a, 'id') ?? String(i)} className="admin-row">
-            <span>{str(a, 'name') ?? str(a, 'kind') ?? str(a, 'id')}</span>
-            <span className="spacer" />
-            <span className="muted small mono">
-              {str(a, 'kind') ?? ''}
-              {num(a, 'size') !== undefined ? ` · ${num(a, 'size')} B` : ''}
-            </span>
-          </div>
-        ))}
+        {artifacts.map((a, i) => {
+          const sha = str(a, 'sha256');
+          const name = str(a, 'name') ?? str(a, 'kind') ?? str(a, 'id') ?? '';
+          return (
+            <button
+              key={str(a, 'id') ?? String(i)}
+              className="file-row"
+              disabled={sha === undefined || sha === ''}
+              title={sha === undefined ? t('files.noBlob') : name}
+              onClick={() => sha !== undefined && setOpenArt({ sha, name, mime: str(a, 'mime') })}
+            >
+              <span className="file-name">{name}</span>
+              <span className="spacer" />
+              <span className="muted small mono">
+                {str(a, 'kind') ?? ''}
+                {num(a, 'size') !== undefined ? ` · ${num(a, 'size')} B` : ''}
+              </span>
+            </button>
+          );
+        })}
       </section>
 
       {openDoc !== null && (
@@ -448,6 +460,15 @@ export function FilesTab({ projectId }: { projectId: string }): JSX.Element {
             </div>
           </div>
         </div>
+      )}
+
+      {openArt !== null && (
+        <ArtifactViewer
+          sha={openArt.sha}
+          name={openArt.name}
+          mime={openArt.mime}
+          onClose={() => setOpenArt(null)}
+        />
       )}
     </div>
   );

@@ -514,6 +514,12 @@ export class HubClient {
     return `data:${mime || 'application/octet-stream'};base64,${base64}`;
   }
 
+  /** Fetch a blob's raw `{ mime, base64 }` — used by the artifact viewer, which
+   * needs the mime to pick a renderer and the base64 to decode text bodies. */
+  getBlobBytes(sha: string): Promise<{ mime: string; base64: string }> {
+    return this.transport.getBytes(`/v1/blobs/${encodeURIComponent(sha)}`);
+  }
+
   // --- team governance (WS7) ---
   /** Team policy as raw YAML text (`GET /policy` serves `application/yaml`, so
    * this must not JSON-parse). Empty string when no policy file exists. */

@@ -34,8 +34,16 @@ export function UpdateSection(): JSX.Element | null {
   const t = useT();
   const [st, setSt] = useState<State>({ s: 'idle' });
   const [current, setCurrent] = useState('');
-  // Manual override the user typed (persisted); '' = auto-detect.
-  const [proxyOverride, setProxyOverride] = useState('');
+  // Manual override the user typed (persisted); '' = auto-detect. Seeded
+  // synchronously from localStorage so a saved proxy paints on first frame
+  // (no flash-in after the effect runs).
+  const [proxyOverride, setProxyOverride] = useState<string>(() => {
+    try {
+      return localStorage.getItem(PROXY_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  });
   // What auto-detect (env vars / Windows system proxy) found, for display.
   const [detected, setDetected] = useState<string | null>(null);
   const [showProxy, setShowProxy] = useState(false);
@@ -45,7 +53,6 @@ export function UpdateSection(): JSX.Element | null {
     void getVersion()
       .then(setCurrent)
       .catch(() => {});
-    setProxyOverride(localStorage.getItem(PROXY_KEY) ?? '');
     void invoke<string | null>('system_proxy')
       .then((p) => setDetected(p ?? null))
       .catch(() => setDetected(null));

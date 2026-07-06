@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { Markdown } from '../ui/Markdown';
 
 const STATUSES = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'med', 'high', 'urgent'];
@@ -59,7 +60,11 @@ export function TaskDetail({
         </div>
         <div className="admin-body">
           <div className="task-title">{str(task, 'title') ?? str(task, 'summary') ?? taskId}</div>
-          {str(task, 'body_md') !== undefined && <p className="task-body">{str(task, 'body_md')}</p>}
+          {str(task, 'body_md') !== undefined && str(task, 'body_md') !== '' && (
+            <div className="task-body">
+              <Markdown text={str(task, 'body_md') ?? ''} />
+            </div>
+          )}
 
           <section className="setting-group">
             <h3>{t('task.status')}</h3>

@@ -7,7 +7,7 @@ import { useSession } from '../state/session';
 import type { InputAttachments } from '../hub/client';
 import { Composer } from '../ui/Composer';
 import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
-import { errorLabel, eventIsError, FEED_LENSES, matchesLens, type FeedLens } from '../ui/feedLens';
+import { errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, matchesLens, type FeedLens } from '../ui/feedLens';
 import { RunReport } from '../ui/RunReport';
 
 function msg(err: unknown): string {
@@ -62,6 +62,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const [events, setEvents] = useState<Entity[]>([]);
   const [mode, setMode] = useState<Mode>('live');
   const [lens, setLens] = useState<FeedLens>('all');
+  const [verbose, setVerbose] = useState(false);
   const [matchIndex, setMatchIndex] = useState(0);
   const [navTab, setNavTab] = useState<'turns' | 'errors'>('turns');
   const [busy, setBusy] = useState(false);
@@ -133,12 +134,20 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     return <EventCard key={ev.id} ev={ev} />;
   }
 
-  // Live-mode filtering: hide non-matching events (mobile `lensed`).
+  // Live-mode filtering: first drop feed noise (mobile verbose model), then
+  // apply the lens (mobile `lensed`). Tool folding still runs over the FULL
+  // feed above, so a hidden telemetry row never orphans a paired result.
+  const visible = useMemo(() => feed.filter((ev) => !isHiddenInFeed(ev, verbose)), [feed, verbose]);
   const shown = useMemo(
-    () => (lens === 'all' ? feed : feed.filter((ev) => matchesLens(ev, lens, resultById))),
-    [feed, lens, resultById],
+    () => (lens === 'all' ? visible : visible.filter((ev) => matchesLens(ev, lens, resultById))),
+    [visible, lens, resultById],
   );
   const matchSeqs = useMemo(() => shown.map((ev) => ev.seq), [shown]);
+  // How many low-signal rows the verbose toggle would reveal (for its badge).
+  const verboseHidden = useMemo(
+    () => (verbose ? 0 : feed.filter((ev) => isHiddenInFeed(ev, false) && !isHiddenInFeed(ev, true)).length),
+    [feed, verbose],
+  );
 
   // Insight error list — dedupe folded tool_results so an error appears once.
   const errorRows = useMemo(
@@ -232,6 +241,14 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
                 </option>
               ))}
             </select>
+            <button
+              className={verbose ? 'feed-verbose active' : 'feed-verbose'}
+              title={t('tx.verboseHint')}
+              onClick={() => setVerbose((v) => !v)}
+            >
+              {verbose ? t('tx.hideNoise') : t('tx.showNoise')}
+              {!verbose && verboseHidden > 0 && <span className="pill">{verboseHidden}</span>}
+            </button>
             {lens !== 'all' && (
               <span className="feed-stepper">
                 <span className="muted small">

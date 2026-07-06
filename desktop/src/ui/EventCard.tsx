@@ -286,9 +286,12 @@ export const EventCard = memo(function EventCard({
   result?: Entity;
   callName?: string;
 }): JSX.Element {
+  // Director/user input is placed in a distinct lane (see .ev--user) so the two
+  // voices read apart on desktop's wider canvas.
+  const isUser = ev.kind === 'input.text' || ev.producer === 'user';
   return (
     <div
-      className="ev"
+      className={isUser ? 'ev ev--user' : 'ev'}
       data-seq={ev.seq}
       style={{ '--ev-accent': accentVar(ev.kind, ev.producer) } as CSSProperties}
     >

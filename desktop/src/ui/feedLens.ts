@@ -1,4 +1,4 @@
-import { bool, type Entity } from '../hub/types';
+import { bool, str, type Entity } from '../hub/types';
 import { callToolId, type FeedEvent } from './EventCard';
 
 /// The transcript "lens" — a family filter over the flat event feed, a
@@ -39,6 +39,36 @@ export function matchesLens(ev: FeedEvent, lens: FeedLens, resultById: Map<strin
     case 'errors':
       return eventIsError(ev, resultById);
   }
+}
+
+/// Feed-noise model (parity — mobile feed_reducer.dart `isHiddenInFeed` /
+/// `isVerboseOnly`). The live feed defaults to a clean reading view; a "verbose"
+/// toggle reveals the low-signal rows. Two tiers:
+///  - ALWAYS_HIDDEN — pure telemetry, never shown in either mode.
+///  - VERBOSE_ONLY  — lifecycle chatter, shown only when verbose is on.
+/// The user's own input (`input.*`) is NEVER hidden.
+const ALWAYS_HIDDEN_KINDS = new Set([
+  'usage',
+  'rate_limit',
+  'turn.result',
+  'tool_call_update',
+  'status_line',
+]);
+const VERBOSE_ONLY_KINDS = new Set(['lifecycle', 'completion', 'system', 'thought']);
+// MCP permission-gate calls are prompts, not real tool work — noise in the feed.
+const GATE_TOOL_NAMES = new Set(['permission_prompt', 'request_select', 'request_approval']);
+
+/// Whether an event is suppressed from the live feed. `verbose=true` reveals the
+/// VERBOSE_ONLY tier; ALWAYS_HIDDEN telemetry and gate prompts stay hidden.
+export function isHiddenInFeed(ev: FeedEvent, verbose: boolean): boolean {
+  if (ev.kind.startsWith('input.')) return false; // user input always visible
+  if (ALWAYS_HIDDEN_KINDS.has(ev.kind)) return true;
+  if (ev.kind === 'tool_call') {
+    const name = str(ev.payload, 'name');
+    if (name !== undefined && GATE_TOOL_NAMES.has(name)) return true;
+  }
+  if (!verbose && VERBOSE_ONLY_KINDS.has(ev.kind)) return true;
+  return false;
 }
 
 /// A short human label for an error row in the Insight navigator — the failing

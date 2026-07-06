@@ -233,6 +233,28 @@ export class HubClient {
     return this.transport.put(this.transport.team(`/vault/devices/${deviceId}`), body) as Promise<Entity>;
   }
 
+  // --- channels (chat, Phase 4) ---
+  async listChannels(): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team('/channels')));
+  }
+  /** Recent channel events, newest-last after sorting on ts (`limit` default 100
+   * hub-side). */
+  async listChannelEvents(channel: string, opts: { limit?: number; since?: string } = {}): Promise<Entity[]> {
+    return asArray(
+      await this.transport.get(this.transport.team(`/channels/${channel}/events`), {
+        limit: opts.limit !== undefined ? String(opts.limit) : undefined,
+        since: opts.since,
+      }),
+    );
+  }
+  /** Post a director chat message (`type:"message"`, one text part). */
+  postChannelMessage(channel: string, text: string): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/channels/${channel}/events`), {
+      type: 'message',
+      parts: [{ kind: 'text', text }],
+    });
+  }
+
   // --- live streams ---
   streamAgent(agentId: string, opts: SseOptions): SseHandle {
     return streamSse(this.cfg, this.transport.team(`/agents/${agentId}/stream`), opts);

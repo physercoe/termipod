@@ -193,6 +193,12 @@ const en: Dict = {
   'sessions.loading': 'Loading sessions…',
   'sessions.none': 'No sessions.',
   'sessions.pick': 'Select a session to see its run report.',
+  'channels.title': 'Channels',
+  'channels.loading': 'Loading channels…',
+  'channels.none': 'No channels.',
+  'channels.pick': 'Select a channel.',
+  'channels.placeholder': 'Message…',
+  'channels.you': 'you',
 
   // WS7 — governance / upkeep
   'admin.teams': 'Teams',
@@ -215,8 +221,10 @@ const en: Dict = {
   // SSH terminal (ADR-052, personal direct SSH)
   'shell.terminal': 'Terminal',
   'shell.sessions': 'Sessions',
+  'shell.channels': 'Channels',
   'cmd.terminal': 'Open SSH terminal',
   'cmd.sessions': 'Open sessions',
+  'cmd.channels': 'Open channels',
   'term.title': 'SSH terminal',
   'term.host': 'Host',
   'term.port': 'Port',
@@ -435,6 +443,12 @@ const zh: Dict = {
   'sessions.loading': '加载会话…',
   'sessions.none': '暂无会话。',
   'sessions.pick': '选择一个会话以查看其运行报告。',
+  'channels.title': '频道',
+  'channels.loading': '加载频道…',
+  'channels.none': '暂无频道。',
+  'channels.pick': '选择一个频道。',
+  'channels.placeholder': '消息…',
+  'channels.you': '你',
 
   // WS7 — governance / upkeep
   'admin.teams': '团队',
@@ -457,8 +471,10 @@ const zh: Dict = {
   // SSH terminal (ADR-052, personal direct SSH)
   'shell.terminal': '终端',
   'shell.sessions': '会话',
+  'shell.channels': '频道',
   'cmd.terminal': '打开 SSH 终端',
   'cmd.sessions': '打开会话',
+  'cmd.channels': '打开频道',
   'term.title': 'SSH 终端',
   'term.host': '主机',
   'term.port': '端口',

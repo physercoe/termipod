@@ -9,6 +9,7 @@ use tokio::sync::{Mutex, Notify};
 mod keychain;
 mod ssh;
 mod vault;
+mod voice;
 
 /// A REST request proxied through the Rust core (WS2/WS8). This lets the desktop
 /// build keep the bearer token out of the webview JS AND sidestep CORS: the
@@ -281,6 +282,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ssh::SshState::default())
+        .manage(voice::VoiceState::default())
         .manage(SseState::default())
         .invoke_handler(tauri::generate_handler![
             hub_request,
@@ -296,6 +298,14 @@ pub fn run() {
             ssh::ssh_resize,
             ssh::ssh_close,
             ssh::ssh_parse_key,
+            ssh::ssh_exec,
+            ssh::sftp_list,
+            ssh::sftp_read,
+            ssh::sftp_write,
+            voice::voice_open,
+            voice::voice_send,
+            voice::voice_finish,
+            voice::voice_close,
             vault::vault_generate_key,
             vault::vault_seal,
             vault::vault_open,

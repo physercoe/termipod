@@ -32,6 +32,29 @@ export function sshResize(id: string, cols: number, rows: number): Promise<void>
 export function sshClose(id: string): Promise<void> {
   return invoke('ssh_close', { id });
 }
+/** Run a one-shot command over a fresh exec channel on an existing session and
+ * resolve its stdout (+stderr). Substrate for tmux control (list/new/kill/…). */
+export function sshExec(id: string, command: string): Promise<string> {
+  return invoke<string>('ssh_exec', { id, command });
+}
+
+export interface SftpEntry {
+  name: string;
+  is_dir: boolean;
+  size: number;
+}
+/** List a remote directory over an SFTP subsystem on the session. */
+export function sftpList(id: string, path: string): Promise<SftpEntry[]> {
+  return invoke<SftpEntry[]>('sftp_list', { id, path });
+}
+/** Download a remote file; resolves to its base64-encoded bytes. */
+export function sftpRead(id: string, path: string): Promise<string> {
+  return invoke<string>('sftp_read', { id, path });
+}
+/** Upload base64 bytes to a remote path (create/overwrite). */
+export function sftpWrite(id: string, path: string, dataB64: string): Promise<void> {
+  return invoke('sftp_write', { id, path, dataB64 });
+}
 
 interface DataPayload {
   id: string;

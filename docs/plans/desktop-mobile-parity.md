@@ -250,6 +250,29 @@ shipped:
   budget). *Deferred:* the 8 pluggable overview-widget hero kinds (built the
   PortfolioHeader essentials instead), criteria create, deliverable send-back.
 
+**Deferred-set completion (PR #302).** The remaining backlog was then burned
+down, each grounded file:line against the mobile source + hub handlers first:
+- **Run Charts/Media** — the earlier "no charting infra" call was reversed: the
+  hub *does* serve the data (`…/runs/{id}/metrics|system_metrics|images|
+  histograms`). Charts renders scalars as dependency-free SVG sparklines (no ML
+  chart lib); Media renders logged images (blob bytes → data URL via a new
+  base64 transport + Rust `hub_request_bytes`) + histograms.
+- **Run + plan edit** — editable run status (`PATCH /runs/{id}`); new Plan
+  detail with plan + per-step status transitions (`PATCH …/plans/{id}[/steps]`).
+- **Criteria create** (`POST …/criteria`) and **deliverable send-back**
+  (`POST …/send-back`, note → `revision_requested` attention item).
+- **Document authoring** — compose + edit-as-new-version (`POST /documents`
+  + `prev_version_id`); **template / agent-family write** — raw-YAML editor
+  overlay in the Admin cockpit (`PUT/DELETE …/templates|agent-families`).
+- **Pluggable overview hero widgets** — full 8-kind registry dispatched on the
+  hub `overview_widget` slug (chart/pdf embeds surfaced as links).
+- **Phase 5 heavy (Rust compiles via CI; end-to-end needs a device/host):**
+  **tmux** management panel (retained russh Handle + new `ssh_exec`; TS command
+  builder/parser), **SFTP** file transfer (russh-sftp subsystem; list/upload/
+  download), **voice** dictation (DashScope realtime ASR via a Rust
+  tokio-tungstenite bridge — the webview WebSocket can't set the auth header —
+  + mic capture + keychain-stored key).
+
 ## Sequencing & first ticket
 
 F1 (component kit) + F2 (persist/keychain) are prerequisites for most of the work;

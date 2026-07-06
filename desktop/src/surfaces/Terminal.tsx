@@ -23,6 +23,8 @@ import {
   type Connection,
 } from '../state/connections';
 import { deleteKey, getKeyMaterial, importKey, listKeys, type SshKeyMeta } from '../state/keys';
+import { FileTransferPanel } from './FileTransferPanel';
+import { TmuxPanel } from './TmuxPanel';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -167,6 +169,7 @@ export function Terminal({ onClose }: { onClose: () => void }): JSX.Element {
   const [privateKey, setPrivateKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [connView, setConnView] = useState<'term' | 'tmux' | 'files'>('term');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conns, setConns] = useState<Connection[]>([]);
@@ -280,6 +283,19 @@ export function Terminal({ onClose }: { onClose: () => void }): JSX.Element {
               {user}@{host} · {t('term.connected')}
             </span>
           )}
+          {sessionId !== null && (
+            <div className="tabs">
+              <button className={connView === 'term' ? 'tab active' : 'tab'} onClick={() => setConnView('term')}>
+                {t('term.terminal')}
+              </button>
+              <button className={connView === 'tmux' ? 'tab active' : 'tab'} onClick={() => setConnView('tmux')}>
+                {t('term.tmux')}
+              </button>
+              <button className={connView === 'files' ? 'tab active' : 'tab'} onClick={() => setConnView('files')}>
+                {t('term.files')}
+              </button>
+            </div>
+          )}
           <span className="spacer" />
           {sessionId !== null && <button onClick={() => setSessionId(null)}>{t('term.disconnect')}</button>}
           <button onClick={onClose}>{t('admin.close')}</button>
@@ -289,7 +305,13 @@ export function Terminal({ onClose }: { onClose: () => void }): JSX.Element {
           <div className="term-banner">{t('term.desktopOnly')}</div>
         ) : sessionId !== null ? (
           <div className="term-body">
-            <Screen sessionId={sessionId} onExit={() => {}} />
+            {/* Screen stays mounted across view switches — unmounting it closes
+                the SSH session. Hide it (not unmount) when browsing tmux. */}
+            <div className={connView === 'term' ? 'term-view' : 'term-view hidden'}>
+              <Screen sessionId={sessionId} onExit={() => {}} />
+            </div>
+            {connView === 'tmux' && <TmuxPanel sessionId={sessionId} />}
+            {connView === 'files' && <FileTransferPanel sessionId={sessionId} />}
           </div>
         ) : (
           <div className="term-body term-connect">

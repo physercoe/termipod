@@ -1,10 +1,89 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useHubAction } from '../hub/action';
 import { useProjects } from '../hub/queries';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
+
+const DOC_KINDS = ['memo', 'draft', 'report', 'review'];
+
+/// Compose a new document, or a new version of an existing one (parity — mobile
+/// DocumentCreateSheet). Documents are versioned: editing POSTs a fresh version
+/// with `prev_version_id` pointing at the current row (there is no whole-document
+/// PATCH). `base` pre-fills the form for an edit.
+function DocumentCompose({
+  projectId,
+  base,
+  onDone,
+}: {
+  projectId: string;
+  base?: Entity;
+  onDone: (createdId?: string) => void;
+}): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const { run, busy, error } = useHubAction();
+  const editing = base !== undefined;
+  const [kind, setKind] = useState(base !== undefined ? str(base, 'kind') ?? 'memo' : 'memo');
+  const [title, setTitle] = useState(base !== undefined ? str(base, 'title') ?? '' : '');
+  const [body, setBody] = useState(base !== undefined ? str(base, 'content_inline') ?? '' : '');
+
+  async function submit(): Promise<void> {
+    if (client === null || title.trim() === '') return;
+    const created = await run(
+      () =>
+        client.createDocument({
+          project_id: projectId,
+          kind,
+          title: title.trim(),
+          content_inline: body !== '' ? body : '(no content)',
+          prev_version_id: editing ? str(base, 'id') : undefined,
+        }),
+      { invalidate: [['documents', projectId]] },
+    );
+    if (created !== undefined) onDone(str(created, 'id'));
+  }
+
+  return (
+    <div className="palette-backdrop" onMouseDown={() => onDone()}>
+      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="admin-tabs">
+          <strong>{editing ? t('docs.newVersion') : t('docs.new')}</strong>
+          <span className="spacer" />
+          <button onClick={() => onDone()}>{t('admin.close')}</button>
+        </div>
+        <div className="task-form">
+          <label className="wide">
+            {t('docs.kind')}
+            <div className="seg">
+              {DOC_KINDS.map((k) => (
+                <button key={k} className={kind === k ? 'seg-btn active' : 'seg-btn'} disabled={editing} onClick={() => setKind(k)}>
+                  {k}
+                </button>
+              ))}
+            </div>
+          </label>
+          <label className="wide">
+            {t('docs.docTitle')}
+            <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+          </label>
+          <label className="wide">
+            {t('docs.body')}
+            <textarea className="doc-compose-body" value={body} spellCheck onChange={(e) => setBody(e.target.value)} placeholder={t('docs.bodyPlaceholder')} />
+          </label>
+          {error !== null && <div className="error wide">{error}</div>}
+          <div className="wide task-form-actions">
+            <button className="primary" disabled={busy || title.trim() === ''} onClick={() => void submit()}>
+              {editing ? t('docs.saveVersion') : t('docs.create')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /// Documents surface (parity Phase 4). Lists a project's DB-row documents
 /// (`GET …/documents?project=`, `handleListDocuments` — list rows omit the body)
@@ -19,6 +98,8 @@ export function DocsPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const projects = projectsQ.data ?? [];
   const [projectId, setProjectId] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const [composing, setComposing] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const effectiveProject = projectId !== '' ? projectId : (projects[0] !== undefined ? str(projects[0], 'id') ?? '' : '');
 
@@ -66,9 +147,31 @@ export function DocsPanel({ onClose }: { onClose: () => void }): JSX.Element {
               );
             })}
           </select>
+          <button disabled={effectiveProject === ''} onClick={() => setComposing(true)}>
+            + {t('docs.new')}
+          </button>
           <span className="spacer" />
           <button onClick={onClose}>{t('admin.close')}</button>
         </div>
+        {composing && effectiveProject !== '' && (
+          <DocumentCompose
+            projectId={effectiveProject}
+            onDone={(id) => {
+              setComposing(false);
+              if (id !== undefined) setSelected(id);
+            }}
+          />
+        )}
+        {editing && doc !== undefined && effectiveProject !== '' && (
+          <DocumentCompose
+            projectId={effectiveProject}
+            base={doc}
+            onDone={(id) => {
+              setEditing(false);
+              if (id !== undefined) setSelected(id);
+            }}
+          />
+        )}
         <div className="sessions-body">
           <div className="sessions-list">
             {listQ.isLoading && <div className="muted region-pad">{t('common.loading')}</div>}
@@ -100,6 +203,10 @@ export function DocsPanel({ onClose }: { onClose: () => void }): JSX.Element {
               <div className="error region-pad">{(docQ.error as Error).message}</div>
             ) : inline !== undefined && inline !== '' ? (
               <div className="region-pad doc-body">
+                <div className="doc-toolbar">
+                  <span className="spacer" />
+                  <button onClick={() => setEditing(true)}>{t('docs.editNewVersion')}</button>
+                </div>
                 <Markdown text={inline} />
               </div>
             ) : artifactId !== undefined ? (

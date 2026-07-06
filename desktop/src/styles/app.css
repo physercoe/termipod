@@ -1788,3 +1788,8 @@ th {
   border-radius: var(--radius-sm);
   display: block;
 }
+
+.doc-toolbar { display: flex; padding-bottom: var(--spacing-s8); }
+.doc-compose-body { min-height: 200px; width: 100%; }
+
+.yaml-editor { width: 100%; min-height: 320px; font-size: 12px; line-height: 1.5; }

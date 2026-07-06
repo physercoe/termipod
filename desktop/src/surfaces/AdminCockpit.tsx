@@ -367,9 +367,135 @@ function UpkeepTab(): JSX.Element {
   );
 }
 
+/// Raw text/YAML editor overlay for a template or an agent family. Loads the raw
+/// body on mount (getTemplateText / getAgentFamilyText), then PUTs it verbatim —
+/// the hub reads templates/families as raw bytes and writes a per-team overlay.
+/// A `name === null` opens the composer for a brand-new record.
+function YamlEditor({
+  target,
+  onClose,
+}: {
+  target:
+    | { kind: 'template'; category: string; name: string | null }
+    | { kind: 'family'; name: string | null };
+  onClose: () => void;
+}): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const qc = useQueryClient();
+  const creating = target.name === null;
+  const [name, setName] = useState(target.name ?? '');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(creating);
+
+  useEffect(() => {
+    if (creating || client === null) return;
+    let live = true;
+    void (async () => {
+      try {
+        const raw =
+          target.kind === 'template'
+            ? await client.getTemplateText(target.category, target.name as string)
+            : await client.getAgentFamilyText(target.name as string);
+        if (live) {
+          setText(raw);
+          setLoaded(true);
+        }
+      } catch (e) {
+        if (live) {
+          setErr(msg(e));
+          setLoaded(true);
+        }
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [client, creating, target]);
+
+  const queryKey = target.kind === 'template' ? ['templates'] : ['agent-families'];
+
+  async function save(): Promise<void> {
+    if (client === null || name.trim() === '') return;
+    setBusy(true);
+    setErr(null);
+    try {
+      if (target.kind === 'template') {
+        await client.putTemplate(target.category, name.trim(), text);
+      } else {
+        await client.putAgentFamily(name.trim(), text);
+      }
+      await qc.invalidateQueries({ queryKey });
+      onClose();
+    } catch (e) {
+      setErr(msg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(): Promise<void> {
+    if (client === null || creating) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      if (target.kind === 'template') await client.deleteTemplate(target.category, target.name as string);
+      else await client.deleteAgentFamily(target.name as string);
+      await qc.invalidateQueries({ queryKey });
+      onClose();
+    } catch (e) {
+      setErr(msg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const heading =
+    target.kind === 'template'
+      ? `${t('admin.template')} · ${target.category}`
+      : t('admin.family');
+
+  return (
+    <div className="palette-backdrop" onMouseDown={onClose}>
+      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="admin-tabs">
+          <strong>{heading}</strong>
+          <span className="spacer" />
+          {!creating && <ConfirmButton label={t('admin.delete')} danger onConfirm={() => void remove()} />}
+          <button className="primary" disabled={busy || name.trim() === '' || !loaded} onClick={() => void save()}>
+            {t('admin.save')}
+          </button>
+          <button onClick={onClose}>{t('admin.close')}</button>
+        </div>
+        <div className="region-pad scroll">
+          <label className="wide">
+            {t('admin.name')}
+            <input className="mono" value={name} disabled={!creating} onChange={(e) => setName(e.target.value)} />
+          </label>
+          {!loaded ? (
+            <div className="muted">{t('common.loading')}</div>
+          ) : (
+            <textarea
+              className="yaml-editor mono"
+              value={text}
+              spellCheck={false}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={target.kind === 'family' ? t('admin.familyYamlHint') : t('admin.templateYamlHint')}
+            />
+          )}
+          {err !== null && <div className="error wide">{err}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TemplatesTab(): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
+  const [edit, setEdit] = useState<{ category: string; name: string | null } | null>(null);
   const q = useQuery({
     queryKey: ['templates'],
     enabled: client !== null,
@@ -384,22 +510,34 @@ function TemplatesTab(): JSX.Element {
     if (list) list.push(tpl);
     else byCategory.set(cat, [tpl]);
   }
+  const categories = [...byCategory.keys()].sort();
   return (
     <div className="scroll">
       <p className="muted">{t('admin.templatesNote')}</p>
-      {[...byCategory.keys()].sort().map((cat) => (
+      {categories.map((cat) => (
         <section key={cat} className="setting-group">
-          <h3>{cat}</h3>
+          <div className="setting-row">
+            <h3>{cat}</h3>
+            <span className="spacer" />
+            <button onClick={() => setEdit({ category: cat, name: null })}>+ {t('admin.new')}</button>
+          </div>
           {(byCategory.get(cat) ?? []).map((tpl, i) => (
-            <div key={str(tpl, 'name') ?? String(i)} className="admin-row">
+            <button
+              key={str(tpl, 'name') ?? String(i)}
+              className="admin-row clickable-row"
+              onClick={() => setEdit({ category: cat, name: str(tpl, 'name') ?? '' })}
+            >
               <span className="mono">{str(tpl, 'name') ?? '—'}</span>
               <span className="spacer" />
               <span className="muted small">{str(tpl, 'source') ?? ''}</span>
-            </div>
+            </button>
           ))}
         </section>
       ))}
       {templates.length === 0 && <div className="muted">{t('admin.noTemplates')}</div>}
+      {edit !== null && (
+        <YamlEditor target={{ kind: 'template', category: edit.category, name: edit.name }} onClose={() => setEdit(null)} />
+      )}
     </div>
   );
 }
@@ -407,6 +545,7 @@ function TemplatesTab(): JSX.Element {
 function FamiliesTab(): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
+  const [edit, setEdit] = useState<{ name: string | null } | null>(null);
   const q = useQuery({
     queryKey: ['agent-families'],
     enabled: client !== null,
@@ -416,7 +555,11 @@ function FamiliesTab(): JSX.Element {
   const families = q.data ?? [];
   return (
     <div className="scroll">
-      <p className="muted">{t('admin.familiesNote')}</p>
+      <div className="setting-row">
+        <p className="muted">{t('admin.familiesNote')}</p>
+        <span className="spacer" />
+        <button onClick={() => setEdit({ name: null })}>+ {t('admin.new')}</button>
+      </div>
       <table>
         <thead>
           <tr>
@@ -436,9 +579,10 @@ function FamiliesTab(): JSX.Element {
                     .map(([k]) => k)
                     .join(', ')
                 : '';
+            const fam = str(f, 'family') ?? '';
             return (
-              <tr key={str(f, 'family') ?? String(i)}>
-                <td className="mono">{str(f, 'family') ?? '—'}</td>
+              <tr key={fam || String(i)} role="button" className="clickable-row" onClick={() => setEdit({ name: fam })}>
+                <td className="mono">{fam || '—'}</td>
                 <td className="mono">{str(f, 'bin') ?? ''}</td>
                 <td className="muted small">{str(f, 'source') ?? ''}</td>
                 <td className="small">{supText}</td>
@@ -454,6 +598,7 @@ function FamiliesTab(): JSX.Element {
           )}
         </tbody>
       </table>
+      {edit !== null && <YamlEditor target={{ kind: 'family', name: edit.name }} onClose={() => setEdit(null)} />}
     </div>
   );
 }

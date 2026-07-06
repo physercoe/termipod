@@ -71,6 +71,14 @@ export class HubClient {
     const out = await this.transport.get(this.transport.team('/sessions'));
     return asArray(out);
   }
+  getSession(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/sessions/${id}`)) as Promise<Entity>;
+  }
+  /** The session-scoped run digest (ADR-038 §5) — same wire shape as the agent
+   * digest, rolled up across the session's agents. Renders in `RunReport`. */
+  getSessionDigest(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/sessions/${id}/digest`)) as Promise<Entity>;
+  }
 
   // --- agent detail + lifecycle (WS3) ---
   getAgent(id: string): Promise<Entity> {
@@ -132,6 +140,14 @@ export class HubClient {
   /** Patch a task — status / title / assignee / priority (ADR-029; `handlePatchTask`). */
   patchTask(projectId: string, taskId: string, patch: Record<string, unknown>): Promise<unknown> {
     return this.transport.patch(this.transport.team(`/projects/${projectId}/tasks/${taskId}`), patch);
+  }
+  /** Create a task (direct write — `handleCreateTask`). `title` required;
+   * `priority` ∈ low|med|high|urgent; `status` defaults todo hub-side. */
+  createTask(
+    projectId: string,
+    body: { title: string; body_md?: string; status?: string; priority?: string },
+  ): Promise<Entity> {
+    return this.transport.post(this.transport.team(`/projects/${projectId}/tasks`), body) as Promise<Entity>;
   }
   /** Runs are team-scoped, filtered by `?project=` (NOT nested under the
    * project path — `GET /v1/teams/{team}/runs`, `handleListRuns`). */

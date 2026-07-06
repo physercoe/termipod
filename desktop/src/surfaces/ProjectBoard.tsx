@@ -1,12 +1,88 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { TaskDetail } from './TaskDetail';
 
 const COLUMNS = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
+const PRIORITIES = ['low', 'med', 'high', 'urgent'];
 type Tab = 'overview' | 'tasks' | 'runs' | 'plans';
+
+function NewTaskForm({ projectId, onDone }: { projectId: string; onDone: () => void }): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const qc = useQueryClient();
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [status, setStatus] = useState('todo');
+  const [priority, setPriority] = useState('med');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(): Promise<void> {
+    if (client === null || title.trim() === '') return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await client.createTask(projectId, { title: title.trim(), body_md: body, status, priority });
+      await qc.invalidateQueries({ queryKey: ['tasks', projectId] });
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="palette-backdrop" onMouseDown={onDone}>
+      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="admin-tabs">
+          <strong>{t('task.new')}</strong>
+          <span className="spacer" />
+          <button onClick={onDone}>{t('admin.close')}</button>
+        </div>
+        <div className="task-form">
+          <label className="wide">
+            {t('task.title')}
+            <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+          </label>
+          <label className="wide">
+            {t('task.body')}
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} />
+          </label>
+          <label>
+            {t('task.status')}
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              {COLUMNS.map((s) => (
+                <option key={s} value={s}>
+                  {t(`kanban.${s}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t('task.priority')}
+            <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+              {PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </label>
+          {err !== null && <div className="error wide">{err}</div>}
+          <div className="wide task-form-actions">
+            <button className="primary" disabled={busy || title.trim() === ''} onClick={() => void submit()}>
+              {t('task.create')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
@@ -149,6 +225,7 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const [open, setOpen] = useState<Entity | null>(null);
+  const [creating, setCreating] = useState(false);
   const tasksQ = useQuery({
     queryKey: ['tasks', projectId],
     enabled: client !== null,
@@ -164,6 +241,10 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
 
   return (
     <>
+      <div className="kanban-bar">
+        <span className="spacer" />
+        <button onClick={() => setCreating(true)}>+ {t('task.new')}</button>
+      </div>
       <div className="kanban">
         {COLUMNS.map((status) => {
           const items = inColumn(status);
@@ -193,6 +274,7 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
         })}
       </div>
       {open !== null && <TaskDetail projectId={projectId} task={open} onClose={() => setOpen(null)} />}
+      {creating && <NewTaskForm projectId={projectId} onDone={() => setCreating(false)} />}
     </>
   );
 }

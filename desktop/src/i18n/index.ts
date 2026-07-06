@@ -185,6 +185,14 @@ const en: Dict = {
   'task.saving': 'Saving…',
   'task.unassigned': 'Unassigned',
   'task.none': 'None',
+  'task.new': 'New task',
+  'task.title': 'Title',
+  'task.body': 'Description',
+  'task.create': 'Create task',
+  'sessions.title': 'Sessions',
+  'sessions.loading': 'Loading sessions…',
+  'sessions.none': 'No sessions.',
+  'sessions.pick': 'Select a session to see its run report.',
 
   // WS7 — governance / upkeep
   'admin.teams': 'Teams',
@@ -206,7 +214,9 @@ const en: Dict = {
 
   // SSH terminal (ADR-052, personal direct SSH)
   'shell.terminal': 'Terminal',
+  'shell.sessions': 'Sessions',
   'cmd.terminal': 'Open SSH terminal',
+  'cmd.sessions': 'Open sessions',
   'term.title': 'SSH terminal',
   'term.host': 'Host',
   'term.port': 'Port',
@@ -417,6 +427,14 @@ const zh: Dict = {
   'task.saving': '保存中…',
   'task.unassigned': '未分配',
   'task.none': '无',
+  'task.new': '新建任务',
+  'task.title': '标题',
+  'task.body': '描述',
+  'task.create': '创建任务',
+  'sessions.title': '会话',
+  'sessions.loading': '加载会话…',
+  'sessions.none': '暂无会话。',
+  'sessions.pick': '选择一个会话以查看其运行报告。',
 
   // WS7 — governance / upkeep
   'admin.teams': '团队',
@@ -438,7 +456,9 @@ const zh: Dict = {
 
   // SSH terminal (ADR-052, personal direct SSH)
   'shell.terminal': '终端',
+  'shell.sessions': '会话',
   'cmd.terminal': '打开 SSH 终端',
+  'cmd.sessions': '打开会话',
   'term.title': 'SSH 终端',
   'term.host': '主机',
   'term.port': '端口',

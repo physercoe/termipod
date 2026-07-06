@@ -11,6 +11,7 @@ import { AttentionDock } from '../surfaces/AttentionDock';
 import { AuditConsole } from '../surfaces/AuditConsole';
 import { Navigator } from '../surfaces/Navigator';
 import { ProjectBoard } from '../surfaces/ProjectBoard';
+import { SessionsPanel } from '../surfaces/SessionsPanel';
 import { Settings } from '../surfaces/Settings';
 import { Terminal } from '../surfaces/Terminal';
 import { CommandPalette, type Command } from './CommandPalette';
@@ -34,6 +35,7 @@ export function AppShell(): JSX.Element {
   const [adminOpen, setAdminOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [editProfile, setEditProfile] = useState<HubProfile | undefined>(undefined);
 
@@ -69,6 +71,7 @@ export function AppShell(): JSX.Element {
       run: () => void qc.invalidateQueries({ queryKey: ['attention'] }),
     },
     { id: 'admin', label: t('cmd.admin'), run: () => setAdminOpen(true) },
+    { id: 'sessions', label: t('cmd.sessions'), run: () => setSessionsOpen(true) },
     { id: 'terminal', label: t('cmd.terminal'), run: () => setTerminalOpen(true) },
     { id: 'settings', label: t('cmd.settings'), run: () => setSettingsOpen(true) },
     client === null
@@ -97,6 +100,7 @@ export function AppShell(): JSX.Element {
         )}
         <span className="spacer" />
         <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
+        <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
         <button onClick={() => setTerminalOpen(true)}>{t('shell.terminal')}</button>
         <button onClick={() => setSettingsOpen(true)}>{t('shell.settings')}</button>
         <button onClick={() => setPaletteOpen(true)}>⌘K</button>
@@ -138,6 +142,7 @@ export function AppShell(): JSX.Element {
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
       {terminalOpen && <Terminal onClose={() => setTerminalOpen(false)} />}
+      {sessionsOpen && <SessionsPanel onClose={() => setSessionsOpen(false)} />}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
       {connectOpen && (
         <ConnectPanel

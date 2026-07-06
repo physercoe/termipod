@@ -114,8 +114,9 @@ attention/approvals (by-kind + override) · audit (poll) · admin cockpit
 ~~digest (raw JSON — gap 2)~~ **✅ dashboard (1b)** · ~~composer (no attach — gap 3)~~
 **✅ attachments (1c)** · projects (tree, no list/create) · tasks (view + status patch, no create)
 · runs/plans (tables, no launch/author) · deliverables (counts, no ratify) ·
-hosts (grouped, no detail) · team governance (policy YAML only) · SSH (no saved
-profiles/keys) · connect (single, in-memory).
+hosts (grouped, no detail) · team governance (policy YAML only) · ~~SSH (no saved
+profiles/keys)~~ **✅ saved connections + key store + vault (2a/2b)** · connect
+(single, in-memory).
 
 **Missing:** create/edit for projects·tasks·runs·plans·agents·schedules·docs ·
 agent spawn · deliverable reviews/ratification · documents/artifacts/blobs viewers
@@ -156,11 +157,19 @@ per-turn timeline (`GET …/turns`); capability-gating the attach button (hub
 strip-and-warns unsupported modalities, so it's cosmetic); syntax highlighting in
 code blocks (bundle weight — react-markdown added ~170 KB).
 
-**Phase 2 — breakglass parity + vault (gap 4).** (2a) saved SSH connections + a
-local key store (generate/import), secrets in the OS keychain — turns the terminal
-from "retype every time" into reusable, jump-host-aware connections; (2b) join the
-zero-knowledge vault (Rust `VaultCrypto` port) so connections+keys sync with the
-phone. Depends on F2.
+**Phase 2 — breakglass parity + vault (gap 4). ✅ SHIPPED (commits 540ca76d /
+7500f74d / f8ab20e4 / ba3e29c7).** (2a) saved SSH connections + a local key store
+(import) with secrets in the OS keychain (`keyring` crate, pure-Rust zbus backend
+on Linux) — the terminal now has a saved-connections sidebar + key manager instead
+of "retype every time"; (2b) the zero-knowledge vault — a byte-for-byte Rust port
+of `vault_crypto.dart` (AES-256-GCM bundle, ephemeral-X25519 + HKDF device wrap,
+Argon2id recovery), CI-verified via `cargo test` round-trips, behind a Settings →
+Vault panel (create / sync up-down / restore-with-recovery). *Foundation F2 landed
+here:* `state/persist.ts` (keychain bridge + JSON store). *Deferred:* SSH key
+**generation** (import only); **jump-host connect** (fields persisted for vault
+parity, but russh has no ProxyJump yet); device-to-device enrollment approval
+(recovery-code restore covers cross-device). **⚠ Cross-device Rust↔Dart vault
+interop is unverified — needs a real desktop↔phone test before relying on sync.**
 
 **Phase 3 — multi-hub + offline (gaps 5–6).** (3a) hub profiles + switcher (token
 in keychain, client re-bind); (3b) cache-first layer (partitioned store,

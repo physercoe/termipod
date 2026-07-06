@@ -5,32 +5,69 @@
  * --font-size-*) generated from design-tokens/tokens.json (WS1). Dark-first,
  * matching the mobile app's backgroundDark palette. */
 
-/* Semantic theme layer — maps the shared light/dark tokens onto neutral names
- * the components use, switched by <html data-theme>. Dark is the default. */
+/* Semantic theme layer — the elevated design language (2026-07). Kept
+ * desktop-local (does NOT mutate the shared design-tokens/tokens.json, which the
+ * mobile Flutter build mirrors): refined cool blue-biased neutrals with a real
+ * elevation scale, focus rings, motion, and a disciplined accent. Switched by
+ * <html data-theme>; dark is the default. */
 :root {
   color-scheme: dark;
-  --pane-gap: var(--spacing-s2, 2px);
-  --bg: var(--color-background-dark);
-  --surface: var(--color-surface-dark);
-  --canvas: var(--color-canvas-dark);
-  --input: var(--color-input-dark);
-  --border: var(--color-border-dark);
-  --text: var(--color-text-primary);
-  --text-secondary: var(--color-text-secondary);
-  --text-muted: var(--color-text-muted);
+  --pane-gap: 1px;
+  /* grounds — genuine value separation so rails / cards / canvas read apart */
+  --bg: #0a0c10;
+  --canvas: #0f1217;      /* navigator + dock rails */
+  --surface: #14171e;     /* cards, panels, popovers */
+  --raised: #1a1e27;      /* buttons, hover targets, inset controls */
+  --hover: #20242e;       /* row / interactive hover fill */
+  --input: #0d1015;
+  --border: #23272f;
+  --border-strong: #313743;
+  --text: #eaedf2;
+  --text-secondary: #99a2b1;
+  --text-muted: #5f6877;
+  /* accent — brand cyan, reserved for focus / selection / live data */
   --accent: var(--color-primary);
+  --accent-strong: var(--color-primary-dark);
+  --accent-ink: #00232a;
+  --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
+  /* semantic state — distinct from the accent hue */
+  --ok: var(--color-success);
+  --warn: var(--color-warning);
+  --danger: var(--color-error);
+  /* elevation, focus, motion */
+  --sh-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --sh-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.35);
+  --sh-3: 0 18px 46px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --glow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
 }
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: var(--color-background-light);
-  --surface: var(--color-surface-light);
-  --canvas: var(--color-canvas-light);
-  --input: var(--color-input-light);
-  --border: var(--color-border-light);
-  --text: var(--color-text-primary-light);
-  --text-secondary: var(--color-text-secondary-light);
-  --text-muted: var(--color-text-muted-light);
-  --accent: var(--color-primary);
+  --bg: #f6f7f9;
+  --canvas: #f0f2f5;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --hover: #eef1f5;
+  --input: #f7f8fa;
+  --border: #e5e8ee;
+  --border-strong: #d3d8e0;
+  --text: #0f141c;
+  --text-secondary: #576070;
+  --text-muted: #8a93a3;
+  --accent: var(--color-primary-dark);
+  --accent-strong: var(--color-primary-dark);
+  --accent-ink: #ffffff;
+  --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 40%, transparent);
+  --ok: var(--color-success-on-light);
+  --warn: var(--color-on-warning-container-light);
+  --danger: var(--color-error);
+  --sh-1: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --sh-2: 0 4px 14px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.05);
+  --sh-3: 0 18px 46px rgba(16, 24, 40, 0.14), 0 2px 8px rgba(16, 24, 40, 0.08);
+  --glow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 * {
@@ -49,6 +86,29 @@ body {
   font-size: var(--font-size-body);
   color: var(--text);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Numeric-heavy data lines up when digits are tabular; identifiers get mono. */
+.mono,
+.ev-mono,
+code,
+pre {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Keyboard focus is always visible; pointer focus stays quiet. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--glow);
+  border-radius: var(--radius-xs);
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
 
 /* ---- app shell: titlebar / body(nav|focus|dock) / statusbar ---- */
@@ -65,20 +125,23 @@ body {
   align-items: center;
   gap: var(--spacing-s16);
   padding: 0 var(--spacing-s16);
-  background: var(--surface);
+  background: linear-gradient(180deg, var(--canvas), var(--surface));
   border-bottom: 1px solid var(--border);
 }
 
 .titlebar {
   height: 44px;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .statusbar {
   height: 28px;
   border-top: 1px solid var(--border);
   border-bottom: none;
+  background: linear-gradient(180deg, var(--surface), var(--canvas));
   font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
 
@@ -143,11 +206,11 @@ body {
   font-size: var(--font-size-body-small);
 }
 .tree-section {
-  padding: var(--spacing-s8) var(--spacing-s12) var(--spacing-s4);
+  padding: var(--spacing-s12) var(--spacing-s12) var(--spacing-s4);
   font-size: var(--font-size-label);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent);
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
   font-weight: 600;
 }
 .tree-host {
@@ -161,14 +224,22 @@ body {
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
-  padding: var(--spacing-s4) var(--spacing-s12) var(--spacing-s4) var(--spacing-s24);
+  margin: 1px var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s8) var(--spacing-s8) var(--spacing-s16);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: background 0.12s var(--ease), box-shadow 0.12s var(--ease);
 }
 .tree-agent:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: var(--hover);
 }
 .tree-agent.selected {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  background: var(--accent-tint);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.tree-agent.selected .tree-agent-label {
+  color: var(--text);
+  font-weight: 600;
 }
 .tree-agent-label {
   flex: 1;
@@ -179,6 +250,7 @@ body {
 .tree-agent-kind {
   color: var(--text-muted);
   font-size: var(--font-size-label);
+  font-family: var(--mono, ui-monospace, monospace);
 }
 
 .dot {
@@ -189,16 +261,18 @@ body {
   flex: 0 0 auto;
 }
 .dot.running {
-  background: var(--color-success);
+  background: var(--ok);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 55%, transparent);
 }
 .dot.paused {
-  background: var(--color-warning);
+  background: var(--warn);
 }
 .dot.pending {
-  background: var(--color-info);
+  background: var(--text-muted);
 }
 .dot.stopped {
-  background: var(--color-error);
+  background: var(--danger);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--danger) 50%, transparent);
 }
 .dot.muted {
   background: var(--text-muted);
@@ -222,16 +296,30 @@ body {
 }
 .tabs {
   display: flex;
-  gap: var(--spacing-s4);
+  gap: var(--spacing-s2);
 }
 .tab {
-  padding: var(--spacing-s4) var(--spacing-s12);
+  padding: var(--spacing-s8) var(--spacing-s12);
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-small);
+  transition: color 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+.tab:hover {
+  background: transparent;
+  transform: none;
+  box-shadow: none;
+  color: var(--text);
+  border-bottom-color: var(--border-strong);
 }
 .tab.active {
-  border-color: var(--border);
-  background: var(--canvas);
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
 }
 .lifecycle {
   display: flex;
@@ -245,15 +333,21 @@ body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: var(--spacing-s8) var(--spacing-s12);
+  padding: var(--spacing-s12);
   font-size: var(--font-size-body-small);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
 }
 /* ---- rich transcript event cards (parity Phase 1a) ---- */
 .ev {
   display: flex;
-  border-left: 3px solid var(--ev-accent, var(--text-muted));
-  padding: var(--spacing-s4) 0 var(--spacing-s4) var(--spacing-s8);
-  margin: var(--spacing-s2) 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ev-accent, var(--border-strong));
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  box-shadow: var(--sh-1);
 }
 .ev-body {
   flex: 1;
@@ -420,12 +514,19 @@ body {
 .composer-wrap {
   flex: 0 0 auto;
   border-top: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--bg), var(--canvas));
 }
 .composer {
   display: flex;
   gap: var(--spacing-s8);
-  padding: var(--spacing-s8);
+  padding: var(--spacing-s12);
   align-items: center;
+}
+.composer input[type='text'],
+.composer input:not([type]) {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s8) var(--spacing-s12);
 }
 .composer input[type='text'],
 .composer input:not([type]) {
@@ -505,6 +606,12 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s8);
+  box-shadow: var(--sh-1);
+  transition: box-shadow 0.13s var(--ease), border-color 0.13s var(--ease);
+}
+.card:hover {
+  box-shadow: var(--sh-2);
+  border-color: var(--border-strong);
 }
 .card-head {
   display: flex;
@@ -553,23 +660,27 @@ body {
   font-size: var(--font-size-caption);
 }
 .sev {
-  padding: 1px var(--spacing-s8);
+  padding: 2px var(--spacing-s8);
   border-radius: var(--radius-stadium);
   font-size: var(--font-size-label);
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: color-mix(in srgb, var(--color-slate) 22%, transparent);
+  background: color-mix(in srgb, var(--color-slate) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-slate) 30%, transparent);
   color: var(--text-secondary);
 }
 .sev-high,
 .sev-critical {
-  background: color-mix(in srgb, var(--color-error) 22%, transparent);
-  color: var(--color-error);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  color: var(--danger);
 }
 .sev-warning,
 .sev-medium {
-  background: color-mix(in srgb, var(--color-warning) 22%, transparent);
-  color: var(--color-warning);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+  color: var(--warn);
 }
 
 /* ---- project board (kanban) ---- */
@@ -601,6 +712,8 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--spacing-s8);
+  box-shadow: var(--sh-1);
+  transition: box-shadow 0.13s var(--ease), border-color 0.13s var(--ease), transform 0.13s var(--ease);
 }
 .kanban-card-title {
   font-size: var(--font-size-body-small);
@@ -632,9 +745,13 @@ body {
 .admin-tabs {
   display: flex;
   align-items: center;
-  gap: var(--spacing-s4);
-  padding: var(--spacing-s8) var(--spacing-s12);
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12) var(--spacing-s16);
   border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--canvas), var(--surface));
+}
+.admin-tabs strong {
+  letter-spacing: -0.01em;
 }
 .admin-body {
   flex: 1;
@@ -669,11 +786,12 @@ body {
   font-size: var(--font-size-label);
 }
 button.danger {
-  border-color: var(--color-error);
-  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--danger);
 }
 button.danger:hover {
-  background: color-mix(in srgb, var(--color-error) 16%, transparent);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: var(--danger);
 }
 
 /* ---- settings ---- */
@@ -709,20 +827,32 @@ button.danger:hover {
   color: var(--text-secondary);
 }
 .seg {
-  display: flex;
+  display: inline-flex;
+  gap: var(--spacing-s2);
+  background: var(--input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  overflow: hidden;
+  padding: 3px;
 }
 .seg-btn {
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-xs);
   background: transparent;
+  box-shadow: none;
+  color: var(--text-secondary);
   padding: var(--spacing-s4) var(--spacing-s12);
 }
+.seg-btn:hover {
+  background: transparent;
+  transform: none;
+  box-shadow: none;
+  color: var(--text);
+}
 .seg-btn.active {
-  background: var(--accent);
-  color: #00232a;
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--sh-1);
+  font-weight: 600;
 }
 
 /* ---- project overview + task detail (WS6 deepened) ---- */
@@ -988,29 +1118,63 @@ button.danger:hover {
 button {
   font: inherit;
   color: var(--text);
-  background: var(--surface);
+  background: var(--raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--spacing-s8) var(--spacing-s12);
   cursor: pointer;
+  box-shadow: var(--sh-1);
+  transition: background 0.13s var(--ease), border-color 0.13s var(--ease),
+    box-shadow 0.13s var(--ease), transform 0.13s var(--ease);
 }
 button:hover {
-  border-color: var(--accent);
+  background: var(--hover);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--sh-2);
+}
+button:active {
+  transform: translateY(0);
+  box-shadow: var(--sh-1);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: var(--sh-1);
 }
 button.primary {
-  background: var(--accent);
-  color: #00232a;
-  border-color: var(--accent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 90%, white 10%), var(--accent-strong));
+  color: var(--accent-ink);
+  border-color: var(--accent-strong);
+  font-weight: 600;
+}
+button.primary:hover {
+  border-color: var(--accent-strong);
+  box-shadow: var(--sh-2), 0 0 18px var(--accent-line);
 }
 
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: var(--text);
   background: var(--input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--spacing-s8);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--glow);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
 }
 
 table {
@@ -1165,6 +1329,7 @@ th {
 
 .clickable-row {
   cursor: pointer;
+  transition: background 0.12s var(--ease);
 }
 /* project overview hero */
 .proj-hero .proj-goal {
@@ -1264,7 +1429,7 @@ th {
   color: var(--text-secondary);
 }
 .clickable-row:hover {
-  background: var(--surface-hover, rgba(127, 127, 127, 0.1));
+  background: var(--hover);
 }
 
 /* ---- transcript filter + insight navigator (parity) ---- */
@@ -1680,11 +1845,24 @@ th {
 .palette-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(6, 8, 12, 0.55);
+  backdrop-filter: blur(3px) saturate(0.9);
   display: flex;
   justify-content: center;
   align-items: flex-start;
   padding-top: 12vh;
+  animation: overlay-in 0.14s var(--ease);
+}
+/* Every modal/overlay panel floats above the backdrop with real elevation. */
+.palette-backdrop > * {
+  box-shadow: var(--sh-3);
+  animation: panel-in 0.16s var(--ease);
+}
+@keyframes overlay-in {
+  from { opacity: 0; }
+}
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
 }
 .palette {
   width: 560px;

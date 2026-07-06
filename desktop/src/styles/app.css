@@ -1862,3 +1862,34 @@ th {
 .tmux-name { font-weight: 600; }
 .link-btn.danger { color: var(--danger, #d33); }
 .tmux-err { margin: var(--spacing-s8); }
+
+/* ---- SFTP file-transfer panel ---- */
+.sftp-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.sftp-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.sftp-path { flex: 1 1 auto; min-width: 0; }
+.sftp-list { flex: 1 1 auto; min-height: 0; }
+.sftp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.sftp-name-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.sftp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sftp-err { margin: var(--spacing-s8); }

@@ -228,6 +228,82 @@ pub async fn ssh_exec(state: State<'_, SshState>, id: String, command: String) -
     Ok(String::from_utf8_lossy(&out).into_owned())
 }
 
+/// One remote directory entry (parity — mobile SftpService.listDir).
+#[derive(Serialize)]
+pub struct SftpEntry {
+    name: String,
+    is_dir: bool,
+    size: u64,
+}
+
+/// Open an SFTP subsystem on a fresh channel of an existing session.
+async fn sftp_open(
+    state: &State<'_, SshState>,
+    id: &str,
+) -> Result<russh_sftp::client::SftpSession, String> {
+    let handle = {
+        let map = state.sessions.lock().await;
+        map.get(id).map(|s| s.handle.clone())
+    }
+    .ok_or_else(|| "no such session".to_string())?;
+    let channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|e| format!("open channel: {e}"))?;
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(|e| format!("sftp subsystem: {e}"))?;
+    russh_sftp::client::SftpSession::new(channel.into_stream())
+        .await
+        .map_err(|e| format!("sftp init: {e}"))
+}
+
+/// List a remote directory (dirs + files with sizes). Parity: SftpService.listDir.
+#[tauri::command]
+pub async fn sftp_list(state: State<'_, SshState>, id: String, path: String) -> Result<Vec<SftpEntry>, String> {
+    let sftp = sftp_open(&state, &id).await?;
+    let dir = sftp.read_dir(&path).await.map_err(|e| format!("read_dir: {e}"))?;
+    let mut out = Vec::new();
+    for entry in dir {
+        out.push(SftpEntry {
+            name: entry.file_name(),
+            is_dir: entry.file_type().is_dir(),
+            size: entry.metadata().size.unwrap_or(0),
+        });
+    }
+    out.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
+    Ok(out)
+}
+
+/// Download a remote file, returning its bytes base64-encoded (parity: download).
+#[tauri::command]
+pub async fn sftp_read(state: State<'_, SshState>, id: String, path: String) -> Result<String, String> {
+    use base64::Engine as _;
+    use tokio::io::AsyncReadExt as _;
+    let sftp = sftp_open(&state, &id).await?;
+    let mut file = sftp.open(&path).await.map_err(|e| format!("open: {e}"))?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).await.map_err(|e| format!("read: {e}"))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&buf))
+}
+
+/// Upload bytes (base64) to a remote path, creating/overwriting it (parity: upload).
+#[tauri::command]
+pub async fn sftp_write(state: State<'_, SshState>, id: String, path: String, data_b64: String) -> Result<(), String> {
+    use base64::Engine as _;
+    use tokio::io::AsyncWriteExt as _;
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(data_b64.as_bytes())
+        .map_err(|e| format!("decode: {e}"))?;
+    let sftp = sftp_open(&state, &id).await?;
+    let mut file = sftp.create(&path).await.map_err(|e| format!("create: {e}"))?;
+    file.write_all(&data).await.map_err(|e| format!("write: {e}"))?;
+    file.flush().await.map_err(|e| format!("flush: {e}"))?;
+    file.shutdown().await.map_err(|e| format!("close: {e}"))?;
+    Ok(())
+}
+
 /// Metadata extracted from an imported private key (parity Phase 2a key store).
 #[derive(Serialize)]
 pub struct ParsedKey {

@@ -22,6 +22,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # Breakglass SSH terminal (ADR-052, personal direct-SSH path). russh is pure
 # Rust (no cgo/OpenSSL); tokio drives the per-session PTY actor.
 russh = "0.62"
+# SFTP file transfer (parity — mobile sftp_service.dart) over the same russh
+# session: opens an `sftp` subsystem channel and speaks the SFTP protocol.
+russh-sftp = "2"
 tokio = { version = "1", features = ["macros", "sync", "io-util", "net", "time", "rt-multi-thread"] }
 # In-app auto-update: check a signed latest.json on the GitHub release, download
 # + install, then relaunch. Signing is mandatory (pubkey in tauri.conf.json).

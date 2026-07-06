@@ -23,6 +23,7 @@ import {
   type Connection,
 } from '../state/connections';
 import { deleteKey, getKeyMaterial, importKey, listKeys, type SshKeyMeta } from '../state/keys';
+import { FileTransferPanel } from './FileTransferPanel';
 import { TmuxPanel } from './TmuxPanel';
 
 function msg(err: unknown): string {
@@ -168,7 +169,7 @@ export function Terminal({ onClose }: { onClose: () => void }): JSX.Element {
   const [privateKey, setPrivateKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [connView, setConnView] = useState<'term' | 'tmux'>('term');
+  const [connView, setConnView] = useState<'term' | 'tmux' | 'files'>('term');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conns, setConns] = useState<Connection[]>([]);
@@ -290,6 +291,9 @@ export function Terminal({ onClose }: { onClose: () => void }): JSX.Element {
               <button className={connView === 'tmux' ? 'tab active' : 'tab'} onClick={() => setConnView('tmux')}>
                 {t('term.tmux')}
               </button>
+              <button className={connView === 'files' ? 'tab active' : 'tab'} onClick={() => setConnView('files')}>
+                {t('term.files')}
+              </button>
             </div>
           )}
           <span className="spacer" />
@@ -307,6 +311,7 @@ export function Terminal({ onClose }: { onClose: () => void }): JSX.Element {
               <Screen sessionId={sessionId} onExit={() => {}} />
             </div>
             {connView === 'tmux' && <TmuxPanel sessionId={sessionId} />}
+            {connView === 'files' && <FileTransferPanel sessionId={sessionId} />}
           </div>
         ) : (
           <div className="term-body term-connect">

@@ -229,6 +229,27 @@ verify); **tmux pane management** (the desktop terminal is a single SSH PTY;
 pane-mux is a mobile affordance); custom keyboard / NavPad (mobile-only, out of
 scope). These want a dedicated pass with device/host testing, not a shallow stub.
 
+**Depth round — director review (desktop-v0.3.2, commits 07004d99 / 32af1a53 /
+e1d2446f).** After the breadth pass, a review flagged specific depth gaps; all
+grounded against the mobile source (live_feed.dart, insight_transcript.dart,
+feed_reducer.dart, project_detail_screen.dart, acceptance_criteria_screen.dart,
+structured_deliverable_viewer.dart, docs_section.dart, runs_screen.dart) and
+shipped:
+- **Transcript** — Live-feed **FeedLens filter** (all/text/turns/tools/errors +
+  match stepper, scroll-by-seq) and **Insight mode** (Turns navigator from the
+  `agent_turns` index + Errors navigator from the feed predicate, jump-to-seq
+  with a flash). Transcript modes are now Live / Insight / Digest.
+- **Run detail** — clickable runs → Overview / Config (`…/runs/{id}/config`) /
+  Outputs (`…/artifacts?run=`) with "Open agent →". Mobile's Charts/Media views
+  are ML-dashboard-specific (no desktop charting infra) — omitted.
+- **Project detail** — the board went 4→8 tabs: added **Agents**
+  (`…/agents?project_id=`), **Criteria** (phase-grouped, mark met/failed/waive),
+  **Files** (`docs_root` tree + `…/artifacts?project=`), **Activity**
+  (`…/audit?project_id=`); **deliverable detail** (components + criteria +
+  ratify, from the Overview); and an Overview **hero** (goal + task-progress +
+  budget). *Deferred:* the 8 pluggable overview-widget hero kinds (built the
+  PortfolioHeader essentials instead), criteria create, deliverable send-back.
+
 ## Sequencing & first ticket
 
 F1 (component kit) + F2 (persist/keychain) are prerequisites for most of the work;

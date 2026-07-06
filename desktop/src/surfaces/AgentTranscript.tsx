@@ -5,6 +5,7 @@ import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
+import { RunReport } from '../ui/RunReport';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -184,7 +185,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
         <div className="region-pad digest">
           {digestQ.isLoading && <div className="muted">{t('tx.loadingDigest')}</div>}
           {digestQ.isError && <div className="error">{msg(digestQ.error)}</div>}
-          {digestQ.data !== undefined ? <pre>{JSON.stringify(digestQ.data, null, 2)}</pre> : null}
+          {digestQ.data !== undefined ? <RunReport digest={digestQ.data} stale={digestQ.isStale} /> : null}
         </div>
       )}
     </div>

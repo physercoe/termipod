@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useHubAction } from '../hub/action';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
@@ -87,6 +88,7 @@ function NewTaskForm({ projectId, onDone }: { projectId: string; onDone: () => v
 function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
+  const { run, busy, error } = useHubAction();
   const q = useQuery({
     queryKey: ['project-overview', projectId],
     enabled: client !== null,
@@ -98,6 +100,7 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
   if (q.isError) return <div className="region-pad error">{(q.error as Error).message}</div>;
 
   const ov = q.data ?? {};
+  const started = ov['steward_started'] === true;
   const phases = Array.isArray(ov['phases']) ? (ov['phases'] as string[]) : [];
   const phase = str(ov, 'phase') ?? '';
   const phaseIndex = num(ov, 'phase_index') ?? -1;
@@ -106,6 +109,24 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
 
   return (
     <div className="region-pad proj-overview">
+      <section className="setting-group">
+        <div className="setting-row">
+          <span className={started ? 'sev sev-medium' : 'muted'}>
+            {started ? t('project.started') : t('project.start')}
+          </span>
+          {!started && (
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={() => void run(() => client!.startProject(projectId), { invalidate: [['project-overview', projectId], ['agents']] })}
+            >
+              {busy ? t('project.starting') : t('project.start')}
+            </button>
+          )}
+        </div>
+        {error !== null && <div className="error">{error}</div>}
+      </section>
+
       <section className="setting-group">
         <h3>{t('proj.phase')}</h3>
         <div className="phase-track">

@@ -1163,6 +1163,27 @@ th {
   font-size: var(--font-size-label);
 }
 
+/* ---- create paths (Phase 4 / F3) ---- */
+.tree-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tree-add {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 6px;
+  font-size: var(--font-size-body);
+}
+.tree-add:hover {
+  color: var(--text);
+  border-color: var(--color-primary);
+}
+
 /* ---- task create + sessions (Phase 4) ---- */
 .kanban-bar {
   display: flex;

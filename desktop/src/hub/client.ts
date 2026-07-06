@@ -80,6 +80,27 @@ export class HubClient {
     return this.transport.get(this.transport.team(`/sessions/${id}/digest`)) as Promise<Entity>;
   }
 
+  /** Spawn the project's bound domain steward (`handleStartProject`) — direct
+   * principal action, materialize-then-start (ADR-046). */
+  startProject(id: string): Promise<Entity> {
+    return this.transport.post(this.transport.team(`/projects/${id}/start`), {}) as Promise<Entity>;
+  }
+
+  // --- agent spawn (Phase 4 / F3) ---
+  /** Spawn an agent (`handleSpawn`, self-governing). Returns `{status, agent_id}`
+   * on immediate spawn, or `202 {status:"pending_approval", attention_id}` when
+   * policy requires approval — that item then appears in the Attention dock.
+   * `child_handle` / `kind` / `host_id` required. */
+  spawnAgent(body: {
+    child_handle: string;
+    kind: string;
+    host_id: string;
+    project_id?: string;
+    task?: { title: string; body_md?: string };
+  }): Promise<Entity> {
+    return this.transport.post(this.transport.team('/agents/spawn'), body) as Promise<Entity>;
+  }
+
   // --- agent detail + lifecycle (WS3) ---
   getAgent(id: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/agents/${id}`)) as Promise<Entity>;
@@ -128,6 +149,18 @@ export class HubClient {
   }
   getProject(id: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/projects/${id}`)) as Promise<Entity>;
+  }
+  /** Create a project (direct POST — `handleCreateProject`; a principal is
+   * admitted, agents must `propose(kind="project.create")`). `name` required;
+   * `kind` ∈ goal|standing. */
+  createProject(body: {
+    name: string;
+    kind?: string;
+    goal?: string;
+    config_yaml?: string;
+    docs_root?: string;
+  }): Promise<Entity> {
+    return this.transport.post(this.transport.team('/projects'), body) as Promise<Entity>;
   }
   /** Composed project read — phase + phases + active-phase deliverables + counts. */
   getProjectOverview(id: string): Promise<Entity> {

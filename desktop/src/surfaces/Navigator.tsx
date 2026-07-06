@@ -1,7 +1,11 @@
+import { useState } from 'react';
 import { useAgents, useHosts, useProjects } from '../hub/queries';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
+import { useSession } from '../state/session';
+import { AgentSpawn } from './AgentSpawn';
+import { ProjectCreate } from './ProjectCreate';
 
 function statusClass(status: string | undefined): string {
   switch (status) {
@@ -30,6 +34,9 @@ export function Navigator(): JSX.Element {
   const selection = useFocus((s) => s.selection);
   const selectAgent = useFocus((s) => s.selectAgent);
   const selectProject = useFocus((s) => s.selectProject);
+  const connected = useSession((s) => s.client) !== null;
+  const [creating, setCreating] = useState(false);
+  const [spawning, setSpawning] = useState(false);
 
   const agents = agentsQ.data ?? [];
   const hosts = hostsQ.data ?? [];
@@ -56,7 +63,14 @@ export function Navigator(): JSX.Element {
 
   return (
     <div className="tree">
-      <div className="tree-section">{t('nav.fleet')}</div>
+      <div className="tree-section tree-section-row">
+        <span>{t('nav.fleet')}</span>
+        {connected && (
+          <button className="tree-add" title={t('spawn.title')} onClick={() => setSpawning(true)}>
+            +
+          </button>
+        )}
+      </div>
       {agentsQ.isError && <div className="region-pad error">{(agentsQ.error as Error).message}</div>}
       {!agentsQ.isError && hostIds.length === 0 && (
         <div className="region-pad muted">{agentsQ.isLoading ? t('common.loading') : t('nav.noAgents')}</div>
@@ -84,7 +98,14 @@ export function Navigator(): JSX.Element {
         </div>
       ))}
 
-      <div className="tree-section">{t('nav.projects')}</div>
+      <div className="tree-section tree-section-row">
+        <span>{t('nav.projects')}</span>
+        {connected && (
+          <button className="tree-add" title={t('project.new')} onClick={() => setCreating(true)}>
+            +
+          </button>
+        )}
+      </div>
       {projects.length === 0 && (
         <div className="region-pad muted">{projectsQ.isLoading ? t('common.loading') : t('nav.noProjects')}</div>
       )}
@@ -103,6 +124,8 @@ export function Navigator(): JSX.Element {
           </div>
         );
       })}
+      {creating && <ProjectCreate onClose={() => setCreating(false)} />}
+      {spawning && <AgentSpawn onClose={() => setSpawning(false)} />}
     </div>
   );
 }

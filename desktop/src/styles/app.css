@@ -13,48 +13,56 @@
 :root {
   color-scheme: dark;
   --pane-gap: 1px;
-  /* grounds — genuine value separation so rails / cards / canvas read apart */
-  --bg: #0a0c10;
-  --canvas: #0f1217;      /* navigator + dock rails */
-  --surface: #14171e;     /* cards, panels, popovers */
-  --raised: #1a1e27;      /* buttons, hover targets, inset controls */
-  --hover: #20242e;       /* row / interactive hover fill */
-  --input: #0d1015;
-  --border: #23272f;
-  --border-strong: #313743;
-  --text: #eaedf2;
-  --text-secondary: #99a2b1;
-  --text-muted: #5f6877;
-  /* accent — brand cyan, reserved for focus / selection / live data */
+  /* Surface ladder — a tight near-black scale (Linear/Radix-grounded); 1px
+   * hairlines carry separation, so the steps stay subtle and clean, not muddy. */
+  --bg: #08090c;          /* app ground */
+  --canvas: #0d0f13;      /* navigator + dock rails */
+  --surface: #131519;     /* cards, panels, popovers */
+  --raised: #191c22;      /* buttons, hover targets, inset controls */
+  --hover: #20242b;       /* row / interactive hover fill */
+  --input: #0b0c10;
+  --border: #23262d;      /* hairline (Radix step 6/7) */
+  --border-strong: #31363f; /* interactive / focus border (step 8) */
+  --text: #f4f6f8;        /* high-contrast ink */
+  --text-secondary: #a7aeba;
+  --text-muted: #6a727f;
+  /* accent — brand cyan, reserved for focus / selection / live data / one CTA */
   --accent: var(--color-primary);
   --accent-strong: var(--color-primary-dark);
-  --accent-ink: #00232a;
+  --accent-ink: #00252b;
   --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
   /* semantic state — distinct from the accent hue */
   --ok: var(--color-success);
   --warn: var(--color-warning);
   --danger: var(--color-error);
-  /* elevation, focus, motion */
-  --sh-1: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --sh-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.35);
-  --sh-3: 0 18px 46px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+  /* Elevation — hairline-first: cards carry NO shadow (Linear "resists drop
+   * shadows on dark almost entirely"). Shadow is reserved for things that truly
+   * float: --sh-2 for raised affordances, --sh-3 for overlays / popovers. */
+  --sh-1: none;
+  --sh-2: 0 6px 20px rgba(0, 0, 0, 0.38);
+  --sh-3: 0 20px 48px rgba(0, 0, 0, 0.58), 0 2px 8px rgba(0, 0, 0, 0.45);
   --glow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
+  --sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* type tracking — negative on anything set large (Linear discipline) */
+  --track-tight: -0.018em;
+  --track-snug: -0.011em;
+  --track-body: -0.006em;
 }
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #f6f7f9;
-  --canvas: #f0f2f5;
+  --bg: #f7f8fa;
+  --canvas: #eef0f3;
   --surface: #ffffff;
   --raised: #ffffff;
   --hover: #eef1f5;
-  --input: #f7f8fa;
-  --border: #e5e8ee;
-  --border-strong: #d3d8e0;
+  --input: #f6f7f9;
+  --border: #e6e9ee;
+  --border-strong: #d4d9e1;
   --text: #0f141c;
-  --text-secondary: #576070;
+  --text-secondary: #586173;
   --text-muted: #8a93a3;
   --accent: var(--color-primary-dark);
   --accent-strong: var(--color-primary-dark);
@@ -64,9 +72,9 @@
   --ok: var(--color-success-on-light);
   --warn: var(--color-on-warning-container-light);
   --danger: var(--color-error);
-  --sh-1: 0 1px 2px rgba(16, 24, 40, 0.06);
-  --sh-2: 0 4px 14px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.05);
-  --sh-3: 0 18px 46px rgba(16, 24, 40, 0.14), 0 2px 8px rgba(16, 24, 40, 0.08);
+  --sh-1: none;
+  --sh-2: 0 6px 20px rgba(16, 24, 40, 0.10);
+  --sh-3: 0 20px 48px rgba(16, 24, 40, 0.16), 0 2px 8px rgba(16, 24, 40, 0.08);
   --glow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
@@ -82,13 +90,28 @@ body,
 }
 
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--sans);
   font-size: var(--font-size-body);
+  line-height: 1.5;
+  letter-spacing: var(--track-body);
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Inter's contextual alternates + stylistic set — the "designed" look. */
+  font-feature-settings: "cv05", "cv08", "ss01";
+  text-rendering: optimizeLegibility;
 }
+
+/* Headings and emphasized labels take negative tracking + weight — the single
+ * biggest lever toward a professional feel (Linear sets display type at 500–600
+ * with measured negative tracking). Uppercase eyebrow labels keep positive
+ * tracking and are handled by their own rules, so scope this to real headings. */
+h1, h2, h3, h4 {
+  letter-spacing: var(--track-snug);
+}
+h1 { letter-spacing: var(--track-tight); }
+strong, b, .strong { letter-spacing: var(--track-snug); }
 
 /* Numeric-heavy data lines up when digits are tabular; identifiers get mono. */
 .mono,

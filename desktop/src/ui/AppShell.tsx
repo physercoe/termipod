@@ -12,12 +12,14 @@ import { ProjectBoard } from '../surfaces/ProjectBoard';
 import { Settings } from '../surfaces/Settings';
 import { Terminal } from '../surfaces/Terminal';
 import { CommandPalette, type Command } from './CommandPalette';
+import { ConnectPanel } from './ConnectPanel';
 import { StatusBar } from './StatusBar';
 
 /// The three-region mission-control frame (plan §4): titlebar · Navigator |
 /// Focus | Attention dock · status bar. WS3 wires the Navigator (fleet tree) and
 /// status counters; WS4 the Focus transcript. The Attention dock is WS5.
 export function AppShell(): JSX.Element {
+  const client = useSession((s) => s.client);
   const disconnect = useSession((s) => s.disconnect);
   const teamId = useSession((s) => s.config.teamId);
   const selection = useFocus((s) => s.selection);
@@ -28,6 +30,9 @@ export function AppShell(): JSX.Element {
   const [adminOpen, setAdminOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  // Raise the connect overlay on first load while disconnected; it can be
+  // dismissed to reach the offline shell (terminal/settings still work).
+  const [connectOpen, setConnectOpen] = useState(client === null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -55,14 +60,25 @@ export function AppShell(): JSX.Element {
     { id: 'admin', label: t('cmd.admin'), run: () => setAdminOpen(true) },
     { id: 'terminal', label: t('cmd.terminal'), run: () => setTerminalOpen(true) },
     { id: 'settings', label: t('cmd.settings'), run: () => setSettingsOpen(true) },
-    { id: 'disconnect', label: t('cmd.disconnect'), run: disconnect },
+    client === null
+      ? { id: 'connect', label: t('shell.connect'), run: () => setConnectOpen(true) }
+      : { id: 'disconnect', label: t('cmd.disconnect'), run: disconnect },
   ];
 
   return (
     <div className="shell">
       <div className="titlebar">
         <strong>TermiPod</strong>
-        <span className="pill">{teamId}</span>
+        {client === null ? (
+          <>
+            <span className="pill offline">{t('shell.offline')}</span>
+            <button className="primary" onClick={() => setConnectOpen(true)}>
+              {t('shell.connect')}
+            </button>
+          </>
+        ) : (
+          <span className="pill">{teamId}</span>
+        )}
         <span className="spacer" />
         <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
         <button onClick={() => setTerminalOpen(true)}>{t('shell.terminal')}</button>
@@ -105,6 +121,7 @@ export function AppShell(): JSX.Element {
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
       {terminalOpen && <Terminal onClose={() => setTerminalOpen(false)} />}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      {connectOpen && <ConnectPanel onClose={() => setConnectOpen(false)} />}
     </div>
   );
 }

@@ -729,8 +729,8 @@ th {
 /* ---- connect panel ---- */
 
 .connect {
-  max-width: 420px;
-  margin: 10vh auto;
+  width: 420px;
+  max-width: 92vw;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s12);
@@ -738,6 +738,19 @@ th {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+}
+.connect-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.connect-head h2 {
+  margin: 0;
+  font-size: var(--font-size-body);
+}
+.pill.offline {
+  background: color-mix(in srgb, var(--color-warning) 22%, transparent);
+  color: var(--color-warning);
 }
 .connect label {
   display: flex;

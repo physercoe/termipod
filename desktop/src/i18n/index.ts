@@ -18,6 +18,8 @@ const en: Dict = {
 
   'shell.admin': 'Admin',
   'shell.settings': 'Settings',
+  'shell.connect': 'Connect',
+  'shell.offline': 'Offline',
   'region.attention': 'Attention',
   'region.activity': 'Activity · Audit console',
   'region.agent': 'Agent',
@@ -185,6 +187,8 @@ const zh: Dict = {
 
   'shell.admin': '管理',
   'shell.settings': '设置',
+  'shell.connect': '连接',
+  'shell.offline': '离线',
   'region.attention': '待办',
   'region.activity': '活动 · 审计台',
   'region.agent': '代理',

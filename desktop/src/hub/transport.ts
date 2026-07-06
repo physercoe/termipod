@@ -1,16 +1,24 @@
+import { invoke } from '@tauri-apps/api/core';
+import { isTauri } from '../platform';
 import type { HubConfig } from './config';
 import { HubApiError } from './errors';
 
 export type Json = unknown;
 type Query = Record<string, string | undefined>;
 
+interface RawResponse {
+  status: number;
+  body: string;
+}
+
 /// Shared HTTP transport for the hub SDK — the web analogue of Dart's
 /// HubTransport. Injects the bearer token, builds team-scoped paths, and maps
 /// non-2xx responses to HubApiError (incl. teamGate 403 on scope≠path).
 ///
-/// In the browser build this uses `fetch` directly. Under Tauri the same calls
-/// can be routed through the Rust core (which holds the token); the frontend
-/// interface is unchanged.
+/// Under Tauri the request is routed through the Rust core's `hub_request`
+/// command (reqwest) — the webview's `fetch` would be a cross-origin call the
+/// hub rejects (no CORS) and also exposes the token to JS. The plain-browser
+/// build uses `fetch` directly.
 export class HubTransport {
   constructor(private readonly cfg: HubConfig) {}
 
@@ -43,19 +51,36 @@ export class HubTransport {
     return u.toString();
   }
 
+  /** The one place the two transports diverge: Rust core vs webview fetch. */
+  private async raw(
+    method: string,
+    url: string,
+    headers: Record<string, string>,
+    bodyText?: string,
+  ): Promise<RawResponse> {
+    if (isTauri()) {
+      return await invoke<RawResponse>('hub_request', {
+        req: { method, url, headers, body: bodyText ?? null },
+      });
+    }
+    const res = await fetch(url, { method, headers, body: bodyText });
+    return { status: res.status, body: await res.text() };
+  }
+
   private async request(
     method: string,
     path: string,
     opts: { body?: Json; query?: Query; auth?: boolean } = {},
   ): Promise<Json> {
-    const res = await fetch(this.buildUrl(path, opts.query), {
+    const bodyText = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
+    const { status, body } = await this.raw(
       method,
-      headers: this.headers(opts.auth ?? true),
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    });
-    const text = await res.text();
-    if (!res.ok) throw new HubApiError(res.status, text);
-    return text ? (JSON.parse(text) as Json) : null;
+      this.buildUrl(path, opts.query),
+      this.headers(opts.auth ?? true),
+      bodyText,
+    );
+    if (status < 200 || status >= 300) throw new HubApiError(status, body);
+    return body ? (JSON.parse(body) as Json) : null;
   }
 
   /** Send a raw (non-JSON) body — e.g. the policy document is YAML text the
@@ -63,10 +88,9 @@ export class HubTransport {
   private async requestRaw(method: string, path: string, bodyText: string): Promise<Json> {
     const h = this.headers(true);
     h['content-type'] = 'application/yaml';
-    const res = await fetch(this.buildUrl(path), { method, headers: h, body: bodyText });
-    const text = await res.text();
-    if (!res.ok) throw new HubApiError(res.status, text);
-    return text ? (JSON.parse(text) as Json) : null;
+    const { status, body } = await this.raw(method, this.buildUrl(path), h, bodyText);
+    if (status < 200 || status >= 300) throw new HubApiError(status, body);
+    return body ? (JSON.parse(body) as Json) : null;
   }
 
   get(path: string, query?: Query, auth = true): Promise<Json> {
@@ -75,10 +99,9 @@ export class HubTransport {
   /** GET a raw text body (e.g. the policy document is YAML, not JSON — the hub
    * serves it with `Content-Type: application/yaml` and JSON.parse would throw). */
   async getText(path: string): Promise<string> {
-    const res = await fetch(this.buildUrl(path), { method: 'GET', headers: this.headers(true) });
-    const text = await res.text();
-    if (!res.ok) throw new HubApiError(res.status, text);
-    return text;
+    const { status, body } = await this.raw('GET', this.buildUrl(path), this.headers(true));
+    if (status < 200 || status >= 300) throw new HubApiError(status, body);
+    return body;
   }
   post(path: string, body: Json, query?: Query): Promise<Json> {
     return this.request('POST', path, { body, query });

@@ -1,13 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { isTauri } from '../platform';
 
 /// Thin typed bridge to the Tauri Rust core's `russh` SSH transport (ADR-052,
 /// personal direct-SSH). Only functional under the desktop (Tauri) build — the
 /// plain-browser build has no native core, so `isTauri()` gates the UI.
 
-export function isTauri(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-}
+export { isTauri };
 
 export interface SshConnectReq {
   host: string;

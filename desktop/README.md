@@ -86,7 +86,15 @@ managed-host hub-brokered PTY (ADR-052 D-6) + the zero-knowledge key vault
 
 ## Notes
 
-- The token is held in memory (browser build); `src-tauri`'s `hub_request` is the
-  path to keep it out of the webview under Tauri (keychain storage is WS8).
+- **Hub calls route through the Rust core under Tauri.** The webview origin is
+  `tauri://localhost`, so a direct `fetch` to the hub is cross-origin and the hub
+  sends no CORS headers ("Failed to fetch"). `HubTransport` therefore proxies REST
+  through `hub_request`, and `streamSse` proxies the live SSE streams through
+  `hub_sse_open`/`hub_sse_close` (the core pipes bytes back as `hub-sse` events).
+  The plain-browser build still uses `fetch` directly. This also keeps the bearer
+  token out of the webview (keychain storage is a later WS8 item).
+- **The shell renders without a connection.** The connect form is a dismissable
+  overlay; the SSH terminal and Settings work offline, and hub-backed surfaces
+  show empty states until you connect.
 - `src/styles/tokens.css` is generated from `../design-tokens/` — do not edit;
   run `npm run sync:tokens`.

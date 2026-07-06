@@ -118,6 +118,10 @@ hosts (grouped, no detail) · team governance (policy YAML only) · ~~SSH (no sa
 profiles/keys)~~ **✅ saved connections + key store + vault (2a/2b)** · connect
 (single, in-memory).
 
+Phase 3 also cleared the last two **Partial** rows: hosts still lack a detail
+view, but *connect* is now multi-profile (switcher + keychain tokens + offline
+cache), not single/in-memory.
+
 **Missing:** create/edit for projects·tasks·runs·plans·agents·schedules·docs ·
 agent spawn · deliverable reviews/ratification · documents/artifacts/blobs viewers
 · project channels (chat) · sessions surface · search · Insights analytics · Me
@@ -171,10 +175,18 @@ parity, but russh has no ProxyJump yet); device-to-device enrollment approval
 (recovery-code restore covers cross-device). **⚠ Cross-device Rust↔Dart vault
 interop is unverified — needs a real desktop↔phone test before relying on sync.**
 
-**Phase 3 — multi-hub + offline (gaps 5–6).** (3a) hub profiles + switcher (token
-in keychain, client re-bind); (3b) cache-first layer (partitioned store,
-`staleSince`, offline banner, cache settings). Depends on F2. 3a and 3b share the
-hub+team partition key, so do them together.
+**Phase 3 — multi-hub + offline (gaps 5–6). ✅ SHIPPED (commit 4650b5c6).** (3a)
+hub profiles — `HubProfile{id,name,baseUrl,teamId}` in localStorage, token per
+profile in the OS keychain (`hub_token_<id>`), a titlebar `ProfileSwitcher`
+(switch/add/edit/remove), and `session.init()` auto-binds the active profile on
+launch; switching re-binds the client and drops the query cache. (3b) cache-first
+— the TanStack QueryClient is persisted to localStorage (`PersistQueryClientProvider`,
+7-day maxAge; only successful results persist → 4xx never cached), so surfaces
+render the last snapshot instantly and keep showing it offline, with an offline
+banner + a Settings → Offline cache section (size + clear). *Note:* used the
+mobile team-id-in-key + clear-on-switch for partitioning rather than a full
+`baseUrl#teamId` sqflite store; localStorage rather than IndexedDB (adequate for
+the snapshot sizes; revisit if it grows).
 
 **Phase 4 — write paths + missing surfaces (breadth).** The long tail, roughly by
 value: project/task/run/plan create+edit and agent spawn; deliverable

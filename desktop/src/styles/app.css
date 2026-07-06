@@ -1815,3 +1815,50 @@ th {
   border-top: 1px solid var(--border);
   padding-top: var(--spacing-s8);
 }
+
+/* ---- tmux management panel ---- */
+.term-view { display: flex; flex: 1 1 auto; min-height: 0; }
+.term-view.hidden { display: none; }
+.tmux-panel {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-s8);
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--spacing-s8);
+  overflow: auto;
+}
+.tmux-col {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: auto;
+}
+.tmux-col-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.tmux-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.tmux-row.active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.tmux-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+.tmux-name { font-weight: 600; }
+.link-btn.danger { color: var(--danger, #d33); }
+.tmux-err { margin: var(--spacing-s8); }

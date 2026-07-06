@@ -32,6 +32,11 @@ export function sshResize(id: string, cols: number, rows: number): Promise<void>
 export function sshClose(id: string): Promise<void> {
   return invoke('ssh_close', { id });
 }
+/** Run a one-shot command over a fresh exec channel on an existing session and
+ * resolve its stdout (+stderr). Substrate for tmux control (list/new/kill/…). */
+export function sshExec(id: string, command: string): Promise<string> {
+  return invoke<string>('ssh_exec', { id, command });
+}
 
 interface DataPayload {
   id: string;

@@ -45,10 +45,19 @@ enum SshCmd {
     Close,
 }
 
+/// A live session: the PTY actor's command channel plus a shared clone of the
+/// russh `Handle`, which lets us open *additional* channels (one-shot `exec` for
+/// tmux control, an SFTP subsystem for file transfer) on the same connection
+/// without disturbing the interactive shell.
+struct Session {
+    tx: mpsc::Sender<SshCmd>,
+    handle: Arc<Handle<Client>>,
+}
+
 /// Managed Tauri state: live sessions keyed by the id `ssh_connect` returns.
 #[derive(Default)]
 pub struct SshState {
-    sessions: Arc<Mutex<HashMap<String, mpsc::Sender<SshCmd>>>>,
+    sessions: Arc<Mutex<HashMap<String, Session>>>,
 }
 
 #[derive(Deserialize)]
@@ -117,7 +126,11 @@ pub async fn ssh_connect(
         return Err("authentication failed".into());
     }
 
-    let mut channel = session
+    // Share the session Handle so exec/SFTP channels can be opened later; the
+    // actor keeps one clone alive for the interactive shell's lifetime.
+    let handle = Arc::new(session);
+
+    let mut channel = handle
         .channel_open_session()
         .await
         .map_err(|e| format!("open channel: {e}"))?;
@@ -132,13 +145,17 @@ pub async fn ssh_connect(
 
     let id = format!("s{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let (tx, mut rx) = mpsc::channel::<SshCmd>(64);
-    state.sessions.lock().await.insert(id.clone(), tx);
+    state
+        .sessions
+        .lock()
+        .await
+        .insert(id.clone(), Session { tx, handle: handle.clone() });
 
     let sessions = state.sessions.clone();
     let task_id = id.clone();
     tauri::async_runtime::spawn(async move {
-        // The session Handle is moved in and kept alive for the channel's life.
-        let _keepalive = session;
+        // A Handle clone is moved in and kept alive for the channel's life.
+        let _keepalive = handle;
         loop {
             tokio::select! {
                 msg = channel.wait() => match msg {
@@ -168,12 +185,47 @@ pub async fn ssh_connect(
 async fn send(state: &State<'_, SshState>, id: &str, cmd: SshCmd) -> Result<(), String> {
     let tx = {
         let map = state.sessions.lock().await;
-        map.get(id).cloned()
+        map.get(id).map(|s| s.tx.clone())
     };
     match tx {
         Some(tx) => tx.send(cmd).await.map_err(|_| "session closed".to_string()),
         None => Err("no such session".into()),
     }
+}
+
+/// Run a one-shot command over a fresh `exec` channel on an existing session and
+/// return its stdout as a string. This is the substrate for tmux control (list/
+/// new/kill/split/send-keys/capture, all shelled `tmux …` invocations) — the
+/// interactive PTY can't cleanly capture per-command stdout, so tmux management
+/// runs here while the PTY renders the attached pane. stderr is folded in so
+/// tmux error messages surface to the caller.
+#[tauri::command]
+pub async fn ssh_exec(state: State<'_, SshState>, id: String, command: String) -> Result<String, String> {
+    let handle = {
+        let map = state.sessions.lock().await;
+        map.get(&id).map(|s| s.handle.clone())
+    }
+    .ok_or_else(|| "no such session".to_string())?;
+
+    let mut channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|e| format!("open channel: {e}"))?;
+    channel
+        .exec(true, command.as_bytes())
+        .await
+        .map_err(|e| format!("exec: {e}"))?;
+
+    let mut out: Vec<u8> = Vec::new();
+    loop {
+        match channel.wait().await {
+            Some(ChannelMsg::Data { ref data }) => out.extend_from_slice(data),
+            Some(ChannelMsg::ExtendedData { ref data, .. }) => out.extend_from_slice(data),
+            Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+            _ => {}
+        }
+    }
+    Ok(String::from_utf8_lossy(&out).into_owned())
 }
 
 /// Metadata extracted from an imported private key (parity Phase 2a key store).

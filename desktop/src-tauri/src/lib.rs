@@ -296,6 +296,7 @@ pub fn run() {
             ssh::ssh_resize,
             ssh::ssh_close,
             ssh::ssh_parse_key,
+            ssh::ssh_exec,
             vault::vault_generate_key,
             vault::vault_seal,
             vault::vault_open,

@@ -44,7 +44,12 @@
   --sh-3: 0 20px 48px rgba(0, 0, 0, 0.58), 0 2px 8px rgba(0, 0, 0, 0.45);
   --glow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
+  /* Coding font — the transcript's code/tool/JSON blocks reference --font-mono
+   * (which was previously undefined, so they fell back to a plain system
+   * monospace). Bundle JetBrains Mono (offline, variable) and define BOTH names
+   * used across the sheet. */
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  --mono: var(--font-mono);
   --sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   /* type tracking — negative on anything set large (Linear discipline) */
   --track-tight: -0.018em;
@@ -439,6 +444,11 @@ pre {
   color: var(--text-muted);
   font-style: italic;
 }
+.ev-thought-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: var(--spacing-s4);
+}
 .ev-mono {
   font-family: var(--font-mono, monospace);
   font-size: var(--font-size-label);
@@ -465,13 +475,16 @@ pre {
   gap: var(--spacing-s8);
 }
 .ev-tag {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
   font-size: var(--font-size-label);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 0 5px;
+  padding: 3px 6px;
 }
 .ev-tag.tool {
   color: var(--color-terminal-blue);
@@ -482,9 +495,12 @@ pre {
   border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
 }
 .ev-chip {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
   font-size: var(--font-size-label);
   border-radius: var(--radius-stadium);
-  padding: 0 6px;
+  padding: 3px 7px;
 }
 .ev-chip.ok {
   color: var(--color-success);
@@ -701,7 +717,10 @@ pre {
   font-size: var(--font-size-caption);
 }
 .sev {
-  padding: 2px var(--spacing-s8);
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  padding: 4px var(--spacing-s8);
   border-radius: var(--radius-stadium);
   font-size: var(--font-size-label);
   font-weight: 600;
@@ -909,11 +928,21 @@ button.danger:hover {
   gap: var(--spacing-s4);
 }
 .phase-pip {
-  padding: 2px var(--spacing-s8);
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  padding: 5px var(--spacing-s12);
+  border: 1px solid transparent;
   border-radius: var(--radius-stadium);
   font-size: var(--font-size-label);
   background: color-mix(in srgb, var(--color-slate) 22%, transparent);
   color: var(--text-secondary);
+  cursor: pointer;
+  transition: filter 0.12s var(--ease), box-shadow 0.12s var(--ease);
+}
+.phase-pip:hover {
+  filter: brightness(1.18);
+  box-shadow: 0 0 0 1px var(--accent-line);
 }
 .phase-pip.done {
   background: color-mix(in srgb, var(--color-success) 20%, transparent);
@@ -1431,10 +1460,13 @@ th {
   flex-shrink: 0;
 }
 .chip {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
   background: none;
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 2px 10px;
+  padding: 4px 10px;
   cursor: pointer;
   color: var(--text-secondary);
   font-size: var(--font-size-small);

@@ -7,6 +7,7 @@ import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { ActivityTab, CriteriaTab, DeliverableDetail, FilesTab } from './ProjectPanels';
 import { ProjectHero } from './ProjectHero';
+import { PhaseSummary } from './PhaseSummary';
 import { PlanDetail } from './PlanDetail';
 import { RunDetail } from './RunDetail';
 import { TaskDetail } from './TaskDetail';
@@ -137,6 +138,7 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
   const client = useSession((s) => s.client);
   const { run, busy, error } = useHubAction();
   const [openDeliv, setOpenDeliv] = useState<string | null>(null);
+  const [phaseSummary, setPhaseSummary] = useState<string | null>(null);
   const q = useQuery({
     queryKey: ['project-overview', projectId],
     enabled: client !== null,
@@ -227,15 +229,20 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
         <h3>{t('proj.phase')}</h3>
         <div className="phase-track">
           {phases.map((p, i) => (
-            <span
+            <button
               key={p}
               className={`phase-pip${i === phaseIndex ? ' active' : ''}${i < phaseIndex ? ' done' : ''}`}
-              title={p}
+              title={t('phase.openHint')}
+              onClick={() => setPhaseSummary(p)}
             >
               {p}
-            </span>
+            </button>
           ))}
-          {phases.length === 0 && phase !== '' && <span className="phase-pip active">{phase}</span>}
+          {phases.length === 0 && phase !== '' && (
+            <button className="phase-pip active" title={t('phase.openHint')} onClick={() => setPhaseSummary(phase)}>
+              {phase}
+            </button>
+          )}
         </div>
       </section>
 
@@ -293,6 +300,18 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
       </section>
       {openDeliv !== null && (
         <DeliverableDetail projectId={projectId} deliverableId={openDeliv} onClose={() => setOpenDeliv(null)} />
+      )}
+      {phaseSummary !== null && (
+        <PhaseSummary
+          projectId={projectId}
+          phase={phaseSummary}
+          isCurrent={phaseSummary === phase}
+          onOpenDeliverable={(id) => {
+            setPhaseSummary(null);
+            setOpenDeliv(id);
+          }}
+          onClose={() => setPhaseSummary(null)}
+        />
       )}
     </div>
   );

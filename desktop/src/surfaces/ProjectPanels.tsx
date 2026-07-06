@@ -419,7 +419,20 @@ export function FilesTab({ projectId }: { projectId: string }): JSX.Element {
         {artifactsQ.isLoading && <div className="muted">{t('common.loading')}</div>}
         {!artifactsQ.isLoading && artifacts.length === 0 && <div className="muted">{t('files.noArtifacts')}</div>}
         {artifacts.map((a, i) => {
-          const sha = str(a, 'sha256');
+          // The blob handle lives in `uri` as `blob:sha256/<hex>` (or
+          // `hub-blob://<hex>`); the `sha256` field is emitted with omitempty and
+          // is almost never populated (hub stores the sha inside the URI —
+          // shaFromBlobURI, mcp_more.go). Read the URI first, fall back to
+          // sha256. Non-blob URIs (mock/external) yield undefined → row stays
+          // disabled, which is correct.
+          const uri = str(a, 'uri') ?? '';
+          const sha =
+            (str(a, 'sha256') ?? '') ||
+            (uri.startsWith('blob:sha256/')
+              ? uri.slice('blob:sha256/'.length)
+              : uri.startsWith('hub-blob://')
+                ? uri.slice('hub-blob://'.length)
+                : undefined);
           const name = str(a, 'name') ?? str(a, 'kind') ?? str(a, 'id') ?? '';
           return (
             <button

@@ -43,6 +43,8 @@ function accentVar(kind: string, producer: string): string {
   switch (kind) {
     case 'text':
     case 'thought':
+    case 'thinking':
+    case 'reasoning':
       return 'var(--color-primary)';
     case 'tool_call':
       return 'var(--color-terminal-blue)';
@@ -172,6 +174,21 @@ function PlanBody({ p }: { p: Entity }): JSX.Element {
   );
 }
 
+/// Extended-thinking / reasoning block. claude-code M4 emits a marker-only
+/// `thought` (`{text:"Thinking…", marker_only:true}`); other frames may carry
+/// the real reasoning text under text/thinking/reasoning. Render it AS thinking
+/// (a muted italic block), never as a raw payload dump (director feedback).
+function ThoughtBody({ p }: { p: Entity }): JSX.Element {
+  const raw = (str(p, 'text') ?? str(p, 'thinking') ?? str(p, 'reasoning') ?? '').trim();
+  const isMarker = bool(p, 'marker_only') === true || raw === '' || raw === 'Thinking…' || raw === 'Thinking';
+  return (
+    <div className="ev-thought">
+      <span className="ev-tag">thinking</span>
+      {isMarker ? ' Thinking…' : <div className="ev-thought-text">{raw}</div>}
+    </div>
+  );
+}
+
 function InputTextBody({ p }: { p: Entity }): JSX.Element {
   const from = obj(p, 'from');
   const label = str(p, 'from_label') ?? (from ? str(from, 'handle') ?? str(from, 'role') : undefined) ?? 'director';
@@ -190,7 +207,9 @@ function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
     case 'text':
       return <Markdown text={str(p, 'text') ?? ''} />;
     case 'thought':
-      return <div className="ev-thought">{str(p, 'text') ?? 'Thinking…'}</div>;
+    case 'thinking':
+    case 'reasoning':
+      return <ThoughtBody p={p} />;
     case 'tool_call':
       return <ToolCallBody p={p} result={result} />;
     case 'tool_result':
@@ -263,6 +282,12 @@ function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
         </div>
       );
     default: {
+      // Any unmapped frame that is thinking-ish (a thinking/reasoning payload
+      // field, or a kind like `thinking`) renders as a thought, not a raw
+      // payload dump (director feedback — thinking should read as thinking).
+      if (str(p, 'thinking') !== undefined || str(p, 'reasoning') !== undefined || /think|reason/i.test(ev.kind)) {
+        return <ThoughtBody p={p} />;
+      }
       const text = str(p, 'text');
       if (text !== undefined) return <Markdown text={text} />;
       return (

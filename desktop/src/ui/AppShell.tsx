@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useT } from '../i18n';
+import { isTauri } from '../platform';
 import { useFocus } from '../state/focus';
 import { useOnline } from '../state/online';
+import { vaultStatus, vaultStatusKey } from '../vault/service';
 import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
@@ -56,6 +58,19 @@ export function AppShell(): JSX.Element {
       if (useSession.getState().client === null) setConnectOpen(true);
     });
   }, [init]);
+
+  // Prime the vault status while the shell is idle so Settings shows it
+  // immediately on open (the underlying keychain check is slow, and popping it
+  // in a beat late reads as a "splash"). Tauri-only; the query is shared with
+  // VaultPanel by key.
+  useEffect(() => {
+    if (client === null || !isTauri()) return;
+    void qc.prefetchQuery({
+      queryKey: vaultStatusKey(client),
+      queryFn: () => vaultStatus(client),
+      staleTime: 60_000,
+    });
+  }, [client, qc]);
 
   // Close whichever overlay panels are open (Phase 5 polish). The command
   // palette and connect overlay manage their own Escape; this covers the

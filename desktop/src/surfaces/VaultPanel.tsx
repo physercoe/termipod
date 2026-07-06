@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { useSession } from '../state/session';
@@ -9,7 +10,7 @@ import {
   syncDown,
   syncUp,
   vaultStatus,
-  type VaultStatus,
+  vaultStatusKey,
 } from '../vault/service';
 
 function msg(e: unknown): string {
@@ -24,8 +25,7 @@ function msg(e: unknown): string {
 export function VaultPanel(): JSX.Element | null {
   const t = useT();
   const client = useSession((s) => s.client);
-  const [st, setSt] = useState<VaultStatus | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -33,21 +33,15 @@ export function VaultPanel(): JSX.Element | null {
   const [restore, setRestore] = useState('');
   const [showRestore, setShowRestore] = useState(false);
 
-  async function refresh(): Promise<void> {
-    if (client === null) return;
-    try {
-      setSt(await vaultStatus(client));
-    } catch (e) {
-      setErr(msg(e));
-    } finally {
-      setLoaded(true);
-    }
-  }
-
-  useEffect(() => {
-    void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client]);
+  // Cached + prefetched (AppShell primes this on connect) so the status is
+  // already resolved when Settings opens — no keychain-latency "splash".
+  const stQ = useQuery({
+    queryKey: vaultStatusKey(client),
+    enabled: client !== null,
+    staleTime: 60_000,
+    queryFn: () => vaultStatus(client as NonNullable<typeof client>),
+  });
+  const st = stQ.data ?? null;
 
   if (!isTauri()) return null;
 
@@ -57,7 +51,7 @@ export function VaultPanel(): JSX.Element | null {
     setNote(null);
     try {
       await fn();
-      await refresh();
+      await qc.invalidateQueries({ queryKey: vaultStatusKey(client) });
     } catch (e) {
       setErr(msg(e));
     } finally {
@@ -73,12 +67,14 @@ export function VaultPanel(): JSX.Element | null {
       {client === null ? (
         <div className="muted">{t('vault.needHub')}</div>
       ) : (
-        <div className={loaded ? 'settle settled' : 'settle'}>
+        <div className="vault-body">
           <div className="setting-row">
             <label>{t('vault.status')}</label>
             <span className="muted">
               {st === null
-                ? '—'
+                ? stQ.isLoading
+                  ? t('vault.checking')
+                  : '—'
                 : st.exists
                   ? `${t('vault.exists')} · v${st.version}${st.hasLocalKey ? ` · ${t('vault.unlocked')}` : ` · ${t('vault.locked')}`}`
                   : t('vault.none')}

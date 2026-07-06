@@ -40,6 +40,14 @@ export interface VaultStatus {
   enrolled: boolean; // this device is enrolled
 }
 
+/// Query key for the vault status, shared by the Settings panel (which reads it)
+/// and the app shell (which prefetches it on connect). Scoped by team so a hub
+/// switch doesn't show stale status. Prefetching hides the OS-keychain latency
+/// that otherwise makes the status "pop in" a beat after Settings opens.
+export function vaultStatusKey(client: HubClient | null): readonly [string, string] {
+  return ['vault-status', client !== null ? client.transport.teamId : 'none'] as const;
+}
+
 export async function vaultStatus(client: HubClient): Promise<VaultStatus> {
   const local = loadVaultState();
   const hasLocalKey = (await secretGet(KEY_VAULT)) !== null;

@@ -51,10 +51,19 @@ const ALWAYS_HIDDEN_KINDS = new Set([
   'usage',
   'rate_limit',
   'turn.result',
+  'turn.start', // turn boundary marker — pure telemetry, like turn.result
   'tool_call_update',
   'status_line',
 ]);
-const VERBOSE_ONLY_KINDS = new Set(['lifecycle', 'completion', 'system', 'thought']);
+const VERBOSE_ONLY_KINDS = new Set([
+  'lifecycle',
+  'completion',
+  'system',
+  'session.init', // "session <model> · N tools" — low signal, reveal on Details
+  'thought',
+  'thinking',
+  'reasoning',
+]);
 // MCP permission-gate calls are prompts, not real tool work — noise in the feed.
 const GATE_TOOL_NAMES = new Set(['permission_prompt', 'request_select', 'request_approval']);
 

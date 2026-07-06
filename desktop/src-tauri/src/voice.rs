@@ -131,7 +131,7 @@ pub async fn voice_open(app: AppHandle, state: State<'_, VoiceState>, req: Voice
 
     let task = task_id();
     write
-        .send(Message::Text(run_task_json(&task, &req.model)))
+        .send(Message::Text(run_task_json(&task, &req.model).into()))
         .await
         .map_err(|e| format!("run-task: {e}"))?;
 
@@ -147,13 +147,14 @@ pub async fn voice_open(app: AppHandle, state: State<'_, VoiceState>, req: Voice
         loop {
             tokio::select! {
                 cmd = rx.recv() => match cmd {
-                    Some(VoiceCmd::Audio(bytes)) => { let _ = write.send(Message::Binary(bytes)).await; }
-                    Some(VoiceCmd::Finish) => { let _ = write.send(Message::Text(finish_task_json(&finish_task))).await; }
+                    Some(VoiceCmd::Audio(bytes)) => { let _ = write.send(Message::Binary(bytes.into())).await; }
+                    Some(VoiceCmd::Finish) => { let _ = write.send(Message::Text(finish_task_json(&finish_task).into())).await; }
                     Some(VoiceCmd::Close) | None => { let _ = write.send(Message::Close(None)).await; break; }
                 },
                 msg = read.next() => match msg {
                     Some(Ok(Message::Text(t))) => {
-                        if let Some((kind, text)) = parse_event(&t) {
+                        let s: &str = &t;
+                        if let Some((kind, text)) = parse_event(s) {
                             let done = kind == "done" || kind == "error";
                             let _ = app.emit("voice-event", VoiceEvent { id: emit_id.clone(), kind, text });
                             if done { break; }

@@ -1163,6 +1163,74 @@ th {
   font-size: var(--font-size-label);
 }
 
+/* ---- hub profiles + offline (Phase 3) ---- */
+.profile-switcher {
+  position: relative;
+}
+.switcher-pill {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--input);
+}
+.switcher-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 260px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  padding: var(--spacing-s4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.switcher-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+.switcher-item.active {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+.switcher-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: var(--spacing-s4);
+  color: var(--text);
+}
+.switcher-pick .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+.switcher-add {
+  margin-top: var(--spacing-s4);
+  text-align: left;
+}
+.switcher-empty {
+  padding: var(--spacing-s8);
+}
+.offline-banner {
+  background: var(--color-warning);
+  color: #000;
+  text-align: center;
+  font-size: var(--font-size-caption);
+  padding: 2px var(--spacing-s8);
+}
+
 /* ---- vault (Phase 2b) ---- */
 .vault-actions {
   display: flex;

@@ -1,22 +1,20 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { App } from './App';
+import { localStoragePersister, persistMaxAge, queryClient } from './state/queryClient';
 import './styles/app.css';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 5000, refetchOnWindowFocus: false, retry: 1 },
-  },
-});
 
 const root = document.getElementById('root');
 if (root !== null) {
   createRoot(root).render(
     <StrictMode>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{ persister: localStoragePersister, maxAge: persistMaxAge }}
+      >
         <App />
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </StrictMode>,
   );
 }

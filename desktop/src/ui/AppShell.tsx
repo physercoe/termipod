@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
+import { useOnline } from '../state/online';
+import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
 import { AgentTranscript } from '../surfaces/AgentTranscript';
@@ -13,6 +15,7 @@ import { Settings } from '../surfaces/Settings';
 import { Terminal } from '../surfaces/Terminal';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
+import { ProfileSwitcher } from './ProfileSwitcher';
 import { StatusBar } from './StatusBar';
 
 /// The three-region mission-control frame (plan §4): titlebar · Navigator |
@@ -21,18 +24,26 @@ import { StatusBar } from './StatusBar';
 export function AppShell(): JSX.Element {
   const client = useSession((s) => s.client);
   const disconnect = useSession((s) => s.disconnect);
-  const teamId = useSession((s) => s.config.teamId);
+  const init = useSession((s) => s.init);
   const selection = useFocus((s) => s.selection);
   const clear = useFocus((s) => s.clear);
+  const online = useOnline();
   const qc = useQueryClient();
   const t = useT();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
-  // Raise the connect overlay on first load while disconnected; it can be
-  // dismissed to reach the offline shell (terminal/settings still work).
-  const [connectOpen, setConnectOpen] = useState(client === null);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [editProfile, setEditProfile] = useState<HubProfile | undefined>(undefined);
+
+  // Auto-bind the active profile on launch; raise the connect overlay only if
+  // that leaves us disconnected (no profile / no stored token).
+  useEffect(() => {
+    void init().finally(() => {
+      if (useSession.getState().client === null) setConnectOpen(true);
+    });
+  }, [init]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -61,9 +72,14 @@ export function AppShell(): JSX.Element {
     { id: 'terminal', label: t('cmd.terminal'), run: () => setTerminalOpen(true) },
     { id: 'settings', label: t('cmd.settings'), run: () => setSettingsOpen(true) },
     client === null
-      ? { id: 'connect', label: t('shell.connect'), run: () => setConnectOpen(true) }
+      ? { id: 'connect', label: t('shell.connect'), run: () => openConnect() }
       : { id: 'disconnect', label: t('cmd.disconnect'), run: disconnect },
   ];
+
+  function openConnect(edit?: HubProfile): void {
+    setEditProfile(edit);
+    setConnectOpen(true);
+  }
 
   return (
     <div className="shell">
@@ -72,12 +88,12 @@ export function AppShell(): JSX.Element {
         {client === null ? (
           <>
             <span className="pill offline">{t('shell.offline')}</span>
-            <button className="primary" onClick={() => setConnectOpen(true)}>
+            <button className="primary" onClick={() => openConnect()}>
               {t('shell.connect')}
             </button>
           </>
         ) : (
-          <span className="pill">{teamId}</span>
+          <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
         )}
         <span className="spacer" />
         <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
@@ -85,6 +101,8 @@ export function AppShell(): JSX.Element {
         <button onClick={() => setSettingsOpen(true)}>{t('shell.settings')}</button>
         <button onClick={() => setPaletteOpen(true)}>⌘K</button>
       </div>
+
+      {client !== null && !online && <div className="offline-banner">{t('shell.offlineBanner')}</div>}
 
       <div className="shell-body">
         <div className="region navigator">
@@ -121,7 +139,15 @@ export function AppShell(): JSX.Element {
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
       {terminalOpen && <Terminal onClose={() => setTerminalOpen(false)} />}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
-      {connectOpen && <ConnectPanel onClose={() => setConnectOpen(false)} />}
+      {connectOpen && (
+        <ConnectPanel
+          edit={editProfile}
+          onClose={() => {
+            setConnectOpen(false);
+            setEditProfile(undefined);
+          }}
+        />
+      )}
     </div>
   );
 }

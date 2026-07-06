@@ -9,17 +9,27 @@ export type Lang = 'en' | 'zh';
 type Dict = Record<string, string>;
 
 const en: Dict = {
-  'connect.title': 'Connect to a hub',
+  'connect.title': 'Add a hub',
+  'connect.editTitle': 'Edit hub profile',
+  'connect.name': 'Name',
+  'connect.namePlaceholder': 'My hub',
   'connect.url': 'Hub URL',
   'connect.team': 'Team',
   'connect.token': 'Token',
   'connect.connecting': 'Connecting…',
   'connect.connect': 'Connect',
+  'connect.tokenRequired': 'A token is required.',
+
+  'profile.add': 'Add hub',
+  'profile.edit': 'Edit',
+  'profile.remove': 'Remove',
+  'profile.none': 'No saved hubs.',
 
   'shell.admin': 'Admin',
   'shell.settings': 'Settings',
   'shell.connect': 'Connect',
   'shell.offline': 'Offline',
+  'shell.offlineBanner': 'Offline — showing the last synced snapshot.',
   'region.attention': 'Attention',
   'region.activity': 'Activity · Audit console',
   'region.agent': 'Agent',
@@ -106,6 +116,10 @@ const en: Dict = {
 
   'settings.title': 'Settings',
   'settings.appearance': 'Appearance',
+  'settings.cache': 'Offline cache',
+  'settings.cacheBlurb': 'Fleet, projects and other reads are cached so the app opens instantly and keeps showing the last snapshot when the hub is unreachable.',
+  'settings.cacheSize': 'Cached data',
+  'settings.clearCache': 'Clear cache',
   'settings.theme': 'Theme',
   'settings.language': 'Language',
   'settings.connection': 'Connection',
@@ -228,17 +242,27 @@ const en: Dict = {
 };
 
 const zh: Dict = {
-  'connect.title': '连接到 Hub',
+  'connect.title': '添加 Hub',
+  'connect.editTitle': '编辑 Hub 配置',
+  'connect.name': '名称',
+  'connect.namePlaceholder': '我的 Hub',
   'connect.url': 'Hub 地址',
   'connect.team': '团队',
   'connect.token': '令牌',
   'connect.connecting': '连接中…',
   'connect.connect': '连接',
+  'connect.tokenRequired': '需要令牌。',
+
+  'profile.add': '添加 Hub',
+  'profile.edit': '编辑',
+  'profile.remove': '移除',
+  'profile.none': '暂无已保存的 Hub。',
 
   'shell.admin': '管理',
   'shell.settings': '设置',
   'shell.connect': '连接',
   'shell.offline': '离线',
+  'shell.offlineBanner': '离线 — 显示上次同步的快照。',
   'region.attention': '待办',
   'region.activity': '活动 · 审计台',
   'region.agent': '代理',
@@ -325,6 +349,10 @@ const zh: Dict = {
 
   'settings.title': '设置',
   'settings.appearance': '外观',
+  'settings.cache': '离线缓存',
+  'settings.cacheBlurb': '舰队、项目等读取会被缓存，应用可即时打开，并在 Hub 不可达时继续显示上次快照。',
+  'settings.cacheSize': '缓存数据',
+  'settings.clearCache': '清除缓存',
   'settings.theme': '主题',
   'settings.language': '语言',
   'settings.connection': '连接',

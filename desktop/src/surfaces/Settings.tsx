@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useLang, useT, type Lang } from '../i18n';
+import { cacheSizeBytes, clearCache } from '../state/queryClient';
 import { useSession } from '../state/session';
 import { useTheme, type ThemePref } from '../state/theme';
 import { UpdateSection } from './UpdateSection';
@@ -26,6 +28,8 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
     { v: 'en', label: 'English' },
     { v: 'zh', label: '中文' },
   ];
+
+  const [cacheKb, setCacheKb] = useState(() => Math.round(cacheSizeBytes() / 1024));
 
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
@@ -71,6 +75,25 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
           <UpdateSection />
 
           <VaultPanel />
+
+          <section className="setting-group">
+            <h3>{t('settings.cache')}</h3>
+            <p className="muted small">{t('settings.cacheBlurb')}</p>
+            <div className="setting-row">
+              <label>{t('settings.cacheSize')}</label>
+              <span className="muted">{cacheKb} KB</span>
+            </div>
+            <div className="setting-row">
+              <button
+                onClick={() => {
+                  clearCache();
+                  setCacheKb(0);
+                }}
+              >
+                {t('settings.clearCache')}
+              </button>
+            </div>
+          </section>
 
           <section className="setting-group">
             <h3>{t('settings.connection')}</h3>

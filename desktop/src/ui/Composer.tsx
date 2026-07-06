@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
+import { isTauri } from '../platform';
+import { VoiceSession } from '../voice/session';
 import { checkAddable, classify, compose, stage, type Pending } from './attach';
 
 function humanSize(bytes: number): string {
@@ -22,7 +24,35 @@ export function Composer({
   const [staged, setStaged] = useState<Pending[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const voiceRef = useRef<VoiceSession | null>(null);
+  const draftBaseRef = useRef('');
+
+  async function toggleVoice(): Promise<void> {
+    if (recording) {
+      await voiceRef.current?.finish();
+      return;
+    }
+    draftBaseRef.current = draft.trim() === '' ? '' : `${draft.trim()} `;
+    const session = new VoiceSession({
+      onTranscript: (text) => setDraft(`${draftBaseRef.current}${text}`),
+      onDone: (text) => {
+        if (text !== '') setDraft(`${draftBaseRef.current}${text} `);
+        setRecording(false);
+        voiceRef.current = null;
+      },
+      onError: (m) => {
+        setErr(m);
+        setRecording(false);
+        voiceRef.current = null;
+      },
+    });
+    voiceRef.current = session;
+    setRecording(true);
+    setErr(null);
+    await session.start();
+  }
 
   async function addFiles(files: FileList | null): Promise<void> {
     if (files === null) return;
@@ -101,6 +131,16 @@ export function Composer({
         <button className="attach-btn" title={t('composer.attach')} onClick={() => fileRef.current?.click()} disabled={busy}>
           +
         </button>
+        {isTauri() && (
+          <button
+            className={recording ? 'mic-btn recording' : 'mic-btn'}
+            title={recording ? t('composer.stopVoice') : t('composer.voice')}
+            onClick={() => void toggleVoice()}
+            disabled={busy}
+          >
+            {recording ? '■' : '🎤'}
+          </button>
+        )}
         <input
           value={draft}
           placeholder={t('tx.sendPlaceholder')}

@@ -26,6 +26,12 @@ russh = "0.62"
 # session: opens an `sftp` subsystem channel and speaks the SFTP protocol.
 russh-sftp = "2"
 tokio = { version = "1", features = ["macros", "sync", "io-util", "net", "time", "rt-multi-thread"] }
+# Voice dictation (parity — mobile cloud_stt.dart): a WebSocket bridge to
+# DashScope realtime ASR. The webview WebSocket can't set the Authorization
+# header DashScope needs, so the socket lives here. rustls (no system OpenSSL) to
+# match reqwest and keep CI free of native TLS libs.
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+futures-util = "0.3"
 # In-app auto-update: check a signed latest.json on the GitHub release, download
 # + install, then relaunch. Signing is mandatory (pubkey in tauri.conf.json).
 tauri-plugin-updater = "2"

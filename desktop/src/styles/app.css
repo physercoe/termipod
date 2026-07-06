@@ -1893,3 +1893,20 @@ th {
 }
 .sftp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sftp-err { margin: var(--spacing-s8); }
+
+/* ---- voice dictation mic button ---- */
+.mic-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 var(--spacing-s8);
+}
+.mic-btn.recording {
+  color: var(--danger, #d33);
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

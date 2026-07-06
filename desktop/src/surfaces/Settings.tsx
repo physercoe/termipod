@@ -1,10 +1,65 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLang, useT, type Lang } from '../i18n';
+import { isTauri } from '../platform';
 import { cacheSizeBytes, clearCache } from '../state/queryClient';
 import { useSession } from '../state/session';
 import { useTheme, type ThemePref } from '../state/theme';
+import { getVoiceApiKey, getVoiceModel, setVoiceApiKey, setVoiceModel, VOICE_MODELS } from '../voice/settings';
 import { UpdateSection } from './UpdateSection';
 import { VaultPanel } from './VaultPanel';
+
+/// DashScope voice-dictation settings (parity — mobile voice_settings_screen):
+/// the personal API key (→ OS keychain) and the recognition model. The mic
+/// button in the composer is inert until a key is set here.
+function VoiceSettings(): JSX.Element {
+  const t = useT();
+  const [key, setKey] = useState('');
+  const [hasKey, setHasKey] = useState(false);
+  const [model, setModel] = useState(getVoiceModel());
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    void getVoiceApiKey().then((k) => setHasKey(k !== null && k !== ''));
+  }, []);
+
+  async function save(): Promise<void> {
+    await setVoiceApiKey(key);
+    setVoiceModel(model);
+    setHasKey(key.trim() !== '');
+    setKey('');
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  return (
+    <section className="setting-group">
+      <h3>{t('settings.voice')}</h3>
+      <p className="muted small">{t('settings.voiceBlurb')}</p>
+      <div className="setting-row">
+        <label>{t('settings.voiceKey')}</label>
+        <input
+          type="password"
+          value={key}
+          placeholder={hasKey ? t('settings.voiceKeySet') : t('settings.voiceKeyPlaceholder')}
+          onChange={(e) => setKey(e.target.value)}
+        />
+      </div>
+      <div className="setting-row">
+        <label>{t('settings.voiceModel')}</label>
+        <select value={model} onChange={(e) => setModel(e.target.value)}>
+          {VOICE_MODELS.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="setting-row">
+        <button onClick={() => void save()}>{saved ? t('settings.voiceSaved') : t('admin.save')}</button>
+      </div>
+    </section>
+  );
+}
 
 /// Device settings (mirrors the mobile Settings surface's device-prefs role):
 /// appearance (theme + language) and the current connection. Team/hub policy
@@ -94,6 +149,8 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
               </button>
             </div>
           </section>
+
+          {isTauri() && <VoiceSettings />}
 
           <section className="setting-group">
             <h3>{t('settings.connection')}</h3>

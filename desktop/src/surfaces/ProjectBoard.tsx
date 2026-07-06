@@ -3,12 +3,56 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useHubAction } from '../hub/action';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
+import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
+import { RunDetail } from './RunDetail';
 import { TaskDetail } from './TaskDetail';
 
 const COLUMNS = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'med', 'high', 'urgent'];
-type Tab = 'overview' | 'tasks' | 'runs' | 'plans';
+type Tab = 'overview' | 'agents' | 'tasks' | 'runs' | 'plans';
+
+function AgentsTab({ projectId }: { projectId: string }): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const selectAgent = useFocus((s) => s.selectAgent);
+  const q = useQuery({
+    queryKey: ['project-agents', projectId],
+    enabled: client !== null,
+    refetchInterval: 8000,
+    // include_terminated so stopped/historical workers show too (mobile parity).
+    queryFn: () => client!.listAgents({ project_id: projectId, include_terminated: true }),
+  });
+  if (q.isLoading) return <div className="region-pad muted">{t('proj.loading')}</div>;
+  if (q.isError) return <div className="region-pad error">{(q.error as Error).message}</div>;
+  const agents = q.data ?? [];
+  if (agents.length === 0) return <div className="region-pad muted">{t('proj.noAgents')}</div>;
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>{t('admin.status')}</th>
+          <th>{t('proj.agentHandle')}</th>
+          <th>{t('proj.agentKind')}</th>
+          <th>{t('proj.agentActivity')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {agents.map((a, i) => {
+          const id = str(a, 'id') ?? String(i);
+          return (
+            <tr key={id} role="button" className="clickable-row" onClick={() => selectAgent(id)}>
+              <td>{str(a, 'status') ?? ''}</td>
+              <td>{str(a, 'handle') ?? id}</td>
+              <td className="muted">{str(a, 'kind') ?? ''}</td>
+              <td className="muted small">{str(a, 'last_event_at') ?? str(a, 'created_at') ?? ''}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
 
 function NewTaskForm({ projectId, onDone }: { projectId: string; onDone: () => void }): JSX.Element {
   const t = useT();
@@ -201,6 +245,7 @@ function RunsTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const { run: act, busy, error } = useHubAction();
+  const [open, setOpen] = useState<string | null>(null);
   const q = useQuery({
     queryKey: ['runs', projectId],
     enabled: client !== null,
@@ -234,17 +279,21 @@ function RunsTab({ projectId }: { projectId: string }): JSX.Element {
         </tr>
       </thead>
       <tbody>
-        {runs.map((r, i) => (
-          <tr key={str(r, 'id') ?? String(i)}>
-            <td>{str(r, 'status') ?? ''}</td>
-            <td className="mono">{str(r, 'id')}</td>
-            <td>{str(r, 'agent_id') ?? '—'}</td>
-            <td>{str(r, 'created_at') ?? str(r, 'started_at') ?? ''}</td>
-          </tr>
-        ))}
+        {runs.map((r, i) => {
+          const id = str(r, 'id') ?? '';
+          return (
+            <tr key={id || String(i)} role="button" className="clickable-row" onClick={() => id && setOpen(id)}>
+              <td>{str(r, 'status') ?? ''}</td>
+              <td className="mono">{id}</td>
+              <td>{str(r, 'agent_id') ?? '—'}</td>
+              <td>{str(r, 'created_at') ?? str(r, 'started_at') ?? ''}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
       )}
+      {open !== null && <RunDetail runId={open} onClose={() => setOpen(null)} />}
     </>
   );
 }
@@ -367,6 +416,7 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
   const [tab, setTab] = useState<Tab>('overview');
   const tabs: { v: Tab; label: string }[] = [
     { v: 'overview', label: t('proj.overview') },
+    { v: 'agents', label: t('proj.agents') },
     { v: 'tasks', label: t('proj.tasks') },
     { v: 'runs', label: t('proj.runs') },
     { v: 'plans', label: t('proj.plans') },
@@ -384,6 +434,7 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
       </div>
       <div className="scroll">
         {tab === 'overview' && <OverviewTab projectId={projectId} />}
+        {tab === 'agents' && <AgentsTab projectId={projectId} />}
         {tab === 'tasks' && <TasksTab projectId={projectId} />}
         {tab === 'runs' && <RunsTab projectId={projectId} />}
         {tab === 'plans' && <PlansTab projectId={projectId} />}

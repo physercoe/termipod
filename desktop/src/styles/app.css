@@ -1163,6 +1163,13 @@ th {
   font-size: var(--font-size-label);
 }
 
+.clickable-row {
+  cursor: pointer;
+}
+.clickable-row:hover {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.1));
+}
+
 /* ---- transcript filter + insight navigator (parity) ---- */
 .feed-filter {
   display: flex;

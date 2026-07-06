@@ -59,8 +59,26 @@ export class HubClient {
   }
 
   // --- fleet ---
-  async listAgents(): Promise<Entity[]> {
-    const out = await this.transport.get(this.transport.team('/agents'));
+  /** List agents (`handleListAgents`). Optional filters: `project_id` (agents on
+   * one project — note it's `project_id`, NOT `project`), `host_id`, `status`,
+   * and `include_terminated`/`include_archived` to surface stopped rows (default
+   * hides terminated/failed/crashed/archived). */
+  async listAgents(
+    params: {
+      project_id?: string;
+      host_id?: string;
+      status?: string;
+      include_terminated?: boolean;
+      include_archived?: boolean;
+    } = {},
+  ): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/agents'), {
+      project_id: params.project_id,
+      host_id: params.host_id,
+      status: params.status,
+      include_terminated: params.include_terminated === true ? '1' : undefined,
+      include_archived: params.include_archived === true ? '1' : undefined,
+    });
     return asArray(out);
   }
   async listHosts(): Promise<Entity[]> {
@@ -212,6 +230,21 @@ export class HubClient {
    * status is created `draft`. `spec_json` is the plan body. */
   createPlan(body: { project_id: string; template_id?: string; version?: number; spec_json?: unknown }): Promise<Entity> {
     return this.transport.post(this.transport.team('/plans'), body) as Promise<Entity>;
+  }
+  /** A single run (`handleGetRun`) — `runOut`: status, config_json, seed,
+   * started_at, finished_at, agent_id, trackio refs, parent_run_id. */
+  getRun(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/runs/${id}`)) as Promise<Entity>;
+  }
+  /** The run's hyperparameter config envelope (`GET …/runs/{id}/config` →
+   * `{config, updated_at}`). */
+  getRunConfig(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/runs/${id}/config`)) as Promise<Entity>;
+  }
+  /** Content-addressed run/project outputs (`handleListArtifacts`, bare array).
+   * Filter by `project` and/or `run` (note: `run`, not `run_id`). */
+  async listArtifacts(params: { project?: string; run?: string; kind?: string } = {}): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team('/artifacts'), params));
   }
 
   // --- deliverables + ratify (Phase 4) ---

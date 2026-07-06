@@ -84,6 +84,27 @@ Next: Rust keychain + SSE proxy; multi-select bulk ops; split-pane transcripts;
 managed-host hub-brokered PTY (ADR-052 D-6) + the zero-knowledge key vault
 (D-4); host-key pinning for the personal SSH path.
 
+## Updating
+
+The app self-updates via the Tauri updater plugin: **Settings → Software update →
+Check for updates** queries the signed `latest.json` on the latest GitHub release,
+then downloads, installs, and relaunches. Updates are **code-signed** — the public
+key is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`); CI signs each
+bundle with the matching private key.
+
+**One-time signing setup** (required before the next release tag, else bundling
+fails on signing):
+
+```bash
+# Set the two repo secrets from the generated keypair (values piped from files):
+gh secret set TAURI_SIGNING_PRIVATE_KEY          --repo <owner>/<repo> < private.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo <owner>/<repo> < password.txt
+```
+
+Releases are now **published** (not draft) so `releases/latest/download/latest.json`
+resolves. Rotating the key = regenerate (`npm run tauri signer generate`), replace
+the `pubkey` in `tauri.conf.json`, and reset both secrets.
+
 ## Notes
 
 - **Hub calls route through the Rust core under Tauri.** The webview origin is

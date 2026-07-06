@@ -752,6 +752,24 @@ th {
   background: color-mix(in srgb, var(--color-warning) 22%, transparent);
   color: var(--color-warning);
 }
+
+/* ---- software update ---- */
+
+.update-avail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8) 0;
+}
+.update-notes {
+  max-height: 160px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--spacing-s8);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
 .connect label {
   display: flex;
   flex-direction: column;

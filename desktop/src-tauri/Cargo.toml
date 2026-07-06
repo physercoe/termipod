@@ -1,6 +1,6 @@
 [package]
 name = "termipod-desktop"
-version = "0.1.1"
+version = "0.2.0"
 description = "TermiPod desktop control plane"
 authors = ["TermiPod"]
 edition = "2021"
@@ -23,3 +23,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # Rust (no cgo/OpenSSL); tokio drives the per-session PTY actor.
 russh = "0.62"
 tokio = { version = "1", features = ["macros", "sync", "io-util", "net", "time", "rt-multi-thread"] }
+# In-app auto-update: check a signed latest.json on the GitHub release, download
+# + install, then relaunch. Signing is mandatory (pubkey in tauri.conf.json).
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

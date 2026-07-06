@@ -138,6 +138,8 @@ async fn hub_sse_close(state: State<'_, SseState>, id: String) -> Result<(), Str
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ssh::SshState::default())
         .manage(SseState::default())
         .invoke_handler(tauri::generate_handler![

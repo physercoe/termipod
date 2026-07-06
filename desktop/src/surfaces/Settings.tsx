@@ -1,6 +1,7 @@
 import { useLang, useT, type Lang } from '../i18n';
 import { useSession } from '../state/session';
 import { useTheme, type ThemePref } from '../state/theme';
+import { UpdateSection } from './UpdateSection';
 
 /// Device settings (mirrors the mobile Settings surface's device-prefs role):
 /// appearance (theme + language) and the current connection. Team/hub policy
@@ -65,6 +66,8 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
               </div>
             </div>
           </section>
+
+          <UpdateSection />
 
           <section className="setting-group">
             <h3>{t('settings.connection')}</h3>

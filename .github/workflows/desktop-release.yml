@@ -77,6 +77,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing (required by tauri-plugin-updater). Set these repo
+          # secrets before tagging a release, else bundling fails on signing:
+          #   gh secret set TAURI_SIGNING_PRIVATE_KEY < private.key
+          #   gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD < password.txt
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: desktop
           args: ${{ matrix.args }}
@@ -85,7 +91,11 @@ jobs:
           tagName: ${{ startsWith(github.ref, 'refs/tags/desktop-v') && github.ref_name || '' }}
           # format() — a nested ${{ }} inside a string literal is NOT expanded.
           releaseName: ${{ startsWith(github.ref, 'refs/tags/desktop-v') && format('TermiPod Desktop {0}', github.ref_name) || '' }}
-          releaseDraft: true
+          # PUBLISHED (not draft): the updater endpoint resolves
+          # releases/latest/download/latest.json, which only sees a published,
+          # non-prerelease release. tauri-action also uploads the signed
+          # latest.json here (createUpdaterArtifacts in tauri.conf.json).
+          releaseDraft: false
 
       - name: Upload installers as run artifacts
         uses: actions/upload-artifact@v4

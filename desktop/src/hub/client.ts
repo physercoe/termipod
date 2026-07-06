@@ -133,6 +133,16 @@ export class HubClient {
   getAgentDigest(id: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/agents/${id}/digest`)) as Promise<Entity>;
   }
+  /** The per-turn index (`handleListAgentTurns`) — one row per turn with
+   * `start_seq`/`start_ordinal`/`status`/`duration_ms`/`tool_count`/`error_count`.
+   * Backs the Insight-mode Turns navigator (jump-to-turn by start_seq). */
+  async listAgentTurns(id: string, opts: { after?: string; limit?: number } = {}): Promise<Entity[]> {
+    const out = (await this.transport.get(this.transport.team(`/agents/${id}/turns`), {
+      after: opts.after,
+      limit: opts.limit !== undefined ? String(opts.limit) : undefined,
+    })) as Entity;
+    return asArray(out?.turns);
+  }
   /** Send director text (+ optional multimodal attachments) into an agent. Flat
    * `{kind:'text', body, images?, pdfs?, audios?, videos?}` per the hub
    * (handlers_agent_input.go). Each attachment's `data` is RAW base64 (no

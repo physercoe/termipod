@@ -287,7 +287,11 @@ export const EventCard = memo(function EventCard({
   callName?: string;
 }): JSX.Element {
   return (
-    <div className="ev" style={{ '--ev-accent': accentVar(ev.kind, ev.producer) } as CSSProperties}>
+    <div
+      className="ev"
+      data-seq={ev.seq}
+      style={{ '--ev-accent': accentVar(ev.kind, ev.producer) } as CSSProperties}
+    >
       <div className="ev-body">{bodyFor(ev, result, callName)}</div>
     </div>
   );

@@ -122,13 +122,14 @@ Phase 3 also cleared the last two **Partial** rows: hosts still lack a detail
 view, but *connect* is now multi-profile (switcher + keychain tokens + offline
 cache), not single/in-memory.
 
-**Missing:** create/edit for projects·tasks·runs·plans·agents·schedules·docs ·
-agent spawn · deliverable reviews/ratification · documents/artifacts/blobs viewers
-· project channels (chat) · sessions surface · search · Insights analytics · Me
-home · decision history · notes · templates/agent-families · budget · councils ·
-steward config · team switcher · SSH keys/vault/snippets/history · tmux pane mgmt
-· file transfer/remote browser · multimodal/image attach · voice input · offline
-cache · voice/action-bar settings.
+**Missing:** create/edit for projects·runs·plans·agents·schedules·docs · task
+**create ✅** (edit/status ✅) · agent spawn · deliverable reviews/ratification ·
+documents/artifacts/blobs viewers · ~~project channels (chat)~~ **✅** · ~~sessions
+surface~~ **✅** · search · Insights analytics · Me home · decision history · notes
+· templates/agent-families · budget · councils · steward config · ~~team switcher~~
+**✅ (Phase 3)** · ~~SSH keys/vault~~ **✅ (Phase 2)**/snippets/history · tmux pane
+mgmt · file transfer/remote browser · ~~multimodal/image attach~~ **✅ (1c)** ·
+voice input · ~~offline cache~~ **✅ (Phase 3)** · voice/action-bar settings.
 
 ## Foundations (cross-cutting, do early)
 
@@ -188,14 +189,16 @@ mobile team-id-in-key + clear-on-switch for partitioning rather than a full
 `baseUrl#teamId` sqflite store; localStorage rather than IndexedDB (adequate for
 the snapshot sizes; revisit if it grows).
 
-**Phase 4 — write paths + missing surfaces (breadth).** The long tail, roughly by
-value: project/task/run/plan create+edit and agent spawn; deliverable
-ratify/reviews; documents + artifacts/blobs viewers; project channels (chat —
-`streamChannel` already in the client); sessions surface (`listSessions` already in
-the client); search; Insights analytics; Me home + decision history + notes; team
-governance depth (templates/families/budget/councils/steward-config). Depends on
-F1/F3. Cheap first wins: channels and sessions already have client methods with no
-surface.
+**Phase 4 — write paths + missing surfaces (breadth). ◐ IN PROGRESS.** The long
+tail, roughly by value. **Shipped so far** (commits f5751a97, 764e7406): the two
+cheap wins — **Sessions** surface (`listSessions` + session digest via `RunReport`)
+and **Channels** chat (`streamChannel` backfill+stream + `postChannelMessage`) —
+plus the first write path, **task create** (`createTask`, direct POST). *Remaining:*
+project/run/plan create+edit and agent spawn (several are governed propose→approve,
+ADR-030 — need the F3 write-path helper); deliverable ratify/reviews; documents +
+artifacts/blobs viewers; search; Insights analytics; Me home + decision history +
+notes; team governance depth (templates/families/budget/councils/steward-config).
+Depends on F1/F3.
 
 **Phase 5 — polish.** Voice input (Alibaba DashScope WS, `lib/services/voice`),
 tmux pane management, file transfer/remote browser, voice/action-bar/keyboard

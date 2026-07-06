@@ -367,7 +367,98 @@ function UpkeepTab(): JSX.Element {
   );
 }
 
-type AdminTab = 'team' | 'hosts' | 'agents' | 'teams' | 'upkeep';
+function TemplatesTab(): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const q = useQuery({
+    queryKey: ['templates'],
+    enabled: client !== null,
+    queryFn: () => client!.listTemplates(),
+  });
+  if (q.isError) return <div className="error">{msg(q.error)}</div>;
+  const templates = q.data ?? [];
+  const byCategory = new Map<string, Entity[]>();
+  for (const tpl of templates) {
+    const cat = str(tpl, 'category') ?? 'other';
+    const list = byCategory.get(cat);
+    if (list) list.push(tpl);
+    else byCategory.set(cat, [tpl]);
+  }
+  return (
+    <div className="scroll">
+      <p className="muted">{t('admin.templatesNote')}</p>
+      {[...byCategory.keys()].sort().map((cat) => (
+        <section key={cat} className="setting-group">
+          <h3>{cat}</h3>
+          {(byCategory.get(cat) ?? []).map((tpl, i) => (
+            <div key={str(tpl, 'name') ?? String(i)} className="admin-row">
+              <span className="mono">{str(tpl, 'name') ?? '—'}</span>
+              <span className="spacer" />
+              <span className="muted small">{str(tpl, 'source') ?? ''}</span>
+            </div>
+          ))}
+        </section>
+      ))}
+      {templates.length === 0 && <div className="muted">{t('admin.noTemplates')}</div>}
+    </div>
+  );
+}
+
+function FamiliesTab(): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const q = useQuery({
+    queryKey: ['agent-families'],
+    enabled: client !== null,
+    queryFn: () => client!.listAgentFamilies(),
+  });
+  if (q.isError) return <div className="error">{msg(q.error)}</div>;
+  const families = q.data ?? [];
+  return (
+    <div className="scroll">
+      <p className="muted">{t('admin.familiesNote')}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t('admin.family')}</th>
+            <th>{t('admin.bin')}</th>
+            <th>{t('admin.source')}</th>
+            <th>{t('admin.supports')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {families.map((f, i) => {
+            const supports = f['supports'];
+            const supText =
+              supports !== null && typeof supports === 'object'
+                ? Object.entries(supports as Record<string, unknown>)
+                    .filter(([, v]) => v === true)
+                    .map(([k]) => k)
+                    .join(', ')
+                : '';
+            return (
+              <tr key={str(f, 'family') ?? String(i)}>
+                <td className="mono">{str(f, 'family') ?? '—'}</td>
+                <td className="mono">{str(f, 'bin') ?? ''}</td>
+                <td className="muted small">{str(f, 'source') ?? ''}</td>
+                <td className="small">{supText}</td>
+              </tr>
+            );
+          })}
+          {families.length === 0 && (
+            <tr>
+              <td colSpan={4} className="muted">
+                {t('admin.noFamilies')}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type AdminTab = 'team' | 'hosts' | 'agents' | 'teams' | 'templates' | 'families' | 'upkeep';
 
 /// WS7 — Team governance + operator Admin cockpit as an overlay. Team tab
 /// (members + editable policy); Hosts/Agents admin tabs with confirmed
@@ -381,6 +472,8 @@ export function AdminCockpit({ onClose }: { onClose: () => void }): JSX.Element 
     { v: 'hosts', label: t('admin.hosts') },
     { v: 'agents', label: t('admin.agents') },
     { v: 'teams', label: t('admin.teams') },
+    { v: 'templates', label: t('admin.templates') },
+    { v: 'families', label: t('admin.engines') },
     { v: 'upkeep', label: t('admin.upkeep') },
   ];
   return (
@@ -400,6 +493,8 @@ export function AdminCockpit({ onClose }: { onClose: () => void }): JSX.Element 
           {tab === 'hosts' && <HostsTab />}
           {tab === 'agents' && <AgentsTab />}
           {tab === 'teams' && <TeamsTab />}
+          {tab === 'templates' && <TemplatesTab />}
+          {tab === 'families' && <FamiliesTab />}
           {tab === 'upkeep' && <UpkeepTab />}
         </div>
       </div>

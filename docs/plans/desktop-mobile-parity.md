@@ -110,8 +110,9 @@ attention/approvals (by-kind + override) · audit (poll) · admin cockpit
 (hosts/agents/teams/upkeep + policy YAML) · SSH terminal (live) · device settings
 (theme/lang) · signed auto-updater.
 
-**Partial:** transcript (renders but content broken — gap 1) · digest (raw JSON —
-gap 2) · projects (tree, no list/create) · tasks (view + status patch, no create)
+**Partial:** ~~transcript (renders but content broken — gap 1)~~ **✅ rich (1a)** ·
+~~digest (raw JSON — gap 2)~~ **✅ dashboard (1b)** · ~~composer (no attach — gap 3)~~
+**✅ attachments (1c)** · projects (tree, no list/create) · tasks (view + status patch, no create)
 · runs/plans (tables, no launch/author) · deliverables (counts, no ratify) ·
 hosts (grouped, no detail) · team governance (policy YAML only) · SSH (no saved
 profiles/keys) · connect (single, in-memory).
@@ -142,12 +143,18 @@ cache · voice/action-bar settings.
 
 ## Phased plan
 
-**Phase 1 — the conversation loop feels real (director gaps 1–3).** The daily
-surface. Ship: (1a) rich transcript — per-kind cards, tool pairing, markdown,
-accents, cost chips; (1b) the digest dashboard (`RunReportCard` port + optional
-turns timeline); (1c) composer attachments (image/file buttons + base64 send +
-capability gating; text-file inline). Depends on F1 (Markdown, Card, StatTile).
-*Highest impact, well-scoped, no hub work.*
+**Phase 1 — the conversation loop feels real (director gaps 1–3). ✅ SHIPPED
+(desktop-v0.2.2+, commits 6555356b / 83b81cb7 / 76943317).** The daily surface.
+Shipped: (1a) rich transcript — per-kind `EventCard` dispatch, tool call↔result
+pairing on `tool_use_id` (avoiding the mobile `p['id']` latent bug), markdown via
+the F1 `Markdown` primitive, accent stripes by kind; (1b) the digest dashboard
+(`RunReport` port of `RunReportCard`: outcome badge + stat-tile grid + per-model
+token table + errors list + live/cached footer); (1c) composer attachments
+(`Composer` + `attach.ts`: image/pdf/audio/video base64 send with caps mirrored
+from the hub, text/code files inlined as fenced blocks). *Deferred within Phase 1:*
+per-turn timeline (`GET …/turns`); capability-gating the attach button (hub
+strip-and-warns unsupported modalities, so it's cosmetic); syntax highlighting in
+code blocks (bundle weight — react-markdown added ~170 KB).
 
 **Phase 2 — breakglass parity + vault (gap 4).** (2a) saved SSH connections + a
 local key store (generate/import), secrets in the OS keychain — turns the terminal

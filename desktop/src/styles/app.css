@@ -333,26 +333,44 @@ pre {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: var(--spacing-s12);
+  padding: var(--spacing-s16) var(--spacing-s20, 20px);
   font-size: var(--font-size-body-small);
+  line-height: 1.55;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-s8);
+  gap: var(--spacing-s12);
 }
 /* ---- rich transcript event cards (parity Phase 1a) ---- */
 .ev {
   display: flex;
+  align-self: stretch;
+  max-width: 92%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-left: 3px solid var(--ev-accent, var(--border-strong));
   border-radius: var(--radius-md);
-  padding: var(--spacing-s8) var(--spacing-s12);
+  padding: var(--spacing-s12) var(--spacing-s16);
   box-shadow: var(--sh-1);
+}
+/* Director / user input reads as a distinct right-aligned bubble — the desktop
+ * has horizontal room the phone doesn't, so we use it to separate the two
+ * voices instead of stacking every card in one lane. */
+.ev--user {
+  align-self: flex-end;
+  max-width: 68%;
+  background: var(--accent-tint);
+  border-color: var(--accent-line);
+  border-left: 1px solid var(--accent-line);
+  border-radius: var(--radius-md);
+}
+.ev--user .ev-from {
+  color: var(--accent);
 }
 .ev-body {
   flex: 1;
   min-width: 0;
   word-break: break-word;
+  line-height: 1.55;
 }
 /* markdown blocks render tight in the feed */
 .md > :first-child {
@@ -799,6 +817,11 @@ button.danger:hover {
 .settings {
   width: 520px;
   max-width: 92vw;
+  /* Bounded height so the inner .admin-body (flex:1;overflow:auto) gets a
+   * scrollable viewport — without a cap the box grows past the viewport and
+   * the bottom sections are clipped with no way to reach them. Mirrors .admin
+   * (height:70vh). 82vh complements the backdrop's 12vh top offset. */
+  max-height: 82vh;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -1449,6 +1472,23 @@ th {
   padding: 0 6px;
   line-height: 1.4;
 }
+.feed-verbose {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+.feed-verbose.active {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-tint);
+}
+.feed-verbose .pill {
+  background: var(--raised);
+  color: var(--text-muted);
+}
 .ev-flash {
   animation: ev-flash-kf 1.4s ease-out;
 }
@@ -1575,6 +1615,69 @@ th {
   border-radius: var(--radius-md);
   overflow: hidden;
 }
+
+/* ---- artifact / blob viewer ---- */
+.artifact-view {
+  width: 900px;
+  max-width: 94vw;
+  height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.artifact-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-s16);
+  display: flex;
+  flex-direction: column;
+}
+.artifact-img {
+  max-width: 100%;
+  align-self: center;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+.artifact-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  background: #fff;
+  border-radius: var(--radius-sm);
+}
+.artifact-text {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+}
+.artifact-download {
+  margin: auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}
+/* An <a> styled to match buttons (download links in the artifact viewer). */
+.btn-like {
+  display: inline-block;
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--text);
+  text-decoration: none;
+  font-size: var(--font-size-body-small);
+}
+.btn-like:hover {
+  background: var(--hover);
+  border-color: var(--accent-line);
+}
 .task-form {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1659,6 +1762,20 @@ th {
 .sessions-detail {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sessions-detail-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+}
+.sessions-detail-scroll {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 .chan-detail {
@@ -1766,6 +1883,24 @@ th {
   flex-wrap: wrap;
   gap: var(--spacing-s8);
   justify-content: flex-start;
+  /* Reserve the action-row height so buttons slotting in after the async
+   * vaultStatus resolves don't shove the layout (no "splash" on open). */
+  min-height: 32px;
+}
+/* Async-loaded settings blocks fade in over reserved space instead of popping
+ * placeholder→data (proxy / vault status flashes on Settings open). */
+.settle {
+  opacity: 0;
+  transition: opacity 0.14s var(--ease);
+}
+.settle.settled {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settle {
+    transition: none;
+    opacity: 1;
+  }
 }
 .vault-restore {
   display: flex;

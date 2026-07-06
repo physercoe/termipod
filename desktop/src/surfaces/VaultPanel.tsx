@@ -25,6 +25,7 @@ export function VaultPanel(): JSX.Element | null {
   const t = useT();
   const client = useSession((s) => s.client);
   const [st, setSt] = useState<VaultStatus | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -38,6 +39,8 @@ export function VaultPanel(): JSX.Element | null {
       setSt(await vaultStatus(client));
     } catch (e) {
       setErr(msg(e));
+    } finally {
+      setLoaded(true);
     }
   }
 
@@ -70,12 +73,12 @@ export function VaultPanel(): JSX.Element | null {
       {client === null ? (
         <div className="muted">{t('vault.needHub')}</div>
       ) : (
-        <>
+        <div className={loaded ? 'settle settled' : 'settle'}>
           <div className="setting-row">
             <label>{t('vault.status')}</label>
             <span className="muted">
               {st === null
-                ? '…'
+                ? '—'
                 : st.exists
                   ? `${t('vault.exists')} · v${st.version}${st.hasLocalKey ? ` · ${t('vault.unlocked')}` : ` · ${t('vault.locked')}`}`
                   : t('vault.none')}
@@ -145,7 +148,7 @@ export function VaultPanel(): JSX.Element | null {
 
           {note !== null && <div className="setting-row"><span className="muted">{note}</span></div>}
           {err !== null && <div className="setting-row"><span className="error">{err}</span></div>}
-        </>
+        </div>
       )}
     </section>
   );

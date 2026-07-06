@@ -12,7 +12,15 @@ export function parsePoints(raw: unknown): MetricPoint[] {
   if (!Array.isArray(raw)) return [];
   const out: MetricPoint[] = [];
   for (const p of raw) {
-    if (p && typeof p === 'object') {
+    if (Array.isArray(p)) {
+      // The hub serialises each point as a [step, value] tuple (parity —
+      // mobile runs_screen.dart `_parsePoints`). This is the real wire shape.
+      if (p.length >= 2 && typeof p[0] === 'number' && typeof p[1] === 'number') {
+        out.push({ step: p[0], value: p[1] });
+      } else if (p.length === 1 && typeof p[0] === 'number') {
+        out.push({ value: p[0] });
+      }
+    } else if (p && typeof p === 'object') {
       const o = p as Record<string, unknown>;
       const value = typeof o.value === 'number' ? o.value : typeof o.v === 'number' ? o.v : undefined;
       const step = typeof o.step === 'number' ? o.step : typeof o.s === 'number' ? o.s : undefined;

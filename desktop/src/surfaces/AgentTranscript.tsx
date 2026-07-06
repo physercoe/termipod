@@ -1,18 +1,43 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
 
-function eventText(e: Entity): string {
-  return str(e, 'text') ?? str(e, 'body') ?? str(e, 'content') ?? str(e, 'summary') ?? '';
-}
-function eventKind(e: Entity): string {
-  return str(e, 'kind') ?? str(e, 'type') ?? 'event';
-}
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/// Build the tool-pairing maps over the flat event feed: a tool_call folds its
+/// matching tool_result inline (joined on `tool_use_id`), and a standalone
+/// tool_result borrows its tool name back. `callIds` lets us hide the results
+/// that were folded so they don't also render on their own.
+function useToolMaps(feed: FeedEvent[]): {
+  resultById: Map<string, Entity>;
+  nameById: Map<string, string>;
+  callIds: Set<string>;
+} {
+  return useMemo(() => {
+    const resultById = new Map<string, Entity>();
+    const nameById = new Map<string, string>();
+    const callIds = new Set<string>();
+    for (const ev of feed) {
+      if (ev.kind === 'tool_result') {
+        const id = str(ev.payload, 'tool_use_id');
+        if (id !== undefined) resultById.set(id, ev.payload);
+      } else if (ev.kind === 'tool_call') {
+        const id = callToolId(ev.payload);
+        if (id !== undefined) {
+          callIds.add(id);
+          const name = str(ev.payload, 'name');
+          if (name !== undefined) nameById.set(id, name);
+        }
+      }
+    }
+    return { resultById, nameById, callIds };
+  }, [feed]);
 }
 
 /// Focus region for a selected agent (WS4): a live transcript over the agent SSE
@@ -68,6 +93,9 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     queryFn: () => client!.getAgentDigest(agentId),
   });
 
+  const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
+  const { resultById, nameById, callIds } = useToolMaps(feed);
+
   async function lifecycle(action: (id: string) => Promise<unknown>): Promise<void> {
     if (client === null) return;
     setBusy(true);
@@ -119,14 +147,20 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
       {tab === 'transcript' ? (
         <>
           <div className="feed">
-            {events.map((e, i) => (
-              <div key={str(e, 'id') ?? String(num(e, 'seq') ?? i)} className="feed-row">
-                <span className="feed-kind">{eventKind(e)}</span>
-                {str(e, 'role') !== undefined ? <span className="feed-role">{str(e, 'role')}</span> : null}
-                <span className="feed-text">{eventText(e)}</span>
-              </div>
-            ))}
-            {events.length === 0 && <div className="region-pad muted">{t('tx.noEvents')}</div>}
+            {feed.map((ev) => {
+              if (ev.kind === 'tool_result') {
+                const id = str(ev.payload, 'tool_use_id');
+                // Folded into its tool_call card above — don't render twice.
+                if (id !== undefined && callIds.has(id)) return null;
+                return <EventCard key={ev.id} ev={ev} callName={id !== undefined ? nameById.get(id) : undefined} />;
+              }
+              if (ev.kind === 'tool_call') {
+                const id = callToolId(ev.payload);
+                return <EventCard key={ev.id} ev={ev} result={id !== undefined ? resultById.get(id) : undefined} />;
+              }
+              return <EventCard key={ev.id} ev={ev} />;
+            })}
+            {feed.length === 0 && <div className="region-pad muted">{t('tx.noEvents')}</div>}
             <div ref={bottomRef} />
           </div>
           <div className="composer">

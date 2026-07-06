@@ -248,25 +248,174 @@ body {
   padding: var(--spacing-s8) var(--spacing-s12);
   font-size: var(--font-size-body-small);
 }
-.feed-row {
+/* ---- rich transcript event cards (parity Phase 1a) ---- */
+.ev {
   display: flex;
-  gap: var(--spacing-s8);
-  padding: var(--spacing-s4) 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  border-left: 3px solid var(--ev-accent, var(--text-muted));
+  padding: var(--spacing-s4) 0 var(--spacing-s4) var(--spacing-s8);
+  margin: var(--spacing-s2) 0;
 }
-.feed-kind {
-  color: var(--accent);
-  font-size: var(--font-size-label);
-  flex: 0 0 auto;
-  min-width: 88px;
+.ev-body {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
 }
-.feed-role {
+/* markdown blocks render tight in the feed */
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: var(--spacing-s4) 0;
+}
+.md pre {
+  overflow-x: auto;
+  padding: var(--spacing-s8);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.md :not(pre) > code {
+  font-family: var(--font-mono, monospace);
+  background: var(--input);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+}
+.md ul,
+.md ol {
+  margin: var(--spacing-s4) 0;
+  padding-left: var(--spacing-s16);
+}
+.md table {
+  border-collapse: collapse;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 2px var(--spacing-s8);
+}
+.md-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+.ev-thought {
   color: var(--text-muted);
-  flex: 0 0 auto;
+  font-style: italic;
 }
-.feed-text {
+.ev-mono {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
   white-space: pre-wrap;
   word-break: break-word;
+  margin: var(--spacing-s4) 0 0;
+  padding: var(--spacing-s8);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 320px;
+  overflow: auto;
+}
+.ev-collapse > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  list-style: revert;
+}
+.ev-tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.ev-tag {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+}
+.ev-tag.tool {
+  color: var(--color-terminal-blue);
+  border-color: color-mix(in srgb, var(--color-terminal-blue) 45%, transparent);
+}
+.ev-tag.err {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+}
+.ev-chip {
+  font-size: var(--font-size-label);
+  border-radius: var(--radius-stadium);
+  padding: 0 6px;
+}
+.ev-chip.ok {
+  color: var(--color-success);
+}
+.ev-chip.err {
+  color: var(--color-error);
+}
+.ev-result {
+  margin-top: var(--spacing-s4);
+}
+.ev-result.err .ev-mono {
+  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+}
+.ev-diff-path {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+}
+.diff-del {
+  color: var(--color-error);
+}
+.diff-add {
+  color: var(--color-success);
+}
+.ev-plan {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ev-plan li {
+  padding: 2px 0;
+}
+.ev-plan .plan-mark {
+  color: var(--text-secondary);
+}
+.ev-plan li.plan-completed,
+.ev-plan li.plan-done {
+  color: var(--text-muted);
+}
+.ev-input .ev-from {
+  display: inline-block;
+  color: var(--color-terminal-yellow);
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.ev-turn,
+.ev-usage,
+.ev-line,
+.ev-kv {
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+}
+.ev-usage {
+  font-family: var(--font-mono, monospace);
+}
+.ev-err-body {
+  color: var(--color-error);
+  white-space: pre-wrap;
+}
+.ev-kind-label {
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  margin-right: var(--spacing-s8);
 }
 .composer {
   flex: 0 0 auto;

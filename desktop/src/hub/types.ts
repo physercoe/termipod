@@ -23,3 +23,13 @@ export function obj(e: Entity, key: string): Entity | undefined {
   const v = e[key];
   return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Entity) : undefined;
 }
+
+export function bool(e: Entity, key: string): boolean | undefined {
+  const v = e[key];
+  return typeof v === 'boolean' ? v : undefined;
+}
+
+export function arr(e: Entity, key: string): unknown[] {
+  const v = e[key];
+  return Array.isArray(v) ? v : [];
+}

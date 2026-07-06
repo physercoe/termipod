@@ -176,6 +176,27 @@ async fn send(state: &State<'_, SshState>, id: &str, cmd: SshCmd) -> Result<(), 
     }
 }
 
+/// Metadata extracted from an imported private key (parity Phase 2a key store).
+#[derive(Serialize)]
+pub struct ParsedKey {
+    algorithm: String,
+    public_openssh: String,
+}
+
+/// Validate + introspect a pasted private key: confirm it parses (with the
+/// passphrase if encrypted) and return its algorithm + OpenSSH public key so the
+/// key store can show it and offer the public half to copy onto servers. Uses
+/// the same `decode_secret_key` path the connect flow uses.
+#[tauri::command]
+pub fn ssh_parse_key(pem: String, passphrase: Option<String>) -> Result<ParsedKey, String> {
+    let pass = passphrase.as_deref().filter(|s| !s.is_empty());
+    let key = decode_secret_key(&pem, pass).map_err(|e| format!("key parse: {e}"))?;
+    Ok(ParsedKey {
+        algorithm: key.algorithm().to_string(),
+        public_openssh: key.public_key().to_openssh().map_err(|e| e.to_string())?,
+    })
+}
+
 #[tauri::command]
 pub async fn ssh_write(state: State<'_, SshState>, id: String, data: String) -> Result<(), String> {
     send(&state, &id, SshCmd::Data(data.into_bytes())).await

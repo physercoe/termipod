@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, Notify};
 
+mod keychain;
 mod ssh;
 
 /// A REST request proxied through the Rust core (WS2/WS8). This lets the desktop
@@ -244,10 +245,14 @@ pub fn run() {
             system_proxy,
             hub_sse_open,
             hub_sse_close,
+            keychain::keychain_set,
+            keychain::keychain_get,
+            keychain::keychain_delete,
             ssh::ssh_connect,
             ssh::ssh_write,
             ssh::ssh_resize,
             ssh::ssh_close,
+            ssh::ssh_parse_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

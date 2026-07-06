@@ -27,3 +27,12 @@ tokio = { version = "1", features = ["macros", "sync", "io-util", "net", "time",
 # + install, then relaunch. Signing is mandatory (pubkey in tauri.conf.json).
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# OS keychain for all desktop secrets (SSH passwords/keys/passphrases, vault
+# material) — Windows Credential Manager / macOS Keychain / Linux Secret
+# Service. default-features off + the zbus (pure-Rust) secret-service backend so
+# the Linux build links no libdbus/libsecret system library in CI.
+keyring = { version = "4", default-features = false, features = [
+    "windows-native-keyring-store",
+    "apple-native-keyring-store",
+    "zbus-secret-service-keyring-store",
+] }

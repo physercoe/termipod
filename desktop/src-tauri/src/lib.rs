@@ -32,6 +32,17 @@ struct HubResponse {
     body: String,
 }
 
+/// A binary hub response — the raw bytes base64-encoded so they survive the
+/// string-typed IPC bridge (the webview's JSON transport corrupts non-UTF-8
+/// bytes). Used for content-addressed blobs (run images, PDFs) via
+/// `GET /v1/blobs/{sha}`.
+#[derive(Serialize)]
+struct HubBytesResponse {
+    status: u16,
+    mime: String,
+    base64: String,
+}
+
 #[tauri::command]
 async fn hub_request(req: HubRequest) -> Result<HubResponse, String> {
     let method = reqwest::Method::from_bytes(req.method.as_bytes()).map_err(|e| e.to_string())?;
@@ -47,6 +58,33 @@ async fn hub_request(req: HubRequest) -> Result<HubResponse, String> {
     let status = resp.status().as_u16();
     let body = resp.text().await.map_err(|e| e.to_string())?;
     Ok(HubResponse { status, body })
+}
+
+/// Like `hub_request` but returns the response body as base64 plus its
+/// content-type, so binary blobs (images, PDFs) survive the string IPC bridge.
+#[tauri::command]
+async fn hub_request_bytes(req: HubRequest) -> Result<HubBytesResponse, String> {
+    use base64::Engine as _;
+    let method = reqwest::Method::from_bytes(req.method.as_bytes()).map_err(|e| e.to_string())?;
+    let client = reqwest::Client::new();
+    let mut builder = client.request(method, &req.url);
+    for (key, value) in req.headers {
+        builder = builder.header(key, value);
+    }
+    if let Some(body) = req.body {
+        builder = builder.body(body);
+    }
+    let resp = builder.send().await.map_err(|e| e.to_string())?;
+    let status = resp.status().as_u16();
+    let mime = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    let base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(HubBytesResponse { status, mime, base64 })
 }
 
 // ---- external proxy resolution (updater) ------------------------------------
@@ -246,6 +284,7 @@ pub fn run() {
         .manage(SseState::default())
         .invoke_handler(tauri::generate_handler![
             hub_request,
+            hub_request_bytes,
             system_proxy,
             hub_sse_open,
             hub_sse_close,

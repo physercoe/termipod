@@ -1708,3 +1708,83 @@ th {
 .palette-item.active {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
+
+/* ---- criteria create + deliverable send-back (Phase 5 parity) ---- */
+.crit-metric-row {
+  display: flex;
+  gap: var(--spacing-s8);
+}
+.crit-metric-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.checkbox-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.checkbox-row input {
+  width: auto;
+}
+.send-back-box textarea {
+  width: 100%;
+  min-height: 72px;
+}
+.inline-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin: 0 var(--spacing-s8);
+}
+
+/* ---- plan detail ---- */
+.plan-step-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8) 0;
+  border-bottom: 1px solid var(--border);
+}
+.plan-step-main {
+  min-width: 0;
+}
+
+/* ---- run charts + media ---- */
+.metric-grid,
+.run-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--spacing-s12);
+}
+.metric-tile {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s8) var(--spacing-s12);
+}
+.metric-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s8);
+}
+.metric-name {
+  font-weight: 600;
+}
+.sparkline {
+  display: block;
+  width: 100%;
+  height: 48px;
+  color: var(--accent);
+  stroke: var(--accent);
+}
+.run-image-tile {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s8);
+}
+.run-image {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  display: block;
+}

@@ -35,11 +35,109 @@ function critStateClass(state: string): string {
   }
 }
 
+/// Compose a new acceptance criterion (parity — the mobile add-criterion sheet).
+/// `phase` + `kind` are required; text criteria carry a `{description}` body,
+/// metric criteria a `{metric, operator, threshold}` body.
+function NewCriterionForm({ projectId, phases, onDone }: { projectId: string; phases: string[]; onDone: () => void }): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const { run, busy, error } = useHubAction();
+  const [phase, setPhase] = useState(phases[0] ?? '');
+  const [kind, setKind] = useState<'text' | 'metric' | 'gate'>('text');
+  const [description, setDescription] = useState('');
+  const [metric, setMetric] = useState('');
+  const [operator, setOperator] = useState('>=');
+  const [threshold, setThreshold] = useState('');
+  const [required, setRequired] = useState(true);
+
+  const ready = phase.trim() !== '' && (kind === 'metric' ? metric.trim() !== '' : description.trim() !== '');
+
+  async function submit(): Promise<void> {
+    if (client === null || !ready) return;
+    const body: Record<string, unknown> =
+      kind === 'metric'
+        ? { metric: metric.trim(), operator, threshold: threshold.trim() }
+        : { description: description.trim() };
+    const created = await run(
+      () => client.createCriterion(projectId, { phase: phase.trim(), kind, body, required }),
+      { invalidate: [['criteria', projectId]] },
+    );
+    if (created !== undefined) onDone();
+  }
+
+  return (
+    <div className="palette-backdrop" onMouseDown={onDone}>
+      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="admin-tabs">
+          <strong>{t('crit.new')}</strong>
+          <span className="spacer" />
+          <button onClick={onDone}>{t('admin.close')}</button>
+        </div>
+        <div className="task-form">
+          <label>
+            {t('crit.phase')}
+            {phases.length > 0 ? (
+              <select value={phase} onChange={(e) => setPhase(e.target.value)}>
+                {phases.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input value={phase} onChange={(e) => setPhase(e.target.value)} placeholder={t('crit.phasePlaceholder')} />
+            )}
+          </label>
+          <label>
+            {t('crit.kind')}
+            <div className="seg">
+              {(['text', 'metric', 'gate'] as const).map((k) => (
+                <button key={k} className={kind === k ? 'seg-btn active' : 'seg-btn'} onClick={() => setKind(k)}>
+                  {k}
+                </button>
+              ))}
+            </div>
+          </label>
+          {kind === 'metric' ? (
+            <div className="crit-metric-row wide">
+              <input value={metric} onChange={(e) => setMetric(e.target.value)} placeholder={t('crit.metricName')} />
+              <select value={operator} onChange={(e) => setOperator(e.target.value)}>
+                {['>=', '>', '<=', '<', '=='].map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+              <input value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder={t('crit.threshold')} />
+            </div>
+          ) : (
+            <label className="wide">
+              {t('crit.statement')}
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} autoFocus />
+            </label>
+          )}
+          <label className="checkbox-row">
+            <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
+            {t('crit.required')}
+          </label>
+          {error !== null && <div className="error wide">{error}</div>}
+          <div className="wide task-form-actions">
+            <button className="primary" disabled={busy || !ready} onClick={() => void submit()}>
+              {t('crit.create')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CriteriaTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const { run, busy } = useHubAction();
   const [filter, setFilter] = useState('all');
+  const [creating, setCreating] = useState(false);
   const q = useQuery({
     queryKey: ['criteria', projectId],
     enabled: client !== null,
@@ -74,6 +172,8 @@ export function CriteriaTab({ projectId }: { projectId: string }): JSX.Element {
     void run(() => client!.criterionAction(projectId, cid, action), { invalidate: [['criteria', projectId]] });
   }
 
+  const knownPhases = [...new Set(all.map((c) => str(c, 'phase') ?? '').filter((p) => p !== ''))].sort();
+
   return (
     <div className="region-pad scroll">
       <div className="kanban-bar">
@@ -82,7 +182,10 @@ export function CriteriaTab({ projectId }: { projectId: string }): JSX.Element {
             {t(`crit.${s}`)}
           </button>
         ))}
+        <span className="spacer" />
+        <button onClick={() => setCreating(true)}>+ {t('crit.new')}</button>
       </div>
+      {creating && <NewCriterionForm projectId={projectId} phases={knownPhases} onDone={() => setCreating(false)} />}
       {all.length === 0 && <div className="muted">{t('crit.none')}</div>}
       {[...byPhase.keys()].sort().map((phase) => (
         <section key={phase} className="setting-group">
@@ -139,6 +242,8 @@ export function DeliverableDetail({
   const t = useT();
   const client = useSession((s) => s.client);
   const { run, busy, error } = useHubAction();
+  const [sendingBack, setSendingBack] = useState(false);
+  const [note, setNote] = useState('');
   const delivQ = useQuery({
     queryKey: ['deliverable', projectId, deliverableId],
     enabled: client !== null,
@@ -159,6 +264,7 @@ export function DeliverableDetail({
   const invalidate = [
     ['deliverable', projectId, deliverableId],
     ['project-overview', projectId],
+    ['attention'],
   ];
 
   return (
@@ -173,15 +279,45 @@ export function DeliverableDetail({
               {t('deliv.unratify')}
             </button>
           ) : (
-            <button className="primary" disabled={busy} onClick={() => void run(() => client!.ratifyDeliverable(projectId, deliverableId), { invalidate })}>
-              {t('deliv.ratify')}
-            </button>
+            <>
+              <button disabled={busy} title={t('deliv.sendBackHint')} onClick={() => setSendingBack((v) => !v)}>
+                {t('deliv.sendBack')}
+              </button>
+              <button className="primary" disabled={busy} onClick={() => void run(() => client!.ratifyDeliverable(projectId, deliverableId), { invalidate })}>
+                {t('deliv.ratify')}
+              </button>
+            </>
           )}
           <button onClick={onClose}>{t('admin.close')}</button>
         </div>
         <div className="region-pad scroll">
           {delivQ.isLoading && <div className="muted">{t('common.loading')}</div>}
           {error !== null && <div className="error">{error}</div>}
+          {sendingBack && !ratified && (
+            <section className="setting-group send-back-box">
+              <h3>{t('deliv.sendBack')}</h3>
+              <p className="muted small">{t('deliv.sendBackGuidance')}</p>
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('deliv.sendBackNote')} autoFocus />
+              <div className="task-form-actions">
+                <button onClick={() => setSendingBack(false)}>{t('admin.close')}</button>
+                <button
+                  className="primary"
+                  disabled={busy || note.trim() === ''}
+                  onClick={() =>
+                    void (async () => {
+                      const ok = await run(() => client!.sendBackDeliverable(projectId, deliverableId, { note: note.trim() }), { invalidate });
+                      if (ok !== undefined) {
+                        setNote('');
+                        setSendingBack(false);
+                      }
+                    })()
+                  }
+                >
+                  {t('deliv.sendBackSubmit')}
+                </button>
+              </div>
+            </section>
+          )}
           <div className="muted small">
             {t('deliv.phase')}: {str(d, 'phase') ?? '—'}
             {str(d, 'ratified_at') !== undefined ? ` · ${t('deliv.ratifiedAt')} ${str(d, 'ratified_at')}` : ''}

@@ -6,6 +6,7 @@ import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { ActivityTab, CriteriaTab, DeliverableDetail, FilesTab } from './ProjectPanels';
+import { PlanDetail } from './PlanDetail';
 import { RunDetail } from './RunDetail';
 import { TaskDetail } from './TaskDetail';
 
@@ -354,6 +355,7 @@ function PlansTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const { run: act, busy, error } = useHubAction();
+  const [open, setOpen] = useState<string | null>(null);
   const q = useQuery({
     queryKey: ['plans', projectId],
     enabled: client !== null,
@@ -387,17 +389,21 @@ function PlansTab({ projectId }: { projectId: string }): JSX.Element {
         </tr>
       </thead>
       <tbody>
-        {plans.map((p, i) => (
-          <tr key={str(p, 'id') ?? String(i)}>
-            <td>{str(p, 'status') ?? ''}</td>
-            <td className="mono">{str(p, 'id')}</td>
-            <td>{num(p, 'version') ?? ''}</td>
-            <td>{str(p, 'created_at') ?? ''}</td>
-          </tr>
-        ))}
+        {plans.map((p, i) => {
+          const id = str(p, 'id') ?? '';
+          return (
+            <tr key={id || String(i)} role="button" className="clickable-row" onClick={() => id && setOpen(id)}>
+              <td>{str(p, 'status') ?? ''}</td>
+              <td className="mono">{id}</td>
+              <td>{num(p, 'version') ?? ''}</td>
+              <td>{str(p, 'created_at') ?? ''}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
       )}
+      {open !== null && <PlanDetail planId={open} onClose={() => setOpen(null)} />}
     </>
   );
 }

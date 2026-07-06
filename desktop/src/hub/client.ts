@@ -232,6 +232,28 @@ export class HubClient {
   createPlan(body: { project_id: string; template_id?: string; version?: number; spec_json?: unknown }): Promise<Entity> {
     return this.transport.post(this.transport.team('/plans'), body) as Promise<Entity>;
   }
+  /** One plan (`handleGetPlan`) — status, version, spec_json, timestamps. */
+  getPlan(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/plans/${id}`)) as Promise<Entity>;
+  }
+  /** Edit a plan (`handleUpdatePlan`, `PATCH …/plans/{id}`, 204). `status` ∈
+   * draft|ready|running|completed|failed|cancelled; `spec_json` replaces the body. */
+  updatePlan(id: string, patch: { status?: string; spec_json?: unknown }): Promise<unknown> {
+    return this.transport.patch(this.transport.team(`/plans/${id}`), patch);
+  }
+  /** A plan's steps (`handleListPlanSteps`, bare array). */
+  async listPlanSteps(planId: string): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team(`/plans/${planId}/steps`)));
+  }
+  /** Edit a plan step (`handleUpdatePlanStep`, `PATCH …/plans/{id}/steps/{step}`).
+   * `status` ∈ pending|running|completed|failed|blocked|skipped. */
+  updatePlanStep(
+    planId: string,
+    stepId: string,
+    patch: { status?: string; started_at?: string; completed_at?: string; agent_id?: string; input_refs_json?: unknown; output_refs_json?: unknown },
+  ): Promise<unknown> {
+    return this.transport.patch(this.transport.team(`/plans/${planId}/steps/${stepId}`), patch);
+  }
   /** A single run (`handleGetRun`) — `runOut`: status, config_json, seed,
    * started_at, finished_at, agent_id, trackio refs, parent_run_id. */
   getRun(id: string): Promise<Entity> {
@@ -246,6 +268,45 @@ export class HubClient {
    * Filter by `project` and/or `run` (note: `run`, not `run_id`). */
   async listArtifacts(params: { project?: string; run?: string; kind?: string } = {}): Promise<Entity[]> {
     return asArray(await this.transport.get(this.transport.team('/artifacts'), params));
+  }
+  /** Edit a run (`handleUpdateRun`, `PATCH …/runs/{id}`). All fields optional;
+   * `status` ∈ pending|running|completed|failed|cancelled. Setting
+   * `trackio_run_uri` without a host auto-derives it from the agent. */
+  updateRun(
+    id: string,
+    patch: {
+      status?: string;
+      config_json?: unknown;
+      seed?: number;
+      agent_id?: string;
+      started_at?: string;
+      finished_at?: string;
+      trackio_host_id?: string;
+      trackio_run_uri?: string;
+      parent_run_id?: string;
+    },
+  ): Promise<Entity> {
+    return this.transport.patch(this.transport.team(`/runs/${id}`), patch) as Promise<Entity>;
+  }
+  /** Scalar training metrics (`handleGetRunMetrics`, bare array). Each row:
+   * `{name, points:[{step,value}…], sample_count, last_step?, last_value?, updated_at}`. */
+  async getRunMetrics(id: string): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team(`/runs/${id}/metrics`)));
+  }
+  /** GPU/CPU system metrics (`handleGetRunSystemMetrics`, same shape as /metrics). */
+  async getRunSystemMetrics(id: string): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team(`/runs/${id}/system_metrics`)));
+  }
+  /** Logged run images (`handleGetRunImages`, bare array). Each row:
+   * `{id, metric_name, step, blob_sha, caption?, created_at}`; fetch bytes via
+   * `getBlobDataUrl(blob_sha)`. Optional `metric` filter. */
+  async getRunImages(id: string, metric?: string): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team(`/runs/${id}/images`), { metric }));
+  }
+  /** Logged histograms (`handleGetRunHistograms`, bare array). Each row:
+   * `{name, step, buckets, updated_at}`. Optional `metric` filter. */
+  async getRunHistograms(id: string, metric?: string): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team(`/runs/${id}/histograms`), { metric }));
   }
 
   // --- deliverables + ratify (Phase 4) ---
@@ -287,6 +348,16 @@ export class HubClient {
   getDeliverable(projectId: string, deliverableId: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/projects/${projectId}/deliverables/${deliverableId}`)) as Promise<Entity>;
   }
+  /** Send a deliverable back for revision (`POST …/send-back`, `handleSendBack`).
+   * `note` required; moves state to `in-review` and raises a `revision_requested`
+   * attention item. 409 if the deliverable is currently ratified (unratify first),
+   * 422 if an annotation id doesn't belong to a component document. */
+  sendBackDeliverable(projectId: string, deliverableId: string, body: { note: string; annotation_ids?: string[] }): Promise<Entity> {
+    return this.transport.post(
+      this.transport.team(`/projects/${projectId}/deliverables/${deliverableId}/send-back`),
+      body,
+    ) as Promise<Entity>;
+  }
 
   // --- acceptance criteria (Phase 4 / parity) ---
   /** A project's acceptance criteria (`handleListCriteria` → `{items:[…]}`).
@@ -311,6 +382,16 @@ export class HubClient {
       this.transport.team(`/projects/${projectId}/criteria/${criterionId}/${action}`),
       body,
     ) as Promise<Entity>;
+  }
+  /** Create an acceptance criterion (`handleCreateCriterion`, direct write, 201).
+   * `phase` + `kind` (text|metric|gate) required; `body` is a free-form object
+   * (text → {description}; metric → {metric, operator, threshold}). Optional
+   * `deliverable_id` (must exist in the project), `required` (default true), `ord`. */
+  createCriterion(
+    projectId: string,
+    body: { phase: string; kind: 'text' | 'metric' | 'gate'; body?: Record<string, unknown>; deliverable_id?: string; required?: boolean; ord?: number },
+  ): Promise<Entity> {
+    return this.transport.post(this.transport.team(`/projects/${projectId}/criteria`), body) as Promise<Entity>;
   }
 
   // --- project docs_root files (parity Files tab) ---
@@ -337,6 +418,22 @@ export class HubClient {
    * else `artifact_id` points at a blob-backed artifact (`handleGetDocument`). */
   getDocument(id: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/documents/${id}`)) as Promise<Entity>;
+  }
+  /** Compose a document (`handleCreateDocument`, direct write, 201). `project_id`,
+   * `kind`, `title` required; plain-markdown kinds are memo|draft|report|review|
+   * sample. Exactly one of `content_inline` (≤256 KiB) / `artifact_id`. Pass
+   * `prev_version_id` to author a new version of an existing document (the edit
+   * mechanism — documents are versioned, there is no whole-document PATCH). */
+  createDocument(body: {
+    project_id: string;
+    kind: string;
+    title: string;
+    content_inline?: string;
+    artifact_id?: string;
+    schema_id?: string;
+    prev_version_id?: string;
+  }): Promise<Entity> {
+    return this.transport.post(this.transport.team('/documents'), body) as Promise<Entity>;
   }
 
   // --- insights analytics (Phase 4, ADR-038/039/041) ---
@@ -365,12 +462,56 @@ export class HubClient {
     return asArray(out);
   }
 
-  // --- governance depth: templates + agent families (read, Phase 4) ---
+  // --- governance depth: templates + agent families (read + write, Phase 5) ---
   async listTemplates(category?: string): Promise<Entity[]> {
     return asArray(await this.transport.get(this.transport.team('/templates'), { category }));
   }
+  /** Raw bytes of one template (`handleGetTemplate` — YAML/markdown/JSON served
+   * verbatim). `merge=1` folds the per-team overlay over the bundled default. */
+  getTemplateText(category: string, name: string, merge = false): Promise<string> {
+    return this.transport.getText(
+      this.transport.team(`/templates/${encodeURIComponent(category)}/${encodeURIComponent(name)}`) + (merge ? '?merge=1' : ''),
+    );
+  }
+  /** Create/overwrite a template (`handlePutTemplate`, raw body ≤1 MiB, writes a
+   * per-team overlay file). 403 if an agent edits its own kind's template
+   * (principal/director bypass). */
+  putTemplate(category: string, name: string, text: string): Promise<unknown> {
+    return this.transport.putText(this.transport.team(`/templates/${encodeURIComponent(category)}/${encodeURIComponent(name)}`), text);
+  }
+  /** Remove a template overlay (`handleDeleteTemplate`; falls back to bundled). */
+  deleteTemplate(category: string, name: string): Promise<unknown> {
+    return this.transport.delete(this.transport.team(`/templates/${encodeURIComponent(category)}/${encodeURIComponent(name)}`));
+  }
+  /** Rename a template (`handleRenameTemplate`, `PATCH` body `{new_name}`). */
+  renameTemplate(category: string, name: string, newName: string): Promise<unknown> {
+    return this.transport.patch(this.transport.team(`/templates/${encodeURIComponent(category)}/${encodeURIComponent(name)}`), { new_name: newName });
+  }
   async listAgentFamilies(): Promise<Entity[]> {
     return asArray(await this.transport.get(this.transport.team('/agent-families')));
+  }
+  /** Raw YAML of one agent family (`handleGetAgentFamily`, single Family record). */
+  getAgentFamilyText(family: string): Promise<string> {
+    return this.transport.getText(this.transport.team(`/agent-families/${encodeURIComponent(family)}`));
+  }
+  /** Create/overwrite an agent family (`handlePutAgentFamily`, raw YAML ≤8 KiB,
+   * strict-parsed; body `family` must equal the path). Writes an overlay file. */
+  putAgentFamily(family: string, yamlText: string): Promise<unknown> {
+    return this.transport.putText(this.transport.team(`/agent-families/${encodeURIComponent(family)}`), yamlText);
+  }
+  /** Remove an agent-family overlay (`handleDeleteAgentFamily`; 409 if the family
+   * is embedded-only — write an override instead). */
+  deleteAgentFamily(family: string): Promise<unknown> {
+    return this.transport.delete(this.transport.team(`/agent-families/${encodeURIComponent(family)}`));
+  }
+
+  // --- content-addressed blob bytes (parity — run media, doc/artifact viewers) ---
+  /** Fetch a blob by sha and return a `data:` URL for direct `<img>`/embedding
+   * (`GET /v1/blobs/{sha}` — auth-gated raw bytes; NOT team-scoped by path). The
+   * bytes cross the Rust core as base64 so binary survives the string transport. */
+  async getBlobDataUrl(sha: string): Promise<string> {
+    const { mime, base64 } = await this.transport.getBytes(`/v1/blobs/${encodeURIComponent(sha)}`);
+    return `data:${mime || 'application/octet-stream'};base64,${base64}`;
   }
 
   // --- team governance (WS7) ---

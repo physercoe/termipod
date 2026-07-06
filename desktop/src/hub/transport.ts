@@ -119,6 +119,29 @@ export class HubTransport {
     return this.request('DELETE', path);
   }
 
+  /** GET raw binary bytes (e.g. `/v1/blobs/{sha}` image/pdf blobs) as base64 plus
+   * the response content-type. The JSON/text transports would corrupt non-UTF-8
+   * bytes, so under Tauri this routes through the Rust core's `hub_request_bytes`
+   * (reqwest → base64); the plain-browser build reads the ArrayBuffer directly. */
+  async getBytes(path: string): Promise<{ mime: string; base64: string }> {
+    const url = this.buildUrl(path);
+    const headers = this.headers(true);
+    if (isTauri()) {
+      const res = await invoke<{ status: number; mime: string; base64: string }>('hub_request_bytes', {
+        req: { method: 'GET', url, headers, body: null },
+      });
+      if (res.status < 200 || res.status >= 300) throw new HubApiError(res.status, res.base64);
+      return { mime: res.mime, base64: res.base64 };
+    }
+    const res = await fetch(url, { method: 'GET', headers });
+    if (res.status < 200 || res.status >= 300) throw new HubApiError(res.status, await res.text());
+    const mime = res.headers.get('content-type') ?? '';
+    const buf = new Uint8Array(await res.arrayBuffer());
+    let binary = '';
+    for (let i = 0; i < buf.length; i += 1) binary += String.fromCharCode(buf[i]);
+    return { mime, base64: btoa(binary) };
+  }
+
   /** `/v1/_info` is allowed unauthenticated — probe a candidate URL/token. */
   probe(): Promise<Json> {
     return this.get('/v1/_info', undefined, false);

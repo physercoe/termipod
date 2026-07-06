@@ -143,9 +143,15 @@ voice input · ~~offline cache~~ **✅ (Phase 3)** · voice/action-bar settings.
   cache; **OS keychain via the Rust core** for all secrets (tokens, SSH keys,
   vault material). One module (`state/persist.ts` + Rust `keychain` commands) that
   the rest build on.
-- **F3 — write-path ergonomics.** A shared "governed action" submit helper (the
-  hub's propose→approve loop, ADR-030) and optimistic-invalidate patterns so the
-  many create/edit surfaces in Phase 4 are uniform.
+- **F3 — write-path ergonomics. ✅ SHIPPED (commit 0c84d165).** `hub/action.ts`
+  `useHubAction` — a shared submit helper (busy/error + optimistic query
+  invalidation) that the create/edit surfaces share. *Governance clarification
+  from grounding:* the hub's `propose` verb (ADR-030) is **MCP-only and binds an
+  agent identity**; the desktop is the **principal**, so its creates apply
+  **directly** (project-create admits a principal; spawn is self-governing and
+  returns `202 pending_approval` when policy demands it) and the director
+  **approves** agent proposals via the existing AttentionDock. So F3 is a
+  direct-write helper, not a propose client.
 
 ## Phased plan
 
@@ -190,15 +196,16 @@ mobile team-id-in-key + clear-on-switch for partitioning rather than a full
 the snapshot sizes; revisit if it grows).
 
 **Phase 4 — write paths + missing surfaces (breadth). ◐ IN PROGRESS.** The long
-tail, roughly by value. **Shipped so far** (commits f5751a97, 764e7406): the two
+tail, roughly by value. **Shipped so far** (commits f5751a97, 764e7406, 0c84d165): the two
 cheap wins — **Sessions** surface (`listSessions` + session digest via `RunReport`)
-and **Channels** chat (`streamChannel` backfill+stream + `postChannelMessage`) —
-plus the first write path, **task create** (`createTask`, direct POST). *Remaining:*
-project/run/plan create+edit and agent spawn (several are governed propose→approve,
-ADR-030 — need the F3 write-path helper); deliverable ratify/reviews; documents +
-artifacts/blobs viewers; search; Insights analytics; Me home + decision history +
-notes; team governance depth (templates/families/budget/councils/steward-config).
-Depends on F1/F3.
+and **Channels** chat (`streamChannel` backfill+stream + `postChannelMessage`);
+**task create**; and (on **F3**) **project create + start** and **agent spawn**
+(direct principal writes; spawn's `202 pending_approval` flows to the dock).
+*Remaining:* run/plan create+edit; project/task edit depth; deliverable
+ratify/reviews (a `deliverable.set_state` propose kind — but that's agent-side;
+the director ratifies via the dock); documents + artifacts/blobs viewers; search;
+Insights analytics; Me home + decision history + notes; team governance depth
+(templates/families/budget/councils/steward-config).
 
 **Phase 5 — polish.** Voice input (Alibaba DashScope WS, `lib/services/voice`),
 tmux pane management, file transfer/remote browser, voice/action-bar/keyboard

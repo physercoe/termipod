@@ -1163,6 +1163,38 @@ th {
   font-size: var(--font-size-label);
 }
 
+/* ---- search + docs + me (Phase 4) ---- */
+.search-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.search-bar input {
+  flex: 1;
+}
+.search-result {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 0;
+}
+.search-result-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 3px;
+}
+.search-result-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.doc-body {
+  max-width: 76ch;
+}
+.me-decision-kind {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-secondary);
+  margin-left: 8px;
+}
+
 /* ---- create paths (Phase 4 / F3) ---- */
 .tree-section-row {
   display: flex;

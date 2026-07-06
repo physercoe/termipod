@@ -154,14 +154,43 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
         {deliverables.length === 0 ? (
           <div className="muted">{t('proj.noDeliverables')}</div>
         ) : (
-          deliverables.map((d) => (
-            <div key={str(d, 'id')} className="admin-row">
-              <span>{str(d, 'kind') ?? str(d, 'id')}</span>
-              <span className={`sev${str(d, 'ratification_state') === 'ratified' ? ' sev-medium' : ''}`}>
-                {str(d, 'ratification_state') ?? '—'}
-              </span>
-            </div>
-          ))
+          deliverables.map((d) => {
+            const did = str(d, 'id') ?? '';
+            const state = str(d, 'ratification_state') ?? '—';
+            const ratified = state === 'ratified';
+            return (
+              <div key={did} className="admin-row">
+                <span>{str(d, 'kind') ?? did}</span>
+                <span className="spacer" />
+                <span className={`sev${ratified ? ' sev-medium' : ''}`}>{state}</span>
+                {ratified ? (
+                  <button
+                    disabled={busy}
+                    title={t('deliv.unratifyHint')}
+                    onClick={() =>
+                      void run(() => client!.unratifyDeliverable(projectId, did), {
+                        invalidate: [['project-overview', projectId]],
+                      })
+                    }
+                  >
+                    {t('deliv.unratify')}
+                  </button>
+                ) : (
+                  <button
+                    className="primary"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(() => client!.ratifyDeliverable(projectId, did), {
+                        invalidate: [['project-overview', projectId]],
+                      })
+                    }
+                  >
+                    {t('deliv.ratify')}
+                  </button>
+                )}
+              </div>
+            );
+          })
         )}
       </section>
     </div>
@@ -171,17 +200,30 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
 function RunsTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
+  const { run: act, busy, error } = useHubAction();
   const q = useQuery({
     queryKey: ['runs', projectId],
     enabled: client !== null,
     refetchInterval: 15000,
     queryFn: () => client!.listRuns(projectId),
   });
+  const launch = (): void =>
+    void act(() => client!.createRun({ project_id: projectId }), { invalidate: [['runs', projectId]] });
   if (q.isLoading) return <div className="region-pad muted">{t('proj.loading')}</div>;
   if (q.isError) return <div className="region-pad error">{(q.error as Error).message}</div>;
   const runs = q.data ?? [];
-  if (runs.length === 0) return <div className="region-pad muted">{t('proj.noRuns')}</div>;
   return (
+    <>
+      <div className="kanban-bar">
+        {error !== null && <span className="error small">{error}</span>}
+        <span className="spacer" />
+        <button disabled={busy} onClick={launch}>
+          + {t('proj.launchRun')}
+        </button>
+      </div>
+      {runs.length === 0 ? (
+        <div className="region-pad muted">{t('proj.noRuns')}</div>
+      ) : (
     <table>
       <thead>
         <tr>
@@ -202,23 +244,38 @@ function RunsTab({ projectId }: { projectId: string }): JSX.Element {
         ))}
       </tbody>
     </table>
+      )}
+    </>
   );
 }
 
 function PlansTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
+  const { run: act, busy, error } = useHubAction();
   const q = useQuery({
     queryKey: ['plans', projectId],
     enabled: client !== null,
     refetchInterval: 15000,
     queryFn: () => client!.listPlans(projectId),
   });
+  const create = (): void =>
+    void act(() => client!.createPlan({ project_id: projectId, spec_json: {} }), { invalidate: [['plans', projectId]] });
   if (q.isLoading) return <div className="region-pad muted">{t('proj.loading')}</div>;
   if (q.isError) return <div className="region-pad error">{(q.error as Error).message}</div>;
   const plans = q.data ?? [];
-  if (plans.length === 0) return <div className="region-pad muted">{t('proj.noPlans')}</div>;
   return (
+    <>
+      <div className="kanban-bar">
+        {error !== null && <span className="error small">{error}</span>}
+        <span className="spacer" />
+        <button disabled={busy} onClick={create}>
+          + {t('proj.newPlan')}
+        </button>
+      </div>
+      {plans.length === 0 ? (
+        <div className="region-pad muted">{t('proj.noPlans')}</div>
+      ) : (
     <table>
       <thead>
         <tr>
@@ -239,6 +296,8 @@ function PlansTab({ projectId }: { projectId: string }): JSX.Element {
         ))}
       </tbody>
     </table>
+      )}
+    </>
   );
 }
 

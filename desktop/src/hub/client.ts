@@ -193,6 +193,96 @@ export class HubClient {
     const out = await this.transport.get(this.transport.team('/plans'), { project: projectId });
     return asArray(out);
   }
+  /** Launch a run (`handleCreateRun`, direct write). `project_id` required;
+   * status is created `pending`. */
+  createRun(body: { project_id: string; agent_id?: string; config_json?: unknown; seed?: number }): Promise<Entity> {
+    return this.transport.post(this.transport.team('/runs'), body) as Promise<Entity>;
+  }
+  /** Author a plan (`handleCreatePlan`, direct write). `project_id` required;
+   * status is created `draft`. `spec_json` is the plan body. */
+  createPlan(body: { project_id: string; template_id?: string; version?: number; spec_json?: unknown }): Promise<Entity> {
+    return this.transport.post(this.transport.team('/plans'), body) as Promise<Entity>;
+  }
+
+  // --- deliverables + ratify (Phase 4) ---
+  /** Deliverables for a project (`handleListDeliverables` → `{items:[…]}`).
+   * `include=components` populates each deliverable's components array. */
+  async listDeliverables(projectId: string, opts: { phase?: string; include?: 'components' } = {}): Promise<Entity[]> {
+    const out = (await this.transport.get(this.transport.team(`/projects/${projectId}/deliverables`), {
+      phase: opts.phase,
+      include: opts.include,
+    })) as Entity;
+    return asArray(out?.items);
+  }
+  /** Ratify a deliverable (`POST …/ratify`, direct — any team token, records
+   * `ratified_by_actor`). 409 if already ratified or phase gate blocks. */
+  ratifyDeliverable(projectId: string, deliverableId: string, rationale?: string): Promise<Entity> {
+    return this.transport.post(
+      this.transport.team(`/projects/${projectId}/deliverables/${deliverableId}/ratify`),
+      rationale !== undefined ? { rationale } : {},
+    ) as Promise<Entity>;
+  }
+  /** Revert a ratified deliverable back to draft (`POST …/unratify`). */
+  unratifyDeliverable(projectId: string, deliverableId: string): Promise<Entity> {
+    return this.transport.post(
+      this.transport.team(`/projects/${projectId}/deliverables/${deliverableId}/unratify`),
+      {},
+    ) as Promise<Entity>;
+  }
+  /** Move a deliverable's state (`PATCH …` — draft|in-review ONLY; `ratified`
+   * is rejected, use ratify). */
+  patchDeliverable(projectId: string, deliverableId: string, patch: { ratification_state?: string }): Promise<Entity> {
+    return this.transport.patch(
+      this.transport.team(`/projects/${projectId}/deliverables/${deliverableId}`),
+      patch,
+    ) as Promise<Entity>;
+  }
+
+  // --- documents (Phase 4) ---
+  /** DB-row documents (`handleListDocuments`). List rows omit `content_inline`. */
+  async listDocuments(projectId?: string, kind?: string): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/documents'), { project: projectId, kind });
+    return asArray(out);
+  }
+  /** One document with `content_inline` (markdown body) when authored inline;
+   * else `artifact_id` points at a blob-backed artifact (`handleGetDocument`). */
+  getDocument(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/documents/${id}`)) as Promise<Entity>;
+  }
+
+  // --- insights analytics (Phase 4, ADR-038/039/041) ---
+  /** The insights aggregator (`handleInsights`, NOT team-scoped by path — scopes
+   * to the token's team). Pass EXACTLY ONE scope key
+   * (project_id|team_id|agent_id|engine|host_id) + optional RFC3339 since/until. */
+  getInsights(scope: {
+    project_id?: string;
+    team_id?: string;
+    agent_id?: string;
+    engine?: string;
+    host_id?: string;
+    kind?: string;
+    since?: string;
+    until?: string;
+  }): Promise<Entity> {
+    return this.transport.get('/v1/insights', scope as Record<string, string | undefined>) as Promise<Entity>;
+  }
+
+  // --- search (Phase 4) ---
+  /** Full-text search over event text parts (`handleSearch`, `/v1/search`, NOT
+   * team-scoped by path — token-scoped; 403 for a teamless token). Returns
+   * `{id, received_ts, channel_id, type, from_id, parts}` rows. */
+  async searchEvents(q: string, limit = 50): Promise<Entity[]> {
+    const out = await this.transport.get('/v1/search', { q, limit: String(limit) });
+    return asArray(out);
+  }
+
+  // --- governance depth: templates + agent families (read, Phase 4) ---
+  async listTemplates(category?: string): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team('/templates'), { category }));
+  }
+  async listAgentFamilies(): Promise<Entity[]> {
+    return asArray(await this.transport.get(this.transport.team('/agent-families')));
+  }
 
   // --- team governance (WS7) ---
   /** Team policy as raw YAML text (`GET /policy` serves `application/yaml`, so

@@ -10,8 +10,12 @@ import { AgentTranscript } from '../surfaces/AgentTranscript';
 import { AttentionDock } from '../surfaces/AttentionDock';
 import { AuditConsole } from '../surfaces/AuditConsole';
 import { ChannelsPanel } from '../surfaces/ChannelsPanel';
+import { DocsPanel } from '../surfaces/DocsPanel';
+import { InsightsPanel } from '../surfaces/InsightsPanel';
+import { MePanel } from '../surfaces/MePanel';
 import { Navigator } from '../surfaces/Navigator';
 import { ProjectBoard } from '../surfaces/ProjectBoard';
+import { SearchPanel } from '../surfaces/SearchPanel';
 import { SessionsPanel } from '../surfaces/SessionsPanel';
 import { Settings } from '../surfaces/Settings';
 import { Terminal } from '../surfaces/Terminal';
@@ -38,6 +42,10 @@ export function AppShell(): JSX.Element {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
+  const [meOpen, setMeOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [editProfile, setEditProfile] = useState<HubProfile | undefined>(undefined);
 
@@ -75,6 +83,10 @@ export function AppShell(): JSX.Element {
     { id: 'admin', label: t('cmd.admin'), run: () => setAdminOpen(true) },
     { id: 'sessions', label: t('cmd.sessions'), run: () => setSessionsOpen(true) },
     { id: 'channels', label: t('cmd.channels'), run: () => setChannelsOpen(true) },
+    { id: 'insights', label: t('cmd.insights'), run: () => setInsightsOpen(true) },
+    { id: 'docs', label: t('cmd.docs'), run: () => setDocsOpen(true) },
+    { id: 'me', label: t('cmd.me'), run: () => setMeOpen(true) },
+    { id: 'search', label: t('cmd.search'), run: () => setSearchOpen(true) },
     { id: 'terminal', label: t('cmd.terminal'), run: () => setTerminalOpen(true) },
     { id: 'settings', label: t('cmd.settings'), run: () => setSettingsOpen(true) },
     client === null
@@ -102,6 +114,9 @@ export function AppShell(): JSX.Element {
           <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
         )}
         <span className="spacer" />
+        <button onClick={() => setInsightsOpen(true)}>{t('shell.insights')}</button>
+        <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
+        <button onClick={() => setMeOpen(true)}>{t('shell.me')}</button>
         <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
         <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
         <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
@@ -148,6 +163,10 @@ export function AppShell(): JSX.Element {
       {terminalOpen && <Terminal onClose={() => setTerminalOpen(false)} />}
       {sessionsOpen && <SessionsPanel onClose={() => setSessionsOpen(false)} />}
       {channelsOpen && <ChannelsPanel onClose={() => setChannelsOpen(false)} />}
+      {insightsOpen && <InsightsPanel onClose={() => setInsightsOpen(false)} />}
+      {docsOpen && <DocsPanel onClose={() => setDocsOpen(false)} />}
+      {meOpen && <MePanel onClose={() => setMeOpen(false)} />}
+      {searchOpen && <SearchPanel onClose={() => setSearchOpen(false)} />}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
       {connectOpen && (
         <ConnectPanel

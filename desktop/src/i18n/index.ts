@@ -62,6 +62,9 @@ const en: Dict = {
   'tx.archive': 'Archive',
   'tx.sendPlaceholder': 'Send to agent…',
   'tx.send': 'Send',
+  'composer.attach': 'Attach file or image',
+  'composer.unsupported': '{name}: unsupported file type',
+  'composer.readFailed': '{name}: could not read file',
   'tx.noEvents': 'No events yet.',
   'tx.loadingDigest': 'Loading digest…',
 
@@ -247,6 +250,9 @@ const zh: Dict = {
   'tx.archive': '归档',
   'tx.sendPlaceholder': '发送给代理…',
   'tx.send': '发送',
+  'composer.attach': '附加文件或图片',
+  'composer.unsupported': '{name}：不支持的文件类型',
+  'composer.readFailed': '{name}：无法读取文件',
   'tx.noEvents': '暂无事件。',
   'tx.loadingDigest': '加载摘要…',
 

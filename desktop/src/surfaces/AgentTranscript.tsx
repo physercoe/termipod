@@ -4,6 +4,8 @@ import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import type { InputAttachments } from '../hub/client';
+import { Composer } from '../ui/Composer';
 import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
 import { RunReport } from '../ui/RunReport';
 
@@ -51,7 +53,6 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const qc = useQueryClient();
   const [events, setEvents] = useState<Entity[]>([]);
   const [tab, setTab] = useState<'transcript' | 'digest'>('transcript');
-  const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -110,16 +111,9 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     }
   }
 
-  async function send(): Promise<void> {
-    if (client === null || draft.trim() === '') return;
-    const body = draft;
-    setDraft('');
-    try {
-      await client.postAgentInput(agentId, body);
-    } catch (err) {
-      setError(msg(err));
-      setDraft(body);
-    }
+  async function send(body: string, att: InputAttachments): Promise<void> {
+    if (client === null) return;
+    await client.postAgentInput(agentId, body, att);
   }
 
   return (
@@ -164,22 +158,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
             {feed.length === 0 && <div className="region-pad muted">{t('tx.noEvents')}</div>}
             <div ref={bottomRef} />
           </div>
-          <div className="composer">
-            <input
-              value={draft}
-              placeholder={t('tx.sendPlaceholder')}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-            />
-            <button className="primary" onClick={() => void send()} disabled={draft.trim() === ''}>
-              {t('tx.send')}
-            </button>
-          </div>
+          <Composer onSend={send} />
         </>
       ) : (
         <div className="region-pad digest">

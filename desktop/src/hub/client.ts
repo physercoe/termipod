@@ -7,6 +7,19 @@ function asArray(v: unknown): Entity[] {
   return Array.isArray(v) ? (v as Entity[]) : [];
 }
 
+/** One multimodal attachment on an input turn — `data` is RAW base64. */
+export interface WireAttachment {
+  mime_type: string;
+  data: string;
+  filename?: string;
+}
+export interface InputAttachments {
+  images?: WireAttachment[];
+  pdfs?: WireAttachment[];
+  audios?: WireAttachment[];
+  videos?: WireAttachment[];
+}
+
 /// Typed facade over the hub REST + SSE API — the web analogue of
 /// hub_client.dart. Subclient methods are grouped inline; paths verified against
 /// hub/internal/server/server.go. Note `hub/stats` is NOT team-scoped.
@@ -91,9 +104,13 @@ export class HubClient {
   getAgentDigest(id: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/agents/${id}/digest`)) as Promise<Entity>;
   }
-  /** Send director text into an agent (flat `{kind:'text', body}` per the hub). */
-  postAgentInput(id: string, body: string): Promise<unknown> {
-    return this.transport.post(this.transport.team(`/agents/${id}/input`), { kind: 'text', body });
+  /** Send director text (+ optional multimodal attachments) into an agent. Flat
+   * `{kind:'text', body, images?, pdfs?, audios?, videos?}` per the hub
+   * (handlers_agent_input.go). Each attachment's `data` is RAW base64 (no
+   * `data:` prefix); the hub base64-decodes it to enforce size caps. Modalities
+   * an engine doesn't support are strip-and-warned hub-side, not rejected. */
+  postAgentInput(id: string, body: string, att?: InputAttachments): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/input`), { kind: 'text', body, ...att });
   }
 
   // --- projects / tasks (WS6) ---

@@ -417,15 +417,71 @@ body {
   font-size: var(--font-size-label);
   margin-right: var(--spacing-s8);
 }
-.composer {
+.composer-wrap {
   flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+}
+.composer {
   display: flex;
   gap: var(--spacing-s8);
   padding: var(--spacing-s8);
-  border-top: 1px solid var(--border);
+  align-items: center;
 }
-.composer input {
+.composer input[type='text'],
+.composer input:not([type]) {
   flex: 1;
+}
+.composer .attach-btn {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  font-size: var(--font-size-body);
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+.composer-err {
+  padding: var(--spacing-s4) var(--spacing-s8) 0;
+}
+.composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s8) 0;
+}
+.att-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: 2px var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-stadium);
+  font-size: var(--font-size-label);
+  max-width: 260px;
+}
+.att-chip .att-kind {
+  text-transform: uppercase;
+  color: var(--color-terminal-blue);
+  letter-spacing: 0.03em;
+}
+.att-chip.k-image .att-kind {
+  color: var(--color-terminal-cyan);
+}
+.att-chip.k-text .att-kind {
+  color: var(--color-secondary);
+}
+.att-chip .att-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.att-chip .att-x {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: var(--font-size-body);
+  line-height: 1;
 }
 .digest pre {
   white-space: pre-wrap;

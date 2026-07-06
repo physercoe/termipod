@@ -236,6 +236,9 @@ async fn hub_sse_close(state: State<'_, SseState>, id: String) -> Result<(), Str
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Register the OS credential store before any keychain command can run —
+    // keyring 4.1.3's own lazy registration is a no-op (see keychain.rs).
+    keychain::init_default_store();
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

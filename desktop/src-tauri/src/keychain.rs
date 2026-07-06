@@ -11,6 +11,32 @@ use keyring::{Entry, Error as KeyringError};
 
 const SERVICE: &str = "app.termipod.desktop";
 
+/// Register the OS-native credential store as keyring-core's default. Call once
+/// at startup, before any `Entry` is created.
+///
+/// keyring 4.1.3 is meant to do this lazily on the first `Entry::new`, but its
+/// guard — `SET_CREDENTIAL_STORE.compare_exchange(false, true, …) == Ok(true)` —
+/// never matches (a *successful* CAS returns `Ok(false)`), so no store is ever
+/// registered and every keychain call fails with "No default store has been
+/// set". We register it ourselves; the store choice mirrors keyring's own
+/// `v1::set_credential_store` target cfgs so we pick the same backend it would.
+pub fn init_default_store() {
+    let result: Result<(), String> = (|| {
+        #[cfg(target_os = "macos")]
+        let store = apple_native_keyring_store::keychain::Store::new().map_err(|e| e.to_string())?;
+        #[cfg(target_os = "windows")]
+        let store = windows_native_keyring_store::Store::new().map_err(|e| e.to_string())?;
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+        let store = zbus_secret_service_keyring_store::Store::new().map_err(|e| e.to_string())?;
+        #[cfg(all(any(unix, windows), not(any(target_os = "ios", target_os = "android"))))]
+        keyring_core::set_default_store(store);
+        Ok(())
+    })();
+    if let Err(e) = result {
+        eprintln!("keychain: failed to register default credential store: {e}");
+    }
+}
+
 fn entry(key: &str) -> Result<Entry, String> {
     Entry::new(SERVICE, key).map_err(|e| e.to_string())
 }

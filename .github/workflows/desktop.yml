@@ -80,3 +80,7 @@ jobs:
       - name: Compile Tauri Rust core
         working-directory: desktop/src-tauri
         run: cargo build
+
+      - name: Test Rust core (vault crypto round-trips)
+        working-directory: desktop/src-tauri
+        run: cargo test

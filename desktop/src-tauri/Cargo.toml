@@ -37,3 +37,15 @@ keyring = { version = "4", default-features = false, features = [
     "apple-native-keyring-store",
     "zbus-secret-service-keyring-store",
 ] }
+# Zero-knowledge vault crypto (ADR-052 D-3/D-4) — a byte-for-byte port of the
+# mobile vault_crypto.dart so connections/keys sync across devices. All pure
+# Rust (no system crypto libs): AES-256-GCM bundle, ephemeral-X25519 + HKDF
+# device wrap, Argon2id recovery wrap.
+aes-gcm = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+hkdf = "0.12"
+sha2 = "0.10"
+argon2 = "0.5"
+base64 = "0.22"
+rand_core = { version = "0.6", features = ["getrandom"] }
+data-encoding = "2"

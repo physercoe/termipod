@@ -47,6 +47,103 @@ async fn hub_request(req: HubRequest) -> Result<HubResponse, String> {
     Ok(HubResponse { status, body })
 }
 
+// ---- external proxy resolution (updater) ------------------------------------
+// The GitHub updater (`latest.json` + the installer) is the only traffic that
+// crosses the corporate boundary — the hub itself is on the intranet and is
+// reached directly. reqwest, which the updater uses under the hood, honours
+// proxy *environment variables* but NOT the Windows "system proxy" registry, so
+// on a locked-down intranet the update request is attempted directly, never
+// reaches the corporate proxy, and fails with "error sending request for url".
+// This command resolves a proxy URL the frontend hands to `check({ proxy })`
+// (which the plugin applies to both the check and the download).
+
+/// Best-effort resolve of an HTTP(S) proxy for reaching external services.
+/// Precedence: standard proxy env vars, then the Windows system-proxy registry.
+/// Returns `None` when no proxy is configured (direct connection).
+#[tauri::command]
+fn system_proxy() -> Option<String> {
+    for key in [
+        "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy",
+    ] {
+        if let Ok(v) = std::env::var(key) {
+            let v = v.trim();
+            if !v.is_empty() {
+                return Some(normalize_proxy(v));
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Some(p) = windows_system_proxy() {
+            return Some(normalize_proxy(&p));
+        }
+    }
+    None
+}
+
+/// reqwest wants a scheme-qualified URL; the Windows registry (and bare env
+/// values) may be a plain `host:port`.
+fn normalize_proxy(raw: &str) -> String {
+    let s = raw.trim();
+    if s.contains("://") {
+        s.to_string()
+    } else {
+        format!("http://{s}")
+    }
+}
+
+#[cfg(windows)]
+fn windows_system_proxy() -> Option<String> {
+    use std::process::Command;
+    let base = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+    // ProxyEnable (REG_DWORD) must be 0x1.
+    let enabled = Command::new("reg")
+        .args(["query", base, "/v", "ProxyEnable"])
+        .output()
+        .ok()?;
+    let on = String::from_utf8_lossy(&enabled.stdout)
+        .lines()
+        .find(|l| l.contains("ProxyEnable"))
+        .map(|l| l.trim_end().ends_with("0x1"))
+        .unwrap_or(false);
+    if !on {
+        return None;
+    }
+    let server = Command::new("reg")
+        .args(["query", base, "/v", "ProxyServer"])
+        .output()
+        .ok()?;
+    let raw = String::from_utf8_lossy(&server.stdout)
+        .lines()
+        .find(|l| l.contains("ProxyServer"))
+        .and_then(|l| l.split("REG_SZ").nth(1))
+        .map(|s| s.trim().to_string())?;
+    if raw.is_empty() {
+        return None;
+    }
+    Some(pick_https_proxy(&raw))
+}
+
+/// The registry `ProxyServer` value is either a bare `host:port` shared by all
+/// protocols, or a per-scheme list like `http=h:p;https=h:p;ftp=h:p`. Prefer the
+/// https entry (falling back to http, then the whole string).
+#[cfg(windows)]
+fn pick_https_proxy(raw: &str) -> String {
+    if raw.contains('=') {
+        for scheme in ["https=", "http="] {
+            for part in raw.split(';') {
+                if let Some(rest) = part.trim().strip_prefix(scheme) {
+                    let rest = rest.trim();
+                    if !rest.is_empty() {
+                        return rest.to_string();
+                    }
+                }
+            }
+        }
+    }
+    raw.to_string()
+}
+
 // ---- SSE streaming proxy ----------------------------------------------------
 // The hub's live streams (`…/agents/{id}/stream`, `…/channels/{ch}/stream`) are
 // SSE over a bearer header. In the browser build the frontend reads them with
@@ -144,6 +241,7 @@ pub fn run() {
         .manage(SseState::default())
         .invoke_handler(tauri::generate_handler![
             hub_request,
+            system_proxy,
             hub_sse_open,
             hub_sse_close,
             ssh::ssh_connect,

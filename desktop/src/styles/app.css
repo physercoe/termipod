@@ -770,6 +770,28 @@ th {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
+.update-proxy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) 0;
+}
+.update-proxy input {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+}
+.small {
+  font-size: var(--font-size-caption);
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent, var(--text-secondary));
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: var(--font-size-caption);
+}
 .connect label {
   display: flex;
   flex-direction: column;

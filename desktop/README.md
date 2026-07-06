@@ -105,6 +105,18 @@ Releases are now **published** (not draft) so `releases/latest/download/latest.j
 resolves. Rotating the key = regenerate (`npm run tauri signer generate`), replace
 the `pubkey` in `tauri.conf.json`, and reset both secrets.
 
+**Behind a corporate proxy.** The updater fetches from GitHub via reqwest, which
+honours proxy *environment variables* but not the Windows *system-proxy registry*
+— so on an intranet the check fails with `error sending request for url …`. The
+`system_proxy` Rust command resolves a proxy (env vars, then the Windows
+`Internet Settings` registry) and the frontend passes it to `check({ proxy })`,
+which the plugin applies to both the check and the download. **Settings → Software
+update → Proxy settings** shows what was detected and lets you override it (needed
+for PAC/auto-config scripts, which can't be read). Because the *updater itself* is
+what this fixes, the first build carrying it must be installed manually once
+(download the installer from the GitHub release page in a browser, which uses the
+system proxy); in-app updates work from then on.
+
 ## Notes
 
 - **Hub calls route through the Rust core under Tauri.** The webview origin is

@@ -1,0 +1,149 @@
+import type { HubClient } from '../hub/client';
+import { HubApiError } from '../hub/errors';
+import { num, str } from '../hub/types';
+import { secretDelete, secretGet, secretSet } from '../state/persist';
+import { assembleBundle, importBundle, loadVaultState, parseBundle, saveVaultState } from './bundle';
+import {
+  vaultGenerateDevice,
+  vaultGenerateKey,
+  vaultGenerateRecoveryCode,
+  vaultOpen,
+  vaultSeal,
+  vaultUnwrapRecovery,
+  vaultWrapForDevice,
+  vaultWrapForRecovery,
+} from './crypto';
+
+/// Vault orchestration (parity Phase 2b). The vault key + device seed live in
+/// the OS keychain (`vault_key`, `vault_device_seed`); non-secret version/device
+/// identity is in localStorage (loadVaultState). All hub I/O goes through the
+/// authenticated HubClient. Cross-device Rust↔Dart interop is UNVERIFIED — this
+/// is experimental until confirmed against a phone.
+
+const KEY_VAULT = 'vault_key';
+const KEY_SEED = 'vault_device_seed';
+
+function randomDeviceId(): string {
+  const b = new Uint8Array(12);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+function deviceName(): string {
+  return typeof navigator !== 'undefined' && navigator.platform ? navigator.platform : 'desktop';
+}
+
+export interface VaultStatus {
+  exists: boolean; // a vault blob is present at the hub
+  version: number; // hub version (0 if none)
+  hasLocalKey: boolean; // this device holds the vault key
+  enrolled: boolean; // this device is enrolled
+}
+
+export async function vaultStatus(client: HubClient): Promise<VaultStatus> {
+  const local = loadVaultState();
+  const hasLocalKey = (await secretGet(KEY_VAULT)) !== null;
+  try {
+    const v = await client.getVault();
+    return { exists: true, version: num(v, 'version') ?? local.version, hasLocalKey, enrolled: local.enrolled };
+  } catch (e) {
+    if (e instanceof HubApiError && e.status === 404) {
+      return { exists: false, version: 0, hasLocalKey, enrolled: false };
+    }
+    throw e;
+  }
+}
+
+/** Enroll this device's public key (wrapping the vault key to itself so a later
+ * pull can recover it from the device row). */
+async function enrollThisDevice(client: HubClient, vaultKey: string): Promise<string> {
+  const { public_key, seed } = await vaultGenerateDevice();
+  await secretSet(KEY_SEED, seed);
+  const deviceId = randomDeviceId();
+  const wrapped = await vaultWrapForDevice(vaultKey, public_key);
+  await client.putVaultDevice(deviceId, { device_name: deviceName(), public_key, wrapped_key: wrapped });
+  return deviceId;
+}
+
+/** Create a brand-new vault from this device's current data. Returns the
+ * one-time recovery code to show the user. */
+export async function createVault(client: HubClient, hint?: string): Promise<string> {
+  const vaultKey = await vaultGenerateKey();
+  const bundle = JSON.stringify(await assembleBundle());
+  const ciphertext = await vaultSeal(vaultKey, bundle);
+  const res = await client.putVault(ciphertext, 0);
+  const version = num(res, 'version') ?? 1;
+
+  const deviceId = await enrollThisDevice(client, vaultKey);
+
+  const code = await vaultGenerateRecoveryCode();
+  const recoveryEnvelope = await vaultWrapForRecovery(vaultKey, code);
+  await client.setVaultRecovery(recoveryEnvelope, hint);
+
+  await secretSet(KEY_VAULT, vaultKey);
+  saveVaultState({ version, deviceId, enrolled: true });
+  return code;
+}
+
+/** Seal the current local data and push it up (optimistic-locked on the known
+ * version). Throws a friendly error on a 409 version conflict. */
+export async function syncUp(client: HubClient): Promise<number> {
+  const vaultKey = await secretGet(KEY_VAULT);
+  if (vaultKey === null) throw new Error('This device has no vault key — restore or create a vault first.');
+  const bundle = JSON.stringify(await assembleBundle());
+  const ciphertext = await vaultSeal(vaultKey, bundle);
+  const state = loadVaultState();
+  try {
+    const res = await client.putVault(ciphertext, state.version);
+    const version = num(res, 'version') ?? state.version + 1;
+    saveVaultState({ ...state, version });
+    return version;
+  } catch (e) {
+    if (e instanceof HubApiError && e.status === 409) {
+      throw new Error('Vault changed on another device — sync down first, then push again.');
+    }
+    throw e;
+  }
+}
+
+/** Pull the hub vault and merge it locally using the locally-held vault key. */
+export async function syncDown(client: HubClient): Promise<number> {
+  const vaultKey = await secretGet(KEY_VAULT);
+  if (vaultKey === null) throw new Error('This device has no vault key — restore via a recovery code first.');
+  const v = await client.getVault();
+  const ciphertext = str(v, 'ciphertext');
+  if (ciphertext === undefined) throw new Error('Vault is empty.');
+  const bundle = await vaultOpen(vaultKey, ciphertext);
+  await importBundle(parseBundle(bundle));
+  const version = num(v, 'version') ?? 0;
+  const state = loadVaultState();
+  saveVaultState({ ...state, version });
+  return version;
+}
+
+/** Restore a vault onto this device from a recovery code: unwrap the vault key,
+ * open + import the bundle, store the key, and enroll this device for future
+ * syncs. */
+export async function restoreWithRecovery(client: HubClient, code: string): Promise<void> {
+  const v = await client.getVault();
+  const ciphertext = str(v, 'ciphertext');
+  if (ciphertext === undefined) throw new Error('Vault is empty.');
+  const rec = await client.getVaultRecovery();
+  const envelope = str(rec, 'recovery_envelope');
+  if (envelope === undefined) throw new Error('No recovery envelope is set for this vault.');
+
+  const vaultKey = await vaultUnwrapRecovery(code, envelope);
+  const bundle = await vaultOpen(vaultKey, ciphertext);
+  await importBundle(parseBundle(bundle));
+
+  await secretSet(KEY_VAULT, vaultKey);
+  const deviceId = await enrollThisDevice(client, vaultKey);
+  saveVaultState({ version: num(v, 'version') ?? 0, deviceId, enrolled: true });
+}
+
+/** Forget this device's vault material (leaves the hub vault untouched). */
+export async function forgetLocalVault(): Promise<void> {
+  await secretDelete(KEY_VAULT);
+  await secretDelete(KEY_SEED);
+  saveVaultState({ version: 0, deviceId: null, enrolled: false });
+}

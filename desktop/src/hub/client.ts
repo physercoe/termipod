@@ -189,6 +189,34 @@ export class HubClient {
     return this.transport.post('/v1/admin/db/vacuum', {}) as Promise<Entity>;
   }
 
+  // --- zero-knowledge vault (Phase 2b, ADR-052 D-3/D-4) ---
+  /** The sealed vault blob; throws HubApiError(404) when no vault exists. */
+  getVault(): Promise<Entity> {
+    return this.transport.get(this.transport.team('/vault')) as Promise<Entity>;
+  }
+  /** Push a sealed vault. `baseVersion` 0 creates; else optimistic-locks on the
+   * current version (409 on conflict). */
+  putVault(ciphertext: string, baseVersion: number): Promise<Entity> {
+    return this.transport.put(this.transport.team('/vault'), { ciphertext, base_version: baseVersion }) as Promise<Entity>;
+  }
+  getVaultRecovery(): Promise<Entity> {
+    return this.transport.get(this.transport.team('/vault/recovery')) as Promise<Entity>;
+  }
+  setVaultRecovery(envelope: string, hint?: string): Promise<Entity> {
+    const body = hint !== undefined ? { recovery_envelope: envelope, recovery_hint: hint } : { recovery_envelope: envelope };
+    return this.transport.put(this.transport.team('/vault/recovery'), body) as Promise<Entity>;
+  }
+  async listVaultDevices(): Promise<Entity[]> {
+    const out = (await this.transport.get(this.transport.team('/vault/devices'))) as Entity;
+    return asArray(out?.devices);
+  }
+  putVaultDevice(
+    deviceId: string,
+    body: { device_name?: string; public_key?: string; wrapped_key?: string },
+  ): Promise<Entity> {
+    return this.transport.put(this.transport.team(`/vault/devices/${deviceId}`), body) as Promise<Entity>;
+  }
+
   // --- live streams ---
   streamAgent(agentId: string, opts: SseOptions): SseHandle {
     return streamSse(this.cfg, this.transport.team(`/agents/${agentId}/stream`), opts);

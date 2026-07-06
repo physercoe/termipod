@@ -1163,6 +1163,35 @@ th {
   font-size: var(--font-size-label);
 }
 
+/* ---- vault (Phase 2b) ---- */
+.vault-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8);
+  justify-content: flex-start;
+}
+.vault-restore {
+  display: flex;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) 0;
+}
+.vault-restore input {
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+}
+.vault-code {
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+  margin: var(--spacing-s8) 0;
+}
+.vault-code pre {
+  font-size: var(--font-size-body);
+  letter-spacing: 0.05em;
+  margin: var(--spacing-s4) 0;
+  user-select: all;
+}
+
 /* ---- software update ---- */
 
 .update-avail {

@@ -822,10 +822,112 @@ button.danger:hover {
   overflow: auto;
   padding: var(--spacing-s12);
 }
+.term-connect {
+  flex-direction: row;
+  gap: var(--spacing-s12);
+  align-items: stretch;
+}
+.term-sidebar {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  border-right: 1px solid var(--border);
+  padding-right: var(--spacing-s12);
+  overflow: auto;
+}
+.term-saved-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s4);
+}
+.term-saved-head strong {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+.conn-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+.conn-item.active {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+.conn-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: var(--spacing-s4);
+  color: var(--text);
+}
+.conn-pick .conn-name {
+  font-size: var(--font-size-body-small);
+}
+.conn-pick .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+.term-keys {
+  margin-top: var(--spacing-s12);
+  border-top: 1px solid var(--border);
+  padding-top: var(--spacing-s8);
+}
+.key-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  margin-bottom: var(--spacing-s8);
+}
+.key-import textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s4);
+}
+.key-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: 2px 4px;
+  font-size: var(--font-size-body-small);
+}
+.term-actions {
+  display: flex;
+  align-items: center;
+}
 .term-form {
+  flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--spacing-s12);
+  align-content: start;
+}
+.term-form select {
+  padding: var(--spacing-s4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--text);
 }
 .term-form label {
   display: flex;

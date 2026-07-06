@@ -116,12 +116,15 @@ export class HubClient {
   patchTask(projectId: string, taskId: string, patch: Record<string, unknown>): Promise<unknown> {
     return this.transport.patch(this.transport.team(`/projects/${projectId}/tasks/${taskId}`), patch);
   }
+  /** Runs are team-scoped, filtered by `?project=` (NOT nested under the
+   * project path — `GET /v1/teams/{team}/runs`, `handleListRuns`). */
   async listRuns(projectId: string): Promise<Entity[]> {
-    const out = await this.transport.get(this.transport.team(`/projects/${projectId}/runs`));
+    const out = await this.transport.get(this.transport.team('/runs'), { project: projectId });
     return asArray(out);
   }
+  /** Plans are likewise team-scoped with a `?project=` filter (`handleListPlans`). */
   async listPlans(projectId: string): Promise<Entity[]> {
-    const out = await this.transport.get(this.transport.team(`/projects/${projectId}/plans`));
+    const out = await this.transport.get(this.transport.team('/plans'), { project: projectId });
     return asArray(out);
   }
 

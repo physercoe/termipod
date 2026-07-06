@@ -122,14 +122,18 @@ Phase 3 also cleared the last two **Partial** rows: hosts still lack a detail
 view, but *connect* is now multi-profile (switcher + keychain tokens + offline
 cache), not single/in-memory.
 
-**Missing:** create/edit for projects·runs·plans·agents·schedules·docs · task
-**create ✅** (edit/status ✅) · agent spawn · deliverable reviews/ratification ·
-documents/artifacts/blobs viewers · ~~project channels (chat)~~ **✅** · ~~sessions
-surface~~ **✅** · search · Insights analytics · Me home · decision history · notes
-· templates/agent-families · budget · councils · steward config · ~~team switcher~~
+**Missing:** ~~project **create**~~ **✅** (+ **start ✅**) / runs·plans **create ✅**
+(edit deferred) / agents/schedules/docs authoring · task **create ✅** (edit/status ✅)
+· ~~agent spawn~~ **✅** · ~~deliverable reviews/ratification~~ **✅ (ratify/unratify)**
+· ~~documents viewer~~ **✅** (blob-byte fetch deferred) · ~~project channels (chat)~~
+**✅** · ~~sessions surface~~ **✅** · ~~search~~ **✅ (event FTS)** · ~~Insights
+analytics~~ **✅** · ~~Me home + decision history~~ **✅** · notes *(no hub endpoint)*
+· ~~templates/agent-families~~ **✅ (read)** · budget *(agent column, no endpoint)* ·
+councils *(no hub endpoint)* · steward config *(via templates)* · ~~team switcher~~
 **✅ (Phase 3)** · ~~SSH keys/vault~~ **✅ (Phase 2)**/snippets/history · tmux pane
-mgmt · file transfer/remote browser · ~~multimodal/image attach~~ **✅ (1c)** ·
-voice input · ~~offline cache~~ **✅ (Phase 3)** · voice/action-bar settings.
+mgmt *(deferred)* · file transfer/remote browser *(deferred)* · ~~multimodal/image
+attach~~ **✅ (1c)** · voice input *(deferred)* · ~~offline cache~~ **✅ (Phase 3)** ·
+voice/action-bar settings *(deferred)*.
 
 ## Foundations (cross-cutting, do early)
 
@@ -195,22 +199,35 @@ mobile team-id-in-key + clear-on-switch for partitioning rather than a full
 `baseUrl#teamId` sqflite store; localStorage rather than IndexedDB (adequate for
 the snapshot sizes; revisit if it grows).
 
-**Phase 4 — write paths + missing surfaces (breadth). ◐ IN PROGRESS.** The long
-tail, roughly by value. **Shipped so far** (commits f5751a97, 764e7406, 0c84d165): the two
-cheap wins — **Sessions** surface (`listSessions` + session digest via `RunReport`)
-and **Channels** chat (`streamChannel` backfill+stream + `postChannelMessage`);
-**task create**; and (on **F3**) **project create + start** and **agent spawn**
-(direct principal writes; spawn's `202 pending_approval` flows to the dock).
-*Remaining:* run/plan create+edit; project/task edit depth; deliverable
-ratify/reviews (a `deliverable.set_state` propose kind — but that's agent-side;
-the director ratifies via the dock); documents + artifacts/blobs viewers; search;
-Insights analytics; Me home + decision history + notes; team governance depth
-(templates/families/budget/councils/steward-config).
+**Phase 4 — write paths + missing surfaces (breadth). ✅ SUBSTANTIALLY COMPLETE
+(commits f5751a97, 764e7406, 0c84d165, 45bbfa61, 53047430).** The long tail, by
+value. **Shipped:** **Sessions** (`listSessions` + digest via `RunReport`);
+**Channels** chat (`streamChannel` + `postChannelMessage`); **task create**;
+**project create + start** and **agent spawn** (F3 direct writes; spawn's
+`202 pending_approval` flows to the dock); **Insights** (`GET /v1/insights`
+aggregator, team/project scope — spend/latency/errors/concurrency/tool tiles +
+by-model/engine/agent tables); **Documents** (`…/documents` list + inline-markdown
+read via the F1 Markdown primitive; artifact-backed docs show the blob ref);
+**Me** (`…/principals` + decision history from `…/attention?status=resolved` —
+there is no `/me` or `/decisions` endpoint); **Search** (`GET /v1/search` FTS over
+event text — the only search the hub exposes, labelled conversation-stream scope);
+**deliverable ratify/unratify** (direct `POST …/ratify` — the REST path is not
+principal-gated; the propose kind is the agent-only lane); **run/plan create**
+(direct `POST …/runs`, `…/plans`); **governance depth** — Templates + engine
+Families read tabs in the Admin cockpit. *Grounded as non-existent, so NOT built:*
+notes/note-cards, councils, a budget endpoint (budget is an agent column),
+cross-entity search. *Genuinely deferred (lower value):* run/plan **edit** depth,
+document **authoring**, template/family **write** (read parity first), a per-turn
+timeline.
 
-**Phase 5 — polish.** Voice input (Alibaba DashScope WS, `lib/services/voice`),
-tmux pane management, file transfer/remote browser, voice/action-bar/keyboard
-settings depth. Desktop-lower-priority; some (custom keyboard, NavPad) are
-mobile-only and out of scope.
+**Phase 5 — polish. ◐ PARTIAL (commit 53047430+).** Shipped the cheap, testable
+cross-cutting polish: **Escape-to-close** for the overlay panels. **Deferred with
+rationale** (heavy + not locally verifiable, or out of scope per this plan):
+**voice input** (Alibaba DashScope streaming WS — a large Rust+audio workstream);
+**file transfer / remote browser** (SFTP over russh — needs a live host to
+verify); **tmux pane management** (the desktop terminal is a single SSH PTY;
+pane-mux is a mobile affordance); custom keyboard / NavPad (mobile-only, out of
+scope). These want a dedicated pass with device/host testing, not a shallow stub.
 
 ## Sequencing & first ticket
 

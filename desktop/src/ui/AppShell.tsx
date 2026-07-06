@@ -57,11 +57,28 @@ export function AppShell(): JSX.Element {
     });
   }, [init]);
 
+  // Close whichever overlay panels are open (Phase 5 polish). The command
+  // palette and connect overlay manage their own Escape; this covers the
+  // read-panel overlays that otherwise only dismiss on a backdrop click.
+  function closeOverlays(): void {
+    setAdminOpen(false);
+    setSettingsOpen(false);
+    setTerminalOpen(false);
+    setSessionsOpen(false);
+    setChannelsOpen(false);
+    setInsightsOpen(false);
+    setDocsOpen(false);
+    setMeOpen(false);
+    setSearchOpen(false);
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+      } else if (e.key === 'Escape') {
+        closeOverlays();
       }
     }
     window.addEventListener('keydown', onKey);

@@ -138,6 +138,8 @@ const en: Dict = {
   'nav.noAgents': 'No agents.',
   'nav.noProjects': 'No projects.',
   'common.loading': 'Loading…',
+  'common.ok': 'OK',
+  'common.cancel': 'Cancel',
 
   'audit.loading': 'Loading audit…',
   'audit.time': 'Time',
@@ -641,6 +643,8 @@ const zh: Dict = {
   'nav.noAgents': '暂无代理。',
   'nav.noProjects': '暂无项目。',
   'common.loading': '加载中…',
+  'common.ok': '确定',
+  'common.cancel': '取消',
 
   'audit.loading': '加载审计…',
   'audit.time': '时间',

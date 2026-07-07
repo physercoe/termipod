@@ -51,15 +51,34 @@ function Screen({ sessionId, onExit }: { sessionId: string; onExit: () => void }
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(el);
-    fit.fit();
-    void sshResize(sessionId, term.cols, term.rows);
+
+    // Re-fit + repaint whenever the container has a real size. This fires on the
+    // initial open, on window/panel resizes, and — critically — when the term
+    // view is un-hidden after switching back from the tmux tab. While the view
+    // is `display:none` the element is 0×0; xterm can't lay out or paint, and
+    // the shell prompt (still buffered) reads as a black screen until we re-fit
+    // and force a refresh (director: "switch to terminal, screen is black").
+    let lastCols = 0;
+    let lastRows = 0;
+    const refit = (): void => {
+      if (disposed || el.clientWidth === 0 || el.clientHeight === 0) return;
+      try {
+        fit.fit();
+      } catch {
+        return;
+      }
+      if (term.cols !== lastCols || term.rows !== lastRows) {
+        lastCols = term.cols;
+        lastRows = term.rows;
+        void sshResize(sessionId, term.cols, term.rows);
+      }
+      term.refresh(0, term.rows - 1); // repaint buffered output after becoming visible
+    };
+    refit();
 
     const onData = term.onData((s) => void sshWrite(sessionId, s));
-    const onResize = (): void => {
-      fit.fit();
-      void sshResize(sessionId, term.cols, term.rows);
-    };
-    window.addEventListener('resize', onResize);
+    const ro = new ResizeObserver(() => refit());
+    ro.observe(el);
 
     const unlistenP = onSshData(sessionId, (b) => term.write(b));
     const exitP = onSshExit(sessionId, () => {
@@ -70,7 +89,7 @@ function Screen({ sessionId, onExit }: { sessionId: string; onExit: () => void }
 
     return () => {
       disposed = true;
-      window.removeEventListener('resize', onResize);
+      ro.disconnect();
       onData.dispose();
       void unlistenP.then((u) => u());
       void exitP.then((u) => u());

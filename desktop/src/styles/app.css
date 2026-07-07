@@ -2384,6 +2384,30 @@ th {
 /* ---- tmux management panel ---- */
 .term-view { display: flex; flex: 1 1 auto; min-height: 0; }
 .term-view.hidden { display: none; }
+
+/* In-app text prompt (replaces window.prompt in the Tauri webview). */
+.prompt-modal {
+  width: 420px;
+  max-width: 92vw;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--sh-2, none);
+  padding: var(--spacing-s16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}
+.prompt-label {
+  font-weight: 600;
+}
+.prompt-modal input {
+  width: 100%;
+}
+.prompt-actions {
+  display: flex;
+  align-items: center;
+}
 .tmux-panel {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

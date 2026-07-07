@@ -3,6 +3,7 @@ import { sshExec } from '../ssh/tauri';
 import { TmuxCmd } from '../tmux/commands';
 import { parsePanes, parseSessions, parseWindows, type TmuxPane, type TmuxSession, type TmuxWindow } from '../tmux/parser';
 import { useT } from '../i18n';
+import { useTextPrompt } from '../ui/PromptModal';
 
 /// tmux management panel (parity — mobile terminal/widgets tmux dialogs). Drives
 /// the SSH exec channel (`sshExec`) to browse sessions → windows → panes and run
@@ -22,6 +23,7 @@ export function TmuxPanel({ sessionId }: { sessionId: string }): JSX.Element {
   const [capture, setCapture] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { ask, node: promptNode } = useTextPrompt();
 
   const run = useCallback(async (cmd: string): Promise<string | null> => {
     setErr(null);
@@ -81,7 +83,7 @@ export function TmuxPanel({ sessionId }: { sessionId: string }): JSX.Element {
             disabled={busy}
             onClick={() =>
               void (async () => {
-                const name = window.prompt(t('tmux.newSessionName'));
+                const name = await ask(t('tmux.newSessionName'));
                 if (name !== null && name.trim() !== '') await act(TmuxCmd.newSession(name.trim()), loadSessions);
               })()
             }
@@ -104,7 +106,7 @@ export function TmuxPanel({ sessionId }: { sessionId: string }): JSX.Element {
               className="link-btn"
               onClick={() =>
                 void (async () => {
-                  const to = window.prompt(t('tmux.renameTo'), s.name);
+                  const to = await ask(t('tmux.renameTo'), s.name);
                   if (to !== null && to.trim() !== '') await act(TmuxCmd.renameSession(s.name, to.trim()), loadSessions);
                 })()
               }
@@ -190,7 +192,7 @@ export function TmuxPanel({ sessionId }: { sessionId: string }): JSX.Element {
                   className="link-btn"
                   onClick={() =>
                     void (async () => {
-                      const keys = window.prompt(t('tmux.sendKeysPrompt'));
+                      const keys = await ask(t('tmux.sendKeysPrompt'));
                       if (keys !== null && keys !== '') await run(TmuxCmd.sendKeys(sel, selWin, p.index, keys));
                     })()
                   }
@@ -207,6 +209,7 @@ export function TmuxPanel({ sessionId }: { sessionId: string }): JSX.Element {
         {sel !== null && selWin !== null && panes.length === 0 && <div className="muted small region-pad">{t('tmux.none')}</div>}
       </div>
 
+      {promptNode}
       {err !== null && <div className="error tmux-err">{err}</div>}
       {capture !== null && (
         <div className="palette-backdrop" onMouseDown={() => setCapture(null)}>

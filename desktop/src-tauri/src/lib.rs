@@ -135,11 +135,18 @@ fn normalize_proxy(raw: &str) -> String {
 
 #[cfg(windows)]
 fn windows_system_proxy() -> Option<String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+    // CREATE_NO_WINDOW: keep the child `reg` process from flashing a console
+    // window. Without it, each spawn pops (then closes) a black console — the
+    // director saw "two windows open/close" when Settings queried the proxy
+    // (this runs `reg` twice: ProxyEnable, then ProxyServer).
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let base = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
     // ProxyEnable (REG_DWORD) must be 0x1.
     let enabled = Command::new("reg")
         .args(["query", base, "/v", "ProxyEnable"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     let on = String::from_utf8_lossy(&enabled.stdout)
@@ -152,6 +159,7 @@ fn windows_system_proxy() -> Option<String> {
     }
     let server = Command::new("reg")
         .args(["query", base, "/v", "ProxyServer"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     let raw = String::from_utf8_lossy(&server.stdout)

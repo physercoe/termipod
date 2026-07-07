@@ -5,6 +5,7 @@ import { App } from './App';
 import { localStoragePersister, persistMaxAge, queryClient } from './state/queryClient';
 import '@fontsource-variable/inter/index.css';
 import '@fontsource-variable/jetbrains-mono/index.css';
+import 'katex/dist/katex.min.css';
 import './styles/app.css';
 
 const root = document.getElementById('root');

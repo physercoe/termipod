@@ -417,11 +417,91 @@ pre {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
+.md pre code,
+.md pre code.hljs {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  line-height: 1.55;
+  background: transparent;
+  padding: 0;
+  color: var(--text);
+}
 .md :not(pre) > code {
   font-family: var(--font-mono, monospace);
   background: var(--input);
   padding: 0 4px;
   border-radius: var(--radius-sm);
+}
+
+/* highlight.js token theme — tuned to the app's semantic palette so code reads
+   as part of the design in both themes rather than a bolted-on vendor theme.
+   rehype-highlight emits `hljs-*` classes; we colour the load-bearing groups. */
+.md .hljs-comment,
+.md .hljs-quote {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.md .hljs-keyword,
+.md .hljs-selector-tag,
+.md .hljs-literal,
+.md .hljs-doctag,
+.md .hljs-name {
+  color: var(--color-primary);
+}
+.md .hljs-string,
+.md .hljs-regexp,
+.md .hljs-meta .hljs-string {
+  color: var(--color-terminal-green, #7ee787);
+}
+.md .hljs-number,
+.md .hljs-symbol,
+.md .hljs-bullet {
+  color: var(--color-terminal-cyan, #79c0ff);
+}
+.md .hljs-title,
+.md .hljs-title.function_,
+.md .hljs-section,
+.md .hljs-selector-id {
+  color: var(--color-terminal-blue, #79c0ff);
+}
+.md .hljs-attr,
+.md .hljs-attribute,
+.md .hljs-variable,
+.md .hljs-template-variable,
+.md .hljs-property {
+  color: var(--color-terminal-yellow, #e3b341);
+}
+.md .hljs-type,
+.md .hljs-class .hljs-title,
+.md .hljs-built_in {
+  color: var(--color-secondary, #d2a8ff);
+}
+.md .hljs-tag,
+.md .hljs-punctuation {
+  color: var(--text-muted);
+}
+.md .hljs-deletion {
+  color: var(--color-error);
+}
+.md .hljs-addition {
+  color: var(--color-success);
+}
+.md .hljs-emphasis {
+  font-style: italic;
+}
+.md .hljs-strong {
+  font-weight: 600;
+}
+
+/* KaTeX: keep math near the surrounding text size and let long display math
+   scroll rather than widen the page. */
+.md .katex {
+  font-size: 1.02em;
+}
+.md .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--spacing-s4) 0;
 }
 .md ul,
 .md ol {
@@ -468,6 +548,50 @@ pre {
   font-family: var(--font-mono, monospace);
   font-size: var(--font-size-label);
   list-style: revert;
+}
+
+/* Foldable text / thought blocks. The summary is a one-line preview with a
+   disclosure caret; the body reveals on toggle. */
+.ev-fold {
+  min-width: 0;
+}
+.ev-fold-sum {
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s4);
+  list-style: none;
+  color: var(--text-secondary);
+}
+.ev-fold-sum::-webkit-details-marker {
+  display: none;
+}
+.ev-fold-sum::before {
+  content: '▸';
+  color: var(--text-muted);
+  font-size: 0.72em;
+  transform: translateY(-1px);
+  transition: transform 0.12s ease;
+}
+.ev-fold[open] > .ev-fold-sum::before {
+  transform: translateY(-1px) rotate(90deg);
+}
+.ev-fold-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* Once open, the preview is redundant with the body — dim it to a caption. */
+.ev-fold[open] > .ev-fold-sum .ev-fold-preview {
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+}
+.ev-fold-body {
+  margin-top: var(--spacing-s4);
+}
+.ev-fold-thought > .ev-fold-sum {
+  font-style: italic;
 }
 .ev-tool-head {
   display: flex;
@@ -1717,6 +1841,67 @@ th {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s12);
+}
+.artifact-chart,
+.artifact-json {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--spacing-s8);
+}
+.chart-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.chart-svg {
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+}
+.chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+.chart-axis {
+  fill: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+}
+.chart-line {
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.chart-bar {
+  fill: var(--color-primary);
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s12);
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+}
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.chart-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
 }
 /* An <a> styled to match buttons (download links in the artifact viewer). */
 .btn-like {

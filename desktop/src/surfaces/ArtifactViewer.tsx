@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
+import { chartFromJson, ChartView, type ChartData } from '../ui/ChartView';
 
 /// Artifact / blob preview overlay (parity — mobile blobs_section.dart `_preview`).
 /// Fetches the content-addressed blob once (`GET /v1/blobs/{sha}` → `{mime,
@@ -60,6 +61,7 @@ export function ArtifactViewer({
 }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
+  const [rawJson, setRawJson] = useState(false);
 
   const blobQ = useQuery({
     queryKey: ['blob', sha],
@@ -82,12 +84,15 @@ export function ArtifactViewer({
     }
   }, [blobQ.data, kind]);
 
-  const prettyJson = useMemo(() => {
-    if (kind !== 'json' || text === '') return text;
+  // Parse JSON once: derive both the pretty form and a chart (when the data is
+  // chart-shaped — director feedback: chart-data JSON should render as a chart).
+  const parsedJson = useMemo<{ pretty: string; chart: ChartData | null }>(() => {
+    if (kind !== 'json' || text === '') return { pretty: text, chart: null };
     try {
-      return JSON.stringify(JSON.parse(text), null, 2);
+      const value = JSON.parse(text);
+      return { pretty: JSON.stringify(value, null, 2), chart: chartFromJson(value) };
     } catch {
-      return text; // not valid JSON — show as-is
+      return { pretty: text, chart: null }; // not valid JSON — show as-is
     }
   }, [kind, text]);
 
@@ -101,11 +106,39 @@ export function ArtifactViewer({
       case 'pdf':
         return <iframe className="artifact-frame" src={dataUrl} title={name} />;
       case 'html':
-        // Sandboxed with no allow-scripts / allow-same-origin: render markup
-        // inertly (parity — mobile's navigation-locked CanvasViewer).
-        return <iframe className="artifact-frame" sandbox="" srcDoc={text} title={name} />;
+        // `allow-scripts` (but deliberately NOT `allow-same-origin`) lets a
+        // self-contained HTML artifact — an agent-produced chart or report —
+        // actually run its inline JS/CSS while staying fully isolated from the
+        // app origin (it can't reach cookies, storage, or the parent DOM).
+        // Director feedback: HTML artifacts were showing as raw markup.
+        return <iframe className="artifact-frame" sandbox="allow-scripts" srcDoc={text} title={name} />;
       case 'json':
-        return <pre className="ev-mono artifact-text">{prettyJson}</pre>;
+        if (parsedJson.chart !== null && !rawJson) {
+          return (
+            <div className="artifact-chart">
+              <div className="chart-toolbar">
+                <span className="spacer" />
+                <button className="link-btn" onClick={() => setRawJson(true)}>
+                  {t('artifact.showJson')}
+                </button>
+              </div>
+              <ChartView chart={parsedJson.chart} />
+            </div>
+          );
+        }
+        return (
+          <div className="artifact-json">
+            {parsedJson.chart !== null && (
+              <div className="chart-toolbar">
+                <span className="spacer" />
+                <button className="link-btn" onClick={() => setRawJson(false)}>
+                  {t('artifact.showChart')}
+                </button>
+              </div>
+            )}
+            <pre className="ev-mono artifact-text">{parsedJson.pretty}</pre>
+          </div>
+        );
       case 'text':
         return extOf(name) === 'md' || extOf(name) === 'markdown' ? (
           <Markdown text={text} />

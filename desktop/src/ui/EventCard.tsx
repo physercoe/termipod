@@ -92,6 +92,39 @@ function Collapsible({ label, children, open }: { label: string; children: React
   );
 }
 
+/// A foldable text/thought block (director feedback: text and thinking cards
+/// should be foldable in the transcript). The `<summary>` preview stays visible
+/// in both states; `defaultOpen` decides the initial fold — assistant text opens
+/// (it's the thing you're reading), reasoning stays collapsed (it's context you
+/// expand on demand). Short blocks below the threshold render inline with no
+/// disclosure, so the transcript isn't littered with triangles.
+function FoldBlock({
+  preview,
+  defaultOpen,
+  className,
+  children,
+}: {
+  preview: string;
+  defaultOpen: boolean;
+  className?: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <details className={`ev-fold${className !== undefined ? ` ${className}` : ''}`} open={defaultOpen}>
+      <summary className="ev-fold-sum">
+        <span className="ev-fold-preview">{preview}</span>
+      </summary>
+      <div className="ev-fold-body">{children}</div>
+    </details>
+  );
+}
+
+/// A text block is worth folding once it spans several lines / is long enough
+/// that collapsing it meaningfully shortens the transcript.
+function isFoldable(s: string): boolean {
+  return s.length > 240 || s.split('\n').length > 4;
+}
+
 function ToolResultBody({ result }: { result: Entity }): JSX.Element {
   const isErr = bool(result, 'is_error') === true;
   const denied = bool(result, 'denied') === true;
@@ -181,10 +214,20 @@ function PlanBody({ p }: { p: Entity }): JSX.Element {
 function ThoughtBody({ p }: { p: Entity }): JSX.Element {
   const raw = (str(p, 'text') ?? str(p, 'thinking') ?? str(p, 'reasoning') ?? '').trim();
   const isMarker = bool(p, 'marker_only') === true || raw === '' || raw === 'Thinking…' || raw === 'Thinking';
+  // Marker-only frames have nothing to expand — render the label inline. Real
+  // reasoning folds, collapsed by default (it's context, not the answer).
+  if (isMarker) {
+    return (
+      <div className="ev-thought">
+        <span className="ev-tag">thinking</span> Thinking…
+      </div>
+    );
+  }
   return (
     <div className="ev-thought">
-      <span className="ev-tag">thinking</span>
-      {isMarker ? ' Thinking…' : <div className="ev-thought-text">{raw}</div>}
+      <FoldBlock preview={`thinking · ${firstLine(raw, 72)}`} defaultOpen={false} className="ev-fold-thought">
+        <div className="ev-thought-text">{raw}</div>
+      </FoldBlock>
     </div>
   );
 }
@@ -204,8 +247,17 @@ function InputTextBody({ p }: { p: Entity }): JSX.Element {
 function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
   const p = ev.payload;
   switch (ev.kind) {
-    case 'text':
-      return <Markdown text={str(p, 'text') ?? ''} />;
+    case 'text': {
+      const body = str(p, 'text') ?? '';
+      if (!isFoldable(body)) return <Markdown text={body} />;
+      // Assistant text folds but stays open — you can collapse a long answer,
+      // but you don't have to click to read it.
+      return (
+        <FoldBlock preview={firstLine(body, 80)} defaultOpen className="ev-fold-text">
+          <Markdown text={body} />
+        </FoldBlock>
+      );
+    }
     case 'thought':
     case 'thinking':
     case 'reasoning':

@@ -11,6 +11,19 @@ function msg(err: unknown): string {
 }
 
 const PROXY_KEY = 'termipod.update.proxy';
+// Cache of the last auto-detected system/env proxy, so it paints on the first
+// frame instead of flashing in after the async `system_proxy` invoke resolves
+// (director feedback: proxy line splashed in on every Settings open).
+const DETECTED_KEY = 'termipod.update.proxy.detected';
+
+function readCache(key: string): string | null {
+  try {
+    const v = localStorage.getItem(key);
+    return v !== null && v !== '' ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 /** A "couldn't reach the server" transport failure (vs. an HTTP/parse error). */
 function looksLikeNetwork(m: string): boolean {
@@ -37,15 +50,12 @@ export function UpdateSection(): JSX.Element | null {
   // Manual override the user typed (persisted); '' = auto-detect. Seeded
   // synchronously from localStorage so a saved proxy paints on first frame
   // (no flash-in after the effect runs).
-  const [proxyOverride, setProxyOverride] = useState<string>(() => {
-    try {
-      return localStorage.getItem(PROXY_KEY) ?? '';
-    } catch {
-      return '';
-    }
-  });
+  const [proxyOverride, setProxyOverride] = useState<string>(() => readCache(PROXY_KEY) ?? '');
   // What auto-detect (env vars / Windows system proxy) found, for display.
-  const [detected, setDetected] = useState<string | null>(null);
+  // Seeded synchronously from the last-detected cache so a known proxy paints on
+  // the first frame; the effect below refreshes it (usually the same value, so
+  // no visible change) and re-caches.
+  const [detected, setDetected] = useState<string | null>(() => readCache(DETECTED_KEY));
   const [showProxy, setShowProxy] = useState(false);
 
   useEffect(() => {
@@ -54,7 +64,16 @@ export function UpdateSection(): JSX.Element | null {
       .then(setCurrent)
       .catch(() => {});
     void invoke<string | null>('system_proxy')
-      .then((p) => setDetected(p ?? null))
+      .then((p) => {
+        const val = p ?? null;
+        setDetected(val);
+        try {
+          if (val !== null && val !== '') localStorage.setItem(DETECTED_KEY, val);
+          else localStorage.removeItem(DETECTED_KEY);
+        } catch {
+          /* storage unavailable — display still works from state */
+        }
+      })
       .catch(() => setDetected(null));
   }, []);
 

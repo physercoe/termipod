@@ -367,7 +367,7 @@ export function FilesTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const [openDoc, setOpenDoc] = useState<string | null>(null);
-  const [openArt, setOpenArt] = useState<{ sha: string; name: string; mime?: string } | null>(null);
+  const [openArt, setOpenArt] = useState<{ sha: string; name: string; mime?: string; kind?: string } | null>(null);
 
   const docsQ = useQuery({
     queryKey: ['project-docs', projectId],
@@ -440,7 +440,9 @@ export function FilesTab({ projectId }: { projectId: string }): JSX.Element {
               className="file-row"
               disabled={sha === undefined || sha === ''}
               title={sha === undefined ? t('files.noBlob') : name}
-              onClick={() => sha !== undefined && setOpenArt({ sha, name, mime: str(a, 'mime') })}
+              onClick={() =>
+                sha !== undefined && setOpenArt({ sha, name, mime: str(a, 'mime'), kind: str(a, 'kind') })
+              }
             >
               <span className="file-name">{name}</span>
               <span className="spacer" />
@@ -480,6 +482,7 @@ export function FilesTab({ projectId }: { projectId: string }): JSX.Element {
           sha={openArt.sha}
           name={openArt.name}
           mime={openArt.mime}
+          kind={openArt.kind}
           onClose={() => setOpenArt(null)}
         />
       )}

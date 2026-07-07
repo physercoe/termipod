@@ -46,7 +46,9 @@ type State =
 export function UpdateSection(): JSX.Element | null {
   const t = useT();
   const [st, setSt] = useState<State>({ s: 'idle' });
-  const [current, setCurrent] = useState('');
+  // Seed from the build-time version so it paints on the first frame (no splash);
+  // the effect refreshes it from the Tauri runtime, which matches.
+  const [current, setCurrent] = useState(__APP_VERSION__);
   // Manual override the user typed (persisted); '' = auto-detect. Seeded
   // synchronously from localStorage so a saved proxy paints on first frame
   // (no flash-in after the effect runs).

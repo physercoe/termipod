@@ -4,16 +4,28 @@ import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
 import { chartFromJson, ChartView, type ChartData } from '../ui/ChartView';
+import {
+  CANVAS_MIME,
+  CODE_MIME,
+  inlineCanvasBundle,
+  parseArtifactFileManifest,
+  type ArtifactFileManifest,
+} from '../ui/canvasBundle';
 
-/// Artifact / blob preview overlay (parity — mobile blobs_section.dart `_preview`).
-/// Fetches the content-addressed blob once (`GET /v1/blobs/{sha}` → `{mime,
-/// base64}`) and dispatches on the mime (with a filename-extension fallback,
-/// since the hub stores `application/octet-stream` when sniffing is
-/// inconclusive) to an image / pdf / html / json / text renderer, falling back
-/// to a download link. Desktop had no way to open artifacts before this — the
-/// list rows were inert; all the fetch plumbing already existed (RunImageTile).
+/// Artifact / blob preview overlay (parity — mobile artifacts_screen.dart
+/// `_routeForArtifact` + canvas_viewer.dart). Fetches the content-addressed blob
+/// once (`GET /v1/blobs/{sha}` → `{mime, base64}`) and picks a renderer.
+///
+/// Dispatch order matters: the artifact **`kind`** is authoritative (mobile
+/// switches on it), because a `canvas-app` / `code-bundle` artifact's blob is a
+/// JSON AFM-V1 manifest carried under a vendor mime
+/// (`application/vnd.termipod.canvas+json`), NOT `text/html` — so a mime-only
+/// classifier renders the manifest as raw JSON (the director's "html canvas
+/// shows raw content" bug). We resolve `kind` first, then fall back to mime /
+/// extension, and finally content-sniff for HTML that the hub mis-typed as
+/// text/octet-stream (agent uploads don't always set `Content-Type: text/html`).
 
-type Kind = 'image' | 'pdf' | 'html' | 'json' | 'text' | 'other';
+type View = 'canvas' | 'code' | 'image' | 'pdf' | 'html' | 'json' | 'text' | 'other';
 
 /** Decode a base64 payload to a UTF-8 string (for the text renderers). */
 function b64ToUtf8(b64: string): string {
@@ -28,9 +40,17 @@ function extOf(name: string): string {
   return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
 }
 
-/** Resolve a renderer kind from the mime, falling back to the file extension
- * when the mime is missing or the generic octet-stream. */
-function kindOf(mime: string, name: string): Kind {
+/** A specific blob mime wins; a generic/empty one yields to the artifact-row
+ * mime (the hub often serves `application/octet-stream` for typed content). */
+function pickMime(blobMime: string | undefined, rowMime: string | undefined): string {
+  const b = (blobMime ?? '').toLowerCase();
+  if (b !== '' && b !== 'application/octet-stream') return blobMime as string;
+  if (rowMime !== undefined && rowMime !== '') return rowMime;
+  return blobMime ?? 'application/octet-stream';
+}
+
+/** Mime/extension renderer kind (no artifact-kind / content signal). */
+function mimeKind(mime: string, name: string): View {
   const m = mime.toLowerCase();
   const ext = extOf(name);
   if (m.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'image';
@@ -48,15 +68,31 @@ function kindOf(mime: string, name: string): Kind {
   return 'other';
 }
 
+/** Does a decoded body look like a standalone HTML document? Used to catch HTML
+ * the hub stored as text/plain or octet-stream (no reliable mime). */
+function looksLikeHtml(text: string): boolean {
+  return /^\s*(<!doctype\s+html|<html[\s>]|<svg[\s>])/i.test(text);
+}
+
+/** A highlight.js-friendly fence language token from a file path. */
+function langOf(path: string): string {
+  const ext = extOf(path);
+  const map: Record<string, string> = { mjs: 'js', cjs: 'js', jsx: 'jsx', tsx: 'tsx', yml: 'yaml', htm: 'html' };
+  return map[ext] ?? ext;
+}
+
 export function ArtifactViewer({
   sha,
   name,
   mime,
+  kind,
   onClose,
 }: {
   sha: string;
   name: string;
   mime?: string;
+  /** The artifact-row `kind` (e.g. `canvas-app`, `code-bundle`) — authoritative. */
+  kind?: string;
   onClose: () => void;
 }): JSX.Element {
   const t = useT();
@@ -70,47 +106,102 @@ export function ArtifactViewer({
     queryFn: () => client!.getBlobBytes(sha),
   });
 
-  const resolvedMime = blobQ.data?.mime || mime || 'application/octet-stream';
-  const kind = kindOf(resolvedMime, name);
+  const resolvedMime = pickMime(blobQ.data?.mime, mime);
+  const base = mimeKind(resolvedMime, name);
   const dataUrl = blobQ.data !== undefined ? `data:${resolvedMime};base64,${blobQ.data.base64}` : '';
 
-  // Text/json bodies are decoded from the base64 once loaded.
+  // Decode the body for anything that isn't a binary image/pdf (needed for the
+  // text renderers, the HTML content-sniff, and the canvas/code manifest parse).
   const text = useMemo(() => {
-    if (blobQ.data === undefined || (kind !== 'text' && kind !== 'json' && kind !== 'html')) return '';
+    if (blobQ.data === undefined || base === 'image' || base === 'pdf') return '';
     try {
       return b64ToUtf8(blobQ.data.base64);
     } catch {
       return '';
     }
-  }, [blobQ.data, kind]);
+  }, [blobQ.data, base]);
 
-  // Parse JSON once: derive both the pretty form and a chart (when the data is
-  // chart-shaped — director feedback: chart-data JSON should render as a chart).
+  // Final renderer: artifact `kind` and vendor mimes win, then mime/ext, then a
+  // content sniff for mis-typed HTML.
+  const view: View = useMemo(() => {
+    if (kind === 'canvas-app' || resolvedMime === CANVAS_MIME) return 'canvas';
+    if (kind === 'code-bundle' || resolvedMime === CODE_MIME) return 'code';
+    if ((base === 'text' || base === 'other') && looksLikeHtml(text)) return 'html';
+    return base;
+  }, [kind, resolvedMime, base, text]);
+
+  // Canvas / code bundles carry a JSON AFM-V1 manifest as their body.
+  const manifest = useMemo<ArtifactFileManifest | null>(() => {
+    if ((view !== 'canvas' && view !== 'code') || text === '') return null;
+    try {
+      return parseArtifactFileManifest(JSON.parse(text));
+    } catch {
+      return null;
+    }
+  }, [view, text]);
+
+  // The inlined, self-contained HTML document for a canvas (or an error string).
+  const canvasHtml = useMemo<{ html: string } | { err: string } | null>(() => {
+    if (view !== 'canvas') return null;
+    if (manifest === null) return { err: t('artifact.canvasError') };
+    try {
+      return { html: inlineCanvasBundle(manifest) };
+    } catch (e) {
+      return { err: e instanceof Error ? e.message : String(e) };
+    }
+  }, [view, manifest, t]);
+
+  // Parse JSON once: derive both the pretty form and a chart (director feedback:
+  // chart-data JSON should render as a chart).
   const parsedJson = useMemo<{ pretty: string; chart: ChartData | null }>(() => {
-    if (kind !== 'json' || text === '') return { pretty: text, chart: null };
+    if (view !== 'json' || text === '') return { pretty: text, chart: null };
     try {
       const value = JSON.parse(text);
       return { pretty: JSON.stringify(value, null, 2), chart: chartFromJson(value) };
     } catch {
       return { pretty: text, chart: null }; // not valid JSON — show as-is
     }
-  }, [kind, text]);
+  }, [view, text]);
 
   function body(): JSX.Element {
     if (blobQ.isLoading) return <div className="muted">{t('common.loading')}</div>;
     if (blobQ.isError) return <div className="error">{(blobQ.error as Error).message}</div>;
     if (blobQ.data === undefined) return <div className="muted">{t('artifact.empty')}</div>;
-    switch (kind) {
+    switch (view) {
       case 'image':
         return <img className="artifact-img" src={dataUrl} alt={name} />;
       case 'pdf':
         return <iframe className="artifact-frame" src={dataUrl} title={name} />;
+      case 'canvas':
+        // Inlined single-doc HTML in an isolated iframe (`allow-scripts`, NOT
+        // allow-same-origin) — the canvas app runs but can't reach the app origin.
+        if (canvasHtml !== null && 'html' in canvasHtml) {
+          return <iframe className="artifact-frame" sandbox="allow-scripts" srcDoc={canvasHtml.html} title={name} />;
+        }
+        return (
+          <div className="artifact-download">
+            <p className="error small">{canvasHtml !== null ? canvasHtml.err : t('artifact.canvasError')}</p>
+            <a className="btn-like" href={dataUrl} download={name || sha}>
+              {t('artifact.download')}
+            </a>
+          </div>
+        );
+      case 'code':
+        if (manifest === null) return <pre className="ev-mono artifact-text">{text}</pre>;
+        return (
+          <div className="artifact-code-bundle">
+            {manifest.files.map((f) => (
+              <div key={f.path} className="code-file">
+                <div className="code-file-path mono">{f.path}</div>
+                <Markdown text={`\`\`\`\`${langOf(f.path)}\n${f.content}\n\`\`\`\``} />
+              </div>
+            ))}
+          </div>
+        );
       case 'html':
-        // `allow-scripts` (but deliberately NOT `allow-same-origin`) lets a
-        // self-contained HTML artifact — an agent-produced chart or report —
-        // actually run its inline JS/CSS while staying fully isolated from the
-        // app origin (it can't reach cookies, storage, or the parent DOM).
-        // Director feedback: HTML artifacts were showing as raw markup.
+        // `allow-scripts` (deliberately NOT `allow-same-origin`) lets a
+        // self-contained HTML artifact run its inline JS/CSS while staying
+        // isolated from the app origin. Director feedback: HTML showed as markup.
         return <iframe className="artifact-frame" sandbox="allow-scripts" srcDoc={text} title={name} />;
       case 'json':
         if (parsedJson.chart !== null && !rawJson) {

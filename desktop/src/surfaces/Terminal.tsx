@@ -37,6 +37,14 @@ type Auth = 'password' | 'key';
 /// resizes back out. Unmount tears the session down.
 function Screen({ sessionId, onExit }: { sessionId: string; onExit: () => void }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
+  // Hold onExit in a ref so a new inline `onExit` identity from the parent does
+  // NOT retrigger the effect below. The effect's cleanup calls sshClose(), so
+  // re-running it on every parent re-render (e.g. clicking the tmux tab) would
+  // tear down the live SSH session — the terminal went black and stopped
+  // accepting input until reconnect (director report). The effect must depend
+  // on sessionId ALONE.
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
 
   useEffect(() => {
     const el = ref.current;
@@ -60,8 +68,12 @@ function Screen({ sessionId, onExit }: { sessionId: string; onExit: () => void }
     // and force a refresh (director: "switch to terminal, screen is black").
     let lastCols = 0;
     let lastRows = 0;
+    let wasVisible = false;
     const refit = (): void => {
-      if (disposed || el.clientWidth === 0 || el.clientHeight === 0) return;
+      if (disposed || el.clientWidth === 0 || el.clientHeight === 0) {
+        wasVisible = false;
+        return;
+      }
       try {
         fit.fit();
       } catch {
@@ -73,6 +85,10 @@ function Screen({ sessionId, onExit }: { sessionId: string; onExit: () => void }
         void sshResize(sessionId, term.cols, term.rows);
       }
       term.refresh(0, term.rows - 1); // repaint buffered output after becoming visible
+      if (!wasVisible) {
+        wasVisible = true;
+        term.focus(); // re-focus when un-hidden so typing works without a click
+      }
     };
     refit();
 
@@ -83,7 +99,7 @@ function Screen({ sessionId, onExit }: { sessionId: string; onExit: () => void }
     const unlistenP = onSshData(sessionId, (b) => term.write(b));
     const exitP = onSshExit(sessionId, () => {
       if (!disposed) term.write('\r\n\x1b[2m[connection closed]\x1b[0m\r\n');
-      onExit();
+      onExitRef.current();
     });
     term.focus();
 
@@ -96,7 +112,10 @@ function Screen({ sessionId, onExit }: { sessionId: string; onExit: () => void }
       void sshClose(sessionId);
       term.dispose();
     };
-  }, [sessionId, onExit]);
+    // sessionId ALONE — see onExitRef above. Re-running this effect closes the
+    // SSH session, so it must not react to parent re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   return <div className="term-screen" ref={ref} />;
 }

@@ -2499,3 +2499,236 @@ th {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* ---- Persistent terminal dock (professional-terminal, → ADR-053) ---- */
+.term-dock {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  position: relative;
+}
+.term-dock.hidden { display: none; }
+.term-dock-resize {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+.term-dock-resize:hover { background: var(--accent-line); }
+.term-dock-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  min-height: 34px;
+}
+.term-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  flex: 0 1 auto;
+}
+.term-tab {
+  display: flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding-left: var(--spacing-s8);
+  white-space: nowrap;
+}
+.term-tab.active {
+  background: var(--bg);
+  border-color: var(--border);
+}
+.term-tab-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 4px 2px;
+  font-size: var(--font-size-caption);
+}
+.term-tab-kind {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: none;
+}
+.term-tab-kind.ssh { background: var(--accent); }
+.term-tab-kind.local { background: #6ac28a; }
+.term-tab-x {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+.term-tab-x:hover { color: var(--text); background: var(--border); }
+.term-dock-add {
+  display: flex;
+  gap: var(--spacing-s4);
+}
+.term-dock-add button,
+.term-dock-hide { font-size: var(--font-size-caption); }
+.term-dock-add button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.term-dock-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.dock-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.dock-pane.hidden { display: none; }
+.term-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+  align-items: center;
+  justify-content: center;
+}
+.term-empty-actions {
+  display: flex;
+  gap: var(--spacing-s8);
+}
+
+/* per-session view (terminal / tmux / files sub-switcher) */
+.session-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.session-subtabs {
+  display: flex;
+  gap: 2px;
+  padding: var(--spacing-s4) var(--spacing-s8) 0;
+}
+.session-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* xterm screen + OSC 133 command navigator (Blocks v1) */
+.term-screen-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.term-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.term-search {
+  height: 24px;
+  width: 160px;
+  font-size: var(--font-size-caption);
+}
+.term-nav-btn {
+  height: 24px;
+  min-width: 26px;
+  padding: 0 6px;
+  font-size: var(--font-size-caption);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+}
+.term-nav-btn:hover:not(:disabled) { border-color: var(--border-strong); }
+.term-nav-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.term-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.term-nav-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 2px;
+}
+.term-blocks {
+  display: flex;
+  gap: var(--spacing-s4);
+  overflow-x: auto;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.term-block {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: 2px var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: var(--font-size-caption);
+}
+.term-block:hover { border-color: var(--border-strong); }
+.term-block-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: none;
+}
+.term-block-dot.ok { background: #3fb950; }
+.term-block-dot.err { background: #f85149; }
+.term-block-dot.run { background: var(--accent); }
+.term-block-dot.na { background: var(--text-muted); }
+.term-block-cmd {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+.term-block-dur {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.term-block-code {
+  color: #f85149;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid color-mix(in srgb, #f85149 40%, transparent);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.term-block-copy {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.term-block-copy:hover { color: var(--text); }

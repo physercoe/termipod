@@ -25,6 +25,11 @@ russh = "0.62"
 # SFTP file transfer (parity — mobile sftp_service.dart) over the same russh
 # session: opens an `sftp` subsystem channel and speaks the SFTP protocol.
 russh-sftp = "2"
+# Local shells for the terminal dock (professional-terminal, → ADR-053). wezterm's
+# cross-platform PTY layer — spawns a native login shell on the user's own machine
+# (the desktop's "empower the user" lever beyond mobile's SSH-only story). Pure
+# Rust; no system deps in CI.
+portable-pty = "0.9"
 tokio = { version = "1", features = ["macros", "sync", "io-util", "net", "time", "rt-multi-thread"] }
 # Voice dictation (parity — mobile cloud_stt.dart): a WebSocket bridge to
 # DashScope realtime ASR. The webview WebSocket can't set the Authorization

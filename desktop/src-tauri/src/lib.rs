@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, Notify};
 
 mod keychain;
+mod pty;
 mod ssh;
 mod vault;
 mod voice;
@@ -290,6 +291,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ssh::SshState::default())
+        .manage(pty::PtyState::default())
         .manage(voice::VoiceState::default())
         .manage(SseState::default())
         .invoke_handler(tauri::generate_handler![
@@ -310,6 +312,10 @@ pub fn run() {
             ssh::sftp_list,
             ssh::sftp_read,
             ssh::sftp_write,
+            pty::pty_open,
+            pty::pty_write,
+            pty::pty_resize,
+            pty::pty_close,
             voice::voice_open,
             voice::voice_send,
             voice::voice_finish,

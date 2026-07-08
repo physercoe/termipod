@@ -20,7 +20,8 @@ import { ProjectBoard } from '../surfaces/ProjectBoard';
 import { SearchPanel } from '../surfaces/SearchPanel';
 import { SessionsPanel } from '../surfaces/SessionsPanel';
 import { Settings } from '../surfaces/Settings';
-import { Terminal } from '../surfaces/Terminal';
+import { TerminalDock } from '../terminal/TerminalDock';
+import { useTerminals } from '../terminal/store';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
 import { ProfileSwitcher } from './ProfileSwitcher';
@@ -41,7 +42,6 @@ export function AppShell(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
@@ -78,7 +78,6 @@ export function AppShell(): JSX.Element {
   function closeOverlays(): void {
     setAdminOpen(false);
     setSettingsOpen(false);
-    setTerminalOpen(false);
     setSessionsOpen(false);
     setChannelsOpen(false);
     setInsightsOpen(false);
@@ -92,6 +91,11 @@ export function AppShell(): JSX.Element {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === '`') {
+        // VS Code's integrated-terminal toggle. The dock is persistent, so this
+        // only shows/hides it — sessions keep running underneath.
+        e.preventDefault();
+        useTerminals.getState().toggle();
       } else if (e.key === 'Escape') {
         closeOverlays();
       }
@@ -119,7 +123,7 @@ export function AppShell(): JSX.Element {
     { id: 'docs', label: t('cmd.docs'), run: () => setDocsOpen(true) },
     { id: 'me', label: t('cmd.me'), run: () => setMeOpen(true) },
     { id: 'search', label: t('cmd.search'), run: () => setSearchOpen(true) },
-    { id: 'terminal', label: t('cmd.terminal'), run: () => setTerminalOpen(true) },
+    { id: 'terminal', label: t('cmd.terminal'), run: () => useTerminals.getState().setOpen(true) },
     { id: 'settings', label: t('cmd.settings'), run: () => setSettingsOpen(true) },
     client === null
       ? { id: 'connect', label: t('shell.connect'), run: () => openConnect() }
@@ -152,7 +156,7 @@ export function AppShell(): JSX.Element {
         <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
         <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
         <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
-        <button onClick={() => setTerminalOpen(true)}>{t('shell.terminal')}</button>
+        <button onClick={() => useTerminals.getState().toggle()}>{t('shell.terminal')}</button>
         <button onClick={() => setSettingsOpen(true)}>{t('shell.settings')}</button>
         <button onClick={() => setPaletteOpen(true)}>⌘K</button>
       </div>
@@ -188,11 +192,12 @@ export function AppShell(): JSX.Element {
         </div>
       </div>
 
+      <TerminalDock />
+
       <StatusBar />
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
-      {terminalOpen && <Terminal onClose={() => setTerminalOpen(false)} />}
       {sessionsOpen && <SessionsPanel onClose={() => setSessionsOpen(false)} />}
       {channelsOpen && <ChannelsPanel onClose={() => setChannelsOpen(false)} />}
       {insightsOpen && <InsightsPanel onClose={() => setInsightsOpen(false)} />}

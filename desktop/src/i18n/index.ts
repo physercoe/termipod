@@ -511,6 +511,24 @@ const en: Dict = {
     'The SSH terminal runs only in the desktop app — direct SSH needs the native core. Open TermiPod desktop to use it.',
   'term.personalNote':
     'Personal direct SSH. Keys are held in memory for this session only and never sent to the hub (ADR-052).',
+  // Persistent terminal dock (professional-terminal, → ADR-053).
+  'term.localShell': 'Local shell',
+  'term.newLocalHint': 'Open a shell on this machine',
+  'term.ssh': 'SSH',
+  'term.closeTab': 'Close tab',
+  'term.hideDock': 'Hide terminal (Ctrl+`)',
+  'term.emptyHint': 'No open terminals. Start a local shell or connect over SSH.',
+  'term.search': 'Search',
+  'term.searchPrev': 'Previous match',
+  'term.searchNext': 'Next match',
+  'term.prevCmd': 'Previous command',
+  'term.nextCmd': 'Next command',
+  'term.blocks': 'Command blocks',
+  'term.noBlocks': 'No commands tracked yet.',
+  'term.command': '(command)',
+  'term.copyOutput': 'Copy output',
+  'term.enableBlocks': 'Enable blocks',
+  'term.enableBlocksHint': 'Inject shell integration to track commands (OSC 133)',
 };
 
 const zh: Dict = {
@@ -1013,6 +1031,24 @@ const zh: Dict = {
   'term.keyMissing': '密钥内容未在钥匙串中找到。',
   'term.desktopOnly': 'SSH 终端仅在桌面应用中可用 — 直连 SSH 需要原生内核。请打开 TermiPod 桌面版使用。',
   'term.personalNote': '个人直连 SSH。密钥仅在本会话内存中保存，绝不发送到 Hub（ADR-052）。',
+  // 常驻终端停靠面板（professional-terminal，→ ADR-053）。
+  'term.localShell': '本地 shell',
+  'term.newLocalHint': '在本机打开一个 shell',
+  'term.ssh': 'SSH',
+  'term.closeTab': '关闭标签页',
+  'term.hideDock': '隐藏终端（Ctrl+`）',
+  'term.emptyHint': '暂无打开的终端。启动本地 shell 或通过 SSH 连接。',
+  'term.search': '搜索',
+  'term.searchPrev': '上一个匹配',
+  'term.searchNext': '下一个匹配',
+  'term.prevCmd': '上一条命令',
+  'term.nextCmd': '下一条命令',
+  'term.blocks': '命令块',
+  'term.noBlocks': '尚未记录命令。',
+  'term.command': '（命令）',
+  'term.copyOutput': '复制输出',
+  'term.enableBlocks': '启用命令块',
+  'term.enableBlocksHint': '注入 shell 集成以跟踪命令（OSC 133）',
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };

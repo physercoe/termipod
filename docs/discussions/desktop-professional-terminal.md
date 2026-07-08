@@ -1,14 +1,17 @@
 # Desktop terminal — first-class persistent surface & a professional-class feature path
 
 > **Type:** discussion
-> **Status:** Open (2026-07-08). Director directive: the terminal should be a
-> *separate function*, not a pop-up — switchable at any time like VS Code's
-> integrated terminal — and "professional-class" (director cited **Warp**), using
-> the fact that the desktop is a **native (Tauri/Rust) app, not a pure web app**.
-> This reasons the **information-architecture change** (modal → persistent panel)
-> and the **engine/feature strategy**, building on the two-layer split ratified in
-> [ADR-052](../decisions/052-breakglass-ssh-and-key-vault.md). Proposes a phased
-> plan; awaits a direction pick before an ADR.
+> **Status:** Accepted → in build (2026-07-08). Director directive: the terminal
+> should be a *separate function*, not a pop-up — switchable at any time like VS
+> Code's integrated terminal — and "professional-class" (director cited **Warp**),
+> using the fact that the desktop is a **native (Tauri/Rust) app, not a pure web
+> app**. This reasons the **information-architecture change** (modal → persistent
+> panel) and the **engine/feature strategy**, building on the two-layer split
+> ratified in [ADR-052](../decisions/052-breakglass-ssh-and-key-vault.md).
+> **Director decisions (§6):** dock **bottom**; first slice bundles **persistent
+> panel + Blocks together**; **local shells (local PTY) in scope**; xterm.js is the
+> endpoint (no native GPU surface). Now being implemented; graduates to **ADR-053**
+> once the first slice lands.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** desktop-v0.3.10
 
@@ -140,15 +143,46 @@ aligns with the agent-control mission, not just aesthetics.
 6. **Later:** split panes, theme system (map to our design tokens), then
    *optionally* a native GPU surface if throughput ever demands it.
 
-## 4. Licensing note
+## 4. Licensing note — and why integrating Warp's crates is not a shortcut
 
-Warp's client is open source with a **split license**: the `warpui` / `warpui_core`
-UI-framework crates are **MIT**; the rest of the client is **AGPL v3**
-(cloud "Warp Drive" stays closed). Practical consequence: we may **read the
-whole client for ideas** and could **reuse the MIT `warpui` crates**, but AGPL
-code cannot be lifted into our distributed product without complying with AGPL.
-Our path (borrow *concepts* — Blocks/OSC 133, palette, workflows — implemented on
-our own xterm.js/React stack) sidesteps this entirely.
+Warp's client is open source with a **split license** (verified against
+`warpdotdev/Warp` `/crates`, 2026-07-08): the `warpui` / `warpui_core` /
+`warpui_extras` **UI-framework** crates are **MIT**; the application crates —
+`warp_terminal`, `warp_core`, `editor`, `command`, and the rest — are **AGPL v3**
+(cloud "Warp Drive" stays closed).
+
+A tempting idea is to accept AGPL (TermiPod is open source) and lift Warp's
+terminal/Blocks code to save time. This does **not** hold up, for two reasons:
+
+- **Legal — AGPL is a one-way door against our Apache-2.0 licence.** AGPL is not
+  a "non-commercial" licence; it permits commercial use. Its obligation is that
+  *distribution or network interaction* forces publication of the **entire
+  combined work's** source under AGPL — and we ship signed installers, so it
+  fires. Apache-2.0 code may flow *into* an AGPL project but not the reverse:
+  linking any AGPL crate into the desktop binary **relicenses the whole desktop
+  app to AGPL**, foreclosing permissive reuse and changing the deal for every
+  contributor and downstream adopter. That is a deliberate relicensing decision,
+  not a side effect worth taking for one feature.
+- **Technical — there is no liftable "Blocks" crate.** Blocks live inside
+  `warp_terminal` / `warp_core` / `editor`, and they render through `warpui`,
+  Warp's **own native GPU surface** — not a webview, not xterm.js. Adopting them
+  means adopting Warp's entire native rendering stack composited over/in place of
+  our webview, discarding the React + xterm.js UI where every other surface
+  lives: precisely the native-surface rewrite rejected in §3.1 (and by ADR-052
+  for `libghostty`). AGPL or not, it is *more* effort than our own path, not
+  less.
+
+Meanwhile the crown-jewel feature is **not Warp IP**: Blocks is the open
+**OSC 133** protocol (§3.2), implemented by iTerm2/VS Code/Ghostty alike. On our
+existing stack it is a `registerOscHandler(133,…)` call plus a React navigator —
+roughly a day or two, no licence entanglement.
+
+**Consequences for our plan:** (1) **read the AGPL client freely for ideas** —
+concepts (Blocks model, palette, workflows) aren't copyrightable and we already
+planned to borrow them; (2) the **MIT `warpui*` crates remain permissively
+usable** *if* we ever deliberately choose a native GPU surface — a separate
+future project, not the route to Blocks; (3) our path (borrow *concepts*,
+implement on xterm.js/React) keeps us Apache-2.0 and is the shorter route.
 
 ## 5. Recommended first slice
 

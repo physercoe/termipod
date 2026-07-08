@@ -53,6 +53,19 @@ export const shellIntegrationScript =
   `[[ "$PROMPT_COMMAND" != *__ti_post* ]] && PROMPT_COMMAND="__ti_post;$PROMPT_COMMAND"; ` +
   `trap '__ti_pre' DEBUG; PS1="\\[$(__ti_osc A)\\]$PS1\\[$(__ti_osc B)\\]"; fi; fi`;
 
+/// Whether `shellIntegrationScript` can be injected into the given shell. It is a
+/// bash/zsh script, so feeding it to cmd.exe / PowerShell just prints parse
+/// errors ("`-z` was unexpected at this time.") — a real bug seen on Windows
+/// local shells. Match the shell's basename exactly (an `endsWith('sh')` test
+/// would wrongly accept powershell/pwsh). When the shell is unknown (e.g. a
+/// remote SSH shell, whose kind we can't see), assume POSIX — remote hosts are
+/// overwhelmingly Linux and the user drives injection manually there.
+export function isPosixShell(shell: string | undefined): boolean {
+  if (shell === undefined || shell.trim() === '') return true;
+  const base = (shell.replace(/\\/g, '/').split('/').pop() ?? '').toLowerCase().replace(/\.exe$/, '');
+  return ['bash', 'zsh', 'sh', 'dash', 'ash', 'ksh'].includes(base);
+}
+
 /// Tracks OSC 133 markers on one terminal and surfaces the resulting blocks.
 export class ShellIntegration {
   private readonly term: Terminal;

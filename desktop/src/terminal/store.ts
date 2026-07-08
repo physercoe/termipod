@@ -14,6 +14,10 @@ export interface TermTab {
   /** Backend session id — `s*` for SSH (ssh.rs), `p*` for local (pty.rs). */
   sessionId: string;
   title: string;
+  /** For local shells, the shell binary pty.rs launched — gates whether the
+   *  POSIX OSC-133 integration applies (cmd.exe / PowerShell can't run it).
+   *  Undefined for SSH (remote shell kind is unknown; assumed POSIX). */
+  shell?: string;
 }
 
 interface TerminalState {

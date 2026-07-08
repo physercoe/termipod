@@ -54,8 +54,8 @@ export function TerminalDock(): JSX.Element {
   async function newLocal(): Promise<void> {
     setError(null);
     try {
-      const sid = await ptyOpen({ cols: 80, rows: 24 });
-      addTab({ kind: 'local', sessionId: sid, title: t('term.localShell') });
+      const { id, shell } = await ptyOpen({ cols: 80, rows: 24 });
+      addTab({ kind: 'local', sessionId: id, shell, title: t('term.localShell') });
       setConnecting(false);
     } catch (e) {
       setError(msg(e));

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useT } from '../i18n';
 import { FileTransferPanel } from '../surfaces/FileTransferPanel';
 import { TmuxPanel } from '../surfaces/TmuxPanel';
+import { isPosixShell } from './osc133';
 import { Screen } from './Screen';
 import type { TermTab } from './store';
 
@@ -14,6 +15,10 @@ export function SessionView({ tab }: { tab: TermTab }): JSX.Element {
   const t = useT();
   const [view, setView] = useState<'term' | 'tmux' | 'files'>('term');
   const isSsh = tab.kind === 'ssh';
+  // OSC-133 blocks ride a bash/zsh script; only offer/auto-run it where that
+  // shell can parse it. SSH (remote, shell kind unknown → assumed POSIX) keeps
+  // manual integration; a local cmd.exe / PowerShell gets neither.
+  const canIntegrate = isSsh || isPosixShell(tab.shell);
 
   return (
     <div className="session-view">
@@ -32,7 +37,12 @@ export function SessionView({ tab }: { tab: TermTab }): JSX.Element {
       )}
       <div className="session-body">
         <div className={view === 'term' ? 'term-view' : 'term-view hidden'}>
-          <Screen kind={tab.kind} sessionId={tab.sessionId} autoIntegrate={tab.kind === 'local'} />
+          <Screen
+            kind={tab.kind}
+            sessionId={tab.sessionId}
+            autoIntegrate={tab.kind === 'local' && canIntegrate}
+            canIntegrate={canIntegrate}
+          />
         </div>
         {isSsh && view === 'tmux' && <TmuxPanel sessionId={tab.sessionId} />}
         {isSsh && view === 'files' && <FileTransferPanel sessionId={tab.sessionId} />}

@@ -15,12 +15,21 @@ export interface PtyOpenReq {
   rows: number;
 }
 
-/** Open a local shell in a PTY; resolves to the session id used below. The shell
- *  is created but NOT read until {@link ptyStart} — call that only once the
+export interface PtyOpened {
+  /** Session id used for start/write/resize/close and to filter `pty-data`. */
+  id: string;
+  /** The shell actually launched (e.g. `C:\\Windows\\system32\\cmd.exe`,
+   *  `/bin/bash`) — lets the caller decide whether the POSIX shell-integration
+   *  script applies. */
+  shell: string;
+}
+
+/** Open a local shell in a PTY; resolves to the session id + resolved shell. The
+ *  shell is created but NOT read until {@link ptyStart} — call that only once the
  *  `pty-data`/`pty-exit` listeners are attached, so the first prompt can't race
  *  ahead of the subscriber (the black-local-shell bug). */
-export function ptyOpen(req: PtyOpenReq): Promise<string> {
-  return invoke<string>('pty_open', { req });
+export function ptyOpen(req: PtyOpenReq): Promise<PtyOpened> {
+  return invoke<PtyOpened>('pty_open', { req });
 }
 /** Begin streaming a shell opened by {@link ptyOpen}. Idempotent. */
 export function ptyStart(id: string): Promise<void> {

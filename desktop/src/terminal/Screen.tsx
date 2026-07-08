@@ -21,6 +21,10 @@ interface Props {
   sessionId: string;
   /** Auto-inject shell integration shortly after mount (local shells). */
   autoIntegrate?: boolean;
+  /** Whether the OSC-133 (bash/zsh) integration can run in this shell at all —
+   *  false for cmd.exe / PowerShell, so the "Enable blocks" button is hidden and
+   *  no script is ever injected. Defaults true (SSH / POSIX). */
+  canIntegrate?: boolean;
 }
 
 function fmtDuration(ms: number): string {
@@ -39,7 +43,7 @@ function fmtDuration(ms: number): string {
 /// terminal / dead-input bug fixed in desktop-v0.3.10). Unmount closes the
 /// session — which now only happens when the owning tab is closed, since the dock
 /// hides inactive tabs via CSS rather than unmounting them.
-export function Screen({ kind, sessionId, autoIntegrate = false }: Props): JSX.Element {
+export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = true }: Props): JSX.Element {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -224,7 +228,7 @@ export function Screen({ kind, sessionId, autoIntegrate = false }: Props): JSX.E
           ⌗ {blocks.length}
         </button>
         <span className="spacer" />
-        {!integrated && (
+        {canIntegrate && !integrated && (
           <button className="term-nav-btn" onClick={enableIntegration} title={t('term.enableBlocksHint')}>
             {t('term.enableBlocks')}
           </button>

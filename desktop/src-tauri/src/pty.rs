@@ -83,6 +83,15 @@ pub struct PtyOpenReq {
     rows: u16,
 }
 
+/// What `pty_open` hands back: the session id plus the shell it actually
+/// launched, so the frontend can decide whether the POSIX OSC-133 shell-
+/// integration script applies (it does not for cmd.exe / PowerShell).
+#[derive(Serialize)]
+pub struct PtyOpened {
+    id: String,
+    shell: String,
+}
+
 #[derive(Serialize, Clone)]
 struct DataPayload {
     id: String,
@@ -111,7 +120,7 @@ fn default_shell() -> String {
 /// `async fn` (like ssh.rs) so the blocking spawn is dispatched off the UI main
 /// thread — a synchronous command runs on the main thread and would freeze it.
 #[tauri::command]
-pub async fn pty_open(state: State<'_, PtyState>, req: PtyOpenReq) -> Result<String, String> {
+pub async fn pty_open(state: State<'_, PtyState>, req: PtyOpenReq) -> Result<PtyOpened, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -150,7 +159,7 @@ pub async fn pty_open(state: State<'_, PtyState>, req: PtyOpenReq) -> Result<Str
         },
     );
 
-    Ok(id)
+    Ok(PtyOpened { id, shell })
 }
 
 /// Begin streaming the shell opened by `pty_open`. Idempotent: the reader/child
@@ -169,14 +178,6 @@ pub async fn pty_start(app: AppHandle, state: State<'_, PtyState>, id: String) -
     let Some(PendingIo { reader, child }) = pending else {
         return Ok(()); // already started
     };
-
-    // A dim startup marker: proves the emit → listen → xterm path end-to-end even
-    // before the shell writes anything, so a black screen can be told apart from a
-    // silent shell during device testing.
-    let _ = app.emit(
-        "pty-data",
-        DataPayload { id: id.clone(), bytes: b"\x1b[2m[local shell]\x1b[0m\r\n".to_vec() },
-    );
 
     let sessions = state.sessions.clone();
     let task_id = id.clone();

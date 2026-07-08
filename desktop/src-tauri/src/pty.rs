@@ -165,9 +165,10 @@ pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) 
         .get(&id)
         .map(|s| s.master.clone())
         .ok_or_else(|| "no such session".to_string())?;
-    master
-        .lock()
-        .unwrap()
+    // Bind the guard to a local so it drops before `master` (reverse declaration
+    // order) — chaining it as the block's tail expression outlives `master`'s drop.
+    let guard = master.lock().unwrap();
+    guard
         .resize(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("resize: {e}"))
 }

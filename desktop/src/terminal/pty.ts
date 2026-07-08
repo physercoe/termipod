@@ -15,9 +15,16 @@ export interface PtyOpenReq {
   rows: number;
 }
 
-/** Open a local shell in a PTY; resolves to the session id used below. */
+/** Open a local shell in a PTY; resolves to the session id used below. The shell
+ *  is created but NOT read until {@link ptyStart} — call that only once the
+ *  `pty-data`/`pty-exit` listeners are attached, so the first prompt can't race
+ *  ahead of the subscriber (the black-local-shell bug). */
 export function ptyOpen(req: PtyOpenReq): Promise<string> {
   return invoke<string>('pty_open', { req });
+}
+/** Begin streaming a shell opened by {@link ptyOpen}. Idempotent. */
+export function ptyStart(id: string): Promise<void> {
+  return invoke('pty_start', { id });
 }
 export function ptyWrite(id: string, data: string): Promise<void> {
   return invoke('pty_write', { id, data });

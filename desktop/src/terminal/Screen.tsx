@@ -10,6 +10,7 @@ import {
   onSessionExit,
   sessionClose,
   sessionResize,
+  sessionStart,
   sessionWrite,
   type TermKind,
 } from './backend';
@@ -30,8 +31,9 @@ function fmtDuration(ms: number): string {
   return `${m}m${s.toString().padStart(2, '0')}s`;
 }
 
-/// A live xterm.js screen bound to one session (SSH or local), with the GPU
-/// (webgl) + search + serialize addons and OSC 133 command-block tracking. The
+/// A live xterm.js screen bound to one session (SSH or local), with the fit +
+/// search + serialize addons and OSC 133 command-block tracking (no WebGL — see
+/// the renderer note in the mount effect). The
 /// effect depends on `sessionId` ALONE: its cleanup calls sessionClose(), so
 /// re-running it on a parent re-render would tear the session down (the black-
 /// terminal / dead-input bug fixed in desktop-v0.3.10). Unmount closes the
@@ -114,6 +116,12 @@ export function Screen({ kind, sessionId, autoIntegrate = false }: Props): JSX.E
     const unlistenP = onSessionData(kind, sessionId, (b) => term.write(b));
     const exitP = onSessionExit(kind, sessionId, () => {
       if (!disposed) term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n');
+    });
+    // Only start streaming once BOTH listeners are registered — a local shell
+    // prints its prompt within microseconds of spawning, and emitting before the
+    // subscriber attaches drops it (the black-local-shell bug). SSH is a no-op.
+    void Promise.all([unlistenP, exitP]).then(() => {
+      if (!disposed) void sessionStart(kind, sessionId);
     });
     term.focus();
 

@@ -5,33 +5,64 @@
 //! mobile SSH-only story. Same webview contract as ssh.rs, distinct event names
 //! so the frontend can multiplex both kinds through one `<Screen>`:
 //!
-//!   frontend --invoke pty_open/pty_write/pty_resize/pty_close--> core
+//!   frontend --invoke pty_open--------------------------------> core (creates it)
+//!   frontend --invoke pty_start (after listeners are attached)-> core (reads it)
 //!   core     --emit "pty-data" {id, bytes} / "pty-exit" {id}--> frontend
+//!   frontend --invoke pty_write/pty_resize/pty_close----------> core
 //!
-//! portable-pty is blocking I/O, so each session runs a dedicated reader thread
-//! (a std thread, not a tokio task) that also reaps the child on exit; writes and
-//! resizes go straight through the master under a std `Mutex`. The commands are
-//! therefore sync, which sidesteps the async `State` lifetime dance in ssh.rs.
+//! Two properties this file gets right that a first cut got wrong on Windows:
+//!
+//!  1. **Commands are `async fn`.** portable-pty is blocking I/O — `write_all` to
+//!     a ConPTY whose child hasn't drained stdin can block indefinitely. A *sync*
+//!     `#[tauri::command]` runs on the **main thread**, so a blocked write froze
+//!     the whole UI (the v0.3.11/12 Windows freeze). Declaring them `async fn`
+//!     (as ssh.rs already does) dispatches them off the main thread via
+//!     `async_runtime::spawn`, so a stuck session can never wedge the app. The
+//!     bodies have no `.await`, so no `std::sync` guard is ever held across one.
+//!
+//!  2. **The reader is gated behind `pty_start`.** A local shell prints its prompt
+//!     within microseconds of spawning; if the reader thread emits that first
+//!     `pty-data` before the webview's async `listen('pty-data')` has registered,
+//!     the prompt is dropped and the terminal shows a black screen with a live
+//!     cursor (the v0.3.11/12 Windows "black local shell"). SSH masks the same
+//!     latent race with network latency. So `pty_open` creates the shell but does
+//!     NOT read it; the frontend attaches its listeners, then calls `pty_start`,
+//!     which spawns the reader. The OS pipe buffers the banner in between, so
+//!     nothing is lost.
+//!
+//! The reader loop is a dedicated std thread (a blocking pipe read can't be an
+//! async task) that also reaps the child on exit; writes/resizes go straight
+//! through the master under a std `Mutex`.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
-/// A live local shell: the master (kept for resize), a writer for keystrokes,
-/// and a killer so `pty_close` can terminate the child from outside the reader
-/// thread (which is blocked in `read`). All are `Send + Sync`, so the session
-/// lives in the shared state map.
+/// The reader end + child of a shell that has been opened but not yet started.
+/// Held in the session until `pty_start` moves it into the reader thread — the
+/// gate that closes the emit-before-subscribe race (see the module docs).
+struct PendingIo {
+    reader: Box<dyn Read + Send>,
+    child: Box<dyn Child + Send + Sync>,
+}
+
+/// A live local shell: the master (kept for resize), a writer for keystrokes, a
+/// killer so `pty_close` can terminate the child from outside the reader thread
+/// (which is blocked in `read`), and the not-yet-started reader/child until
+/// `pty_start` consumes them. All are `Send + Sync`, so the session lives in the
+/// shared state map.
 struct PtySession {
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
+    pending: Mutex<Option<PendingIo>>,
 }
 
 /// Managed Tauri state: live local shells keyed by the id `pty_open` returns.
@@ -73,10 +104,14 @@ fn default_shell() -> String {
     }
 }
 
-/// Open a local shell in a PTY and stream it to the webview. Returns a session
-/// id the frontend uses for write/resize/close and to filter `pty-data`.
+/// Open a local shell in a PTY but do NOT begin reading it yet — the frontend
+/// attaches its `pty-data`/`pty-exit` listeners and then calls `pty_start`, so
+/// the shell's first prompt can't race ahead of the subscriber. Returns a session
+/// id the frontend uses for start/write/resize/close and to filter `pty-data`.
+/// `async fn` (like ssh.rs) so the blocking spawn is dispatched off the UI main
+/// thread — a synchronous command runs on the main thread and would freeze it.
 #[tauri::command]
-pub fn pty_open(app: AppHandle, state: State<'_, PtyState>, req: PtyOpenReq) -> Result<String, String> {
+pub async fn pty_open(state: State<'_, PtyState>, req: PtyOpenReq) -> Result<String, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -111,12 +146,38 @@ pub fn pty_open(app: AppHandle, state: State<'_, PtyState>, req: PtyOpenReq) -> 
             master: Arc::new(Mutex::new(pair.master)),
             writer: Arc::new(Mutex::new(writer)),
             killer,
+            pending: Mutex::new(Some(PendingIo { reader, child })),
         },
     );
 
-    // Reader thread: blocking reads → `pty-data`; EOF/err → reap child, drop the
-    // session, emit `pty-exit`. Owns `child` so the process is reaped here rather
-    // than left a zombie.
+    Ok(id)
+}
+
+/// Begin streaming the shell opened by `pty_open`. Idempotent: the reader/child
+/// are taken once, so a second call (or a call after the tab already closed) is a
+/// harmless no-op. Spawns the reader thread: blocking reads → `pty-data`; EOF/err
+/// → reap child, drop the session, emit `pty-exit`.
+#[tauri::command]
+pub async fn pty_start(app: AppHandle, state: State<'_, PtyState>, id: String) -> Result<(), String> {
+    let pending = {
+        let map = state.sessions.lock().unwrap();
+        match map.get(&id) {
+            Some(s) => s.pending.lock().unwrap().take(),
+            None => return Ok(()), // closed before it started
+        }
+    };
+    let Some(PendingIo { reader, child }) = pending else {
+        return Ok(()); // already started
+    };
+
+    // A dim startup marker: proves the emit → listen → xterm path end-to-end even
+    // before the shell writes anything, so a black screen can be told apart from a
+    // silent shell during device testing.
+    let _ = app.emit(
+        "pty-data",
+        DataPayload { id: id.clone(), bytes: b"\x1b[2m[local shell]\x1b[0m\r\n".to_vec() },
+    );
+
     let sessions = state.sessions.clone();
     let task_id = id.clone();
     std::thread::spawn(move || {
@@ -139,11 +200,13 @@ pub fn pty_open(app: AppHandle, state: State<'_, PtyState>, req: PtyOpenReq) -> 
         let _ = app.emit("pty-exit", ExitPayload { id: task_id });
     });
 
-    Ok(id)
+    Ok(())
 }
 
+/// `async fn` so a blocking `write_all` (ConPTY whose child hasn't drained
+/// stdin) stalls only this session's worker, never the UI main thread.
 #[tauri::command]
-pub fn pty_write(state: State<'_, PtyState>, id: String, data: String) -> Result<(), String> {
+pub async fn pty_write(state: State<'_, PtyState>, id: String, data: String) -> Result<(), String> {
     let writer = state
         .sessions
         .lock()
@@ -157,7 +220,7 @@ pub fn pty_write(state: State<'_, PtyState>, id: String, data: String) -> Result
 }
 
 #[tauri::command]
-pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
+pub async fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
     let master = state
         .sessions
         .lock()
@@ -174,10 +237,10 @@ pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) 
 }
 
 #[tauri::command]
-pub fn pty_close(state: State<'_, PtyState>, id: String) -> Result<(), String> {
+pub async fn pty_close(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     // Remove + kill; the reader thread then hits EOF, removes its (now absent)
     // entry harmlessly, and emits `pty-exit`. Best-effort — a child that already
-    // exited is simply gone.
+    // exited (or never started) is simply gone.
     if let Some(mut session) = state.sessions.lock().unwrap().remove(&id) {
         let _ = session.killer.kill();
     }

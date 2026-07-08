@@ -1,5 +1,5 @@
 import type { UnlistenFn } from '@tauri-apps/api/event';
-import { onPtyData, onPtyExit, ptyClose, ptyResize, ptyWrite } from './pty';
+import { onPtyData, onPtyExit, ptyClose, ptyResize, ptyStart, ptyWrite } from './pty';
 import { onSshData, onSshExit, sshClose, sshResize, sshWrite } from '../ssh/tauri';
 
 /// One I/O contract over the two session transports the dock multiplexes:
@@ -11,6 +11,12 @@ import { onSshData, onSshExit, sshClose, sshResize, sshWrite } from '../ssh/taur
 
 export type TermKind = 'ssh' | 'local';
 
+/// Begin streaming a session once the caller's data/exit listeners are attached.
+/// Local shells gate their reader on this (`pty_start`) to avoid dropping the
+/// first prompt; SSH starts reading at connect time, so this is a no-op there.
+export function sessionStart(kind: TermKind, id: string): Promise<void> {
+  return kind === 'local' ? ptyStart(id) : Promise.resolve();
+}
 export function sessionWrite(kind: TermKind, id: string, data: string): Promise<void> {
   return kind === 'ssh' ? sshWrite(id, data) : ptyWrite(id, data);
 }

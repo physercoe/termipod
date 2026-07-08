@@ -313,6 +313,7 @@ pub fn run() {
             ssh::sftp_read,
             ssh::sftp_write,
             pty::pty_open,
+            pty::pty_start,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_close,

@@ -2483,6 +2483,52 @@ th {
 .sftp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sftp-err { margin: var(--spacing-s8); }
 
+/* ---- SFTP transfer progress ---- */
+.sftp-transfer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.sftp-transfer-head { display: flex; align-items: center; gap: var(--spacing-s8); min-width: 0; }
+.sftp-transfer-dir { color: var(--accent); flex: 0 0 auto; }
+.sftp-transfer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-caption);
+}
+.sftp-transfer-head .muted { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.sftp-progress-track {
+  height: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-tint);
+  overflow: hidden;
+}
+.sftp-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+  transition: width 120ms ease-out;
+}
+.sftp-transfer.done .sftp-progress-fill { background: var(--accent); }
+.sftp-transfer.error .sftp-progress-fill { background: var(--danger); }
+/* Unknown-size transfer: a sliding sliver instead of a filled fraction. */
+.sftp-progress-fill.indeterminate {
+  width: 40%;
+  animation: sftp-indet 1.1s ease-in-out infinite;
+}
+@keyframes sftp-indet {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sftp-progress-fill.indeterminate { animation: none; width: 100%; }
+}
+
 /* ---- voice dictation mic button ---- */
 .mic-btn {
   border: none;

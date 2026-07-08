@@ -276,29 +276,84 @@ pub async fn sftp_list(state: State<'_, SshState>, id: String, path: String) -> 
     Ok(out)
 }
 
+/// Progress tick for an in-flight SFTP transfer, emitted as `sftp-progress` so
+/// the file panel can show a live bar. `done` = bytes moved so far; the frontend
+/// already knows the total (the listed size / the picked file's size) and
+/// computes the percentage, so we don't stat here. `transfer_id` is a
+/// frontend-minted id that lets it match ticks to the row it started.
+#[derive(Serialize, Clone)]
+struct SftpProgress {
+    transfer_id: String,
+    done: u64,
+}
+
+/// The chunk size for streamed SFTP transfers — big enough to keep the pipe busy,
+/// small enough that a progress tick per chunk feels live on a slow link.
+const SFTP_CHUNK: usize = 256 * 1024;
+
 /// Download a remote file, returning its bytes base64-encoded (parity: download).
+/// Reads in chunks and emits `sftp-progress` so the transfer shows a live bar.
 #[tauri::command]
-pub async fn sftp_read(state: State<'_, SshState>, id: String, path: String) -> Result<String, String> {
+pub async fn sftp_read(
+    app: AppHandle,
+    state: State<'_, SshState>,
+    id: String,
+    path: String,
+    transfer_id: String,
+) -> Result<String, String> {
     use base64::Engine as _;
     use tokio::io::AsyncReadExt as _;
     let sftp = sftp_open(&state, &id).await?;
     let mut file = sftp.open(&path).await.map_err(|e| format!("open: {e}"))?;
     let mut buf = Vec::new();
-    file.read_to_end(&mut buf).await.map_err(|e| format!("read: {e}"))?;
+    let mut chunk = vec![0u8; SFTP_CHUNK];
+    let mut last_emit = 0u64;
+    loop {
+        let n = file.read(&mut chunk).await.map_err(|e| format!("read: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        let done = buf.len() as u64;
+        if done - last_emit >= SFTP_CHUNK as u64 {
+            last_emit = done;
+            let _ = app.emit("sftp-progress", SftpProgress { transfer_id: transfer_id.clone(), done });
+        }
+    }
+    // Final tick so the bar lands exactly on the total even for a short file.
+    let _ = app.emit("sftp-progress", SftpProgress { transfer_id, done: buf.len() as u64 });
     Ok(base64::engine::general_purpose::STANDARD.encode(&buf))
 }
 
-/// Upload bytes (base64) to a remote path, creating/overwriting it (parity: upload).
+/// Upload bytes (base64) to a remote path, creating/overwriting it (parity:
+/// upload). Writes in chunks and emits `sftp-progress` for a live bar.
 #[tauri::command]
-pub async fn sftp_write(state: State<'_, SshState>, id: String, path: String, data_b64: String) -> Result<(), String> {
+pub async fn sftp_write(
+    app: AppHandle,
+    state: State<'_, SshState>,
+    id: String,
+    path: String,
+    data_b64: String,
+    transfer_id: String,
+) -> Result<(), String> {
     use base64::Engine as _;
     use tokio::io::AsyncWriteExt as _;
     let data = base64::engine::general_purpose::STANDARD
         .decode(data_b64.as_bytes())
         .map_err(|e| format!("decode: {e}"))?;
+    let total = data.len() as u64;
     let sftp = sftp_open(&state, &id).await?;
     let mut file = sftp.create(&path).await.map_err(|e| format!("create: {e}"))?;
-    file.write_all(&data).await.map_err(|e| format!("write: {e}"))?;
+    let mut done = 0u64;
+    let mut last_emit = 0u64;
+    for chunk in data.chunks(SFTP_CHUNK) {
+        file.write_all(chunk).await.map_err(|e| format!("write: {e}"))?;
+        done += chunk.len() as u64;
+        if done - last_emit >= SFTP_CHUNK as u64 || done == total {
+            last_emit = done;
+            let _ = app.emit("sftp-progress", SftpProgress { transfer_id: transfer_id.clone(), done });
+        }
+    }
     file.flush().await.map_err(|e| format!("flush: {e}"))?;
     file.shutdown().await.map_err(|e| format!("close: {e}"))?;
     Ok(())

@@ -47,13 +47,26 @@ export interface SftpEntry {
 export function sftpList(id: string, path: string): Promise<SftpEntry[]> {
   return invoke<SftpEntry[]>('sftp_list', { id, path });
 }
-/** Download a remote file; resolves to its base64-encoded bytes. */
-export function sftpRead(id: string, path: string): Promise<string> {
-  return invoke<string>('sftp_read', { id, path });
+/** Download a remote file; resolves to its base64-encoded bytes. Emits
+ *  `sftp-progress` ticks tagged with `transferId` as it streams. */
+export function sftpRead(id: string, path: string, transferId: string): Promise<string> {
+  return invoke<string>('sftp_read', { id, path, transferId });
 }
-/** Upload base64 bytes to a remote path (create/overwrite). */
-export function sftpWrite(id: string, path: string, dataB64: string): Promise<void> {
-  return invoke('sftp_write', { id, path, dataB64 });
+/** Upload base64 bytes to a remote path (create/overwrite). Emits
+ *  `sftp-progress` ticks tagged with `transferId` as it streams. */
+export function sftpWrite(id: string, path: string, dataB64: string, transferId: string): Promise<void> {
+  return invoke('sftp_write', { id, path, dataB64, transferId });
+}
+
+interface SftpProgressPayload {
+  transfer_id: string;
+  done: number;
+}
+/** Subscribe to byte-progress ticks for one transfer (`done` = bytes moved). */
+export function onSftpProgress(transferId: string, cb: (done: number) => void): Promise<UnlistenFn> {
+  return listen<SftpProgressPayload>('sftp-progress', (e) => {
+    if (e.payload.transfer_id === transferId) cb(e.payload.done);
+  });
 }
 
 interface DataPayload {

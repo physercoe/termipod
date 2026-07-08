@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { SerializeAddon } from '@xterm/addon-serialize';
-import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
@@ -67,15 +66,11 @@ export function Screen({ kind, sessionId, autoIntegrate = false }: Props): JSX.E
     term.loadAddon(search);
     term.loadAddon(serialize);
     term.open(el);
-    // GPU raster (VS Code ships this at scale). Can fail if the webview loses its
-    // WebGL context — fall back silently to the DOM renderer.
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      /* no webgl — DOM renderer */
-    }
+    // NOTE: intentionally NO WebGL renderer. @xterm/addon-webgl on Windows
+    // WebView2 (ANGLE/GL backend) renders a black screen and can wedge the GPU
+    // process, freezing the app (director report, v0.3.11 Windows). xterm's
+    // default DOM renderer is reliable across all WebView backends; GPU raster
+    // waits for a WebView2-safe path.
     termRef.current = term;
     searchRef.current = search;
     integRef.current = new ShellIntegration(term, (b) => {

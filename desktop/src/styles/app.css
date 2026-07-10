@@ -142,9 +142,26 @@ pre {
 /* ---- app shell: titlebar / body(nav|focus|dock) / statusbar ---- */
 
 .shell {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  min-height: 0;
+}
+
+/* The main middle band: the activity-bar rail + the active job surface. Grows
+   to fill between the titlebar and the terminal dock / status bar. */
+.workbench-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.workbench-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .titlebar,
@@ -174,6 +191,7 @@ pre {
 }
 
 .shell-body {
+  flex: 1;
   display: grid;
   grid-template-columns: 240px 1fr 320px;
   gap: var(--pane-gap);
@@ -206,6 +224,291 @@ pre {
 
 .region-pad {
   padding: var(--spacing-s12);
+}
+
+/* ============================================================
+   Workbench activity bar + job surfaces (J1–J6)
+   ============================================================ */
+
+.activity-bar {
+  flex: 0 0 auto;
+  width: 68px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+  padding: var(--spacing-s8) var(--spacing-s4);
+  background: var(--canvas);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.activity-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--spacing-s8) var(--spacing-s2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--ease), color var(--ease);
+}
+.activity-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.activity-tab.active {
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+  border-color: var(--accent-line);
+}
+.activity-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.activity-label {
+  font-size: var(--font-size-label);
+  letter-spacing: 0.02em;
+}
+
+/* --- shared job-surface chrome --- */
+.surface {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+.surface-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s8) var(--spacing-s16);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+}
+.surface-icon {
+  font-size: 20px;
+}
+.surface-titles {
+  min-width: 0;
+}
+.surface-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.surface-tag {
+  font-size: var(--font-size-label);
+  font-weight: 700;
+  color: var(--accent-ink);
+  background: var(--accent-tint);
+  border-radius: var(--radius-xs);
+  padding: 1px 6px;
+  letter-spacing: 0.04em;
+}
+.surface-hint {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+.surface-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.surface-select {
+  max-width: 220px;
+}
+.surface-meta {
+  white-space: nowrap;
+}
+
+/* honest placeholder for jobs whose primary EMBED hasn't shipped (J4) */
+.surface-placeholder {
+  max-width: 640px;
+}
+.surface-posture {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-ink);
+  margin-bottom: var(--spacing-s12);
+}
+.surface-todo {
+  margin: 0;
+  padding-left: var(--spacing-s16);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+/* --- split editor / reader panes (J1, J2, J3) --- */
+.split-2 {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+}
+.editor-pane {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: var(--spacing-s12) var(--spacing-s16);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  line-height: 1.6;
+}
+.preview-pane,
+.reading-pane,
+.notes-pane {
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+.reading-pane .editor-pane,
+.notes-pane .editor-pane {
+  flex: 1;
+}
+.code-view {
+  padding: 0;
+}
+.notes-head {
+  flex: 0 0 auto;
+  padding: var(--spacing-s8) var(--spacing-s16);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* --- J6 record capture --- */
+.record-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 1px;
+  background: var(--border);
+}
+.record-form {
+  background: var(--bg);
+  padding: var(--spacing-s16);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}
+.record-log {
+  background: var(--bg);
+  overflow: auto;
+}
+.record-card {
+  margin: var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.record-card-body {
+  padding: var(--spacing-s12) var(--spacing-s16);
+}
+.record-card-foot {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-s4) var(--spacing-s16) var(--spacing-s8);
+  border-top: 1px solid var(--border);
+}
+
+/* --- J5 comparison wall --- */
+.compare-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 1px;
+  background: var(--border);
+}
+.compare-runs {
+  background: var(--canvas);
+  overflow: auto;
+}
+.compare-run {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  cursor: pointer;
+  font-size: var(--font-size-body-small);
+}
+.compare-run:hover {
+  background: var(--hover);
+}
+.compare-run.on {
+  background: var(--accent-tint);
+}
+.compare-run-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compare-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.compare-wall {
+  background: var(--bg);
+  padding: var(--spacing-s16);
+}
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-body-small);
+  margin-bottom: var(--spacing-s24);
+}
+.compare-table th,
+.compare-table td {
+  text-align: left;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.compare-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.compare-metric-name {
+  color: var(--text-secondary);
+}
+.compare-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--spacing-s16);
+}
+.compare-chart-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--spacing-s12);
+}
+.compare-chart-title {
+  font-size: var(--font-size-body-small);
+  font-weight: 600;
+  margin-bottom: var(--spacing-s8);
 }
 
 .muted {

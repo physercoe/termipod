@@ -7,21 +7,29 @@ import { useOnline } from '../state/online';
 import { vaultStatus, vaultStatusKey } from '../vault/service';
 import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
+import { useWorkbench } from '../state/workbench';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
 import { AgentTranscript } from '../surfaces/AgentTranscript';
 import { AttentionDock } from '../surfaces/AttentionDock';
 import { AuditConsole } from '../surfaces/AuditConsole';
+import { AuthorSurface } from '../surfaces/AuthorSurface';
+import { CanvasSurface } from '../surfaces/CanvasSurface';
 import { ChannelsPanel } from '../surfaces/ChannelsPanel';
+import { CompareSurface } from '../surfaces/CompareSurface';
+import { DebugSurface } from '../surfaces/DebugSurface';
 import { DocsPanel } from '../surfaces/DocsPanel';
 import { InsightsPanel } from '../surfaces/InsightsPanel';
 import { MePanel } from '../surfaces/MePanel';
 import { Navigator } from '../surfaces/Navigator';
 import { ProjectBoard } from '../surfaces/ProjectBoard';
+import { ReadSurface } from '../surfaces/ReadSurface';
+import { RecordSurface } from '../surfaces/RecordSurface';
 import { SearchPanel } from '../surfaces/SearchPanel';
 import { SessionsPanel } from '../surfaces/SessionsPanel';
 import { Settings } from '../surfaces/Settings';
 import { TerminalDock } from '../terminal/TerminalDock';
 import { useTerminals } from '../terminal/store';
+import { ActivityBar } from './ActivityBar';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
 import { ProfileSwitcher } from './ProfileSwitcher';
@@ -36,6 +44,7 @@ export function AppShell(): JSX.Element {
   const init = useSession((s) => s.init);
   const selection = useFocus((s) => s.selection);
   const clear = useFocus((s) => s.clear);
+  const job = useWorkbench((s) => s.job);
   const online = useOnline();
   const qc = useQueryClient();
   const t = useT();
@@ -163,33 +172,52 @@ export function AppShell(): JSX.Element {
 
       {client !== null && !online && <div className="offline-banner">{t('shell.offlineBanner')}</div>}
 
-      <div className="shell-body">
-        <div className="region navigator">
-          <div className="region-header">{t('nav.fleet')}</div>
-          <Navigator />
-        </div>
+      <div className="workbench-row">
+        <ActivityBar />
+        <main className="workbench-main">
+          {job === 'fleet' ? (
+            <div className="shell-body">
+              <div className="region navigator">
+                <div className="region-header">{t('nav.fleet')}</div>
+                <Navigator />
+              </div>
 
-        <div className="region focus">
-          <div className="region-header">
-            {selection?.type === 'agent'
-              ? `${t('region.agent')} · ${selection.id}`
-              : selection?.type === 'project'
-                ? `${t('region.project')} · ${selection.id}`
-                : t('region.activity')}
-          </div>
-          {selection?.type === 'agent' ? (
-            <AgentTranscript agentId={selection.id} />
-          ) : selection?.type === 'project' ? (
-            <ProjectBoard projectId={selection.id} />
+              <div className="region focus">
+                <div className="region-header">
+                  {selection?.type === 'agent'
+                    ? `${t('region.agent')} · ${selection.id}`
+                    : selection?.type === 'project'
+                      ? `${t('region.project')} · ${selection.id}`
+                      : t('region.activity')}
+                </div>
+                {selection?.type === 'agent' ? (
+                  <AgentTranscript agentId={selection.id} />
+                ) : selection?.type === 'project' ? (
+                  <ProjectBoard projectId={selection.id} />
+                ) : (
+                  <AuditConsole />
+                )}
+              </div>
+
+              <div className="region dock">
+                <div className="region-header">{t('region.attention')}</div>
+                <AttentionDock />
+              </div>
+            </div>
+          ) : job === 'read' ? (
+            <ReadSurface />
+          ) : job === 'author' ? (
+            <AuthorSurface />
+          ) : job === 'debug' ? (
+            <DebugSurface />
+          ) : job === 'canvas' ? (
+            <CanvasSurface />
+          ) : job === 'compare' ? (
+            <CompareSurface />
           ) : (
-            <AuditConsole />
+            <RecordSurface />
           )}
-        </div>
-
-        <div className="region dock">
-          <div className="region-header">{t('region.attention')}</div>
-          <AttentionDock />
-        </div>
+        </main>
       </div>
 
       <TerminalDock />

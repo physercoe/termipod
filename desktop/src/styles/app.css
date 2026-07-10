@@ -289,7 +289,7 @@ pre {
 }
 .activity-tab.active {
   background: var(--accent-tint);
-  color: var(--accent-ink);
+  color: var(--accent);
   border-color: var(--accent-line);
 }
 .activity-icon {
@@ -327,7 +327,7 @@ pre {
 .surface-icon {
   display: flex;
   align-items: center;
-  color: var(--accent-ink);
+  color: var(--accent);
 }
 .surface-titles {
   min-width: 0;
@@ -342,7 +342,7 @@ pre {
 .surface-tag {
   font-size: var(--font-size-label);
   font-weight: 700;
-  color: var(--accent-ink);
+  color: var(--accent);
   background: var(--accent-tint);
   border-radius: var(--radius-xs);
   padding: 1px 6px;
@@ -373,7 +373,7 @@ pre {
   font-size: var(--font-size-label);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--accent-ink);
+  color: var(--accent);
   margin-bottom: var(--spacing-s12);
 }
 .surface-todo {
@@ -605,7 +605,7 @@ pre {
 }
 .read-col.active {
   background: var(--accent-tint);
-  color: var(--accent-ink);
+  color: var(--text);
   font-weight: 600;
 }
 .read-col.add {
@@ -640,7 +640,7 @@ pre {
 }
 .read-tag.active {
   background: var(--accent-tint);
-  color: var(--accent-ink);
+  color: var(--accent);
   border-color: var(--accent-line);
 }
 
@@ -729,7 +729,7 @@ pre {
 }
 .ref-tab.active {
   background: var(--accent-tint);
-  color: var(--accent-ink);
+  color: var(--accent);
   font-weight: 600;
 }
 .ref-tab-body {
@@ -785,7 +785,7 @@ pre {
   font-size: var(--font-size-label);
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: var(--accent-ink);
+  color: var(--accent);
   margin-right: 6px;
 }
 .ref-pdf {

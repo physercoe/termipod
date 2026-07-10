@@ -1,6 +1,6 @@
 [package]
 name = "termipod-desktop"
-version = "0.3.16"
+version = "0.3.17"
 description = "TermiPod desktop control plane"
 authors = ["TermiPod"]
 edition = "2021"

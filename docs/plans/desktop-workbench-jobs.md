@@ -120,5 +120,8 @@ stall the shell.
 - [research-tooling-landscape.md](../discussions/research-tooling-landscape.md) —
   the per-capability build/embed/integrate register (§4) driving the posture
   column.
+- [reference-library-and-reading.md](../discussions/reference-library-and-reading.md)
+  — J1's deepening design: the Zotero-shaped library + Semantic Scholar discovery
+  and its mapping onto the hub data-ownership law.
 - [desktop-research-surface.md](../discussions/desktop-research-surface.md) — the
   J1–J7 derivation and the §6 workbench shape.

@@ -1,5 +1,6 @@
 import { useT } from '../i18n';
 import { JOBS, useWorkbench } from '../state/workbench';
+import { JobIcon } from './JobIcon';
 
 /// The workbench's left rail (VS Code activity-bar idiom): one button per job in
 /// the `JOBS` registry. Icon-forward with a small label so the seven jobs stay
@@ -22,7 +23,9 @@ export function ActivityBar(): JSX.Element {
           title={`${j.tag ? `${j.tag} · ` : ''}${t(j.hintKey)}`}
           onClick={() => setJob(j.id)}
         >
-          <span className="activity-icon">{j.icon}</span>
+          <span className="activity-icon">
+            <JobIcon id={j.id} />
+          </span>
           <span className="activity-label">{t(j.labelKey)}</span>
         </button>
       ))}

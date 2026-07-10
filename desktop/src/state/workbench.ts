@@ -17,8 +17,6 @@ export interface JobDef {
   id: JobId;
   /** J-number from `desktop-research-surface.md` §3 (empty for the fleet home). */
   tag: string;
-  /** Rail glyph (emoji, matching the app's existing icon idiom). */
-  icon: string;
   /** i18n key for the short rail label. */
   labelKey: string;
   /** i18n key for the tooltip / surface subtitle. */
@@ -26,13 +24,13 @@ export interface JobDef {
 }
 
 export const JOBS: JobDef[] = [
-  { id: 'fleet', tag: '', icon: '🛰️', labelKey: 'job.fleet', hintKey: 'job.fleet.hint' },
-  { id: 'read', tag: 'J1', icon: '📖', labelKey: 'job.read', hintKey: 'job.read.hint' },
-  { id: 'author', tag: 'J2', icon: '✍️', labelKey: 'job.author', hintKey: 'job.author.hint' },
-  { id: 'debug', tag: 'J3', icon: '🐞', labelKey: 'job.debug', hintKey: 'job.debug.hint' },
-  { id: 'canvas', tag: 'J4', icon: '🕸️', labelKey: 'job.canvas', hintKey: 'job.canvas.hint' },
-  { id: 'compare', tag: 'J5', icon: '📊', labelKey: 'job.compare', hintKey: 'job.compare.hint' },
-  { id: 'record', tag: 'J6', icon: '📋', labelKey: 'job.record', hintKey: 'job.record.hint' },
+  { id: 'fleet', tag: '', labelKey: 'job.fleet', hintKey: 'job.fleet.hint' },
+  { id: 'read', tag: 'J1', labelKey: 'job.read', hintKey: 'job.read.hint' },
+  { id: 'author', tag: 'J2', labelKey: 'job.author', hintKey: 'job.author.hint' },
+  { id: 'debug', tag: 'J3', labelKey: 'job.debug', hintKey: 'job.debug.hint' },
+  { id: 'canvas', tag: 'J4', labelKey: 'job.canvas', hintKey: 'job.canvas.hint' },
+  { id: 'compare', tag: 'J5', labelKey: 'job.compare', hintKey: 'job.compare.hint' },
+  { id: 'record', tag: 'J6', labelKey: 'job.record', hintKey: 'job.record.hint' },
 ];
 
 const LS_KEY = 'termipod.workbench.job';

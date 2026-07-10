@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useT } from '../i18n';
 import { JOBS, type JobId } from '../state/workbench';
+import { JobIcon } from './JobIcon';
 
 /// Shared chrome for a workbench job surface (J1–J6): a titled header with the
 /// job's J-tag and one-line hint, an optional actions slot, and a scrolling body.
@@ -20,7 +21,7 @@ export function WorkbenchSurface({
   return (
     <section className="surface" aria-label={def ? t(def.labelKey) : job}>
       <header className="surface-head">
-        <span className="surface-icon">{def?.icon}</span>
+        <span className="surface-icon">{def && <JobIcon id={def.id} size={20} />}</span>
         <div className="surface-titles">
           <div className="surface-title">
             {def?.tag && <span className="surface-tag">{def.tag}</span>}

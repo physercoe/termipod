@@ -40,6 +40,7 @@ const en: Dict = {
   'cmd.refreshApprovals': 'Refresh approvals',
   'cmd.admin': 'Open admin & governance',
   'cmd.settings': 'Open settings',
+  'cmd.palette': 'Command palette (⌘K)',
   'cmd.disconnect': 'Disconnect from hub',
 
   'palette.placeholder': 'Type a command…',
@@ -659,6 +660,7 @@ const zh: Dict = {
   'cmd.refreshApprovals': '刷新审批',
   'cmd.admin': '打开管理与治理',
   'cmd.settings': '打开设置',
+  'cmd.palette': '命令面板（⌘K）',
   'cmd.disconnect': '断开 Hub 连接',
 
   'palette.placeholder': '输入命令…',

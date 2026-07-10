@@ -164,6 +164,35 @@ pre {
   overflow: hidden;
 }
 
+/* Fleet-scoped action bar — the control-plane surfaces (sessions, channels,
+   insights, search, me, admin) live with the Fleet tab, not in the global
+   titlebar, so they don't follow the researcher onto the workbench tabs. */
+.fleet-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+}
+.fleet-toolbar-label {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.fleet-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 var(--spacing-s8);
+}
+.titlebar-palette {
+  font-variant-numeric: tabular-nums;
+}
+
 .titlebar,
 .statusbar {
   display: flex;

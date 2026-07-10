@@ -159,15 +159,11 @@ export function AppShell(): JSX.Element {
           <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
         )}
         <span className="spacer" />
-        <button onClick={() => setInsightsOpen(true)}>{t('shell.insights')}</button>
-        <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
-        <button onClick={() => setMeOpen(true)}>{t('shell.me')}</button>
-        <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
-        <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
-        <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
         <button onClick={() => useTerminals.getState().toggle()}>{t('shell.terminal')}</button>
         <button onClick={() => setSettingsOpen(true)}>{t('shell.settings')}</button>
-        <button onClick={() => setPaletteOpen(true)}>⌘K</button>
+        <button className="titlebar-palette" onClick={() => setPaletteOpen(true)} title={t('cmd.palette')}>
+          ⌘K
+        </button>
       </div>
 
       {client !== null && !online && <div className="offline-banner">{t('shell.offlineBanner')}</div>}
@@ -176,11 +172,23 @@ export function AppShell(): JSX.Element {
         <ActivityBar />
         <main className="workbench-main">
           {job === 'fleet' ? (
-            <div className="shell-body">
-              <div className="region navigator">
-                <div className="region-header">{t('nav.fleet')}</div>
-                <Navigator />
+            <>
+              <div className="fleet-toolbar">
+                <span className="fleet-toolbar-label">{t('nav.fleet')}</span>
+                <span className="fleet-toolbar-sep" />
+                <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
+                <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
+                <button onClick={() => setInsightsOpen(true)}>{t('shell.insights')}</button>
+                <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
+                <span className="spacer" />
+                <button onClick={() => setMeOpen(true)}>{t('shell.me')}</button>
+                <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
               </div>
+              <div className="shell-body">
+                <div className="region navigator">
+                  <div className="region-header">{t('nav.fleet')}</div>
+                  <Navigator />
+                </div>
 
               <div className="region focus">
                 <div className="region-header">
@@ -199,11 +207,12 @@ export function AppShell(): JSX.Element {
                 )}
               </div>
 
-              <div className="region dock">
-                <div className="region-header">{t('region.attention')}</div>
-                <AttentionDock />
+                <div className="region dock">
+                  <div className="region-header">{t('region.attention')}</div>
+                  <AttentionDock />
+                </div>
               </div>
-            </div>
+            </>
           ) : job === 'read' ? (
             <ReadSurface />
           ) : job === 'author' ? (

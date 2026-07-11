@@ -922,12 +922,60 @@ button.small,
   color: var(--text-muted);
   font-weight: 600;
 }
-.tree-host {
-  padding: var(--spacing-s4) var(--spacing-s12);
+/* Kind-section header — a collapse toggle carrying the uppercase label + count.
+   One per entity kind (Projects · Stewards · Agents · Hosts) so the tree never
+   intermixes kinds. */
+.tree-kind + .tree-kind {
+  margin-top: var(--spacing-s4);
+}
+.tree-kind-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.tree-kind-toggle:hover {
+  color: var(--text-secondary);
+}
+.tree-caret {
+  display: inline-block;
+  font-size: 0.7em;
+  transition: transform 0.12s var(--ease);
+  color: var(--text-muted);
+}
+.tree-caret.open {
+  transform: rotate(90deg);
+}
+.tree-count {
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+/* A host row in the Hosts section — machine, not agent, so non-selectable. */
+.tree-host-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin: 1px var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s8) var(--spacing-s8) var(--spacing-s16);
+}
+/* Host affiliation chip trailing an agent row (replaces host group-headers). */
+.tree-agent-host {
   color: var(--text-muted);
   font-size: var(--font-size-label);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tree-agent {
   display: flex;

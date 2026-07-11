@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import {
   REF_TYPES,
@@ -6,6 +6,7 @@ import {
   type Reference,
   type RefType,
 } from '../state/library';
+import { resolveAttachment, useZoteroStorage } from '../state/zoteroStorage';
 import { searchPapers, type DiscoveryPaper } from '../discovery/semanticScholar';
 import { Markdown } from '../ui/Markdown';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
@@ -81,6 +82,20 @@ function copy(text: string): void {
   }
 }
 
+// Inline viewer for a local attachment — a blob URL into an <iframe>, which the
+// WebView renders natively for PDF/HTML. The object URL is revoked on unmount so
+// bytes aren't retained after the reader closes it.
+function PdfView({ file }: { file: File }): JSX.Element {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  if (url === null) return <></>;
+  return <iframe className="pdf-frame" title={file.name} src={url} />;
+}
+
 // ---- Inspector -------------------------------------------------------------
 
 function Inspector({ refId }: { refId: string }): JSX.Element {
@@ -89,9 +104,16 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
   const collections = useLibrary((s) => s.collections);
   const update = useLibrary((s) => s.updateReference);
   const remove = useLibrary((s) => s.removeReference);
+  const files = useZoteroStorage((s) => s.files);
+  const storageLinked = useZoteroStorage((s) => s.count > 0);
   const [tab, setTab] = useState<Tab>('info');
+  const [pdfOpen, setPdfOpen] = useState(false);
+  useEffect(() => setPdfOpen(false), [refId]);
 
   if (ref === undefined) return <div className="muted region-pad">{t('read.pickItem')}</div>;
+
+  const att = ref.zoteroStorage;
+  const attFile = resolveAttachment(files, att);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'info', label: t('read.tabInfo') },
@@ -216,6 +238,26 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
             {ref.pdfUrl !== undefined && (
               <div className="ref-pdf muted small">
                 {t('read.pdf')}: <span className="mono">{ref.pdfUrl}</span>
+              </div>
+            )}
+            {att !== undefined && (
+              <div className="ref-attach">
+                {attFile !== undefined ? (
+                  <>
+                    <button className="primary small" onClick={() => setPdfOpen((o) => !o)}>
+                      {pdfOpen ? t('read.hidePdf') : t('read.openPdf')}
+                    </button>
+                    {pdfOpen && <PdfView file={attFile} />}
+                  </>
+                ) : storageLinked ? (
+                  <div className="muted small">
+                    {t('read.pdfNotFound')} <span className="mono">{att.file}</span>
+                  </div>
+                ) : (
+                  <div className="muted small">
+                    {t('read.pdfLinkHint')} <span className="mono">{att.file}</span>
+                  </div>
+                )}
               </div>
             )}
             {ref.abstract !== undefined && ref.abstract !== '' && (
@@ -379,6 +421,8 @@ export function ReadSurface(): JSX.Element {
   const addCollection = useLibrary((s) => s.addCollection);
   const removeCollection = useLibrary((s) => s.removeCollection);
   const importReferences = useLibrary((s) => s.importReferences);
+  const linkFolder = useZoteroStorage((s) => s.linkFolder);
+  const storageCount = useZoteroStorage((s) => s.count);
 
   const [mode, setMode] = useState<Mode>('library');
   const [collection, setCollection] = useState<string>(ALL);
@@ -388,6 +432,22 @@ export function ReadSurface(): JSX.Element {
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dirRef = useRef<HTMLInputElement>(null);
+
+  // `webkitdirectory` isn't in the input TS types — set it (plus the vendor
+  // aliases) imperatively so the picker selects a folder, not a single file.
+  useEffect(() => {
+    const el = dirRef.current;
+    if (el === null) return;
+    el.setAttribute('webkitdirectory', '');
+    el.setAttribute('directory', '');
+    el.setAttribute('mozdirectory', '');
+  }, []);
+
+  function onPickStorage(e: React.ChangeEvent<HTMLInputElement>): void {
+    const list = e.target.files;
+    if (list !== null && list.length > 0) linkFolder(list);
+  }
 
   // Import a Zotero `zotero.sqlite` library — parsed in-WebView via sql.js, so
   // no bytes leave the device and no Rust/hub round-trip is needed.
@@ -470,6 +530,16 @@ export function ReadSurface(): JSX.Element {
             onClick={() => fileRef.current?.click()}
           >
             {importing ? t('read.importing') : t('read.importZotero')}
+          </button>
+          <input ref={dirRef} type="file" style={{ display: 'none' }} onChange={onPickStorage} />
+          <button
+            className="import-btn"
+            title={t('read.linkStorageHint')}
+            onClick={() => dirRef.current?.click()}
+          >
+            {storageCount > 0
+              ? t('read.storageLinked').replace('{n}', String(storageCount))
+              : t('read.linkStorage')}
           </button>
           <div className="seg">
             <button className={mode === 'library' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('library')}>

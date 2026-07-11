@@ -143,6 +143,32 @@ function extract(db: Database): ImportItem[] {
     itemCols.set(r.itemID as number, list);
   }
 
+  // parentItemID → primary stored attachment { key (=storage subdir), file }.
+  // Zotero keeps imported files under storage/<attachment-key>/<filename>; the
+  // attachment's `path` is `storage:<filename>`. Prefer a PDF when a parent has
+  // several attachments.
+  const attach = new Map<number, { key: string; file: string; contentType?: string }>();
+  for (const r of query(
+    db,
+    `SELECT ia.parentItemID AS parentItemID, ai.key AS attachKey, ia.path AS path, ia.contentType AS contentType
+     FROM itemAttachments ia JOIN items ai ON ai.itemID = ia.itemID
+     WHERE ia.path LIKE 'storage:%' AND ia.parentItemID IS NOT NULL
+       AND ia.itemID NOT IN (SELECT itemID FROM deletedItems)`,
+  )) {
+    const parent = r.parentItemID as number;
+    const key = r.attachKey as string;
+    const path = r.path as string;
+    if (typeof key !== 'string' || typeof path !== 'string') continue;
+    const file = path.slice('storage:'.length);
+    const contentType = typeof r.contentType === 'string' ? r.contentType : undefined;
+    const existing = attach.get(parent);
+    const isPdf = contentType === 'application/pdf';
+    // Keep the first attachment, but let a PDF override a non-PDF first pick.
+    if (existing === undefined || (isPdf && existing.contentType !== 'application/pdf')) {
+      attach.set(parent, { key, file, contentType });
+    }
+  }
+
   // itemID → [tag]
   const itemTags = new Map<number, string[]>();
   for (const r of query(
@@ -189,6 +215,7 @@ function extract(db: Database): ImportItem[] {
         externalId: `zotero:${key}`,
         tags: itemTags.get(id) ?? [],
         notes: '',
+        zoteroStorage: attach.get(id),
       },
       collectionNames: itemCols.get(id) ?? [],
     });

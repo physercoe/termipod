@@ -34,6 +34,11 @@ export interface Reference {
   notes: string; // the reader's own notes on this reference
   bodyMarkdown?: string; // pasted / captured reading content
   addedAt: number;
+  // Zotero attachment coordinates — the attachment item's key is its subdirectory
+  // under the Zotero `storage/` folder, `file` the filename within it. Bytes are
+  // NOT stored here; the Read surface resolves them from a user-linked storage
+  // folder (in-memory, see state/zoteroStorage.ts) so nothing leaves the device.
+  zoteroStorage?: { key: string; file: string; contentType?: string };
 }
 
 export interface Collection {

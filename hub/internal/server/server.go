@@ -670,6 +670,18 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		// Documents (§6.7) + Reviews (§6.8). Team-scoped; filter by project
 		// via ?project=. Sits at team scope (not nested under /projects) so
 		// that cross-project review queues can be listed with a single query.
+		// Reference library (ADR-053) — the hub-owned research reference store.
+		// Team-scoped CRUD; agents reach the same store via the reference_* MCP
+		// tools (mcp_references.go).
+		r.Route("/references", func(r chi.Router) {
+			r.Get("/", s.handleListReferences)
+			r.Post("/", s.handleCreateReference)
+			r.Route("/{ref}", func(r chi.Router) {
+				r.Get("/", s.handleGetReference)
+				r.Patch("/", s.handleUpdateReference)
+				r.Delete("/", s.handleDeleteReference)
+			})
+		})
 		r.Route("/documents", func(r chi.Router) {
 			r.Get("/", s.handleListDocuments)
 			r.Post("/", s.handleCreateDocument)

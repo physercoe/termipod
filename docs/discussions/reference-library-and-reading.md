@@ -103,9 +103,11 @@ this"); Undermind-style deep recursive search as an agent job.
 1. **Round 1 — shipped** (`ReadSurface.tsx`, device-local): three-pane library
    (collections/tags rail · items list · inspector Info/Read/Notes/Cite) +
    Semantic Scholar discovery + import + citation export (APA + BibTeX).
-2. **Hub `Reference` entity** — migration + REST + MCP tools + Flutter mobile
-   parity; sync the device-local library up. *(Backend — goes via the
-   builder-ticket/PR flow, not direct-to-main.)*
+2. **Hub `Reference` entity** — **hub side shipped** ([ADR-053](../decisions/053-hub-reference-library-entity.md)):
+   `reference_items` migration + REST (`/v1/teams/{team}/references`) + five
+   `reference_*` MCP tools (agents can read/create/update/delete). **Still open:**
+   sync the desktop's device-local library up to the hub, and Flutter mobile
+   parity.
 3. **PDF attachments** — upload a PDF → blob; `hub_request_bytes` to read;
    EMBED a PDF.js / Semantic Reader pane in the Read tab (replaces paste).
 4. **Agent extraction (Elicit pattern)** — a steward task "extract {columns}

@@ -3609,3 +3609,255 @@ th {
   padding: 0 2px;
 }
 .term-block-copy:hover { color: var(--text); }
+
+/* ---- J4 canvas (spatial thinking board) ---- */
+.canvas-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.canvas-viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.canvas-viewport:active {
+  cursor: grabbing;
+}
+.canvas-viewport.connecting {
+  cursor: crosshair;
+}
+.canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.canvas-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.canvas-edge-line {
+  stroke: var(--border-strong, var(--text-muted));
+  stroke-width: 1.5;
+}
+#canvas-arrow path {
+  fill: var(--border-strong, var(--text-muted));
+}
+.canvas-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: auto;
+}
+.canvas-edge-type {
+  border: 1px solid var(--border);
+  background: var(--raised);
+  color: var(--text-secondary);
+  border-radius: var(--radius-stadium);
+  padding: 1px 8px;
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+.canvas-edge-type:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.canvas-edge-x {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.canvas-edge-x:hover {
+  color: var(--danger);
+}
+.canvas-card {
+  position: absolute;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--sh-1);
+  font-size: var(--font-size-body-small);
+  overflow: hidden;
+}
+.canvas-card.ref {
+  border-left: 3px solid var(--accent);
+}
+.canvas-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-tint), var(--sh-1);
+}
+.canvas-card.connect-src {
+  box-shadow: 0 0 0 2px var(--accent), var(--sh-1);
+}
+.canvas-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  background: var(--hover);
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+}
+.canvas-card-head:active {
+  cursor: grabbing;
+}
+.canvas-card-kind {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.canvas-card-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.canvas-card-note {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  resize: none;
+  padding: var(--spacing-s8);
+  min-height: 54px;
+  font: inherit;
+  font-size: var(--font-size-body-small);
+}
+.canvas-card-note:focus {
+  outline: none;
+}
+.canvas-card-ref {
+  padding: var(--spacing-s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.canvas-card-ref-tldr {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text-secondary);
+}
+.canvas-hint {
+  position: absolute;
+  top: var(--spacing-s12);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border-radius: var(--radius-stadium);
+  font-size: var(--font-size-body-small);
+  box-shadow: var(--sh-1);
+}
+.canvas-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 340px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-small);
+  pointer-events: none;
+}
+.canvas-inspector {
+  width: 288px;
+  flex: 0 0 auto;
+  border-left: 1px solid var(--border);
+  display: flex;
+  min-height: 0;
+  background: var(--panel, var(--bg));
+}
+.canvas-inspector-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-s16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}
+.canvas-insp-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.canvas-insp-title {
+  font-weight: 600;
+}
+.canvas-insp-abstract {
+  margin: var(--spacing-s4) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-small);
+}
+.canvas-insp-note {
+  min-height: 120px;
+}
+.canvas-insp-actions {
+  display: flex;
+  gap: var(--spacing-s8);
+  align-items: center;
+}
+.canvas-links-group + .canvas-links-group {
+  margin-top: var(--spacing-s12);
+}
+.canvas-links-label {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: var(--spacing-s4);
+}
+.canvas-link-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: var(--spacing-s4);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.canvas-link-row:hover {
+  background: var(--hover);
+}
+.canvas-link-type {
+  flex: 0 0 auto;
+  font-size: var(--font-size-label);
+  color: var(--accent);
+  font-family: var(--mono, ui-monospace, monospace);
+}
+.canvas-link-target {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-add-ref {
+  max-width: 160px;
+}

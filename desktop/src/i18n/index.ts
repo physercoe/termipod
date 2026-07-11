@@ -608,6 +608,7 @@ const en: Dict = {
   'read.delete': 'Delete',
   'read.collections': 'Collections',
   'read.citedBy': 'Cited by {n}',
+  'read.details': 'Details',
   // inspector tabs + fields
   'read.tabInfo': 'Info',
   'read.tabRead': 'Read',
@@ -1287,6 +1288,7 @@ const zh: Dict = {
   'read.delete': '删除',
   'read.collections': '分组',
   'read.citedBy': '被引 {n}',
+  'read.details': '详细信息',
   'read.tabInfo': '信息',
   'read.tabRead': '阅读',
   'read.tabNotes': '笔记',

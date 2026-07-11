@@ -553,24 +553,44 @@ pre {
 .read-layout {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 1px;
-  background: var(--border);
+  display: flex;
 }
-.read-main-2 {
+/* A draggable divider between two panes (rail | center | inspector). */
+.resize-handle {
+  flex: 0 0 auto;
+  width: 6px;
+  background: var(--border);
+  cursor: col-resize;
+  touch-action: none;
+}
+.resize-handle:hover {
+  background: var(--accent);
+}
+.read-center {
+  flex: 1;
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(300px, 360px) 1fr;
-  gap: 1px;
-  background: var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.read-inspector-pane {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+}
+.read-inspector-pane > * {
+  flex: 1;
+  min-width: 0;
 }
 
 /* --- rail: collections + tags --- */
 .read-rail {
+  flex: 0 0 auto;
   background: var(--canvas);
-  overflow: auto;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s12);
@@ -646,7 +666,9 @@ pre {
 
 /* --- items list --- */
 .read-list-col {
+  flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -705,6 +727,7 @@ pre {
 .ref-inspector {
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 .ref-tabs {
   flex: 0 0 auto;
@@ -805,6 +828,26 @@ pre {
   border-radius: var(--radius-sm);
   background: var(--raised);
 }
+.ref-details {
+  margin: var(--spacing-s4) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.ref-detail-row {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  gap: var(--spacing-s8);
+  font-size: var(--font-size-body-small);
+}
+.ref-detail-row dt {
+  color: var(--text-muted);
+}
+.ref-detail-row dd {
+  margin: 0;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
 .ref-section-label {
   font-size: var(--font-size-label);
   text-transform: uppercase;
@@ -849,7 +892,9 @@ pre {
 
 /* --- discover --- */
 .discover-pane {
+  flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg);

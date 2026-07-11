@@ -34,6 +34,11 @@ export interface Reference {
   notes: string; // the reader's own notes on this reference
   bodyMarkdown?: string; // pasted / captured reading content
   addedAt: number;
+  // The long tail of source metadata not promoted to a first-class field above
+  // (publisher, pages, volume, issue, ISBN/ISSN, place, language, series,
+  // edition, extra, libraryCatalog, accessDate, …). Shown read-only in the Read
+  // surface's Details section; keyed by the source's own field name.
+  details?: Record<string, string>;
   // Zotero attachment coordinates — the attachment item's key is its subdirectory
   // under the Zotero `storage/` folder, `file` the filename within it. Bytes are
   // NOT stored here; the Read surface resolves them from a user-linked storage

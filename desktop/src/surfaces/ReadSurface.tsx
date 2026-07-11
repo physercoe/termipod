@@ -9,7 +9,22 @@ import {
 import { resolveAttachment, useZoteroStorage } from '../state/zoteroStorage';
 import { searchPapers, type DiscoveryPaper } from '../discovery/semanticScholar';
 import { Markdown } from '../ui/Markdown';
+import { ResizeHandle } from '../ui/ResizeHandle';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+
+const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
+
+function loadWidth(key: string, fallback: number): number {
+  const v = Number(localStorage.getItem(key));
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+function saveWidth(key: string, v: number): void {
+  try {
+    localStorage.setItem(key, String(v));
+  } catch {
+    /* ignore */
+  }
+}
 
 /// J1 — Read papers/reports in depth, as a **reference library** (Zotero-shaped)
 /// fused with **discovery** (Semantic Scholar). Three panes: collections/tags
@@ -28,6 +43,41 @@ function splitList(s: string, sep: string): string[] {
     .split(sep)
     .map((x) => x.trim())
     .filter((x) => x !== '');
+}
+
+// Human labels for the Zotero detail fields; unknown keys fall back to a
+// camelCase-split. Keeps acronym fields (ISBN/ISSN/DOI) intact.
+const FIELD_LABELS: Record<string, string> = {
+  publisher: 'Publisher',
+  place: 'Place',
+  pages: 'Pages',
+  volume: 'Volume',
+  issue: 'Issue',
+  ISBN: 'ISBN',
+  ISSN: 'ISSN',
+  series: 'Series',
+  edition: 'Edition',
+  language: 'Language',
+  shortTitle: 'Short title',
+  journalAbbreviation: 'Journal abbr.',
+  libraryCatalog: 'Library catalog',
+  accessDate: 'Accessed',
+  extra: 'Extra',
+  repository: 'Repository',
+  archiveID: 'Archive ID',
+  rights: 'Rights',
+  numPages: 'Pages',
+  numberOfVolumes: 'Volumes',
+  company: 'Company',
+  websiteType: 'Website type',
+  programmingLanguage: 'Language',
+  runningTime: 'Running time',
+};
+
+function humanizeKey(k: string): string {
+  if (FIELD_LABELS[k] !== undefined) return FIELD_LABELS[k];
+  const spaced = k.replace(/([a-z])([A-Z])/g, '$1 $2');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 function paperToRef(p: DiscoveryPaper): Omit<Reference, 'id' | 'addedAt'> {
@@ -224,6 +274,19 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
             )}
             {ref.citationCount !== undefined && (
               <div className="muted small wide">{t('read.citedBy').replace('{n}', String(ref.citationCount))}</div>
+            )}
+            {ref.details !== undefined && Object.keys(ref.details).length > 0 && (
+              <div className="wide">
+                <div className="muted small">{t('read.details')}</div>
+                <dl className="ref-details">
+                  {Object.entries(ref.details).map(([k, v]) => (
+                    <div key={k} className="ref-detail-row">
+                      <dt>{humanizeKey(k)}</dt>
+                      <dd>{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
             )}
           </div>
         )}
@@ -431,6 +494,8 @@ export function ReadSurface(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [railW, setRailW] = useState(() => loadWidth('termipod.read.railW', 220));
+  const [inspW, setInspW] = useState(() => loadWidth('termipod.read.inspW', 380));
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
 
@@ -562,7 +627,7 @@ export function ReadSurface(): JSX.Element {
         </div>
       )}
       <div className="read-layout">
-        <aside className="read-rail">
+        <aside className="read-rail" style={{ width: railW }}>
           <div className="read-rail-group">
             <button
               className={`read-col${collection === ALL ? ' active' : ''}`}
@@ -618,18 +683,25 @@ export function ReadSurface(): JSX.Element {
           )}
         </aside>
 
-        {mode === 'discover' ? (
-          <div className="read-main-2">
+        <ResizeHandle
+          onResize={(dx) =>
+            setRailW((w) => {
+              const n = clamp(w + dx, 150, 460);
+              saveWidth('termipod.read.railW', n);
+              return n;
+            })
+          }
+        />
+
+        <div className="read-center">
+          {mode === 'discover' ? (
             <DiscoverPanel
               onSelect={(id) => {
                 setMode('library');
                 setSelected(id);
               }}
             />
-            {selected !== null && <Inspector refId={selected} />}
-          </div>
-        ) : (
-          <div className="read-main-2">
+          ) : (
             <div className="read-list-col">
               <div className="read-list-bar">
                 <input
@@ -662,13 +734,26 @@ export function ReadSurface(): JSX.Element {
                 ))}
               </div>
             </div>
-            {selected !== null ? (
-              <Inspector refId={selected} />
-            ) : (
-              <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
+
+        <ResizeHandle
+          onResize={(dx) =>
+            setInspW((w) => {
+              const n = clamp(w - dx, 280, 820);
+              saveWidth('termipod.read.inspW', n);
+              return n;
+            })
+          }
+        />
+
+        <aside className="read-inspector-pane" style={{ width: inspW }}>
+          {selected !== null ? (
+            <Inspector refId={selected} />
+          ) : (
+            <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>
+          )}
+        </aside>
       </div>
     </WorkbenchSurface>
   );

@@ -86,6 +86,28 @@ function authorName(first: string | undefined, last: string | undefined): string
   return [first, last].filter((x) => x !== undefined && x.trim() !== '').join(' ').trim();
 }
 
+// Zotero fields already promoted to a first-class Reference field — kept out of
+// the `details` bag so it holds only the remaining source metadata.
+const PROMOTED = new Set([
+  'title',
+  'abstractNote',
+  'date',
+  'DOI',
+  'url',
+  'publicationTitle',
+  'blogTitle',
+  'websiteTitle',
+]);
+
+function detailsOf(f: Record<string, string>): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(f)) {
+    if (PROMOTED.has(k) || v.trim() === '') continue;
+    out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function extract(db: Database): ImportItem[] {
   // Base bibliographic items (drop trash + attachment/annotation/note).
   const items = query(
@@ -216,6 +238,7 @@ function extract(db: Database): ImportItem[] {
         tags: itemTags.get(id) ?? [],
         notes: '',
         zoteroStorage: attach.get(id),
+        details: detailsOf(f),
       },
       collectionNames: itemCols.get(id) ?? [],
     });

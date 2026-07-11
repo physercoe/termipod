@@ -27,8 +27,8 @@ export interface Reference {
   abstract?: string;
   tldr?: string; // Semantic Scholar one-line summary
   citationCount?: number;
-  source?: 'semantic-scholar' | 'manual' | 'paste';
-  externalId?: string; // e.g. Semantic Scholar paperId — used to dedupe imports
+  source?: 'semantic-scholar' | 'manual' | 'paste' | 'zotero';
+  externalId?: string; // e.g. Semantic Scholar paperId / Zotero item key — dedupes imports
   tags: string[];
   collectionIds: string[];
   notes: string; // the reader's own notes on this reference
@@ -41,6 +41,20 @@ export interface Collection {
   name: string;
 }
 
+/// One parsed row from an external importer (e.g. Zotero). Carries collection
+/// **names** rather than ids; the store finds-or-creates a `Collection` per name
+/// so re-importing merges into the same collections instead of duplicating them.
+export interface ImportItem {
+  ref: Omit<Reference, 'id' | 'addedAt' | 'collectionIds'>;
+  collectionNames: string[];
+}
+
+export interface ImportResult {
+  added: number;
+  skipped: number; // already-present references (deduped)
+  collectionsCreated: number;
+}
+
 interface LibraryState {
   references: Reference[];
   collections: Collection[];
@@ -50,6 +64,26 @@ interface LibraryState {
   addCollection: (name: string) => string;
   renameCollection: (id: string, name: string) => void;
   removeCollection: (id: string) => void;
+  importReferences: (items: ImportItem[]) => ImportResult;
+}
+
+// Dedupe keys for a reference — strong keys (externalId / DOI / arXiv) win; a
+// title+year fallback catches manually-added items that have no identifier.
+function dedupeKeys(r: {
+  externalId?: string;
+  doi?: string;
+  arxivId?: string;
+  title: string;
+  year?: number;
+}): string[] {
+  const k: string[] = [];
+  if (r.externalId !== undefined && r.externalId !== '') k.push(`x:${r.externalId}`);
+  if (r.doi !== undefined && r.doi !== '') k.push(`doi:${r.doi.toLowerCase()}`);
+  if (r.arxivId !== undefined && r.arxivId !== '') k.push(`ax:${r.arxivId.toLowerCase()}`);
+  if (k.length === 0 && r.title.trim() !== '') {
+    k.push(`t:${r.title.trim().toLowerCase().slice(0, 80)}|${r.year ?? ''}`);
+  }
+  return k;
 }
 
 const LS_KEY = 'termipod.library.v1';
@@ -131,5 +165,44 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     );
     set({ collections, references });
     save({ references, collections });
+  },
+
+  importReferences: (items) => {
+    const existing = get().references;
+    const seen = new Set<string>();
+    for (const r of existing) dedupeKeys(r).forEach((k) => seen.add(k));
+
+    // Find-or-create collections by name so re-import merges, not duplicates.
+    const collections = [...get().collections];
+    const byName = new Map<string, string>();
+    collections.forEach((c) => byName.set(c.name, c.id));
+    let collectionsCreated = 0;
+    const ensureCollection = (name: string): string => {
+      const found = byName.get(name);
+      if (found !== undefined) return found;
+      const id = newId('col');
+      collections.push({ id, name });
+      byName.set(name, id);
+      collectionsCreated += 1;
+      return id;
+    };
+
+    const added: Reference[] = [];
+    let skipped = 0;
+    for (const it of items) {
+      const keys = dedupeKeys(it.ref);
+      if (keys.some((k) => seen.has(k))) {
+        skipped += 1;
+        continue;
+      }
+      keys.forEach((k) => seen.add(k));
+      const collectionIds = [...new Set(it.collectionNames.map(ensureCollection))];
+      added.push({ ...it.ref, collectionIds, id: newId('ref'), addedAt: Date.now() });
+    }
+
+    const references = [...added, ...existing];
+    set({ references, collections });
+    save({ references, collections });
+    return { added: added.length, skipped, collectionsCreated };
   },
 }));

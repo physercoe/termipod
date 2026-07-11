@@ -18,6 +18,7 @@ import { ChannelsPanel } from '../surfaces/ChannelsPanel';
 import { CompareSurface } from '../surfaces/CompareSurface';
 import { DebugSurface } from '../surfaces/DebugSurface';
 import { DocsPanel } from '../surfaces/DocsPanel';
+import { HostBoard } from '../surfaces/HostBoard';
 import { InsightsPanel } from '../surfaces/InsightsPanel';
 import { MePanel } from '../surfaces/MePanel';
 import { Navigator } from '../surfaces/Navigator';
@@ -196,12 +197,16 @@ export function AppShell(): JSX.Element {
                     ? `${t('region.agent')} · ${selection.id}`
                     : selection?.type === 'project'
                       ? `${t('region.project')} · ${selection.id}`
-                      : t('region.activity')}
+                      : selection?.type === 'host'
+                        ? `${t('region.host')} · ${selection.id}`
+                        : t('region.activity')}
                 </div>
                 {selection?.type === 'agent' ? (
                   <AgentTranscript agentId={selection.id} />
                 ) : selection?.type === 'project' ? (
                   <ProjectBoard projectId={selection.id} />
+                ) : selection?.type === 'host' ? (
+                  <HostBoard hostId={selection.id} />
                 ) : (
                   <AuditConsole />
                 )}

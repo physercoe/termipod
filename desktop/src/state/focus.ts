@@ -5,12 +5,14 @@ import { create } from 'zustand';
 export type Selection =
   | { type: 'agent'; id: string }
   | { type: 'project'; id: string }
+  | { type: 'host'; id: string }
   | null;
 
 interface FocusState {
   selection: Selection;
   selectAgent: (id: string) => void;
   selectProject: (id: string) => void;
+  selectHost: (id: string) => void;
   clear: () => void;
 }
 
@@ -18,5 +20,6 @@ export const useFocus = create<FocusState>((set) => ({
   selection: null,
   selectAgent: (id) => set({ selection: { type: 'agent', id } }),
   selectProject: (id) => set({ selection: { type: 'project', id } }),
+  selectHost: (id) => set({ selection: { type: 'host', id } }),
   clear: () => set({ selection: null }),
 }));

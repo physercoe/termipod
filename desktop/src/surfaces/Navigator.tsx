@@ -74,6 +74,7 @@ export function Navigator(): JSX.Element {
   const selection = useFocus((s) => s.selection);
   const selectAgent = useFocus((s) => s.selectAgent);
   const selectProject = useFocus((s) => s.selectProject);
+  const selectHost = useFocus((s) => s.selectHost);
   const connected = useSession((s) => s.client) !== null;
   const [creating, setCreating] = useState(false);
   const [spawning, setSpawning] = useState(false);
@@ -96,6 +97,8 @@ export function Navigator(): JSX.Element {
     selection?.type === 'agent' && selection.id === id;
   const projectSelected = (id: string): boolean =>
     selection?.type === 'project' && selection.id === id;
+  const hostSelected = (id: string): boolean =>
+    selection?.type === 'host' && selection.id === id;
 
   // One agent row — engine kind on the left dot, host affiliation as a trailing
   // chip so the host is legible without turning hosts into grouping headers.
@@ -200,7 +203,12 @@ export function Navigator(): JSX.Element {
               const label = str(h, 'name') ?? str(h, 'hostname') ?? id;
               const count = agents.filter((a) => (str(a, 'host_id') ?? '') === id).length;
               return (
-                <div key={id} className="tree-host-row" title={str(h, 'hostname') ?? label}>
+                <div
+                  key={id}
+                  className={`tree-agent tree-host-row${hostSelected(id) ? ' selected' : ''}`}
+                  title={str(h, 'hostname') ?? label}
+                  onClick={() => selectHost(id)}
+                >
                   <span className={`dot ${statusClass(str(h, 'status'))}`} />
                   <span className="tree-agent-label">{label}</span>
                   <span className="tree-agent-kind">{t('nav.hostAgents').replace('{n}', String(count))}</span>

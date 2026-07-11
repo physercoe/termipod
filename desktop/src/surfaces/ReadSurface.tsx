@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import {
   REF_TYPES,
@@ -378,12 +378,43 @@ export function ReadSurface(): JSX.Element {
   const addReference = useLibrary((s) => s.addReference);
   const addCollection = useLibrary((s) => s.addCollection);
   const removeCollection = useLibrary((s) => s.removeCollection);
+  const importReferences = useLibrary((s) => s.importReferences);
 
   const [mode, setMode] = useState<Mode>('library');
   const [collection, setCollection] = useState<string>(ALL);
   const [tag, setTag] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Import a Zotero `zotero.sqlite` library — parsed in-WebView via sql.js, so
+  // no bytes leave the device and no Rust/hub round-trip is needed.
+  async function onImportFile(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // let the same file be re-picked later
+    if (file === undefined) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const { parseZoteroSqlite } = await import('../import/zoteroImport');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const items = await parseZoteroSqlite(bytes);
+      const res = importReferences(items);
+      setMode('library');
+      setImportMsg(
+        t('read.importResult')
+          .replace('{a}', String(res.added))
+          .replace('{s}', String(res.skipped))
+          .replace('{c}', String(res.collectionsCreated)),
+      );
+    } catch {
+      setImportMsg(t('read.importFailed'));
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const allTags = useMemo(() => {
     const s = new Set<string>();
@@ -424,16 +455,42 @@ export function ReadSurface(): JSX.Element {
     <WorkbenchSurface
       job="read"
       actions={
-        <div className="seg">
-          <button className={mode === 'library' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('library')}>
-            {t('read.modeLibrary')}
+        <>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".sqlite,application/x-sqlite3,application/vnd.sqlite3"
+            style={{ display: 'none' }}
+            onChange={(e) => void onImportFile(e)}
+          />
+          <button
+            className="import-btn"
+            disabled={importing}
+            title={t('read.importHint')}
+            onClick={() => fileRef.current?.click()}
+          >
+            {importing ? t('read.importing') : t('read.importZotero')}
           </button>
-          <button className={mode === 'discover' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('discover')}>
-            {t('read.modeDiscover')}
-          </button>
-        </div>
+          <div className="seg">
+            <button className={mode === 'library' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('library')}>
+              {t('read.modeLibrary')}
+            </button>
+            <button className={mode === 'discover' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('discover')}>
+              {t('read.modeDiscover')}
+            </button>
+          </div>
+        </>
       }
     >
+      {importMsg !== null && (
+        <div className="read-import-msg">
+          <span>{importMsg}</span>
+          <span className="spacer" />
+          <button className="link-btn" onClick={() => setImportMsg(null)}>
+            ×
+          </button>
+        </div>
+      )}
       <div className="read-layout">
         <aside className="read-rail">
           <div className="read-rail-group">

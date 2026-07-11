@@ -1035,6 +1035,93 @@ button.small,
   background: var(--text-muted);
 }
 
+/* ---- host detail (Focus region) ---- */
+.host-board {
+  padding: var(--spacing-s16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s16);
+}
+.host-board-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.host-board-name {
+  margin: 0;
+  font-size: var(--font-size-title);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.host-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--spacing-s12);
+}
+.host-field-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.host-field-value {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: var(--font-size-body-small);
+  word-break: break-word;
+}
+.host-section-label {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: var(--spacing-s8);
+}
+.host-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8);
+}
+.host-chip {
+  padding: 2px var(--spacing-s8);
+  border-radius: var(--radius-sm);
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: var(--font-size-label);
+  font-family: var(--mono, ui-monospace, monospace);
+}
+.host-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.host-agent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.host-agent-row:hover {
+  background: var(--hover);
+}
+.host-agent-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.host-agent-kind {
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
 /* ---- transcript ---- */
 
 .transcript {
@@ -1771,6 +1858,21 @@ button.danger:hover {
   color: var(--text);
   box-shadow: var(--sh-1);
   font-weight: 600;
+}
+
+/* Zotero import — header button + result banner. */
+.import-btn {
+  margin-right: var(--spacing-s8);
+}
+.read-import-msg {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  background: var(--accent-tint);
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-body-small);
 }
 
 /* ---- project overview + task detail (WS6 deepened) ---- */

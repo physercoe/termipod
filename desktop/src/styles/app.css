@@ -392,6 +392,32 @@ pre {
   gap: 1px;
   background: var(--border);
 }
+
+/* J2 Author — a document fills the surface below the tab strip; a thin meta bar
+   shows word count + where the doc is saved (in-app vs a file on disk). */
+.author-doc {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.author-doc-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.author-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s12);
+}
 .editor-pane {
   width: 100%;
   height: 100%;

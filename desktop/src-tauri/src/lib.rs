@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, Notify};
 
+mod docfile;
 mod keychain;
 mod pty;
 mod ssh;
@@ -357,6 +358,9 @@ pub fn run() {
             storage::storage_pick_folder,
             storage::storage_reindex,
             storage::storage_read,
+            docfile::doc_open,
+            docfile::doc_save,
+            docfile::doc_write,
             hub_sse_open,
             hub_sse_close,
             keychain::keychain_set,

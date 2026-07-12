@@ -22,6 +22,41 @@ function strArray(e: Entity, key: string): string[] {
   return arr(e, key).filter((x): x is string => typeof x === 'string');
 }
 
+// The scraper enrichment as one opaque blob (hub column enrichment_json, added in
+// migration 0063 / PR #306). Sent only when present; forward-compatible — a hub
+// without the column just ignores the unknown `enrichment` field.
+function buildEnrichment(r: Reference): Record<string, unknown> | undefined {
+  const e: Record<string, unknown> = {};
+  if (r.referenceCount !== undefined) e.referenceCount = r.referenceCount;
+  if (r.citedByCount !== undefined) e.citedByCount = r.citedByCount;
+  if (r.influentialCitationCount !== undefined) e.influentialCitationCount = r.influentialCitationCount;
+  if (r.references !== undefined) e.references = r.references;
+  if (r.citations !== undefined) e.citations = r.citations;
+  if (r.journal !== undefined) e.journal = r.journal;
+  if (r.openAccess !== undefined) e.openAccess = r.openAccess;
+  if (r.topics !== undefined) e.topics = r.topics;
+  if (r.resourceLinks !== undefined) e.resourceLinks = r.resourceLinks;
+  if (r.enrichedAt !== undefined) e.enrichedAt = r.enrichedAt;
+  if (r.enrichSource !== undefined) e.enrichSource = r.enrichSource;
+  return Object.keys(e).length > 0 ? e : undefined;
+}
+
+// Map a hub `enrichment` blob back onto a reference. Only keys actually present
+// are assigned (so an older/partial hub blob never wipes richer local data).
+function applyEnrichment(ref: Partial<Reference>, enr: Entity): void {
+  if ('referenceCount' in enr) ref.referenceCount = num(enr, 'referenceCount');
+  if ('citedByCount' in enr) ref.citedByCount = num(enr, 'citedByCount');
+  if ('influentialCitationCount' in enr) ref.influentialCitationCount = num(enr, 'influentialCitationCount');
+  if (Array.isArray(enr.references)) ref.references = enr.references as Reference['references'];
+  if (Array.isArray(enr.citations)) ref.citations = enr.citations as Reference['citations'];
+  if (enr.journal !== undefined && enr.journal !== null) ref.journal = enr.journal as Reference['journal'];
+  if (enr.openAccess !== undefined && enr.openAccess !== null) ref.openAccess = enr.openAccess as Reference['openAccess'];
+  if (Array.isArray(enr.topics)) ref.topics = (enr.topics as unknown[]).filter((x): x is string => typeof x === 'string');
+  if (Array.isArray(enr.resourceLinks)) ref.resourceLinks = enr.resourceLinks as Reference['resourceLinks'];
+  if ('enrichedAt' in enr) ref.enrichedAt = num(enr, 'enrichedAt');
+  if ('enrichSource' in enr) ref.enrichSource = str(enr, 'enrichSource');
+}
+
 // Desktop Reference → hub reference body (snake_case wire shape). collectionIds
 // are mapped to collection *names* (the hub stores names, not local ids).
 function refToHubBody(r: Reference, collName: Map<string, string>): Record<string, unknown> {
@@ -49,6 +84,7 @@ function refToHubBody(r: Reference, collName: Map<string, string>): Record<strin
       r.zoteroStorage !== undefined
         ? { key: r.zoteroStorage.key, file: r.zoteroStorage.file, content_type: r.zoteroStorage.contentType }
         : undefined,
+    enrichment: buildEnrichment(r),
   };
 }
 
@@ -56,35 +92,35 @@ function refToHubBody(r: Reference, collName: Map<string, string>): Record<strin
 // hub id as `hubId` so the row links, and collection *names* to find-or-create).
 function hubToImportItem(h: Entity): ImportItem {
   const zs = obj(h, 'zotero_storage');
-  return {
-    ref: {
-      type: (str(h, 'type') as Reference['type'] | undefined) ?? 'article',
-      title: str(h, 'title') ?? '',
-      authors: strArray(h, 'authors'),
-      year: num(h, 'year'),
-      venue: str(h, 'venue'),
-      doi: str(h, 'doi'),
-      arxivId: str(h, 'arxiv_id'),
-      url: str(h, 'url'),
-      pdfUrl: str(h, 'pdf_url'),
-      abstract: str(h, 'abstract'),
-      tldr: str(h, 'tldr'),
-      citationCount: num(h, 'citation_count'),
-      source: str(h, 'source') as Reference['source'] | undefined,
-      externalId: str(h, 'external_id'),
-      tags: strArray(h, 'tags'),
-      notes: str(h, 'notes') ?? '',
-      bodyMarkdown: str(h, 'body_markdown'),
-      details: obj(h, 'details') as Record<string, string> | undefined,
-      zoteroStorage:
-        zs !== undefined && str(zs, 'key') !== undefined
-          ? { key: str(zs, 'key') ?? '', file: str(zs, 'file') ?? '', contentType: str(zs, 'content_type') }
-          : undefined,
-      hubId: str(h, 'id'),
-      syncedAt: Date.now(),
-    },
-    collectionNames: strArray(h, 'collections'),
+  const ref: ImportItem['ref'] = {
+    type: (str(h, 'type') as Reference['type'] | undefined) ?? 'article',
+    title: str(h, 'title') ?? '',
+    authors: strArray(h, 'authors'),
+    year: num(h, 'year'),
+    venue: str(h, 'venue'),
+    doi: str(h, 'doi'),
+    arxivId: str(h, 'arxiv_id'),
+    url: str(h, 'url'),
+    pdfUrl: str(h, 'pdf_url'),
+    abstract: str(h, 'abstract'),
+    tldr: str(h, 'tldr'),
+    citationCount: num(h, 'citation_count'),
+    source: str(h, 'source') as Reference['source'] | undefined,
+    externalId: str(h, 'external_id'),
+    tags: strArray(h, 'tags'),
+    notes: str(h, 'notes') ?? '',
+    bodyMarkdown: str(h, 'body_markdown'),
+    details: obj(h, 'details') as Record<string, string> | undefined,
+    zoteroStorage:
+      zs !== undefined && str(zs, 'key') !== undefined
+        ? { key: str(zs, 'key') ?? '', file: str(zs, 'file') ?? '', contentType: str(zs, 'content_type') }
+        : undefined,
+    hubId: str(h, 'id'),
+    syncedAt: Date.now(),
   };
+  const enr = obj(h, 'enrichment');
+  if (enr !== undefined) applyEnrichment(ref, enr);
+  return { ref, collectionNames: strArray(h, 'collections') };
 }
 
 // Strong-match a local reference against the hub index (used to link a local row

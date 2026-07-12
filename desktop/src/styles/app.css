@@ -762,6 +762,36 @@ pre {
 .pdfjs-canvas {
   display: block;
 }
+/* pdf.js text layer — invisible positioned spans over the canvas for selection,
+   search and copy. Rules inlined (not importing pdf_viewer.css) to stay self-
+   contained; the text layer sizes itself via calc(var(--scale-factor) * rawDims),
+   so --scale-factor is set on .pdfjs-page in the component. */
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 1;
+}
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.textLayer span.pdfjs-hl {
+  background: color-mix(in srgb, #ffd21e 65%, transparent);
+  border-radius: 2px;
+}
+.textLayer ::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
 /* Transparent hit-targets over in-PDF links; clicks route to the in-app browser
    tab (never the OS browser / never a whole-app navigation). */
 .pdfjs-link {
@@ -770,9 +800,31 @@ pre {
   background: transparent;
   cursor: pointer;
   padding: 0;
+  z-index: 2; /* above the text layer so link clicks win over text selection */
 }
 .pdfjs-link:hover {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.pdfjs-find {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.pdfjs-find-input {
+  width: 150px;
+  padding: var(--spacing-s2) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+}
+.pdfjs-find-count {
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+  text-align: center;
+}
+.pdfjs-tonotes {
+  white-space: nowrap;
 }
 .reader-side {
   flex: 0 0 auto;

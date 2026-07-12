@@ -239,7 +239,13 @@ function copy(text: string): void {
 // Edge) refused ("此页面已被 Microsoft Edge 阻止") and whose in-PDF links hijacked
 // the SPA. Non-PDF attachments (HTML snapshots) keep the iframe path; that object
 // URL is revoked on unmount so bytes aren't retained after the reader closes.
-function PdfView({ att }: { att: { key: string; file: string } }): JSX.Element {
+function PdfView({
+  att,
+  onSaveSelection,
+}: {
+  att: { key: string; file: string };
+  onSaveSelection?: (text: string) => void;
+}): JSX.Element {
   const t = useT();
   const rels = useZoteroStorage((s) => s.rels);
   const files = useZoteroStorage((s) => s.files);
@@ -274,7 +280,7 @@ function PdfView({ att }: { att: { key: string; file: string } }): JSX.Element {
     };
   }, [att.key, att.file, rels, files, path, isPdf]);
   if (err) return <div className="muted region-pad">{t('read.pdfNotFound')}</div>;
-  if (buf !== null) return <PdfCanvas data={buf} fileName={att.file} />;
+  if (buf !== null) return <PdfCanvas data={buf} fileName={att.file} onSaveSelection={onSaveSelection} />;
   if (htmlUrl !== null) return <iframe className="pdf-frame" title={att.file} src={htmlUrl} />;
   return <div className="muted region-pad">{t('read.loadingPdf')}</div>;
 }
@@ -786,8 +792,16 @@ function Inspector({
 function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): JSX.Element {
   const t = useT();
   const ref = useLibrary((s) => s.references.find((r) => r.id === refId));
+  const update = useLibrary((s) => s.updateReference);
   const openLink = useOpenLink();
   const [sideW, setSideW] = useState(() => loadWidth('termipod.read.readerSideW', 420));
+
+  // Append a text selection from the PDF into this reference's notes.
+  function saveSelection(text: string): void {
+    const cur = useLibrary.getState().references.find((r) => r.id === refId);
+    const prev = cur?.notes ?? '';
+    update(refId, { notes: prev.trim() === '' ? text : `${prev}\n\n${text}` });
+  }
 
   useEffect(() => {
     if (ref === undefined) onGone(); // deleted while open — drop the tab
@@ -812,7 +826,7 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
       <div className="reader-body">
         <div className="reader-doc">
           {att !== undefined ? (
-            <PdfView att={att} />
+            <PdfView att={att} onSaveSelection={saveSelection} />
           ) : (
             <div className="muted region-pad">{t('read.noPdf')}</div>
           )}

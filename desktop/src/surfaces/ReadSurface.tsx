@@ -24,6 +24,7 @@ import { isTauri } from '../platform';
 import { BrowserView } from './BrowserView';
 import { Markdown } from '../ui/Markdown';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
+import { PdfCanvas } from '../ui/PdfCanvas';
 import { ResizeHandle } from '../ui/ResizeHandle';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
@@ -231,50 +232,51 @@ function copy(text: string): void {
   }
 }
 
-// Viewer for a local attachment — bytes are resolved from the linked storage
+// Viewer for a local attachment. Bytes are resolved from the linked storage
 // folder (a live File in the browser build, or read through the Rust core under
-// Tauri) into a blob URL an <iframe> renders natively for PDF/HTML. The object
+// Tauri). PDFs render via bundled pdf.js (PdfCanvas) — canvas rendering works on
+// every platform, unlike the old `<iframe src=blob>` which WebView2 (Windows/
+// Edge) refused ("此页面已被 Microsoft Edge 阻止") and whose in-PDF links hijacked
+// the SPA. Non-PDF attachments (HTML snapshots) keep the iframe path; that object
 // URL is revoked on unmount so bytes aren't retained after the reader closes.
-//
-// `sandbox="allow-same-origin allow-scripts"` (no `allow-top-navigation`) keeps a
-// link *inside* the PDF from replacing the whole SPA — the reported trap where
-// clicking a weblink "jumped the app" with no way back. allow-same-origin keeps
-// the blob loading; allow-scripts keeps the native viewer's toolbar working.
 function PdfView({ att }: { att: { key: string; file: string } }): JSX.Element {
   const t = useT();
   const rels = useZoteroStorage((s) => s.rels);
   const files = useZoteroStorage((s) => s.files);
   const path = useZoteroStorage((s) => s.path);
-  const [url, setUrl] = useState<string | null>(null);
+  const [buf, setBuf] = useState<ArrayBuffer | null>(null);
+  const [htmlUrl, setHtmlUrl] = useState<string | null>(null);
   const [err, setErr] = useState(false);
+  const isPdf = /\.pdf$/i.test(att.file);
   useEffect(() => {
     let alive = true;
     let made: string | null = null;
-    setUrl(null);
+    setBuf(null);
+    setHtmlUrl(null);
     setErr(false);
-    void loadAttachmentBlob({ rels, files, path }, att).then((blob) => {
+    void loadAttachmentBlob({ rels, files, path }, att).then(async (blob) => {
       if (!alive) return;
       if (blob === null) {
         setErr(true);
         return;
       }
-      made = URL.createObjectURL(blob);
-      setUrl(made);
+      if (isPdf || blob.type === 'application/pdf') {
+        const ab = await blob.arrayBuffer();
+        if (alive) setBuf(ab);
+      } else {
+        made = URL.createObjectURL(blob);
+        setHtmlUrl(made);
+      }
     });
     return () => {
       alive = false;
       if (made !== null) URL.revokeObjectURL(made);
     };
-  }, [att.key, att.file, rels, files, path]);
+  }, [att.key, att.file, rels, files, path, isPdf]);
   if (err) return <div className="muted region-pad">{t('read.pdfNotFound')}</div>;
-  if (url === null) return <div className="muted region-pad">{t('read.loadingPdf')}</div>;
-  // NO `sandbox` here: WebView2 (Windows/Edge) refuses to run its built-in PDF
-  // viewer inside a sandboxed iframe — the director saw "此页面已被 Microsoft Edge
-  // 阻止" (Edge blocked this page). The sandbox was added to stop a link *inside*
-  // the PDF from navigating the whole app; that trade isn't worth a broken viewer,
-  // so it's removed. (Durable fix = render via bundled pdf.js, which gives us the
-  // link handling instead of the native plugin — tracked as follow-up.)
-  return <iframe className="pdf-frame" title={att.file} src={url} />;
+  if (buf !== null) return <PdfCanvas data={buf} fileName={att.file} />;
+  if (htmlUrl !== null) return <iframe className="pdf-frame" title={att.file} src={htmlUrl} />;
+  return <div className="muted region-pad">{t('read.loadingPdf')}</div>;
 }
 
 // ---- Inspector -------------------------------------------------------------

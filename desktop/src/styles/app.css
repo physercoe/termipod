@@ -702,6 +702,78 @@ pre {
   border: none;
   border-radius: 0;
 }
+.reader-doc .pdfjs-view {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- pdf.js viewer ------------------------------------------------------- */
+.pdfjs-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  background: var(--bg);
+}
+.pdfjs-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.pdfjs-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+.pdfjs-zoom {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  min-width: 34px;
+  padding: var(--spacing-s2) var(--spacing-s8);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.pdfjs-zoom:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pdfjs-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s16);
+}
+.pdfjs-page {
+  position: relative;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+  background: #fff;
+}
+.pdfjs-canvas {
+  display: block;
+}
+/* Transparent hit-targets over in-PDF links; clicks route to the in-app browser
+   tab (never the OS browser / never a whole-app navigation). */
+.pdfjs-link {
+  position: absolute;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.pdfjs-link:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
 .reader-side {
   flex: 0 0 auto;
   min-width: 0;

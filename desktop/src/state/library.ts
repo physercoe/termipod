@@ -87,6 +87,9 @@ export interface Reference {
   resourceLinks?: ResourceLink[]; // code / data / model links found in metadata
   enrichedAt?: number; // when the scraper last ran
   enrichSource?: string; // provenance, e.g. "OpenAlex"
+  // --- Hub sync linkage (state/librarySync.ts) -----------------------------
+  hubId?: string; // the id of the linked hub reference_items row, once synced
+  syncedAt?: number; // when this row last reconciled with the hub
   // Zotero attachment coordinates — the attachment item's key is its subdirectory
   // under the Zotero `storage/` folder, `file` the filename within it. Bytes are
   // NOT stored here; the Read surface resolves them from a user-linked storage
@@ -128,6 +131,7 @@ interface LibraryState {
 // Dedupe keys for a reference — strong keys (externalId / DOI / arXiv) win; a
 // title+year fallback catches manually-added items that have no identifier.
 function dedupeKeys(r: {
+  hubId?: string;
   externalId?: string;
   doi?: string;
   arxivId?: string;
@@ -135,6 +139,7 @@ function dedupeKeys(r: {
   year?: number;
 }): string[] {
   const k: string[] = [];
+  if (r.hubId !== undefined && r.hubId !== '') k.push(`h:${r.hubId}`);
   if (r.externalId !== undefined && r.externalId !== '') k.push(`x:${r.externalId}`);
   if (r.doi !== undefined && r.doi !== '') k.push(`doi:${r.doi.toLowerCase()}`);
   if (r.arxivId !== undefined && r.arxivId !== '') k.push(`ax:${r.arxivId.toLowerCase()}`);

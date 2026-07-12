@@ -8,6 +8,8 @@ import {
   type WorkLink,
 } from '../state/library';
 import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zoteroStorage';
+import { syncLibrary } from '../state/librarySync';
+import { useSession } from '../state/session';
 import {
   detectIdentifier,
   enrichWithUnpaywall,
@@ -1103,6 +1105,8 @@ export function ReadSurface(): JSX.Element {
   const [inspCollapsed, setInspCollapsed] = useState(() => localStorage.getItem('termipod.read.inspFold') === '1');
   const [showAgent, setShowAgent] = useState(false);
   const [agentW, setAgentW] = useState(() => loadWidth('termipod.read.agentW', 360));
+  const client = useSession((s) => s.client);
+  const [syncing, setSyncing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
 
@@ -1253,6 +1257,25 @@ export function ReadSurface(): JSX.Element {
     if (name !== null && name.trim() !== '') setCollection(addCollection(name.trim()));
   }
 
+  async function onSync(): Promise<void> {
+    if (client === null || syncing) return;
+    setSyncing(true);
+    setImportMsg(null);
+    try {
+      const r = await syncLibrary(client);
+      setImportMsg(
+        t('read.syncDone')
+          .replace('{up}', String(r.pushed + r.created))
+          .replace('{down}', String(r.pulledAdded))
+          .replace('{fail}', String(r.failed)),
+      );
+    } catch (e) {
+      setImportMsg(t('read.syncFailed').replace('{err}', e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   function addBlank(): void {
     const id = addReference({
       type: 'article',
@@ -1305,6 +1328,11 @@ export function ReadSurface(): JSX.Element {
               {t('read.modeDiscover')}
             </button>
           </div>
+          {client !== null && (
+            <button className="import-btn" disabled={syncing} title={t('read.syncHint')} onClick={() => void onSync()}>
+              {syncing ? t('read.syncing') : t('read.syncHub')}
+            </button>
+          )}
           <button
             className={showAgent ? 'import-btn attn' : 'import-btn'}
             title={t('author.assistantHint')}

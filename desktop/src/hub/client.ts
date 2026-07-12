@@ -1,6 +1,6 @@
 import type { HubConfig } from './config';
 import { streamSse, type SseHandle, type SseOptions } from './sse';
-import { HubTransport } from './transport';
+import { HubTransport, type Json } from './transport';
 import type { Entity, HubInfo } from './types';
 
 function asArray(v: unknown): Entity[] {
@@ -97,6 +97,33 @@ export class HubClient {
    * digest, rolled up across the session's agents. Renders in `RunReport`. */
   getSessionDigest(id: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/sessions/${id}/digest`)) as Promise<Entity>;
+  }
+
+  // --- reference library (ADR-053) ---
+  /** List the team's references (the hub-owned library shared with agents).
+   *  Filters mirror the REST handler: collection / tag / source / q. */
+  async listReferences(
+    params: { collection?: string; tag?: string; source?: string; q?: string } = {},
+  ): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/references'), {
+      collection: params.collection,
+      tag: params.tag,
+      source: params.source,
+      q: params.q,
+    });
+    return asArray(out);
+  }
+  getReference(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/references/${id}`)) as Promise<Entity>;
+  }
+  createReference(body: Json): Promise<Entity> {
+    return this.transport.post(this.transport.team('/references'), body) as Promise<Entity>;
+  }
+  updateReference(id: string, patch: Json): Promise<Entity> {
+    return this.transport.patch(this.transport.team(`/references/${id}`), patch) as Promise<Entity>;
+  }
+  deleteReference(id: string): Promise<Json> {
+    return this.transport.delete(this.transport.team(`/references/${id}`));
   }
 
   /** Spawn the project's bound domain steward (`handleStartProject`) — direct

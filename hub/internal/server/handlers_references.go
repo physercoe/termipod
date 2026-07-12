@@ -61,6 +61,11 @@ type referenceBody struct {
 	BodyMarkdown  string            `json:"body_markdown,omitempty"`
 	Details       map[string]string `json:"details,omitempty"`
 	ZoteroStorage *zoteroStorageRef `json:"zotero_storage,omitempty"`
+	// Enrichment is derived metadata the desktop scraper attaches (citation graph,
+	// journal metrics, code/data links, topics, OA status). Opaque to the hub — it
+	// is stored and returned verbatim so it round-trips to agents, but the hub
+	// never interprets its shape. Stored in the enrichment_json column.
+	Enrichment json.RawMessage `json:"enrichment,omitempty"`
 }
 
 type referenceOut struct {
@@ -119,18 +124,21 @@ func nullInt(p *int) sql.NullInt64 {
 const referenceCols = `id, team_id, type, title, authors_json, year, venue, doi, arxiv_id,
 	url, pdf_url, abstract, tldr, citation_count, source, external_id, tags_json,
 	collections_json, notes, body_markdown, details_json, zotero_storage_json,
-	created_at, updated_at`
+	enrichment_json, created_at, updated_at`
 
 func scanReference(row interface{ Scan(...any) error }) (referenceOut, error) {
 	var r referenceOut
 	var authors, tags, collections string
 	var year, citation sql.NullInt64
-	var venue, doi, arxiv, url, pdfURL, abstract, tldr, source, extID, bodyMD, details, zotero sql.NullString
+	var venue, doi, arxiv, url, pdfURL, abstract, tldr, source, extID, bodyMD, details, zotero, enrichment sql.NullString
 	err := row.Scan(&r.ID, &r.TeamID, &r.Type, &r.Title, &authors, &year, &venue, &doi, &arxiv,
 		&url, &pdfURL, &abstract, &tldr, &citation, &source, &extID, &tags,
-		&collections, &r.Notes, &bodyMD, &details, &zotero, &r.CreatedAt, &r.UpdatedAt)
+		&collections, &r.Notes, &bodyMD, &details, &zotero, &enrichment, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return r, err
+	}
+	if enrichment.Valid && enrichment.String != "" {
+		r.Enrichment = json.RawMessage(enrichment.String)
 	}
 	r.Authors = parseStrArray(authors)
 	r.Tags = parseStrArray(tags)
@@ -174,17 +182,25 @@ func zoteroJSON(z *zoteroStorageRef) sql.NullString {
 	return sql.NullString{String: string(b), Valid: true}
 }
 
+func enrichmentJSON(raw json.RawMessage) sql.NullString {
+	if len(raw) == 0 {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(raw), Valid: true}
+}
+
 func (s *Server) createReference(ctx context.Context, team string, b referenceBody) (referenceOut, error) {
 	id := NewID()
 	now := NowUTC()
 	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO reference_items (`+referenceCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		id, team, normalizeRefType(b.Type), b.Title, jsonStrArray(b.Authors), nullInt(b.Year),
 		refNullStr(b.Venue), refNullStr(b.DOI), refNullStr(b.ArxivID), refNullStr(b.URL), refNullStr(b.PDFURL),
 		refNullStr(b.Abstract), refNullStr(b.TLDR), nullInt(b.CitationCount), refNullStr(b.Source),
 		refNullStr(b.ExternalID), jsonStrArray(b.Tags), jsonStrArray(b.Collections), b.Notes,
-		refNullStr(b.BodyMarkdown), detailsJSON(b.Details), zoteroJSON(b.ZoteroStorage), now, now)
+		refNullStr(b.BodyMarkdown), detailsJSON(b.Details), zoteroJSON(b.ZoteroStorage),
+		enrichmentJSON(b.Enrichment), now, now)
 	if err != nil {
 		return referenceOut{}, err
 	}
@@ -266,13 +282,13 @@ func (s *Server) patchReference(ctx context.Context, team, id string, patch json
 			type = ?, title = ?, authors_json = ?, year = ?, venue = ?, doi = ?, arxiv_id = ?,
 			url = ?, pdf_url = ?, abstract = ?, tldr = ?, citation_count = ?, source = ?,
 			external_id = ?, tags_json = ?, collections_json = ?, notes = ?, body_markdown = ?,
-			details_json = ?, zotero_storage_json = ?, updated_at = ?
+			details_json = ?, zotero_storage_json = ?, enrichment_json = ?, updated_at = ?
 		WHERE team_id = ? AND id = ?`,
 		normalizeRefType(b.Type), b.Title, jsonStrArray(b.Authors), nullInt(b.Year), refNullStr(b.Venue),
 		refNullStr(b.DOI), refNullStr(b.ArxivID), refNullStr(b.URL), refNullStr(b.PDFURL), refNullStr(b.Abstract),
 		refNullStr(b.TLDR), nullInt(b.CitationCount), refNullStr(b.Source), refNullStr(b.ExternalID),
 		jsonStrArray(b.Tags), jsonStrArray(b.Collections), b.Notes, refNullStr(b.BodyMarkdown),
-		detailsJSON(b.Details), zoteroJSON(b.ZoteroStorage), NowUTC(), team, id)
+		detailsJSON(b.Details), zoteroJSON(b.ZoteroStorage), enrichmentJSON(b.Enrichment), NowUTC(), team, id)
 	if err != nil {
 		return referenceOut{}, err
 	}

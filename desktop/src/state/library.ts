@@ -13,6 +13,38 @@ export type RefType = 'article' | 'preprint' | 'book' | 'report' | 'webpage' | '
 
 export const REF_TYPES: RefType[] = ['article', 'preprint', 'book', 'report', 'webpage', 'note'];
 
+/// A link to another work in the citation graph (a reference this item cites, or
+/// a work that cites it). Carries just enough to display + open it; the full
+/// record is fetched on demand, not stored.
+export interface WorkLink {
+  id?: string; // OpenAlex work id (URL form)
+  title: string;
+  year?: number;
+  doi?: string;
+}
+
+/// A code / data / model resource attached to a paper, detected by the scraper
+/// (GitHub, GitLab, Hugging Face, Zenodo, OSF, Figshare, Kaggle, …). `kind`
+/// classifies it; `host` is the bare hostname for the badge.
+export interface ResourceLink {
+  url: string;
+  kind: 'code' | 'data' | 'model';
+  host: string;
+}
+
+/// Journal-level metrics for the venue. `twoYearMeanCitedness` is OpenAlex's open
+/// analog of the (paywalled, Clarivate-owned) Journal Impact Factor — labelled
+/// honestly in the UI, never as "JCR IF".
+export interface JournalMetrics {
+  name?: string;
+  issn?: string[];
+  twoYearMeanCitedness?: number; // OpenAlex summary_stats — IF-like, not JCR
+  hIndex?: number;
+  i10Index?: number;
+  worksCount?: number;
+  isOa?: boolean;
+}
+
 export interface Reference {
   id: string;
   type: RefType;
@@ -27,7 +59,7 @@ export interface Reference {
   abstract?: string;
   tldr?: string; // Semantic Scholar one-line summary
   citationCount?: number;
-  source?: 'semantic-scholar' | 'manual' | 'paste' | 'zotero';
+  source?: 'semantic-scholar' | 'manual' | 'paste' | 'zotero' | 'scrape';
   externalId?: string; // e.g. Semantic Scholar paperId / Zotero item key — dedupes imports
   tags: string[];
   collectionIds: string[];
@@ -39,6 +71,22 @@ export interface Reference {
   // edition, extra, libraryCatalog, accessDate, …). Shown read-only in the Read
   // surface's Details section; keyed by the source's own field name.
   details?: Record<string, string>;
+  // --- Scraper enrichment (state/../discovery/scrape.ts) --------------------
+  // Rich metadata beyond the core bibliographic fields, populated on demand by
+  // the scraper ("Enrich" in the inspector). All optional; absence means the
+  // item was never scraped. These always overwrite on re-scrape (they're derived,
+  // not user-curated), whereas core fields are only backfilled when empty.
+  referenceCount?: number; // works this item cites
+  citedByCount?: number; // works citing this item (fresher than citationCount)
+  influentialCitationCount?: number;
+  references?: WorkLink[]; // a capped sample of cited works
+  citations?: WorkLink[]; // a capped sample of citing works (most-cited first)
+  journal?: JournalMetrics;
+  openAccess?: { status?: string; oaUrl?: string; isOa?: boolean };
+  topics?: string[];
+  resourceLinks?: ResourceLink[]; // code / data / model links found in metadata
+  enrichedAt?: number; // when the scraper last ran
+  enrichSource?: string; // provenance, e.g. "OpenAlex"
   // Zotero attachment coordinates — the attachment item's key is its subdirectory
   // under the Zotero `storage/` folder, `file` the filename within it. Bytes are
   // NOT stored here; the Read surface resolves them from a user-linked storage

@@ -5,15 +5,20 @@ import {
   useLibrary,
   type Reference,
   type RefType,
+  type WorkLink,
 } from '../state/library';
 import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zoteroStorage';
 import {
+  detectIdentifier,
   enrichWithUnpaywall,
   lsGet,
   lsSet,
+  scrapeMetadata,
   SOURCES,
   sourceById,
   type DiscoveryPaper,
+  type ScrapePatch,
+  type ScrapeSeed,
 } from '../discovery';
 import { isTauri } from '../platform';
 import { BrowserView } from './BrowserView';
@@ -53,7 +58,7 @@ function saveWidth(key: string, v: number): void {
 /// Undermind patterns) are specced in `reference-library-and-reading.md`.
 
 type Mode = 'library' | 'discover';
-type Tab = 'info' | 'read' | 'notes' | 'cite';
+type Tab = 'info' | 'read' | 'notes' | 'cite' | 'meta';
 const ALL = '__all__';
 
 // An open tab in the reader region: a PDF reader (a library item) or an in-app
@@ -160,6 +165,42 @@ function paperToRef(p: DiscoveryPaper): Omit<Reference, 'id' | 'addedAt'> {
   };
 }
 
+// The identifiers the scraper resolves a work from. `externalId` is the OpenAlex
+// work URL for OpenAlex-imported items, so pass it as the openAlexId seed.
+function refToSeed(r: Reference): ScrapeSeed {
+  const oaId = r.externalId !== undefined && /^https?:\/\/openalex\.org\/W\d+$/i.test(r.externalId) ? r.externalId : undefined;
+  return { doi: r.doi, arxivId: r.arxivId, openAlexId: oaId, title: r.title, url: r.url, abstract: r.abstract };
+}
+
+// Apply a scrape patch to an existing reference: enrichment fields always
+// overwrite (they're derived), core bibliographic fields are backfilled only
+// when the current value is empty so a re-scrape never clobbers hand edits.
+function patchToRefFields(patch: ScrapePatch, cur?: Reference): Partial<Reference> {
+  const empty = (v: unknown): boolean => v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+  const out: Partial<Reference> = {
+    referenceCount: patch.referenceCount,
+    citedByCount: patch.citedByCount,
+    references: patch.references,
+    citations: patch.citations,
+    journal: patch.journal,
+    openAccess: patch.openAccess,
+    topics: patch.topics,
+    resourceLinks: patch.resourceLinks,
+    enrichedAt: patch.enrichedAt,
+    enrichSource: patch.enrichSource,
+  };
+  if (patch.title !== undefined && (cur === undefined || empty(cur.title))) out.title = patch.title;
+  if (patch.authors !== undefined && (cur === undefined || empty(cur.authors))) out.authors = patch.authors;
+  if (patch.year !== undefined && (cur === undefined || cur.year === undefined)) out.year = patch.year;
+  if (patch.venue !== undefined && (cur === undefined || empty(cur.venue))) out.venue = patch.venue;
+  if (patch.doi !== undefined && (cur === undefined || empty(cur.doi))) out.doi = patch.doi;
+  if (patch.arxivId !== undefined && (cur === undefined || empty(cur.arxivId))) out.arxivId = patch.arxivId;
+  if (patch.abstract !== undefined && (cur === undefined || empty(cur.abstract))) out.abstract = patch.abstract;
+  if (patch.pdfUrl !== undefined && (cur === undefined || empty(cur.pdfUrl))) out.pdfUrl = patch.pdfUrl;
+  if (patch.detailsAdd !== undefined) out.details = { ...(cur?.details ?? {}), ...patch.detailsAdd };
+  return out;
+}
+
 function citeApa(r: Reference): string {
   const authors = r.authors.length > 0 ? r.authors.join(', ') : '—';
   const yr = r.year !== undefined ? ` (${r.year}).` : '.';
@@ -238,6 +279,132 @@ function PdfView({ att }: { att: { key: string; file: string } }): JSX.Element {
 
 // ---- Inspector -------------------------------------------------------------
 
+// A list of works in the citation graph (references or citations). Each title
+// opens in the in-app browser tab (DOI landing or OpenAlex page).
+function WorkList({ label, works }: { label: string; works?: WorkLink[] }): JSX.Element | null {
+  const openLink = useOpenLink();
+  if (works === undefined || works.length === 0) return null;
+  const href = (w: WorkLink): string => (w.doi !== undefined ? `https://doi.org/${w.doi}` : (w.id ?? ''));
+  return (
+    <div className="ref-meta-sec">
+      <div className="ref-section-label">
+        {label} <span className="muted small">({works.length})</span>
+      </div>
+      <ul className="ref-worklist">
+        {works.map((w, i) => (
+          <li key={(w.id ?? '') + i} className="ref-work">
+            <button className="ref-work-title" disabled={href(w) === ''} onClick={() => openLink(href(w))}>
+              {w.title}
+            </button>
+            {w.year !== undefined && <span className="muted small ref-work-year">· {w.year}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// The Meta tab: the rich metadata the plain form doesn't cover — citation-graph
+// counts, journal metrics (an IF-like signal), open-access status, topics,
+// code/data links, and the reference + cited-by lists. Populated by the scraper.
+function RefMeta({
+  ref,
+  scraping,
+  msg,
+  onScrape,
+}: {
+  ref: Reference;
+  scraping: boolean;
+  msg: string | null;
+  onScrape: () => void;
+}): JSX.Element {
+  const t = useT();
+  const openLink = useOpenLink();
+  const j = ref.journal;
+  const cited = ref.citedByCount ?? ref.citationCount;
+  const enriched = ref.enrichedAt !== undefined;
+  const hasMetrics = cited !== undefined || ref.referenceCount !== undefined || j?.twoYearMeanCitedness !== undefined;
+  return (
+    <div className="ref-meta region-pad">
+      <div className="ref-meta-actions">
+        <button className="primary small" disabled={scraping} onClick={onScrape}>
+          {scraping ? t('read.scraping') : enriched ? t('read.rescrape') : t('read.scrape')}
+        </button>
+        {enriched && (
+          <span className="muted small">
+            {t('read.enrichedVia')
+              .replace('{src}', ref.enrichSource ?? '')
+              .replace('{time}', new Date(ref.enrichedAt ?? 0).toLocaleDateString())}
+          </span>
+        )}
+      </div>
+      {msg !== null && <div className="ref-meta-msg muted small">{msg}</div>}
+      {!enriched && msg === null && <div className="muted small">{t('read.scrapeHint')}</div>}
+
+      {hasMetrics && (
+        <div className="ref-metrics">
+          {cited !== undefined && (
+            <div className="ref-metric">
+              <span className="ref-metric-n">{cited}</span>
+              <span className="ref-metric-l">{t('read.mCitedBy')}</span>
+            </div>
+          )}
+          {ref.referenceCount !== undefined && (
+            <div className="ref-metric">
+              <span className="ref-metric-n">{ref.referenceCount}</span>
+              <span className="ref-metric-l">{t('read.mReferences')}</span>
+            </div>
+          )}
+          {j?.twoYearMeanCitedness !== undefined && (
+            <div className="ref-metric" title={t('read.mImpactHint')}>
+              <span className="ref-metric-n">{j.twoYearMeanCitedness.toFixed(1)}</span>
+              <span className="ref-metric-l">{t('read.mImpact')}</span>
+            </div>
+          )}
+          {j?.hIndex !== undefined && (
+            <div className="ref-metric" title={j.name ?? ''}>
+              <span className="ref-metric-n">{j.hIndex}</span>
+              <span className="ref-metric-l">{t('read.mHindex')}</span>
+            </div>
+          )}
+        </div>
+      )}
+      {j?.name !== undefined && (
+        <div className="muted small">
+          {t('read.mJournal').replace('{name}', j.name)}
+          {j.isOa === true ? ' · OA' : ''}
+        </div>
+      )}
+
+      {ref.topics !== undefined && ref.topics.length > 0 && (
+        <div className="ref-chips">
+          {ref.topics.map((tp) => (
+            <span key={tp} className="ref-chip">
+              {tp}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {ref.resourceLinks !== undefined && ref.resourceLinks.length > 0 && (
+        <div className="ref-meta-sec">
+          <div className="ref-section-label">{t('read.mResources')}</div>
+          {ref.resourceLinks.map((l) => (
+            <button key={l.url} className="ref-reslink" onClick={() => openLink(l.url)}>
+              <span className={`pill small${l.kind === 'code' ? ' ok' : ''}`}>{l.kind}</span>
+              <span className="ref-reslink-host">{l.host}</span>
+              <span className="ref-reslink-url mono">{l.url}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <WorkList label={t('read.mRefList')} works={ref.references} />
+      <WorkList label={t('read.mCiteList')} works={ref.citations} />
+    </div>
+  );
+}
+
 function Inspector({
   refId,
   onOpenReader,
@@ -268,11 +435,37 @@ function Inspector({
   // webview (WebView2 returns without showing a dialog → the item deleted with no
   // prompt), so the confirm is an explicit two-step inline state instead.
   const [confirming, setConfirming] = useState(false);
+  // The scraper enriches the item with citation-graph + metrics + code/data links.
+  const [scraping, setScraping] = useState(false);
+  const [scrapeMsg, setScrapeMsg] = useState<string | null>(null);
   useEffect(() => {
     const b = useLibrary.getState().references.find((r) => r.id === refId)?.bodyMarkdown ?? '';
     setEditingBody(b === '');
     setConfirming(false);
+    setScrapeMsg(null);
   }, [refId]);
+
+  async function runScrape(): Promise<void> {
+    const cur = useLibrary.getState().references.find((r) => r.id === refId);
+    if (cur === undefined) return;
+    setScraping(true);
+    setScrapeMsg(null);
+    try {
+      const res = await scrapeMetadata(refToSeed(cur));
+      if (res.patch === null) {
+        setScrapeMsg(t('read.scrapeNone'));
+      } else {
+        update(cur.id, patchToRefFields(res.patch, cur));
+        setScrapeMsg(
+          res.found.length > 0 ? t('read.scrapeDone').replace('{what}', res.found.join(', ')) : t('read.scrapeThin'),
+        );
+      }
+    } catch {
+      setScrapeMsg(t('read.scrapeFailed'));
+    } finally {
+      setScraping(false);
+    }
+  }
 
   if (ref === undefined) return <div className="muted region-pad">{t('read.pickItem')}</div>;
 
@@ -284,6 +477,7 @@ function Inspector({
     { id: 'read', label: t('read.tabRead') },
     { id: 'notes', label: t('read.tabNotes') },
     { id: 'cite', label: t('read.tabCite') },
+    { id: 'meta', label: t('read.tabMeta') },
   ];
 
   return (
@@ -319,6 +513,17 @@ function Inspector({
               PDF
             </button>
           ))}
+        <button
+          className="ref-scrape-btn"
+          disabled={scraping}
+          title={t('read.scrapeTitle')}
+          onClick={() => {
+            setTab('meta');
+            void runScrape();
+          }}
+        >
+          {scraping ? '⋯' : '⟳'} {t('read.scrape')}
+        </button>
         {confirming ? (
           <span className="ref-confirm">
             <span className="muted small">{t('read.confirmDelete')}</span>
@@ -562,6 +767,8 @@ function Inspector({
             </div>
           </div>
         )}
+
+        {tab === 'meta' && <RefMeta ref={ref} scraping={scraping} msg={scrapeMsg} onScrape={() => void runScrape()} />}
       </div>
     </div>
   );
@@ -641,6 +848,10 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   const [sourceId, setSourceId] = useState<string>(() => localStorage.getItem(SOURCE_LS) ?? 'openalex');
   const [showKey, setShowKey] = useState(false);
   const [findPdfs, setFindPdfs] = useState(true);
+  // When the query is a bare DOI / arXiv id / OpenAlex id, offer a direct
+  // scrape-and-add instead of a keyword search.
+  const idSeed = useMemo(() => detectIdentifier(q), [q]);
+  const [addingId, setAddingId] = useState(false);
 
   const source = sourceById(sourceId);
   const [key, setKey] = useState(() => (source.keyKey !== undefined ? lsGet(source.keyKey) : ''));
@@ -692,6 +903,53 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
     onSelect(id);
   }
 
+  async function addById(): Promise<void> {
+    if (idSeed === null) return;
+    setAddingId(true);
+    setErr(null);
+    try {
+      const res = await scrapeMetadata(idSeed);
+      const p = res.patch;
+      if (p === null || (p.title ?? '') === '') {
+        setErr(t('read.idNotFound'));
+        return;
+      }
+      const id = add({
+        type: p.arxivId !== undefined ? 'preprint' : 'article',
+        title: p.title ?? '',
+        authors: p.authors ?? [],
+        year: p.year,
+        venue: p.venue,
+        doi: p.doi,
+        arxivId: p.arxivId,
+        url: idSeed.url,
+        pdfUrl: p.pdfUrl,
+        abstract: p.abstract,
+        source: 'scrape',
+        externalId: res.identifier,
+        referenceCount: p.referenceCount,
+        citedByCount: p.citedByCount,
+        references: p.references,
+        citations: p.citations,
+        journal: p.journal,
+        openAccess: p.openAccess,
+        topics: p.topics,
+        resourceLinks: p.resourceLinks,
+        details: p.detailsAdd,
+        enrichedAt: p.enrichedAt,
+        enrichSource: p.enrichSource,
+        tags: [],
+        collectionIds: [],
+        notes: '',
+      });
+      onSelect(id);
+    } catch {
+      setErr(t('read.searchFailed'));
+    } finally {
+      setAddingId(false);
+    }
+  }
+
   return (
     <div className="discover-pane">
       <div className="discover-bar">
@@ -708,6 +966,11 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
         <button className="primary" disabled={busy || q.trim() === ''} onClick={() => void run()}>
           {busy ? t('read.searching') : t('read.search')}
         </button>
+        {idSeed !== null && (
+          <button className="discover-addid" disabled={addingId} title={t('read.addByIdHint')} onClick={() => void addById()}>
+            {addingId ? t('read.adding') : t('read.addById')}
+          </button>
+        )}
       </div>
       <div className="discover-sources">
         {SOURCES.map((s) => (

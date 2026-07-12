@@ -22,6 +22,7 @@ import {
 } from '../discovery';
 import { isTauri } from '../platform';
 import { BrowserView } from './BrowserView';
+import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
@@ -1100,6 +1101,8 @@ export function ReadSurface(): JSX.Element {
   const [inspW, setInspW] = useState(() => loadWidth('termipod.read.inspW', 380));
   const [railCollapsed, setRailCollapsed] = useState(() => localStorage.getItem('termipod.read.railFold') === '1');
   const [inspCollapsed, setInspCollapsed] = useState(() => localStorage.getItem('termipod.read.inspFold') === '1');
+  const [showAgent, setShowAgent] = useState(false);
+  const [agentW, setAgentW] = useState(() => loadWidth('termipod.read.agentW', 360));
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
 
@@ -1243,6 +1246,7 @@ export function ReadSurface(): JSX.Element {
   }
 
   const activeTabObj = activeTab !== null ? tabs.find((tb) => tb.id === activeTab) : undefined;
+  const selectedRef = selected !== null ? references.find((r) => r.id === selected) : undefined;
 
   function newCollection(): void {
     const name = window.prompt(t('read.newCollectionPrompt'));
@@ -1301,6 +1305,13 @@ export function ReadSurface(): JSX.Element {
               {t('read.modeDiscover')}
             </button>
           </div>
+          <button
+            className={showAgent ? 'import-btn attn' : 'import-btn'}
+            title={t('author.assistantHint')}
+            onClick={() => setShowAgent((v) => !v)}
+          >
+            {t('author.assistant')}
+          </button>
         </>
       }
     >
@@ -1557,6 +1568,39 @@ export function ReadSurface(): JSX.Element {
             </div>
           )}
         </aside>
+          </>
+        )}
+        {showAgent && (
+          <>
+            <ResizeHandle
+              onResize={(dx) =>
+                setAgentW((w) => {
+                  const n = clamp(w - dx, 280, 720);
+                  saveWidth('termipod.read.agentW', n);
+                  return n;
+                })
+              }
+            />
+            <aside className="read-agent" style={{ width: agentW }}>
+              <AgentCompanion
+                storageKey="termipod.read.agent"
+                context={
+                  selectedRef !== undefined
+                    ? {
+                        label: selectedRef.title !== '' ? selectedRef.title : t('read.untitled'),
+                        build: () => {
+                          const parts = [`Paper: "${selectedRef.title}"`];
+                          if (selectedRef.authors.length > 0) parts.push(`Authors: ${selectedRef.authors.join(', ')}`);
+                          if (selectedRef.year !== undefined) parts.push(`Year: ${selectedRef.year}`);
+                          if (selectedRef.abstract !== undefined && selectedRef.abstract !== '')
+                            parts.push(`Abstract: ${selectedRef.abstract}`);
+                          return parts.join('\n');
+                        },
+                      }
+                    : undefined
+                }
+              />
+            </aside>
           </>
         )}
           </div>

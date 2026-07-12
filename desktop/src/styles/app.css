@@ -404,7 +404,8 @@ pre {
   flex: 1;
   min-width: 0;
 }
-.author-agent {
+.author-agent,
+.read-agent {
   flex: 0 0 auto;
   min-width: 0;
   border-left: 1px solid var(--border);

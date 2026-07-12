@@ -95,6 +95,28 @@ Verified in the code — the deputy that spawns and supervises agents is Unix-bo
 So a **Windows machine cannot run the host-runner as-is** and cannot host a local
 agent. This is the fleet's execution substrate, not a desktop-client limitation.
 
+### 2.1a Director decision (2026-07-12): agent must edit local Windows files
+
+The director ruled: **the agent must read/edit the files on the Windows machine**,
+so a **remote hub agent (model A) is rejected** — a remote POSIX agent sees the
+remote FS, not the user's Windows files. That forces a **locally-running agent on
+Windows** with native filesystem access → **path P2** (desktop-local mini-runner),
+below, is the chosen direction.
+
+**Do the agent CLIs even run natively on Windows? Yes (verified 2026-07):**
+
+- **Claude Code** — runs **natively on Windows** since late 2025 (PowerShell,
+  `irm https://claude.ai/install.ps1 | iex`); WSL is optional (only needed for
+  bash-tool sandboxing). Reads/edits native Windows files.
+- **Codex CLI** — runs **natively on Windows** (early 2026); `npm i -g
+  @openai/codex` works in PowerShell, with AppContainer-based Windows sandbox
+  modes that keep writes inside the working folder. WSL optional.
+- **Gemini CLI / antigravity** — Node-based, cross-platform (run on Windows).
+
+So a Windows-local agent with native file access is available today; the missing
+piece is the **runner** that spawns and drives it (the POSIX host-runner can't —
+§2.1).
+
 ### 2.2 Two consumer models for the companion
 
 - **A. Remote hub agent (architecture-consistent).** The panel reuses the existing
@@ -159,11 +181,22 @@ Ordered lowest-effort → heaviest:
    rather than a chat panel — converging ask #1's file model and the Read library
    with the fleet?
 
-Recommendation: build the companion as a **shared panel** on model **A** first
-(reuse what exists; both Read and Author feed it context). If standalone-Windows is
-required, add the **P2 desktop-local ConPTY mini-runner** — it reuses `pty.rs`
-infrastructure and avoids both WSL2 friction and a full host-runner port. Keep
-**P3** off the table unless native Windows *hosts* become a goal.
+**Recommendation (updated per §2.1a decision): build P2 — the desktop-local
+ConPTY mini-runner.** The director requires local Windows file access, so model A
+is out and P2 is the path: a small Rust runner spawns a **native-Windows agent CLI**
+(Claude Code / Codex, both native on Windows now) through the ConPTY already in
+`pty.rs`, drives it via **M2 structured stdio**, and tears it down with a Windows
+**Job Object**. The agent reads/edits the user's Windows files directly; the
+companion panel (shared Read + Author) is its UI. P1 (WSL2) is the interim
+fallback if a runner isn't ready; **P3** (native host-runner port) stays off the
+table unless native Windows *hosts* become a fleet goal.
+
+**Next-step scoping for P2:** (a) reuse `pty.rs`'s `portable_pty` to spawn the
+agent; (b) a minimal MCP bridge desktop→hub so the local agent still gets hub
+tools/identity (or run it hub-detached for pure local editing); (c) engine profile
+= M2 (claude-code's M4 `tmux send-keys` input path doesn't apply without tmux —
+use stdio); (d) permission/sandbox: lean on the engine's own native-Windows
+sandbox (Codex AppContainer) rather than bwrap/seatbelt.
 
 ---
 
@@ -206,12 +239,36 @@ By default `react-drawio` points at the hosted `embed.diagrams.net`.
    ask #2's agent panel can generate/patch that XML exactly like the reference
    app — no separate mechanism.
 
-### 3.4 Tradeoffs to accept / decide
+### 3.4 Measured size — full vs trimmed (fresh `jgraph/drawio` clone, 2026-07)
 
-- **Installer size.** The drawio webapp (mxGraph + full shape/stencil libraries)
-  is several MB to tens of MB; draw.io Desktop installers run ~100 MB+. We can
-  **trim shape libraries** to the ones we need to keep the bundle lean — decide
-  the shape set.
+`src/main/webapp` on disk = **150 MB**. Largest parts: `js/` 66 MB
+(`integrate.min.js` 22 MB, `app.min.js` 9.1 MB, `stencils.min.js` 7.3 MB,
+`viewer-static` 3.8 MB, `extensions` 3.8 MB, `viewer` 2.4 MB, `shapes-*` 1.5 MB),
+`stencils/` 42 MB (raw XML), `img/` 12 MB, `images/` 6.4 MB, `templates/` 5.6 MB,
+`WEB-INF/` 5.1 MB (Java), `resources/` 4.5 MB (i18n), `mxgraph/` 3.4 MB, `math4/`
+3.4 MB (MathJax), `shapes/` 2.4 MB.
+
+- **Full, as-shipped: ~150 MB** — far too big to vendor as-is, and mostly
+  redundant for an iframe embed.
+- **Trimmed for embed: ~15–25 MB.** Keep the runtime bundle — `app.min.js` (9.1)
+  + `mxgraph` (3.4) + `stencils.min.js` (7.3, the *precompiled* shapes) +
+  `shapes-*.min.js` (1.5) + `index.html` + `styles/` + minimal UI icons. **Drop:**
+  the raw `stencils/` dir (42 MB — already compiled into `stencils.min.js`),
+  `integrate.min.js`/`viewer*`/`extensions` (~32 MB, alternate entry bundles),
+  `WEB-INF/` (Java servlet), `templates/` (gallery), `math4/` (unless math),
+  most `resources/` locales (keep one), shape-preview thumbnails in `img/`.
+  - Floor **~14 MB** = editor with only basic shapes (also drop
+    `stencils.min.js`); realistic **~23 MB** keeps the full compiled shape set.
+
+So the real choice is **~20–25 MB trimmed** vs 150 MB full — and the trim is
+mostly deleting the redundant raw `stencils/` tree and alternate JS bundles, not
+losing editor capability.
+
+### 3.5 Tradeoffs to accept / decide
+
+- **Installer size.** Even trimmed, ~20 MB is added to every platform installer.
+  Acceptable, but decide whether diagrams justify it for all users or ship as an
+  optional/lazy-downloaded component.
 - **Vendoring hygiene.** A pinned, checked-in third-party build is a large,
   opaque blob in-repo; note the pinned version + provenance and refresh
   deliberately. (Alternative: fetch-at-build in CI rather than commit the blob.)
@@ -224,14 +281,17 @@ this as its own wedge (the vendor commit is heavy and worth isolating).
 
 ---
 
-## Decisions requested
+## Decisions — status
 
-1. **Companion panel (§2):** confirm it's **one shared panel on both Read (J1) and
-   Author (J2)**. Must it work **standalone on Windows with no fleet**? — if yes,
-   pick **P2 (desktop-local ConPTY mini-runner)** or **model B (inline/`llm_call`)**;
-   if a fleet is always present, **model A (remote hub agent)** is simplest. And
-   should the item/document graduate to a **hub entity** the agent CRUDs via MCP?
-2. **Windows host-runner (§2.3):** if a Windows box must be a real agent **host**,
-   is **WSL2 (P1)** acceptable, or is a **native port (P3)** required?
-3. **Diagrams (§3):** confirm **bundle** (chosen); pick **shape-library scope**
-   (full vs trimmed) and **vendoring method** (checked-in blob vs fetch-in-CI).
+1. **Companion panel (§2): RESOLVED direction.** Shared panel on **both Read (J1)
+   and Author (J2)**. Agent must edit **local Windows files** → model A rejected →
+   build **P2, a desktop-local ConPTY mini-runner spawning a native-Windows agent
+   CLI** (Claude Code / Codex both run native on Windows). *Still to decide:* does
+   the local agent stay **hub-attached** (MCP bridge for hub tools/identity) or run
+   **hub-detached** for pure local editing? Should the Author/Read item graduate to
+   a **hub entity** so any agent CRUDs it via MCP?
+2. **Diagrams (§3): bundle confirmed; sizes measured** — **~20–25 MB trimmed** vs
+   150 MB full. *Still to decide:* trim scope (full compiled shape set ~23 MB vs
+   basic-only ~14 MB), **vendoring method** (checked-in blob vs fetch-in-CI), and
+   whether it's bundled for everyone or an optional/lazy component.
+3. **Native Windows host-runner (P3)** stays deferred — not needed for P2.

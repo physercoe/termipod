@@ -9,6 +9,7 @@ use tokio::sync::{Mutex, Notify};
 mod keychain;
 mod pty;
 mod ssh;
+mod storage;
 mod vault;
 mod voice;
 
@@ -282,6 +283,59 @@ async fn hub_sse_close(state: State<'_, SseState>, id: String) -> Result<(), Str
     Ok(())
 }
 
+// ---- open external URL ------------------------------------------------------
+// A raw navigation to an external URL (e.g. clicking a link) replaces the SPA in
+// the single webview and strands the user with no in-app way back (director
+// report: a link inside a PDF "jumped the whole app"). The frontend routes every
+// external link here so it opens in the OS default browser instead — the app
+// webview never navigates away.
+
+/// Open an http(s)/mailto URL in the OS default handler. Refuses any other scheme
+/// so an arbitrary string never reaches the shell.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    let ok = ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|p| url.starts_with(p));
+    if !ok {
+        return Err("unsupported url scheme".into());
+    }
+    open_url(&url)
+}
+
+#[cfg(target_os = "windows")]
+fn open_url(url: &str) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    // CREATE_NO_WINDOW: no flashing console (same rationale as the proxy query).
+    // The empty "" is `start`'s title arg, so a quoted URL isn't taken as a title.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn open_url(url: &str) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_url(url: &str) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Register the OS credential store before any keychain command can run —
@@ -290,6 +344,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(ssh::SshState::default())
         .manage(pty::PtyState::default())
         .manage(voice::VoiceState::default())
@@ -298,6 +353,10 @@ pub fn run() {
             hub_request,
             hub_request_bytes,
             system_proxy,
+            open_external,
+            storage::storage_pick_folder,
+            storage::storage_reindex,
+            storage::storage_read,
             hub_sse_open,
             hub_sse_close,
             keychain::keychain_set,

@@ -41,6 +41,11 @@ futures-util = "0.3"
 # + install, then relaunch. Signing is mandatory (pubkey in tauri.conf.json).
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Native folder picker for the Zotero storage/ link (J1 Read). Only the Rust core
+# uses it (custom `storage_pick_folder` command), so no JS plugin package is
+# added — the picked absolute path is persisted by the frontend so the link
+# survives a restart (director report: the link was lost on reopen).
+tauri-plugin-dialog = "2"
 # OS keychain for all desktop secrets (SSH passwords/keys/passphrases, vault
 # material) — Windows Credential Manager / macOS Keychain / Linux Secret
 # Service. default-features off + the zbus (pure-Rust) secret-service backend so

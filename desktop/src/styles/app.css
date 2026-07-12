@@ -586,6 +586,83 @@ pre {
   min-width: 0;
 }
 
+/* Reader — a full-surface reading view: the PDF is the main pane, the Inspector
+   (Info / Read / Notes / Cite) sits in a resizable side column so notes are
+   written alongside the document. */
+.reader-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.reader-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.reader-title {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+.reader-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.reader-doc {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+}
+.reader-doc .pdf-frame {
+  flex: 1;
+  height: auto;
+  border: none;
+  border-radius: 0;
+}
+.reader-side {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+.reader-side > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Field header with an inline "open externally" affordance (URL / DOI). */
+.ref-field-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.ref-open-link {
+  padding: 0;
+  line-height: 1;
+}
+
+/* Draw attention to the storage (re-)link control when attachments can't open. */
+.import-btn.attn,
+.read-import-msg.attn {
+  border-color: var(--accent-line);
+}
+.import-btn.attn {
+  color: var(--accent);
+}
+
 /* --- rail: collections + tags --- */
 .read-rail {
   flex: 0 0 auto;
@@ -1415,6 +1492,20 @@ button.small,
 .md-link {
   color: var(--color-primary);
   text-decoration: underline;
+  /* Rendered as a <button> so a click opens the OS browser (never navigates the
+     SPA), but it must read like inline link text. */
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  display: inline;
+}
+.md-link:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: none;
 }
 .ev-thought {
   color: var(--text-muted);

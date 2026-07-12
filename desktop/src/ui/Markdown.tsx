@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { openExternal } from '../platform';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -8,8 +9,10 @@ import rehypeHighlight from 'rehype-highlight';
 /// F1 primitive — safe GitHub-flavoured Markdown for transcript text/thought
 /// blocks and tool payloads. react-markdown renders to React elements (no
 /// `innerHTML`), so it is XSS-safe by construction. Links are rendered as
-/// non-navigating styled text: a raw `<a href>` in the Tauri webview would
-/// hijack the SPA, and we have no external-open plugin wired yet.
+/// buttons that open in the OS browser via `openExternal` (the Rust
+/// `open_external` command): a raw `<a href>` in the single-webview Tauri build
+/// would navigate the SPA away and strand the user, so links must never navigate
+/// in-app.
 ///
 /// Fenced code blocks are syntax-highlighted by `rehype-highlight` (lowlight /
 /// highlight.js) — it adds `hljs`/`hljs-*` classes that `.md pre code` styles in
@@ -38,11 +41,20 @@ export const Markdown = memo(function Markdown({ text }: { text: string }): JSX.
           [rehypeKatex, { throwOnError: false }],
         ]}
         components={{
-          a: ({ children, href }) => (
-            <span className="md-link" title={href}>
-              {children}
-            </span>
-          ),
+          a: ({ children, href }) => {
+            const external = typeof href === 'string' && /^(https?:|mailto:)/.test(href);
+            return (
+              <button
+                type="button"
+                className="md-link"
+                title={href}
+                disabled={!external}
+                onClick={external ? () => openExternal(href) : undefined}
+              >
+                {children}
+              </button>
+            );
+          },
         }}
       >
         {text}

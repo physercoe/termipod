@@ -6,8 +6,9 @@ import {
   type Reference,
   type RefType,
 } from '../state/library';
-import { resolveAttachment, useZoteroStorage } from '../state/zoteroStorage';
+import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zoteroStorage';
 import { searchPapers, type DiscoveryPaper } from '../discovery/semanticScholar';
+import { isTauri, openExternal } from '../platform';
 import { Markdown } from '../ui/Markdown';
 import { ResizeHandle } from '../ui/ResizeHandle';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
@@ -132,39 +133,72 @@ function copy(text: string): void {
   }
 }
 
-// Inline viewer for a local attachment — a blob URL into an <iframe>, which the
-// WebView renders natively for PDF/HTML. The object URL is revoked on unmount so
-// bytes aren't retained after the reader closes it.
-function PdfView({ file }: { file: File }): JSX.Element {
+// Viewer for a local attachment — bytes are resolved from the linked storage
+// folder (a live File in the browser build, or read through the Rust core under
+// Tauri) into a blob URL an <iframe> renders natively for PDF/HTML. The object
+// URL is revoked on unmount so bytes aren't retained after the reader closes.
+//
+// `sandbox="allow-same-origin allow-scripts"` (no `allow-top-navigation`) keeps a
+// link *inside* the PDF from replacing the whole SPA — the reported trap where
+// clicking a weblink "jumped the app" with no way back. allow-same-origin keeps
+// the blob loading; allow-scripts keeps the native viewer's toolbar working.
+function PdfView({ att }: { att: { key: string; file: string } }): JSX.Element {
+  const t = useT();
+  const rels = useZoteroStorage((s) => s.rels);
+  const files = useZoteroStorage((s) => s.files);
+  const path = useZoteroStorage((s) => s.path);
   const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
   useEffect(() => {
-    const u = URL.createObjectURL(file);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [file]);
-  if (url === null) return <></>;
-  return <iframe className="pdf-frame" title={file.name} src={url} />;
+    let alive = true;
+    let made: string | null = null;
+    setUrl(null);
+    setErr(false);
+    void loadAttachmentBlob({ rels, files, path }, att).then((blob) => {
+      if (!alive) return;
+      if (blob === null) {
+        setErr(true);
+        return;
+      }
+      made = URL.createObjectURL(blob);
+      setUrl(made);
+    });
+    return () => {
+      alive = false;
+      if (made !== null) URL.revokeObjectURL(made);
+    };
+  }, [att.key, att.file, rels, files, path]);
+  if (err) return <div className="muted region-pad">{t('read.pdfNotFound')}</div>;
+  if (url === null) return <div className="muted region-pad">{t('read.loadingPdf')}</div>;
+  return <iframe className="pdf-frame" title={att.file} src={url} sandbox="allow-same-origin allow-scripts" />;
 }
 
 // ---- Inspector -------------------------------------------------------------
 
-function Inspector({ refId }: { refId: string }): JSX.Element {
+function Inspector({
+  refId,
+  onOpenReader,
+  embedded,
+}: {
+  refId: string;
+  onOpenReader?: (id: string) => void;
+  embedded?: boolean;
+}): JSX.Element {
   const t = useT();
   const ref = useLibrary((s) => s.references.find((r) => r.id === refId));
   const collections = useLibrary((s) => s.collections);
   const update = useLibrary((s) => s.updateReference);
   const remove = useLibrary((s) => s.removeReference);
+  const rels = useZoteroStorage((s) => s.rels);
   const files = useZoteroStorage((s) => s.files);
   const storageLinked = useZoteroStorage((s) => s.count > 0);
   const [tab, setTab] = useState<Tab>('info');
-  const [pdfOpen, setPdfOpen] = useState(false);
   // Edit vs preview for the reading body is an EXPLICIT state, not derived from
   // whether the body is empty — deriving it flips to preview on the first
   // keystroke (the block would go read-only after one character). Default to
   // editing when the body starts empty.
   const [editingBody, setEditingBody] = useState(false);
   useEffect(() => {
-    setPdfOpen(false);
     const b = useLibrary.getState().references.find((r) => r.id === refId)?.bodyMarkdown ?? '';
     setEditingBody(b === '');
   }, [refId]);
@@ -172,7 +206,12 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
   if (ref === undefined) return <div className="muted region-pad">{t('read.pickItem')}</div>;
 
   const att = ref.zoteroStorage;
-  const attFile = resolveAttachment(files, att);
+  const attPresent = hasAttachment({ rels, files }, att);
+
+  function confirmDelete(): void {
+    if (ref === undefined) return;
+    if (window.confirm(t('read.confirmDelete'))) remove(ref.id);
+  }
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'info', label: t('read.tabInfo') },
@@ -191,14 +230,12 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
         ))}
         <span className="spacer" />
         {att !== undefined &&
-          (attFile !== undefined ? (
+          !embedded &&
+          (attPresent ? (
             <button
               className="ref-pdf-btn"
-              title={t('read.openPdf')}
-              onClick={() => {
-                setTab('read');
-                setPdfOpen(true);
-              }}
+              title={t('read.openInReader')}
+              onClick={() => onOpenReader?.(ref.id)}
             >
               ⧉ PDF
             </button>
@@ -211,7 +248,7 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
               PDF
             </button>
           ))}
-        <button className="link-btn danger" onClick={() => remove(ref.id)}>
+        <button className="link-btn danger" onClick={confirmDelete}>
           {t('read.delete')}
         </button>
       </div>
@@ -260,11 +297,33 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
             </div>
             <div className="ref-form-row">
               <label className="grow">
-                {t('read.fDoi')}
+                <span className="ref-field-head">
+                  {t('read.fDoi')}
+                  {ref.doi !== undefined && ref.doi !== '' && (
+                    <button
+                      className="link-btn ref-open-link"
+                      title={t('read.openExternal')}
+                      onClick={() => openExternal(`https://doi.org/${ref.doi ?? ''}`)}
+                    >
+                      ↗
+                    </button>
+                  )}
+                </span>
                 <input value={ref.doi ?? ''} onChange={(e) => update(ref.id, { doi: e.target.value || undefined })} />
               </label>
               <label className="grow">
-                {t('read.fUrl')}
+                <span className="ref-field-head">
+                  {t('read.fUrl')}
+                  {ref.url !== undefined && ref.url !== '' && (
+                    <button
+                      className="link-btn ref-open-link"
+                      title={t('read.openExternal')}
+                      onClick={() => openExternal(ref.url ?? '')}
+                    >
+                      ↗
+                    </button>
+                  )}
+                </span>
                 <input value={ref.url ?? ''} onChange={(e) => update(ref.id, { url: e.target.value || undefined })} />
               </label>
             </div>
@@ -333,15 +392,12 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
                 {t('read.pdf')}: <span className="mono">{ref.pdfUrl}</span>
               </div>
             )}
-            {att !== undefined && (
+            {att !== undefined && !embedded && (
               <div className="ref-attach">
-                {attFile !== undefined ? (
-                  <>
-                    <button className="primary small" onClick={() => setPdfOpen((o) => !o)}>
-                      {pdfOpen ? t('read.hidePdf') : t('read.openPdf')}
-                    </button>
-                    {pdfOpen && <PdfView file={attFile} />}
-                  </>
+                {attPresent ? (
+                  <button className="primary small" onClick={() => onOpenReader?.(ref.id)}>
+                    ⧉ {t('read.openInReader')}
+                  </button>
                 ) : storageLinked ? (
                   <div className="muted small">
                     {t('read.pdfNotFound')} <span className="mono">{att.file}</span>
@@ -417,6 +473,65 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---- Reader ----------------------------------------------------------------
+
+// A dedicated full-surface reading view (director request: "the PDF should open
+// in a separate main page, with notes and other alongside"). The PDF is the main
+// pane; a resizable side column reuses the Inspector (Info / Read / Notes / Cite)
+// so notes can be written next to the document instead of in a cramped panel.
+function ReaderView({ refId, onClose }: { refId: string; onClose: () => void }): JSX.Element {
+  const t = useT();
+  const ref = useLibrary((s) => s.references.find((r) => r.id === refId));
+  const [sideW, setSideW] = useState(() => loadWidth('termipod.read.readerSideW', 420));
+
+  useEffect(() => {
+    if (ref === undefined) onClose();
+  }, [ref, onClose]);
+  if (ref === undefined) return <></>;
+
+  const att = ref.zoteroStorage;
+  const url = ref.url;
+  return (
+    <div className="reader-view">
+      <div className="reader-topbar">
+        <button className="link-btn" onClick={onClose}>
+          ← {t('read.backToLibrary')}
+        </button>
+        <div className="reader-title" title={ref.title}>
+          {ref.title !== '' ? ref.title : t('read.untitled')}
+        </div>
+        <span className="spacer" />
+        {url !== undefined && url !== '' && (
+          <button className="link-btn" title={t('read.openExternal')} onClick={() => openExternal(url)}>
+            {t('read.openUrl')} ↗
+          </button>
+        )}
+      </div>
+      <div className="reader-body">
+        <div className="reader-doc">
+          {att !== undefined ? (
+            <PdfView att={att} />
+          ) : (
+            <div className="muted region-pad">{t('read.noPdf')}</div>
+          )}
+        </div>
+        <ResizeHandle
+          onResize={(dx) =>
+            setSideW((w) => {
+              const n = clamp(w - dx, 300, 760);
+              saveWidth('termipod.read.readerSideW', n);
+              return n;
+            })
+          }
+        />
+        <aside className="reader-side" style={{ width: sideW }}>
+          <Inspector refId={refId} embedded />
+        </aside>
       </div>
     </div>
   );
@@ -522,6 +637,8 @@ export function ReadSurface(): JSX.Element {
   const removeCollection = useLibrary((s) => s.removeCollection);
   const importReferences = useLibrary((s) => s.importReferences);
   const linkFolder = useZoteroStorage((s) => s.linkFolder);
+  const linkNative = useZoteroStorage((s) => s.linkNative);
+  const reindex = useZoteroStorage((s) => s.reindex);
   const storageCount = useZoteroStorage((s) => s.count);
 
   const [mode, setMode] = useState<Mode>('library');
@@ -529,6 +646,7 @@ export function ReadSurface(): JSX.Element {
   const [tag, setTag] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const [reader, setReader] = useState<string | null>(null); // refId in the reader view
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [railW, setRailW] = useState(() => loadWidth('termipod.read.railW', 220));
@@ -536,8 +654,14 @@ export function ReadSurface(): JSX.Element {
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
 
+  // Re-index the persisted storage-folder path on mount (Tauri) so the link
+  // survives a restart instead of being lost (director report).
+  useEffect(() => {
+    if (isTauri()) void reindex();
+  }, [reindex]);
+
   // `webkitdirectory` isn't in the input TS types — set it (plus the vendor
-  // aliases) imperatively so the picker selects a folder, not a single file.
+  // aliases) imperatively so the browser-build picker selects a folder.
   useEffect(() => {
     const el = dirRef.current;
     if (el === null) return;
@@ -545,6 +669,23 @@ export function ReadSurface(): JSX.Element {
     el.setAttribute('directory', '');
     el.setAttribute('mozdirectory', '');
   }, []);
+
+  // Native folder dialog under Tauri (persisted, survives restart); the browser
+  // build falls back to the session-only webkitdirectory picker.
+  async function onLinkStorage(): Promise<void> {
+    if (isTauri()) {
+      const err = await linkNative();
+      if (err !== null) setImportMsg(err);
+    } else {
+      dirRef.current?.click();
+    }
+  }
+
+  // Attachments exist but no folder is linked — prompt a (re-)link.
+  const needsRelink = useMemo(
+    () => storageCount === 0 && references.some((r) => r.zoteroStorage !== undefined),
+    [storageCount, references],
+  );
 
   function onPickStorage(e: React.ChangeEvent<HTMLInputElement>): void {
     const list = e.target.files;
@@ -635,9 +776,9 @@ export function ReadSurface(): JSX.Element {
           </button>
           <input ref={dirRef} type="file" style={{ display: 'none' }} onChange={onPickStorage} />
           <button
-            className="import-btn"
+            className={needsRelink ? 'import-btn attn' : 'import-btn'}
             title={t('read.linkStorageHint')}
-            onClick={() => dirRef.current?.click()}
+            onClick={() => void onLinkStorage()}
           >
             {storageCount > 0
               ? t('read.storageLinked').replace('{n}', String(storageCount))
@@ -663,7 +804,20 @@ export function ReadSurface(): JSX.Element {
           </button>
         </div>
       )}
-      <div className="read-layout">
+      {reader !== null ? (
+        <ReaderView refId={reader} onClose={() => setReader(null)} />
+      ) : (
+        <>
+          {needsRelink && (
+            <div className="read-import-msg attn">
+              <span>{t('read.relinkStorage')}</span>
+              <span className="spacer" />
+              <button className="link-btn" onClick={() => void onLinkStorage()}>
+                {t('read.linkStorage')}
+              </button>
+            </div>
+          )}
+          <div className="read-layout">
         <aside className="read-rail" style={{ width: railW }}>
           <div className="read-rail-group">
             <button
@@ -786,12 +940,14 @@ export function ReadSurface(): JSX.Element {
 
         <aside className="read-inspector-pane" style={{ width: inspW }}>
           {selected !== null ? (
-            <Inspector refId={selected} />
+            <Inspector refId={selected} onOpenReader={setReader} />
           ) : (
             <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>
           )}
         </aside>
-      </div>
+          </div>
+        </>
+      )}
     </WorkbenchSurface>
   );
 }

@@ -61,7 +61,7 @@ export interface ImportItem {
 
 export interface ImportResult {
   added: number;
-  skipped: number; // already-present references (deduped)
+  updated: number; // already-present references refreshed from the source
   collectionsCreated: number;
 }
 
@@ -179,8 +179,15 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   importReferences: (items) => {
     const existing = get().references;
-    const seen = new Set<string>();
-    for (const r of existing) dedupeKeys(r).forEach((k) => seen.add(k));
+    // Map every dedupe key to the existing reference id, so a re-import of the
+    // same library UPDATES rows (backfilling e.g. PDF coordinates / details a
+    // newer importer captures) rather than skipping them.
+    const keyToId = new Map<string, string>();
+    for (const r of existing) {
+      dedupeKeys(r).forEach((k) => {
+        if (!keyToId.has(k)) keyToId.set(k, r.id);
+      });
+    }
 
     // Find-or-create collections by name so re-import merges, not duplicates.
     const collections = [...get().collections];
@@ -197,22 +204,43 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       return id;
     };
 
+    const byId = new Map(existing.map((r) => [r.id, r] as const));
     const added: Reference[] = [];
-    let skipped = 0;
+    const updatedIds = new Set<string>();
     for (const it of items) {
-      const keys = dedupeKeys(it.ref);
-      if (keys.some((k) => seen.has(k))) {
-        skipped += 1;
-        continue;
-      }
-      keys.forEach((k) => seen.add(k));
       const collectionIds = [...new Set(it.collectionNames.map(ensureCollection))];
-      added.push({ ...it.ref, collectionIds, id: newId('ref'), addedAt: Date.now() });
+      const keys = dedupeKeys(it.ref);
+      const matchId = keys.map((k) => keyToId.get(k)).find((x) => x !== undefined);
+      if (matchId !== undefined) {
+        const cur = byId.get(matchId);
+        if (cur === undefined) continue;
+        // Overwrite bibliographic fields from the source; preserve the reader's
+        // own curation (notes, body, and the union of tags/collections).
+        byId.set(matchId, {
+          ...cur,
+          ...it.ref,
+          id: cur.id,
+          addedAt: cur.addedAt,
+          notes: cur.notes,
+          bodyMarkdown: cur.bodyMarkdown ?? it.ref.bodyMarkdown,
+          tags: [...new Set([...cur.tags, ...it.ref.tags])],
+          collectionIds: [...new Set([...cur.collectionIds, ...collectionIds])],
+          zoteroStorage: it.ref.zoteroStorage ?? cur.zoteroStorage,
+          details: it.ref.details ?? cur.details,
+        });
+        updatedIds.add(matchId);
+      } else {
+        const id = newId('ref');
+        added.push({ ...it.ref, collectionIds, id, addedAt: Date.now() });
+        keys.forEach((k) => {
+          if (!keyToId.has(k)) keyToId.set(k, id);
+        });
+      }
     }
 
-    const references = [...added, ...existing];
+    const references = [...added, ...existing.map((r) => byId.get(r.id) ?? r)];
     set({ references, collections });
     save({ references, collections });
-    return { added: added.length, skipped, collectionsCreated };
+    return { added: added.length, updated: updatedIds.size, collectionsCreated };
   },
 }));

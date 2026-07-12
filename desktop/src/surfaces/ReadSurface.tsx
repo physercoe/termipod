@@ -181,6 +181,27 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
           </button>
         ))}
         <span className="spacer" />
+        {att !== undefined &&
+          (attFile !== undefined ? (
+            <button
+              className="ref-pdf-btn"
+              title={t('read.openPdf')}
+              onClick={() => {
+                setTab('read');
+                setPdfOpen(true);
+              }}
+            >
+              ⧉ PDF
+            </button>
+          ) : (
+            <button
+              className="ref-pdf-btn muted"
+              title={storageLinked ? t('read.pdfNotFound') : t('read.pdfLinkHint')}
+              onClick={() => setTab('read')}
+            >
+              PDF
+            </button>
+          ))}
         <button className="link-btn danger" onClick={() => remove(ref.id)}>
           {t('read.delete')}
         </button>
@@ -531,7 +552,7 @@ export function ReadSurface(): JSX.Element {
       setImportMsg(
         t('read.importResult')
           .replace('{a}', String(res.added))
-          .replace('{s}', String(res.skipped))
+          .replace('{u}', String(res.updated))
           .replace('{c}', String(res.collectionsCreated)),
       );
     } catch {

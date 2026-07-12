@@ -755,6 +755,28 @@ pre {
   color: var(--accent);
   font-weight: 600;
 }
+/* Always-visible attachment affordance in the inspector header. */
+.ref-pdf-btn {
+  border: 1px solid var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  cursor: pointer;
+  margin-right: var(--spacing-s8);
+}
+.ref-pdf-btn:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.ref-pdf-btn.muted {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 400;
+}
 .ref-tab-body {
   min-height: 0;
   display: flex;

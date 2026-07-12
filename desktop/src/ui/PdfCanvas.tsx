@@ -5,6 +5,11 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { useT } from '../i18n';
 import { useOpenLink } from './OpenLinkContext';
+import { ResizeHandle } from './ResizeHandle';
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+}
 
 /// A self-contained PDF viewer built on bundled pdf.js — no CDN, no native
 /// browser plugin. Replaces the `<iframe src=blob>` viewer, which WebView2
@@ -26,7 +31,8 @@ interface LinkBox {
   top: number;
   width: number;
   height: number;
-  url: string;
+  url?: string; // external link (routes to the in-app browser)
+  dest?: string | unknown[]; // internal GoTo destination (jump within the PDF — refs, figures)
 }
 
 function PageView({
@@ -35,12 +41,14 @@ function PageView({
   scale,
   query,
   onLink,
+  onDest,
 }: {
   pdf: PDFDocumentProxy;
   pageNum: number;
   scale: number;
   query: string;
   onLink: (url: string) => void;
+  onDest: (dest: string | unknown[]) => void;
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
@@ -114,9 +122,14 @@ function PageView({
       if (cancelled) return;
       const boxes: LinkBox[] = [];
       for (const a of annots as Array<Record<string, unknown>>) {
-        const url = typeof a.url === 'string' ? a.url : undefined;
         const rect = a.rect;
-        if (a.subtype !== 'Link' || url === undefined || !Array.isArray(rect)) continue;
+        if (a.subtype !== 'Link' || !Array.isArray(rect)) continue;
+        const url = typeof a.url === 'string' ? a.url : undefined;
+        // Internal links (refs, figures, ToC) carry a `dest` — a named string or an
+        // explicit destination array — instead of a URL. Capture both.
+        const dest =
+          typeof a.dest === 'string' || Array.isArray(a.dest) ? (a.dest as string | unknown[]) : undefined;
+        if (url === undefined && dest === undefined) continue;
         const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(rect as number[]);
         boxes.push({
           left: Math.min(x1, x2),
@@ -124,6 +137,7 @@ function PageView({
           width: Math.abs(x2 - x1),
           height: Math.abs(y2 - y1),
           url,
+          dest,
         });
       }
       if (!cancelled) setLinks(boxes);
@@ -135,12 +149,39 @@ function PageView({
     };
   }, [pdf, pageNum, scale, visible]);
 
-  // Highlight spans containing the search term (best-effort, per-span).
+  // Highlight the actual matched substrings by wrapping them in <mark>. The text
+  // layer's own text is transparent (the canvas shows the glyphs), so the mark's
+  // translucent background paints a highlight box exactly over the match. We stash
+  // each div's original text so clearing/refreshing the query restores it.
   useEffect(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
+    const ql = q.toLowerCase();
     for (const div of textDivsRef.current) {
-      const hit = q !== '' && (div.textContent ?? '').toLowerCase().includes(q);
-      div.classList.toggle('pdfjs-hl', hit);
+      let orig = div.getAttribute('data-orig');
+      if (orig === null) {
+        orig = div.textContent ?? '';
+        div.setAttribute('data-orig', orig);
+      }
+      const base = orig.toLowerCase();
+      if (q === '' || !base.includes(ql)) {
+        if (div.getAttribute('data-hl') === '1') {
+          div.textContent = orig;
+          div.removeAttribute('data-hl');
+        }
+        continue;
+      }
+      let html = '';
+      let from = 0;
+      let idx = base.indexOf(ql, 0);
+      while (idx !== -1) {
+        html += escapeHtml(orig.slice(from, idx));
+        html += `<mark class="pdfjs-mark">${escapeHtml(orig.slice(idx, idx + q.length))}</mark>`;
+        from = idx + q.length;
+        idx = base.indexOf(ql, from);
+      }
+      html += escapeHtml(orig.slice(from));
+      div.innerHTML = html;
+      div.setAttribute('data-hl', '1');
     }
   }, [query, size]);
 
@@ -157,12 +198,13 @@ function PageView({
       {links.map((l, i) => (
         <button
           key={i}
-          className="pdfjs-link"
+          className={l.url !== undefined ? 'pdfjs-link' : 'pdfjs-link internal'}
           style={{ left: l.left, top: l.top, width: l.width, height: l.height }}
           title={l.url}
           onClick={(e) => {
             e.preventDefault();
-            onLink(l.url);
+            if (l.url !== undefined) onLink(l.url);
+            else if (l.dest !== undefined) onDest(l.dest);
           }}
         />
       ))}
@@ -231,6 +273,14 @@ export function PdfCanvas({
   const [pageInput, setPageInput] = useState('1');
   const [outline, setOutline] = useState<OutlineNode[]>([]);
   const [showToc, setShowToc] = useState(false);
+  const [tocW, setTocW] = useState(() => {
+    const v = Number(localStorage.getItem('termipod.read.pdfTocW'));
+    return Number.isFinite(v) && v > 0 ? v : 240;
+  });
+  // The text selected in the PDF, captured on the +notes button's mousedown —
+  // before the click can collapse the selection (clicking a button elsewhere in
+  // the DOM clears window.getSelection, which is why +notes previously did nothing).
+  const pendingSelRef = useRef('');
 
   useEffect(() => {
     let cancelled = false;
@@ -374,9 +424,11 @@ export function PdfCanvas({
   }
 
   function saveSelection(): void {
-    const sel = window.getSelection()?.toString().trim() ?? '';
+    // Prefer the selection captured on mousedown; fall back to the live selection.
+    const sel = pendingSelRef.current || (window.getSelection()?.toString().trim() ?? '');
     if (sel === '' || onSaveSelection === undefined) return;
     onSaveSelection(sel);
+    pendingSelRef.current = '';
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1500);
   }
@@ -447,7 +499,16 @@ export function PdfCanvas({
           )}
         </div>
         {onSaveSelection !== undefined && (
-          <button className="pdfjs-zoom pdfjs-tonotes" title={t('read.copyToNotesHint')} onClick={saveSelection}>
+          <button
+            className="pdfjs-zoom pdfjs-tonotes"
+            title={t('read.copyToNotesHint')}
+            onMouseDown={(e) => {
+              // Keep the text selection alive through the click, and snapshot it.
+              e.preventDefault();
+              pendingSelRef.current = window.getSelection()?.toString().trim() ?? '';
+            }}
+            onClick={saveSelection}
+          >
             {saved ? t('read.copiedToNotes') : t('read.copyToNotes')}
           </button>
         )}
@@ -463,15 +524,38 @@ export function PdfCanvas({
       </div>
       <div className="pdfjs-body">
         {showToc && outline.length > 0 && (
-          <div className="pdfjs-toc scroll">
-            <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
-          </div>
+          <>
+            <div className="pdfjs-toc scroll" style={{ width: tocW }}>
+              <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
+            </div>
+            <ResizeHandle
+              onResize={(dx) =>
+                setTocW((w) => {
+                  const n = Math.max(140, Math.min(480, w + dx));
+                  try {
+                    localStorage.setItem('termipod.read.pdfTocW', String(n));
+                  } catch {
+                    /* ignore */
+                  }
+                  return n;
+                })
+              }
+            />
+          </>
         )}
         <div ref={scrollRef} className="pdfjs-scroll scroll">
           {pdf === null && !err && <div className="muted region-pad">{t('read.loadingPdf')}</div>}
           {pdf !== null &&
             Array.from({ length: pdf.numPages }, (_, i) => (
-              <PageView key={i + 1} pdf={pdf} pageNum={i + 1} scale={scale} query={query} onLink={openLink} />
+              <PageView
+                key={i + 1}
+                pdf={pdf}
+                pageNum={i + 1}
+                scale={scale}
+                query={query}
+                onLink={openLink}
+                onDest={(d) => void goToDest(d)}
+              />
             ))}
         </div>
       </div>

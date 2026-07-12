@@ -64,7 +64,7 @@ function saveWidth(key: string, v: number): void {
 /// Undermind patterns) are specced in `reference-library-and-reading.md`.
 
 type Mode = 'library' | 'discover';
-type Tab = 'info' | 'read' | 'notes' | 'cite' | 'meta';
+type Tab = 'info' | 'read' | 'notes' | 'cite' | 'meta' | 'assistant';
 const ALL = '__all__';
 
 // An open tab in the reader region: a PDF reader (a library item) or an in-app
@@ -550,7 +550,23 @@ function Inspector({
     { id: 'notes', label: t('read.tabNotes') },
     { id: 'cite', label: t('read.tabCite') },
     { id: 'meta', label: t('read.tabMeta') },
+    // The assistant sits alongside the other tabs in the reader so it can be used
+    // while reading the PDF; it's reader-only (embedded) to keep the list side lean.
+    ...(embedded === true ? [{ id: 'assistant' as Tab, label: t('read.tabAssistant') }] : []),
   ];
+
+  // Context handed to the reader's assistant — the paper's identity + any notes.
+  const assistantContext = {
+    label: ref.title !== '' ? ref.title : t('read.untitled'),
+    build: (): string => {
+      const parts = [`Paper: "${ref.title}"`];
+      if (ref.authors.length > 0) parts.push(`Authors: ${ref.authors.join(', ')}`);
+      if (ref.year !== undefined) parts.push(`Year: ${ref.year}`);
+      if (ref.abstract !== undefined && ref.abstract !== '') parts.push(`Abstract: ${ref.abstract}`);
+      if (ref.notes !== undefined && ref.notes.trim() !== '') parts.push(`My notes so far:\n${ref.notes}`);
+      return parts.join('\n');
+    },
+  };
 
   return (
     <div className="ref-inspector">
@@ -619,6 +635,18 @@ function Inspector({
         )}
       </div>
 
+      {tab === 'assistant' ? (
+        <div className="ref-assistant-body">
+          <AgentCompanion
+            storageKey="termipod.read.reader.agent"
+            context={assistantContext}
+            onInsert={(text) => {
+              const prev = ref.notes ?? '';
+              update(ref.id, { notes: prev.trim() === '' ? text : `${prev}\n\n${text}` });
+            }}
+          />
+        </div>
+      ) : (
       <div className="ref-tab-body scroll">
         {tab === 'info' && (
           <div className="ref-form">
@@ -842,6 +870,7 @@ function Inspector({
 
         {tab === 'meta' && <RefMeta reference={ref} scraping={scraping} msg={scrapeMsg} onScrape={() => void runScrape()} />}
       </div>
+      )}
     </div>
   );
 }

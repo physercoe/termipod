@@ -873,8 +873,7 @@ pre {
   display: flex;
 }
 .pdfjs-toc {
-  flex: 0 0 auto;
-  width: 240px;
+  flex: 0 0 auto; /* width is set inline (resizable, persisted) */
   border-right: 1px solid var(--border);
   background: var(--surface);
   overflow: auto;
@@ -953,6 +952,14 @@ pre {
   background: color-mix(in srgb, #ffd21e 65%, transparent);
   border-radius: 2px;
 }
+/* Search-match highlight: a <mark> wrapping the exact matched substring inside a
+   text-layer span. The span's text is transparent (canvas shows the glyphs), so
+   only this translucent box paints — landing right over the matched word. */
+.textLayer mark.pdfjs-mark {
+  color: transparent;
+  background: color-mix(in srgb, #ffd21e 70%, transparent);
+  border-radius: 2px;
+}
 .textLayer ::selection {
   background: color-mix(in srgb, var(--accent) 32%, transparent);
 }
@@ -968,6 +975,11 @@ pre {
 }
 .pdfjs-link:hover {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+/* Internal links (refs / figures / ToC jumps) get a distinct hover so they read
+   as in-document navigation, not an external link. */
+.pdfjs-link.internal:hover {
+  background: color-mix(in srgb, #22c55e 22%, transparent);
 }
 .pdfjs-find {
   display: flex;
@@ -1464,6 +1476,17 @@ pre {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+/* The reader's assistant tab fills the side panel (the companion owns its own
+   scroll); no .scroll wrapper so the feed + composer lay out full-height. */
+.ref-assistant-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.ref-assistant-body .companion {
+  flex: 1;
+  min-width: 0;
 }
 .ref-form {
   padding: var(--spacing-s16);

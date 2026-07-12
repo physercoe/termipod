@@ -731,6 +731,7 @@ pre {
 }
 .read-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: var(--font-size-13, 0.82rem);
 }

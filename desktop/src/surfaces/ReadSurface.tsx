@@ -1034,6 +1034,13 @@ export function ReadSurface(): JSX.Element {
                   </div>
                 ) : (
                   <table className="read-table">
+                    <colgroup>
+                      <col style={{ width: '44%' }} />
+                      <col style={{ width: '20%' }} />
+                      <col style={{ width: '3.5rem' }} />
+                      <col style={{ width: '22%' }} />
+                      <col style={{ width: '6rem' }} />
+                    </colgroup>
                     <thead>
                       <tr>
                         {SORT_COLS.map((c) => (

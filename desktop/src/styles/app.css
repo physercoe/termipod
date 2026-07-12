@@ -395,6 +395,83 @@ pre {
 
 /* J2 Author — a document fills the surface below the tab strip; a thin meta bar
    shows word count + where the doc is saved (in-app vs a file on disk). */
+.author-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.author-split .author-doc {
+  flex: 1;
+  min-width: 0;
+}
+.author-agent {
+  flex: 0 0 auto;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+}
+
+/* AgentCompanion — hub-attached assistant panel (Read + Author). */
+.companion {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.companion-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+}
+.companion-title {
+  font-weight: 600;
+}
+.companion-agent {
+  max-width: 60%;
+  padding: var(--spacing-s2) var(--spacing-s4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+}
+.companion-empty {
+  padding: var(--spacing-s16);
+  font-size: var(--font-size-body-small);
+  line-height: 1.5;
+}
+.companion-err {
+  padding: var(--spacing-s4) var(--spacing-s12);
+}
+.companion-feed {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.companion-insert {
+  align-self: flex-start;
+  margin: 0 var(--spacing-s12) var(--spacing-s4);
+}
+.companion-ctx {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  font-size: var(--font-size-body-small);
+  color: var(--text-muted);
+}
+.companion-ctx-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .author-doc {
   flex: 1;
   min-height: 0;

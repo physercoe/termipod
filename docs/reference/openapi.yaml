@@ -118,6 +118,82 @@ paths:
   # Hosts + A2A
   # ======================================================================
 
+  /v1/teams/{team}/references:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [References]
+      operationId: listReferences
+      summary: List references in the team's library (ADR-053)
+      parameters:
+        - { name: collection, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: source, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: References
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Reference" }
+    post:
+      tags: [References]
+      operationId: createReference
+      summary: Add a reference to the library
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Reference" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reference" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /v1/teams/{team}/references/{ref}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: ref, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [References]
+      operationId: getReference
+      summary: Get one reference
+      responses:
+        "200":
+          description: Reference
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reference" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [References]
+      operationId: updateReference
+      summary: Partially update a reference (present fields override)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Reference" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reference" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [References]
+      operationId: deleteReference
+      summary: Delete a reference
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/teams/{team}/hosts:
     parameters:
       - $ref: "#/components/parameters/Team"
@@ -2561,6 +2637,44 @@ components:
         runner_build_time: { type: string }
         runner_modified: { type: boolean }
         created_at: { type: string, format: date-time }
+
+    Reference:
+      type: object
+      description: A research reference (ADR-053). Metadata only — PDF bytes are not stored here.
+      properties:
+        id: { type: string }
+        team_id: { type: string }
+        type:
+          type: string
+          enum: [article, preprint, book, report, webpage, note]
+        title: { type: string }
+        authors: { type: array, items: { type: string } }
+        year: { type: integer, nullable: true }
+        venue: { type: string }
+        doi: { type: string }
+        arxiv_id: { type: string }
+        url: { type: string }
+        pdf_url: { type: string }
+        abstract: { type: string }
+        tldr: { type: string }
+        citation_count: { type: integer, nullable: true }
+        source: { type: string }
+        external_id: { type: string }
+        tags: { type: array, items: { type: string } }
+        collections: { type: array, items: { type: string } }
+        notes: { type: string }
+        body_markdown: { type: string }
+        details:
+          type: object
+          additionalProperties: { type: string }
+        zotero_storage:
+          type: object
+          properties:
+            key: { type: string }
+            file: { type: string }
+            content_type: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
 
     HostsPage:
       allOf:

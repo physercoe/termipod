@@ -158,7 +158,16 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
   const storageLinked = useZoteroStorage((s) => s.count > 0);
   const [tab, setTab] = useState<Tab>('info');
   const [pdfOpen, setPdfOpen] = useState(false);
-  useEffect(() => setPdfOpen(false), [refId]);
+  // Edit vs preview for the reading body is an EXPLICIT state, not derived from
+  // whether the body is empty — deriving it flips to preview on the first
+  // keystroke (the block would go read-only after one character). Default to
+  // editing when the body starts empty.
+  const [editingBody, setEditingBody] = useState(false);
+  useEffect(() => {
+    setPdfOpen(false);
+    const b = useLibrary.getState().references.find((r) => r.id === refId)?.bodyMarkdown ?? '';
+    setEditingBody(b === '');
+  }, [refId]);
 
   if (ref === undefined) return <div className="muted region-pad">{t('read.pickItem')}</div>;
 
@@ -350,20 +359,27 @@ function Inspector({ refId }: { refId: string }): JSX.Element {
                 <p className="ref-abstract">{ref.abstract}</p>
               </>
             )}
-            {ref.bodyMarkdown !== undefined && ref.bodyMarkdown !== '' ? (
-              <Markdown text={ref.bodyMarkdown} />
+            {editingBody ? (
+              <>
+                <textarea
+                  className="editor-pane ref-body-edit"
+                  value={ref.bodyMarkdown ?? ''}
+                  onChange={(e) => update(ref.id, { bodyMarkdown: e.target.value })}
+                  placeholder={t('read.bodyPlaceholder')}
+                />
+                {(ref.bodyMarkdown ?? '') !== '' && (
+                  <button className="link-btn" onClick={() => setEditingBody(false)}>
+                    {t('read.previewBody')}
+                  </button>
+                )}
+              </>
             ) : (
-              <textarea
-                className="editor-pane ref-body-edit"
-                value={ref.bodyMarkdown ?? ''}
-                onChange={(e) => update(ref.id, { bodyMarkdown: e.target.value })}
-                placeholder={t('read.bodyPlaceholder')}
-              />
-            )}
-            {ref.bodyMarkdown !== undefined && ref.bodyMarkdown !== '' && (
-              <button className="link-btn" onClick={() => update(ref.id, { bodyMarkdown: '' })}>
-                {t('read.editBody')}
-              </button>
+              <>
+                <Markdown text={ref.bodyMarkdown ?? ''} />
+                <button className="link-btn" onClick={() => setEditingBody(true)}>
+                  {t('read.editBody')}
+                </button>
+              </>
             )}
           </div>
         )}

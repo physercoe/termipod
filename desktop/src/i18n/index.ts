@@ -626,6 +626,7 @@ const en: Dict = {
   'read.pdf': 'Open-access PDF',
   'read.bodyPlaceholder': 'Paste or write the reading content (Markdown)…',
   'read.editBody': 'Edit content',
+  'read.previewBody': 'Preview',
   'read.notesPlaceholder': 'Your notes on this reference…',
   'read.copy': 'Copy',
   // discover
@@ -1305,6 +1306,7 @@ const zh: Dict = {
   'read.pdf': '开放获取 PDF',
   'read.bodyPlaceholder': '粘贴或撰写阅读内容（Markdown）…',
   'read.editBody': '编辑内容',
+  'read.previewBody': '预览',
   'read.notesPlaceholder': '关于此文献的笔记…',
   'read.copy': '复制',
   'read.discoverPlaceholder': '搜索论文 — 例如「chain-of-thought reasoning」',

@@ -77,6 +77,47 @@ func TestReferenceCRUD(t *testing.T) {
 	}
 }
 
+// The scraper enrichment blob (migration 0063) is stored opaquely and must
+// round-trip verbatim: preserved by a patch that doesn't mention it, replaced by
+// one that does.
+func TestReferenceEnrichmentRoundTrip(t *testing.T) {
+	s, _ := newTestServer(t)
+	ctx := context.Background()
+	team := defaultTeamID
+
+	enr := json.RawMessage(`{"citedByCount":42,"journal":{"twoYearMeanCitedness":8.1},` +
+		`"resourceLinks":[{"url":"https://github.com/x/y","kind":"code","host":"github.com"}]}`)
+	created, err := s.createReference(ctx, team, referenceBody{
+		Title:      "Enriched Paper",
+		Source:     "scrape",
+		Enrichment: enr,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if !json_contains(created.Enrichment, "twoYearMeanCitedness") {
+		t.Fatalf("enrichment not round-tripped on create: %s", created.Enrichment)
+	}
+
+	// A patch that omits enrichment preserves it.
+	patched, err := s.patchReference(ctx, team, created.ID, json.RawMessage(`{"notes":"n"}`))
+	if err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	if !json_contains(patched.Enrichment, "resourceLinks") {
+		t.Fatalf("patch dropped enrichment: %s", patched.Enrichment)
+	}
+
+	// A patch that sets enrichment replaces it.
+	patched2, err := s.patchReference(ctx, team, created.ID, json.RawMessage(`{"enrichment":{"topics":["ml"]}}`))
+	if err != nil {
+		t.Fatalf("patch2: %v", err)
+	}
+	if !json_contains(patched2.Enrichment, "topics") || json_contains(patched2.Enrichment, "resourceLinks") {
+		t.Fatalf("enrichment not replaced: %s", patched2.Enrichment)
+	}
+}
+
 func TestReferenceMCPCreateList(t *testing.T) {
 	s, _ := newTestServer(t)
 	ctx := context.Background()

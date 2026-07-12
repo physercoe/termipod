@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
@@ -6,6 +6,9 @@ import { AgentCompanion } from '../ui/AgentCompanion';
 import { AuthorNav } from './AuthorNav';
 import { DiagramEditor } from './DiagramEditor';
 import { Markdown } from '../ui/Markdown';
+import type { MarkdownEditorHandle } from '../ui/MarkdownEditor';
+// CodeMirror is heavy (~500 KB) and Author isn't the landing tab — split it out.
+const MarkdownEditor = lazy(() => import('../ui/MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })));
 import { ResizeHandle } from '../ui/ResizeHandle';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
@@ -38,39 +41,94 @@ function baseName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+type ViewMode = 'edit' | 'split' | 'read';
+
 function Editor({ doc }: { doc: Doc }): JSX.Element {
   const t = useT();
   const update = useDocuments((s) => s.update);
+  const edRef = useRef<MarkdownEditorHandle>(null);
+  const [mode, setMode] = useState<ViewMode>(() => {
+    const v = localStorage.getItem('termipod.author.viewMode');
+    return v === 'edit' || v === 'split' || v === 'read' ? v : 'split';
+  });
+  function pickMode(m: ViewMode): void {
+    setMode(m);
+    try {
+      localStorage.setItem('termipod.author.viewMode', m);
+    } catch {
+      /* ignore */
+    }
+  }
   const words = doc.body.trim() ? doc.body.trim().split(/\s+/).length : 0;
+
+  // Formatting actions act on the live CodeMirror selection (mousedown-preventDefault
+  // keeps that selection alive through the button click).
+  const fmt: { label: string; title: string; run: () => void }[] = [
+    { label: 'B', title: t('author.fmtBold'), run: () => edRef.current?.wrap('**') },
+    { label: 'I', title: t('author.fmtItalic'), run: () => edRef.current?.wrap('*') },
+    { label: '‹›', title: t('author.fmtCode'), run: () => edRef.current?.wrap('`') },
+    { label: 'H', title: t('author.fmtHeading'), run: () => edRef.current?.linePrefix('## ') },
+    { label: '•', title: t('author.fmtList'), run: () => edRef.current?.linePrefix('- ') },
+    { label: '1.', title: t('author.fmtOList'), run: () => edRef.current?.linePrefix('1. ') },
+    { label: '❝', title: t('author.fmtQuote'), run: () => edRef.current?.linePrefix('> ') },
+    { label: '🔗', title: t('author.fmtLink'), run: () => edRef.current?.wrap('[', '](url)') },
+  ];
+
   return (
     <div className="author-doc">
-      <div className="author-doc-meta muted small">
-        {t('author.words').replace('{n}', String(words))}
-        <span className="spacer" />
-        {doc.filePath !== undefined ? (
-          <span title={doc.filePath}>
-            {doc.dirty === true ? '● ' : ''}
-            {t('author.savedFile').replace('{f}', baseName(doc.filePath))}
-          </span>
-        ) : (
-          <span title={t('author.savedLocalHint')}>{t('author.savedLocal')}</span>
-        )}
-      </div>
-      <div className="split-2">
-        <textarea
-          className="editor-pane mono"
-          value={doc.body}
-          onChange={(e) => update(doc.id, { body: e.target.value })}
-          placeholder={t('author.placeholder')}
-          spellCheck={false}
-        />
-        <div className="preview-pane">
-          {doc.body.trim() ? (
-            <Markdown text={doc.body} />
-          ) : (
-            <div className="muted region-pad">{t('author.empty')}</div>
-          )}
+      <div className="author-doc-bar">
+        <div className="seg author-viewmode">
+          {(['edit', 'split', 'read'] as ViewMode[]).map((m) => (
+            <button key={m} className={mode === m ? 'seg-btn active' : 'seg-btn'} onClick={() => pickMode(m)}>
+              {t(`author.mode_${m}`)}
+            </button>
+          ))}
         </div>
+        {mode !== 'read' && (
+          <div className="author-fmt">
+            {fmt.map((f) => (
+              <button
+                key={f.title}
+                className="author-fmt-btn"
+                title={f.title}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={f.run}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <span className="spacer" />
+        <span className="author-doc-meta muted small">
+          {t('author.words').replace('{n}', String(words))}
+          {doc.filePath !== undefined ? (
+            <span title={doc.filePath}>
+              {' · '}
+              {doc.dirty === true ? '● ' : ''}
+              {t('author.savedFile').replace('{f}', baseName(doc.filePath))}
+            </span>
+          ) : (
+            <span title={t('author.savedLocalHint')}>{' · '}{t('author.savedLocal')}</span>
+          )}
+        </span>
+      </div>
+      <div className={`author-body mode-${mode}`}>
+        {mode !== 'read' && (
+          <Suspense fallback={<div className="md-editor muted region-pad">{t('author.loadingEditor')}</div>}>
+            <MarkdownEditor
+              ref={edRef}
+              value={doc.body}
+              onChange={(v) => update(doc.id, { body: v })}
+              placeholder={t('author.placeholder')}
+            />
+          </Suspense>
+        )}
+        {mode !== 'edit' && (
+          <div className="preview-pane">
+            {doc.body.trim() ? <Markdown text={doc.body} /> : <div className="muted region-pad">{t('author.empty')}</div>}
+          </div>
+        )}
       </div>
     </div>
   );

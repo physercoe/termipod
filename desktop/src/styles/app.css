@@ -504,13 +504,75 @@ pre {
 .diagram-err {
   word-break: break-word;
 }
-.author-doc-meta {
+/* Author editor top bar: view-mode switch + formatting toolbar + doc status. */
+.author-doc-bar {
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
-  padding: var(--spacing-s4) var(--spacing-s12);
+  padding: 5px var(--spacing-s12);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  flex-wrap: wrap;
+}
+.author-doc-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.author-viewmode {
+  flex: none;
+}
+.author-fmt {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding-left: var(--spacing-s8);
+  border-left: 1px solid var(--border);
+}
+.author-fmt-btn {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1;
+}
+.author-fmt-btn:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+/* The edit + preview area under the bar. */
+.author-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.author-body > .md-editor,
+.author-body > .preview-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.author-body.mode-split > .preview-pane {
+  border-left: 1px solid var(--border);
+}
+.author-body > .preview-pane {
+  padding: 16px 20px;
+}
+.author-body.mode-read > .preview-pane {
+  max-width: 820px;
+  margin: 0 auto;
+}
+.md-editor {
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+/* CodeMirror fills its host. */
+.md-editor .cm-editor {
+  height: 100%;
 }
 .author-empty {
   flex: 1;

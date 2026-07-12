@@ -13,8 +13,14 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@lezer/highlight": "^1.2.3",
     "@tanstack/react-query": "^5.59.0",
     "@tanstack/react-query-persist-client": "^5.101.2",
     "@tauri-apps/api": "^2.11.1",

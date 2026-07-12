@@ -283,15 +283,34 @@ this as its own wedge (the vendor commit is heavy and worth isolating).
 
 ## Decisions — status
 
-1. **Companion panel (§2): RESOLVED direction.** Shared panel on **both Read (J1)
-   and Author (J2)**. Agent must edit **local Windows files** → model A rejected →
-   build **P2, a desktop-local ConPTY mini-runner spawning a native-Windows agent
-   CLI** (Claude Code / Codex both run native on Windows). *Still to decide:* does
-   the local agent stay **hub-attached** (MCP bridge for hub tools/identity) or run
-   **hub-detached** for pure local editing? Should the Author/Read item graduate to
-   a **hub entity** so any agent CRUDs it via MCP?
-2. **Diagrams (§3): bundle confirmed; sizes measured** — **~20–25 MB trimmed** vs
-   150 MB full. *Still to decide:* trim scope (full compiled shape set ~23 MB vs
-   basic-only ~14 MB), **vendoring method** (checked-in blob vs fetch-in-CI), and
-   whether it's bundled for everyone or an optional/lazy component.
+1. **Companion panel (§2): RESOLVED.** Shared panel on **both Read (J1) and Author
+   (J2)**. Agent must edit **local Windows files** → model A rejected → build **P2,
+   a desktop-local ConPTY mini-runner spawning a native-Windows agent CLI** (Claude
+   Code / Codex both native on Windows). **Attachment (director, 2026-07-12):
+   hub-attached is the DEFAULT** (MCP bridge → hub tools/identity/telemetry) **but
+   it must also run when the hub is UNREACHABLE** — i.e. degrade to hub-detached
+   local editing, then re-attach when the hub returns. So the runner buffers /
+   tolerates a down hub rather than hard-depending on it. *Still open:* does the
+   Author/Read item graduate to a **hub entity** (agent CRUDs via MCP) when
+   attached, with a local-file fallback when detached?
+2. **Diagrams (§3): RESOLVED — optional download, not bundled.** Director:
+   **the installer does NOT bundle drawio**; instead a **clickable "Download
+   draw.io (~20 MB)" button** fetches the trimmed webapp once into a **persistent
+   app-data dir** (survives app updates — keyed by drawio version, not app
+   version, so an app update does **not** re-download). First diagram use →
+   prompt to download; thereafter served from the app-data copy. *Still open:*
+   trim scope (~23 MB full compiled shapes vs ~14 MB basic) and the download host
+   (GitHub release asset we publish vs upstream).
 3. **Native Windows host-runner (P3)** stays deferred — not needed for P2.
+
+### Implementation notes for the optional drawio download (§3 decision)
+
+- **Store:** a persistent OS app-data path (Tauri `app_data_dir`), e.g.
+  `…/drawio/<version>/` — *not* the app bundle, so reinstalls/updates keep it.
+  Presence check = "is it installed?"; the button hides once present.
+- **Fetch:** a Rust command downloads a single archive (we publish a trimmed
+  `drawio-webapp-<ver>.zip` as a GitHub release asset — reuses the release
+  pipeline + proxy resolution already in `lib.rs`), unzips into the versioned dir.
+- **Serve:** point the diagram iframe at the local copy (Tauri asset protocol /
+  `convertFileSrc`) with `?embed=1&proto=json`; XML persists in the `diagram`
+  `Doc.body`. No react-drawio dep (hand-rolled postMessage).

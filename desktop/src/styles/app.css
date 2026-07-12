@@ -612,6 +612,52 @@ pre {
   min-width: 0;
 }
 
+/* Collapsible rail / inspector. A thin always-visible strip (`read-pane-expand`)
+   re-opens a collapsed panel; a `read-fold` chevron inside each panel collapses
+   it. Widths + fold state persist in localStorage. */
+.read-fold {
+  padding: 0 var(--spacing-s6, 6px);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+.read-fold:hover {
+  color: var(--text);
+}
+.read-rail-head {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--spacing-s4) var(--spacing-s4) 0;
+}
+.read-pane-expand {
+  flex: 0 0 auto;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: none;
+  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+}
+.read-pane-expand:hover {
+  color: var(--accent);
+  background: var(--raised);
+}
+.ref-inspector-empty-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ref-inspector-empty-wrap .ref-tabs {
+  display: flex;
+}
+
 /* Reader — a full-surface reading view: the PDF is the main pane, the Inspector
    (Info / Read / Notes / Cite) sits in a resizable side column so notes are
    written alongside the document. */

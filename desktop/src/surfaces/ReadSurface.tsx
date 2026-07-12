@@ -241,10 +241,12 @@ function PdfView({ att }: { att: { key: string; file: string } }): JSX.Element {
 function Inspector({
   refId,
   onOpenReader,
+  onCollapse,
   embedded,
 }: {
   refId: string;
   onOpenReader?: (id: string) => void;
+  onCollapse?: () => void;
   embedded?: boolean;
 }): JSX.Element {
   const t = useT();
@@ -287,6 +289,11 @@ function Inspector({
   return (
     <div className="ref-inspector">
       <div className="ref-tabs">
+        {onCollapse !== undefined && (
+          <button className="read-fold" title={t('read.collapse')} onClick={onCollapse}>
+            ›
+          </button>
+        )}
         {tabs.map((tb) => (
           <button key={tb.id} className={tab === tb.id ? 'ref-tab active' : 'ref-tab'} onClick={() => setTab(tb.id)}>
             {tb.label}
@@ -812,8 +819,27 @@ export function ReadSurface(): JSX.Element {
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [railW, setRailW] = useState(() => loadWidth('termipod.read.railW', 220));
   const [inspW, setInspW] = useState(() => loadWidth('termipod.read.inspW', 380));
+  const [railCollapsed, setRailCollapsed] = useState(() => localStorage.getItem('termipod.read.railFold') === '1');
+  const [inspCollapsed, setInspCollapsed] = useState(() => localStorage.getItem('termipod.read.inspFold') === '1');
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
+
+  function foldRail(v: boolean): void {
+    setRailCollapsed(v);
+    try {
+      localStorage.setItem('termipod.read.railFold', v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
+  function foldInsp(v: boolean): void {
+    setInspCollapsed(v);
+    try {
+      localStorage.setItem('termipod.read.inspFold', v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
 
   function openPdfTab(refId: string): void {
     const existing = tabs.find((tb) => tb.kind === 'pdf' && tb.refId === refId);
@@ -1048,7 +1074,18 @@ export function ReadSurface(): JSX.Element {
             </div>
           )}
           <div className="read-layout">
+        {railCollapsed ? (
+          <button className="read-pane-expand" title={t('read.showSidebar')} onClick={() => foldRail(false)}>
+            ›
+          </button>
+        ) : (
+          <>
         <aside className="read-rail" style={{ width: railW }}>
+          <div className="read-rail-head">
+            <button className="read-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
+              ‹
+            </button>
+          </div>
           <div className="read-rail-group">
             <button
               className={`read-col${collection === ALL ? ' active' : ''}`}
@@ -1113,6 +1150,8 @@ export function ReadSurface(): JSX.Element {
             })
           }
         />
+          </>
+        )}
 
         <div className="read-center">
           {mode === 'discover' ? (
@@ -1208,6 +1247,12 @@ export function ReadSurface(): JSX.Element {
           )}
         </div>
 
+        {inspCollapsed ? (
+          <button className="read-pane-expand" title={t('read.showDetails')} onClick={() => foldInsp(false)}>
+            ‹
+          </button>
+        ) : (
+          <>
         <ResizeHandle
           onResize={(dx) =>
             setInspW((w) => {
@@ -1220,11 +1265,21 @@ export function ReadSurface(): JSX.Element {
 
         <aside className="read-inspector-pane" style={{ width: inspW }}>
           {selected !== null ? (
-            <Inspector refId={selected} onOpenReader={openPdfTab} />
+            <Inspector refId={selected} onOpenReader={openPdfTab} onCollapse={() => foldInsp(true)} />
           ) : (
-            <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>
+            <div className="ref-inspector-empty-wrap">
+              <div className="ref-tabs">
+                <span className="spacer" />
+                <button className="read-fold" title={t('read.collapse')} onClick={() => foldInsp(true)}>
+                  ›
+                </button>
+              </div>
+              <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>
+            </div>
           )}
         </aside>
+          </>
+        )}
           </div>
         </>
       )}

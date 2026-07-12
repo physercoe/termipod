@@ -667,6 +667,9 @@ const en: Dict = {
   'read.browserReload': 'Reload',
   'read.openInWindow': 'Open in browser window (loads any site)',
   'read.browserFrameHint': 'Some sites (arXiv, Google Scholar, publishers) block embedding — use ⤢ to open them in a real browser window.',
+  'read.collapse': 'Collapse',
+  'read.showSidebar': 'Show collections',
+  'read.showDetails': 'Show details',
 
   'author.words': '{n} words',
   'author.placeholder': 'Write in Markdown — $math$ and ```code``` supported…',
@@ -1383,6 +1386,9 @@ const zh: Dict = {
   'read.browserReload': '重新加载',
   'read.openInWindow': '在浏览器窗口中打开（可加载任何网站）',
   'read.browserFrameHint': '部分网站（arXiv、Google Scholar、出版商）禁止内嵌 — 用 ⤢ 在真正的浏览器窗口中打开。',
+  'read.collapse': '折叠',
+  'read.showSidebar': '显示分组',
+  'read.showDetails': '显示详情',
 
   'author.words': '{n} 词',
   'author.placeholder': '用 Markdown 撰写 — 支持 $数学$ 与 ```代码```…',

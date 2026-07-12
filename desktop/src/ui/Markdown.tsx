@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { openExternal } from '../platform';
+import { useOpenLink } from './OpenLinkContext';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -32,6 +32,7 @@ import rehypeHighlight from 'rehype-highlight';
 /// (`$$…$$`) still renders; `throwOnError: false` makes a malformed formula show
 /// inline in red rather than blanking the whole block.
 export const Markdown = memo(function Markdown({ text }: { text: string }): JSX.Element {
+  const openLink = useOpenLink();
   return (
     <div className="md">
       <ReactMarkdown
@@ -49,7 +50,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }): JSX.
                 className="md-link"
                 title={href}
                 disabled={!external}
-                onClick={external ? () => openExternal(href) : undefined}
+                onClick={external ? () => openLink(href) : undefined}
               >
                 {children}
               </button>

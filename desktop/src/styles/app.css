@@ -663,6 +663,188 @@ pre {
   color: var(--accent);
 }
 
+/* Reader / browser tab strip — sits above the tab content; the "Library" pseudo
+   tab returns to the list. */
+.read-tabstrip {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: var(--spacing-s4) var(--spacing-s8) 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  overflow-x: auto;
+}
+.read-tabitem {
+  display: inline-flex;
+  align-items: center;
+  max-width: 240px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--text-secondary);
+  background: transparent;
+  white-space: nowrap;
+}
+.read-tabitem.active {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border);
+}
+.read-tabitem-label,
+.read-tabstrip > .read-tabitem {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.read-tabitem-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.read-tabitem-kind {
+  font-size: 0.85em;
+}
+.read-tabitem-x {
+  padding: 0 var(--spacing-s8) 0 var(--spacing-s4);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.read-tabitem-x:hover {
+  color: var(--text);
+}
+
+/* Zotero-style sortable column table for the library list. */
+.read-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.read-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-13, 0.82rem);
+}
+.read-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  color: var(--text-secondary);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.read-table thead th.sorted {
+  color: var(--accent);
+}
+.read-th-arrow {
+  font-size: 0.7em;
+}
+.read-table tbody tr {
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.read-table tbody tr:hover {
+  background: var(--raised);
+}
+.read-table tbody tr.active {
+  background: var(--accent-tint);
+}
+.read-table td {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  color: var(--text);
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.read-td-title {
+  width: 45%;
+}
+.read-td-venue {
+  width: 22%;
+  color: var(--text-secondary);
+}
+.read-td-type {
+  color: var(--text-muted);
+}
+.read-table td.tnum {
+  font-variant-numeric: tabular-nums;
+  width: 3.5rem;
+}
+.read-pdf-dot {
+  margin-right: var(--spacing-s4);
+  color: var(--accent);
+}
+.read-pdf-dot:hover {
+  color: var(--accent-strong);
+}
+
+/* In-app browser tab — toolbar (back / forward / reload / address / open-ext)
+   over an iframe. */
+.browser-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.browser-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.browser-nav {
+  flex: 0 0 auto;
+  min-width: 1.9rem;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  color: var(--text-secondary);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.browser-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.browser-address {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.browser-frame-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.browser-frame {
+  flex: 1;
+  border: none;
+  background: #fff;
+}
+
 /* --- rail: collections + tags --- */
 .read-rail {
   flex: 0 0 auto;

@@ -8,10 +8,20 @@ import {
 } from '../state/library';
 import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zoteroStorage';
 import { searchPapers, type DiscoveryPaper } from '../discovery/semanticScholar';
-import { isTauri, openExternal } from '../platform';
+import { isTauri } from '../platform';
+import { BrowserView } from './BrowserView';
 import { Markdown } from '../ui/Markdown';
+import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { ResizeHandle } from '../ui/ResizeHandle';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 
@@ -38,6 +48,46 @@ function saveWidth(key: string, v: number): void {
 type Mode = 'library' | 'discover';
 type Tab = 'info' | 'read' | 'notes' | 'cite';
 const ALL = '__all__';
+
+// An open tab in the reader region: a PDF reader (a library item) or an in-app
+// browser (an arbitrary URL). `activeTab === null` shows the library instead.
+interface ReadTab {
+  id: string;
+  kind: 'pdf' | 'web';
+  refId?: string;
+  url?: string;
+  title: string;
+}
+let tabSeq = 0;
+function nextTabId(): string {
+  tabSeq += 1;
+  return `tab${Date.now().toString(36)}${tabSeq}`;
+}
+
+// Sortable columns for the Zotero-style library table.
+type SortKey = 'title' | 'creator' | 'year' | 'venue' | 'type';
+type SortDir = 'asc' | 'desc';
+const SORT_COLS: { key: SortKey; labelKey: string }[] = [
+  { key: 'title', labelKey: 'read.colTitle' },
+  { key: 'creator', labelKey: 'read.colCreator' },
+  { key: 'year', labelKey: 'read.colYear' },
+  { key: 'venue', labelKey: 'read.colVenue' },
+  { key: 'type', labelKey: 'read.colType' },
+];
+function sortVal(r: Reference, key: SortKey): string | number {
+  switch (key) {
+    case 'title':
+      return r.title.toLowerCase();
+    case 'creator':
+      return (r.authors[0] ?? '').toLowerCase();
+    case 'year':
+      return r.year ?? 0;
+    case 'venue':
+      return (r.venue ?? '').toLowerCase();
+    case 'type':
+      return r.type;
+  }
+}
 
 function splitList(s: string, sep: string): string[] {
   return s
@@ -192,6 +242,7 @@ function Inspector({
   const rels = useZoteroStorage((s) => s.rels);
   const files = useZoteroStorage((s) => s.files);
   const storageLinked = useZoteroStorage((s) => s.count > 0);
+  const openLink = useOpenLink();
   const [tab, setTab] = useState<Tab>('info');
   // Edit vs preview for the reading body is an EXPLICIT state, not derived from
   // whether the body is empty — deriving it flips to preview on the first
@@ -303,7 +354,7 @@ function Inspector({
                     <button
                       className="link-btn ref-open-link"
                       title={t('read.openExternal')}
-                      onClick={() => openExternal(`https://doi.org/${ref.doi ?? ''}`)}
+                      onClick={() => openLink(`https://doi.org/${ref.doi ?? ''}`)}
                     >
                       ↗
                     </button>
@@ -318,7 +369,7 @@ function Inspector({
                     <button
                       className="link-btn ref-open-link"
                       title={t('read.openExternal')}
-                      onClick={() => openExternal(ref.url ?? '')}
+                      onClick={() => openLink(ref.url ?? '')}
                     >
                       ↗
                     </button>
@@ -480,18 +531,20 @@ function Inspector({
 
 // ---- Reader ----------------------------------------------------------------
 
-// A dedicated full-surface reading view (director request: "the PDF should open
-// in a separate main page, with notes and other alongside"). The PDF is the main
-// pane; a resizable side column reuses the Inspector (Info / Read / Notes / Cite)
-// so notes can be written next to the document instead of in a cramped panel.
-function ReaderView({ refId, onClose }: { refId: string; onClose: () => void }): JSX.Element {
+// A dedicated reading view (one open PDF tab). The PDF is the main pane; a
+// resizable side column reuses the Inspector (Info / Read / Notes / Cite) so
+// notes are written next to the document. Multiple of these live behind the tab
+// strip; switching tabs swaps which one renders (director: "the PDF viewer can be
+// opened in several tabs at the same time").
+function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): JSX.Element {
   const t = useT();
   const ref = useLibrary((s) => s.references.find((r) => r.id === refId));
+  const openLink = useOpenLink();
   const [sideW, setSideW] = useState(() => loadWidth('termipod.read.readerSideW', 420));
 
   useEffect(() => {
-    if (ref === undefined) onClose();
-  }, [ref, onClose]);
+    if (ref === undefined) onGone(); // deleted while open — drop the tab
+  }, [ref, onGone]);
   if (ref === undefined) return <></>;
 
   const att = ref.zoteroStorage;
@@ -499,15 +552,12 @@ function ReaderView({ refId, onClose }: { refId: string; onClose: () => void }):
   return (
     <div className="reader-view">
       <div className="reader-topbar">
-        <button className="link-btn" onClick={onClose}>
-          ← {t('read.backToLibrary')}
-        </button>
         <div className="reader-title" title={ref.title}>
           {ref.title !== '' ? ref.title : t('read.untitled')}
         </div>
         <span className="spacer" />
         {url !== undefined && url !== '' && (
-          <button className="link-btn" title={t('read.openExternal')} onClick={() => openExternal(url)}>
+          <button className="link-btn" title={t('read.openUrl')} onClick={() => openLink(url)}>
             {t('read.openUrl')} ↗
           </button>
         )}
@@ -646,13 +696,43 @@ export function ReadSurface(): JSX.Element {
   const [tag, setTag] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
-  const [reader, setReader] = useState<string | null>(null); // refId in the reader view
+  const [sortKey, setSortKey] = useState<SortKey>('title');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  // Open reader / browser tabs (director: PDFs open in several tabs at once, and
+  // links open in a dedicated in-app browser tab). `activeTab === null` = library.
+  const [tabs, setTabs] = useState<ReadTab[]>([]);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [railW, setRailW] = useState(() => loadWidth('termipod.read.railW', 220));
   const [inspW, setInspW] = useState(() => loadWidth('termipod.read.inspW', 380));
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
+
+  function openPdfTab(refId: string): void {
+    const existing = tabs.find((tb) => tb.kind === 'pdf' && tb.refId === refId);
+    if (existing !== undefined) {
+      setActiveTab(existing.id);
+      return;
+    }
+    const r = useLibrary.getState().references.find((x) => x.id === refId);
+    const id = nextTabId();
+    const title = r !== undefined && r.title !== '' ? r.title : t('read.untitled');
+    setTabs((ts) => [...ts, { id, kind: 'pdf', refId, title }]);
+    setActiveTab(id);
+  }
+
+  function openWebTab(url: string): void {
+    if (url === '') return;
+    const id = nextTabId();
+    setTabs((ts) => [...ts, { id, kind: 'web', url, title: hostOf(url) }]);
+    setActiveTab(id);
+  }
+
+  function closeTab(id: string): void {
+    setTabs((ts) => ts.filter((tb) => tb.id !== id));
+    setActiveTab((a) => (a === id ? null : a));
+  }
 
   // Re-index the persisted storage-folder path on mount (Tauri) so the link
   // survives a restart instead of being lost (director report).
@@ -727,13 +807,31 @@ export function ReadSurface(): JSX.Element {
 
   const items = useMemo(() => {
     const ql = query.trim().toLowerCase();
-    return references.filter((r) => {
+    const filtered = references.filter((r) => {
       if (collection !== ALL && !r.collectionIds.includes(collection)) return false;
       if (tag !== null && !r.tags.includes(tag)) return false;
       if (ql !== '' && !`${r.title} ${r.authors.join(' ')} ${r.venue ?? ''}`.toLowerCase().includes(ql)) return false;
       return true;
     });
-  }, [references, collection, tag, query]);
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = sortVal(a, sortKey);
+      const bv = sortVal(b, sortKey);
+      if (av < bv) return -dir;
+      if (av > bv) return dir;
+      return a.title.toLowerCase() < b.title.toLowerCase() ? -1 : 1;
+    });
+  }, [references, collection, tag, query, sortKey, sortDir]);
+
+  function toggleSort(key: SortKey): void {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  const activeTabObj = activeTab !== null ? tabs.find((tb) => tb.id === activeTab) : undefined;
 
   function newCollection(): void {
     const name = window.prompt(t('read.newCollectionPrompt'));
@@ -795,6 +893,7 @@ export function ReadSurface(): JSX.Element {
         </>
       }
     >
+      <OpenLinkContext.Provider value={openWebTab}>
       {importMsg !== null && (
         <div className="read-import-msg">
           <span>{importMsg}</span>
@@ -804,8 +903,33 @@ export function ReadSurface(): JSX.Element {
           </button>
         </div>
       )}
-      {reader !== null ? (
-        <ReaderView refId={reader} onClose={() => setReader(null)} />
+      {tabs.length > 0 && (
+        <div className="read-tabstrip">
+          <button
+            className={`read-tabitem${activeTab === null ? ' active' : ''}`}
+            onClick={() => setActiveTab(null)}
+          >
+            {t('read.tabLibrary')}
+          </button>
+          {tabs.map((tb) => (
+            <span key={tb.id} className={`read-tabitem${activeTab === tb.id ? ' active' : ''}`}>
+              <button className="read-tabitem-label" title={tb.title} onClick={() => setActiveTab(tb.id)}>
+                <span className="read-tabitem-kind">{tb.kind === 'web' ? '🌐' : '📄'}</span>
+                {tb.title}
+              </button>
+              <button className="read-tabitem-x" title={t('read.closeTab')} onClick={() => closeTab(tb.id)}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {activeTabObj !== undefined ? (
+        activeTabObj.kind === 'pdf' && activeTabObj.refId !== undefined ? (
+          <ReaderView refId={activeTabObj.refId} onGone={() => closeTab(activeTabObj.id)} />
+        ) : (
+          <BrowserView initialUrl={activeTabObj.url ?? ''} />
+        )
       ) : (
         <>
           {needsRelink && (
@@ -903,26 +1027,69 @@ export function ReadSurface(): JSX.Element {
                 />
                 <button onClick={addBlank}>+ {t('read.add')}</button>
               </div>
-              <div className="read-list scroll">
-                {items.length === 0 && (
+              <div className="read-table-wrap scroll">
+                {items.length === 0 ? (
                   <div className="muted region-pad">
                     {references.length === 0 ? t('read.emptyLibrary') : t('read.noMatch')}
                   </div>
+                ) : (
+                  <table className="read-table">
+                    <thead>
+                      <tr>
+                        {SORT_COLS.map((c) => (
+                          <th
+                            key={c.key}
+                            className={`read-th${sortKey === c.key ? ' sorted' : ''}`}
+                            onClick={() => toggleSort(c.key)}
+                          >
+                            {t(c.labelKey)}
+                            <span className="read-th-arrow">
+                              {sortKey === c.key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                            </span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((r) => {
+                        const hasPdf = r.zoteroStorage !== undefined;
+                        return (
+                          <tr
+                            key={r.id}
+                            className={selected === r.id ? 'active' : ''}
+                            onClick={() => setSelected(r.id)}
+                            onDoubleClick={() => {
+                              if (hasPdf) openPdfTab(r.id);
+                            }}
+                          >
+                            <td className="read-td-title">
+                              {hasPdf && (
+                                <span
+                                  className="read-pdf-dot"
+                                  title={t('read.openInReader')}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openPdfTab(r.id);
+                                  }}
+                                >
+                                  ⧉
+                                </span>
+                              )}
+                              {r.title !== '' ? r.title : t('read.untitled')}
+                            </td>
+                            <td>
+                              {r.authors[0] ?? ''}
+                              {r.authors.length > 1 ? ' et al.' : ''}
+                            </td>
+                            <td className="tnum">{r.year ?? ''}</td>
+                            <td className="read-td-venue">{r.venue ?? ''}</td>
+                            <td className="read-td-type">{r.type}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 )}
-                {items.map((r) => (
-                  <button
-                    key={r.id}
-                    className={`read-item${selected === r.id ? ' active' : ''}`}
-                    onClick={() => setSelected(r.id)}
-                  >
-                    <div className="read-item-title">{r.title !== '' ? r.title : t('read.untitled')}</div>
-                    <div className="read-item-meta muted small">
-                      {r.authors.slice(0, 3).join(', ')}
-                      {r.authors.length > 3 ? ' et al.' : ''}
-                      {r.year !== undefined ? ` · ${r.year}` : ''}
-                    </div>
-                  </button>
-                ))}
               </div>
             </div>
           )}
@@ -940,7 +1107,7 @@ export function ReadSurface(): JSX.Element {
 
         <aside className="read-inspector-pane" style={{ width: inspW }}>
           {selected !== null ? (
-            <Inspector refId={selected} onOpenReader={setReader} />
+            <Inspector refId={selected} onOpenReader={openPdfTab} />
           ) : (
             <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>
           )}
@@ -948,6 +1115,7 @@ export function ReadSurface(): JSX.Element {
           </div>
         </>
       )}
+      </OpenLinkContext.Provider>
     </WorkbenchSurface>
   );
 }

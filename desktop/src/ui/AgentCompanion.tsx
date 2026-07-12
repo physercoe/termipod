@@ -3,11 +3,13 @@ import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
 import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
+import { isTauri } from '../platform';
 import { useSession } from '../state/session';
 import { useAgents } from '../hub/queries';
 import { Composer } from './Composer';
 import { callToolId, EventCard, toFeedEvent } from './EventCard';
 import { isHiddenInFeed } from './feedLens';
+import { LocalCompanion } from './LocalCompanion';
 
 /// The **AgentCompanion** — a hub-attached assistant panel that mounts alongside a
 /// surface (Read J1, Author J2). It reuses the hub SDK's agent stream + the shared
@@ -46,6 +48,11 @@ export function AgentCompanion({
   const agentsQ = useAgents();
   const agents = agentsQ.data ?? [];
   const [agentId, setAgentId] = useState<string>(() => localStorage.getItem(storageKey) ?? '');
+  // Hub-attached (an agent on some host) vs a local agent running on THIS machine.
+  // Local is desktop-only; the choice is persisted per mount point.
+  const [source, setSource] = useState<'hub' | 'local'>(() =>
+    isTauri() && localStorage.getItem(`${storageKey}.src`) === 'local' ? 'local' : 'hub',
+  );
   const [events, setEvents] = useState<Entity[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [useContext, setUseContext] = useState(true);
@@ -68,9 +75,18 @@ export function AgentCompanion({
     }
   }
 
+  function pickSource(s: 'hub' | 'local'): void {
+    setSource(s);
+    try {
+      localStorage.setItem(`${storageKey}.src`, s);
+    } catch {
+      /* ignore */
+    }
+  }
+
   // Backfill + stream the selected agent (mirrors AgentTranscript's proven path).
   useEffect(() => {
-    if (client === null || agentId === '') {
+    if (client === null || agentId === '' || source !== 'hub') {
       setEvents([]);
       return;
     }
@@ -166,7 +182,17 @@ export function AgentCompanion({
     <div className="companion-head">
       <span className="companion-title">{t('companion.title')}</span>
       <span className="spacer" />
-      {client !== null && (
+      {isTauri() && (
+        <div className="companion-src" role="tablist">
+          <button className={source === 'hub' ? 'active' : ''} onClick={() => pickSource('hub')}>
+            {t('companion.srcHub')}
+          </button>
+          <button className={source === 'local' ? 'active' : ''} onClick={() => pickSource('local')}>
+            {t('companion.srcLocal')}
+          </button>
+        </div>
+      )}
+      {source === 'hub' && client !== null && (
         <select className="companion-agent" value={agentId} onChange={(e) => pickAgent(e.target.value)}>
           <option value="">{t('companion.pickAgent')}</option>
           {agents.map((a) => {
@@ -181,6 +207,16 @@ export function AgentCompanion({
       )}
     </div>
   );
+
+  // Local agent runs on this machine — no hub client needed.
+  if (source === 'local') {
+    return (
+      <div className="companion">
+        {head}
+        <LocalCompanion context={context} onInsert={onInsert} />
+      </div>
+    );
+  }
 
   if (client === null) {
     return (

@@ -34,7 +34,7 @@ russh-sftp = "2"
 # (the desktop's "empower the user" lever beyond mobile's SSH-only story). Pure
 # Rust; no system deps in CI.
 portable-pty = "0.9"
-tokio = { version = "1", features = ["macros", "sync", "io-util", "net", "time", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "sync", "io-util", "net", "time", "rt-multi-thread", "process"] }
 # Voice dictation (parity — mobile cloud_stt.dart): a WebSocket bridge to
 # DashScope realtime ASR. The webview WebSocket can't set the Authorization
 # header DashScope needs, so the socket lives here. rustls (no system OpenSSL) to

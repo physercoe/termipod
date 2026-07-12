@@ -5033,3 +5033,70 @@ th {
 .author-nav-item.inert:hover {
   background: transparent;
 }
+
+/* AgentCompanion: Hub/Local source toggle + the local one-shot conversation
+   (ui/LocalCompanion.tsx). */
+.companion-src {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.companion-src button {
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: transparent;
+}
+.companion-src button.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.companion-local-cmd {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.companion-local-cmdbtn {
+  width: 100%;
+  text-align: left;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.companion-local-cmdbtn:hover {
+  color: var(--text);
+}
+.companion-local-cmdin {
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+.companion-msg {
+  padding: 7px 10px;
+  margin: 4px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.companion-msg.user {
+  background: var(--accent-tint);
+  color: var(--text);
+  align-self: flex-end;
+}
+.companion-msg.agent {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.companion-msg.err {
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}

@@ -257,6 +257,15 @@ function viewKindFor(file: string): ViewKind {
   return EXT_KIND[ext] ?? 'html'; // unknown → try an iframe; the webview sniffs it
 }
 
+// A glyph + human label per attachment kind — used by the info-tab summary card.
+const KIND_GLYPH: Record<ViewKind, string> = {
+  pdf: '📄', epub: '📖', image: '🖼', video: '🎬', audio: '🎵', html: '🌐', text: '📝',
+};
+const KIND_LABEL: Record<ViewKind, string> = {
+  pdf: 'read.kPdf', epub: 'read.kEpub', image: 'read.kImage', video: 'read.kVideo',
+  audio: 'read.kAudio', html: 'read.kHtml', text: 'read.kText',
+};
+
 // The resolved, ready-to-render payload for an attachment. Discriminated so the
 // render only ever reads the field it set.
 type Payload =
@@ -345,18 +354,113 @@ function AttachmentView({
   return <div className="muted region-pad">{t('read.loadingFile')}</div>;
 }
 
+// A compact attachment summary for the Info tab: what the linked file is (type +
+// extension), where it lives (absolute path under Tauri, or session-linked in the
+// browser build, or a "not found / link a folder" hint), and a preview — a
+// thumbnail for images, a type glyph otherwise. Reads its own storage slices so
+// it stays self-contained.
+function AttachmentInfo({
+  att,
+  embedded,
+  onOpen,
+}: {
+  att: { key: string; file: string };
+  embedded?: boolean;
+  onOpen?: () => void;
+}): JSX.Element {
+  const t = useT();
+  const rels = useZoteroStorage((s) => s.rels);
+  const files = useZoteroStorage((s) => s.files);
+  const path = useZoteroStorage((s) => s.path);
+  const storageLinked = useZoteroStorage((s) => s.count > 0);
+  const k = `${att.key}/${att.file}`;
+  const present = rels.has(k) || files.has(k);
+  const kind = viewKindFor(att.file);
+  const ext = att.file.split('.').pop()?.toLowerCase() ?? '';
+  const rel = rels.get(k);
+  const location = present
+    ? rel !== undefined && path !== null
+      ? `${path}/${rel}`
+      : t('read.attSession')
+    : storageLinked
+      ? t('read.attMissing')
+      : t('read.attNotLinked');
+
+  // Thumbnail for image attachments only (cheap; other kinds show a glyph).
+  const [thumb, setThumb] = useState<string | null>(null);
+  useEffect(() => {
+    if (kind !== 'image' || !present) {
+      setThumb(null);
+      return;
+    }
+    let alive = true;
+    let made: string | null = null;
+    void loadAttachmentBlob({ rels, files, path }, att).then((blob) => {
+      if (!alive || blob === null) return;
+      made = URL.createObjectURL(blob);
+      setThumb(made);
+    });
+    return () => {
+      alive = false;
+      if (made !== null) URL.revokeObjectURL(made);
+    };
+  }, [k, kind, present, rels, files, path]);
+
+  return (
+    <div className="wide ref-attach-info">
+      <div className="muted small">{t('read.attHead')}</div>
+      <div className="att-card">
+        <div className="att-thumb" data-kind={kind}>
+          {thumb !== null ? <img src={thumb} alt={att.file} /> : <span className="att-glyph">{KIND_GLYPH[kind]}</span>}
+        </div>
+        <div className="att-fields">
+          <div className="att-field">
+            <span className="att-k">{t('read.attFile')}</span>
+            <span className="att-v mono">{att.file}</span>
+          </div>
+          <div className="att-field">
+            <span className="att-k">{t('read.attType')}</span>
+            <span className="att-v">
+              {t(KIND_LABEL[kind])}
+              {ext !== '' ? ` · .${ext}` : ''}
+            </span>
+          </div>
+          <div className="att-field">
+            <span className="att-k">{t('read.attLocation')}</span>
+            <span className={present ? 'att-v mono' : 'att-v mono muted'}>{location}</span>
+          </div>
+          {present && embedded !== true && onOpen !== undefined && (
+            <button className="primary small att-open" onClick={onOpen}>
+              ⧉ {t('read.attOpen')}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---- Inspector -------------------------------------------------------------
 
 // A list of works in the citation graph (references or citations). Each title
 // opens in the in-app browser tab (DOI landing or OpenAlex page).
-function WorkList({ label, works }: { label: string; works?: WorkLink[] }): JSX.Element | null {
+// `total` is the full count from the citation graph (cited_by_count /
+// referenceCount). The list itself is only a sample (top-cited, capped in the
+// scraper), so when total > sample we say "showing N of TOTAL" — otherwise the
+// bare "(50)" reads as a hard cap hiding the rest.
+function WorkList({ label, works, total }: { label: string; works?: WorkLink[]; total?: number }): JSX.Element | null {
+  const t = useT();
   const openLink = useOpenLink();
   if (works === undefined || works.length === 0) return null;
   const href = (w: WorkLink): string => (w.doi !== undefined ? `https://doi.org/${w.doi}` : (w.id ?? ''));
+  const count =
+    total !== undefined && total > works.length
+      ? t('read.workSample').replace('{n}', String(works.length)).replace('{total}', total.toLocaleString())
+      : String(works.length);
   return (
     <div className="ref-meta-sec">
       <div className="ref-section-label">
-        {label} <span className="muted small">({works.length})</span>
+        {label} <span className="muted small">({count})</span>
       </div>
       <ul className="ref-worklist">
         {works.map((w, i) => (
@@ -471,8 +575,8 @@ function RefMeta({
         </div>
       )}
 
-      <WorkList label={t('read.mRefList')} works={ref.references} />
-      <WorkList label={t('read.mCiteList')} works={ref.citations} />
+      <WorkList label={t('read.mRefList')} works={ref.references} total={ref.referenceCount} />
+      <WorkList label={t('read.mCiteList')} works={ref.citations} total={ref.citedByCount ?? ref.citationCount} />
     </div>
   );
 }
@@ -754,6 +858,9 @@ function Inspector({
                   })}
                 </div>
               </div>
+            )}
+            {att !== undefined && (
+              <AttachmentInfo att={att} embedded={embedded} onOpen={() => onOpenReader?.(ref.id)} />
             )}
             {ref.citationCount !== undefined && (
               <div className="muted small wide">{t('read.citedBy').replace('{n}', String(ref.citationCount))}</div>

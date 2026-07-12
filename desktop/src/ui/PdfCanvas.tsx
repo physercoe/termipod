@@ -40,6 +40,7 @@ function PageView({
   pageNum,
   scale,
   query,
+  dim,
   onLink,
   onDest,
 }: {
@@ -47,6 +48,7 @@ function PageView({
   pageNum: number;
   scale: number;
   query: string;
+  dim?: { w: number; h: number };
   onLink: (url: string) => void;
   onDest: (dest: string | unknown[]) => void;
 }): JSX.Element {
@@ -185,8 +187,14 @@ function PageView({
     }
   }, [query, size]);
 
+  // Reserve the page's true footprint even before it rasterises: use the rendered
+  // `size`, else the pre-measured `dim` (from the parent's viewport pass), else a
+  // placeholder. Pre-reserving the correct height is what keeps scroll geometry
+  // stable so ToC/link jumps land on the right spot instead of drifting as lazy
+  // pages above the target render and grow.
+  const footprint = size ?? dim ?? null;
   const style: React.CSSProperties = {
-    ...(size !== null ? { width: size.w, height: size.h } : { minHeight: 400 }),
+    ...(footprint !== null ? { width: footprint.w, height: footprint.h } : { minHeight: 400 }),
     // Contract from pdf.js: the text layer sizes itself via calc(var(--scale-factor) * rawDims).
     ['--scale-factor' as string]: String(scale),
   };
@@ -272,6 +280,7 @@ export function PdfCanvas({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState('1');
   const [outline, setOutline] = useState<OutlineNode[]>([]);
+  const [pageDims, setPageDims] = useState<{ w: number; h: number }[]>([]);
   const [showToc, setShowToc] = useState(false);
   const [tocW, setTocW] = useState(() => {
     const v = Number(localStorage.getItem('termipod.read.pdfTocW'));
@@ -326,6 +335,31 @@ export function PdfCanvas({
     };
   }, [pdf]);
 
+  // Measure every page's footprint at the current scale up front (cheap — a
+  // viewport calc, no rasterisation). This lets each not-yet-rendered PageView
+  // reserve its true height, so the scroll container's geometry is correct before
+  // any page paints — the precondition for ToC/link jumps landing accurately.
+  useEffect(() => {
+    if (pdf === null) {
+      setPageDims([]);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      const dims: { w: number; h: number }[] = [];
+      for (let n = 1; n <= pdf.numPages; n += 1) {
+        const page = await pdf.getPage(n);
+        if (!alive) return;
+        const vp = page.getViewport({ scale });
+        dims.push({ w: vp.width, h: vp.height });
+      }
+      if (alive) setPageDims(dims);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [pdf, scale]);
+
   // Track the most-visible page as the user scrolls, to drive the page indicator.
   useEffect(() => {
     const root = scrollRef.current;
@@ -355,14 +389,35 @@ export function PdfCanvas({
 
   useEffect(() => setPageInput(String(currentPage)), [currentPage]);
 
+  // The in-page top coordinate (PDF user space, origin bottom-left) a destination
+  // targets, if it pins one: /XYZ carries [left, top, zoom]; /FitH & /FitBH carry
+  // [top]. /Fit, /FitV, etc. have no useful Y → jump to the page top.
+  function destTop(explicit: unknown[]): number | undefined {
+    const spec = explicit[1];
+    const name = spec !== null && typeof spec === 'object' && 'name' in spec ? (spec as { name?: string }).name : undefined;
+    if (name === 'XYZ') return typeof explicit[3] === 'number' ? explicit[3] : undefined;
+    if (name === 'FitH' || name === 'FitBH') return typeof explicit[2] === 'number' ? explicit[2] : undefined;
+    return undefined;
+  }
+
   async function goToDest(dest: string | unknown[]): Promise<void> {
     if (pdf === null) return;
     let explicit: unknown = dest;
     if (typeof dest === 'string') explicit = await pdf.getDestination(dest);
     if (!Array.isArray(explicit) || explicit.length === 0) return;
     try {
-      const idx = await pdf.getPageIndex(explicit[0] as { num: number; gen: number });
-      scrollToPage(idx + 1);
+      const pageNum = (await pdf.getPageIndex(explicit[0] as { num: number; gen: number })) + 1;
+      // Convert the destination's PDF-space top into a pixel offset from the page's
+      // top edge at the current scale, so we land on the exact section — not just
+      // the page top.
+      let yOffset = 0;
+      const top = destTop(explicit);
+      if (top !== undefined) {
+        const page = await pdf.getPage(pageNum);
+        const vp = page.getViewport({ scale });
+        yOffset = Math.max(0, vp.convertToViewportPoint(0, top)[1]);
+      }
+      scrollToPage(pageNum, yOffset);
     } catch {
       /* unresolved dest */
     }
@@ -384,9 +439,16 @@ export function PdfCanvas({
     });
   }
 
-  function scrollToPage(n: number): void {
-    const el = scrollRef.current?.querySelector(`[data-page="${n}"]`);
-    if (el instanceof HTMLElement) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  // Scroll so page `n`'s top (plus an optional in-page `yOffset`) sits just under
+  // the toolbar. Computed against the container's own scroll frame (not
+  // scrollIntoView) so an in-page offset can be added, and accurate because every
+  // page already reserves its true height via pageDims.
+  function scrollToPage(n: number, yOffset = 0): void {
+    const container = scrollRef.current;
+    const el = container?.querySelector(`[data-page="${n}"]`);
+    if (!(el instanceof HTMLElement) || container === null) return;
+    const top = container.scrollTop + (el.getBoundingClientRect().top - container.getBoundingClientRect().top) + yOffset;
+    container.scrollTo({ top: Math.max(0, top - 8), behavior: 'smooth' });
   }
 
   async function runSearch(): Promise<void> {
@@ -553,6 +615,7 @@ export function PdfCanvas({
                 pageNum={i + 1}
                 scale={scale}
                 query={query}
+                dim={pageDims[i]}
                 onLink={openLink}
                 onDest={(d) => void goToDest(d)}
               />

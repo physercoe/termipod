@@ -54,8 +54,12 @@ export interface ScrapeResult {
   identifier?: string; // what resolved the work (for the "not found" message)
 }
 
-const REF_SAMPLE = 30; // cap on cited-works we fetch titles for
-const CITE_SAMPLE = 25; // cap on citing-works we fetch
+// How many cited-/citing-works we fetch titles for. These are *samples* of the
+// full graph (the true totals live in cited_by_count / referenced_works.length,
+// shown as the metric card + the "of N" list count); OpenAlex allows per-page up
+// to 200, so 50 is a generous, cheap sample.
+const REF_SAMPLE = 50; // cap on cited-works we fetch titles for
+const CITE_SAMPLE = 50; // cap on citing-works we fetch (top-cited first)
 
 function asObj(v: unknown): Record<string, unknown> {
   return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};

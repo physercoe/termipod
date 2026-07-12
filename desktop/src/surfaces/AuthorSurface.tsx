@@ -3,6 +3,7 @@ import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
 import { AgentCompanion } from '../ui/AgentCompanion';
+import { DiagramEditor } from './DiagramEditor';
 import { Markdown } from '../ui/Markdown';
 import { ResizeHandle } from '../ui/ResizeHandle';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
@@ -150,6 +151,9 @@ export function AuthorSurface(): JSX.Element {
           <button className="import-btn" onClick={() => create('markdown')}>
             + {t('author.newDoc')}
           </button>
+          <button className="import-btn" onClick={() => create('diagram')}>
+            ◈ {t('author.newDiagram')}
+          </button>
           {tauri && (
             <>
               <button className="import-btn" disabled={busy} onClick={() => void onOpen()}>
@@ -192,7 +196,11 @@ export function AuthorSurface(): JSX.Element {
       )}
       {active !== undefined ? (
         <div className="author-split">
-          <Editor key={active.id} doc={active} />
+          {active.kind === 'diagram' ? (
+            <DiagramEditor key={active.id} doc={active} />
+          ) : (
+            <Editor key={active.id} doc={active} />
+          )}
           {showAgent && (
             <>
               <ResizeHandle

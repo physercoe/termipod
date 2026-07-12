@@ -19,6 +19,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # rustls-tls avoids a system OpenSSL dependency in CI.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# Extract the optional draw.io webapp (a .war = zip) into app-data for offline
+# diagram editing (J2 Author `diagram` docs). Not bundled in the installer; the
+# user downloads it once via a button (drawio.rs).
+zip = { version = "2", default-features = false, features = ["deflate"] }
 # Breakglass SSH terminal (ADR-052, personal direct-SSH path). russh is pure
 # Rust (no cgo/OpenSSL); tokio drives the per-session PTY actor.
 russh = "0.62"

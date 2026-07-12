@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, Notify};
 
 mod docfile;
+mod drawio;
 mod keychain;
 mod pty;
 mod ssh;
@@ -394,6 +395,24 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        // Serve the downloaded, offline draw.io webapp to an in-app iframe. A
+        // custom scheme (not the asset protocol) so the webapp's own relative
+        // asset URLs resolve. drawio.rs guards path traversal.
+        .register_uri_scheme_protocol("drawio", |ctx, request| {
+            let path = request.uri().path().to_string();
+            match drawio::serve(ctx.app_handle(), &path) {
+                Ok((bytes, mime)) => tauri::http::Response::builder()
+                    .status(200)
+                    .header(tauri::http::header::CONTENT_TYPE, mime)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(bytes)
+                    .unwrap(),
+                Err(_) => tauri::http::Response::builder()
+                    .status(404)
+                    .body(Vec::new())
+                    .unwrap(),
+            }
+        })
         .manage(ssh::SshState::default())
         .manage(pty::PtyState::default())
         .manage(voice::VoiceState::default())
@@ -410,6 +429,8 @@ pub fn run() {
             docfile::doc_open,
             docfile::doc_save,
             docfile::doc_write,
+            drawio::drawio_status,
+            drawio::drawio_download,
             hub_sse_open,
             hub_sse_close,
             keychain::keychain_set,

@@ -37,6 +37,15 @@ pub async fn doc_open(app: AppHandle) -> Result<Option<OpenedDoc>, String> {
     }))
 }
 
+/// Read a text file by a known path (no dialog) — used by the Author file tree
+/// when the user clicks an entry to open it. Errors on binary/unreadable files so
+/// the caller can skip them.
+#[tauri::command]
+pub async fn doc_read(path: String) -> Result<OpenedDoc, String> {
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    Ok(OpenedDoc { path, content })
+}
+
 /// Show a Save dialog (seeded with `default_name`), write `content`, and return
 /// the chosen path. `Ok(None)` if the user cancels.
 #[tauri::command]

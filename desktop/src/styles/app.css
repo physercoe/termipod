@@ -4911,3 +4911,125 @@ th {
   overflow: auto;
   background: #fff;
 }
+
+/* Author (J2) left file/workspace tree — surfaces/AuthorNav.tsx. Sits left of the
+   tab strip + editor; toggled from the header, width persisted + resizable. */
+.author-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.author-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.author-nav-col {
+  flex: none;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.author-nav {
+  width: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.author-nav-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.author-nav-sec.grow {
+  flex: 1;
+  min-height: 0;
+}
+.author-nav-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.author-nav-head .spacer {
+  flex: 1;
+}
+.author-nav-icon {
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+.author-nav-icon:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+.author-nav-empty {
+  padding: 2px 6px;
+}
+.author-nav-root {
+  padding: 2px 6px 4px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.author-nav-doc,
+.author-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.author-nav-doc .author-nav-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.author-nav-doc:hover,
+.author-nav-item:hover {
+  background: var(--accent-tint);
+}
+.author-nav-doc.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.author-nav-kind {
+  flex: none;
+  font-size: 11px;
+}
+.author-nav-tw {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.author-nav-item.dir {
+  font-weight: 500;
+}
+.author-nav-item.inert {
+  color: var(--text-muted);
+  cursor: default;
+}
+.author-nav-item.inert:hover {
+  background: transparent;
+}

@@ -3,6 +3,7 @@ import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
 import { AgentCompanion } from '../ui/AgentCompanion';
+import { AuthorNav } from './AuthorNav';
 import { DiagramEditor } from './DiagramEditor';
 import { Markdown } from '../ui/Markdown';
 import { ResizeHandle } from '../ui/ResizeHandle';
@@ -85,6 +86,9 @@ export function AuthorSurface(): JSX.Element {
   const markSaved = useDocuments((s) => s.markSaved);
   const update = useDocuments((s) => s.update);
   const [busy, setBusy] = useState(false);
+  // Left file/workspace tree. On by default; width persisted.
+  const [showNav, setShowNav] = useState(() => localStorage.getItem('termipod.author.showNav') !== '0');
+  const [navW, setNavW] = useState(() => loadW('termipod.author.navW', 240));
   // Agent-assist side panel (hub-attached). Off by default; width persisted.
   const [showAgent, setShowAgent] = useState(false);
   const [agentW, setAgentW] = useState(() => loadW('termipod.author.agentW', 380));
@@ -148,6 +152,23 @@ export function AuthorSurface(): JSX.Element {
       job="author"
       actions={
         <>
+          <button
+            className={showNav ? 'import-btn attn' : 'import-btn'}
+            title={t('author.filesHint')}
+            onClick={() =>
+              setShowNav((v) => {
+                const n = !v;
+                try {
+                  localStorage.setItem('termipod.author.showNav', n ? '1' : '0');
+                } catch {
+                  /* ignore */
+                }
+                return n;
+              })
+            }
+          >
+            {t('author.files')}
+          </button>
           <button className="import-btn" onClick={() => create('markdown')}>
             + {t('author.newDoc')}
           </button>
@@ -174,6 +195,28 @@ export function AuthorSurface(): JSX.Element {
         </>
       }
     >
+      <div className="author-layout">
+      {showNav && (
+        <>
+          <div className="author-nav-col" style={{ width: navW }}>
+            <AuthorNav />
+          </div>
+          <ResizeHandle
+            onResize={(dx) =>
+              setNavW((w) => {
+                const n = clamp(w + dx, 180, 480);
+                try {
+                  localStorage.setItem('termipod.author.navW', String(n));
+                } catch {
+                  /* ignore */
+                }
+                return n;
+              })
+            }
+          />
+        </>
+      )}
+      <div className="author-main">
       {docs.length > 0 && (
         <div className="read-tabstrip">
           {docs.map((d) => (
@@ -240,6 +283,8 @@ export function AuthorSurface(): JSX.Element {
           </button>
         </div>
       )}
+      </div>
+      </div>
     </WorkbenchSurface>
   );
 }

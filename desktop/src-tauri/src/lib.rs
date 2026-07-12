@@ -14,6 +14,7 @@ mod ssh;
 mod storage;
 mod vault;
 mod voice;
+mod workspace;
 
 /// A REST request proxied through the Rust core (WS2/WS8). This lets the desktop
 /// build keep the bearer token out of the webview JS AND sidestep CORS: the
@@ -427,8 +428,11 @@ pub fn run() {
             storage::storage_reindex,
             storage::storage_read,
             docfile::doc_open,
+            docfile::doc_read,
             docfile::doc_save,
             docfile::doc_write,
+            workspace::workspace_pick_folder,
+            workspace::workspace_list,
             drawio::drawio_status,
             drawio::drawio_download,
             drawio::drawio_install_file,

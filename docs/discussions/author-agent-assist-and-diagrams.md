@@ -1,27 +1,30 @@
-# Author workspace — agent assist + offline diagrams
+# Workbench agent companion + offline diagrams
 
 > **Type:** discussion
-> **Status:** Open (2026-07-12) — scopes three director asks for the **J2 Author**
-> surface. **Multi-document tabs + on-disk file save/open shipped** in
-> `AuthorSurface.tsx` + `state/documents.ts` + Rust `docfile.rs`. The **agent-assist
-> side panel** and **offline draw.io diagrams** are designed here and deferred
-> pending the two decisions below. Feeds
-> [desktop-workbench-jobs.md](../plans/desktop-workbench-jobs.md) (J2 deepening);
-> relates to [research-tooling-landscape.md](research-tooling-landscape.md) (embed
-> vs build postures) and the POSIX host-runner in
-> [../spine/agent-lifecycle.md](../spine/agent-lifecycle.md).
+> **Status:** Open (2026-07-12) — scopes the director asks around the research
+> workbench. **J2 Author multi-document tabs + on-disk file save/open shipped**
+> (`AuthorSurface.tsx` + `state/documents.ts` + Rust `docfile.rs`). A **cross-surface
+> agent companion panel** (Read J1 *and* Author J2) and **offline draw.io
+> diagrams** are designed here and deferred pending the decisions below — plus a
+> concrete analysis of **how the POSIX-only host-runner could support Windows**.
+> Feeds [desktop-workbench-jobs.md](../plans/desktop-workbench-jobs.md); relates to
+> [research-tooling-landscape.md](research-tooling-landscape.md) (embed vs build)
+> and the host-runner in [../spine/agent-lifecycle.md](../spine/agent-lifecycle.md).
 > **Audience:** contributors · principal
 > **Last verified vs code:** desktop v0.3.25 (post-release, on main)
 
 **TL;DR.** The Author tab now holds **multiple documents as tabs**, each a
 Markdown split-editor, device-local by default and **saveable to a real file on
-disk** (native dialog → `doc_save`/`doc_open`/`doc_write`). Two follow-ups need a
-decision before building: **(2) an agent-assist side panel** — blocked by a real
-platform fact: the **host-runner is POSIX-only**, so a Windows desktop can't host
-a local agent and must drive a *remote* agent through the hub (or use an inline
-LLM path the desktop doesn't have wired); **(3) draw.io diagrams offline** — the
-director chose **bundle drawio locally** over the remote embed, which is feasible
-(Apache-2.0, fully client-side) but costs installer size and a vendoring step.
+disk** (native dialog → `doc_save`/`doc_open`/`doc_write`). Three follow-ups need
+a decision: **(2) an agent companion panel** — the director wants it *alongside
+both reading (J1: ask about a PDF / an item) and writing (J2)*, so it's one shared
+component, not an Author-only feature. It's gated by a platform fact: the
+**host-runner is POSIX-only**, so a Windows desktop can't host a local agent as-is
+— but there **are** ways to support Windows (§2.4: WSL2 today, a native ConPTY +
+Job-Objects port, or a **desktop-local mini-runner reusing the ConPTY the desktop
+already ships**). **(3) draw.io diagrams offline** — the director chose **bundle
+drawio locally**, which is feasible (Apache-2.0, fully client-side) but costs
+installer size and a vendoring step.
 
 ---
 
@@ -52,13 +55,29 @@ natural convergence point with ask #2.
 
 ---
 
-## 2. Agent-assist side panel (director ask #2) — DECISION NEEDED
+## 2. Agent companion panel — Read *and* Author (director ask #2) — DECISION NEEDED
 
 "There should be an agent page alongside the Author edit page, since
-editing/writing is agent-assisted."
+editing/writing is agent-assisted" — **and** (follow-up) "there should be an agent
+page/panel alongside reading a PDF or the items page too."
 
-The director raised the blocking question directly: **does this support Windows,
-given the host-runner seems POSIX-only?** It does not, and that shapes the design.
+So this is **one shared companion panel**, not an Author feature: a collapsible
+right-hand agent panel that mounts on **both**:
+
+- **J1 Read** — ask the agent about the open PDF / selected item: *summarise,
+  extract claims into a table (the Elicit/Undermind pattern from the
+  [reference-library discussion](reference-library-and-reading.md)), find related
+  work, draft notes.* The agent's reply can be pulled into the item's Notes/Read
+  body.
+- **J2 Author** — draft/critique/rewrite the active document; a diagram document's
+  reply is draw.io XML (§3).
+
+Build it once as a shared `ui/AgentCompanion` that takes a **context payload**
+(the current item/PDF text, or the current document) and renders a transcript +
+composer. The surface decides what context to feed and where "insert reply" lands.
+
+The blocking question the director raised — **does this support Windows, given the
+host-runner seems POSIX-only?** — is answered in §2.1–2.4.
 
 ### 2.1 Finding: the host-runner is POSIX-only
 
@@ -68,50 +87,83 @@ Verified in the code — the deputy that spawns and supervises agents is Unix-bo
   window/pane (`exec.Command(ctx, "tmux", …)`); tmux has no Windows port.
 - `hub/internal/hostrunner/launch_m2.go:53,63,131` — `exec.Command(ctx, "bash",
   "-c", …)`, `syscall.SysProcAttr{Setpgid: true}`, and
-  `syscall.Kill(-pid, SIGKILL)` (process-group teardown). `Setpgid`/`Kill` are
-  Unix-only — this file **won't even compile** on Windows.
+  `syscall.Kill(-pid, SIGKILL)` (process-group teardown). These fields/calls are
+  Unix-only and the file is **not** build-tagged, so it **won't compile** on
+  Windows.
 - `runner.go:284` requires the `tmux` and `hub-mcp-bridge` binaries on PATH.
 
-So a **Windows machine cannot run the host-runner** and cannot host a local
-agent. This is not a desktop-client limitation — it's the fleet's execution
-substrate.
+So a **Windows machine cannot run the host-runner as-is** and cannot host a local
+agent. This is the fleet's execution substrate, not a desktop-client limitation.
 
-### 2.2 What that means for agent-assisted writing
+### 2.2 Two consumer models for the companion
 
-The desktop is a **hub client**, not a host-runner, so two models are possible:
-
-- **A. Remote hub agent (architecture-consistent).** The side panel reuses the
-  existing hub agent transcript + composer (`surfaces/AgentTranscript.tsx`,
-  `ui/Composer.tsx`, `hub/` client) to chat with an agent running on a **remote
-  POSIX host** in the fleet; the author pulls its replies (prose / diagram XML)
-  into the active document. Works from a Windows desktop **iff** the fleet has at
-  least one POSIX host with a running agent. Fits the data-ownership law once the
-  document is a hub Document the agent can read via MCP (see §1 "not yet").
-  *Cost:* requires a connected hub + a spawned agent; the "agent edits my local
-  file" loop needs the document promoted to a hub entity first.
+- **A. Remote hub agent (architecture-consistent).** The panel reuses the existing
+  hub agent transcript + composer (`surfaces/AgentTranscript.tsx`,
+  `ui/Composer.tsx`, `hub/` client) to talk to an agent on a **remote POSIX host**;
+  replies are pulled into the doc / notes. Works from a Windows desktop **iff** the
+  fleet has ≥1 POSIX host with a running agent. Fits the data-ownership law once the
+  item/document is a **hub entity** the agent reads via MCP (the reference library
+  already graduated — [ADR-053](../decisions/053-hub-reference-library-entity.md);
+  Author docs would follow, §1 "not yet").
 - **B. Inline LLM assistant (self-contained).** A lightweight in-pane assistant
-  that calls an LLM directly with the document as context and proposes edits —
-  no spawned agent, works on a lone Windows desktop with no POSIX host. *Cost:*
-  the desktop has **no LLM endpoint/key path wired** today (all model traffic
-  goes through the hub/host-runner). This introduces a new, ungoverned model
-  channel that bypasses the fleet's provenance/telemetry — a policy question, not
-  just an engineering one.
+  calling an LLM directly with the doc/PDF as context — no spawned agent, works on
+  a lone Windows desktop with no fleet. *Cost:* the desktop has **no LLM
+  endpoint/key path wired** today, and a raw provider key bypasses hub
+  provenance/telemetry/policy (ADR-030) — a governance decision, not just
+  engineering. Could be routed through the hub's `llm_call` (M3) to keep
+  provenance, which needs a reachable hub but no host-runner.
 
-### 2.3 Open questions (for discussion, before building)
+### 2.3 Is there a way to support Windows on the host-runner? — yes, three paths
 
-1. Is the target user always connected to a hub with a POSIX host, or must
-   Author assist work **standalone on Windows** with no fleet?
-2. If standalone matters, is a **direct desktop→LLM** channel acceptable given it
-   sidesteps hub governance (ADR-030 propose/telemetry)? If so, does it route
-   through the hub's `llm_call` (M3) for provenance, or a raw provider key?
-3. Should "agent-assisted" mean **document as hub Document** (agent CRUDs it via
-   MCP, like the [reference entity](../decisions/053-hub-reference-library-entity.md))
-   rather than a chat side panel at all — i.e. converge ask #1's file model with
-   the fleet?
+Ordered lowest-effort → heaviest:
 
-Recommendation: **model A**, gated on promoting the Author document to a hub
-Document, is the architecture-consistent path — but confirm the Windows/standalone
-requirement first, because it may force model B (and a governance decision).
+- **P1. Run the host-runner in WSL2 (works today, ~zero code).** WSL2 is a real
+  Linux kernel on Windows; tmux, bash, and process groups all work, and GPU/CUDA
+  pass through. The user installs WSL2 and runs the existing host-runner binary
+  there. *Tradeoff:* agents operate in the **WSL/Linux filesystem**, not native
+  Windows paths (usually fine for coding agents; surprising for native-Windows
+  tools). This is the pragmatic "support Windows now" answer and needs only docs.
+- **P2. Desktop-local mini-runner reusing the ConPTY the desktop already ships
+  (medium effort, best fit for *this* feature).** The desktop already bundles a
+  **cross-platform PTY** — `src-tauri/src/pty.rs` uses
+  `portable_pty::native_pty_system()` (ConPTY on Windows) for its local terminal
+  dock. A small Rust "agent runner" could spawn an engine process **through that
+  same ConPTY on Windows**, speak MCP to the hub, and drive it via **M2 structured
+  stdio** (JSON lines) — no tmux, no `bash -c`, no Unix process groups. Teardown
+  uses a Windows **Job Object** (`AssignProcessToJobObject` +
+  `TerminateJobObject`) instead of `Kill(-pid)`. This makes the companion work
+  **standalone on Windows** without WSL2, reusing infrastructure already in the
+  build. *Tradeoff:* it's a new, smaller runner (not the full host-runner) — no
+  tmux session-survives-disconnect, and the M4 claude-code path (which routes
+  input via `tmux send-keys`, ADR-027) would fall back to M2 or a direct-PTY write
+  on Windows.
+- **P3. Native Windows port of the host-runner itself (heaviest, ongoing).**
+  Replace the three POSIX pillars behind build-tagged `_windows.go` files: **tmux →
+  ConPTY + an in-process session/pane manager** (re-implements multiplexing +
+  scrollback + the "viewers SSH to tmux" breakglass path, plan §5); **`bash -c` →
+  a configurable shell** (pwsh/cmd, or git-bash for POSIX commands); **process
+  groups → Job Objects** (`golang.org/x/sys/windows`). Behaviour is data (frame
+  profiles are YAML), but the launcher/PTY substrate is Go that assumes tmux — this
+  is a large, permanently-maintained second substrate. Only worth it if native
+  Windows *hosts* (not just desktops) become a first-class fleet target.
+
+### 2.4 Open questions (decide before building)
+
+1. Must the companion work **standalone on Windows with no fleet**? If yes → **P2**
+   (desktop-local ConPTY runner) or model **B**; if a fleet is always present →
+   **model A** is simplest and Windows is a non-issue for the desktop.
+2. If a Windows machine should be a real **agent host** (not just a client), is
+   **WSL2 (P1)** an acceptable answer, or is a **native port (P3)** required?
+3. Should "agent-assisted" mean the item/document is a **hub entity the agent CRUDs
+   via MCP** (like [ADR-053](../decisions/053-hub-reference-library-entity.md))
+   rather than a chat panel — converging ask #1's file model and the Read library
+   with the fleet?
+
+Recommendation: build the companion as a **shared panel** on model **A** first
+(reuse what exists; both Read and Author feed it context). If standalone-Windows is
+required, add the **P2 desktop-local ConPTY mini-runner** — it reuses `pty.rs`
+infrastructure and avoids both WSL2 friction and a full host-runner port. Keep
+**P3** off the table unless native Windows *hosts* become a goal.
 
 ---
 
@@ -174,9 +226,12 @@ this as its own wedge (the vendor commit is heavy and worth isolating).
 
 ## Decisions requested
 
-1. **Author assist (§2):** must it work **standalone on Windows** (forcing an
-   inline/`llm_call` model), or is a **remote hub agent** (model A) acceptable?
-   And should the Author document graduate to a **hub Document** so agents CRUD it?
-2. **Diagrams (§3):** confirm **bundle** (chosen) and pick the **shape-library
-   scope** (full vs trimmed) and **vendoring method** (checked-in blob vs
-   fetch-in-CI).
+1. **Companion panel (§2):** confirm it's **one shared panel on both Read (J1) and
+   Author (J2)**. Must it work **standalone on Windows with no fleet**? — if yes,
+   pick **P2 (desktop-local ConPTY mini-runner)** or **model B (inline/`llm_call`)**;
+   if a fleet is always present, **model A (remote hub agent)** is simplest. And
+   should the item/document graduate to a **hub entity** the agent CRUDs via MCP?
+2. **Windows host-runner (§2.3):** if a Windows box must be a real agent **host**,
+   is **WSL2 (P1)** acceptable, or is a **native port (P3)** required?
+3. **Diagrams (§3):** confirm **bundle** (chosen); pick **shape-library scope**
+   (full vs trimmed) and **vendoring method** (checked-in blob vs fetch-in-CI).

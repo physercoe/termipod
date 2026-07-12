@@ -4788,3 +4788,44 @@ th {
 .canvas-add-ref {
   max-width: 160px;
 }
+
+/* Surface-level crash panel (ui/ErrorBoundary.tsx) — shown when a surface throws
+   during render, replacing the old blank-app-then-relaunch failure mode. */
+.surface-crash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+.surface-crash-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 520px;
+  padding: 20px 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.surface-crash-title {
+  font-weight: 600;
+  color: var(--danger);
+}
+.surface-crash-msg {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--accent-tint);
+  color: var(--text);
+  word-break: break-word;
+}
+.surface-crash-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* draw.io install screen — download + local-file install side by side. */
+.diagram-install-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

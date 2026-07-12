@@ -33,6 +33,7 @@ import { useTerminals } from '../terminal/store';
 import { ActivityBar } from './ActivityBar';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
+import { ErrorBoundary } from './ErrorBoundary';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { StatusBar } from './StatusBar';
 
@@ -172,6 +173,7 @@ export function AppShell(): JSX.Element {
       <div className="workbench-row">
         <ActivityBar />
         <main className="workbench-main">
+          <ErrorBoundary key={job} label={job}>
           {job === 'fleet' ? (
             <>
               <div className="fleet-toolbar">
@@ -231,6 +233,7 @@ export function AppShell(): JSX.Element {
           ) : (
             <RecordSurface />
           )}
+          </ErrorBoundary>
         </main>
       </div>
 

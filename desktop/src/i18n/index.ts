@@ -732,6 +732,9 @@ const en: Dict = {
     'Diagrams use draw.io — Apache-2.0 and fully offline, but ~50 MB, so it isn’t bundled. Download it once (kept across app updates).',
   'author.diagramDownload': 'Download draw.io (one-time)',
   'author.diagramDownloading': 'Downloading draw.io…',
+  'author.diagramInstallFile': 'Install from file…',
+  'author.diagramInstallFileHint':
+    'If the download is blocked, grab draw.war from the draw.io GitHub releases and install it from disk.',
   'author.diagramDesktopOnly': 'Diagram editing needs the desktop app.',
   'companion.title': 'Assistant',
   'companion.pickAgent': 'Pick an agent…',
@@ -1508,6 +1511,8 @@ const zh: Dict = {
     '图表使用 draw.io — Apache-2.0 许可、完全离线，但约 50 MB，故不随安装包捆绑。仅需下载一次（应用更新后保留）。',
   'author.diagramDownload': '下载 draw.io（一次性）',
   'author.diagramDownloading': '正在下载 draw.io…',
+  'author.diagramInstallFile': '从文件安装…',
+  'author.diagramInstallFileHint': '如果下载被拦截，可从 draw.io 的 GitHub 发布页获取 draw.war，再从本地安装。',
   'author.diagramDesktopOnly': '图表编辑需要桌面应用。',
   'companion.title': '助手',
   'companion.pickAgent': '选择一个智能体…',

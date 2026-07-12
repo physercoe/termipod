@@ -431,6 +431,7 @@ pub fn run() {
             docfile::doc_write,
             drawio::drawio_status,
             drawio::drawio_download,
+            drawio::drawio_install_file,
             hub_sse_open,
             hub_sse_close,
             keychain::keychain_set,

@@ -1,6 +1,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 // drawio.rs — the optional, offline **draw.io** diagram editor for J2 Author.
 //
@@ -42,30 +43,70 @@ pub async fn drawio_status(app: AppHandle) -> Result<DrawioStatus, String> {
 
 /// Download the draw.io webapp (once) and extract it into the version-keyed
 /// app-data dir. Idempotent: a no-op if already installed.
+///
+/// If this fails with a transport error ("error sending request for url…"), the
+/// user's network can't reach the GitHub release CDN (release assets 302-redirect
+/// to `*.githubusercontent.com`, which some networks/regions throttle). The
+/// `drawio_install_file` command below is the offline fallback — the user
+/// downloads `draw.war` manually and installs it from disk.
 #[tauri::command]
 pub async fn drawio_download(app: AppHandle) -> Result<DrawioStatus, String> {
     let root = drawio_root(&app)?;
     if root.join("index.html").is_file() {
         return Ok(status_of(&root));
     }
-    let bytes = reqwest::Client::new()
+    let client = reqwest::Client::builder()
+        // GitHub release-asset URLs redirect to the githubusercontent CDN; follow
+        // them (default is 10, but be explicit) and identify a UA so no proxy
+        // rejects a header-less request.
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .user_agent("termipod-desktop")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let bytes = client
         .get(DRAWIO_WAR_URL)
         .send()
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("could not reach the draw.io download ({e}). Download draw.war manually and use “Install from file”."))?
         .error_for_status()
         .map_err(|e| e.to_string())?
         .bytes()
         .await
         .map_err(|e| e.to_string())?;
+    install_war_bytes(&root, bytes.to_vec())
+}
 
-    // Extract into a temp dir first, then rename into place — so a failed/partial
-    // download never leaves a half-populated root that `status` reports installed.
+/// Offline fallback for `drawio_download`: pick a `draw.war` the user already has
+/// on disk (native file dialog) and install it. Same extraction path; no network.
+/// `Ok(None)` if the user cancels. Accepts the official `draw.war` (a ZIP) — any
+/// zip whose root is the static webapp works. `async` so the blocking picker runs
+/// off the main event-loop thread (see storage_pick_folder).
+#[tauri::command]
+pub async fn drawio_install_file(app: AppHandle) -> Result<Option<DrawioStatus>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("draw.io webapp", &["war", "zip"])
+        .blocking_pick_file();
+    let Some(fp) = picked else {
+        return Ok(None);
+    };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    let root = drawio_root(&app)?;
+    install_war_bytes(&root, bytes).map(Some)
+}
+
+/// Extract a draw.war (ZIP) byte buffer into the version-keyed root. Staging +
+/// rename so a partial/failed extract never leaves a root that `status` reports as
+/// installed. Shared by both the network download and the local-file install.
+fn install_war_bytes(root: &Path, bytes: Vec<u8>) -> Result<DrawioStatus, String> {
     let staging = root.with_extension("part");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
 
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|e| format!("not a valid draw.war (ZIP) file: {e}"))?;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
         let name = match entry.enclosed_name() {
@@ -90,14 +131,14 @@ pub async fn drawio_download(app: AppHandle) -> Result<DrawioStatus, String> {
     }
     if !staging.join("index.html").is_file() {
         let _ = std::fs::remove_dir_all(&staging);
-        return Err("draw.io webapp has no index.html after extract".into());
+        return Err("draw.war has no index.html at its root — is this the webapp .war?".into());
     }
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(root);
     if let Some(parent) = root.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::rename(&staging, &root).map_err(|e| e.to_string())?;
-    Ok(status_of(&root))
+    std::fs::rename(&staging, root).map_err(|e| e.to_string())?;
+    Ok(status_of(root))
 }
 
 /// Read an extracted draw.io file for the custom `drawio://` scheme. Returns the

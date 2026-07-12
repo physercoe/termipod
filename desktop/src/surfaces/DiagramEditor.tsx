@@ -53,6 +53,21 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
     }
   }
 
+  // Offline fallback when the GitHub download is blocked: the user picks a
+  // draw.war they downloaded manually and we extract it locally (no network).
+  async function installFromFile(): Promise<void> {
+    setDownloading(true);
+    setErr(null);
+    try {
+      const res = await invoke<DrawioStatus | null>('drawio_install_file');
+      if (res !== null) setStatus(res); // null = user cancelled the picker
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   // draw.io embed protocol (proto=json). `doc.id` in deps so switching diagrams
   // re-binds; `doc.body` intentionally NOT a dep — we load it once on `init`,
   // then draw.io owns the live state and streams changes back via autosave.
@@ -89,9 +104,15 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
         <p className="muted">{t('author.diagramIntro')}</p>
         {isTauri() ? (
           <>
-            <button className="primary" disabled={downloading} onClick={() => void download()}>
-              {downloading ? t('author.diagramDownloading') : t('author.diagramDownload')}
-            </button>
+            <div className="diagram-install-actions">
+              <button className="primary" disabled={downloading} onClick={() => void download()}>
+                {downloading ? t('author.diagramDownloading') : t('author.diagramDownload')}
+              </button>
+              <button disabled={downloading} onClick={() => void installFromFile()}>
+                {t('author.diagramInstallFile')}
+              </button>
+            </div>
+            <div className="muted small">{t('author.diagramInstallFileHint')}</div>
             {err !== null && <div className="error small diagram-err">{err}</div>}
           </>
         ) : (

@@ -318,13 +318,17 @@ function WorkList({ label, works }: { label: string; works?: WorkLink[] }): JSX.
 // The Meta tab: the rich metadata the plain form doesn't cover — citation-graph
 // counts, journal metrics (an IF-like signal), open-access status, topics,
 // code/data links, and the reference + cited-by lists. Populated by the scraper.
+// NOTE: the prop is `reference`, not `ref` — `ref` is a React-reserved prop that
+// is never passed to a function component, so a prop literally named `ref` arrives
+// as `undefined` and the first `ref.` access throws (blanking the whole app when
+// there is no error boundary). We alias it to a local `ref` to keep the body terse.
 function RefMeta({
-  ref,
+  reference: ref,
   scraping,
   msg,
   onScrape,
 }: {
-  ref: Reference;
+  reference: Reference;
   scraping: boolean;
   msg: string | null;
   onScrape: () => void;
@@ -779,7 +783,7 @@ function Inspector({
           </div>
         )}
 
-        {tab === 'meta' && <RefMeta ref={ref} scraping={scraping} msg={scrapeMsg} onScrape={() => void runScrape()} />}
+        {tab === 'meta' && <RefMeta reference={ref} scraping={scraping} msg={scrapeMsg} onScrape={() => void runScrape()} />}
       </div>
     </div>
   );

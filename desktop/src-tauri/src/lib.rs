@@ -347,6 +347,26 @@ fn open_url(url: &str) -> Result<(), String> {
 
 static NEXT_WIN: AtomicU64 = AtomicU64::new(1);
 
+// A Tauri webview window never spawns a *child* window, so a link that opens in a
+// new tab (`target="_blank"` or `window.open(...)`) is silently dropped — the
+// reported "some sites' links don't open". Inject a script (runs at document
+// start on every navigation) that rewrites those into a same-window navigation,
+// so every link keeps working inside the one browser window.
+const KEEP_LINKS_IN_WINDOW: &str = r#"
+(function () {
+  try {
+    var nativeOpen = window.open;
+    window.open = function (u) { if (u) { window.location.href = u; } return null; };
+    window.__nativeOpen = nativeOpen;
+    document.addEventListener('click', function (e) {
+      var el = e.target;
+      var a = el && el.closest ? el.closest('a[target]') : null;
+      if (a && a.target && a.target !== '_self') { a.target = '_self'; }
+    }, true);
+  } catch (_) {}
+})();
+"#;
+
 /// Open a URL in a real in-app browser window (a Tauri webview window, not an
 /// iframe) so `X-Frame-Options` sites load. Only http(s).
 #[tauri::command]
@@ -359,6 +379,7 @@ async fn open_browser_window(app: AppHandle, url: String) -> Result<(), String> 
     tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::External(parsed))
         .title("TermiPod Browser")
         .inner_size(1024.0, 800.0)
+        .initialization_script(KEEP_LINKS_IN_WINDOW)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())

@@ -669,6 +669,14 @@ pre {
   min-width: 0;
 }
 
+/* Inline delete confirmation in the inspector header (reliable in-webview
+   replacement for window.confirm). */
+.ref-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+
 /* Field header with an inline "open externally" affordance (URL / DOI). */
 .ref-field-head {
   display: flex;

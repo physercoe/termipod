@@ -75,15 +75,21 @@ export function AuthorSurface(): JSX.Element {
   const setActive = useDocuments((s) => s.setActive);
   const markSaved = useDocuments((s) => s.markSaved);
   const [busy, setBusy] = useState(false);
+  // Two-step close arm — `window.confirm` is unreliable in the Tauri webview, so
+  // the first × click arms (turns into a confirm ×), the second closes.
+  const [confirmClose, setConfirmClose] = useState<string | null>(null);
 
   const active = docs.find((d) => d.id === activeId);
   const tauri = isTauri();
 
   function closeTab(id: string): void {
     const d = docs.find((x) => x.id === id);
-    if (d !== undefined && d.body.trim() !== '' && d.body.trim() !== '#') {
-      if (!window.confirm(t('author.confirmClose'))) return;
+    const hasContent = d !== undefined && d.body.trim() !== '' && d.body.trim() !== '#';
+    if (hasContent && confirmClose !== id) {
+      setConfirmClose(id);
+      return;
     }
+    setConfirmClose(null);
     remove(id);
   }
 
@@ -154,8 +160,12 @@ export function AuthorSurface(): JSX.Element {
                 {d.dirty === true ? '● ' : ''}
                 {d.title !== '' ? d.title : t('author.untitled')}
               </button>
-              <button className="read-tabitem-x" title={t('read.closeTab')} onClick={() => closeTab(d.id)}>
-                ×
+              <button
+                className={confirmClose === d.id ? 'read-tabitem-x danger' : 'read-tabitem-x'}
+                title={confirmClose === d.id ? t('author.confirmClose') : t('read.closeTab')}
+                onClick={() => closeTab(d.id)}
+              >
+                {confirmClose === d.id ? '✓×' : '×'}
               </button>
             </span>
           ))}

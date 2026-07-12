@@ -220,7 +220,13 @@ function PdfView({ att }: { att: { key: string; file: string } }): JSX.Element {
   }, [att.key, att.file, rels, files, path]);
   if (err) return <div className="muted region-pad">{t('read.pdfNotFound')}</div>;
   if (url === null) return <div className="muted region-pad">{t('read.loadingPdf')}</div>;
-  return <iframe className="pdf-frame" title={att.file} src={url} sandbox="allow-same-origin allow-scripts" />;
+  // NO `sandbox` here: WebView2 (Windows/Edge) refuses to run its built-in PDF
+  // viewer inside a sandboxed iframe — the director saw "此页面已被 Microsoft Edge
+  // 阻止" (Edge blocked this page). The sandbox was added to stop a link *inside*
+  // the PDF from navigating the whole app; that trade isn't worth a broken viewer,
+  // so it's removed. (Durable fix = render via bundled pdf.js, which gives us the
+  // link handling instead of the native plugin — tracked as follow-up.)
+  return <iframe className="pdf-frame" title={att.file} src={url} />;
 }
 
 // ---- Inspector -------------------------------------------------------------
@@ -249,20 +255,20 @@ function Inspector({
   // keystroke (the block would go read-only after one character). Default to
   // editing when the body starts empty.
   const [editingBody, setEditingBody] = useState(false);
+  // In-app delete confirmation. `window.confirm` is unreliable in the Tauri
+  // webview (WebView2 returns without showing a dialog → the item deleted with no
+  // prompt), so the confirm is an explicit two-step inline state instead.
+  const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     const b = useLibrary.getState().references.find((r) => r.id === refId)?.bodyMarkdown ?? '';
     setEditingBody(b === '');
+    setConfirming(false);
   }, [refId]);
 
   if (ref === undefined) return <div className="muted region-pad">{t('read.pickItem')}</div>;
 
   const att = ref.zoteroStorage;
   const attPresent = hasAttachment({ rels, files }, att);
-
-  function confirmDelete(): void {
-    if (ref === undefined) return;
-    if (window.confirm(t('read.confirmDelete'))) remove(ref.id);
-  }
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'info', label: t('read.tabInfo') },
@@ -299,9 +305,27 @@ function Inspector({
               PDF
             </button>
           ))}
-        <button className="link-btn danger" onClick={confirmDelete}>
-          {t('read.delete')}
-        </button>
+        {confirming ? (
+          <span className="ref-confirm">
+            <span className="muted small">{t('read.confirmDelete')}</span>
+            <button
+              className="link-btn danger"
+              onClick={() => {
+                remove(ref.id);
+                setConfirming(false);
+              }}
+            >
+              {t('read.confirmDeleteYes')}
+            </button>
+            <button className="link-btn" onClick={() => setConfirming(false)}>
+              {t('common.cancel')}
+            </button>
+          </span>
+        ) : (
+          <button className="link-btn danger" onClick={() => setConfirming(true)}>
+            {t('read.delete')}
+          </button>
+        )}
       </div>
 
       <div className="ref-tab-body scroll">

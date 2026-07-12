@@ -10,10 +10,40 @@ import { isTauri } from '../platform';
 /// The call is routed through the Rust core's `hub_request` command (reqwest) so
 /// it is CORS-free and works inside the sandboxed webview, exactly as the hub SDK
 /// transport does; the plain-browser build falls back to `fetch` (the API sends
-/// permissive CORS headers). No API key, no new Rust code.
+/// permissive CORS headers).
+///
+/// **Rate limits.** The keyless `/paper/search` endpoint shares ONE small global
+/// bucket across all anonymous users, so it returns 429 (`TooManyRequests`) most
+/// of the time — hence the constant "rate-limited" the director saw. Two
+/// mitigations: (1) automatic **retry with backoff** on 429 (a single request
+/// succeeds often enough that a few retries usually land); (2) an optional, free
+/// **API key** (`x-api-key`) the user pastes in — a keyed request gets a dedicated
+/// quota, so it retries less and rarely 429s. The key is the user's own (stored
+/// device-local); we don't ship a shared one (it would be abused/leaked).
 
 const BASE = 'https://api.semanticscholar.org/graph/v1';
 const FIELDS = 'title,abstract,year,venue,authors,externalIds,tldr,citationCount,openAccessPdf,url';
+const KEY_LS = 'termipod.s2.apiKey';
+
+export function getApiKey(): string {
+  try {
+    return localStorage.getItem(KEY_LS) ?? '';
+  } catch {
+    return '';
+  }
+}
+export function setApiKey(key: string): void {
+  try {
+    if (key.trim() === '') localStorage.removeItem(KEY_LS);
+    else localStorage.setItem(KEY_LS, key.trim());
+  } catch {
+    /* ignore */
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 export interface DiscoveryPaper {
   paperId: string;
@@ -35,19 +65,30 @@ interface RawResponse {
   body: string;
 }
 
-async function getJson(url: string): Promise<unknown> {
+async function requestOnce(url: string, headers: Record<string, string>): Promise<RawResponse> {
   if (isTauri()) {
-    const res = await invoke<RawResponse>('hub_request', {
-      req: { method: 'GET', url, headers: { accept: 'application/json' }, body: null },
-    });
-    if (res.status < 200 || res.status >= 300) {
-      throw new Error(res.status === 429 ? 'rate-limited' : `HTTP ${res.status}`);
-    }
-    return JSON.parse(res.body);
+    return invoke<RawResponse>('hub_request', { req: { method: 'GET', url, headers, body: null } });
   }
-  const res = await fetch(url, { headers: { accept: 'application/json' } });
-  if (!res.ok) throw new Error(res.status === 429 ? 'rate-limited' : `HTTP ${res.status}`);
-  return res.json();
+  const res = await fetch(url, { headers });
+  return { status: res.status, body: await res.text() };
+}
+
+async function getJson(url: string): Promise<unknown> {
+  const headers: Record<string, string> = { accept: 'application/json' };
+  const key = getApiKey();
+  if (key !== '') headers['x-api-key'] = key;
+  // Keyless calls share a saturated global bucket → retry the 429s with backoff;
+  // a keyed call has its own quota so it needs far fewer attempts.
+  const maxAttempts = key !== '' ? 2 : 5;
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (attempt > 0) await delay(500 * attempt + 300); // 800ms, 1.3s, 1.8s, 2.3s
+    const res = await requestOnce(url, headers);
+    if (res.status >= 200 && res.status < 300) return JSON.parse(res.body);
+    lastStatus = res.status;
+    if (res.status !== 429) break; // only the shared-pool 429 is worth retrying
+  }
+  throw new Error(lastStatus === 429 ? 'rate-limited' : `HTTP ${lastStatus}`);
 }
 
 function normalize(raw: unknown): DiscoveryPaper | null {

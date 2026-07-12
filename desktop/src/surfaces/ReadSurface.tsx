@@ -7,7 +7,7 @@ import {
   type RefType,
 } from '../state/library';
 import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zoteroStorage';
-import { searchPapers, type DiscoveryPaper } from '../discovery/semanticScholar';
+import { getApiKey, searchPapers, setApiKey, type DiscoveryPaper } from '../discovery/semanticScholar';
 import { isTauri } from '../platform';
 import { BrowserView } from './BrowserView';
 import { Markdown } from '../ui/Markdown';
@@ -615,12 +615,15 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
 
 function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.Element {
   const t = useT();
+  const openLink = useOpenLink();
   const add = useLibrary((s) => s.addReference);
   const references = useLibrary((s) => s.references);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<DiscoveryPaper[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [key, setKey] = useState(getApiKey());
+  const [showKey, setShowKey] = useState(false);
 
   const importedIds = useMemo(
     () => new Set(references.map((r) => r.externalId).filter((x): x is string => x !== undefined)),
@@ -663,7 +666,33 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
           {busy ? t('read.searching') : t('read.search')}
         </button>
       </div>
-      <div className="discover-source muted small">{t('read.discoverSource')}</div>
+      <div className="discover-source muted small">
+        {t('read.discoverSource')}
+        <span className="spacer" />
+        <button className="link-btn" onClick={() => setShowKey((v) => !v)}>
+          {key !== '' ? t('read.apiKeySet') : t('read.apiKeyAdd')}
+        </button>
+      </div>
+      {showKey && (
+        <div className="discover-key">
+          <input
+            className="discover-key-input"
+            type="password"
+            value={key}
+            placeholder={t('read.apiKeyPlaceholder')}
+            onChange={(e) => {
+              setKey(e.target.value);
+              setApiKey(e.target.value);
+            }}
+          />
+          <button
+            className="link-btn"
+            onClick={() => openLink('https://www.semanticscholar.org/product/api#api-key')}
+          >
+            {t('read.getApiKey')} ↗
+          </button>
+        </div>
+      )}
       {err !== null && <div className="error region-pad">{err}</div>}
       <div className="discover-results scroll">
         {!busy && results.length === 0 && err === null && (

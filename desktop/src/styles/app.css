@@ -669,6 +669,28 @@ pre {
   min-width: 0;
 }
 
+/* Semantic Scholar API-key row in the Discover panel. */
+.discover-source {
+  display: flex;
+  align-items: center;
+}
+.discover-key {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: 0 var(--spacing-s12) var(--spacing-s8);
+}
+.discover-key-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
 /* Inline delete confirmation in the inspector header (reliable in-webview
    replacement for window.confirm). */
 .ref-confirm {

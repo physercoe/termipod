@@ -744,6 +744,67 @@ pre {
   border-color: var(--accent);
   color: var(--accent);
 }
+.pdfjs-zoom.active {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.pdfjs-pagenav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.pdfjs-page-input {
+  width: 44px;
+  text-align: center;
+  padding: var(--spacing-s2) var(--spacing-s4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.pdfjs-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.pdfjs-toc {
+  flex: 0 0 auto;
+  width: 240px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  overflow: auto;
+  padding: var(--spacing-s8) 0;
+}
+.pdfjs-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pdfjs-toc-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font-size: var(--font-size-body-small);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfjs-toc-item:hover:not(:disabled) {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.pdfjs-toc-item:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
 .pdfjs-scroll {
   flex: 1;
   min-height: 0;

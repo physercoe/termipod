@@ -170,6 +170,42 @@ function PageView({
   );
 }
 
+// A node in the PDF's outline (table of contents / bookmarks).
+interface OutlineNode {
+  title: string;
+  dest: string | unknown[] | null;
+  items: OutlineNode[];
+}
+
+function OutlineList({
+  nodes,
+  onGo,
+  depth,
+}: {
+  nodes: OutlineNode[];
+  onGo: (dest: string | unknown[]) => void;
+  depth: number;
+}): JSX.Element {
+  return (
+    <ul className="pdfjs-toc-list">
+      {nodes.map((n, i) => (
+        <li key={i}>
+          <button
+            className="pdfjs-toc-item"
+            style={{ paddingLeft: 8 + depth * 12 }}
+            disabled={n.dest === null}
+            title={n.title}
+            onClick={() => n.dest !== null && onGo(n.dest)}
+          >
+            {n.title}
+          </button>
+          {n.items.length > 0 && <OutlineList nodes={n.items} onGo={onGo} depth={depth + 1} />}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function PdfCanvas({
   data,
   fileName,
@@ -191,6 +227,10 @@ export function PdfCanvas({
   const [matches, setMatches] = useState<number[]>([]); // page numbers containing the term
   const [matchPos, setMatchPos] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState('1');
+  const [outline, setOutline] = useState<OutlineNode[]>([]);
+  const [showToc, setShowToc] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,6 +260,69 @@ export function PdfCanvas({
       void doc?.destroy();
     };
   }, [data]);
+
+  // Load the document outline (table of contents / bookmarks), if any.
+  useEffect(() => {
+    if (pdf === null) {
+      setOutline([]);
+      return;
+    }
+    let alive = true;
+    void pdf.getOutline().then((ol) => {
+      if (alive) setOutline((ol as OutlineNode[] | null) ?? []);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [pdf]);
+
+  // Track the most-visible page as the user scrolls, to drive the page indicator.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (root === null || pdf === null) return;
+    const ratios = new Map<number, number>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const n = Number((e.target as HTMLElement).dataset.page);
+          ratios.set(n, e.isIntersecting ? e.intersectionRatio : 0);
+        }
+        let best = 1;
+        let bestR = -1;
+        for (const [n, r] of ratios) {
+          if (r > bestR) {
+            bestR = r;
+            best = n;
+          }
+        }
+        setCurrentPage(best);
+      },
+      { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
+    );
+    root.querySelectorAll('[data-page]').forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [pdf]);
+
+  useEffect(() => setPageInput(String(currentPage)), [currentPage]);
+
+  async function goToDest(dest: string | unknown[]): Promise<void> {
+    if (pdf === null) return;
+    let explicit: unknown = dest;
+    if (typeof dest === 'string') explicit = await pdf.getDestination(dest);
+    if (!Array.isArray(explicit) || explicit.length === 0) return;
+    try {
+      const idx = await pdf.getPageIndex(explicit[0] as { num: number; gen: number });
+      scrollToPage(idx + 1);
+    } catch {
+      /* unresolved dest */
+    }
+  }
+
+  function gotoPage(n: number): void {
+    if (pdf === null) return;
+    const clamped = Math.max(1, Math.min(pdf.numPages, n));
+    scrollToPage(clamped);
+  }
 
   function fitWidth(): void {
     const el = scrollRef.current;
@@ -283,8 +386,40 @@ export function PdfCanvas({
   return (
     <div className="pdfjs-view">
       <div className="pdfjs-toolbar">
+        {outline.length > 0 && (
+          <button
+            className={`pdfjs-zoom${showToc ? ' active' : ''}`}
+            title={t('read.pdfToc')}
+            onClick={() => setShowToc((v) => !v)}
+          >
+            ☰
+          </button>
+        )}
         <span className="muted small pdfjs-name">{fileName ?? 'PDF'}</span>
-        {pdf !== null && <span className="muted small">{t('read.pdfPages').replace('{n}', String(pdf.numPages))}</span>}
+        {pdf !== null && (
+          <div className="pdfjs-pagenav">
+            <button className="pdfjs-zoom" title={t('read.pdfPrevPage')} disabled={currentPage <= 1} onClick={() => gotoPage(currentPage - 1)}>
+              ‹
+            </button>
+            <input
+              className="pdfjs-page-input"
+              value={pageInput}
+              spellCheck={false}
+              inputMode="numeric"
+              onChange={(e) => setPageInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const n = parseInt(pageInput, 10);
+                  if (Number.isFinite(n)) gotoPage(n);
+                }
+              }}
+            />
+            <span className="muted small">/ {pdf.numPages}</span>
+            <button className="pdfjs-zoom" title={t('read.pdfNextPage')} disabled={currentPage >= pdf.numPages} onClick={() => gotoPage(currentPage + 1)}>
+              ›
+            </button>
+          </div>
+        )}
         <span className="spacer" />
         <div className="pdfjs-find">
           <input
@@ -326,12 +461,19 @@ export function PdfCanvas({
           +
         </button>
       </div>
-      <div ref={scrollRef} className="pdfjs-scroll scroll">
-        {pdf === null && !err && <div className="muted region-pad">{t('read.loadingPdf')}</div>}
-        {pdf !== null &&
-          Array.from({ length: pdf.numPages }, (_, i) => (
-            <PageView key={i + 1} pdf={pdf} pageNum={i + 1} scale={scale} query={query} onLink={openLink} />
-          ))}
+      <div className="pdfjs-body">
+        {showToc && outline.length > 0 && (
+          <div className="pdfjs-toc scroll">
+            <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
+          </div>
+        )}
+        <div ref={scrollRef} className="pdfjs-scroll scroll">
+          {pdf === null && !err && <div className="muted region-pad">{t('read.loadingPdf')}</div>}
+          {pdf !== null &&
+            Array.from({ length: pdf.numPages }, (_, i) => (
+              <PageView key={i + 1} pdf={pdf} pageNum={i + 1} scale={scale} query={query} onLink={openLink} />
+            ))}
+        </div>
       </div>
     </div>
   );

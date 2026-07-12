@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import {
   REF_TYPES,
@@ -28,6 +28,8 @@ import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
+// epub.js is heavy and epub is a rare path — lazy-load it into its own chunk.
+const EpubView = lazy(() => import('../ui/EpubView').then((m) => ({ default: m.EpubView })));
 import { ResizeHandle } from '../ui/ResizeHandle';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
@@ -235,14 +237,41 @@ function copy(text: string): void {
   }
 }
 
+// The kinds of attachment the reader can render. PDF + EPUB decode from an
+// ArrayBuffer (pdf.js / epub.js); image/video/audio/html render from an object
+// URL; text is read as a string.
+type ViewKind = 'pdf' | 'epub' | 'image' | 'video' | 'audio' | 'html' | 'text';
+
+const EXT_KIND: Record<string, ViewKind> = {
+  pdf: 'pdf',
+  epub: 'epub',
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image', avif: 'image', bmp: 'image',
+  mp4: 'video', webm: 'video', m4v: 'video', mov: 'video', ogv: 'video',
+  mp3: 'audio', m4a: 'audio', wav: 'audio', oga: 'audio', ogg: 'audio', flac: 'audio', aac: 'audio',
+  html: 'html', htm: 'html', xhtml: 'html', mht: 'html', mhtml: 'html',
+  txt: 'text', md: 'text', markdown: 'text', csv: 'text', tsv: 'text', log: 'text', json: 'text',
+};
+
+function viewKindFor(file: string): ViewKind {
+  const ext = file.split('.').pop()?.toLowerCase() ?? '';
+  return EXT_KIND[ext] ?? 'html'; // unknown → try an iframe; the webview sniffs it
+}
+
+// The resolved, ready-to-render payload for an attachment. Discriminated so the
+// render only ever reads the field it set.
+type Payload =
+  | { t: 'buf'; kind: 'pdf' | 'epub'; buf: ArrayBuffer }
+  | { t: 'url'; kind: 'image' | 'video' | 'audio' | 'html'; url: string }
+  | { t: 'text'; text: string };
+
 // Viewer for a local attachment. Bytes are resolved from the linked storage
 // folder (a live File in the browser build, or read through the Rust core under
-// Tauri). PDFs render via bundled pdf.js (PdfCanvas) — canvas rendering works on
-// every platform, unlike the old `<iframe src=blob>` which WebView2 (Windows/
-// Edge) refused ("此页面已被 Microsoft Edge 阻止") and whose in-PDF links hijacked
-// the SPA. Non-PDF attachments (HTML snapshots) keep the iframe path; that object
-// URL is revoked on unmount so bytes aren't retained after the reader closes.
-function PdfView({
+// Tauri), then dispatched by type: PDFs render via bundled pdf.js (PdfCanvas) and
+// EPUBs via epub.js (EpubView) — canvas/DOM rendering works on every platform,
+// unlike the old `<iframe src=blob>` which WebView2 (Windows/Edge) refused
+// ("此页面已被 Microsoft Edge 阻止"). Images/video/audio/html render from an object
+// URL that is revoked on unmount so bytes aren't retained after the reader closes.
+function AttachmentView({
   att,
   onSaveSelection,
 }: {
@@ -253,15 +282,13 @@ function PdfView({
   const rels = useZoteroStorage((s) => s.rels);
   const files = useZoteroStorage((s) => s.files);
   const path = useZoteroStorage((s) => s.path);
-  const [buf, setBuf] = useState<ArrayBuffer | null>(null);
-  const [htmlUrl, setHtmlUrl] = useState<string | null>(null);
+  const [payload, setPayload] = useState<Payload | null>(null);
   const [err, setErr] = useState(false);
-  const isPdf = /\.pdf$/i.test(att.file);
+  const kind = viewKindFor(att.file);
   useEffect(() => {
     let alive = true;
     let made: string | null = null;
-    setBuf(null);
-    setHtmlUrl(null);
+    setPayload(null);
     setErr(false);
     void loadAttachmentBlob({ rels, files, path }, att).then(async (blob) => {
       if (!alive) return;
@@ -269,23 +296,53 @@ function PdfView({
         setErr(true);
         return;
       }
-      if (isPdf || blob.type === 'application/pdf') {
-        const ab = await blob.arrayBuffer();
-        if (alive) setBuf(ab);
+      // Trust a declared PDF content-type even when the extension is unknown.
+      const eff: ViewKind = blob.type === 'application/pdf' ? 'pdf' : kind;
+      if (eff === 'pdf' || eff === 'epub') {
+        const buf = await blob.arrayBuffer();
+        if (alive) setPayload({ t: 'buf', kind: eff, buf });
+      } else if (eff === 'text') {
+        const text = await blob.text();
+        if (alive) setPayload({ t: 'text', text });
       } else {
         made = URL.createObjectURL(blob);
-        setHtmlUrl(made);
+        if (alive) setPayload({ t: 'url', kind: eff, url: made });
+        else URL.revokeObjectURL(made);
       }
     });
     return () => {
       alive = false;
       if (made !== null) URL.revokeObjectURL(made);
     };
-  }, [att.key, att.file, rels, files, path, isPdf]);
+  }, [att.key, att.file, rels, files, path, kind]);
+
   if (err) return <div className="muted region-pad">{t('read.pdfNotFound')}</div>;
-  if (buf !== null) return <PdfCanvas data={buf} fileName={att.file} onSaveSelection={onSaveSelection} />;
-  if (htmlUrl !== null) return <iframe className="pdf-frame" title={att.file} src={htmlUrl} />;
-  return <div className="muted region-pad">{t('read.loadingPdf')}</div>;
+  if (payload === null) return <div className="muted region-pad">{t('read.loadingFile')}</div>;
+  if (payload.t === 'buf' && payload.kind === 'pdf')
+    return <PdfCanvas data={payload.buf} fileName={att.file} onSaveSelection={onSaveSelection} />;
+  if (payload.t === 'buf' && payload.kind === 'epub')
+    return (
+      <Suspense fallback={<div className="muted region-pad">{t('read.loadingFile')}</div>}>
+        <EpubView data={payload.buf} fileName={att.file} onSaveSelection={onSaveSelection} />
+      </Suspense>
+    );
+  if (payload.t === 'text') return <pre className="att-text region-pad">{payload.text}</pre>;
+  if (payload.t === 'url' && payload.kind === 'image')
+    return (
+      <div className="att-image-wrap">
+        <img className="att-image" src={payload.url} alt={att.file} />
+      </div>
+    );
+  if (payload.t === 'url' && payload.kind === 'video')
+    return <video className="att-media" src={payload.url} controls />;
+  if (payload.t === 'url' && payload.kind === 'audio')
+    return (
+      <div className="att-audio-wrap region-pad">
+        <audio src={payload.url} controls />
+      </div>
+    );
+  if (payload.t === 'url') return <iframe className="pdf-frame" title={att.file} src={payload.url} />;
+  return <div className="muted region-pad">{t('read.loadingFile')}</div>;
 }
 
 // ---- Inspector -------------------------------------------------------------
@@ -833,7 +890,7 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
       <div className="reader-body">
         <div className="reader-doc">
           {att !== undefined ? (
-            <PdfView att={att} onSaveSelection={saveSelection} />
+            <AttachmentView att={att} onSaveSelection={saveSelection} />
           ) : (
             <div className="muted region-pad">{t('read.noPdf')}</div>
           )}

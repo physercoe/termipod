@@ -7,7 +7,14 @@ import {
   type RefType,
 } from '../state/library';
 import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zoteroStorage';
-import { getApiKey, searchPapers, setApiKey, type DiscoveryPaper } from '../discovery/semanticScholar';
+import {
+  enrichWithUnpaywall,
+  lsGet,
+  lsSet,
+  SOURCES,
+  sourceById,
+  type DiscoveryPaper,
+} from '../discovery';
 import { isTauri } from '../platform';
 import { BrowserView } from './BrowserView';
 import { Markdown } from '../ui/Markdown';
@@ -613,6 +620,8 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
 
 // ---- Discover --------------------------------------------------------------
 
+const SOURCE_LS = 'termipod.discover.source';
+
 function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.Element {
   const t = useT();
   const openLink = useOpenLink();
@@ -622,22 +631,49 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   const [results, setResults] = useState<DiscoveryPaper[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [key, setKey] = useState(getApiKey());
+  const [sourceId, setSourceId] = useState<string>(() => localStorage.getItem(SOURCE_LS) ?? 'openalex');
   const [showKey, setShowKey] = useState(false);
+  const [findPdfs, setFindPdfs] = useState(true);
+
+  const source = sourceById(sourceId);
+  const [key, setKey] = useState(() => (source.keyKey !== undefined ? lsGet(source.keyKey) : ''));
 
   const importedIds = useMemo(
     () => new Set(references.map((r) => r.externalId).filter((x): x is string => x !== undefined)),
     [references],
   );
 
+  function pickSource(id: string): void {
+    setSourceId(id);
+    try {
+      localStorage.setItem(SOURCE_LS, id);
+    } catch {
+      /* ignore */
+    }
+    const s = sourceById(id);
+    setKey(s.keyKey !== undefined ? lsGet(s.keyKey) : '');
+    setShowKey(false);
+    setErr(null);
+  }
+
   async function run(): Promise<void> {
     if (q.trim() === '') return;
     setBusy(true);
     setErr(null);
     try {
-      setResults(await searchPapers(q, 25));
+      let res = await source.search(q, 25);
+      // Backfill open-access PDF links (Unpaywall) for results with a DOI but no
+      // PDF — more "PDF" badges appear regardless of which source was used.
+      if (findPdfs) res = await enrichWithUnpaywall(res);
+      setResults(res);
     } catch (e) {
-      setErr(e instanceof Error && e.message === 'rate-limited' ? t('read.rateLimited') : t('read.searchFailed'));
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'needs-key') {
+        setShowKey(true);
+        setErr(t('read.needsKey'));
+      } else {
+        setErr(msg === 'rate-limited' ? t('read.rateLimited') : t('read.searchFailed'));
+      }
       setResults([]);
     } finally {
       setBusy(false);
@@ -666,14 +702,32 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
           {busy ? t('read.searching') : t('read.search')}
         </button>
       </div>
-      <div className="discover-source muted small">
-        {t('read.discoverSource')}
-        <span className="spacer" />
-        <button className="link-btn" onClick={() => setShowKey((v) => !v)}>
-          {key !== '' ? t('read.apiKeySet') : t('read.apiKeyAdd')}
-        </button>
+      <div className="discover-sources">
+        {SOURCES.map((s) => (
+          <button
+            key={s.id}
+            className={`discover-src${sourceId === s.id ? ' active' : ''}`}
+            title={s.note}
+            onClick={() => pickSource(s.id)}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
-      {showKey && (
+      <div className="discover-source muted small">
+        <span>{source.note ?? ''}</span>
+        <span className="spacer" />
+        <label className="discover-pdftoggle">
+          <input type="checkbox" checked={findPdfs} onChange={(e) => setFindPdfs(e.target.checked)} />
+          {t('read.findPdfs')}
+        </label>
+        {source.keyKey !== undefined && (
+          <button className="link-btn" onClick={() => setShowKey((v) => !v)}>
+            {key !== '' ? t('read.apiKeySet') : t('read.apiKeyAdd')}
+          </button>
+        )}
+      </div>
+      {showKey && source.keyKey !== undefined && (
         <div className="discover-key">
           <input
             className="discover-key-input"
@@ -682,15 +736,14 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
             placeholder={t('read.apiKeyPlaceholder')}
             onChange={(e) => {
               setKey(e.target.value);
-              setApiKey(e.target.value);
+              if (source.keyKey !== undefined) lsSet(source.keyKey, e.target.value);
             }}
           />
-          <button
-            className="link-btn"
-            onClick={() => openLink('https://www.semanticscholar.org/product/api#api-key')}
-          >
-            {t('read.getApiKey')} ↗
-          </button>
+          {source.keyUrl !== undefined && (
+            <button className="link-btn" onClick={() => openLink(source.keyUrl ?? '')}>
+              {t('read.getApiKey')} ↗
+            </button>
+          )}
         </div>
       )}
       {err !== null && <div className="error region-pad">{err}</div>}

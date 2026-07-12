@@ -669,10 +669,38 @@ pre {
   min-width: 0;
 }
 
-/* Semantic Scholar API-key row in the Discover panel. */
+/* Discovery source picker (OpenAlex / Semantic Scholar / Crossref / arXiv /
+   PubMed / CORE) + the free-PDF / API-key row. */
+.discover-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+  padding: 0 var(--spacing-s12) var(--spacing-s4);
+}
+.discover-src {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font-size: var(--font-size-12, 0.78rem);
+  color: var(--text-secondary);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+}
+.discover-src.active {
+  color: var(--accent);
+  background: var(--accent-tint);
+  border-color: var(--accent-line);
+}
+.discover-pdftoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  cursor: pointer;
+}
 .discover-source {
   display: flex;
   align-items: center;
+  gap: var(--spacing-s8);
 }
 .discover-key {
   display: flex;
@@ -890,6 +918,11 @@ pre {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+}
+.browser-hint {
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 .browser-frame-wrap {
   flex: 1;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
-import { openExternal } from '../platform';
+import { openBrowserWindow, openExternal } from '../platform';
 
 /// A minimal in-app browser tab (director request: external links open in a
 /// dedicated tab *inside* the app with navigation buttons, not the OS browser).
@@ -80,10 +80,18 @@ export function BrowserView({ initialUrl }: { initialUrl: string }): JSX.Element
             if (e.key === 'Enter') navigate(address);
           }}
         />
+        <button
+          className="browser-nav"
+          title={t('read.openInWindow')}
+          onClick={() => openBrowserWindow(current)}
+        >
+          ⤢
+        </button>
         <button className="browser-nav" title={t('read.openExternal')} onClick={() => openExternal(current)}>
           ↗
         </button>
       </div>
+      <div className="browser-hint muted small">{t('read.browserFrameHint')}</div>
       <div className="browser-frame-wrap">
         <iframe
           key={`${idx}:${nonce}`}

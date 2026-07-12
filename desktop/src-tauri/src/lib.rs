@@ -337,6 +337,33 @@ fn open_url(url: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// ---- in-app browser window --------------------------------------------------
+// The J1 in-app browser tab is an <iframe>, which many sites forbid via
+// `X-Frame-Options` / `frame-ancestors` (arxiv.org, Google Scholar, most
+// publishers) — the director saw "arxiv.org 拒绝连接". A real **webview window**
+// is a top-level browsing context, NOT an iframe, so those headers don't apply
+// and every site loads. This is the app acting as a browser for framing-blocked
+// sites; the user navigates via the page's own links (Alt+← / Alt+→ for history).
+
+static NEXT_WIN: AtomicU64 = AtomicU64::new(1);
+
+/// Open a URL in a real in-app browser window (a Tauri webview window, not an
+/// iframe) so `X-Frame-Options` sites load. Only http(s).
+#[tauri::command]
+async fn open_browser_window(app: AppHandle, url: String) -> Result<(), String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("unsupported url scheme".into());
+    }
+    let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
+    let label = format!("browser-{}", NEXT_WIN.fetch_add(1, Ordering::Relaxed));
+    tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::External(parsed))
+        .title("TermiPod Browser")
+        .inner_size(1024.0, 800.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Register the OS credential store before any keychain command can run —
@@ -355,6 +382,7 @@ pub fn run() {
             hub_request_bytes,
             system_proxy,
             open_external,
+            open_browser_window,
             storage::storage_pick_folder,
             storage::storage_reindex,
             storage::storage_read,

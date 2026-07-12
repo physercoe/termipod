@@ -26,3 +26,19 @@ export function openExternal(url: string): void {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
+
+/// Open a URL in a real in-app browser *window* (a Tauri webview, not an iframe),
+/// so sites that forbid framing (`X-Frame-Options` — arxiv, Google Scholar, most
+/// publishers) still load. The browser build falls back to a new tab.
+export function openBrowserWindow(url: string): void {
+  if (url === '') return;
+  if (isTauri()) {
+    void import('@tauri-apps/api/core')
+      .then(({ invoke }) => invoke('open_browser_window', { url }))
+      .catch(() => {
+        /* best effort */
+      });
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}

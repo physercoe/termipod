@@ -831,7 +831,7 @@ export function PdfCanvas({
   const [split, setSplit] = useState<'none' | 'vertical' | 'horizontal'>('none');
   // Right-click menu anchor + whether the click landed on a live selection in the
   // primary pane (so annotation actions apply).
-  const [menu, setMenu] = useState<{ x: number; y: number; onSel: boolean } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; onSel: boolean; text: string } | null>(null);
   const viewRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const annosByPage = useMemo(() => {
@@ -984,13 +984,28 @@ export function PdfCanvas({
   }
 
   // The in-page top coordinate (PDF user space, origin bottom-left) a destination
-  // targets, if it pins one: /XYZ carries [left, top, zoom]; /FitH & /FitBH carry
-  // [top]. /Fit, /FitV, etc. have no useful Y → jump to the page top.
+  // targets, if it pins one. The destination array is [pageRef, /Type, ...args];
+  // the Y arg's position depends on the fit type (PDF spec §12.3.2.2):
+  //   /XYZ  left top zoom          → top is arg[1]  (explicit[3])
+  //   /FitH top                    → top is arg[0]  (explicit[2])
+  //   /FitBH top                   → top is arg[0]  (explicit[2])
+  //   /FitR left bottom right top  → top is arg[3]  (explicit[5])
+  //   /Fit /FitB /FitV /FitBV      → no Y → jump to the page top
+  // A pinned coord may be null ("retain current"); treat that as no-Y too.
+  // Missing any of these (the old code only knew XYZ/FitH/FitBH) made refs whose
+  // links use another fit type land at the page top instead of the ref line.
   function destTop(explicit: unknown[]): number | undefined {
     const spec = explicit[1];
-    const name = spec !== null && typeof spec === 'object' && 'name' in spec ? (spec as { name?: string }).name : undefined;
-    if (name === 'XYZ') return typeof explicit[3] === 'number' ? explicit[3] : undefined;
-    if (name === 'FitH' || name === 'FitBH') return typeof explicit[2] === 'number' ? explicit[2] : undefined;
+    const name =
+      spec !== null && typeof spec === 'object' && 'name' in spec
+        ? (spec as { name?: string }).name
+        : typeof spec === 'string'
+          ? spec
+          : undefined;
+    const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
+    if (name === 'XYZ') return num(explicit[3]);
+    if (name === 'FitH' || name === 'FitBH') return num(explicit[2]);
+    if (name === 'FitR') return num(explicit[5]);
     return undefined;
   }
 
@@ -1208,7 +1223,15 @@ export function PdfCanvas({
     e.preventDefault();
     if (onSel) pendingSelRef.current = text;
     setSelectedAnno(null);
-    setMenu({ x: e.clientX, y: e.clientY, onSel });
+    setMenu({ x: e.clientX, y: e.clientY, onSel, text });
+  }
+
+  // Menu action: copy the selected text (basic clipboard action, available on any
+  // selection — not gated on annotate permission).
+  function menuCopy(): void {
+    const text = menu?.text ?? '';
+    if (text !== '') void navigator.clipboard?.writeText(text).catch(() => undefined);
+    setMenu(null);
   }
 
   // Menu action: highlight/underline the snapshotted selection.
@@ -1524,6 +1547,14 @@ export function PdfCanvas({
           style={{ left: menu.x, top: menu.y }}
           onContextMenu={(e) => e.preventDefault()}
         >
+          {menu.text !== '' && (
+            <>
+              <button className="pdfjs-ctx-item" onMouseDown={(e) => e.preventDefault()} onClick={menuCopy}>
+                <Icon name="copy" size={14} /> {t('read.ctxCopy')}
+              </button>
+              <div className="pdfjs-ctx-sep" />
+            </>
+          )}
           {menu.onSel && (
             <>
               <button className="pdfjs-ctx-item" onMouseDown={(e) => e.preventDefault()} onClick={() => menuAnnotate('highlight')}>

@@ -360,8 +360,15 @@ fn reveal(path: &str) -> Result<(), String> {
     // a non-zero exit code even on success, so we only require that it spawned.
     // raw_arg keeps our exact quoting (a Windows path can't contain a `"`), which
     // Rust's default arg-quoting would otherwise mangle for explorer.
+    //
+    // CRITICAL: explorer's /select needs BACKSLASH separators. The path arrives
+    // from the frontend with forward slashes (the linked storage folder joined to a
+    // Zotero storage key, which is `/`-delimited); a forward-slash path makes
+    // explorer silently ignore the selection and open "This PC" instead of the
+    // containing folder. Normalize `/` → `\` before handing it over.
+    let win_path = path.replace('/', "\\");
     Command::new("explorer")
-        .raw_arg(format!("/select,\"{path}\""))
+        .raw_arg(format!("/select,\"{win_path}\""))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map(|_| ())

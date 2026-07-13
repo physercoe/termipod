@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAgents, useHosts, useProjects } from '../hub/queries';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
+import { Icon } from '../ui/Icon';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { AgentSpawn } from './AgentSpawn';
@@ -47,7 +48,7 @@ function KindSection(props: {
       <div className="tree-section tree-section-row">
         <button className="tree-kind-toggle" onClick={onToggle} aria-expanded={open}>
           <span className={`tree-caret${open ? ' open' : ''}`} aria-hidden>
-            ▸
+            <Icon name="chevron-right" size={13} />
           </span>
           <span>{title}</span>
           <span className="tree-count">{count}</span>

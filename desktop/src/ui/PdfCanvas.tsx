@@ -4,6 +4,7 @@ import { TextLayer } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { useT } from '../i18n';
+import { Icon } from './Icon';
 import { useOpenLink } from './OpenLinkContext';
 import { ResizeHandle } from './ResizeHandle';
 
@@ -506,14 +507,14 @@ export function PdfCanvas({
             title={t('read.pdfToc')}
             onClick={() => setShowToc((v) => !v)}
           >
-            ☰
+            <Icon name="menu" />
           </button>
         )}
         <span className="muted small pdfjs-name">{fileName ?? 'PDF'}</span>
         {pdf !== null && (
           <div className="pdfjs-pagenav">
             <button className="pdfjs-zoom" title={t('read.pdfPrevPage')} disabled={currentPage <= 1} onClick={() => gotoPage(currentPage - 1)}>
-              ‹
+              <Icon name="chevron-left" />
             </button>
             <input
               className="pdfjs-page-input"
@@ -530,7 +531,7 @@ export function PdfCanvas({
             />
             <span className="muted small">/ {pdf.numPages}</span>
             <button className="pdfjs-zoom" title={t('read.pdfNextPage')} disabled={currentPage >= pdf.numPages} onClick={() => gotoPage(currentPage + 1)}>
-              ›
+              <Icon name="chevron-right" />
             </button>
           </div>
         )}
@@ -552,10 +553,10 @@ export function PdfCanvas({
                 {matches.length > 0 ? `${matchPos + 1}/${matches.length}` : '0'}
               </span>
               <button className="pdfjs-zoom" title={t('read.browserBack')} disabled={matches.length === 0} onClick={() => stepMatch(-1)}>
-                ‹
+                <Icon name="chevron-left" />
               </button>
               <button className="pdfjs-zoom" title={t('read.browserForward')} disabled={matches.length === 0} onClick={() => stepMatch(1)}>
-                ›
+                <Icon name="chevron-right" />
               </button>
             </>
           )}
@@ -575,13 +576,13 @@ export function PdfCanvas({
           </button>
         )}
         <button className="pdfjs-zoom" title={t('read.zoomOut')} onClick={() => setScale((s) => Math.max(0.4, s - 0.2))}>
-          −
+          <Icon name="minus" />
         </button>
         <button className="pdfjs-zoom" title={t('read.zoomFit')} onClick={fitWidth}>
           {Math.round(scale * 100)}%
         </button>
         <button className="pdfjs-zoom" title={t('read.zoomIn')} onClick={() => setScale((s) => Math.min(3, s + 0.2))}>
-          +
+          <Icon name="plus" />
         </button>
       </div>
       <div className="pdfjs-body">

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ePub, { type Rendition, type Contents, type NavItem } from 'epubjs';
 import { useT } from '../i18n';
+import { Icon } from './Icon';
 
 /// Offline EPUB reader for the Read surface. EPUB is a ZIP of XHTML; epub.js
 /// parses and renders it fully client-side (no network), so it works in the
@@ -52,10 +53,10 @@ export function EpubView({
           {t('read.epubToc')}
         </button>
         <button className="small" title={t('read.epubPrev')} onClick={() => void rendition.current?.prev()}>
-          ‹
+          <Icon name="chevron-left" />
         </button>
         <button className="small" title={t('read.epubNext')} onClick={() => void rendition.current?.next()}>
-          ›
+          <Icon name="chevron-right" />
         </button>
         <span className="spacer" />
         {onSaveSelection !== undefined && sel !== '' && (

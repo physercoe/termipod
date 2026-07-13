@@ -301,6 +301,42 @@ pre {
 .job-icon {
   display: block;
 }
+/* Shared inline icon (ui/Icon.tsx): baseline-aligned with adjacent text, never
+   shrinks in a flex row, and a hair of optical spacing when it precedes a label. */
+.ui-icon {
+  display: inline-block;
+  vertical-align: -0.18em;
+  flex: 0 0 auto;
+}
+button > .ui-icon:not(:only-child):first-child,
+.ui-icon.lead {
+  margin-right: 0.4em;
+}
+/* Icon-bearing controls center their contents deterministically now that the
+   glyph is an SVG (text line-height centering no longer applies to an icon). */
+.author-fmt-btn,
+.pdfjs-zoom,
+.browser-nav,
+.term-nav-btn,
+.author-nav-icon,
+.read-fold,
+.read-pane-expand,
+.term-tab-x,
+.read-tabitem-x,
+.read-col-x,
+.term-dock-hide,
+.ref-open-link,
+.ref-pdf-btn,
+.ref-scrape-btn,
+.att-open,
+.import-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ref-scrape-busy {
+  margin-right: 0.35em;
+}
 .activity-label {
   font-size: var(--font-size-label);
   letter-spacing: 0.02em;
@@ -536,7 +572,7 @@ pre {
   padding: 0 5px;
   border-radius: 5px;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: var(--font-size-caption);
   line-height: 1;
 }
 .author-fmt-btn:hover {
@@ -4200,7 +4236,7 @@ th {
 .doc-toolbar { display: flex; padding-bottom: var(--spacing-s8); }
 .doc-compose-body { min-height: 200px; width: 100%; }
 
-.yaml-editor { width: 100%; min-height: 320px; font-size: 12px; line-height: 1.5; }
+.yaml-editor { width: 100%; min-height: 320px; font-size: var(--font-size-caption); line-height: 1.5; }
 
 /* ---- pluggable overview hero widgets ---- */
 .hero-widget h4 {
@@ -4377,7 +4413,7 @@ th {
   border: none;
   background: none;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-body);
   padding: 0 var(--spacing-s8);
 }
 .mic-btn.recording {
@@ -4462,7 +4498,7 @@ th {
   cursor: pointer;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: var(--font-size-label);
 }
 .term-tab-x:hover { color: var(--text); background: var(--border); }
 .term-dock-add {
@@ -4948,7 +4984,7 @@ th {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--font-mono, monospace);
-  font-size: 12.5px;
+  font-size: var(--font-size-caption);
   line-height: 1.5;
 }
 /* Info-tab attachment summary card (type / location / preview). */
@@ -4983,8 +5019,7 @@ th {
   object-fit: cover;
 }
 .att-glyph {
-  font-size: 26px;
-  line-height: 1;
+  color: var(--text-secondary);
 }
 .att-fields {
   flex: 1;
@@ -5012,7 +5047,7 @@ th {
 }
 .att-v.mono {
   font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
 }
 .att-open {
   align-self: flex-start;
@@ -5052,7 +5087,7 @@ th {
   text-align: left;
   padding: 5px 8px;
   border-radius: 6px;
-  font-size: 12.5px;
+  font-size: var(--font-size-caption);
 }
 .epub-toc-item:hover {
   background: var(--accent-tint);
@@ -5120,7 +5155,7 @@ th {
 .author-nav-icon {
   padding: 1px 4px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   line-height: 1;
   color: var(--text-secondary);
 }
@@ -5147,7 +5182,7 @@ th {
   text-align: left;
   padding: 3px 6px;
   border-radius: 5px;
-  font-size: 12.5px;
+  font-size: var(--font-size-caption);
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -5166,7 +5201,7 @@ th {
 }
 .author-nav-kind {
   flex: none;
-  font-size: 11px;
+  font-size: var(--font-size-label);
 }
 .author-nav-tw {
   flex: none;
@@ -5196,7 +5231,7 @@ th {
 }
 .companion-src button {
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-label);
   color: var(--text-secondary);
   background: transparent;
 }
@@ -5226,13 +5261,13 @@ th {
   border-radius: 4px;
   background: var(--surface);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
 }
 .companion-msg {
   padding: 7px 10px;
   margin: 4px 8px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: var(--font-size-body-small);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;

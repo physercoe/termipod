@@ -5,6 +5,7 @@ import { SerializeAddon } from '@xterm/addon-serialize';
 import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
+import { Icon } from '../ui/Icon';
 import {
   onSessionData,
   onSessionExit,
@@ -208,17 +209,17 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
           }}
         />
         <button className="term-nav-btn" title={t('term.searchPrev')} onClick={() => runSearch(-1)}>
-          ↑
+          <Icon name="chevron-up" />
         </button>
         <button className="term-nav-btn" title={t('term.searchNext')} onClick={() => runSearch(1)}>
-          ↓
+          <Icon name="chevron-down" />
         </button>
         <span className="term-nav-sep" />
         <button className="term-nav-btn" title={t('term.prevCmd')} onClick={() => jump(-1)} disabled={blocks.length === 0}>
-          ⌃
+          <Icon name="chevron-up" />
         </button>
         <button className="term-nav-btn" title={t('term.nextCmd')} onClick={() => jump(1)} disabled={blocks.length === 0}>
-          ⌄
+          <Icon name="chevron-down" />
         </button>
         <button
           className={showList ? 'term-nav-btn active' : 'term-nav-btn'}
@@ -254,7 +255,7 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
                     void copyOutput(b);
                   }}
                 >
-                  ⧉
+                  <Icon name="copy" size={14} />
                 </button>
               </div>
             );

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useT } from '../i18n';
+import { Icon } from '../ui/Icon';
 import { isTauri } from '../platform';
 import { useDocuments, type DocKind } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
@@ -111,7 +112,7 @@ export function AuthorNav(): JSX.Element {
             title={d.filePath ?? d.title}
             onClick={() => setActive(d.id)}
           >
-            <span className="author-nav-kind">{d.kind === 'diagram' ? '◈' : '📝'}</span>
+            <Icon name={d.kind === 'diagram' ? 'diagram' : 'note'} size={14} className="author-nav-kind" />
             <span className="author-nav-name">
               {d.dirty === true ? '● ' : ''}
               {d.title !== '' ? d.title : t('author.untitled')}
@@ -126,17 +127,17 @@ export function AuthorNav(): JSX.Element {
           <span className="spacer" />
           {folder !== null && (
             <button className="author-nav-icon" title={t('author.navRefresh')} onClick={() => void refresh(folder)}>
-              ⟳
+              <Icon name="refresh" size={15} />
             </button>
           )}
           {tauri && (
             <button className="author-nav-icon" title={t('author.navOpenFolder')} onClick={() => void pick()}>
-              📂
+              <Icon name="folder" size={15} />
             </button>
           )}
           {folder !== null && (
             <button className="author-nav-icon" title={t('author.navCloseFolder')} onClick={() => setFolder(null)}>
-              ×
+              <Icon name="close" size={15} />
             </button>
           )}
         </div>
@@ -172,7 +173,7 @@ function TreeNode({
     return (
       <div>
         <button className="author-nav-item dir" style={pad} onClick={() => setOpen((o) => !o)}>
-          <span className="author-nav-tw">{open ? '▾' : '▸'}</span>
+          <Icon name={open ? 'chevron-down' : 'chevron-right'} size={13} className="author-nav-tw" />
           {node.name}
         </button>
         {open && node.children.map((c) => <TreeNode key={c.path} node={c} depth={depth + 1} onOpen={onOpen} />)}

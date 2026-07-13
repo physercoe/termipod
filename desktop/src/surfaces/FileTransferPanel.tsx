@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onSftpProgress, sftpList, sftpRead, sftpWrite, type SftpEntry } from '../ssh/tauri';
 import { useT } from '../i18n';
+import { Icon } from '../ui/Icon';
 
 /// SFTP file-transfer panel (parity — mobile file_transfer_provider + remote
 /// file browser). Browses a remote directory over the session's SFTP subsystem,
@@ -155,7 +156,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     <div className="sftp-panel">
       <div className="sftp-bar">
         <button disabled={busy} onClick={() => setDir(parentPath(dir))} title={t('sftp.up')}>
-          ↑
+          <Icon name="chevron-up" />
         </button>
         <input
           className="sftp-path mono"
@@ -216,7 +217,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
               disabled={busy}
               onClick={() => (e.is_dir ? setDir(joinPath(dir, e.name)) : void download(e.name))}
             >
-              <span className="sftp-icon">{e.is_dir ? '📁' : '📄'}</span>
+              <Icon name={e.is_dir ? 'folder' : 'file-text'} size={15} className="sftp-icon" />
               <span className="sftp-name">{e.name}</span>
             </button>
             <span className="spacer" />

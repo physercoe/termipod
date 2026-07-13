@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
+import { Icon } from './Icon';
 import { listProfiles, removeProfile, type HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 
@@ -39,7 +40,7 @@ export function ProfileSwitcher({
   return (
     <div className="profile-switcher" ref={ref}>
       <button className="pill switcher-pill" onClick={() => setOpen((v) => !v)}>
-        {label} ▾
+        {label} <Icon name="chevron-down" size={13} />
       </button>
       {open && (
         <div className="switcher-menu">

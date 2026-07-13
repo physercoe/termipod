@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
+import { Icon } from '../ui/Icon';
 import { openBrowserWindow, openExternal } from '../platform';
 
 /// A minimal in-app browser tab (director request: external links open in a
@@ -58,7 +59,7 @@ export function BrowserView({ initialUrl }: { initialUrl: string }): JSX.Element
     <div className="browser-view">
       <div className="browser-bar">
         <button className="browser-nav" disabled={!canBack} title={t('read.browserBack')} onClick={() => setIdx((i) => Math.max(0, i - 1))}>
-          ‹
+          <Icon name="chevron-left" />
         </button>
         <button
           className="browser-nav"
@@ -66,10 +67,10 @@ export function BrowserView({ initialUrl }: { initialUrl: string }): JSX.Element
           title={t('read.browserForward')}
           onClick={() => setIdx((i) => Math.min(history.length - 1, i + 1))}
         >
-          ›
+          <Icon name="chevron-right" />
         </button>
         <button className="browser-nav" title={t('read.browserReload')} onClick={() => setNonce((n) => n + 1)}>
-          ⟳
+          <Icon name="refresh" />
         </button>
         <input
           className="browser-address"
@@ -85,10 +86,10 @@ export function BrowserView({ initialUrl }: { initialUrl: string }): JSX.Element
           title={t('read.openInWindow')}
           onClick={() => openBrowserWindow(current)}
         >
-          ⤢
+          <Icon name="expand" />
         </button>
         <button className="browser-nav" title={t('read.openExternal')} onClick={() => openExternal(current)}>
-          ↗
+          <Icon name="external" />
         </button>
       </div>
       <div className="browser-hint muted small">{t('read.browserFrameHint')}</div>

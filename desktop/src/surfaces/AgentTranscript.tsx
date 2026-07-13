@@ -6,6 +6,7 @@ import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import type { InputAttachments } from '../hub/client';
 import { Composer } from '../ui/Composer';
+import { Icon } from '../ui/Icon';
 import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
 import { errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, matchesLens, type FeedLens } from '../ui/feedLens';
 import { RunReport } from '../ui/RunReport';
@@ -255,13 +256,13 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
                   {matchSeqs.length === 0 ? '0' : `${matchIndex + 1}/${matchSeqs.length}`} {t('tx.matched')}
                 </span>
                 <button disabled={matchSeqs.length === 0} title={t('tx.prev')} onClick={() => step(-1)}>
-                  ▲
+                  <Icon name="chevron-up" size={14} />
                 </button>
                 <button disabled={matchSeqs.length === 0} title={t('tx.next')} onClick={() => step(1)}>
-                  ▼
+                  <Icon name="chevron-down" size={14} />
                 </button>
                 <button title={t('tx.clear')} onClick={() => setLensReset('all')}>
-                  ✕
+                  <Icon name="close" size={14} />
                 </button>
               </span>
             )}

@@ -1,4 +1,5 @@
 import { memo, type CSSProperties, type ReactNode } from 'react';
+import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import { arr, bool, num, obj, str, type Entity } from '../hub/types';
 
@@ -150,7 +151,7 @@ function ToolCallBody({ p, result }: { p: Entity; result?: Entity }): JSX.Elemen
         <strong>{name}</strong>
         {result !== undefined && (
           <span className={`ev-chip${bool(result, 'is_error') === true ? ' err' : ' ok'}`}>
-            {bool(result, 'is_error') === true ? '✕' : '✓'}
+            <Icon name={bool(result, 'is_error') === true ? 'close' : 'check'} size={12} />
           </span>
         )}
       </div>

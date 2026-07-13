@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
+import { Icon } from '../ui/Icon';
 import { isTauri } from '../platform';
 import { ConnectForm } from './ConnectForm';
 import { ptyOpen } from './pty';
@@ -85,22 +86,24 @@ export function TerminalDock(): JSX.Element {
                 {tab.title}
               </button>
               <button className="term-tab-x" title={t('term.closeTab')} onClick={() => closeTab(tab.id)}>
-                ✕
+                <Icon name="close" size={13} />
               </button>
             </div>
           ))}
         </div>
         <span className="term-dock-add">
           <button onClick={() => void newLocal()} disabled={!tauri} title={t('term.newLocalHint')}>
-            + {t('term.localShell')}
+            <Icon name="plus" size={13} />
+            {t('term.localShell')}
           </button>
           <button className={connecting ? 'active' : ''} onClick={() => setConnecting(true)} disabled={!tauri}>
-            + {t('term.ssh')}
+            <Icon name="plus" size={13} />
+            {t('term.ssh')}
           </button>
         </span>
         <span className="spacer" />
         <button className="term-dock-hide" title={t('term.hideDock')} onClick={() => setOpen(false)}>
-          ▾
+          <Icon name="chevron-down" />
         </button>
       </div>
 

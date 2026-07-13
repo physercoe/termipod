@@ -3,6 +3,7 @@ import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
 import { AgentCompanion } from '../ui/AgentCompanion';
+import { Icon, type IconName } from '../ui/Icon';
 import { AuthorNav } from './AuthorNav';
 import { DiagramEditor } from './DiagramEditor';
 import { Markdown } from '../ui/Markdown';
@@ -63,15 +64,15 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
 
   // Formatting actions act on the live CodeMirror selection (mousedown-preventDefault
   // keeps that selection alive through the button click).
-  const fmt: { label: string; title: string; run: () => void }[] = [
-    { label: 'B', title: t('author.fmtBold'), run: () => edRef.current?.wrap('**') },
-    { label: 'I', title: t('author.fmtItalic'), run: () => edRef.current?.wrap('*') },
-    { label: '‹›', title: t('author.fmtCode'), run: () => edRef.current?.wrap('`') },
-    { label: 'H', title: t('author.fmtHeading'), run: () => edRef.current?.linePrefix('## ') },
-    { label: '•', title: t('author.fmtList'), run: () => edRef.current?.linePrefix('- ') },
-    { label: '1.', title: t('author.fmtOList'), run: () => edRef.current?.linePrefix('1. ') },
-    { label: '❝', title: t('author.fmtQuote'), run: () => edRef.current?.linePrefix('> ') },
-    { label: '🔗', title: t('author.fmtLink'), run: () => edRef.current?.wrap('[', '](url)') },
+  const fmt: { icon: IconName; title: string; run: () => void }[] = [
+    { icon: 'bold', title: t('author.fmtBold'), run: () => edRef.current?.wrap('**') },
+    { icon: 'italic', title: t('author.fmtItalic'), run: () => edRef.current?.wrap('*') },
+    { icon: 'code', title: t('author.fmtCode'), run: () => edRef.current?.wrap('`') },
+    { icon: 'heading', title: t('author.fmtHeading'), run: () => edRef.current?.linePrefix('## ') },
+    { icon: 'list', title: t('author.fmtList'), run: () => edRef.current?.linePrefix('- ') },
+    { icon: 'list-ordered', title: t('author.fmtOList'), run: () => edRef.current?.linePrefix('1. ') },
+    { icon: 'quote', title: t('author.fmtQuote'), run: () => edRef.current?.linePrefix('> ') },
+    { icon: 'link', title: t('author.fmtLink'), run: () => edRef.current?.wrap('[', '](url)') },
   ];
 
   return (
@@ -94,7 +95,7 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={f.run}
               >
-                {f.label}
+                <Icon name={f.icon} size={15} />
               </button>
             ))}
           </div>
@@ -228,10 +229,12 @@ export function AuthorSurface(): JSX.Element {
             {t('author.files')}
           </button>
           <button className="import-btn" onClick={() => create('markdown')}>
-            + {t('author.newDoc')}
+            <Icon name="plus" size={14} />
+            {t('author.newDoc')}
           </button>
           <button className="import-btn" onClick={() => create('diagram')}>
-            ◈ {t('author.newDiagram')}
+            <Icon name="diagram" size={14} />
+            {t('author.newDiagram')}
           </button>
           {tauri && (
             <>
@@ -280,7 +283,7 @@ export function AuthorSurface(): JSX.Element {
           {docs.map((d) => (
             <span key={d.id} className={`read-tabitem${activeId === d.id ? ' active' : ''}`}>
               <button className="read-tabitem-label" title={d.filePath ?? d.title} onClick={() => setActive(d.id)}>
-                <span className="read-tabitem-kind">{d.kind === 'diagram' ? '◈' : '📝'}</span>
+                <Icon name={d.kind === 'diagram' ? 'diagram' : 'note'} size={13} className="read-tabitem-kind" />
                 {d.dirty === true ? '● ' : ''}
                 {d.title !== '' ? d.title : t('author.untitled')}
               </button>

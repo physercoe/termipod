@@ -26,6 +26,7 @@ import { isTauri } from '../platform';
 import { BrowserView } from './BrowserView';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
+import { Icon, type IconName } from '../ui/Icon';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
 // epub.js is heavy and epub is a rare path — lazy-load it into its own chunk.
@@ -257,9 +258,9 @@ function viewKindFor(file: string): ViewKind {
   return EXT_KIND[ext] ?? 'html'; // unknown → try an iframe; the webview sniffs it
 }
 
-// A glyph + human label per attachment kind — used by the info-tab summary card.
-const KIND_GLYPH: Record<ViewKind, string> = {
-  pdf: '📄', epub: '📖', image: '🖼', video: '🎬', audio: '🎵', html: '🌐', text: '📝',
+// A line icon + human label per attachment kind — used by the info-tab card.
+const KIND_ICON: Record<ViewKind, IconName> = {
+  pdf: 'file-text', epub: 'book', image: 'image', video: 'film', audio: 'music', html: 'globe', text: 'note',
 };
 const KIND_LABEL: Record<ViewKind, string> = {
   pdf: 'read.kPdf', epub: 'read.kEpub', image: 'read.kImage', video: 'read.kVideo',
@@ -411,7 +412,7 @@ function AttachmentInfo({
       <div className="muted small">{t('read.attHead')}</div>
       <div className="att-card">
         <div className="att-thumb" data-kind={kind}>
-          {thumb !== null ? <img src={thumb} alt={att.file} /> : <span className="att-glyph">{KIND_GLYPH[kind]}</span>}
+          {thumb !== null ? <img src={thumb} alt={att.file} /> : <Icon name={KIND_ICON[kind]} size={26} className="att-glyph" />}
         </div>
         <div className="att-fields">
           <div className="att-field">
@@ -431,7 +432,8 @@ function AttachmentInfo({
           </div>
           {present && embedded !== true && onOpen !== undefined && (
             <button className="primary small att-open" onClick={onOpen}>
-              ⧉ {t('read.attOpen')}
+              <Icon name="window" />
+              {t('read.attOpen')}
             </button>
           )}
         </div>
@@ -677,7 +679,7 @@ function Inspector({
       <div className="ref-tabs">
         {onCollapse !== undefined && (
           <button className="read-fold" title={t('read.collapse')} onClick={onCollapse}>
-            ›
+            <Icon name="chevron-right" />
           </button>
         )}
         {tabs.map((tb) => (
@@ -694,7 +696,8 @@ function Inspector({
               title={t('read.openInReader')}
               onClick={() => onOpenReader?.(ref.id)}
             >
-              ⧉ PDF
+              <Icon name="window" />
+              PDF
             </button>
           ) : (
             <button
@@ -714,7 +717,8 @@ function Inspector({
             void runScrape();
           }}
         >
-          {scraping ? '⋯' : '⟳'} {t('read.scrape')}
+          {scraping ? <span className="ref-scrape-busy">…</span> : <Icon name="refresh" />}
+          {t('read.scrape')}
         </button>
         {confirming ? (
           <span className="ref-confirm">
@@ -803,7 +807,7 @@ function Inspector({
                       title={t('read.openExternal')}
                       onClick={() => openLink(`https://doi.org/${ref.doi ?? ''}`)}
                     >
-                      ↗
+                      <Icon name="external" size={13} />
                     </button>
                   )}
                 </span>
@@ -818,7 +822,7 @@ function Inspector({
                       title={t('read.openExternal')}
                       onClick={() => openLink(ref.url ?? '')}
                     >
-                      ↗
+                      <Icon name="external" size={13} />
                     </button>
                   )}
                 </span>
@@ -897,7 +901,8 @@ function Inspector({
               <div className="ref-attach">
                 {attPresent ? (
                   <button className="primary small" onClick={() => onOpenReader?.(ref.id)}>
-                    ⧉ {t('read.openInReader')}
+                    <Icon name="window" />
+                    {t('read.openInReader')}
                   </button>
                 ) : storageLinked ? (
                   <div className="muted small">
@@ -1019,7 +1024,7 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
         <span className="spacer" />
         {url !== undefined && url !== '' && (
           <button className="link-btn" title={t('read.openUrl')} onClick={() => openLink(url)}>
-            {t('read.openUrl')} ↗
+            {t('read.openUrl')} <Icon name="external" size={13} />
           </button>
         )}
       </div>
@@ -1227,7 +1232,7 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
           />
           {source.keyUrl !== undefined && (
             <button className="link-btn" onClick={() => openLink(source.keyUrl ?? '')}>
-              {t('read.getApiKey')} ↗
+              {t('read.getApiKey')} <Icon name="external" size={13} />
             </button>
           )}
         </div>
@@ -1546,7 +1551,7 @@ export function ReadSurface(): JSX.Element {
           <span>{importMsg}</span>
           <span className="spacer" />
           <button className="link-btn" onClick={() => setImportMsg(null)}>
-            ×
+            <Icon name="close" size={13} />
           </button>
         </div>
       )}
@@ -1561,11 +1566,11 @@ export function ReadSurface(): JSX.Element {
           {tabs.map((tb) => (
             <span key={tb.id} className={`read-tabitem${activeTab === tb.id ? ' active' : ''}`}>
               <button className="read-tabitem-label" title={tb.title} onClick={() => setActiveTab(tb.id)}>
-                <span className="read-tabitem-kind">{tb.kind === 'web' ? '🌐' : '📄'}</span>
+                <Icon name={tb.kind === 'web' ? 'globe' : 'file-text'} size={13} className="read-tabitem-kind" />
                 {tb.title}
               </button>
               <button className="read-tabitem-x" title={t('read.closeTab')} onClick={() => closeTab(tb.id)}>
-                ×
+                <Icon name="close" size={13} />
               </button>
             </span>
           ))}
@@ -1591,14 +1596,14 @@ export function ReadSurface(): JSX.Element {
           <div className="read-layout">
         {railCollapsed ? (
           <button className="read-pane-expand" title={t('read.showSidebar')} onClick={() => foldRail(false)}>
-            ›
+            <Icon name="chevron-right" />
           </button>
         ) : (
           <>
         <aside className="read-rail" style={{ width: railW }}>
           <div className="read-rail-head">
             <button className="read-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
-              ‹
+              <Icon name="chevron-left" />
             </button>
           </div>
           <div className="read-rail-group">
@@ -1630,12 +1635,13 @@ export function ReadSurface(): JSX.Element {
                     if (collection === c.id) setCollection(ALL);
                   }}
                 >
-                  ×
+                  <Icon name="close" size={12} />
                 </span>
               </button>
             ))}
             <button className="read-col add" onClick={newCollection}>
-              + {t('read.newCollection')}
+              <Icon name="plus" size={13} />
+              {t('read.newCollection')}
             </button>
           </div>
           {allTags.length > 0 && (
@@ -1711,7 +1717,7 @@ export function ReadSurface(): JSX.Element {
                           >
                             {t(c.labelKey)}
                             <span className="read-th-arrow">
-                              {sortKey === c.key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                              {sortKey === c.key && <Icon name={sortDir === 'asc' ? 'chevron-up' : 'chevron-down'} size={12} />}
                             </span>
                           </th>
                         ))}
@@ -1739,7 +1745,7 @@ export function ReadSurface(): JSX.Element {
                                     openPdfTab(r.id);
                                   }}
                                 >
-                                  ⧉
+                                  <Icon name="window" size={13} />
                                 </span>
                               )}
                               {r.title !== '' ? r.title : t('read.untitled')}
@@ -1764,7 +1770,7 @@ export function ReadSurface(): JSX.Element {
 
         {inspCollapsed ? (
           <button className="read-pane-expand" title={t('read.showDetails')} onClick={() => foldInsp(false)}>
-            ‹
+            <Icon name="chevron-left" />
           </button>
         ) : (
           <>
@@ -1786,7 +1792,7 @@ export function ReadSurface(): JSX.Element {
               <div className="ref-tabs">
                 <span className="spacer" />
                 <button className="read-fold" title={t('read.collapse')} onClick={() => foldInsp(true)}>
-                  ›
+                  <Icon name="chevron-right" />
                 </button>
               </div>
               <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>

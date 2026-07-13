@@ -620,6 +620,79 @@ function OutlineList({
   );
 }
 
+// The panel-icon + fallback label for each annotation kind (Zotero-style list).
+function annoIcon(type: Annotation['type']): 'highlight' | 'underline' | 'note' | 'square' | 'pen' {
+  switch (type) {
+    case 'underline':
+      return 'underline';
+    case 'note':
+      return 'note';
+    case 'image':
+      return 'square';
+    case 'ink':
+      return 'pen';
+    default:
+      return 'highlight';
+  }
+}
+function annoLabelKey(type: Annotation['type']): string {
+  switch (type) {
+    case 'underline':
+      return 'read.annUnderline';
+    case 'note':
+      return 'read.annNote';
+    case 'image':
+      return 'read.annArea';
+    case 'ink':
+      return 'read.annDraw';
+    default:
+      return 'read.annHighlight';
+  }
+}
+
+// The left-panel Annotations tab — every annotation on the PDF, in reading order,
+// with a colour dot, kind icon, a text/comment preview, and its page. Clicking a
+// row jumps to it (and selects it). Mirrors Zotero's annotations sidebar.
+function AnnotationList({
+  annos,
+  selectedId,
+  onGo,
+  t,
+}: {
+  annos: Annotation[];
+  selectedId: string | null;
+  onGo: (a: Annotation) => void;
+  t: (k: string) => string;
+}): JSX.Element {
+  if (annos.length === 0) {
+    return <div className="pdfjs-anno-empty muted small">{t('read.annEmpty')}</div>;
+  }
+  return (
+    <ul className="pdfjs-anno-list">
+      {annos.map((a) => {
+        const text = (a.text ?? '').trim();
+        const comment = (a.comment ?? '').trim();
+        const primary = text || comment || t(annoLabelKey(a.type));
+        return (
+          <li key={a.id}>
+            <button
+              className={`pdfjs-anno-row${a.id === selectedId ? ' active' : ''}`}
+              title={primary}
+              onClick={() => onGo(a)}
+            >
+              <span className="pdfjs-anno-dot" style={{ background: a.color ?? '#ffd400' }} />
+              <Icon name={annoIcon(a.type)} size={13} />
+              <span className="pdfjs-anno-rowtext">{primary}</span>
+              <span className="pdfjs-anno-pg muted small">{a.pageIndex + 1}</span>
+            </button>
+            {text !== '' && comment !== '' && <div className="pdfjs-anno-rowcomment muted small">{comment}</div>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 // One page thumbnail — rendered lazily to a small canvas (IntersectionObserver),
 // clicking jumps to the page. The active page is outlined and scrolled into view.
 function Thumb({
@@ -753,6 +826,13 @@ export function PdfCanvas({
     }
     return m;
   }, [allAnnos, referenceId]);
+  // Flat, reading-order list for the Annotations panel tab.
+  const refAnnos = useMemo(() => {
+    if (referenceId === undefined) return [];
+    return allAnnos
+      .filter((a) => a.referenceId === referenceId)
+      .sort((x, y) => x.pageIndex - y.pageIndex || (x.sortIndex ?? '').localeCompare(y.sortIndex ?? ''));
+  }, [allAnnos, referenceId]);
   const [term, setTerm] = useState(''); // the live input value
   const [query, setQuery] = useState(''); // the committed search term (drives highlight)
   const [matches, setMatches] = useState<number[]>([]); // page numbers containing the term
@@ -763,7 +843,7 @@ export function PdfCanvas({
   const [outline, setOutline] = useState<OutlineNode[]>([]);
   const [pageDims, setPageDims] = useState<{ w: number; h: number }[]>([]);
   const [showToc, setShowToc] = useState(false);
-  const [panelTab, setPanelTab] = useState<'outline' | 'thumbs'>('thumbs');
+  const [panelTab, setPanelTab] = useState<'outline' | 'thumbs' | 'annos'>('thumbs');
   const [tocW, setTocW] = useState(() => {
     const v = Number(localStorage.getItem('termipod.read.pdfTocW'));
     return Number.isFinite(v) && v > 0 ? v : 240;
@@ -1058,6 +1138,30 @@ export function PdfCanvas({
 
   const canAnnotate = referenceId !== undefined && pdf !== null;
 
+  // The topmost PDF-y (bottom-left origin) of an annotation, for jump targeting.
+  function annoTopY(a: Annotation): number | undefined {
+    const r = a.position.rects?.[0];
+    if (r !== undefined) return Math.max(r[1], r[3]);
+    const p = a.position.paths?.[0];
+    if (p !== undefined) {
+      let m = -Infinity;
+      for (let i = 1; i < p.length; i += 2) m = Math.max(m, p[i]);
+      return m > -Infinity ? m : undefined;
+    }
+    return undefined;
+  }
+
+  // Jump to an annotation from the panel list: scroll its page + in-page offset
+  // into view and select it (opens its editor / highlights the row).
+  function goToAnnotation(a: Annotation): void {
+    setSelectedAnno(a.id);
+    const fpH = pageDims[a.pageIndex]?.h;
+    const topY = annoTopY(a);
+    let yOffset = 0;
+    if (fpH !== undefined && topY !== undefined) yOffset = Math.max(0, fpH - topY * scale - 40);
+    scrollToPage(a.pageIndex + 1, yOffset);
+  }
+
   if (err) return <div className="muted region-pad">{t('read.pdfRenderFailed')}</div>;
 
   return (
@@ -1068,8 +1172,11 @@ export function PdfCanvas({
             className={`pdfjs-zoom${showToc ? ' active' : ''}`}
             title={t('read.pdfToc')}
             onClick={() => {
-              // Opening: default to the outline when the PDF has one, else thumbnails.
-              if (!showToc) setPanelTab(outline.length > 0 ? 'outline' : 'thumbs');
+              // Opening: prefer Annotations if the PDF has any, else the outline
+              // when present, else thumbnails.
+              if (!showToc) {
+                setPanelTab(refAnnos.length > 0 ? 'annos' : outline.length > 0 ? 'outline' : 'thumbs');
+              }
               setShowToc((v) => !v);
             }}
           >
@@ -1187,6 +1294,14 @@ export function PdfCanvas({
           <>
             <div className="pdfjs-toc" style={{ width: tocW }}>
               <div className="pdfjs-panel-tabs">
+                {canAnnotate && (
+                  <button
+                    className={panelTab === 'annos' ? 'active' : ''}
+                    onClick={() => setPanelTab('annos')}
+                  >
+                    {t('read.pdfAnnotations')}
+                  </button>
+                )}
                 {outline.length > 0 && (
                   <button
                     className={panelTab === 'outline' ? 'active' : ''}
@@ -1203,7 +1318,9 @@ export function PdfCanvas({
                 </button>
               </div>
               <div className="pdfjs-panel-body scroll">
-                {panelTab === 'outline' && outline.length > 0 ? (
+                {panelTab === 'annos' && canAnnotate ? (
+                  <AnnotationList annos={refAnnos} selectedId={selectedAnno} onGo={goToAnnotation} t={t} />
+                ) : panelTab === 'outline' && outline.length > 0 ? (
                   <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
                 ) : (
                   <ThumbList pdf={pdf} current={currentPage} onGo={(n) => scrollToPage(n)} />

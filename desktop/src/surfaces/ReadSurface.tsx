@@ -361,7 +361,15 @@ function AttachmentView({
         <EpubView data={payload.buf} fileName={att.file} onSaveSelection={onSaveSelection} />
       </Suspense>
     );
-  if (payload.t === 'text') return <pre className="att-text region-pad">{payload.text}</pre>;
+  if (payload.t === 'text')
+    return /\.(md|markdown)$/i.test(att.file) ? (
+      // Render markdown attachments as formatted prose, not raw source.
+      <div className="region-pad doc-body att-md">
+        <Markdown text={payload.text} />
+      </div>
+    ) : (
+      <pre className="att-text region-pad">{payload.text}</pre>
+    );
   if (payload.t === 'url' && payload.kind === 'image')
     return (
       <div className="att-image-wrap">

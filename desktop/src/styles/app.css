@@ -5384,6 +5384,11 @@ th {
   align-items: center;
   justify-content: center;
 }
+/* Rendered markdown attachment — fills + scrolls like the raw-text view. */
+.att-md {
+  height: 100%;
+  overflow: auto;
+}
 .att-text {
   height: 100%;
   overflow: auto;

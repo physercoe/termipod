@@ -877,6 +877,11 @@ button > .ui-icon:not(:only-child):first-child,
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
+/* Actions-only variant (no title — the tab strip already labels the doc):
+   tighten the vertical padding so it reads as a thin action strip. */
+.reader-topbar-actions {
+  padding: var(--spacing-s4) var(--spacing-s12);
+}
 .reader-title {
   font-weight: 600;
   color: var(--text);

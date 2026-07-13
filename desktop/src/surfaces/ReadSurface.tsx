@@ -1039,10 +1039,10 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
   const url = ref.url;
   return (
     <div className="reader-view">
-      <div className="reader-topbar">
-        <div className="reader-title" title={ref.title}>
-          {ref.title !== '' ? ref.title : t('read.untitled')}
-        </div>
+      {/* No title here — the tab strip already labels the document. This slim
+          bar carries only the actions (open-original-URL + details toggle),
+          right-aligned, so the title isn't shown twice stacked. */}
+      <div className="reader-topbar reader-topbar-actions">
         <span className="spacer" />
         {url !== undefined && url !== '' && (
           <button className="link-btn" title={t('read.openUrl')} onClick={() => openLink(url)}>

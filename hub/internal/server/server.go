@@ -680,6 +680,18 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Get("/", s.handleGetReference)
 				r.Patch("/", s.handleUpdateReference)
 				r.Delete("/", s.handleDeleteReference)
+				// PDF annotations — child records of the reference (ADR-053
+				// companion, migration 0064). Agents reach the same store via
+				// the reference_annotation_* MCP tools.
+				r.Route("/annotations", func(r chi.Router) {
+					r.Get("/", s.handleListReferenceAnnotations)
+					r.Post("/", s.handleCreateReferenceAnnotation)
+					r.Route("/{ann}", func(r chi.Router) {
+						r.Get("/", s.handleGetReferenceAnnotation)
+						r.Patch("/", s.handleUpdateReferenceAnnotation)
+						r.Delete("/", s.handleDeleteReferenceAnnotation)
+					})
+				})
 			})
 		})
 		r.Route("/documents", func(r chi.Router) {

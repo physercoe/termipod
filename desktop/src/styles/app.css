@@ -4443,6 +4443,13 @@ th {
 .palette-backdrop {
   position: fixed;
   inset: 0;
+  /* Sit above ALL surface content. Without an explicit z-index the backdrop is
+   * z-index:auto and only wins over siblings by DOM order — but any surface
+   * element with a positive z-index (e.g. the read-table sticky header th,
+   * z-index:1, or the PDF context menu, z-index:50) forms its own stacking
+   * context and paints *above* an auto backdrop regardless of tree order, so
+   * that row bleeds through the modal and steals its wheel/pointer events. */
+  z-index: 200;
   background: rgba(6, 8, 12, 0.55);
   backdrop-filter: blur(3px) saturate(0.9);
   display: flex;

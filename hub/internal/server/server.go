@@ -713,8 +713,8 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				// they don't need the document URL parameter. DELETE is
 				// rejected (annotations are append-only-on-content; D3).
 				r.Route("/annotations", func(r chi.Router) {
-					r.Get("/", s.handleListReferenceAnnotations)
-					r.Post("/", s.handleCreateReferenceAnnotation)
+					r.Get("/", s.handleListAnnotations)
+					r.Post("/", s.handleCreateAnnotation)
 				})
 			})
 		})

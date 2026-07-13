@@ -1,10 +1,20 @@
 import { memo } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { useOpenLink } from './OpenLinkContext';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
+
+// react-markdown's default urlTransform strips every non-http(s)/mailto URL —
+// including the `data:image/…;base64,…` URIs we embed for note screenshots (an
+// area shot added via "Add to note"), so `![figure](data:image/png;base64,…)`
+// rendered as `<img src="">` (a broken image). Allow inline image data-URIs
+// through; defer everything else to the safe default. `<img src="data:…">` can
+// only paint a raster/vector — it can't execute script — so this is XSS-safe.
+function urlTransform(url: string): string {
+  return /^data:image\//i.test(url) ? url : defaultUrlTransform(url);
+}
 
 /// F1 primitive — safe GitHub-flavoured Markdown for transcript text/thought
 /// blocks and tool payloads. react-markdown renders to React elements (no
@@ -31,12 +41,23 @@ import rehypeHighlight from 'rehype-highlight';
 /// treating single `$…$` as inline math would mangle them. Display math
 /// (`$$…$$`) still renders; `throwOnError: false` makes a malformed formula show
 /// inline in red rather than blanking the whole block.
-export const Markdown = memo(function Markdown({ text }: { text: string }): JSX.Element {
+export const Markdown = memo(function Markdown({
+  text,
+  singleDollarMath = false,
+}: {
+  text: string;
+  // Enable `$…$` inline math. Default off for agent transcripts (bare `$VAR`,
+  // `$1`, `$PATH` are pervasive there and would be mangled); the prose/document
+  // contexts (a `.md` attachment, item notes, the read body) turn it ON so a
+  // real LaTeX document renders its inline math.
+  singleDollarMath?: boolean;
+}): JSX.Element {
   const openLink = useOpenLink();
   return (
     <div className="md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
+        urlTransform={urlTransform}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: singleDollarMath }]]}
         rehypePlugins={[
           [rehypeHighlight, { detect: true, ignoreMissing: true }],
           [rehypeKatex, { throwOnError: false }],

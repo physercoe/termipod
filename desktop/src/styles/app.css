@@ -1541,6 +1541,50 @@ button > .ui-icon:not(:only-child):first-child,
   margin: var(--spacing-s4) 0;
   background: var(--border);
 }
+
+/* Library-row right-click menu (ReadSurface) — Zotero-style item context menu.
+   Shares the look of the PDF context menu. */
+.read-ctxmenu {
+  position: fixed;
+  z-index: 200;
+  min-width: 190px;
+  padding: var(--spacing-s4);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.read-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 100%;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.read-ctx-item:hover {
+  background: var(--accent-tint);
+}
+.read-ctx-item.danger {
+  color: var(--danger);
+}
+.read-ctx-item.danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.read-ctx-sep {
+  height: 1px;
+  margin: var(--spacing-s4) 0;
+  background: var(--border);
+}
 .reader-side {
   flex: 0 0 auto;
   min-width: 0;
@@ -2706,6 +2750,11 @@ button.small,
 }
 .md p {
   margin: var(--spacing-s4) 0;
+}
+/* Markdown images (incl. inline note-screenshot data-URIs) fit their column. */
+.md img {
+  max-width: 100%;
+  height: auto;
 }
 .md pre {
   overflow-x: auto;

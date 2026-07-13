@@ -30,17 +30,33 @@ export function EpubView({
     // epub.js mutates the ArrayBuffer's view; hand it a copy so re-mounts (or a
     // concurrent PDF arrayBuffer reader) never see a detached/consumed buffer.
     const book = ePub(data.slice(0));
-    const r = book.renderTo(host, { width: '100%', height: '100%', flow: 'scrolled-doc', spread: 'none' });
+    // epub.js mishandles a `'100%'` width string in scrolled-doc: it snapshots a
+    // pixel width for the inner container at render time and a later `resize`
+    // treats the config as already-100% and no-ops, so the book stays pinned at
+    // its first (often narrow / 0-width) measurement. Hand it explicit pixels
+    // from the host and drive every subsequent width through `resize()` below.
+    const w0 = host.clientWidth || 800;
+    const h0 = host.clientHeight || 600;
+    const r = book.renderTo(host, { width: w0, height: h0, flow: 'scrolled-doc', spread: 'none' });
     rendition.current = r;
-    // Many EPUBs ship a narrow `max-width` on <body>; override so the text uses
-    // the pane width (with comfortable side padding) instead of a fixed column.
+    // Many EPUBs pin the text to a narrow column (a `max-width`/`width` or CSS
+    // multi-column on <html>/<body>/a wrapper); override aggressively so the text
+    // uses the pane width (with comfortable side padding) instead of a fixed
+    // column that leaves the rest of the wide pane blank.
     r.themes.default({
-      body: {
+      'html, body': {
         'max-width': 'none !important',
-        margin: '0 auto !important',
+        width: 'auto !important',
+        'column-count': '1 !important',
+        'column-width': 'auto !important',
+      },
+      body: {
+        margin: '0 !important',
         padding: '0 clamp(1rem, 5vw, 4rem) !important',
+        'box-sizing': 'border-box !important',
         'line-height': '1.65',
       },
+      img: { 'max-width': '100% !important', height: 'auto !important' },
     });
     void r.display();
     void book.loaded.navigation.then((nav) => {

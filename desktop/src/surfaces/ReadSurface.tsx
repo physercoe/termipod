@@ -366,9 +366,11 @@ function AttachmentView({
     );
   if (payload.t === 'text')
     return /\.(md|markdown)$/i.test(att.file) ? (
-      // Render markdown attachments as formatted prose, not raw source.
-      <div className="region-pad doc-body att-md">
-        <Markdown text={payload.text} />
+      // Render markdown attachments as formatted prose, not raw source. No
+      // `doc-body` (its 76ch cap left the pane's right half blank) — the reader
+      // fills its pane width; `singleDollarMath` renders a document's `$…$` math.
+      <div className="region-pad att-md">
+        <Markdown text={payload.text} singleDollarMath />
       </div>
     ) : (
       <pre className="att-text region-pad">{payload.text}</pre>
@@ -1083,7 +1085,7 @@ function Inspector({
               </>
             ) : (
               <>
-                <Markdown text={ref.bodyMarkdown ?? ''} />
+                <Markdown text={ref.bodyMarkdown ?? ''} singleDollarMath />
                 <button className="link-btn" onClick={() => setEditingBody(true)}>
                   {t('read.editBody')}
                 </button>
@@ -1118,7 +1120,7 @@ function Inspector({
             </div>
             {notesPreview ? (
               <div className="ref-notes-preview doc-body region-pad">
-                <Markdown text={ref.notes} />
+                <Markdown text={ref.notes} singleDollarMath />
               </div>
             ) : (
               <textarea
@@ -1513,6 +1515,9 @@ export function ReadSurface(): JSX.Element {
   const addReference = useLibrary((s) => s.addReference);
   const addCollection = useLibrary((s) => s.addCollection);
   const removeCollection = useLibrary((s) => s.removeCollection);
+  const removeReference = useLibrary((s) => s.removeReference);
+  const updateReference = useLibrary((s) => s.updateReference);
+  const addAttachment = useLibrary((s) => s.addAttachment);
   const importReferences = useLibrary((s) => s.importReferences);
   const linkFolder = useZoteroStorage((s) => s.linkFolder);
   const linkNative = useZoteroStorage((s) => s.linkNative);
@@ -1532,6 +1537,10 @@ export function ReadSurface(): JSX.Element {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  // Right-click menu for a library row (Zotero-style item context menu). Delete
+  // is two-step (`menuConfirm`) — `window.confirm` is unreliable in WebView2.
+  const [rowMenu, setRowMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  const [menuConfirm, setMenuConfirm] = useState(false);
   const [railW, setRailW] = useState(() => loadWidth('termipod.read.railW', 220));
   const [inspW, setInspW] = useState(() => loadWidth('termipod.read.inspW', 380));
   const [railCollapsed, setRailCollapsed] = useState(() => localStorage.getItem('termipod.read.railFold') === '1');
@@ -1589,6 +1598,43 @@ export function ReadSurface(): JSX.Element {
   function closeTab(id: string): void {
     setTabs((ts) => ts.filter((tb) => tb.id !== id));
     setActiveTab((a) => (a === id ? null : a));
+  }
+
+  // Dismiss the row context menu on any outside click, scroll, or Escape.
+  useEffect(() => {
+    if (rowMenu === null) return;
+    const close = (): void => setRowMenu(null);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setRowMenu(null);
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [rowMenu]);
+
+  // Pick a file and attach it to the item (managed copy). Mirrors the Inspector's
+  // Add-file flow so an attachment can be added straight from the row menu.
+  async function ctxAddAttachment(id: string): Promise<void> {
+    setRowMenu(null);
+    try {
+      const added = await pickAndCopyAttachment();
+      if (added !== null) {
+        addAttachment(id, {
+          file: added.file,
+          contentType: added.contentType,
+          source: 'managed',
+          key: added.key,
+          path: added.path,
+        });
+      }
+    } catch (e) {
+      setImportMsg(e instanceof Error ? e.message : String(e));
+    }
   }
 
   // Re-index the persisted storage-folder path on mount (Tauri) so the link
@@ -1984,6 +2030,12 @@ export function ReadSurface(): JSX.Element {
                             onDoubleClick={() => {
                               if (hasPdf) openPdfTab(r.id);
                             }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              setSelected(r.id);
+                              setMenuConfirm(false);
+                              setRowMenu({ x: e.clientX, y: e.clientY, id: r.id });
+                            }}
                           >
                             <td className="read-td-title">
                               {hasPdf && (
@@ -2087,6 +2139,104 @@ export function ReadSurface(): JSX.Element {
           </div>
         </>
       )}
+      {rowMenu !== null &&
+        (() => {
+          const r = references.find((x) => x.id === rowMenu.id);
+          if (r === undefined) return null;
+          const hasPdf = hasAnyAttachment(r);
+          return (
+            <div
+              className="read-ctxmenu"
+              style={{ left: rowMenu.x, top: rowMenu.y }}
+              onContextMenu={(e) => e.preventDefault()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {hasPdf && (
+                <button
+                  className="read-ctx-item"
+                  onClick={() => {
+                    setRowMenu(null);
+                    openPdfTab(r.id);
+                  }}
+                >
+                  <Icon name="window" size={14} /> {t('read.openInReader')}
+                </button>
+              )}
+              {isTauri() && (
+                <button className="read-ctx-item" onClick={() => void ctxAddAttachment(r.id)}>
+                  <Icon name="plus" size={14} /> {t('read.ctxAddAttachment')}
+                </button>
+              )}
+              <div className="read-ctx-sep" />
+              <button
+                className="read-ctx-item"
+                onClick={() => {
+                  setRowMenu(null);
+                  copy(citeApa(r));
+                }}
+              >
+                <Icon name="copy" size={14} /> {t('read.ctxCopyCite')}
+              </button>
+              <button
+                className="read-ctx-item"
+                onClick={() => {
+                  setRowMenu(null);
+                  copy(citeBibtex(r));
+                }}
+              >
+                <Icon name="copy" size={14} /> {t('read.ctxCopyBibtex')}
+              </button>
+              <button
+                className="read-ctx-item"
+                onClick={() => {
+                  setRowMenu(null);
+                  copy(r.title !== '' ? r.title : t('read.untitled'));
+                }}
+              >
+                <Icon name="copy" size={14} /> {t('read.ctxCopyTitle')}
+              </button>
+              {collection !== ALL && (
+                <>
+                  <div className="read-ctx-sep" />
+                  <button
+                    className="read-ctx-item"
+                    onClick={() => {
+                      setRowMenu(null);
+                      updateReference(r.id, {
+                        collectionIds: r.collectionIds.filter((c) => c !== collection),
+                      });
+                    }}
+                  >
+                    <Icon name="close" size={14} /> {t('read.ctxRemoveFromCollection')}
+                  </button>
+                </>
+              )}
+              <div className="read-ctx-sep" />
+              {menuConfirm ? (
+                <button
+                  className="read-ctx-item danger"
+                  onClick={() => {
+                    setRowMenu(null);
+                    if (selected === r.id) setSelected(null);
+                    removeReference(r.id);
+                  }}
+                >
+                  <Icon name="trash" size={14} /> {t('read.ctxDeleteConfirm')}
+                </button>
+              ) : (
+                <button
+                  className="read-ctx-item danger"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuConfirm(true);
+                  }}
+                >
+                  <Icon name="trash" size={14} /> {t('read.ctxDelete')}
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </OpenLinkContext.Provider>
     </WorkbenchSurface>
   );

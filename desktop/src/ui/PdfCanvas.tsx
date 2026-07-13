@@ -794,11 +794,20 @@ export function PdfCanvas({
   data,
   referenceId,
   onSaveSelection,
+  docUrl,
+  detailsOpen,
+  onToggleDetails,
 }: {
   data: ArrayBuffer;
   fileName?: string; // accepted for API compatibility; no longer shown (redundant with the reader title)
   referenceId?: string;
   onSaveSelection?: (text: string) => void;
+  // Reader-chrome actions hosted in this toolbar so the reader needs no separate
+  // title/action row above the PDF (saves vertical space). Open the original URL
+  // and toggle the details/metadata side panel.
+  docUrl?: string;
+  detailsOpen?: boolean;
+  onToggleDetails?: () => void;
 }): JSX.Element {
   const t = useT();
   const openLink = useOpenLink();
@@ -964,6 +973,15 @@ export function PdfCanvas({
   }, [pdf]);
 
   useEffect(() => setPageInput(String(currentPage)), [currentPage]);
+  // Editable zoom percent. The field mirrors `scale`; typing a value (Enter/blur)
+  // sets an explicit zoom instead of the fit-to-width auto-resize on the % button.
+  const [zoomInput, setZoomInput] = useState('120');
+  useEffect(() => setZoomInput(String(Math.round(scale * 100))), [scale]);
+  function applyZoom(): void {
+    const n = parseInt(zoomInput, 10);
+    if (Number.isFinite(n)) setScale(Math.max(0.4, Math.min(3, n / 100)));
+    else setZoomInput(String(Math.round(scale * 100)));
+  }
 
   // The in-page top coordinate (PDF user space, origin bottom-left) a destination
   // targets, if it pins one: /XYZ carries [left, top, zoom]; /FitH & /FitBH carry
@@ -1302,7 +1320,11 @@ export function PdfCanvas({
           </div>
         )}
         {canAnnotate && (
-          <div className="pdfjs-anno-tools">
+          <>
+            {/* Centre the annotation tools between the left (nav) and right
+                (find/zoom) clusters — a spacer on each side. */}
+            <span className="spacer" />
+            <div className="pdfjs-anno-tools">
             <button className={`pdfjs-zoom${tool === 'highlight' ? ' active' : ''}`} title={t('read.annHighlight')} onClick={() => pickTool('highlight')}>
               <Icon name="highlight" />
             </button>
@@ -1330,7 +1352,8 @@ export function PdfCanvas({
                 ))}
               </div>
             )}
-          </div>
+            </div>
+          </>
         )}
         <span className="spacer" />
         <div className="pdfjs-find">
@@ -1375,12 +1398,41 @@ export function PdfCanvas({
         <button className="pdfjs-zoom" title={t('read.zoomOut')} onClick={() => setScale((s) => Math.max(0.4, s - 0.2))}>
           <Icon name="minus" />
         </button>
-        <button className="pdfjs-zoom" title={t('read.zoomFit')} onClick={fitWidth}>
-          {Math.round(scale * 100)}%
-        </button>
+        <div className="pdfjs-zoominput">
+          <input
+            className="pdfjs-page-input"
+            value={zoomInput}
+            spellCheck={false}
+            inputMode="numeric"
+            title={t('read.zoomLevel')}
+            onChange={(e) => setZoomInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') applyZoom();
+            }}
+            onBlur={applyZoom}
+          />
+          <span className="muted small">%</span>
+        </div>
         <button className="pdfjs-zoom" title={t('read.zoomIn')} onClick={() => setScale((s) => Math.min(3, s + 0.2))}>
           <Icon name="plus" />
         </button>
+        <button className="pdfjs-zoom" title={t('read.zoomFit')} onClick={fitWidth}>
+          <Icon name="expand" />
+        </button>
+        {docUrl !== undefined && docUrl !== '' && (
+          <button className="pdfjs-zoom" title={t('read.openUrl')} onClick={() => openLink(docUrl)}>
+            <Icon name="external" />
+          </button>
+        )}
+        {onToggleDetails !== undefined && (
+          <button
+            className={`pdfjs-zoom${detailsOpen ? ' active' : ''}`}
+            title={detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
+            onClick={onToggleDetails}
+          >
+            <Icon name={detailsOpen ? 'chevron-right' : 'chevron-left'} />
+          </button>
+        )}
       </div>
       <div className="pdfjs-body">
         {showToc && pdf !== null && (

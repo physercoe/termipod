@@ -285,10 +285,18 @@ function AttachmentView({
   att,
   referenceId,
   onSaveSelection,
+  docUrl,
+  detailsOpen,
+  onToggleDetails,
 }: {
   att: { key: string; file: string };
   referenceId?: string;
   onSaveSelection?: (text: string) => void;
+  // For the PDF path only: reader-chrome actions rendered inside the PDF toolbar
+  // (the reader has no separate title/action row above the PDF).
+  docUrl?: string;
+  detailsOpen?: boolean;
+  onToggleDetails?: () => void;
 }): JSX.Element {
   const t = useT();
   const rels = useZoteroStorage((s) => s.rels);
@@ -331,7 +339,17 @@ function AttachmentView({
   if (err) return <div className="muted region-pad">{t('read.pdfNotFound')}</div>;
   if (payload === null) return <div className="muted region-pad">{t('read.loadingFile')}</div>;
   if (payload.t === 'buf' && payload.kind === 'pdf')
-    return <PdfCanvas data={payload.buf} fileName={att.file} referenceId={referenceId} onSaveSelection={onSaveSelection} />;
+    return (
+      <PdfCanvas
+        data={payload.buf}
+        fileName={att.file}
+        referenceId={referenceId}
+        onSaveSelection={onSaveSelection}
+        docUrl={docUrl}
+        detailsOpen={detailsOpen}
+        onToggleDetails={onToggleDetails}
+      />
+    );
   if (payload.t === 'buf' && payload.kind === 'epub')
     return (
       <Suspense fallback={<div className="muted region-pad">{t('read.loadingFile')}</div>}>
@@ -1037,30 +1055,42 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
 
   const att = ref.zoteroStorage;
   const url = ref.url;
+  // A PDF hosts these actions (open-URL + details toggle) inside its own toolbar,
+  // so no title/action row is rendered above it — saves vertical space, and the
+  // tab strip already labels the document. Other attachment kinds (image, video,
+  // text, …) have no embedded toolbar, so keep a slim action strip here.
+  const isPdf = att !== undefined && viewKindFor(att.file) === 'pdf';
+  const toggleDetails = (): void => setSideOpen((v) => !v);
   return (
     <div className="reader-view">
-      {/* No title here — the tab strip already labels the document. This slim
-          bar carries only the actions (open-original-URL + details toggle),
-          right-aligned, so the title isn't shown twice stacked. */}
-      <div className="reader-topbar reader-topbar-actions">
-        <span className="spacer" />
-        {url !== undefined && url !== '' && (
-          <button className="link-btn" title={t('read.openUrl')} onClick={() => openLink(url)}>
-            {t('read.openUrl')} <Icon name="external" size={13} />
+      {!isPdf && (
+        <div className="reader-topbar reader-topbar-actions">
+          <span className="spacer" />
+          {url !== undefined && url !== '' && (
+            <button className="link-btn" title={t('read.openUrl')} onClick={() => openLink(url)}>
+              {t('read.openUrl')} <Icon name="external" size={13} />
+            </button>
+          )}
+          <button
+            className="link-btn"
+            title={sideOpen ? t('read.hideDetails') : t('read.showDetails')}
+            onClick={toggleDetails}
+          >
+            <Icon name={sideOpen ? 'chevron-right' : 'chevron-left'} size={15} />
           </button>
-        )}
-        <button
-          className="link-btn"
-          title={sideOpen ? t('read.hideDetails') : t('read.showDetails')}
-          onClick={() => setSideOpen((v) => !v)}
-        >
-          <Icon name={sideOpen ? 'chevron-right' : 'chevron-left'} size={15} />
-        </button>
-      </div>
+        </div>
+      )}
       <div className="reader-body">
         <div className="reader-doc">
           {att !== undefined ? (
-            <AttachmentView att={att} referenceId={refId} onSaveSelection={saveSelection} />
+            <AttachmentView
+              att={att}
+              referenceId={refId}
+              onSaveSelection={saveSelection}
+              docUrl={url}
+              detailsOpen={sideOpen}
+              onToggleDetails={toggleDetails}
+            />
           ) : (
             <div className="muted region-pad">{t('read.noPdf')}</div>
           )}
@@ -1071,7 +1101,8 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
               onResize={(dx) => {
                 const raw = sideWRef.current - dx;
                 // Dragged past the min toward the edge → auto-collapse (reopen with
-                // the details toggle in the top bar).
+                // the details toggle — in the PDF toolbar, or the top action strip
+                // for other attachment kinds).
                 if (raw < 260) {
                   setSideOpen(false);
                   return;

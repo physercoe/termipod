@@ -970,6 +970,12 @@ button > .ui-icon:not(:only-child):first-child,
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
+/* Editable zoom-percent field + its trailing % sign, kept on one baseline. */
+.pdfjs-zoominput {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
 .pdfjs-body {
   flex: 1;
   min-height: 0;

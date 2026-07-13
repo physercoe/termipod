@@ -141,10 +141,36 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
 
   const [cacheKb, setCacheKb] = useState(() => Math.round(cacheSizeBytes() / 1024));
 
+  // Draggable dialog: the modal is centred by default; grabbing its header offsets
+  // it so it can be repositioned (director: "the window cannot move"). Track via
+  // window listeners — WebView2's setPointerCapture is unreliable ([[memory]]).
+  const [drag, setDrag] = useState({ x: 0, y: 0 });
+  function startDrag(e: React.MouseEvent): void {
+    // Don't start a drag from the close button.
+    if ((e.target as HTMLElement).closest('button') !== null) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const base = { ...drag };
+    const move = (ev: MouseEvent): void => {
+      setDrag({ x: base.x + (ev.clientX - startX), y: base.y + (ev.clientY - startY) });
+    };
+    const up = (): void => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="settings" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="admin-tabs">
+      <div
+        className="settings"
+        onMouseDown={(e) => e.stopPropagation()}
+        style={drag.x !== 0 || drag.y !== 0 ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined}
+      >
+        <div className="admin-tabs admin-tabs-drag" onMouseDown={startDrag}>
           <strong>{t('settings.title')}</strong>
           <span className="spacer" />
           <button onClick={onClose}>{t('admin.close')}</button>

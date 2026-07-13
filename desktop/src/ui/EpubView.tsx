@@ -32,6 +32,16 @@ export function EpubView({
     const book = ePub(data.slice(0));
     const r = book.renderTo(host, { width: '100%', height: '100%', flow: 'scrolled-doc', spread: 'none' });
     rendition.current = r;
+    // Many EPUBs ship a narrow `max-width` on <body>; override so the text uses
+    // the pane width (with comfortable side padding) instead of a fixed column.
+    r.themes.default({
+      body: {
+        'max-width': 'none !important',
+        margin: '0 auto !important',
+        padding: '0 clamp(1rem, 5vw, 4rem) !important',
+        'line-height': '1.65',
+      },
+    });
     void r.display();
     void book.loaded.navigation.then((nav) => {
       setToc(nav.toc.map((i: NavItem) => ({ label: i.label.trim(), href: i.href })));
@@ -39,7 +49,19 @@ export function EpubView({
     r.on('selected', (_cfiRange: string, contents: Contents) => {
       setSel(contents.window.getSelection()?.toString().trim() ?? '');
     });
+    // epub.js snapshots the container width at render time and does NOT reflow on
+    // its own — so the book stays narrow/fixed when the pane grows (details panel
+    // toggled, window resized, or a 0-width initial mount). Re-measure on resize.
+    const ro = new ResizeObserver(() => {
+      try {
+        r.resize(host.clientWidth, host.clientHeight);
+      } catch {
+        /* rendition torn down mid-resize */
+      }
+    });
+    ro.observe(host);
     return () => {
+      ro.disconnect();
       r.destroy();
       book.destroy();
       rendition.current = null;

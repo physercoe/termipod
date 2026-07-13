@@ -387,12 +387,10 @@ function AttachmentView({
 // it stays self-contained.
 function AttachmentInfo({
   att,
-  embedded,
   onOpen,
   onRemove,
 }: {
   att: Attachment;
-  embedded?: boolean;
   onOpen?: () => void;
   onRemove?: () => void;
 }): JSX.Element {
@@ -422,6 +420,8 @@ function AttachmentInfo({
       ? t('read.attMissing')
       : t('read.attNotLinked');
 
+  // Two-step remove confirm (avoids a mis-click deleting an attachment).
+  const [confirming, setConfirming] = useState(false);
   // Thumbnail for image attachments only (cheap; other kinds show a glyph).
   const [thumb, setThumb] = useState<string | null>(null);
   useEffect(() => {
@@ -475,18 +475,35 @@ function AttachmentInfo({
                 {t('read.attReveal')}
               </button>
             )}
-            {present && embedded !== true && onOpen !== undefined && (
+            {present && onOpen !== undefined && (
               <button className="primary small att-open" onClick={onOpen}>
                 <Icon name="window" />
                 {t('read.attOpen')}
               </button>
             )}
-            {onRemove !== undefined && (
-              <button className="small att-remove" title={t('read.attRemove')} onClick={onRemove}>
-                <Icon name="trash" size={14} />
-                {t('read.attRemove')}
-              </button>
-            )}
+            {onRemove !== undefined &&
+              (confirming ? (
+                <span className="att-confirm">
+                  <span className="muted small">{t('read.attRemoveConfirm')}</span>
+                  <button
+                    className="small att-remove"
+                    onClick={() => {
+                      setConfirming(false);
+                      onRemove();
+                    }}
+                  >
+                    {t('read.confirmDeleteYes')}
+                  </button>
+                  <button className="small" onClick={() => setConfirming(false)}>
+                    {t('common.cancel')}
+                  </button>
+                </span>
+              ) : (
+                <button className="small att-remove" title={t('read.attRemove')} onClick={() => setConfirming(true)}>
+                  <Icon name="trash" size={14} />
+                  {t('read.attRemove')}
+                </button>
+              ))}
           </div>
         </div>
       </div>
@@ -966,7 +983,6 @@ function Inspector({
                   <AttachmentInfo
                     key={a.id}
                     att={a}
-                    embedded={embedded}
                     onOpen={() => onOpenReader?.(ref.id, a.id)}
                     onRemove={() => onRemoveAttachment(a)}
                   />
@@ -1004,7 +1020,7 @@ function Inspector({
                 {t('read.pdf')}: <span className="mono">{ref.pdfUrl}</span>
               </div>
             )}
-            {primary !== undefined && !embedded && (
+            {primary !== undefined && (
               <div className="ref-attach">
                 {attPresent ? (
                   <button className="primary small" onClick={() => onOpenReader?.(ref.id, primary.id)}>
@@ -1101,7 +1117,17 @@ function Inspector({
 // notes are written next to the document. Multiple of these live behind the tab
 // strip; switching tabs swaps which one renders (director: "the PDF viewer can be
 // opened in several tabs at the same time").
-function ReaderView({ refId, attId, onGone }: { refId: string; attId?: string; onGone: () => void }): JSX.Element {
+function ReaderView({
+  refId,
+  attId,
+  onGone,
+  onOpenReader,
+}: {
+  refId: string;
+  attId?: string;
+  onGone: () => void;
+  onOpenReader?: (id: string, attId?: string) => void;
+}): JSX.Element {
   const t = useT();
   const ref = useLibrary((s) => s.references.find((r) => r.id === refId));
   const update = useLibrary((s) => s.updateReference);
@@ -1187,7 +1213,7 @@ function ReaderView({ refId, attId, onGone }: { refId: string; attId?: string; o
               }}
             />
             <aside className="reader-side" style={{ width: sideW }}>
-              <Inspector refId={refId} embedded />
+              <Inspector refId={refId} embedded onOpenReader={onOpenReader} />
             </aside>
           </>
         )}
@@ -1735,7 +1761,12 @@ export function ReadSurface(): JSX.Element {
       )}
       {activeTabObj !== undefined ? (
         activeTabObj.kind === 'pdf' && activeTabObj.refId !== undefined ? (
-          <ReaderView refId={activeTabObj.refId} attId={activeTabObj.attId} onGone={() => closeTab(activeTabObj.id)} />
+          <ReaderView
+            refId={activeTabObj.refId}
+            attId={activeTabObj.attId}
+            onGone={() => closeTab(activeTabObj.id)}
+            onOpenReader={openPdfTab}
+          />
         ) : (
           <BrowserView initialUrl={activeTabObj.url ?? ''} />
         )

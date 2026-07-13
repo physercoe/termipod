@@ -3158,6 +3158,14 @@ button.small,
 .admin-tabs strong {
   letter-spacing: -0.01em;
 }
+/* Draggable dialog header (Settings): grab to reposition the modal. */
+.admin-tabs-drag {
+  cursor: move;
+  user-select: none;
+}
+.admin-tabs-drag button {
+  cursor: pointer;
+}
 .admin-body {
   flex: 1;
   min-height: 0;
@@ -5417,6 +5425,12 @@ th {
 }
 .att-err {
   color: var(--danger);
+}
+/* Inline two-step remove confirm for an attachment. */
+.att-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
 }
 .att-card {
   display: flex;

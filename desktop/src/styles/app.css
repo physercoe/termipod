@@ -1160,6 +1160,139 @@ button > .ui-icon:not(:only-child):first-child,
 .pdfjs-tonotes {
   white-space: nowrap;
 }
+
+/* ---- PDF annotations (highlight / underline / note / area / ink) ----------
+   Geometry is stored in PDF points (scale-independent) and mapped to CSS px at
+   render; these rules are purely presentational. Layer order over the page:
+   canvas < textLayer(z1) < links(z2) < anno-layer(z3) < draw-surface(z4) <
+   editor(z5). */
+.pdfjs-anno-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  padding-left: var(--spacing-s4);
+  margin-left: var(--spacing-s2);
+  border-left: 1px solid var(--border);
+}
+.pdfjs-anno-palette {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  padding-left: var(--spacing-s4);
+}
+.pdfjs-anno-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  padding: 0;
+  cursor: pointer;
+}
+.pdfjs-anno-swatch.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.pdfjs-anno-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+.pdfjs-anno-layer.tooling {
+  pointer-events: none; /* let a new selection / drag pass through to the page */
+}
+.pdfjs-anno {
+  position: absolute;
+  border-radius: 2px;
+}
+.pdfjs-anno.highlight,
+.pdfjs-anno.underline,
+.pdfjs-anno.image {
+  cursor: pointer;
+}
+.pdfjs-anno.image {
+  border-radius: 3px;
+}
+.pdfjs-anno.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Note marker — a small coloured tab with the note glyph. */
+.pdfjs-anno.note {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 4px;
+  color: #1a1a1a; /* dark glyph reads on every palette swatch */
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+/* Pointer-capture surface for the click/drag tools. */
+.pdfjs-draw-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  cursor: crosshair;
+}
+.pdfjs-draft-rect {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+/* Editor popover for the selected annotation. */
+.pdfjs-anno-editor {
+  position: absolute;
+  z-index: 5;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.pdfjs-anno-colors {
+  display: flex;
+  gap: var(--spacing-s4);
+}
+.pdfjs-anno-comment {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.pdfjs-anno-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pdfjs-anno-del {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  padding: var(--spacing-s2) var(--spacing-s4);
+  color: var(--danger, #e5484d);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.pdfjs-anno-done {
+  padding: var(--spacing-s2) var(--spacing-s12);
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
 .reader-side {
   flex: 0 0 auto;
   min-width: 0;

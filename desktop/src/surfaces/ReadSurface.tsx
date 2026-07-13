@@ -283,9 +283,11 @@ type Payload =
 // URL that is revoked on unmount so bytes aren't retained after the reader closes.
 function AttachmentView({
   att,
+  referenceId,
   onSaveSelection,
 }: {
   att: { key: string; file: string };
+  referenceId?: string;
   onSaveSelection?: (text: string) => void;
 }): JSX.Element {
   const t = useT();
@@ -329,7 +331,7 @@ function AttachmentView({
   if (err) return <div className="muted region-pad">{t('read.pdfNotFound')}</div>;
   if (payload === null) return <div className="muted region-pad">{t('read.loadingFile')}</div>;
   if (payload.t === 'buf' && payload.kind === 'pdf')
-    return <PdfCanvas data={payload.buf} fileName={att.file} onSaveSelection={onSaveSelection} />;
+    return <PdfCanvas data={payload.buf} fileName={att.file} referenceId={referenceId} onSaveSelection={onSaveSelection} />;
   if (payload.t === 'buf' && payload.kind === 'epub')
     return (
       <Suspense fallback={<div className="muted region-pad">{t('read.loadingFile')}</div>}>
@@ -1046,7 +1048,7 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
       <div className="reader-body">
         <div className="reader-doc">
           {att !== undefined ? (
-            <AttachmentView att={att} onSaveSelection={saveSelection} />
+            <AttachmentView att={att} referenceId={refId} onSaveSelection={saveSelection} />
           ) : (
             <div className="muted region-pad">{t('read.noPdf')}</div>
           )}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -7,9 +7,55 @@ import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { useOpenLink } from './OpenLinkContext';
 import { ResizeHandle } from './ResizeHandle';
+import { useAnnotations, ANNOTATION_COLORS } from '../state/annotations';
+import type { Annotation } from '../state/annotations';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+}
+
+// The active annotation tool, or null for read/select mode. highlight/underline
+// are selection-driven; note is a click; image/ink are pointer drags.
+type Tool = null | 'highlight' | 'underline' | 'note' | 'image' | 'ink';
+
+// The shape the parent hands to add() — id/timestamps/referenceId are injected there.
+type NewAnno = Omit<Annotation, 'id' | 'createdAt' | 'updatedAt' | 'referenceId'>;
+
+// ---- PDF-point ⇄ CSS-px geometry -------------------------------------------
+// Annotations store geometry in unscaled PDF points, origin BOTTOM-LEFT (Zotero's
+// convention). A page's rendered footprint height in CSS px is `footprintH`
+// (= pageHeightPdf * scale), so mapping is a pure multiply + y-flip — the whole
+// reason the format is scale-independent.
+
+function rectPdfToPx(rect: number[], footprintH: number, scale: number): { left: number; top: number; width: number; height: number } {
+  const [x1, y1, x2, y2] = rect;
+  const left = Math.min(x1, x2) * scale;
+  const right = Math.max(x1, x2) * scale;
+  const top = footprintH - Math.max(y1, y2) * scale;
+  const bottom = footprintH - Math.min(y1, y2) * scale;
+  return { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+}
+
+function pxToPdf(localX: number, localY: number, footprintH: number, scale: number): [number, number] {
+  return [localX / scale, (footprintH - localY) / scale];
+}
+
+// Flatten an ink path (PDF points) to an SVG polyline `points` string in CSS px.
+function pathToPoints(flat: number[], footprintH: number, scale: number): string {
+  const parts: string[] = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) {
+    parts.push(`${(flat[i] * scale).toFixed(1)},${(footprintH - flat[i + 1] * scale).toFixed(1)}`);
+  }
+  return parts.join(' ');
+}
+
+// A flat [x0,y0,x1,y1,…] CSS-px point list → SVG polyline `points` (drag preview).
+function flatPxToPoints(flat: number[]): string {
+  const parts: string[] = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) {
+    parts.push(`${flat[i]},${flat[i + 1]}`);
+  }
+  return parts.join(' ');
 }
 
 /// A self-contained PDF viewer built on bundled pdf.js — no CDN, no native
@@ -36,6 +82,159 @@ interface LinkBox {
   dest?: string | unknown[]; // internal GoTo destination (jump within the PDF — refs, figures)
 }
 
+// Render one annotation's visual overlay, positioned in CSS px from its stored
+// PDF-point geometry. pointer-events are OFF while a tool is active (so a new
+// selection/drag passes through) and ON otherwise, so a click selects it.
+function AnnoOverlay({
+  a,
+  footprintH,
+  scale,
+  selected,
+  interactive,
+  onSelect,
+}: {
+  a: Annotation;
+  footprintH: number;
+  scale: number;
+  selected: boolean;
+  interactive: boolean;
+  onSelect: (id: string) => void;
+}): JSX.Element {
+  const color = a.color ?? ANNOTATION_COLORS[0];
+  const pe = interactive ? 'auto' : 'none';
+  const cls = `pdfjs-anno${selected ? ' selected' : ''}`;
+  const pick = (e: React.MouseEvent): void => {
+    e.stopPropagation();
+    onSelect(a.id);
+  };
+
+  if (a.type === 'ink') {
+    const w = (a.position.width ?? 1.5) * scale;
+    return (
+      <svg className={cls} style={{ pointerEvents: 'none', position: 'absolute', inset: 0, overflow: 'visible' }}>
+        {(a.position.paths ?? []).map((p, i) => (
+          <polyline
+            key={i}
+            points={pathToPoints(p, footprintH, scale)}
+            fill="none"
+            stroke={color}
+            strokeWidth={w}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ pointerEvents: pe, cursor: interactive ? 'pointer' : undefined }}
+            onClick={interactive ? pick : undefined}
+          />
+        ))}
+      </svg>
+    );
+  }
+
+  const rects = a.position.rects ?? [];
+  if (a.type === 'note') {
+    const box = rects.length > 0 ? rectPdfToPx(rects[0], footprintH, scale) : { left: 0, top: 0, width: 16, height: 16 };
+    return (
+      <button
+        className={`${cls} note`}
+        style={{ left: box.left, top: box.top, background: color, pointerEvents: pe }}
+        title={a.comment}
+        onClick={interactive ? pick : undefined}
+      >
+        <Icon name="note" size={12} />
+      </button>
+    );
+  }
+
+  // highlight / underline / image (area) — one box per rect.
+  return (
+    <>
+      {rects.map((r, i) => {
+        const b = rectPdfToPx(r, footprintH, scale);
+        const style: React.CSSProperties = { left: b.left, top: b.top, width: b.width, height: b.height, pointerEvents: pe };
+        if (a.type === 'highlight') style.background = `color-mix(in srgb, ${color} 40%, transparent)`;
+        else if (a.type === 'underline') style.borderBottom = `2px solid ${color}`;
+        else style.border = `2px solid ${color}`; // image / area
+        return (
+          <div
+            key={i}
+            className={`${cls} ${a.type}`}
+            style={style}
+            title={a.comment}
+            onClick={interactive ? pick : undefined}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+// The floating editor for the selected annotation: recolor, comment, delete.
+function AnnoEditor({
+  a,
+  footprintH,
+  scale,
+  t,
+  onUpdate,
+  onRemove,
+  onClose,
+}: {
+  a: Annotation;
+  footprintH: number;
+  scale: number;
+  t: (k: string) => string;
+  onUpdate: (id: string, patch: Partial<Annotation>) => void;
+  onRemove: (id: string) => void;
+  onClose: () => void;
+}): JSX.Element {
+  // Anchor under the annotation's first rect (or its ink bbox).
+  const anchor = useMemo(() => {
+    const r = a.position.rects?.[0];
+    if (r !== undefined) return rectPdfToPx(r, footprintH, scale);
+    const p = a.position.paths?.[0];
+    if (p !== undefined && p.length >= 2) {
+      const x = p[0] * scale;
+      const y = footprintH - p[1] * scale;
+      return { left: x, top: y, width: 0, height: 0 };
+    }
+    return { left: 0, top: 0, width: 0, height: 0 };
+  }, [a, footprintH, scale]);
+
+  return (
+    <div
+      className="pdfjs-anno-editor"
+      style={{ left: anchor.left, top: anchor.top + anchor.height + 4 }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="pdfjs-anno-colors">
+        {ANNOTATION_COLORS.map((c) => (
+          <button
+            key={c}
+            className={`pdfjs-anno-swatch${(a.color ?? ANNOTATION_COLORS[0]) === c ? ' active' : ''}`}
+            style={{ background: c }}
+            title={c}
+            onClick={() => onUpdate(a.id, { color: c })}
+          />
+        ))}
+      </div>
+      <textarea
+        className="pdfjs-anno-comment"
+        placeholder={t('read.annComment')}
+        value={a.comment ?? ''}
+        autoFocus={a.type === 'note'}
+        spellCheck={false}
+        onChange={(e) => onUpdate(a.id, { comment: e.target.value })}
+      />
+      <div className="pdfjs-anno-actions">
+        <button className="pdfjs-anno-del" title={t('read.annDelete')} onClick={() => onRemove(a.id)}>
+          <Icon name="trash" size={13} /> {t('read.annDelete')}
+        </button>
+        <button className="pdfjs-anno-done" onClick={onClose}>
+          {t('read.annDone')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PageView({
   pdf,
   pageNum,
@@ -44,6 +243,16 @@ function PageView({
   dim,
   onLink,
   onDest,
+  annos,
+  tool,
+  color,
+  selectedId,
+  t,
+  onCreate,
+  onSelect,
+  onUpdate,
+  onRemove,
+  onToolDone,
 }: {
   pdf: PDFDocumentProxy;
   pageNum: number;
@@ -52,6 +261,16 @@ function PageView({
   dim?: { w: number; h: number };
   onLink: (url: string) => void;
   onDest: (dest: string | unknown[]) => void;
+  annos: Annotation[];
+  tool: Tool;
+  color: string;
+  selectedId: string | null;
+  t: (k: string) => string;
+  onCreate: (a: NewAnno) => string;
+  onSelect: (id: string | null) => void;
+  onUpdate: (id: string, patch: Partial<Annotation>) => void;
+  onRemove: (id: string) => void;
+  onToolDone: () => void;
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
@@ -60,6 +279,8 @@ function PageView({
   const [visible, setVisible] = useState(pageNum === 1); // first page eagerly
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [links, setLinks] = useState<LinkBox[]>([]);
+  // Live preview for a drag-in-progress (image rect or ink path), in CSS px.
+  const [draft, setDraft] = useState<{ rect?: number[]; pts?: number[] } | null>(null);
 
   // Reveal the page a little before it scrolls into view, then keep it rendered.
   useEffect(() => {
@@ -199,6 +420,100 @@ function PageView({
     // Contract from pdf.js: the text layer sizes itself via calc(var(--scale-factor) * rawDims).
     ['--scale-factor' as string]: String(scale),
   };
+  const fh = footprint?.h ?? 0;
+
+  // The point (local CSS px) of a pointer event within this page's box.
+  const localPoint = (e: React.PointerEvent | PointerEvent): [number, number] => {
+    const box = wrapRef.current?.getBoundingClientRect();
+    if (box === undefined) return [0, 0];
+    return [e.clientX - box.left, e.clientY - box.top];
+  };
+
+  // A capture surface (crosshair) sits over the page only for the click/drag tools
+  // (note / image / ink); highlight & underline stay selection-driven and need the
+  // text layer, so no surface for them. Pointer tracking uses window listeners, not
+  // setPointerCapture — unreliable on WebView2 (feedback_pointer_capture_webview2).
+  const onSurfaceDown = (e: React.PointerEvent): void => {
+    if (footprint === null) return;
+    e.preventDefault();
+    const [x0, y0] = localPoint(e);
+
+    if (tool === 'note') {
+      const [px, py] = pxToPdf(x0, y0, fh, scale);
+      const s = 12 / scale; // ~12px marker box in PDF units
+      const id = onCreate({
+        type: 'note',
+        color,
+        pageIndex: pageNum - 1,
+        comment: '',
+        position: { pageIndex: pageNum - 1, rects: [[px, py - s, px + s, py]] },
+        tags: [],
+      });
+      onSelect(id);
+      onToolDone();
+      return;
+    }
+
+    if (tool === 'image') {
+      const move = (ev: PointerEvent): void => {
+        const [x, y] = localPoint(ev);
+        setDraft({ rect: [Math.min(x0, x), Math.min(y0, y), Math.max(x0, x), Math.max(y0, y)] });
+      };
+      const up = (ev: PointerEvent): void => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        const [x, y] = localPoint(ev);
+        setDraft(null);
+        if (Math.abs(x - x0) < 4 && Math.abs(y - y0) < 4) return; // ignore a stray click
+        const [ax, ay] = pxToPdf(Math.min(x0, x), Math.max(y0, y), fh, scale);
+        const [bx, by] = pxToPdf(Math.max(x0, x), Math.min(y0, y), fh, scale);
+        const id = onCreate({
+          type: 'image',
+          color,
+          pageIndex: pageNum - 1,
+          position: { pageIndex: pageNum - 1, rects: [[ax, ay, bx, by]] },
+          tags: [],
+        });
+        onSelect(id);
+        onToolDone();
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      return;
+    }
+
+    if (tool === 'ink') {
+      const pts: number[] = [x0, y0];
+      const move = (ev: PointerEvent): void => {
+        const [x, y] = localPoint(ev);
+        pts.push(x, y);
+        setDraft({ pts: [...pts] });
+      };
+      const up = (): void => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        setDraft(null);
+        if (pts.length < 4) return;
+        const pdfPts: number[] = [];
+        for (let i = 0; i + 1 < pts.length; i += 2) {
+          const [px, py] = pxToPdf(pts[i], pts[i + 1], fh, scale);
+          pdfPts.push(px, py);
+        }
+        onCreate({
+          type: 'ink',
+          color,
+          pageIndex: pageNum - 1,
+          position: { pageIndex: pageNum - 1, paths: [pdfPts], width: 1.5 },
+          tags: [],
+        });
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    }
+  };
+
+  const selected = annos.find((a) => a.id === selectedId) ?? null;
+  const surfaceTool = tool === 'note' || tool === 'image' || tool === 'ink';
 
   return (
     <div ref={wrapRef} className="pdfjs-page" data-page={pageNum} style={style}>
@@ -217,6 +532,54 @@ function PageView({
           }}
         />
       ))}
+      {footprint !== null && annos.length > 0 && (
+        <div className={`pdfjs-anno-layer${tool !== null ? ' tooling' : ''}`}>
+          {annos.map((a) => (
+            <AnnoOverlay
+              key={a.id}
+              a={a}
+              footprintH={fh}
+              scale={scale}
+              selected={a.id === selectedId}
+              interactive={tool === null}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
+      {surfaceTool && footprint !== null && (
+        <div className={`pdfjs-draw-surface ${tool}`} onPointerDown={onSurfaceDown}>
+          {draft?.rect !== undefined && (
+            <div
+              className="pdfjs-draft-rect"
+              style={{ left: draft.rect[0], top: draft.rect[1], width: draft.rect[2] - draft.rect[0], height: draft.rect[3] - draft.rect[1], borderColor: color }}
+            />
+          )}
+          {draft?.pts !== undefined && (
+            <svg className="pdfjs-draft-ink" style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
+              <polyline
+                points={flatPxToPoints(draft.pts)}
+                fill="none"
+                stroke={color}
+                strokeWidth={1.5 * scale}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </div>
+      )}
+      {selected !== null && footprint !== null && (
+        <AnnoEditor
+          a={selected}
+          footprintH={fh}
+          scale={scale}
+          t={t}
+          onUpdate={onUpdate}
+          onRemove={onRemove}
+          onClose={() => onSelect(null)}
+        />
+      )}
     </div>
   );
 }
@@ -355,10 +718,12 @@ function ThumbList({
 export function PdfCanvas({
   data,
   fileName,
+  referenceId,
   onSaveSelection,
 }: {
   data: ArrayBuffer;
   fileName?: string;
+  referenceId?: string;
   onSaveSelection?: (text: string) => void;
 }): JSX.Element {
   const t = useT();
@@ -368,6 +733,26 @@ export function PdfCanvas({
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [err, setErr] = useState(false);
   const [scale, setScale] = useState(1.2);
+  // Annotations for this reference, grouped by page (0-based). Only usable when a
+  // referenceId is present (annotations attach to a reference).
+  const allAnnos = useAnnotations((s) => s.items);
+  const addAnno = useAnnotations((s) => s.add);
+  const updateAnno = useAnnotations((s) => s.update);
+  const removeAnno = useAnnotations((s) => s.remove);
+  const [tool, setTool] = useState<Tool>(null);
+  const [annoColor, setAnnoColor] = useState(ANNOTATION_COLORS[0]);
+  const [selectedAnno, setSelectedAnno] = useState<string | null>(null);
+  const annosByPage = useMemo(() => {
+    const m = new Map<number, Annotation[]>();
+    if (referenceId === undefined) return m;
+    for (const a of allAnnos) {
+      if (a.referenceId !== referenceId) continue;
+      const list = m.get(a.pageIndex) ?? [];
+      list.push(a);
+      m.set(a.pageIndex, list);
+    }
+    return m;
+  }, [allAnnos, referenceId]);
   const [term, setTerm] = useState(''); // the live input value
   const [query, setQuery] = useState(''); // the committed search term (drives highlight)
   const [matches, setMatches] = useState<number[]>([]); // page numbers containing the term
@@ -615,6 +1000,64 @@ export function PdfCanvas({
     window.setTimeout(() => setSaved(false), 1500);
   }
 
+  // Bind the reference id and hand to the store; returns the new annotation id.
+  function createAnnotation(a: NewAnno): string {
+    if (referenceId === undefined) return '';
+    return addAnno({ ...a, referenceId });
+  }
+
+  // Turn the current text selection into a highlight/underline. The selection's
+  // client rects (screen px) are grouped by the page they fall on, then each rect
+  // maps to PDF points via that page's own box + the current scale — so the
+  // stored geometry is scale-independent. Multi-line selections yield several
+  // rects; a selection spanning pages yields one annotation per page.
+  function commitTextSelection(type: 'highlight' | 'underline'): void {
+    if (referenceId === undefined) return;
+    const sel = window.getSelection();
+    const container = scrollRef.current;
+    if (sel === null || sel.isCollapsed || sel.rangeCount === 0 || container === null) return;
+    const text = sel.toString().trim();
+    const pageEls = Array.from(container.querySelectorAll<HTMLElement>('[data-page]'));
+    const byPage = new Map<number, number[][]>();
+    for (let ri = 0; ri < sel.rangeCount; ri += 1) {
+      for (const r of Array.from(sel.getRangeAt(ri).getClientRects())) {
+        if (r.width < 1 || r.height < 1) continue;
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const pageEl = pageEls.find((el) => {
+          const b = el.getBoundingClientRect();
+          return cx >= b.left && cx <= b.right && cy >= b.top && cy <= b.bottom;
+        });
+        if (pageEl === undefined) continue;
+        const pIdx = Number(pageEl.dataset.page) - 1;
+        const b = pageEl.getBoundingClientRect();
+        const [x1, yTop] = pxToPdf(r.left - b.left, r.top - b.top, b.height, scale);
+        const [x2, yBot] = pxToPdf(r.right - b.left, r.bottom - b.top, b.height, scale);
+        const rect = [Math.min(x1, x2), Math.min(yTop, yBot), Math.max(x1, x2), Math.max(yTop, yBot)];
+        const list = byPage.get(pIdx) ?? [];
+        list.push(rect);
+        byPage.set(pIdx, list);
+      }
+    }
+    for (const [pIdx, rects] of byPage) {
+      createAnnotation({ type, color: annoColor, pageIndex: pIdx, text, position: { pageIndex: pIdx, rects }, tags: [] });
+    }
+    sel.removeAllRanges();
+  }
+
+  // Toggle a tool; picking highlight/underline while text is selected acts on it
+  // immediately (Zotero-style), otherwise arms the tool for the next interaction.
+  function pickTool(next: Tool): void {
+    setSelectedAnno(null);
+    if ((next === 'highlight' || next === 'underline') && !(window.getSelection()?.isCollapsed ?? true)) {
+      commitTextSelection(next);
+      return;
+    }
+    setTool((cur) => (cur === next ? null : next));
+  }
+
+  const canAnnotate = referenceId !== undefined && pdf !== null;
+
   if (err) return <div className="muted region-pad">{t('read.pdfRenderFailed')}</div>;
 
   return (
@@ -656,6 +1099,37 @@ export function PdfCanvas({
             <button className="pdfjs-zoom" title={t('read.pdfNextPage')} disabled={currentPage >= pdf.numPages} onClick={() => gotoPage(currentPage + 1)}>
               <Icon name="chevron-right" />
             </button>
+          </div>
+        )}
+        {canAnnotate && (
+          <div className="pdfjs-anno-tools">
+            <button className={`pdfjs-zoom${tool === 'highlight' ? ' active' : ''}`} title={t('read.annHighlight')} onClick={() => pickTool('highlight')}>
+              <Icon name="highlight" />
+            </button>
+            <button className={`pdfjs-zoom${tool === 'underline' ? ' active' : ''}`} title={t('read.annUnderline')} onClick={() => pickTool('underline')}>
+              <Icon name="underline" />
+            </button>
+            <button className={`pdfjs-zoom${tool === 'note' ? ' active' : ''}`} title={t('read.annNote')} onClick={() => pickTool('note')}>
+              <Icon name="note" />
+            </button>
+            <button className={`pdfjs-zoom${tool === 'image' ? ' active' : ''}`} title={t('read.annArea')} onClick={() => pickTool('image')}>
+              <Icon name="square" />
+            </button>
+            <button className={`pdfjs-zoom${tool === 'ink' ? ' active' : ''}`} title={t('read.annDraw')} onClick={() => pickTool('ink')}>
+              <Icon name="pen" />
+            </button>
+            {tool !== null && (
+              <div className="pdfjs-anno-palette" title={t('read.annColor')}>
+                {ANNOTATION_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    className={`pdfjs-anno-swatch${annoColor === c ? ' active' : ''}`}
+                    style={{ background: c }}
+                    onClick={() => setAnnoColor(c)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
         <span className="spacer" />
@@ -751,7 +1225,18 @@ export function PdfCanvas({
             />
           </>
         )}
-        <div ref={scrollRef} className="pdfjs-scroll scroll">
+        <div
+          ref={scrollRef}
+          className={`pdfjs-scroll scroll${tool !== null ? ` tool-${tool}` : ''}`}
+          onMouseUp={() => {
+            // Selection-driven tools commit on mouse-up, once the drag-select ends.
+            if (tool === 'highlight' || tool === 'underline') commitTextSelection(tool);
+          }}
+          onClick={(e) => {
+            // A bare click on empty page area deselects the current annotation.
+            if (tool === null && e.target === e.currentTarget) setSelectedAnno(null);
+          }}
+        >
           {pdf === null && !err && <div className="muted region-pad">{t('read.loadingPdf')}</div>}
           {pdf !== null &&
             Array.from({ length: pdf.numPages }, (_, i) => (
@@ -764,6 +1249,19 @@ export function PdfCanvas({
                 dim={pageDims[i]}
                 onLink={openLink}
                 onDest={(d) => void goToDest(d)}
+                annos={annosByPage.get(i) ?? []}
+                tool={tool}
+                color={annoColor}
+                selectedId={selectedAnno}
+                t={t}
+                onCreate={createAnnotation}
+                onSelect={setSelectedAnno}
+                onUpdate={updateAnno}
+                onRemove={(id) => {
+                  removeAnno(id);
+                  setSelectedAnno(null);
+                }}
+                onToolDone={() => setTool(null)}
               />
             ))}
         </div>

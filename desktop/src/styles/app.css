@@ -5085,9 +5085,23 @@ th {
   font-family: var(--font-mono, monospace);
   font-size: var(--font-size-caption);
 }
+.att-reveal {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--text-muted);
+  padding: 2px;
+}
+.att-reveal:hover {
+  color: var(--accent);
+}
+.att-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s4);
+}
 .att-open {
   align-self: flex-start;
-  margin-top: var(--spacing-s4);
 }
 .epub-view {
   display: flex;

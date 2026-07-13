@@ -27,6 +27,18 @@ export function openExternal(url: string): void {
   }
 }
 
+/// Reveal a local file in the OS file manager (Finder / Explorer / files app),
+/// selecting it where the platform supports it. Desktop-only; a no-op in the
+/// browser build (no filesystem access).
+export function revealPath(path: string): void {
+  if (path === '' || !isTauri()) return;
+  void import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke('reveal_path', { path }))
+    .catch(() => {
+      /* best effort */
+    });
+}
+
 /// Open a URL in a real in-app browser *window* (a Tauri webview, not an iframe),
 /// so sites that forbid framing (`X-Frame-Options` — arxiv, Google Scholar, most
 /// publishers) still load. The browser build falls back to a new tab.

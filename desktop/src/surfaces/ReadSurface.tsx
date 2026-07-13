@@ -22,7 +22,7 @@ import {
   type ScrapePatch,
   type ScrapeSeed,
 } from '../discovery';
-import { isTauri } from '../platform';
+import { isTauri, revealPath } from '../platform';
 import { BrowserView } from './BrowserView';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
@@ -379,10 +379,12 @@ function AttachmentInfo({
   const kind = viewKindFor(att.file);
   const ext = att.file.split('.').pop()?.toLowerCase() ?? '';
   const rel = rels.get(k);
+  // The absolute on-disk path, when known (Tauri storage link) — lets us reveal
+  // the file in the OS file manager. The browser build has only live File handles,
+  // so there is no path to reveal.
+  const absPath = present && rel !== undefined && path !== null ? `${path}/${rel}` : null;
   const location = present
-    ? rel !== undefined && path !== null
-      ? `${path}/${rel}`
-      : t('read.attSession')
+    ? absPath ?? t('read.attSession')
     : storageLinked
       ? t('read.attMissing')
       : t('read.attNotLinked');
@@ -429,13 +431,26 @@ function AttachmentInfo({
           <div className="att-field">
             <span className="att-k">{t('read.attLocation')}</span>
             <span className={present ? 'att-v mono' : 'att-v mono muted'}>{location}</span>
+            {absPath !== null && (
+              <button className="link-btn att-reveal" title={t('read.attReveal')} onClick={() => revealPath(absPath)}>
+                <Icon name="folder" size={14} />
+              </button>
+            )}
           </div>
-          {present && embedded !== true && onOpen !== undefined && (
-            <button className="primary small att-open" onClick={onOpen}>
-              <Icon name="window" />
-              {t('read.attOpen')}
-            </button>
-          )}
+          <div className="att-actions">
+            {absPath !== null && (
+              <button className="small att-locate" onClick={() => revealPath(absPath)}>
+                <Icon name="folder" size={14} />
+                {t('read.attReveal')}
+              </button>
+            )}
+            {present && embedded !== true && onOpen !== undefined && (
+              <button className="primary small att-open" onClick={onOpen}>
+                <Icon name="window" />
+                {t('read.attOpen')}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

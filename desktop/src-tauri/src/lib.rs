@@ -340,6 +340,58 @@ fn open_url(url: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Reveal a file in the OS file manager (selecting it where the platform supports
+/// it), so the user can find a linked attachment on disk. The path is passed as a
+/// single process argument — never through a shell — so it can't inject a command.
+#[tauri::command]
+fn reveal_path(path: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("empty path".into());
+    }
+    reveal(&path)
+}
+
+#[cfg(target_os = "windows")]
+fn reveal(path: &str) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    // `explorer /select,"<path>"` selects the file in its folder. explorer returns
+    // a non-zero exit code even on success, so we only require that it spawned.
+    // raw_arg keeps our exact quoting (a Windows path can't contain a `"`), which
+    // Rust's default arg-quoting would otherwise mangle for explorer.
+    Command::new("explorer")
+        .raw_arg(format!("/select,\"{path}\""))
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn reveal(path: &str) -> Result<(), String> {
+    // `open -R` reveals and selects the file in Finder.
+    std::process::Command::new("open")
+        .args(["-R", path])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn reveal(path: &str) -> Result<(), String> {
+    // No portable "select the file" on Linux desktops — open the containing folder.
+    let target = std::path::Path::new(path)
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from(path));
+    std::process::Command::new("xdg-open")
+        .arg(target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 // ---- in-app browser window --------------------------------------------------
 // The J1 in-app browser tab is an <iframe>, which many sites forbid via
 // `X-Frame-Options` / `frame-ancestors` (arxiv.org, Google Scholar, most
@@ -424,6 +476,7 @@ pub fn run() {
             hub_request_bytes,
             system_proxy,
             open_external,
+            reveal_path,
             open_browser_window,
             storage::storage_pick_folder,
             storage::storage_reindex,

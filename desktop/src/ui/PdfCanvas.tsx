@@ -441,15 +441,38 @@ export function PdfCanvas({
   }
 
   // Scroll so page `n`'s top (plus an optional in-page `yOffset`) sits just under
-  // the toolbar. Computed against the container's own scroll frame (not
-  // scrollIntoView) so an in-page offset can be added, and accurate because every
-  // page already reserves its true height via pageDims.
+  // the toolbar. The target is an ABSOLUTE content offset (invariant to the current
+  // scroll position), computed from the page's rect within the container's scroll
+  // frame — so an in-page offset can be added.
+  //
+  // A jump can otherwise land short: pages ABOVE the target may still be reserving
+  // their true height (lazy render, or pageDims not yet measured), which shifts the
+  // target down after the scroll begins. So we settle: recompute the target a few
+  // times and re-scroll whenever it drifts, until the layout above has stabilised.
   function scrollToPage(n: number, yOffset = 0): void {
     const container = scrollRef.current;
-    const el = container?.querySelector(`[data-page="${n}"]`);
-    if (!(el instanceof HTMLElement) || container === null) return;
-    const top = container.scrollTop + (el.getBoundingClientRect().top - container.getBoundingClientRect().top) + yOffset;
-    container.scrollTo({ top: Math.max(0, top - 8), behavior: 'smooth' });
+    if (container === null) return;
+    const targetTop = (): number | null => {
+      const el = container.querySelector(`[data-page="${n}"]`);
+      if (!(el instanceof HTMLElement)) return null;
+      const off = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      return Math.max(0, container.scrollTop + off + yOffset - 8);
+    };
+    const first = targetTop();
+    if (first === null) return;
+    container.scrollTo({ top: first, behavior: 'smooth' });
+    let last = first;
+    let tries = 0;
+    const settle = (): void => {
+      tries += 1;
+      const t = targetTop();
+      if (t !== null && Math.abs(t - last) > 3) {
+        last = t;
+        container.scrollTo({ top: t, behavior: 'smooth' });
+      }
+      if (tries < 8) window.setTimeout(settle, 120);
+    };
+    window.setTimeout(settle, 160);
   }
 
   async function runSearch(): Promise<void> {
@@ -588,7 +611,7 @@ export function PdfCanvas({
       <div className="pdfjs-body">
         {showToc && outline.length > 0 && (
           <>
-            <div className="pdfjs-toc scroll" style={{ width: tocW }}>
+            <div className="pdfjs-toc" style={{ width: tocW }}>
               <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
             </div>
             <ResizeHandle

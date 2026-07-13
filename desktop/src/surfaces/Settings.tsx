@@ -5,8 +5,63 @@ import { cacheSizeBytes, clearCache } from '../state/queryClient';
 import { useSession } from '../state/session';
 import { useTheme, type ThemePref } from '../state/theme';
 import { getVoiceApiKey, getVoiceModel, setVoiceApiKey, setVoiceModel, VOICE_MODELS } from '../voice/settings';
+import { activeRootLabel, useAttachmentConfig } from '../state/attachments';
 import { UpdateSection } from './UpdateSection';
 import { VaultPanel } from './VaultPanel';
+
+/// Where user-added reference attachments are copied. Read-only display of the
+/// active root (a linked Zotero storage folder wins, else custom, else default),
+/// with a folder picker to set a custom location and a reset.
+function AttachmentLocation(): JSX.Element {
+  const t = useT();
+  const customRoot = useAttachmentConfig((s) => s.customRoot);
+  const defaultRoot = useAttachmentConfig((s) => s.defaultRoot);
+  const pickCustom = useAttachmentConfig((s) => s.pickCustom);
+  const clearCustom = useAttachmentConfig((s) => s.clearCustom);
+  const resolveDefault = useAttachmentConfig((s) => s.resolveDefault);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    void resolveDefault();
+  }, [resolveDefault]);
+
+  // Recomputed on any store change (customRoot/defaultRoot are deps of the render).
+  const label = activeRootLabel();
+  void customRoot;
+  void defaultRoot;
+  const kindText =
+    label.kind === 'zotero'
+      ? t('settings.attachZotero')
+      : label.kind === 'custom'
+        ? t('settings.attachCustom')
+        : t('settings.attachDefault');
+
+  return (
+    <section className="setting-group">
+      <h3>{t('settings.attachments')}</h3>
+      <p className="muted small">{t('settings.attachBlurb')}</p>
+      <div className="setting-row">
+        <label>{kindText}</label>
+        <span className="muted mono small">{label.path ?? '—'}</span>
+      </div>
+      {err !== null && <div className="muted small">{err}</div>}
+      <div className="setting-row">
+        <button
+          onClick={() => {
+            setErr(null);
+            void pickCustom().then((e) => e !== null && setErr(e));
+          }}
+        >
+          {t('settings.attachChoose')}
+        </button>
+        {customRoot !== null && (
+          <button onClick={() => clearCustom()}>{t('settings.attachReset')}</button>
+        )}
+      </div>
+      {label.kind === 'zotero' && <p className="muted small">{t('settings.attachZoteroNote')}</p>}
+    </section>
+  );
+}
 
 /// DashScope voice-dictation settings (parity — mobile voice_settings_screen):
 /// the personal API key (→ OS keychain) and the recognition model. The mic
@@ -130,6 +185,8 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
           <UpdateSection />
 
           <VaultPanel />
+
+          {isTauri() && <AttachmentLocation />}
 
           <section className="setting-group">
             <h3>{t('settings.cache')}</h3>

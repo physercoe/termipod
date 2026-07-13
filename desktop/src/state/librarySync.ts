@@ -80,10 +80,12 @@ function refToHubBody(r: Reference, collName: Map<string, string>): Record<strin
     notes: r.notes,
     body_markdown: r.bodyMarkdown,
     details: r.details,
-    zotero_storage:
-      r.zoteroStorage !== undefined
-        ? { key: r.zoteroStorage.key, file: r.zoteroStorage.file, content_type: r.zoteroStorage.contentType }
-        : undefined,
+    // The hub schema carries a single attachment; sync the first Zotero-indexed
+    // one (managed/local-path attachments stay host-local — bytes never leave).
+    zotero_storage: (() => {
+      const z = (r.attachments ?? []).find((a) => a.source === 'zotero' && a.key !== undefined);
+      return z !== undefined ? { key: z.key ?? '', file: z.file, content_type: z.contentType } : undefined;
+    })(),
     enrichment: buildEnrichment(r),
   };
 }

@@ -132,12 +132,17 @@ export const useZoteroStorage = create<ZoteroStorageState>((set) => ({
   },
 }));
 
-type AttRef = { key: string; file: string } | undefined;
+// An attachment to resolve: a Zotero-indexed one (`key`/`file`) or a user-managed
+// one carrying its own absolute `path`.
+type AttRef = { key?: string; file: string; path?: string } | undefined;
 type Resolvable = Pick<ZoteroStorageState, 'rels' | 'files' | 'path'>;
 
-/// True if the attachment is present in the linked folder (either mode).
+/// True if the attachment is resolvable. A managed attachment (absolute `path`)
+/// is self-resolving; a Zotero one must be present in the linked folder.
 export function hasAttachment(state: Pick<ZoteroStorageState, 'rels' | 'files'>, att: AttRef): boolean {
   if (att === undefined) return false;
+  if (att.path !== undefined && att.path !== '') return true;
+  if (att.key === undefined) return false;
   const k = `${att.key}/${att.file}`;
   return state.rels.has(k) || state.files.has(k);
 }
@@ -154,6 +159,17 @@ function b64ToBytes(b64: string): Uint8Array {
 /// linked or the file is missing.
 export async function loadAttachmentBlob(state: Resolvable, att: AttRef): Promise<Blob | null> {
   if (att === undefined) return null;
+  // Managed attachment — read its absolute path through the Rust core (Tauri).
+  if (att.path !== undefined && att.path !== '' && isTauri()) {
+    try {
+      const f = await invoke<RustFile>('attachment_read', { path: att.path });
+      const bytes = b64ToBytes(f.base64);
+      return new Blob([bytes.buffer as ArrayBuffer], { type: f.mime });
+    } catch {
+      return null;
+    }
+  }
+  if (att.key === undefined) return null;
   const k = `${att.key}/${att.file}`;
   const file = state.files.get(k);
   if (file !== undefined) return file;

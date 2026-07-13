@@ -15,8 +15,9 @@
 
 use std::path::{Path, PathBuf};
 
+use rand_core::{OsRng, RngCore};
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 #[derive(Serialize, Clone)]
@@ -156,4 +157,158 @@ pub async fn storage_read(path: String, rel: String) -> Result<StorageFile, Stri
         base64,
         mime: mime_for(&rel).to_string(),
     })
+}
+
+// ---- user-managed attachments (add / read / delete) -----------------------
+//
+// Attachments the user adds in-app (not imported from Zotero) are copied into a
+// storage root laid out exactly like Zotero — `<root>/<KEY>/<filename>` with a
+// fresh 8-char key — so the same resolution model works and the files travel
+// with the library. The root is the linked Zotero `storage/` folder when one is
+// linked, else a default (app-data) or user-set location (chosen by the
+// frontend; here we just act on the `root` it passes).
+
+/// A freshly-added attachment's coordinates, returned to the frontend to store
+/// on the reference.
+#[derive(Serialize)]
+pub struct AddedAttachment {
+    key: String,
+    file: String,
+    path: String,
+    #[serde(rename = "contentType")]
+    content_type: String,
+}
+
+/// A file chosen via the native picker (for adding an attachment).
+#[derive(Serialize)]
+pub struct PickedFile {
+    path: String,
+    name: String,
+}
+
+/// A fresh Zotero-style attachment key: 8 chars from Zotero's alphabet (no
+/// 0/1/I/O, to avoid visual ambiguity). Collision odds are negligible; the
+/// caller also re-rolls if the directory already exists.
+fn gen_key() -> String {
+    const ALPHABET: &[u8] = b"23456789ABCDEFGHIJKLMNPQRSTUVWXYZ";
+    let mut raw = [0u8; 8];
+    OsRng.fill_bytes(&mut raw);
+    raw.iter()
+        .map(|b| ALPHABET[(*b as usize) % ALPHABET.len()] as char)
+        .collect()
+}
+
+/// The default attachment storage root: `<app-data>/storage`. Created if absent.
+/// Used when no Zotero folder is linked and the user hasn't set a custom path.
+#[tauri::command]
+pub async fn attachment_default_dir(app: AppHandle) -> Result<String, String> {
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let dir = base.join("storage");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+/// Native file picker for adding an attachment. Returns the picked file's
+/// absolute path + name, or `Ok(None)` on cancel.
+#[tauri::command]
+pub async fn attachment_pick_file(app: AppHandle) -> Result<Option<PickedFile>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter(
+            "Documents",
+            &[
+                "pdf", "epub", "html", "htm", "txt", "md", "png", "jpg", "jpeg", "gif", "webp",
+                "mp4", "webm", "mov", "mp3", "wav", "m4a", "flac",
+            ],
+        )
+        .blocking_pick_file();
+    let Some(fp) = picked else {
+        return Ok(None);
+    };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    Ok(Some(PickedFile {
+        path: path.to_string_lossy().to_string(),
+        name,
+    }))
+}
+
+/// Native folder picker for setting a custom attachment storage location.
+/// Returns the chosen absolute path, or `Ok(None)` on cancel.
+#[tauri::command]
+pub async fn attachment_pick_dir(app: AppHandle) -> Result<Option<String>, String> {
+    let picked = app.dialog().file().blocking_pick_folder();
+    let Some(fp) = picked else {
+        return Ok(None);
+    };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    Ok(Some(path.to_string_lossy().to_string()))
+}
+
+/// Copy `src` into `root` under a fresh `<key>/` dir (Zotero layout) and return
+/// the new attachment's coordinates. Never overwrites an existing file.
+#[tauri::command]
+pub async fn attachment_add(root: String, src: String) -> Result<AddedAttachment, String> {
+    let src_path = PathBuf::from(&src);
+    let file = src_path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "source has no filename".to_string())?;
+    let root_path = PathBuf::from(&root);
+    std::fs::create_dir_all(&root_path).map_err(|e| e.to_string())?;
+    let mut key = gen_key();
+    let mut dir = root_path.join(&key);
+    for _ in 0..10 {
+        if !dir.exists() {
+            break;
+        }
+        key = gen_key();
+        dir = root_path.join(&key);
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(&file);
+    std::fs::copy(&src_path, &dest).map_err(|e| e.to_string())?;
+    Ok(AddedAttachment {
+        key,
+        file: file.clone(),
+        path: dest.to_string_lossy().to_string(),
+        content_type: mime_for(&file).to_string(),
+    })
+}
+
+/// Read a user-managed attachment by its absolute path (base64 for the IPC
+/// bridge). The path comes from our own stored coordinates, not user input.
+#[tauri::command]
+pub async fn attachment_read(path: String) -> Result<StorageFile, String> {
+    use base64::Engine as _;
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(StorageFile {
+        base64,
+        mime: mime_for(&path).to_string(),
+    })
+}
+
+/// Delete a user-managed attachment file, then remove its now-empty `<key>/`
+/// dir (Zotero layout is one file per key folder). Only ever touches the file
+/// we were handed and an empty parent — never recursive.
+#[tauri::command]
+pub async fn attachment_delete(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if p.is_file() {
+        std::fs::remove_file(&p).map_err(|e| e.to_string())?;
+    }
+    if let Some(parent) = p.parent() {
+        if let Ok(mut rd) = std::fs::read_dir(parent) {
+            if rd.next().is_none() {
+                let _ = std::fs::remove_dir(parent);
+            }
+        }
+    }
+    Ok(())
 }

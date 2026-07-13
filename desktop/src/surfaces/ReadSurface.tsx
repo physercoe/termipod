@@ -1,13 +1,17 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import {
+  hasAnyAttachment,
+  primaryAttachment,
   REF_TYPES,
   useLibrary,
+  type Attachment,
   type Reference,
   type RefType,
   type WorkLink,
 } from '../state/library';
 import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zoteroStorage';
+import { deleteManagedAttachmentFile, pickAndCopyAttachment, useAttachmentConfig } from '../state/attachments';
 import { syncLibrary } from '../state/librarySync';
 import { useSession } from '../state/session';
 import {
@@ -74,6 +78,7 @@ interface ReadTab {
   id: string;
   kind: 'pdf' | 'web';
   refId?: string;
+  attId?: string; // which attachment of the reference this tab opened
   url?: string;
   title: string;
 }
@@ -289,7 +294,7 @@ function AttachmentView({
   detailsOpen,
   onToggleDetails,
 }: {
-  att: { key: string; file: string };
+  att: Attachment;
   referenceId?: string;
   onSaveSelection?: (text: string) => void;
   // For the PDF path only: reader-chrome actions rendered inside the PDF toolbar
@@ -384,25 +389,33 @@ function AttachmentInfo({
   att,
   embedded,
   onOpen,
+  onRemove,
 }: {
-  att: { key: string; file: string };
+  att: Attachment;
   embedded?: boolean;
   onOpen?: () => void;
+  onRemove?: () => void;
 }): JSX.Element {
   const t = useT();
   const rels = useZoteroStorage((s) => s.rels);
   const files = useZoteroStorage((s) => s.files);
   const path = useZoteroStorage((s) => s.path);
   const storageLinked = useZoteroStorage((s) => s.count > 0);
-  const k = `${att.key}/${att.file}`;
-  const present = rels.has(k) || files.has(k);
+  const k = `${att.key ?? ''}/${att.file}`;
+  // A managed attachment carries its own absolute path (self-resolving); a Zotero
+  // one is present only when found in the linked folder's index.
+  const managed = att.source === 'managed' && att.path !== undefined && att.path !== '';
+  const present = managed || rels.has(k) || files.has(k);
   const kind = viewKindFor(att.file);
   const ext = att.file.split('.').pop()?.toLowerCase() ?? '';
   const rel = rels.get(k);
-  // The absolute on-disk path, when known (Tauri storage link) — lets us reveal
-  // the file in the OS file manager. The browser build has only live File handles,
-  // so there is no path to reveal.
-  const absPath = present && rel !== undefined && path !== null ? `${path}/${rel}` : null;
+  // The absolute on-disk path, when known — lets us reveal the file in the OS file
+  // manager. Managed files have it directly; Zotero files derive it from the link.
+  const absPath = managed
+    ? att.path ?? null
+    : present && rel !== undefined && path !== null
+      ? `${path}/${rel}`
+      : null;
   const location = present
     ? absPath ?? t('read.attSession')
     : storageLinked
@@ -430,8 +443,6 @@ function AttachmentInfo({
   }, [k, kind, present, rels, files, path]);
 
   return (
-    <div className="wide ref-attach-info">
-      <div className="muted small">{t('read.attHead')}</div>
       <div className="att-card">
         <div className="att-thumb" data-kind={kind}>
           {thumb !== null ? <img src={thumb} alt={att.file} /> : <Icon name={KIND_ICON[kind]} size={26} className="att-glyph" />}
@@ -470,10 +481,15 @@ function AttachmentInfo({
                 {t('read.attOpen')}
               </button>
             )}
+            {onRemove !== undefined && (
+              <button className="small att-remove" title={t('read.attRemove')} onClick={onRemove}>
+                <Icon name="trash" size={14} />
+                {t('read.attRemove')}
+              </button>
+            )}
           </div>
         </div>
       </div>
-    </div>
   );
 }
 
@@ -625,7 +641,7 @@ function Inspector({
   embedded,
 }: {
   refId: string;
-  onOpenReader?: (id: string) => void;
+  onOpenReader?: (id: string, attId?: string) => void;
   onCollapse?: () => void;
   embedded?: boolean;
 }): JSX.Element {
@@ -634,6 +650,10 @@ function Inspector({
   const collections = useLibrary((s) => s.collections);
   const update = useLibrary((s) => s.updateReference);
   const remove = useLibrary((s) => s.removeReference);
+  const addAttachmentToRef = useLibrary((s) => s.addAttachment);
+  const removeAttachmentFromRef = useLibrary((s) => s.removeAttachment);
+  const [attBusy, setAttBusy] = useState(false);
+  const [attErr, setAttErr] = useState<string | null>(null);
   const rels = useZoteroStorage((s) => s.rels);
   const files = useZoteroStorage((s) => s.files);
   const storageLinked = useZoteroStorage((s) => s.count > 0);
@@ -682,8 +702,39 @@ function Inspector({
 
   if (ref === undefined) return <div className="muted region-pad">{t('read.pickItem')}</div>;
 
-  const att = ref.zoteroStorage;
-  const attPresent = hasAttachment({ rels, files }, att);
+  const atts = ref.attachments ?? [];
+  const primary = primaryAttachment(ref);
+  const attPresent = hasAttachment({ rels, files }, primary);
+
+  async function onAddAttachment(): Promise<void> {
+    if (ref === undefined) return;
+    setAttBusy(true);
+    setAttErr(null);
+    try {
+      const added = await pickAndCopyAttachment();
+      if (added !== null) {
+        addAttachmentToRef(ref.id, {
+          file: added.file,
+          contentType: added.contentType,
+          source: 'managed',
+          key: added.key,
+          path: added.path,
+        });
+      }
+    } catch (e) {
+      setAttErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAttBusy(false);
+    }
+  }
+
+  function onRemoveAttachment(a: Attachment): void {
+    if (ref === undefined) return;
+    // Only delete bytes for files we created; a Zotero attachment is just unlinked
+    // (its file stays in the user's Zotero library, untouched).
+    if (a.source === 'managed') void deleteManagedAttachmentFile(a.path);
+    removeAttachmentFromRef(ref.id, a.id);
+  }
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'info', label: t('read.tabInfo') },
@@ -723,13 +774,13 @@ function Inspector({
           </button>
         ))}
         <span className="spacer" />
-        {att !== undefined &&
+        {primary !== undefined &&
           !embedded &&
           (attPresent ? (
             <button
               className="ref-pdf-btn"
               title={t('read.openInReader')}
-              onClick={() => onOpenReader?.(ref.id)}
+              onClick={() => onOpenReader?.(ref.id, primary.id)}
             >
               <Icon name="window" />
               PDF
@@ -898,9 +949,30 @@ function Inspector({
                 </div>
               </div>
             )}
-            {att !== undefined && (
-              <AttachmentInfo att={att} embedded={embedded} onOpen={() => onOpenReader?.(ref.id)} />
-            )}
+            <div className="wide ref-attach-info">
+              <div className="att-head-row">
+                <span className="muted small">{t('read.attHead')}</span>
+                {isTauri() && (
+                  <button className="link-btn att-add" disabled={attBusy} onClick={() => void onAddAttachment()}>
+                    <Icon name="plus" size={14} /> {attBusy ? t('read.attAdding') : t('read.attAdd')}
+                  </button>
+                )}
+              </div>
+              {attErr !== null && <div className="muted small att-err">{attErr}</div>}
+              {atts.length === 0 ? (
+                <div className="muted small">{t('read.attNone')}</div>
+              ) : (
+                atts.map((a) => (
+                  <AttachmentInfo
+                    key={a.id}
+                    att={a}
+                    embedded={embedded}
+                    onOpen={() => onOpenReader?.(ref.id, a.id)}
+                    onRemove={() => onRemoveAttachment(a)}
+                  />
+                ))
+              )}
+            </div>
             {ref.citationCount !== undefined && (
               <div className="muted small wide">{t('read.citedBy').replace('{n}', String(ref.citationCount))}</div>
             )}
@@ -932,20 +1004,20 @@ function Inspector({
                 {t('read.pdf')}: <span className="mono">{ref.pdfUrl}</span>
               </div>
             )}
-            {att !== undefined && !embedded && (
+            {primary !== undefined && !embedded && (
               <div className="ref-attach">
                 {attPresent ? (
-                  <button className="primary small" onClick={() => onOpenReader?.(ref.id)}>
+                  <button className="primary small" onClick={() => onOpenReader?.(ref.id, primary.id)}>
                     <Icon name="window" />
                     {t('read.openInReader')}
                   </button>
                 ) : storageLinked ? (
                   <div className="muted small">
-                    {t('read.pdfNotFound')} <span className="mono">{att.file}</span>
+                    {t('read.pdfNotFound')} <span className="mono">{primary.file}</span>
                   </div>
                 ) : (
                   <div className="muted small">
-                    {t('read.pdfLinkHint')} <span className="mono">{att.file}</span>
+                    {t('read.pdfLinkHint')} <span className="mono">{primary.file}</span>
                   </div>
                 )}
               </div>
@@ -1029,7 +1101,7 @@ function Inspector({
 // notes are written next to the document. Multiple of these live behind the tab
 // strip; switching tabs swaps which one renders (director: "the PDF viewer can be
 // opened in several tabs at the same time").
-function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): JSX.Element {
+function ReaderView({ refId, attId, onGone }: { refId: string; attId?: string; onGone: () => void }): JSX.Element {
   const t = useT();
   const ref = useLibrary((s) => s.references.find((r) => r.id === refId));
   const update = useLibrary((s) => s.updateReference);
@@ -1053,7 +1125,8 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
   }, [ref, onGone]);
   if (ref === undefined) return <></>;
 
-  const att = ref.zoteroStorage;
+  // The attachment this tab opened (by id), else the reference's first.
+  const att = ref.attachments?.find((a) => a.id === attId) ?? primaryAttachment(ref);
   const url = ref.url;
   // A PDF hosts these actions (open-URL + details toggle) inside its own toolbar,
   // so no title/action row is rendered above it — saves vertical space, and the
@@ -1399,16 +1472,22 @@ export function ReadSurface(): JSX.Element {
     }
   }
 
-  function openPdfTab(refId: string): void {
-    const existing = tabs.find((tb) => tb.kind === 'pdf' && tb.refId === refId);
+  function openPdfTab(refId: string, attId?: string): void {
+    const r = useLibrary.getState().references.find((x) => x.id === refId);
+    const targetAtt = attId ?? primaryAttachment(r ?? { attachments: [] })?.id;
+    // A given attachment reuses its tab; a different attachment of the same item
+    // opens its own tab.
+    const existing = tabs.find((tb) => tb.kind === 'pdf' && tb.refId === refId && tb.attId === targetAtt);
     if (existing !== undefined) {
       setActiveTab(existing.id);
       return;
     }
-    const r = useLibrary.getState().references.find((x) => x.id === refId);
     const id = nextTabId();
-    const title = r !== undefined && r.title !== '' ? r.title : t('read.untitled');
-    setTabs((ts) => [...ts, { id, kind: 'pdf', refId, title }]);
+    const baseTitle = r !== undefined && r.title !== '' ? r.title : t('read.untitled');
+    // Disambiguate the tab by filename when the item has more than one attachment.
+    const attFile = r?.attachments?.find((a) => a.id === targetAtt)?.file;
+    const title = (r?.attachments?.length ?? 0) > 1 && attFile !== undefined ? `${baseTitle} · ${attFile}` : baseTitle;
+    setTabs((ts) => [...ts, { id, kind: 'pdf', refId, attId: targetAtt, title }]);
     setActiveTab(id);
   }
 
@@ -1425,9 +1504,13 @@ export function ReadSurface(): JSX.Element {
   }
 
   // Re-index the persisted storage-folder path on mount (Tauri) so the link
-  // survives a restart instead of being lost (director report).
+  // survives a restart instead of being lost (director report). Also resolve the
+  // default attachment-store dir so "Add file" has a root even before Settings.
   useEffect(() => {
-    if (isTauri()) void reindex();
+    if (isTauri()) {
+      void reindex();
+      void useAttachmentConfig.getState().resolveDefault();
+    }
   }, [reindex]);
 
   // `webkitdirectory` isn't in the input TS types — set it (plus the vendor
@@ -1453,7 +1536,11 @@ export function ReadSurface(): JSX.Element {
 
   // Attachments exist but no folder is linked — prompt a (re-)link.
   const needsRelink = useMemo(
-    () => storageCount === 0 && references.some((r) => r.zoteroStorage !== undefined),
+    // Only Zotero-sourced attachments need the linked folder; managed ones resolve
+    // by their own path.
+    () =>
+      storageCount === 0 &&
+      references.some((r) => (r.attachments ?? []).some((a) => a.source === 'zotero')),
     [storageCount, references],
   );
 
@@ -1648,7 +1735,7 @@ export function ReadSurface(): JSX.Element {
       )}
       {activeTabObj !== undefined ? (
         activeTabObj.kind === 'pdf' && activeTabObj.refId !== undefined ? (
-          <ReaderView refId={activeTabObj.refId} onGone={() => closeTab(activeTabObj.id)} />
+          <ReaderView refId={activeTabObj.refId} attId={activeTabObj.attId} onGone={() => closeTab(activeTabObj.id)} />
         ) : (
           <BrowserView initialUrl={activeTabObj.url ?? ''} />
         )
@@ -1795,7 +1882,7 @@ export function ReadSurface(): JSX.Element {
                     </thead>
                     <tbody>
                       {items.map((r) => {
-                        const hasPdf = r.zoteroStorage !== undefined;
+                        const hasPdf = hasAnyAttachment(r);
                         return (
                           <tr
                             key={r.id}

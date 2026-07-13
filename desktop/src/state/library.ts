@@ -90,11 +90,27 @@ export interface Reference {
   // --- Hub sync linkage (state/librarySync.ts) -----------------------------
   hubId?: string; // the id of the linked hub reference_items row, once synced
   syncedAt?: number; // when this row last reconciled with the hub
-  // Zotero attachment coordinates — the attachment item's key is its subdirectory
-  // under the Zotero `storage/` folder, `file` the filename within it. Bytes are
-  // NOT stored here; the Read surface resolves them from a user-linked storage
-  // folder (in-memory, see state/zoteroStorage.ts) so nothing leaves the device.
+  // Attachments (0..N). Bytes are NOT stored here — only coordinates. Two
+  // provenances resolve differently (see state/zoteroStorage.ts):
+  //   - 'zotero'  : imported; keyed `<key>/<file>` under the linked Zotero
+  //                 `storage/` folder, resolved through that folder's index.
+  //   - 'managed' : added in-app; copied into the active storage root as
+  //                 `<key>/<file>` and resolved by its absolute `path`.
+  // Legacy single-attachment rows (`zoteroStorage`) are migrated into this array
+  // on load (see migrateReference).
+  attachments?: Attachment[];
+  // Deprecated — read only for migration into `attachments`. Do not write.
   zoteroStorage?: { key: string; file: string; contentType?: string };
+}
+
+export interface Attachment {
+  id: string;
+  file: string; // filename
+  contentType?: string;
+  source: 'zotero' | 'managed';
+  key?: string; // storage subfolder key (Zotero layout: `<key>/<file>`)
+  path?: string; // absolute path — set for 'managed' files, read directly
+  addedAt: number;
 }
 
 export interface Collection {
@@ -122,6 +138,8 @@ interface LibraryState {
   addReference: (r: Omit<Reference, 'id' | 'addedAt'>) => string;
   updateReference: (id: string, patch: Partial<Reference>) => void;
   removeReference: (id: string) => void;
+  addAttachment: (refId: string, att: Omit<Attachment, 'id' | 'addedAt'>) => void;
+  removeAttachment: (refId: string, attId: string) => void;
   addCollection: (name: string) => string;
   renameCollection: (id: string, name: string) => void;
   removeCollection: (id: string) => void;
@@ -156,14 +174,45 @@ interface Persisted {
   collections: Collection[];
 }
 
+// Fold a legacy single `zoteroStorage` field into the `attachments` array so
+// every consumer reads one shape. Idempotent: a row already carrying
+// `attachments` is left as-is.
+function migrateReference(r: Reference): Reference {
+  if (r.attachments !== undefined) return r;
+  if (r.zoteroStorage === undefined) return { ...r, attachments: [] };
+  const z = r.zoteroStorage;
+  const att: Attachment = {
+    id: `att${r.id}0`,
+    file: z.file,
+    contentType: z.contentType,
+    source: 'zotero',
+    key: z.key,
+    addedAt: r.addedAt,
+  };
+  return { ...r, attachments: [att] };
+}
+
 function load(): Persisted {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (raw !== null) return JSON.parse(raw) as Persisted;
+    if (raw !== null) {
+      const p = JSON.parse(raw) as Persisted;
+      return { collections: p.collections ?? [], references: (p.references ?? []).map(migrateReference) };
+    }
   } catch {
     /* ignore */
   }
   return { references: [], collections: [] };
+}
+
+/// The attachment to open by default for a reference (the first), or undefined.
+export function primaryAttachment(r: Pick<Reference, 'attachments'>): Attachment | undefined {
+  return r.attachments?.[0];
+}
+
+/// Whether a reference has at least one attachment.
+export function hasAnyAttachment(r: Pick<Reference, 'attachments'>): boolean {
+  return (r.attachments?.length ?? 0) > 0;
 }
 
 function save(p: Persisted): void {
@@ -187,7 +236,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   addReference: (r) => {
     const id = newId('ref');
-    const ref: Reference = { ...r, id, addedAt: Date.now() };
+    const ref: Reference = migrateReference({ ...r, id, addedAt: Date.now() });
     const references = [ref, ...get().references];
     set({ references });
     save({ references, collections: get().collections });
@@ -202,6 +251,23 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   removeReference: (id) => {
     const references = get().references.filter((r) => r.id !== id);
+    set({ references });
+    save({ references, collections: get().collections });
+  },
+
+  addAttachment: (refId, att) => {
+    const full: Attachment = { ...att, id: newId('att'), addedAt: Date.now() };
+    const references = get().references.map((r) =>
+      r.id === refId ? { ...r, attachments: [...(r.attachments ?? []), full] } : r,
+    );
+    set({ references });
+    save({ references, collections: get().collections });
+  },
+
+  removeAttachment: (refId, attId) => {
+    const references = get().references.map((r) =>
+      r.id === refId ? { ...r, attachments: (r.attachments ?? []).filter((a) => a.id !== attId) } : r,
+    );
     set({ references });
     save({ references, collections: get().collections });
   },
@@ -269,6 +335,23 @@ export const useLibrary = create<LibraryState>((set, get) => ({
         if (cur === undefined) continue;
         // Overwrite bibliographic fields from the source; preserve the reader's
         // own curation (notes, body, and the union of tags/collections).
+        // Preserve user-added (managed) attachments; refresh the Zotero one from
+        // the (single-attachment) importer.
+        const curAtts = cur.attachments ?? [];
+        const managed = curAtts.filter((a) => a.source === 'managed');
+        const zot: Attachment[] =
+          it.ref.zoteroStorage !== undefined
+            ? [
+                {
+                  id: `att${cur.id}z`,
+                  file: it.ref.zoteroStorage.file,
+                  contentType: it.ref.zoteroStorage.contentType,
+                  source: 'zotero',
+                  key: it.ref.zoteroStorage.key,
+                  addedAt: cur.addedAt,
+                },
+              ]
+            : curAtts.filter((a) => a.source === 'zotero');
         byId.set(matchId, {
           ...cur,
           ...it.ref,
@@ -278,13 +361,14 @@ export const useLibrary = create<LibraryState>((set, get) => ({
           bodyMarkdown: cur.bodyMarkdown ?? it.ref.bodyMarkdown,
           tags: [...new Set([...cur.tags, ...it.ref.tags])],
           collectionIds: [...new Set([...cur.collectionIds, ...collectionIds])],
-          zoteroStorage: it.ref.zoteroStorage ?? cur.zoteroStorage,
+          attachments: [...zot, ...managed],
+          zoteroStorage: undefined,
           details: it.ref.details ?? cur.details,
         });
         updatedIds.add(matchId);
       } else {
         const id = newId('ref');
-        added.push({ ...it.ref, collectionIds, id, addedAt: Date.now() });
+        added.push(migrateReference({ ...it.ref, collectionIds, id, addedAt: Date.now() }));
         keys.forEach((k) => {
           if (!keyToId.has(k)) keyToId.set(k, id);
         });

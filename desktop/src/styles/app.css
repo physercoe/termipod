@@ -1294,6 +1294,20 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   justify-content: space-between;
 }
+/* Area-annotation image actions (copy / save the screenshot). */
+.pdfjs-anno-imgacts {
+  display: flex;
+  gap: var(--spacing-s4);
+}
+.pdfjs-anno-imgbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  flex: 1;
+  justify-content: center;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font-size: var(--font-size-label);
+}
 .pdfjs-anno-del {
   display: inline-flex;
   align-items: center;

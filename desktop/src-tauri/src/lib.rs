@@ -494,6 +494,7 @@ pub fn run() {
             storage::attachment_add,
             storage::attachment_read,
             storage::attachment_delete,
+            storage::save_image_as,
             docfile::doc_open,
             docfile::doc_read,
             docfile::doc_save,

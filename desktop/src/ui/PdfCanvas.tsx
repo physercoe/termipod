@@ -4,6 +4,7 @@ import { TextLayer } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { useT } from '../i18n';
+import { isTauri } from '../platform';
 import { Icon } from './Icon';
 import { useOpenLink } from './OpenLinkContext';
 import { ResizeHandle } from './ResizeHandle';
@@ -56,6 +57,49 @@ function flatPxToPoints(flat: number[]): string {
     parts.push(`${flat[i]},${flat[i + 1]}`);
   }
   return parts.join(' ');
+}
+
+// Crop an area annotation's rectangle out of the already-rendered page canvas to
+// a PNG blob (the "screenshot" of the selected region). The page canvas is at
+// devicePixelRatio × the CSS footprint, so map the annotation's CSS-px box up by
+// `ratio`. Returns null if the page isn't rendered or has no rect.
+function captureAnnoImage(canvas: HTMLCanvasElement | null, a: Annotation, footprintH: number, scale: number): Promise<Blob | null> {
+  const r = a.position.rects?.[0];
+  if (canvas === null || r === undefined) return Promise.resolve(null);
+  const ratio = window.devicePixelRatio || 1;
+  const box = rectPdfToPx(r, footprintH, scale);
+  const sx = Math.max(0, Math.round(box.left * ratio));
+  const sy = Math.max(0, Math.round(box.top * ratio));
+  const sw = Math.max(1, Math.round(box.width * ratio));
+  const sh = Math.max(1, Math.round(box.height * ratio));
+  const out = document.createElement('canvas');
+  out.width = sw;
+  out.height = sh;
+  const ctx = out.getContext('2d');
+  if (ctx === null) return Promise.resolve(null);
+  ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return new Promise((resolve) => out.toBlob((b) => resolve(b), 'image/png'));
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 1) bin += String.fromCharCode(buf[i]);
+  return btoa(bin);
+}
+
+async function invokeTauri<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<T>(cmd, args);
+}
+
+// Copy a PNG blob to the clipboard (best-effort; WebView2 clipboard image write
+// can be flaky, so callers ignore failures).
+async function copyImageBlob(blob: Blob): Promise<void> {
+  const Ctor = (globalThis as { ClipboardItem?: new (items: Record<string, Blob>) => unknown }).ClipboardItem;
+  if (Ctor === undefined) throw new Error('clipboard image unsupported');
+  const item = new Ctor({ 'image/png': blob }) as ClipboardItem;
+  await navigator.clipboard.write([item]);
 }
 
 /// A self-contained PDF viewer built on bundled pdf.js — no CDN, no native
@@ -176,6 +220,8 @@ function AnnoEditor({
   onUpdate,
   onRemove,
   onClose,
+  onCopyImage,
+  onSaveImage,
 }: {
   a: Annotation;
   footprintH: number;
@@ -184,6 +230,8 @@ function AnnoEditor({
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
   onRemove: (id: string) => void;
   onClose: () => void;
+  onCopyImage?: () => void;
+  onSaveImage?: () => void;
 }): JSX.Element {
   // Anchor under the annotation's first rect (or its ink bbox).
   const anchor = useMemo(() => {
@@ -223,6 +271,20 @@ function AnnoEditor({
         spellCheck={false}
         onChange={(e) => onUpdate(a.id, { comment: e.target.value })}
       />
+      {a.type === 'image' && (onCopyImage !== undefined || onSaveImage !== undefined) && (
+        <div className="pdfjs-anno-imgacts">
+          {onCopyImage !== undefined && (
+            <button className="pdfjs-anno-imgbtn" onClick={onCopyImage}>
+              <Icon name="copy" size={13} /> {t('read.annCopyImage')}
+            </button>
+          )}
+          {onSaveImage !== undefined && (
+            <button className="pdfjs-anno-imgbtn" onClick={onSaveImage}>
+              <Icon name="download" size={13} /> {t('read.annSaveImage')}
+            </button>
+          )}
+        </div>
+      )}
       <div className="pdfjs-anno-actions">
         <button className="pdfjs-anno-del" title={t('read.annDelete')} onClick={() => onRemove(a.id)}>
           <Icon name="trash" size={13} /> {t('read.annDelete')}
@@ -517,6 +579,19 @@ function PageView({
   const selected = readOnly ? null : annos.find((a) => a.id === selectedId) ?? null;
   const surfaceTool = !readOnly && (tool === 'note' || tool === 'image' || tool === 'ink');
 
+  // Area-annotation screenshot: crop the region from this page's canvas, then
+  // copy it to the clipboard or save it as a PNG (Zotero's area-tool actions).
+  async function copyAreaImage(a: Annotation): Promise<void> {
+    const blob = await captureAnnoImage(canvasRef.current, a, fh, scale);
+    if (blob !== null) await copyImageBlob(blob).catch(() => undefined);
+  }
+  async function saveAreaImage(a: Annotation): Promise<void> {
+    const blob = await captureAnnoImage(canvasRef.current, a, fh, scale);
+    if (blob === null) return;
+    const base64 = await blobToBase64(blob);
+    await invokeTauri('save_image_as', { defaultName: `figure-p${a.pageIndex + 1}.png`, base64 }).catch(() => undefined);
+  }
+
   return (
     <div ref={wrapRef} className="pdfjs-page" data-page={pageNum} style={style}>
       <canvas ref={canvasRef} className="pdfjs-canvas" style={size !== null ? { width: size.w, height: size.h } : undefined} />
@@ -580,6 +655,8 @@ function PageView({
           onUpdate={onUpdate}
           onRemove={onRemove}
           onClose={() => onSelect(null)}
+          onCopyImage={selected.type === 'image' ? () => void copyAreaImage(selected) : undefined}
+          onSaveImage={selected.type === 'image' && isTauri() ? () => void saveAreaImage(selected) : undefined}
         />
       )}
     </div>

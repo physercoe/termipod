@@ -294,6 +294,29 @@ pub async fn attachment_read(path: String) -> Result<StorageFile, String> {
     })
 }
 
+/// Save PNG bytes (base64 from the IPC bridge) to a user-chosen path via a
+/// native save dialog. Used by the PDF area-screenshot "Save image as". Returns
+/// the saved path, or `Ok(None)` on cancel.
+#[tauri::command]
+pub async fn save_image_as(app: AppHandle, default_name: String, base64: String) -> Result<Option<String>, String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("PNG image", &["png"])
+        .set_file_name(&default_name)
+        .blocking_save_file();
+    let Some(fp) = picked else {
+        return Ok(None);
+    };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(Some(path.to_string_lossy().to_string()))
+}
+
 /// Delete a user-managed attachment file, then remove its now-empty `<key>/`
 /// dir (Zotero layout is one file per key folder). Only ever touches the file
 /// we were handed and an empty parent — never recursive.

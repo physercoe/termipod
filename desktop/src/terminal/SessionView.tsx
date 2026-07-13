@@ -17,8 +17,10 @@ export function SessionView({ tab }: { tab: TermTab }): JSX.Element {
   const isSsh = tab.kind === 'ssh';
   // OSC-133 blocks ride a bash/zsh script; only offer/auto-run it where that
   // shell can parse it. SSH (remote, shell kind unknown → assumed POSIX) keeps
-  // manual integration; a local cmd.exe / PowerShell gets neither.
-  const canIntegrate = isSsh || isPosixShell(tab.shell);
+  // manual integration; a local cmd.exe / PowerShell gets neither. An agent tab
+  // never integrates — its TUI owns the screen, and injecting the script would
+  // type it straight into the agent's prompt.
+  const canIntegrate = tab.agent !== true && (isSsh || isPosixShell(tab.shell));
 
   return (
     <div className="session-view">

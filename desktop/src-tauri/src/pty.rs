@@ -73,14 +73,42 @@ pub struct PtyState {
 
 #[derive(Deserialize)]
 pub struct PtyOpenReq {
-    /// Shell to launch; defaults to `$SHELL` (unix) / `%COMSPEC%` (windows).
+    /// Program to launch; defaults to `$SHELL` (unix) / `%COMSPEC%` (windows).
+    /// For a local *agent* this is the engine CLI (e.g. `claude`, `codex`).
     #[serde(default)]
     shell: Option<String>,
+    /// Extra argv passed to the program (e.g. `--model …` for an agent). Each is a
+    /// distinct arg — never a shell string — so there is no injection surface.
+    #[serde(default)]
+    args: Vec<String>,
     /// Working directory; defaults to the process's cwd when absent.
     #[serde(default)]
     cwd: Option<String>,
     cols: u16,
     rows: u16,
+}
+
+/// Build the PTY command. On Windows an npm-installed agent CLI (`claude`,
+/// `codex`, `gemini`) is usually a `.cmd`/`.ps1` shim that CreateProcess — and
+/// therefore ConPTY — cannot exec directly; it must run through `cmd.exe /C`.
+/// Native `.exe` programs (including the default `cmd.exe`/`powershell.exe`
+/// shells) are launched directly. On unix everything is launched directly.
+fn build_command(program: &str, args: &[String]) -> CommandBuilder {
+    if cfg!(windows) && !program.to_ascii_lowercase().ends_with(".exe") {
+        let mut cmd = CommandBuilder::new("cmd.exe");
+        cmd.arg("/C");
+        cmd.arg(program);
+        for a in args {
+            cmd.arg(a.as_str());
+        }
+        cmd
+    } else {
+        let mut cmd = CommandBuilder::new(program);
+        for a in args {
+            cmd.arg(a.as_str());
+        }
+        cmd
+    }
 }
 
 /// What `pty_open` hands back: the session id plus the shell it actually
@@ -132,11 +160,11 @@ pub async fn pty_open(state: State<'_, PtyState>, req: PtyOpenReq) -> Result<Pty
         .map_err(|e| format!("openpty: {e}"))?;
 
     let shell = req.shell.filter(|s| !s.trim().is_empty()).unwrap_or_else(default_shell);
-    let mut cmd = CommandBuilder::new(shell.as_str());
+    let mut cmd = build_command(shell.as_str(), &req.args);
     if let Some(cwd) = req.cwd.as_ref().filter(|s| !s.trim().is_empty()) {
         cmd.cwd(cwd.as_str());
     }
-    // TERM so full-screen apps (vim, tmux) and colour work out of the box.
+    // TERM so full-screen apps (vim, tmux, an agent TUI) and colour work out of the box.
     cmd.env("TERM", "xterm-256color");
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;

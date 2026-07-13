@@ -6,6 +6,9 @@ import { ConnectForm } from './ConnectForm';
 import { ptyOpen } from './pty';
 import { SessionView } from './SessionView';
 import { useTerminals } from './store';
+import { useWorkspace } from '../state/workspace';
+
+const AGENT_CMD_KEY = 'termipod.localAgent.termCmd';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -28,7 +31,10 @@ export function TerminalDock(): JSX.Element {
   const setOpen = useTerminals((s) => s.setOpen);
 
   const tauri = isTauri();
+  const folder = useWorkspace((s) => s.folder);
   const [connecting, setConnecting] = useState(false);
+  const [agentForm, setAgentForm] = useState(false);
+  const [agentCmd, setAgentCmd] = useState(() => localStorage.getItem(AGENT_CMD_KEY) ?? 'claude');
   const [error, setError] = useState<string | null>(null);
   const [height, setHeight] = useState(340);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
@@ -58,6 +64,35 @@ export function TerminalDock(): JSX.Element {
       const { id, shell } = await ptyOpen({ cols: 80, rows: 24 });
       addTab({ kind: 'local', sessionId: id, shell, title: t('term.localShell') });
       setConnecting(false);
+    } catch (e) {
+      setError(msg(e));
+    }
+  }
+
+  // Open a local *agent* CLI in a PTY (ConPTY on Windows) — the agent's full,
+  // native interactive TUI, run in the open workspace folder. The engine binary +
+  // flags are split into argv (no shell string → no injection); pty.rs routes an
+  // npm shim through cmd.exe on Windows. The tab is marked `agent` so no OSC-133
+  // shell-integration script is ever injected into the agent's prompt.
+  async function newAgent(): Promise<void> {
+    setError(null);
+    const parts = agentCmd.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return;
+    try {
+      localStorage.setItem(AGENT_CMD_KEY, agentCmd.trim());
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { id, shell } = await ptyOpen({
+        shell: parts[0],
+        args: parts.slice(1),
+        cwd: folder ?? undefined,
+        cols: 80,
+        rows: 24,
+      });
+      addTab({ kind: 'local', sessionId: id, shell, title: parts[0], agent: true });
+      setAgentForm(false);
     } catch (e) {
       setError(msg(e));
     }
@@ -100,6 +135,18 @@ export function TerminalDock(): JSX.Element {
             <Icon name="plus" size={13} />
             {t('term.ssh')}
           </button>
+          <button
+            className={agentForm ? 'active' : ''}
+            onClick={() => {
+              setAgentForm(true);
+              setConnecting(false);
+            }}
+            disabled={!tauri}
+            title={t('term.newAgentHint')}
+          >
+            <Icon name="plus" size={13} />
+            {t('term.agent')}
+          </button>
         </span>
         <span className="spacer" />
         <button className="term-dock-hide" title={t('term.hideDock')} onClick={() => setOpen(false)}>
@@ -113,7 +160,10 @@ export function TerminalDock(): JSX.Element {
         ) : (
           <>
             {tabs.map((tab) => (
-              <div key={tab.id} className={!connecting && tab.id === activeId ? 'dock-pane' : 'dock-pane hidden'}>
+              <div
+                key={tab.id}
+                className={!connecting && !agentForm && tab.id === activeId ? 'dock-pane' : 'dock-pane hidden'}
+              >
                 <SessionView tab={tab} />
               </div>
             ))}
@@ -122,7 +172,39 @@ export function TerminalDock(): JSX.Element {
                 <ConnectForm onConnected={onConnected} onCancel={() => setConnecting(false)} />
               </div>
             )}
-            {!connecting && tabs.length === 0 && (
+            {agentForm && (
+              <div className="dock-pane">
+                <div className="agent-form">
+                  <div className="agent-form-title">{t('term.openAgent')}</div>
+                  <label className="agent-form-row">
+                    <span>{t('term.agentCmd')}</span>
+                    <input
+                      className="mono"
+                      value={agentCmd}
+                      autoFocus
+                      spellCheck={false}
+                      placeholder="claude"
+                      onChange={(e) => setAgentCmd(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void newAgent();
+                      }}
+                    />
+                  </label>
+                  <div className="muted small mono agent-form-cwd">
+                    {folder !== null ? t('term.agentCwd').replace('{dir}', folder) : t('term.agentCwdNone')}
+                  </div>
+                  <div className="agent-form-actions">
+                    <button className="primary" onClick={() => void newAgent()}>
+                      {t('term.openAgent')}
+                    </button>
+                    <button onClick={() => setAgentForm(false)}>{t('term.agentCancel')}</button>
+                  </div>
+                  {error !== null && <div className="error">{error}</div>}
+                  <div className="muted small">{t('term.agentCmdHint')}</div>
+                </div>
+              </div>
+            )}
+            {!connecting && !agentForm && tabs.length === 0 && (
               <div className="term-empty">
                 <p className="muted">{t('term.emptyHint')}</p>
                 {error !== null && <div className="error">{error}</div>}
@@ -131,6 +213,7 @@ export function TerminalDock(): JSX.Element {
                     + {t('term.localShell')}
                   </button>
                   <button onClick={() => setConnecting(true)}>+ {t('term.ssh')}</button>
+                  <button onClick={() => setAgentForm(true)}>+ {t('term.agent')}</button>
                 </div>
               </div>
             )}

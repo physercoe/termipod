@@ -18,6 +18,10 @@ export interface TermTab {
    *  POSIX OSC-133 integration applies (cmd.exe / PowerShell can't run it).
    *  Undefined for SSH (remote shell kind is unknown; assumed POSIX). */
   shell?: string;
+  /** True when this local session runs an *agent* CLI (claude/codex/…) rather than
+   *  a shell — its own TUI owns the screen, so OSC-133 shell integration must never
+   *  be injected (it would type the integration script into the agent's prompt). */
+  agent?: boolean;
 }
 
 interface TerminalState {

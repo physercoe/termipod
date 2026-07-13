@@ -7,8 +7,11 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 /// build has no native core.
 
 export interface PtyOpenReq {
-  /** Shell binary; omit to use `$SHELL` / `%COMSPEC%`. */
+  /** Program binary; omit to use `$SHELL` / `%COMSPEC%`. For a local agent this is
+   *  the engine CLI (e.g. `claude`, `codex`). */
   shell?: string;
+  /** Extra argv passed to the program (agent flags). Each is a distinct arg. */
+  args?: string[];
   /** Working directory; omit for the process cwd. */
   cwd?: string;
   cols: number;

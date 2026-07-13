@@ -1012,10 +1012,25 @@ export function PdfCanvas({
   async function goToDest(dest: string | unknown[]): Promise<void> {
     if (pdf === null) return;
     let explicit: unknown = dest;
+    // A named destination resolves to an explicit array. Resolve recursively in
+    // case getDestination hands back another name (rare, but possible).
     if (typeof dest === 'string') explicit = await pdf.getDestination(dest);
     if (!Array.isArray(explicit) || explicit.length === 0) return;
     try {
-      const pageNum = (await pdf.getPageIndex(explicit[0] as { num: number; gen: number })) + 1;
+      // The first element identifies the target page. Normally a Ref
+      // ({num,gen}) → getPageIndex; but some producers encode it as a bare
+      // 0-based page index (a number). Handle both — mis-shaped page refs were
+      // the reason ref links jumped to the wrong page.
+      const target = explicit[0];
+      let pageNum: number;
+      if (typeof target === 'number' && Number.isInteger(target)) {
+        pageNum = target + 1;
+      } else if (target !== null && typeof target === 'object') {
+        pageNum = (await pdf.getPageIndex(target as { num: number; gen: number })) + 1;
+      } else {
+        return; // unresolvable page reference
+      }
+      if (pageNum < 1 || pageNum > pdf.numPages) return;
       // Convert the destination's PDF-space top into a pixel offset from the page's
       // top edge at the current scale, so we land on the exact section — not just
       // the page top.
@@ -1053,10 +1068,16 @@ export function PdfCanvas({
   // scroll position), computed from the page's rect within the container's scroll
   // frame — so an in-page offset can be added.
   //
-  // A jump can otherwise land short: pages ABOVE the target may still be reserving
-  // their true height (lazy render, or pageDims not yet measured), which shifts the
-  // target down after the scroll begins. So we settle: recompute the target a few
-  // times and re-scroll whenever it drifts, until the layout above has stabilised.
+  // The jump is INSTANT (behavior:'auto'), like Zotero — not a smooth animation.
+  // Smooth scrolling animates through every intermediate page, which (a) reads as
+  // "scrolling page by page" and (b) lazy-renders each page it passes, so their
+  // heights shift versus the reserved placeholders and the accumulated drift lands
+  // the scroll on the WRONG page. An instant jump skips the intermediate pages
+  // entirely (they keep their reserved height → no drift → correct page).
+  //
+  // We still settle: once the target vicinity renders, pages ABOVE that were still
+  // reserving an estimated height can shift the target, so recompute and re-jump
+  // (instantly) a few times until the layout stabilises.
   function scrollToPage(n: number, yOffset = 0): void {
     const container = scrollRef.current;
     if (container === null) return;
@@ -1068,7 +1089,7 @@ export function PdfCanvas({
     };
     const first = targetTop();
     if (first === null) return;
-    container.scrollTo({ top: first, behavior: 'smooth' });
+    container.scrollTo({ top: first, behavior: 'auto' });
     let last = first;
     let tries = 0;
     const settle = (): void => {
@@ -1076,11 +1097,11 @@ export function PdfCanvas({
       const t = targetTop();
       if (t !== null && Math.abs(t - last) > 3) {
         last = t;
-        container.scrollTo({ top: t, behavior: 'smooth' });
+        container.scrollTo({ top: t, behavior: 'auto' });
       }
-      if (tries < 8) window.setTimeout(settle, 120);
+      if (tries < 8) window.setTimeout(settle, 90);
     };
-    window.setTimeout(settle, 160);
+    window.setTimeout(settle, 100);
   }
 
   async function runSearch(): Promise<void> {

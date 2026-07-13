@@ -1294,6 +1294,59 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   justify-content: space-between;
 }
+/* Annotation tags — chip list + inline add input (in the popup editor). */
+.pdfjs-anno-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.pdfjs-anno-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px var(--spacing-s4) 1px var(--spacing-s8);
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--text);
+  font-size: var(--font-size-label);
+}
+.pdfjs-anno-tag-x {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.pdfjs-anno-tag-x:hover {
+  color: var(--danger);
+}
+.pdfjs-anno-taginput {
+  flex: 1;
+  min-width: 80px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  padding: 2px var(--spacing-s8);
+  font-size: var(--font-size-label);
+}
+/* Tag chips under an annotation row in the list. */
+.pdfjs-anno-rowtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 2px 0 4px 22px;
+}
+.pdfjs-anno-rowtag {
+  padding: 0 var(--spacing-s8);
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+}
 /* Area-annotation image actions (copy / save the screenshot). */
 .pdfjs-anno-imgacts {
   display: flex;

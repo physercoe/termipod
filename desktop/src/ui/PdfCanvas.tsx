@@ -271,6 +271,33 @@ function AnnoEditor({
         spellCheck={false}
         onChange={(e) => onUpdate(a.id, { comment: e.target.value })}
       />
+      {/* Tags — distinct from the comment: a chip list you add to with Enter. */}
+      <div className="pdfjs-anno-tags">
+        {(a.tags ?? []).map((tg) => (
+          <span className="pdfjs-anno-tag" key={tg}>
+            {tg}
+            <button
+              className="pdfjs-anno-tag-x"
+              title={t('read.annTagRemove')}
+              onClick={() => onUpdate(a.id, { tags: (a.tags ?? []).filter((x) => x !== tg) })}
+            >
+              <Icon name="close" size={11} />
+            </button>
+          </span>
+        ))}
+        <input
+          className="pdfjs-anno-taginput"
+          placeholder={t('read.annTagAdd')}
+          spellCheck={false}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            const v = e.currentTarget.value.trim();
+            const cur = a.tags ?? [];
+            if (v !== '' && !cur.includes(v)) onUpdate(a.id, { tags: [...cur, v] });
+            e.currentTarget.value = '';
+          }}
+        />
+      </div>
       {a.type === 'image' && (onCopyImage !== undefined || onSaveImage !== undefined) && (
         <div className="pdfjs-anno-imgacts">
           {onCopyImage !== undefined && (
@@ -765,6 +792,15 @@ function AnnotationList({
               <span className="pdfjs-anno-pg muted small">{a.pageIndex + 1}</span>
             </button>
             {text !== '' && comment !== '' && <div className="pdfjs-anno-rowcomment muted small">{comment}</div>}
+            {(a.tags ?? []).length > 0 && (
+              <div className="pdfjs-anno-rowtags">
+                {(a.tags ?? []).map((tg) => (
+                  <span className="pdfjs-anno-rowtag" key={tg}>
+                    {tg}
+                  </span>
+                ))}
+              </div>
+            )}
           </li>
         );
       })}

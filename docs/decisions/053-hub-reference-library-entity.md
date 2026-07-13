@@ -81,3 +81,45 @@ ownership-law split (hub = names, hosts/devices = bytes).
   the `reference_*` tools register into.
 - [ADR-050](050-desktop-workbench-delivery-model.md) — the desktop workbench whose
   Read surface (J1) is the first consumer.
+
+## Amendment — PDF annotations as child records (2026-07-13)
+
+> **Status:** Accepted (2026-07-13). Extends this ADR with a child entity.
+> **Last verified vs code:** hub build 2026-07-13 (`reference_annotations` migration 0064).
+
+The director asked for Zotero-class PDF annotation in the desktop reader
+(highlight / underline / note / added-text / area / freehand ink). The prior
+question was **where annotations persist**. Investigation of Zotero settled it:
+Zotero deliberately stores annotations **in its database, not embedded in the PDF**
+([kb/annotations_in_database](https://www.zotero.org/support/kb/annotations_in_database)),
+so they sync as small deltas (not a whole-file re-upload), don't conflict across
+devices, and can be tagged / filtered / listed as first-class items. That is
+exactly our data-ownership law: an annotation is **metadata that points INTO the
+PDF**, so it belongs on the hub, not in the bytes.
+
+**D-5. Child table, not a blob.** `reference_annotations` (migration 0064) — one
+row per annotation, `ON DELETE CASCADE` from `reference_items`. A blob column on
+the parent was rejected: a highlight-heavy PDF has hundreds of annotations, and a
+single blob rewrites wholesale on every edit and conflicts across the director's
+devices. Per-row lets a `PATCH` touch one without its siblings and lets us filter
+by page / color / tag.
+
+**D-6. Zotero-shaped, opaque geometry.** The `position` column is kept **opaque**
+and stored verbatim (like `enrichment_json`), in Zotero's shape — rect kinds
+`{"pageIndex":N,"rects":[[x1,y1,x2,y2],…]}`, ink `{"pageIndex":N,"paths":[[…]],"width":W}`
+— in **unscaled PDF points, origin bottom-left**. Storing in PDF-point space once
+means a renderer just multiplies by the current zoom, so overlays land correctly
+at any scale; adopting Zotero's exact convention also buys 1:1 import/export of a
+director's existing Zotero highlights later.
+
+**D-7. Same REST+MCP shape.** REST under
+`/v1/teams/{team}/references/{ref}/annotations[/{ann}]` (list/create/get/patch/
+delete); four native MCP tools on the same store methods —
+`reference_annotation_list` (read-only, `TierTrivial`),
+`reference_annotation_create` / `_update` / `_delete` (`TierRoutine`), all
+worker-eligible — so a steward can read the director's highlights and a worker can
+mark the passages it cited. (`handlers_reference_annotations.go`,
+`mcp_reference_annotations.go`.)
+
+Desktop overlay rendering + the annotation toolbar are the follow-up consumer
+(the desktop workbench), reading these records and drawing them scaled.

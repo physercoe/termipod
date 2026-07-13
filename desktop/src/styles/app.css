@@ -971,11 +971,71 @@ button > .ui-icon:not(:only-child):first-child,
   display: flex;
 }
 .pdfjs-toc {
-  flex: 0 0 auto; /* width is set inline (resizable, persisted) */
+  flex: 0 0 auto; /* width is set inline (resizable, persisted); do NOT add .scroll —
+                     its flex:1 would override this and defeat the inline width. */
   border-right: 1px solid var(--border);
   background: var(--surface);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.pdfjs-panel-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.pdfjs-panel-tabs button {
+  flex: 1;
+  padding: var(--spacing-s8) var(--spacing-s4);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+.pdfjs-panel-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.pdfjs-panel-body {
   padding: var(--spacing-s8) 0;
+}
+.pdfjs-thumbs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: 0 var(--spacing-s8);
+}
+.pdfjs-thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+}
+.pdfjs-thumb-canvas {
+  width: auto;
+  max-width: 100%;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  background: #fff;
+}
+.pdfjs-thumb.active .pdfjs-thumb-canvas {
+  border-color: var(--accent);
+}
+.pdfjs-thumb-n {
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+}
+.pdfjs-thumb.active .pdfjs-thumb-n {
+  color: var(--accent);
 }
 .pdfjs-toc-list {
   list-style: none;

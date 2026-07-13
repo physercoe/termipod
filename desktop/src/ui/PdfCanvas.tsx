@@ -257,6 +257,101 @@ function OutlineList({
   );
 }
 
+// One page thumbnail — rendered lazily to a small canvas (IntersectionObserver),
+// clicking jumps to the page. The active page is outlined and scrolled into view.
+function Thumb({
+  pdf,
+  pageNum,
+  active,
+  onGo,
+}: {
+  pdf: PDFDocumentProxy;
+  pageNum: number;
+  active: boolean;
+  onGo: (n: number) => void;
+}): JSX.Element {
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [visible, setVisible] = useState(pageNum <= 5);
+
+  useEffect(() => {
+    const el = btnRef.current;
+    if (el === null || visible) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisible(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: '250px 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    let task: ReturnType<PDFPageProxy['render']> | null = null;
+    void (async () => {
+      const page = await pdf.getPage(pageNum);
+      if (cancelled) return;
+      const base = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: 132 / base.width });
+      const canvas = canvasRef.current;
+      if (canvas === null) return;
+      const ctx = canvas.getContext('2d');
+      if (ctx === null) return;
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+      task = page.render({ canvasContext: ctx, viewport: vp });
+      try {
+        await task.promise;
+      } catch {
+        /* cancelled (unmount) */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      task?.cancel();
+    };
+  }, [pdf, pageNum, visible]);
+
+  useEffect(() => {
+    if (active) btnRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [active]);
+
+  return (
+    <button
+      ref={btnRef}
+      className={active ? 'pdfjs-thumb active' : 'pdfjs-thumb'}
+      onClick={() => onGo(pageNum)}
+    >
+      <canvas ref={canvasRef} className="pdfjs-thumb-canvas" />
+      <span className="pdfjs-thumb-n">{pageNum}</span>
+    </button>
+  );
+}
+
+function ThumbList({
+  pdf,
+  current,
+  onGo,
+}: {
+  pdf: PDFDocumentProxy;
+  current: number;
+  onGo: (n: number) => void;
+}): JSX.Element {
+  return (
+    <div className="pdfjs-thumbs">
+      {Array.from({ length: pdf.numPages }, (_, i) => (
+        <Thumb key={i + 1} pdf={pdf} pageNum={i + 1} active={current === i + 1} onGo={onGo} />
+      ))}
+    </div>
+  );
+}
+
 export function PdfCanvas({
   data,
   fileName,
@@ -283,6 +378,7 @@ export function PdfCanvas({
   const [outline, setOutline] = useState<OutlineNode[]>([]);
   const [pageDims, setPageDims] = useState<{ w: number; h: number }[]>([]);
   const [showToc, setShowToc] = useState(false);
+  const [panelTab, setPanelTab] = useState<'outline' | 'thumbs'>('thumbs');
   const [tocW, setTocW] = useState(() => {
     const v = Number(localStorage.getItem('termipod.read.pdfTocW'));
     return Number.isFinite(v) && v > 0 ? v : 240;
@@ -524,11 +620,15 @@ export function PdfCanvas({
   return (
     <div className="pdfjs-view">
       <div className="pdfjs-toolbar">
-        {outline.length > 0 && (
+        {pdf !== null && (
           <button
             className={`pdfjs-zoom${showToc ? ' active' : ''}`}
             title={t('read.pdfToc')}
-            onClick={() => setShowToc((v) => !v)}
+            onClick={() => {
+              // Opening: default to the outline when the PDF has one, else thumbnails.
+              if (!showToc) setPanelTab(outline.length > 0 ? 'outline' : 'thumbs');
+              setShowToc((v) => !v);
+            }}
           >
             <Icon name="menu" />
           </button>
@@ -609,10 +709,32 @@ export function PdfCanvas({
         </button>
       </div>
       <div className="pdfjs-body">
-        {showToc && outline.length > 0 && (
+        {showToc && pdf !== null && (
           <>
             <div className="pdfjs-toc" style={{ width: tocW }}>
-              <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
+              <div className="pdfjs-panel-tabs">
+                {outline.length > 0 && (
+                  <button
+                    className={panelTab === 'outline' ? 'active' : ''}
+                    onClick={() => setPanelTab('outline')}
+                  >
+                    {t('read.pdfOutline')}
+                  </button>
+                )}
+                <button
+                  className={panelTab === 'thumbs' ? 'active' : ''}
+                  onClick={() => setPanelTab('thumbs')}
+                >
+                  {t('read.pdfThumbs')}
+                </button>
+              </div>
+              <div className="pdfjs-panel-body scroll">
+                {panelTab === 'outline' && outline.length > 0 ? (
+                  <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
+                ) : (
+                  <ThumbList pdf={pdf} current={currentPage} onGo={(n) => scrollToPage(n)} />
+                )}
+              </div>
             </div>
             <ResizeHandle
               onResize={(dx) =>

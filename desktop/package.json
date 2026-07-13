@@ -1,7 +1,7 @@
 {
   "name": "termipod-desktop",
   "private": true,
-  "version": "0.3.36",
+  "version": "0.3.37",
   "type": "module",
   "description": "TermiPod desktop control plane — the unified web-tech client shell (WS2 of docs/plans/desktop-control-plane.md). Browser-target build; the Tauri v2 shell wraps this later.",
   "scripts": {

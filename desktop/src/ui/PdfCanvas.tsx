@@ -253,6 +253,7 @@ function PageView({
   onUpdate,
   onRemove,
   onToolDone,
+  readOnly = false,
 }: {
   pdf: PDFDocumentProxy;
   pageNum: number;
@@ -271,6 +272,7 @@ function PageView({
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
   onRemove: (id: string) => void;
   onToolDone: () => void;
+  readOnly?: boolean; // the split-view mirror pane: overlays visible but not editable
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
@@ -512,8 +514,8 @@ function PageView({
     }
   };
 
-  const selected = annos.find((a) => a.id === selectedId) ?? null;
-  const surfaceTool = tool === 'note' || tool === 'image' || tool === 'ink';
+  const selected = readOnly ? null : annos.find((a) => a.id === selectedId) ?? null;
+  const surfaceTool = !readOnly && (tool === 'note' || tool === 'image' || tool === 'ink');
 
   return (
     <div ref={wrapRef} className="pdfjs-page" data-page={pageNum} style={style}>
@@ -533,7 +535,7 @@ function PageView({
         />
       ))}
       {footprint !== null && annos.length > 0 && (
-        <div className={`pdfjs-anno-layer${tool !== null ? ' tooling' : ''}`}>
+        <div className={`pdfjs-anno-layer${tool !== null && !readOnly ? ' tooling' : ''}`}>
           {annos.map((a) => (
             <AnnoOverlay
               key={a.id}
@@ -541,7 +543,7 @@ function PageView({
               footprintH={fh}
               scale={scale}
               selected={a.id === selectedId}
-              interactive={tool === null}
+              interactive={!readOnly && tool === null}
               onSelect={onSelect}
             />
           ))}
@@ -790,12 +792,11 @@ function ThumbList({
 
 export function PdfCanvas({
   data,
-  fileName,
   referenceId,
   onSaveSelection,
 }: {
   data: ArrayBuffer;
-  fileName?: string;
+  fileName?: string; // accepted for API compatibility; no longer shown (redundant with the reader title)
   referenceId?: string;
   onSaveSelection?: (text: string) => void;
 }): JSX.Element {
@@ -815,6 +816,15 @@ export function PdfCanvas({
   const [tool, setTool] = useState<Tool>(null);
   const [annoColor, setAnnoColor] = useState(ANNOTATION_COLORS[0]);
   const [selectedAnno, setSelectedAnno] = useState<string | null>(null);
+  // Split view (Zotero-style): the reading area shows the same PDF in two panes —
+  // 'vertical' = side by side, 'horizontal' = stacked. The mirror pane is a
+  // read-only reading view; annotation happens in the primary pane.
+  const [split, setSplit] = useState<'none' | 'vertical' | 'horizontal'>('none');
+  // Right-click menu anchor + whether the click landed on a live selection in the
+  // primary pane (so annotation actions apply).
+  const [menu, setMenu] = useState<{ x: number; y: number; onSel: boolean } | null>(null);
+  const viewRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const annosByPage = useMemo(() => {
     const m = new Map<number, Annotation[]>();
     if (referenceId === undefined) return m;
@@ -848,6 +858,10 @@ export function PdfCanvas({
     const v = Number(localStorage.getItem('termipod.read.pdfTocW'));
     return Number.isFinite(v) && v > 0 ? v : 240;
   });
+  // Mirrors tocW so the resize handler can read the live width across rapid drag
+  // ticks (and decide to auto-collapse) without a functional-updater side effect.
+  const tocWRef = useRef(tocW);
+  tocWRef.current = tocW;
   // The text selected in the PDF, captured on the +notes button's mousedown —
   // before the click can collapse the selection (clicking a button elsewhere in
   // the DOM clears window.getSelection, which is why +notes previously did nothing).
@@ -1162,10 +1176,90 @@ export function PdfCanvas({
     scrollToPage(a.pageIndex + 1, yOffset);
   }
 
+  // Right-click menu. Annotation actions apply only when the selection is live in
+  // the PRIMARY pane (the mirror is read-only), so we gate them on that. The split
+  // toggle is always offered.
+  function openContextMenu(e: React.MouseEvent): void {
+    const sel = window.getSelection();
+    const text = sel?.toString().trim() ?? '';
+    const inPrimary =
+      sel !== null && !sel.isCollapsed && sel.anchorNode !== null && (scrollRef.current?.contains(sel.anchorNode) ?? false);
+    const onSel = canAnnotate && inPrimary && text !== '';
+    // Only pre-empt the native menu when we have something to offer (always true:
+    // the split toggle), and snapshot the selection so a menu click can't lose it.
+    e.preventDefault();
+    if (onSel) pendingSelRef.current = text;
+    setSelectedAnno(null);
+    setMenu({ x: e.clientX, y: e.clientY, onSel });
+  }
+
+  // Menu action: highlight/underline the snapshotted selection.
+  function menuAnnotate(type: 'highlight' | 'underline'): void {
+    commitTextSelection(type);
+    setMenu(null);
+  }
+
+  // Close the menu on any scroll / resize / Escape / outside pointer. A pointer
+  // inside the menu is ignored so an item click reaches its handler first.
+  useEffect(() => {
+    if (menu === null) return;
+    const close = (): void => setMenu(null);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenu(null);
+    };
+    const onDown = (e: PointerEvent): void => {
+      if (menuRef.current?.contains(e.target as Node) ?? false) return;
+      setMenu(null);
+    };
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onDown, { capture: true });
+    const sc = scrollRef.current;
+    sc?.addEventListener('scroll', close);
+    return () => {
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onDown, { capture: true } as EventListenerOptions);
+      sc?.removeEventListener('scroll', close);
+    };
+  }, [menu]);
+
+  // The page list for one pane. The mirror pane passes readOnly so its overlays
+  // are visible but not editable (annotation happens in the primary pane).
+  const pageList = (readOnly: boolean): JSX.Element[] =>
+    pdf === null
+      ? []
+      : Array.from({ length: pdf.numPages }, (_, i) => (
+          <PageView
+            key={i + 1}
+            pdf={pdf}
+            pageNum={i + 1}
+            scale={scale}
+            query={query}
+            dim={pageDims[i]}
+            onLink={openLink}
+            onDest={(d) => void goToDest(d)}
+            annos={annosByPage.get(i) ?? []}
+            tool={tool}
+            color={annoColor}
+            selectedId={selectedAnno}
+            t={t}
+            onCreate={createAnnotation}
+            onSelect={setSelectedAnno}
+            onUpdate={updateAnno}
+            onRemove={(id) => {
+              removeAnno(id);
+              setSelectedAnno(null);
+            }}
+            onToolDone={() => setTool(null)}
+            readOnly={readOnly}
+          />
+        ));
+
   if (err) return <div className="muted region-pad">{t('read.pdfRenderFailed')}</div>;
 
   return (
-    <div className="pdfjs-view">
+    <div className="pdfjs-view" ref={viewRef}>
       <div className="pdfjs-toolbar">
         {pdf !== null && (
           <button
@@ -1183,7 +1277,6 @@ export function PdfCanvas({
             <Icon name="menu" />
           </button>
         )}
-        <span className="muted small pdfjs-name">{fileName ?? 'PDF'}</span>
         {pdf !== null && (
           <div className="pdfjs-pagenav">
             <button className="pdfjs-zoom" title={t('read.pdfPrevPage')} disabled={currentPage <= 1} onClick={() => gotoPage(currentPage - 1)}>
@@ -1328,61 +1421,109 @@ export function PdfCanvas({
               </div>
             </div>
             <ResizeHandle
-              onResize={(dx) =>
-                setTocW((w) => {
-                  const n = Math.max(140, Math.min(480, w + dx));
-                  try {
-                    localStorage.setItem('termipod.read.pdfTocW', String(n));
-                  } catch {
-                    /* ignore */
-                  }
-                  return n;
-                })
-              }
+              onResize={(dx) => {
+                const raw = tocWRef.current + dx;
+                // Dragged past the min toward the edge → auto-collapse the panel
+                // (reopen with the ☰ button).
+                if (raw < 110) {
+                  setShowToc(false);
+                  return;
+                }
+                const n = Math.max(140, Math.min(480, raw));
+                tocWRef.current = n;
+                setTocW(n);
+                try {
+                  localStorage.setItem('termipod.read.pdfTocW', String(n));
+                } catch {
+                  /* ignore */
+                }
+              }}
             />
           </>
         )}
         <div
-          ref={scrollRef}
-          className={`pdfjs-scroll scroll${tool !== null ? ` tool-${tool}` : ''}`}
-          onMouseUp={() => {
-            // Selection-driven tools commit on mouse-up, once the drag-select ends.
-            if (tool === 'highlight' || tool === 'underline') commitTextSelection(tool);
-          }}
-          onClick={(e) => {
-            // A bare click on empty page area deselects the current annotation.
-            if (tool === null && e.target === e.currentTarget) setSelectedAnno(null);
-          }}
+          className={`pdfjs-panes${split !== 'none' ? ` split-${split}` : ''}`}
+          onContextMenu={openContextMenu}
         >
-          {pdf === null && !err && <div className="muted region-pad">{t('read.loadingPdf')}</div>}
-          {pdf !== null &&
-            Array.from({ length: pdf.numPages }, (_, i) => (
-              <PageView
-                key={i + 1}
-                pdf={pdf}
-                pageNum={i + 1}
-                scale={scale}
-                query={query}
-                dim={pageDims[i]}
-                onLink={openLink}
-                onDest={(d) => void goToDest(d)}
-                annos={annosByPage.get(i) ?? []}
-                tool={tool}
-                color={annoColor}
-                selectedId={selectedAnno}
-                t={t}
-                onCreate={createAnnotation}
-                onSelect={setSelectedAnno}
-                onUpdate={updateAnno}
-                onRemove={(id) => {
-                  removeAnno(id);
-                  setSelectedAnno(null);
-                }}
-                onToolDone={() => setTool(null)}
-              />
-            ))}
+          <div
+            ref={scrollRef}
+            className={`pdfjs-scroll scroll${tool !== null ? ` tool-${tool}` : ''}`}
+            onMouseUp={() => {
+              // Selection-driven tools commit on mouse-up, once the drag-select ends.
+              if (tool === 'highlight' || tool === 'underline') commitTextSelection(tool);
+            }}
+            onClick={(e) => {
+              // A bare click on empty page area deselects the current annotation.
+              if (tool === null && e.target === e.currentTarget) setSelectedAnno(null);
+            }}
+          >
+            {pdf === null && !err && <div className="muted region-pad">{t('read.loadingPdf')}</div>}
+            {pageList(false)}
+          </div>
+          {split !== 'none' && pdf !== null && (
+            <div className="pdfjs-scroll scroll pdfjs-mirror">{pageList(true)}</div>
+          )}
         </div>
       </div>
+      {menu !== null && (
+        <div
+          ref={menuRef}
+          className="pdfjs-ctxmenu"
+          style={{ left: menu.x, top: menu.y }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {menu.onSel && (
+            <>
+              <button className="pdfjs-ctx-item" onMouseDown={(e) => e.preventDefault()} onClick={() => menuAnnotate('highlight')}>
+                <Icon name="highlight" size={14} /> {t('read.annHighlight')}
+              </button>
+              <button className="pdfjs-ctx-item" onMouseDown={(e) => e.preventDefault()} onClick={() => menuAnnotate('underline')}>
+                <Icon name="underline" size={14} /> {t('read.annUnderline')}
+              </button>
+              {onSaveSelection !== undefined && (
+                <button
+                  className="pdfjs-ctx-item"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    saveSelection();
+                    setMenu(null);
+                  }}
+                >
+                  <Icon name="note" size={14} /> {t('read.ctxToNotes')}
+                </button>
+              )}
+              <div className="pdfjs-ctx-sep" />
+            </>
+          )}
+          <button
+            className={`pdfjs-ctx-item${split === 'none' ? ' active' : ''}`}
+            onClick={() => {
+              setSplit('none');
+              setMenu(null);
+            }}
+          >
+            {t('read.splitNone')}
+          </button>
+          <button
+            className={`pdfjs-ctx-item${split === 'vertical' ? ' active' : ''}`}
+            onClick={() => {
+              setSplit('vertical');
+              setMenu(null);
+            }}
+          >
+            {t('read.splitVertical')}
+          </button>
+          <button
+            className={`pdfjs-ctx-item${split === 'horizontal' ? ' active' : ''}`}
+            onClick={() => {
+              setSplit('horizontal');
+              setMenu(null);
+            }}
+          >
+            {t('read.splitHorizontal')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

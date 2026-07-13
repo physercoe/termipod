@@ -1017,6 +1017,11 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
   const update = useLibrary((s) => s.updateReference);
   const openLink = useOpenLink();
   const [sideW, setSideW] = useState(() => loadWidth('termipod.read.readerSideW', 420));
+  const [sideOpen, setSideOpen] = useState(true);
+  // Mirror of sideW for the resize handler (read live width across drag ticks +
+  // decide to auto-collapse, without a functional-updater side effect).
+  const sideWRef = useRef(sideW);
+  sideWRef.current = sideW;
 
   // Append a text selection from the PDF into this reference's notes.
   function saveSelection(text: string): void {
@@ -1044,6 +1049,13 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
             {t('read.openUrl')} <Icon name="external" size={13} />
           </button>
         )}
+        <button
+          className="link-btn"
+          title={sideOpen ? t('read.hideDetails') : t('read.showDetails')}
+          onClick={() => setSideOpen((v) => !v)}
+        >
+          <Icon name={sideOpen ? 'chevron-right' : 'chevron-left'} size={15} />
+        </button>
       </div>
       <div className="reader-body">
         <div className="reader-doc">
@@ -1053,18 +1065,28 @@ function ReaderView({ refId, onGone }: { refId: string; onGone: () => void }): J
             <div className="muted region-pad">{t('read.noPdf')}</div>
           )}
         </div>
-        <ResizeHandle
-          onResize={(dx) =>
-            setSideW((w) => {
-              const n = clamp(w - dx, 300, 760);
-              saveWidth('termipod.read.readerSideW', n);
-              return n;
-            })
-          }
-        />
-        <aside className="reader-side" style={{ width: sideW }}>
-          <Inspector refId={refId} embedded />
-        </aside>
+        {sideOpen && (
+          <>
+            <ResizeHandle
+              onResize={(dx) => {
+                const raw = sideWRef.current - dx;
+                // Dragged past the min toward the edge → auto-collapse (reopen with
+                // the details toggle in the top bar).
+                if (raw < 260) {
+                  setSideOpen(false);
+                  return;
+                }
+                const n = clamp(raw, 300, 760);
+                sideWRef.current = n;
+                setSideW(n);
+                saveWidth('termipod.read.readerSideW', n);
+              }}
+            />
+            <aside className="reader-side" style={{ width: sideW }}>
+              <Inspector refId={refId} embedded />
+            </aside>
+          </>
+        )}
       </div>
     </div>
   );

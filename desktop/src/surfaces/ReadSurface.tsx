@@ -290,6 +290,7 @@ function AttachmentView({
   att,
   referenceId,
   onSaveSelection,
+  onImageToNote,
   docUrl,
   detailsOpen,
   onToggleDetails,
@@ -297,6 +298,7 @@ function AttachmentView({
   att: Attachment;
   referenceId?: string;
   onSaveSelection?: (text: string) => void;
+  onImageToNote?: (dataUri: string) => void;
   // For the PDF path only: reader-chrome actions rendered inside the PDF toolbar
   // (the reader has no separate title/action row above the PDF).
   docUrl?: string;
@@ -350,6 +352,7 @@ function AttachmentView({
         fileName={att.file}
         referenceId={referenceId}
         onSaveSelection={onSaveSelection}
+        onImageToNote={onImageToNote}
         docUrl={docUrl}
         detailsOpen={detailsOpen}
         onToggleDetails={onToggleDetails}
@@ -679,6 +682,18 @@ function Inspector({
   const removeAttachmentFromRef = useLibrary((s) => s.removeAttachment);
   const [attBusy, setAttBusy] = useState(false);
   const [attErr, setAttErr] = useState<string | null>(null);
+  const [notesPreview, setNotesPreview] = useState(false);
+
+  async function exportNotes(): Promise<void> {
+    if (ref === undefined || !isTauri()) return;
+    const base = (ref.title !== '' ? ref.title : 'note').slice(0, 60).replace(/[^\w.-]+/g, '-');
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('doc_save', { content: ref.notes, defaultName: `${base}.md` });
+    } catch {
+      /* cancelled / unavailable */
+    }
+  }
   const rels = useZoteroStorage((s) => s.rels);
   const files = useZoteroStorage((s) => s.files);
   const storageLinked = useZoteroStorage((s) => s.count > 0);
@@ -1078,12 +1093,42 @@ function Inspector({
         )}
 
         {tab === 'notes' && (
-          <textarea
-            className="editor-pane"
-            value={ref.notes}
-            onChange={(e) => update(ref.id, { notes: e.target.value })}
-            placeholder={t('read.notesPlaceholder')}
-          />
+          <div className="ref-notes">
+            <div className="ref-notes-bar">
+              <div className="seg">
+                <button
+                  className={notesPreview ? 'seg-btn' : 'seg-btn active'}
+                  onClick={() => setNotesPreview(false)}
+                >
+                  {t('read.notesEdit')}
+                </button>
+                <button
+                  className={notesPreview ? 'seg-btn active' : 'seg-btn'}
+                  onClick={() => setNotesPreview(true)}
+                >
+                  {t('read.notesPreview')}
+                </button>
+              </div>
+              <span className="spacer" />
+              {isTauri() && (
+                <button className="link-btn" title={t('read.notesExport')} onClick={() => void exportNotes()}>
+                  <Icon name="download" size={14} /> {t('read.notesExport')}
+                </button>
+              )}
+            </div>
+            {notesPreview ? (
+              <div className="ref-notes-preview doc-body region-pad">
+                <Markdown text={ref.notes} />
+              </div>
+            ) : (
+              <textarea
+                className="editor-pane"
+                value={ref.notes}
+                onChange={(e) => update(ref.id, { notes: e.target.value })}
+                placeholder={t('read.notesPlaceholder')}
+              />
+            )}
+          </div>
         )}
 
         {tab === 'cite' && (
@@ -1154,6 +1199,14 @@ function ReaderView({
     update(refId, { notes: prev.trim() === '' ? text : `${prev}\n\n${text}` });
   }
 
+  // Append an area screenshot (data-URI PNG) to the notes as a markdown image.
+  function saveImageToNote(dataUri: string): void {
+    const cur = useLibrary.getState().references.find((r) => r.id === refId);
+    const prev = cur?.notes ?? '';
+    const img = `![figure](${dataUri})`;
+    update(refId, { notes: prev.trim() === '' ? img : `${prev}\n\n${img}` });
+  }
+
   useEffect(() => {
     if (ref === undefined) onGone(); // deleted while open — drop the tab
   }, [ref, onGone]);
@@ -1194,6 +1247,7 @@ function ReaderView({
               att={att}
               referenceId={refId}
               onSaveSelection={saveSelection}
+              onImageToNote={saveImageToNote}
               docUrl={url}
               detailsOpen={sideOpen}
               onToggleDetails={toggleDetails}

@@ -619,6 +619,29 @@ button > .ui-icon:not(:only-child):first-child,
   justify-content: center;
   gap: var(--spacing-s12);
 }
+/* Notes tab: edit/preview toggle bar + panes fill the tab body. */
+.ref-notes {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.ref-notes-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.ref-notes-preview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.ref-notes-preview img {
+  max-width: 100%;
+  height: auto;
+}
 .editor-pane {
   width: 100%;
   height: 100%;

@@ -222,6 +222,7 @@ function AnnoEditor({
   onClose,
   onCopyImage,
   onSaveImage,
+  onAddToNote,
 }: {
   a: Annotation;
   footprintH: number;
@@ -232,6 +233,7 @@ function AnnoEditor({
   onClose: () => void;
   onCopyImage?: () => void;
   onSaveImage?: () => void;
+  onAddToNote?: () => void;
 }): JSX.Element {
   // Anchor under the annotation's first rect (or its ink bbox).
   const anchor = useMemo(() => {
@@ -310,6 +312,11 @@ function AnnoEditor({
               <Icon name="download" size={13} /> {t('read.annSaveImage')}
             </button>
           )}
+          {onAddToNote !== undefined && (
+            <button className="pdfjs-anno-imgbtn" onClick={onAddToNote}>
+              <Icon name="note" size={13} /> {t('read.annImageToNote')}
+            </button>
+          )}
         </div>
       )}
       <div className="pdfjs-anno-actions">
@@ -342,6 +349,7 @@ function PageView({
   onUpdate,
   onRemove,
   onToolDone,
+  onImageToNote,
   readOnly = false,
 }: {
   pdf: PDFDocumentProxy;
@@ -361,6 +369,7 @@ function PageView({
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
   onRemove: (id: string) => void;
   onToolDone: () => void;
+  onImageToNote?: (dataUri: string) => void; // append an area screenshot to the notes
   readOnly?: boolean; // the split-view mirror pane: overlays visible but not editable
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -618,6 +627,12 @@ function PageView({
     const base64 = await blobToBase64(blob);
     await invokeTauri('save_image_as', { defaultName: `figure-p${a.pageIndex + 1}.png`, base64 }).catch(() => undefined);
   }
+  async function addAreaToNote(a: Annotation): Promise<void> {
+    const blob = await captureAnnoImage(canvasRef.current, a, fh, scale);
+    if (blob === null) return;
+    const base64 = await blobToBase64(blob);
+    onImageToNote?.(`data:image/png;base64,${base64}`);
+  }
 
   return (
     <div ref={wrapRef} className="pdfjs-page" data-page={pageNum} style={style}>
@@ -684,6 +699,9 @@ function PageView({
           onClose={() => onSelect(null)}
           onCopyImage={selected.type === 'image' ? () => void copyAreaImage(selected) : undefined}
           onSaveImage={selected.type === 'image' && isTauri() ? () => void saveAreaImage(selected) : undefined}
+          onAddToNote={
+            selected.type === 'image' && onImageToNote !== undefined ? () => void addAreaToNote(selected) : undefined
+          }
         />
       )}
     </div>
@@ -907,6 +925,7 @@ export function PdfCanvas({
   data,
   referenceId,
   onSaveSelection,
+  onImageToNote,
   docUrl,
   detailsOpen,
   onToggleDetails,
@@ -915,6 +934,7 @@ export function PdfCanvas({
   fileName?: string; // accepted for API compatibility; no longer shown (redundant with the reader title)
   referenceId?: string;
   onSaveSelection?: (text: string) => void;
+  onImageToNote?: (dataUri: string) => void; // append an area screenshot to the reference's notes
   // Reader-chrome actions hosted in this toolbar so the reader needs no separate
   // title/action row above the PDF (saves vertical space). Open the original URL
   // and toggle the details/metadata side panel.
@@ -1427,6 +1447,7 @@ export function PdfCanvas({
               setSelectedAnno(null);
             }}
             onToolDone={() => setTool(null)}
+            onImageToNote={readOnly ? undefined : onImageToNote}
             readOnly={readOnly}
           />
         ));

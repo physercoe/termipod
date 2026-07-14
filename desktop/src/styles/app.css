@@ -935,6 +935,15 @@ button > .ui-icon:not(:only-child):first-child,
   flex: 1;
   min-width: 0;
 }
+/* THE epub-width fix: like .pdfjs-view, the EPUB view must GROW to fill the
+   reader pane. Without this it sizes to content width in the flex-row parent and
+   sits narrow with a large right blank — no amount of in-iframe content CSS can
+   widen a container that was never told to grow (3 prior passes chased the
+   symptom). Mirrors the pdfjs rule above. */
+.reader-doc .epub-view {
+  flex: 1;
+  min-width: 0;
+}
 
 /* ---- pdf.js viewer ------------------------------------------------------- */
 .pdfjs-view {
@@ -5560,12 +5569,20 @@ th {
   gap: 1px;
 }
 .mdreader-outline-item {
+  /* Reset the global button chrome — these are list rows, not buttons. Without
+     this each item is a raised, bordered, shadowed pill, which in a narrow column
+     reads as an overlapping cramped mess. */
+  display: block;
+  width: 100%;
   text-align: left;
   padding: 4px 8px;
+  background: none;
+  border: none;
+  box-shadow: none;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.35;
+  line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5573,6 +5590,9 @@ th {
 .mdreader-outline-item:hover {
   background: var(--accent-tint);
   color: var(--text);
+  border: none;
+  box-shadow: none;
+  transform: none;
 }
 .mdreader-outline-show {
   flex: 0 0 auto;

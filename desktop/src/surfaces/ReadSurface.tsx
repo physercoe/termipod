@@ -42,6 +42,8 @@ import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
 // epub.js is heavy and epub is a rare path — lazy-load it into its own chunk.
 const EpubView = lazy(() => import('../ui/EpubView').then((m) => ({ default: m.EpubView })));
+// Milkdown (ProseMirror) is heavy — load it only when a WYSIWYG editor opens.
+const WysiwygEditor = lazy(() => import('../ui/WysiwygEditor').then((m) => ({ default: m.WysiwygEditor })));
 import { ResizeHandle } from '../ui/ResizeHandle';
 import { WebdavModal } from '../ui/WebdavModal';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
@@ -692,7 +694,17 @@ function Inspector({
   const removeAttachmentFromRef = useLibrary((s) => s.removeAttachment);
   const [attBusy, setAttBusy] = useState(false);
   const [attErr, setAttErr] = useState<string | null>(null);
-  const [notesPreview, setNotesPreview] = useState(false);
+  const [notesMode, setNotesMode] = useState<'wysiwyg' | 'source' | 'preview'>(
+    () => (localStorage.getItem('termipod.read.notesMode') as 'wysiwyg' | 'source' | 'preview') || 'wysiwyg',
+  );
+  function pickNotesMode(m: 'wysiwyg' | 'source' | 'preview'): void {
+    setNotesMode(m);
+    try {
+      localStorage.setItem('termipod.read.notesMode', m);
+    } catch {
+      /* ignore */
+    }
+  }
 
   async function exportNotes(): Promise<void> {
     if (ref === undefined || !isTauri()) return;
@@ -1111,14 +1123,20 @@ function Inspector({
             <div className="ref-notes-bar">
               <div className="seg">
                 <button
-                  className={notesPreview ? 'seg-btn' : 'seg-btn active'}
-                  onClick={() => setNotesPreview(false)}
+                  className={notesMode === 'wysiwyg' ? 'seg-btn active' : 'seg-btn'}
+                  onClick={() => pickNotesMode('wysiwyg')}
                 >
-                  {t('read.notesEdit')}
+                  {t('read.notesWysiwyg')}
                 </button>
                 <button
-                  className={notesPreview ? 'seg-btn active' : 'seg-btn'}
-                  onClick={() => setNotesPreview(true)}
+                  className={notesMode === 'source' ? 'seg-btn active' : 'seg-btn'}
+                  onClick={() => pickNotesMode('source')}
+                >
+                  {t('read.notesSource')}
+                </button>
+                <button
+                  className={notesMode === 'preview' ? 'seg-btn active' : 'seg-btn'}
+                  onClick={() => pickNotesMode('preview')}
                 >
                   {t('read.notesPreview')}
                 </button>
@@ -1130,17 +1148,26 @@ function Inspector({
                 </button>
               )}
             </div>
-            {notesPreview ? (
+            {notesMode === 'preview' ? (
               <div className="ref-notes-preview doc-body region-pad">
                 <Markdown text={ref.notes} singleDollarMath />
               </div>
-            ) : (
+            ) : notesMode === 'source' ? (
               <MarkdownEditor
-                key={ref.id}
+                key={`src-${ref.id}`}
                 value={ref.notes}
                 onChange={(v) => update(ref.id, { notes: v })}
                 placeholder={t('read.notesPlaceholder')}
               />
+            ) : (
+              <Suspense fallback={<div className="muted region-pad">{t('read.loadingFile')}</div>}>
+                <WysiwygEditor
+                  key={`wys-${ref.id}`}
+                  value={ref.notes}
+                  onChange={(v) => update(ref.id, { notes: v })}
+                  placeholder={t('read.notesPlaceholder')}
+                />
+              </Suspense>
             )}
           </div>
         )}

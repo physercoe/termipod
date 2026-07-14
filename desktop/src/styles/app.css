@@ -586,6 +586,7 @@ button > .ui-icon:not(:only-child):first-child,
   display: flex;
 }
 .author-body > .md-editor,
+.author-body > .milkdown-host,
 .author-body > .preview-pane {
   flex: 1;
   min-width: 0;
@@ -650,6 +651,45 @@ button > .ui-icon:not(:only-child):first-child,
 .ref-notes > .milkdown-host {
   flex: 1;
   min-height: 0;
+}
+
+/* ---- Milkdown (Crepe) WYSIWYG editor ------------------------------------- */
+.milkdown-host {
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+/* Map Crepe's palette onto our design tokens (specificity beats frame.css's bare
+   `.milkdown`). Our tokens are theme-aware, so the editor follows light/dark. */
+.milkdown-host .milkdown {
+  --crepe-color-background: var(--bg);
+  --crepe-color-on-background: var(--text);
+  --crepe-color-surface: var(--surface);
+  --crepe-color-surface-low: var(--surface-sunken, var(--bg));
+  --crepe-color-on-surface: var(--text);
+  --crepe-color-on-surface-variant: var(--text-secondary);
+  --crepe-color-outline: var(--border);
+  --crepe-color-primary: var(--accent);
+  --crepe-color-secondary: var(--accent-tint);
+  --crepe-color-on-secondary: var(--text);
+  --crepe-color-inverse: var(--text);
+  --crepe-color-on-inverse: var(--bg);
+  --crepe-color-inline-code: var(--accent-strong, var(--accent));
+  --crepe-color-inline-area: var(--surface-sunken, var(--bg));
+  --crepe-color-hover: var(--accent-tint);
+  --crepe-color-selected: color-mix(in srgb, var(--accent) 20%, transparent);
+  --crepe-font-default: inherit;
+  --crepe-font-title: inherit;
+  --crepe-font-code: var(--font-mono, monospace);
+  background: var(--bg);
+  color: var(--text);
+}
+.milkdown-host .milkdown .ProseMirror {
+  padding: 16px 20px;
+}
+.milkdown-host .milkdown .ProseMirror img {
+  max-width: 100%;
+  height: auto;
 }
 .ref-notes-preview {
   flex: 1;

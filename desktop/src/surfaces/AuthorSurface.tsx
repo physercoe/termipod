@@ -10,6 +10,7 @@ import { Markdown } from '../ui/Markdown';
 import type { MarkdownEditorHandle } from '../ui/MarkdownEditor';
 // CodeMirror is heavy (~500 KB) and Author isn't the landing tab — split it out.
 const MarkdownEditor = lazy(() => import('../ui/MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })));
+const WysiwygEditor = lazy(() => import('../ui/WysiwygEditor').then((m) => ({ default: m.WysiwygEditor })));
 import { ResizeHandle } from '../ui/ResizeHandle';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
@@ -42,7 +43,7 @@ function baseName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-type ViewMode = 'edit' | 'split' | 'read';
+type ViewMode = 'wysiwyg' | 'edit' | 'split' | 'read';
 
 function Editor({ doc }: { doc: Doc }): JSX.Element {
   const t = useT();
@@ -50,7 +51,7 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
   const edRef = useRef<MarkdownEditorHandle>(null);
   const [mode, setMode] = useState<ViewMode>(() => {
     const v = localStorage.getItem('termipod.author.viewMode');
-    return v === 'edit' || v === 'split' || v === 'read' ? v : 'split';
+    return v === 'wysiwyg' || v === 'edit' || v === 'split' || v === 'read' ? v : 'split';
   });
   function pickMode(m: ViewMode): void {
     setMode(m);
@@ -79,13 +80,13 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
     <div className="author-doc">
       <div className="author-doc-bar">
         <div className="seg author-viewmode">
-          {(['edit', 'split', 'read'] as ViewMode[]).map((m) => (
+          {(['wysiwyg', 'edit', 'split', 'read'] as ViewMode[]).map((m) => (
             <button key={m} className={mode === m ? 'seg-btn active' : 'seg-btn'} onClick={() => pickMode(m)}>
               {t(`author.mode_${m}`)}
             </button>
           ))}
         </div>
-        {mode !== 'read' && (
+        {(mode === 'edit' || mode === 'split') && (
           <div className="author-fmt">
             {fmt.map((f) => (
               <button
@@ -115,20 +116,37 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
         </span>
       </div>
       <div className={`author-body mode-${mode}`}>
-        {mode !== 'read' && (
-          <Suspense fallback={<div className="md-editor muted region-pad">{t('author.loadingEditor')}</div>}>
-            <MarkdownEditor
-              ref={edRef}
+        {mode === 'wysiwyg' ? (
+          <Suspense fallback={<div className="milkdown-host muted region-pad">{t('author.loadingEditor')}</div>}>
+            <WysiwygEditor
+              key={doc.id}
               value={doc.body}
               onChange={(v) => update(doc.id, { body: v })}
               placeholder={t('author.placeholder')}
             />
           </Suspense>
-        )}
-        {mode !== 'edit' && (
-          <div className="preview-pane">
-            {doc.body.trim() ? <Markdown text={doc.body} /> : <div className="muted region-pad">{t('author.empty')}</div>}
-          </div>
+        ) : (
+          <>
+            {mode !== 'read' && (
+              <Suspense fallback={<div className="md-editor muted region-pad">{t('author.loadingEditor')}</div>}>
+                <MarkdownEditor
+                  ref={edRef}
+                  value={doc.body}
+                  onChange={(v) => update(doc.id, { body: v })}
+                  placeholder={t('author.placeholder')}
+                />
+              </Suspense>
+            )}
+            {mode !== 'edit' && (
+              <div className="preview-pane">
+                {doc.body.trim() ? (
+                  <Markdown text={doc.body} />
+                ) : (
+                  <div className="muted region-pad">{t('author.empty')}</div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

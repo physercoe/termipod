@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import { useOpenLink } from './OpenLinkContext';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -14,6 +14,45 @@ import rehypeHighlight from 'rehype-highlight';
 // only paint a raster/vector — it can't execute script — so this is XSS-safe.
 function urlTransform(url: string): string {
   return /^data:image\//i.test(url) ? url : defaultUrlTransform(url);
+}
+
+// remark-math only understands `$…$` / `$$…$$`. Content pasted from ChatGPT /
+// Claude / Poe (and some Obsidian vaults) uses the LaTeX delimiters `\(…\)`
+// (inline) and `\[…\]` (display) instead, which remark-math leaves as literal
+// backslash-parens. Rewrite them to dollar math — but protect fenced/inline code
+// first so a `\(` inside a code sample is never touched. Only run in prose mode
+// (singleDollarMath), where `$…$` is already treated as math.
+function normalizeMath(src: string): string {
+  const stash: string[] = [];
+  const hide = (m: string): string => `\u0000${stash.push(m) - 1}\u0000`;
+  let s = src
+    .replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, hide) // fenced code
+    .replace(/`[^`\n]+`/g, hide); // inline code
+  s = s
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_m, inner: string) => `$$${inner}$$`)
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_m, inner: string) => `$${inner}$`);
+  return s.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => stash[Number(i)]);
+}
+
+// Deterministic heading slug for the markdown-document outline (MarkdownReader).
+// Kept identical to the outline's own slugify so an outline link's target id
+// matches the rendered heading's id.
+interface HastLike {
+  value?: string;
+  children?: HastLike[];
+}
+function hastText(node: HastLike | undefined): string {
+  if (node === undefined) return '';
+  if (typeof node.value === 'string') return node.value;
+  return (node.children ?? []).map(hastText).join('');
+}
+export function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 /// F1 primitive — safe GitHub-flavoured Markdown for transcript text/thought
@@ -44,15 +83,24 @@ function urlTransform(url: string): string {
 export const Markdown = memo(function Markdown({
   text,
   singleDollarMath = false,
+  headingIds = false,
 }: {
   text: string;
-  // Enable `$…$` inline math. Default off for agent transcripts (bare `$VAR`,
-  // `$1`, `$PATH` are pervasive there and would be mangled); the prose/document
-  // contexts (a `.md` attachment, item notes, the read body) turn it ON so a
-  // real LaTeX document renders its inline math.
+  // Enable `$…$` inline math + `\(…\)`/`\[…\]` LaTeX-delimiter normalization.
+  // Default off for agent transcripts (bare `$VAR`, `$1`, `$PATH` are pervasive
+  // there and would be mangled); the prose/document contexts (a `.md` attachment,
+  // item notes, the read body) turn it ON so a real LaTeX document renders math.
   singleDollarMath?: boolean;
+  // Stamp `id` on headings so the MarkdownReader outline can scroll to them.
+  headingIds?: boolean;
 }): JSX.Element {
   const openLink = useOpenLink();
+  const src = singleDollarMath ? normalizeMath(text) : text;
+  const heading = (Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'): Components[typeof Tag] =>
+    function H({ node, children }): JSX.Element {
+      const id = headingIds ? slugify(hastText(node as HastLike)) || undefined : undefined;
+      return <Tag id={id}>{children}</Tag>;
+    };
   return (
     <div className="md">
       <ReactMarkdown
@@ -63,6 +111,12 @@ export const Markdown = memo(function Markdown({
           [rehypeKatex, { throwOnError: false }],
         ]}
         components={{
+          h1: heading('h1'),
+          h2: heading('h2'),
+          h3: heading('h3'),
+          h4: heading('h4'),
+          h5: heading('h5'),
+          h6: heading('h6'),
           a: ({ children, href }) => {
             const external = typeof href === 'string' && /^(https?:|mailto:)/.test(href);
             return (
@@ -79,7 +133,7 @@ export const Markdown = memo(function Markdown({
           },
         }}
       >
-        {text}
+        {src}
       </ReactMarkdown>
     </div>
   );

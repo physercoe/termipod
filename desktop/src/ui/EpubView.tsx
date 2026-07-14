@@ -39,24 +39,52 @@ export function EpubView({
     const h0 = host.clientHeight || 600;
     const r = book.renderTo(host, { width: w0, height: h0, flow: 'scrolled-doc', spread: 'none' });
     rendition.current = r;
-    // Many EPUBs pin the text to a narrow column (a `max-width`/`width` or CSS
-    // multi-column on <html>/<body>/a wrapper); override aggressively so the text
-    // uses the pane width (with comfortable side padding) instead of a fixed
-    // column that leaves the rest of the wide pane blank.
-    r.themes.default({
-      'html, body': {
-        'max-width': 'none !important',
-        width: 'auto !important',
-        'column-count': '1 !important',
-        'column-width': 'auto !important',
-      },
-      body: {
-        margin: '0 !important',
-        padding: '0 clamp(1rem, 5vw, 4rem) !important',
-        'box-sizing': 'border-box !important',
-        'line-height': '1.65',
-      },
-      img: { 'max-width': '100% !important', height: 'auto !important' },
+    // WIDTH FIX (3rd pass). In scrolled flow the iframe IS full stage width
+    // (verified in epub.js: iframe locks to the stage; `contents.size()` sets
+    // `body{width}` WITHOUT !important). So a narrow, left-aligned column with a
+    // large right blank is the EPUB's OWN `max-width` — and crucially it's often
+    // on a WRAPPER (`div`/`section`/`article`), not `body`, which the previous
+    // `html,body`-only overrides never touched. We also bypass epub.js's theme
+    // machinery entirely and inject a raw <style> straight into each section's
+    // <head> (last child ⇒ wins ties), so nothing about rule serialization can
+    // silently drop it. Media stays capped so images/tables don't overflow.
+    const WIDTH_CSS = [
+      'html, body { max-width: none !important; width: auto !important; margin: 0 !important; }',
+      'body { padding: 0 clamp(1rem, 5vw, 4rem) !important; box-sizing: border-box !important;',
+      '  column-count: 1 !important; column-width: auto !important; line-height: 1.65; }',
+      // The narrow cap usually lives on a top-level wrapper — free the common
+      // block wrappers, but leave media capped to the column just below.
+      'body > *, body div, body section, body article, body main, body header, body footer {',
+      '  max-width: none !important; width: auto !important; }',
+      'img, svg, image, video, table, figure { max-width: 100% !important; }',
+      'img, svg, image { height: auto !important; }',
+    ].join('\n');
+    r.hooks.content.register((contents: Contents) => {
+      try {
+        const doc = contents.document;
+        if (doc?.head === undefined || doc.head === null) return;
+        const style = doc.createElement('style');
+        style.setAttribute('data-termipod', 'epub-width');
+        style.textContent = WIDTH_CSS;
+        doc.head.appendChild(style);
+        // Belt-and-suspenders: an INLINE `!important` beats any author stylesheet
+        // rule regardless of specificity (a stylesheet rule can't, if the EPUB
+        // caps width with an `!important` class selector). Clear the cap on the
+        // body + its top-level block wrappers, where the narrow column lives.
+        const clear = (el: HTMLElement): void => {
+          el.style.setProperty('max-width', 'none', 'important');
+          el.style.setProperty('width', 'auto', 'important');
+        };
+        if (doc.documentElement !== null) clear(doc.documentElement);
+        if (doc.body !== null) {
+          clear(doc.body);
+          Array.from(doc.body.children).forEach((c) => {
+            if (/^(DIV|SECTION|ARTICLE|MAIN|HEADER|FOOTER)$/.test(c.tagName)) clear(c as HTMLElement);
+          });
+        }
+      } catch {
+        /* section torn down / cross-origin — ignore */
+      }
     });
     void r.display();
     void book.loaded.navigation.then((nav) => {

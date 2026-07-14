@@ -30,6 +30,7 @@ import { isTauri, revealPath } from '../platform';
 import { BrowserView } from './BrowserView';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
+import { MarkdownReader } from '../ui/MarkdownReader';
 import { Icon, type IconName } from '../ui/Icon';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
@@ -366,11 +367,11 @@ function AttachmentView({
     );
   if (payload.t === 'text')
     return /\.(md|markdown)$/i.test(att.file) ? (
-      // Render markdown attachments as formatted prose, not raw source. No
-      // `doc-body` (its 76ch cap left the pane's right half blank) — the reader
-      // fills its pane width; `singleDollarMath` renders a document's `$…$` math.
-      <div className="region-pad att-md">
-        <Markdown text={payload.text} singleDollarMath />
+      // Markdown attachments render as a document: formatted prose (fills the
+      // pane — no 76ch cap), inline math (`$…$` + `\(…\)`/`\[…\]`), and a left
+      // headings outline (parity with the PDF reader).
+      <div className="att-md">
+        <MarkdownReader text={payload.text} />
       </div>
     ) : (
       <pre className="att-text region-pad">{payload.text}</pre>

@@ -77,6 +77,10 @@ aes-gcm = "0.10"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 hkdf = "0.12"
 sha2 = "0.10"
+# MD5 for Zotero WebDAV file sync (webdav.rs): Zotero's `<KEY>.prop` carries the
+# attachment's MD5, and real Zotero clients reject a prop whose hash is wrong, so
+# we compute it for real. RustCrypto (pure Rust, no system deps) like sha2 above.
+md-5 = "0.10"
 argon2 = "0.5"
 base64 = "0.22"
 rand_core = { version = "0.6", features = ["getrandom"] }

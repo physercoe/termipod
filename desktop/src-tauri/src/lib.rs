@@ -15,6 +15,7 @@ mod ssh;
 mod storage;
 mod vault;
 mod voice;
+mod webdav;
 mod workspace;
 
 /// A REST request proxied through the Rust core (WS2/WS8). This lets the desktop
@@ -495,6 +496,8 @@ pub fn run() {
             storage::attachment_read,
             storage::attachment_delete,
             storage::save_image_as,
+            webdav::webdav_verify,
+            webdav::webdav_sync,
             docfile::doc_open,
             docfile::doc_read,
             docfile::doc_save,

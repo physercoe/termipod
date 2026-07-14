@@ -37,6 +37,7 @@ import { PdfCanvas } from '../ui/PdfCanvas';
 // epub.js is heavy and epub is a rare path — lazy-load it into its own chunk.
 const EpubView = lazy(() => import('../ui/EpubView').then((m) => ({ default: m.EpubView })));
 import { ResizeHandle } from '../ui/ResizeHandle';
+import { WebdavModal } from '../ui/WebdavModal';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
 function hostOf(url: string): string {
@@ -1551,6 +1552,7 @@ export function ReadSurface(): JSX.Element {
   const [railCollapsed, setRailCollapsed] = useState(() => localStorage.getItem('termipod.read.railFold') === '1');
   const [inspCollapsed, setInspCollapsed] = useState(() => localStorage.getItem('termipod.read.inspFold') === '1');
   const [showAgent, setShowAgent] = useState(false);
+  const [showWebdav, setShowWebdav] = useState(false);
   const [agentW, setAgentW] = useState(() => loadWidth('termipod.read.agentW', 360));
   const client = useSession((s) => s.client);
   const [syncing, setSyncing] = useState(false);
@@ -1818,6 +1820,11 @@ export function ReadSurface(): JSX.Element {
               ? t('read.storageLinked').replace('{n}', String(storageCount))
               : t('read.linkStorage')}
           </button>
+          {isTauri() && (
+            <button className="import-btn" title={t('read.webdavHint')} onClick={() => setShowWebdav(true)}>
+              <Icon name="cloud" size={14} /> {t('read.webdav')}
+            </button>
+          )}
           <div className="seg">
             <button className={mode === 'library' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('library')}>
               {t('read.modeLibrary')}
@@ -1842,6 +1849,7 @@ export function ReadSurface(): JSX.Element {
       }
     >
       <OpenLinkContext.Provider value={openWebTab}>
+      {showWebdav && <WebdavModal onClose={() => setShowWebdav(false)} />}
       {importMsg !== null && (
         <div className="read-import-msg">
           <span>{importMsg}</span>

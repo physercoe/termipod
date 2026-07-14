@@ -4807,6 +4807,77 @@ th {
   display: flex;
   align-items: center;
 }
+/* WebDAV file-sync modal (ui/WebdavModal.tsx). Same shell as .prompt-modal, a
+   touch wider for the config form. */
+.webdav-modal {
+  width: 480px;
+  max-width: 94vw;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--sh-2, none);
+  padding: var(--spacing-s16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}
+.webdav-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.webdav-hint {
+  margin: 0;
+}
+.webdav-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.webdav-label {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+.webdav-field input {
+  width: 100%;
+}
+.webdav-status {
+  font-size: var(--font-size-body-small);
+  padding: var(--spacing-s8);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken, var(--bg));
+}
+.webdav-status.ok {
+  color: var(--text);
+}
+.webdav-status.err {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.webdav-status.busy {
+  color: var(--text-secondary);
+}
+.webdav-report {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.webdav-warn {
+  color: var(--warning, var(--accent));
+}
+.webdav-errs {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  color: var(--danger);
+  font-size: var(--font-size-caption);
+  max-height: 8em;
+  overflow: auto;
+}
+.webdav-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
 .tmux-panel {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

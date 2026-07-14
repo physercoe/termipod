@@ -747,6 +747,9 @@ function Inspector({
   const atts = ref.attachments ?? [];
   const primary = primaryAttachment(ref);
   const attPresent = hasAttachment({ rels, files }, primary);
+  // The quick-open button reflects the primary attachment's actual kind — a hard
+  // "PDF" label/icon is misleading for an EPUB, markdown, image, … attachment.
+  const primaryKind = primary !== undefined ? viewKindFor(primary.file) : 'pdf';
 
   async function onAddAttachment(): Promise<void> {
     if (ref === undefined) return;
@@ -824,8 +827,8 @@ function Inspector({
               title={t('read.openInReader')}
               onClick={() => onOpenReader?.(ref.id, primary.id)}
             >
-              <Icon name="window" />
-              PDF
+              <Icon name={KIND_ICON[primaryKind]} size={14} />
+              {t(KIND_LABEL[primaryKind])}
             </button>
           ) : (
             <button
@@ -833,7 +836,8 @@ function Inspector({
               title={storageLinked ? t('read.pdfNotFound') : t('read.pdfLinkHint')}
               onClick={() => setTab('read')}
             >
-              PDF
+              <Icon name={KIND_ICON[primaryKind]} size={14} />
+              {t(KIND_LABEL[primaryKind])}
             </button>
           ))}
         <button
@@ -2022,6 +2026,8 @@ export function ReadSurface(): JSX.Element {
                     <tbody>
                       {items.map((r) => {
                         const hasPdf = hasAnyAttachment(r);
+                        const rowPrimary = primaryAttachment(r);
+                        const rowKind = rowPrimary !== undefined ? viewKindFor(rowPrimary.file) : 'pdf';
                         return (
                           <tr
                             key={r.id}
@@ -2047,7 +2053,7 @@ export function ReadSurface(): JSX.Element {
                                     openPdfTab(r.id);
                                   }}
                                 >
-                                  <Icon name="window" size={13} />
+                                  <Icon name={KIND_ICON[rowKind]} size={13} />
                                 </span>
                               )}
                               {r.title !== '' ? r.title : t('read.untitled')}

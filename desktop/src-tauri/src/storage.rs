@@ -51,6 +51,18 @@ fn mime_for(name: &str) -> &'static str {
         "application/epub+zip"
     } else if lower.ends_with(".txt") {
         "text/plain"
+    } else if lower.ends_with(".md") || lower.ends_with(".markdown") {
+        "text/markdown"
+    } else if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".svg") {
+        "image/svg+xml"
     } else {
         "application/octet-stream"
     }
@@ -273,6 +285,50 @@ pub async fn attachment_add(root: String, src: String) -> Result<AddedAttachment
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let dest = dir.join(&file);
     std::fs::copy(&src_path, &dest).map_err(|e| e.to_string())?;
+    Ok(AddedAttachment {
+        key,
+        file: file.clone(),
+        path: dest.to_string_lossy().to_string(),
+        content_type: mime_for(&file).to_string(),
+    })
+}
+
+/// Write raw image bytes (base64 from the IPC bridge) into `root` under a fresh
+/// `<key>/<filename>` (Zotero layout), returning the new attachment's
+/// coordinates. Used to de-inline note screenshots/pastes: instead of embedding a
+/// data-URI in the note text (which bloats the string + every sync payload), the
+/// image becomes a managed attachment referenced by `termipod-att://<key>/<file>`.
+/// It then travels with the library and rides WebDAV/hub file sync for free.
+#[tauri::command]
+pub async fn attachment_write_bytes(
+    root: String,
+    filename: String,
+    base64: String,
+) -> Result<AddedAttachment, String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64.as_bytes())
+        .map_err(|e| e.to_string())?;
+    // Sanitise to a bare filename so nothing escapes the key folder.
+    let file = Path::new(&filename)
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "image.png".to_string());
+    let root_path = PathBuf::from(&root);
+    std::fs::create_dir_all(&root_path).map_err(|e| e.to_string())?;
+    let mut key = gen_key();
+    let mut dir = root_path.join(&key);
+    for _ in 0..10 {
+        if !dir.exists() {
+            break;
+        }
+        key = gen_key();
+        dir = root_path.join(&key);
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(&file);
+    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
     Ok(AddedAttachment {
         key,
         file: file.clone(),

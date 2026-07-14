@@ -493,6 +493,7 @@ pub fn run() {
             storage::attachment_pick_file,
             storage::attachment_pick_dir,
             storage::attachment_add,
+            storage::attachment_write_bytes,
             storage::attachment_read,
             storage::attachment_delete,
             storage::save_image_as,

@@ -1,19 +1,46 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import { useOpenLink } from './OpenLinkContext';
+import { loadNoteImage, NOTE_ATT_SCHEME } from '../state/attachments';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 
 // react-markdown's default urlTransform strips every non-http(s)/mailto URL —
-// including the `data:image/…;base64,…` URIs we embed for note screenshots (an
-// area shot added via "Add to note"), so `![figure](data:image/png;base64,…)`
-// rendered as `<img src="">` (a broken image). Allow inline image data-URIs
-// through; defer everything else to the safe default. `<img src="data:…">` can
-// only paint a raster/vector — it can't execute script — so this is XSS-safe.
+// including the `data:image/…;base64,…` URIs we embed for note screenshots and
+// our own `termipod-att://<key>/<file>` note-image refs (de-inlined attachments,
+// resolved to a blob by <AttachmentImage> below). Without this, both render as
+// `<img src="">` (a broken image). Everything else defers to the safe default.
+// `<img>` can only paint — it can't execute script — so this is XSS-safe.
 function urlTransform(url: string): string {
-  return /^data:image\//i.test(url) ? url : defaultUrlTransform(url);
+  if (/^data:image\//i.test(url) || url.startsWith(NOTE_ATT_SCHEME)) return url;
+  return defaultUrlTransform(url);
+}
+
+/// An image whose `src` is a `termipod-att://<key>/<file>` note-image reference:
+/// resolve the managed-attachment bytes to a Blob and paint via an object URL,
+/// revoked on unmount / ref change. A plain data/http `src` renders directly.
+function AttachmentImage({ src, alt }: { src?: string; alt?: string }): JSX.Element | null {
+  const isRef = typeof src === 'string' && src.startsWith(NOTE_ATT_SCHEME);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isRef || src === undefined) return;
+    let obj: string | null = null;
+    let alive = true;
+    void loadNoteImage(src).then((blob) => {
+      if (!alive || blob === null) return;
+      obj = URL.createObjectURL(blob);
+      setUrl(obj);
+    });
+    return () => {
+      alive = false;
+      if (obj !== null) URL.revokeObjectURL(obj);
+    };
+  }, [isRef, src]);
+  if (!isRef) return <img src={src} alt={alt ?? ''} />;
+  if (url === null) return <span className="md-img-loading" aria-label={alt} />;
+  return <img src={url} alt={alt ?? ''} />;
 }
 
 // remark-math only understands `$…$` / `$$…$$`. Content pasted from ChatGPT /
@@ -117,6 +144,7 @@ export const Markdown = memo(function Markdown({
           h4: heading('h4'),
           h5: heading('h5'),
           h6: heading('h6'),
+          img: ({ src, alt }) => <AttachmentImage src={typeof src === 'string' ? src : undefined} alt={alt} />,
           a: ({ children, href }) => {
             const external = typeof href === 'string' && /^(https?:|mailto:)/.test(href);
             return (

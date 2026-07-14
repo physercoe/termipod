@@ -126,6 +126,95 @@ export async function pickAndCopyAttachment(): Promise<
   return { file: added.file, contentType: added.contentType, key: added.key, path: added.path };
 }
 
+// ---- note images (de-inlined) ---------------------------------------------
+//
+// Note screenshots/pastes used to be embedded as base64 data-URIs directly in the
+// note markdown, which bloated the note string (and every localStorage/hub-sync
+// payload). Instead we write the bytes as a managed attachment and reference it
+// by a short, portable scheme — `termipod-att://<key>/<file>` — resolved back to
+// a Blob at render time. Portable across devices (no absolute paths) and the
+// image files ride WebDAV/hub file sync like any other attachment.
+
+export const NOTE_ATT_SCHEME = 'termipod-att://';
+
+interface RustFileB64 {
+  base64: string;
+  mime: string;
+}
+
+/// Write image bytes into the active attachment root and return the short
+/// `termipod-att://<key>/<file>` reference to embed in note markdown. Tauri only —
+/// callers fall back to an inline data-URI in the browser build.
+export async function writeNoteImage(base64: string, filename: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  let root = activeAttachmentRoot();
+  if (root === null) {
+    await useAttachmentConfig.getState().resolveDefault();
+    root = activeAttachmentRoot();
+  }
+  if (root === null) return null;
+  const added = await invoke<{ key: string; file: string }>('attachment_write_bytes', {
+    root,
+    filename,
+    base64,
+  });
+  // A linked-Zotero root: refresh the index so the new file resolves immediately.
+  if (useZoteroStorage.getState().path === root) {
+    await useZoteroStorage.getState().reindex();
+  }
+  return `${NOTE_ATT_SCHEME}${added.key}/${added.file}`;
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/// Resolve a `termipod-att://<key>/<file>` note-image reference to a Blob. Tries
+/// a linked Zotero folder's index first, then the active root. Null if missing.
+export async function loadNoteImage(ref: string): Promise<Blob | null> {
+  if (!ref.startsWith(NOTE_ATT_SCHEME)) return null;
+  const rest = ref.slice(NOTE_ATT_SCHEME.length);
+  const slash = rest.indexOf('/');
+  if (slash < 0) return null;
+  const key = rest.slice(0, slash);
+  const file = rest.slice(slash + 1);
+  const k = `${key}/${file}`;
+  const zs = useZoteroStorage.getState();
+
+  // Browser build: the live File handle from the linked <input webkitdirectory>.
+  const live = zs.files.get(k);
+  if (live !== undefined) return live;
+  if (!isTauri()) return null;
+
+  const tryRead = async (root: string, rel: string): Promise<Blob | null> => {
+    try {
+      const f = await invoke<RustFileB64>('storage_read', { path: root, rel });
+      const bytes = b64ToBytes(f.base64);
+      return new Blob([bytes.buffer as ArrayBuffer], { type: f.mime });
+    } catch {
+      return null;
+    }
+  };
+
+  // Linked Zotero folder index (rel path under that root).
+  const rel = zs.rels.get(k);
+  if (rel !== undefined && zs.path !== null) {
+    const b = await tryRead(zs.path, rel);
+    if (b !== null) return b;
+  }
+  // Active attachment root (where note images are written).
+  let root = activeAttachmentRoot();
+  if (root === null) {
+    await useAttachmentConfig.getState().resolveDefault();
+    root = activeAttachmentRoot();
+  }
+  if (root !== null) return tryRead(root, k);
+  return null;
+}
+
 /// Delete a managed attachment's bytes (its `<key>/` folder). No-op for Zotero
 /// attachments (we never touch the user's Zotero library) or the browser build.
 export async function deleteManagedAttachmentFile(path: string | undefined): Promise<void> {

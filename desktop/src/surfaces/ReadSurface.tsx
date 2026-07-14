@@ -11,7 +11,12 @@ import {
   type WorkLink,
 } from '../state/library';
 import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zoteroStorage';
-import { deleteManagedAttachmentFile, pickAndCopyAttachment, useAttachmentConfig } from '../state/attachments';
+import {
+  deleteManagedAttachmentFile,
+  pickAndCopyAttachment,
+  useAttachmentConfig,
+  writeNoteImage,
+} from '../state/attachments';
 import { syncLibrary } from '../state/librarySync';
 import { useSession } from '../state/session';
 import {
@@ -1207,12 +1212,24 @@ function ReaderView({
     update(refId, { notes: prev.trim() === '' ? text : `${prev}\n\n${text}` });
   }
 
-  // Append an area screenshot (data-URI PNG) to the notes as a markdown image.
-  function saveImageToNote(dataUri: string): void {
+  // Append an area screenshot to the notes as a markdown image. The bytes are
+  // written as a managed attachment (de-inlined) and referenced by a short
+  // `termipod-att://` scheme instead of a giant base64 blob in the note string;
+  // falls back to inline data-URI in the browser build (no file access).
+  async function saveImageToNote(dataUri: string): Promise<void> {
+    let embed = `![figure](${dataUri})`;
+    const comma = dataUri.indexOf(',');
+    if (comma > 0) {
+      try {
+        const ref2 = await writeNoteImage(dataUri.slice(comma + 1), `figure-${Date.now()}.png`);
+        if (ref2 !== null) embed = `![figure](${ref2})`;
+      } catch {
+        /* keep the data-URI fallback */
+      }
+    }
     const cur = useLibrary.getState().references.find((r) => r.id === refId);
     const prev = cur?.notes ?? '';
-    const img = `![figure](${dataUri})`;
-    update(refId, { notes: prev.trim() === '' ? img : `${prev}\n\n${img}` });
+    update(refId, { notes: prev.trim() === '' ? embed : `${prev}\n\n${embed}` });
   }
 
   useEffect(() => {

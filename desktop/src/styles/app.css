@@ -2765,6 +2765,15 @@ button.small,
   max-width: 100%;
   height: auto;
 }
+/* Placeholder while a termipod-att:// note image resolves to a blob. */
+.md-img-loading {
+  display: block;
+  width: 120px;
+  height: 80px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken, var(--bg));
+  border: 1px dashed var(--border);
+}
 .md pre {
   overflow-x: auto;
   padding: var(--spacing-s8);

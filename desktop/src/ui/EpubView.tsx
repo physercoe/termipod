@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import ePub, { type Rendition, type Contents, type NavItem } from 'epubjs';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
+import { ResizeHandle, usePanelWidth } from './ResizeHandle';
 
 /// Offline EPUB reader for the Read surface. EPUB is a ZIP of XHTML; epub.js
 /// parses and renders it fully client-side (no network), so it works in the
@@ -22,6 +23,7 @@ export function EpubView({
   const rendition = useRef<Rendition | null>(null);
   const [toc, setToc] = useState<{ label: string; href: string }[]>([]);
   const [showToc, setShowToc] = useState(false);
+  const [tocW, resizeToc] = usePanelWidth('termipod.read.epubTocW', 260, 160, 480);
   const [sel, setSel] = useState('');
 
   useEffect(() => {
@@ -139,20 +141,24 @@ export function EpubView({
       </div>
       <div className="epub-body">
         {showToc && (
-          <div className="epub-toc">
-            {toc.map((i) => (
-              <button
-                key={i.href}
-                className="epub-toc-item"
-                onClick={() => {
-                  void rendition.current?.display(i.href);
-                  setShowToc(false);
-                }}
-              >
-                {i.label !== '' ? i.label : i.href}
-              </button>
-            ))}
-          </div>
+          <>
+            <div className="epub-toc" style={{ width: tocW }}>
+              {toc.map((i) => (
+                <button
+                  key={i.href}
+                  className="epub-toc-item"
+                  title={i.label !== '' ? i.label : i.href}
+                  onClick={() => {
+                    void rendition.current?.display(i.href);
+                    setShowToc(false);
+                  }}
+                >
+                  {i.label !== '' ? i.label : i.href}
+                </button>
+              ))}
+            </div>
+            <ResizeHandle onResize={resizeToc} />
+          </>
         )}
         <div className="epub-host" ref={hostRef} />
       </div>

@@ -5575,17 +5575,23 @@ th {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 4px 8px;
+  padding: 5px 10px;
   background: none;
   border: none;
   box-shadow: none;
   border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: var(--font-size-caption);
-  line-height: 1.4;
-  white-space: nowrap;
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  line-height: 1.45;
+  /* Wrap up to two lines instead of truncating to a lone ellipsis ("…") — a
+     narrow outline that clips every label to a single dot is unreadable. The
+     panel is also resizable now, so long headings can be widened out. */
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
 }
 .mdreader-outline-item:hover {
   background: var(--accent-tint);
@@ -5757,6 +5763,7 @@ th {
   display: flex;
 }
 .epub-toc {
+  flex: 0 0 auto; /* width is inline (resizable); never shrink below it */
   width: 240px;
   overflow: auto;
   border-right: 1px solid var(--border);
@@ -5766,13 +5773,27 @@ th {
   gap: 2px;
 }
 .epub-toc-item {
+  /* Clean list rows, not raised button pills (matches .mdreader-outline-item). */
+  display: block;
+  width: 100%;
   text-align: left;
-  padding: 5px 8px;
-  border-radius: 6px;
-  font-size: var(--font-size-caption);
+  padding: 5px 10px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-word;
 }
 .epub-toc-item:hover {
   background: var(--accent-tint);
+  color: var(--text);
+  border: none;
+  box-shadow: none;
+  transform: none;
 }
 .epub-host {
   flex: 1;

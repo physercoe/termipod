@@ -1,4 +1,37 @@
-import { useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
+
+/// A localStorage-backed, clamped pane width + its `onResize(dx)` handler, for a
+/// left panel whose ResizeHandle sits on its RIGHT edge (dragging right widens it
+/// → `sign` is +1; pass -1 for a right-docked panel). Mirrors ReadSurface's
+/// loadWidth/saveWidth/clamp so the reader outlines resize + persist like the
+/// library rails do.
+export function usePanelWidth(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+  sign = 1,
+): [number, (dx: number) => void] {
+  const [w, setW] = useState(() => {
+    const v = Number(localStorage.getItem(key));
+    return Number.isFinite(v) && v > 0 ? Math.min(max, Math.max(min, v)) : fallback;
+  });
+  const onResize = useCallback(
+    (dx: number) => {
+      setW((cur) => {
+        const n = Math.min(max, Math.max(min, cur + sign * dx));
+        try {
+          localStorage.setItem(key, String(n));
+        } catch {
+          /* ignore */
+        }
+        return n;
+      });
+    },
+    [key, min, max, sign],
+  );
+  return [w, onResize];
+}
 
 /// A thin draggable divider between two panes. Reports horizontal drag deltas;
 /// the parent owns the pane width (so it can clamp + persist).

@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { Markdown, slugify } from './Markdown';
+import { ResizeHandle, usePanelWidth } from './ResizeHandle';
 
 /// Document reader for a markdown attachment (`.md`/`.markdown`): the rendered
 /// prose plus a left outline/nav rail built from the document's headings (parity
@@ -57,6 +58,7 @@ export function MarkdownReader({ text }: { text: string }): JSX.Element {
   const t = useT();
   const headings = useMemo(() => extractHeadings(text), [text]);
   const [open, setOpen] = useState(true);
+  const [outlineW, resizeOutline] = usePanelWidth('termipod.read.mdOutlineW', 240, 160, 460);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const minDepth = useMemo(() => Math.min(6, ...headings.map((h) => h.depth)), [headings]);
 
@@ -70,7 +72,8 @@ export function MarkdownReader({ text }: { text: string }): JSX.Element {
     <div className="mdreader">
       {hasOutline &&
         (open ? (
-          <div className="mdreader-outline">
+          <>
+          <div className="mdreader-outline" style={{ width: outlineW }}>
             <div className="mdreader-outline-head">
               <span className="muted small">{t('read.mdOutline')}</span>
               <span className="spacer" />
@@ -92,6 +95,8 @@ export function MarkdownReader({ text }: { text: string }): JSX.Element {
               ))}
             </div>
           </div>
+          <ResizeHandle onResize={resizeOutline} />
+          </>
         ) : (
           <button className="mdreader-outline-show" title={t('read.mdOutline')} onClick={() => setOpen(true)}>
             <Icon name="list" />

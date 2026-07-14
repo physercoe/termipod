@@ -1,16 +1,22 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { EditorState, EditorSelection } from '@codemirror/state';
+import { EditorState, EditorSelection, RangeSetBuilder } from '@codemirror/state';
 import {
+  Decoration,
+  type DecorationSet,
   EditorView,
   keymap,
   drawSelection,
   highlightActiveLine,
   placeholder as cmPlaceholder,
+  ViewPlugin,
+  type ViewUpdate,
+  WidgetType,
 } from '@codemirror/view';
 import { history, historyKeymap, defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { HighlightStyle, syntaxHighlighting, indentOnInput } from '@codemirror/language';
+import { HighlightStyle, syntaxHighlighting, indentOnInput, syntaxTree } from '@codemirror/language';
 import { tags as tk } from '@lezer/highlight';
+import { loadNoteImage, NOTE_ATT_SCHEME } from '../state/attachments';
 
 /// A real Markdown editor built on CodeMirror 6 — the source pane of the Author
 /// workspace, replacing the plain <textarea>. It gives live syntax highlighting
@@ -62,6 +68,93 @@ const cmTheme = EditorView.theme({
   '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--accent) 6%, transparent)' },
   '.cm-placeholder': { color: 'var(--text-muted)' },
 });
+
+// ---- Obsidian-style inline image preview ----------------------------------
+//
+// Collapse an `![alt](url)` image node into the rendered image, EXCEPT when the
+// selection is inside it (so you can still edit the markdown). `termipod-att://`
+// refs (de-inlined note images, Layer 1) resolve to a blob object URL; data/http
+// srcs paint directly. This is the "source mode" counterpart to the WYSIWYG
+// editor — you see the picture, not a base64 blob or a bare ref.
+class ImageWidget extends WidgetType {
+  private revoke: (() => void) | null = null;
+  constructor(
+    readonly url: string,
+    readonly alt: string,
+  ) {
+    super();
+  }
+  eq(o: ImageWidget): boolean {
+    return o.url === this.url && o.alt === this.alt;
+  }
+  toDOM(): HTMLElement {
+    const wrap = document.createElement('span');
+    wrap.className = 'cm-md-img';
+    const img = document.createElement('img');
+    img.alt = this.alt;
+    if (this.url.startsWith(NOTE_ATT_SCHEME)) {
+      let dead = false;
+      void loadNoteImage(this.url).then((b) => {
+        if (dead || b === null) return;
+        const obj = URL.createObjectURL(b);
+        img.src = obj;
+        this.revoke = () => URL.revokeObjectURL(obj);
+      });
+      // If destroyed before the blob resolves, cancel the src assignment.
+      const prev = this.revoke;
+      this.revoke = () => {
+        dead = true;
+        if (prev !== null) prev();
+      };
+    } else {
+      img.src = this.url;
+    }
+    wrap.appendChild(img);
+    return wrap;
+  }
+  destroy(): void {
+    if (this.revoke !== null) this.revoke();
+  }
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+function buildImageDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  const sel = view.state.selection.main;
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(view.state).iterate({
+      from,
+      to,
+      enter: (node) => {
+        if (node.name !== 'Image') return;
+        // Keep the markdown visible while the cursor/selection is on it.
+        if (sel.from <= node.to && sel.to >= node.from) return;
+        const text = view.state.sliceDoc(node.from, node.to);
+        const m = /^!\[([^\]]*)\]\(\s*(\S+?)(?:\s+["'][^)]*["'])?\s*\)$/.exec(text);
+        if (m === null) return;
+        builder.add(node.from, node.to, Decoration.replace({ widget: new ImageWidget(m[2], m[1]) }));
+      },
+    });
+  }
+  return builder.finish();
+}
+
+const imagePreview = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = buildImageDecorations(view);
+    }
+    update(u: ViewUpdate): void {
+      if (u.docChanged || u.viewportChanged || u.selectionSet) {
+        this.decorations = buildImageDecorations(u.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
 
 function wrapSel(view: EditorView, before: string, after: string): void {
   const { state } = view;
@@ -142,6 +235,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
           EditorView.lineWrapping,
           markdown({ base: markdownLanguage }),
           syntaxHighlighting(mdHighlight),
+          imagePreview,
           cmPlaceholder(placeholder ?? ''),
           keymap.of([
             { key: 'Mod-b', run: (v) => (wrapSel(v, '**', '**'), true) },

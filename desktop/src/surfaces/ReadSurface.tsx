@@ -36,6 +36,7 @@ import { BrowserView } from './BrowserView';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
 import { MarkdownReader } from '../ui/MarkdownReader';
+import { MarkdownEditor } from '../ui/MarkdownEditor';
 import { Icon, type IconName } from '../ui/Icon';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
@@ -1134,10 +1135,10 @@ function Inspector({
                 <Markdown text={ref.notes} singleDollarMath />
               </div>
             ) : (
-              <textarea
-                className="editor-pane"
+              <MarkdownEditor
+                key={ref.id}
                 value={ref.notes}
-                onChange={(e) => update(ref.id, { notes: e.target.value })}
+                onChange={(v) => update(ref.id, { notes: v })}
                 placeholder={t('read.notesPlaceholder')}
               />
             )}

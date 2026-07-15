@@ -1,5 +1,6 @@
 import { isTauri } from '../platform';
 import { activeAttachmentRoot, useAttachmentConfig } from './attachments';
+import { secretDelete, secretGet, secretSet } from './persist';
 import { useZoteroStorage } from './zoteroStorage';
 
 /// Zotero-compatible WebDAV file sync for the Read-surface storage root (Tauri
@@ -59,7 +60,9 @@ export function webdavConfigured(): boolean {
 export async function getWebdavPassword(): Promise<string> {
   if (!isTauri()) return '';
   try {
-    return (await invoke<string | null>('keychain_get', { key: KC_PASS })) ?? '';
+    // Routed through the consolidated secret store (single keychain item) so it
+    // doesn't add its own macOS auth prompt.
+    return (await secretGet(KC_PASS)) ?? '';
   } catch {
     return '';
   }
@@ -67,11 +70,8 @@ export async function getWebdavPassword(): Promise<string> {
 
 export async function setWebdavPassword(pw: string): Promise<void> {
   if (!isTauri()) return;
-  if (pw === '') {
-    await invoke('keychain_delete', { key: KC_PASS });
-  } else {
-    await invoke('keychain_set', { key: KC_PASS, value: pw });
-  }
+  if (pw === '') await secretDelete(KC_PASS);
+  else await secretSet(KC_PASS, pw);
 }
 
 /// Verify connectivity + write access. Resolves on success; rejects with the

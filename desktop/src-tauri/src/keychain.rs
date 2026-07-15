@@ -41,6 +41,16 @@ fn entry(key: &str) -> Result<Entry, String> {
     Entry::new(SERVICE, key).map_err(|e| e.to_string())
 }
 
+/// True on Windows, whose Credential Manager caps a single item at 2560 UTF-16
+/// chars. The webview consolidates all secrets into ONE keychain item (to avoid
+/// the per-item macOS auth prompt) and, on Windows only, splits that document
+/// across sibling items to stay under the cap. cfg! is compile-time exact, so the
+/// webview never guesses the platform (a wrong guess would silently drop data).
+#[tauri::command]
+pub fn keychain_is_windows() -> bool {
+    cfg!(target_os = "windows")
+}
+
 /// Store (or overwrite) a secret under `key`.
 #[tauri::command]
 pub async fn keychain_set(key: String, value: String) -> Result<(), String> {

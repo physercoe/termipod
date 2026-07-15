@@ -237,7 +237,7 @@ export function AppShell(): JSX.Element {
           ) : job === 'record' ? (
             <RecordSurface />
           ) : job === 'settings' ? (
-            <SettingsSurface />
+            <SettingsSurface onConnect={openConnect} />
           ) : null /* terminal → the always-mounted TerminalPanel below */}
           </ErrorBoundary>
           </div>

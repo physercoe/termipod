@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useLang, useT, type Lang } from '../i18n';
-import { isTauri } from '../platform';
+import { isTauri, openExternal } from '../platform';
 import { cacheSizeBytes, clearCache } from '../state/queryClient';
+import { listProfiles, removeProfile, type HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { useTheme, type ThemePref } from '../state/theme';
 import { getVoiceApiKey, getVoiceModel, setVoiceApiKey, setVoiceModel, VOICE_MODELS } from '../voice/settings';
 import { activeRootLabel, useAttachmentConfig } from '../state/attachments';
+import { Icon } from '../ui/Icon';
 import { SshKeysSettings } from './SshKeys';
 import { UpdateSection } from './UpdateSection';
 import { VaultPanel } from './VaultPanel';
+
+const REPO_URL = 'https://github.com/physercoe/termipod';
 
 /// Where user-added reference attachments are copied. Read-only display of the
 /// active root (a linked Zotero storage folder wins, else custom, else default),
@@ -182,32 +186,117 @@ function CacheSettings(): JSX.Element {
   );
 }
 
-function ConnectionSettings(): JSX.Element {
+/// Account — the current hub connection plus hub-profile management (parity with
+/// the mobile hub-profile / team switcher). Add/edit a profile reuses the shell's
+/// connect panel (`onConnect`); switching re-binds the client and drops the cache.
+function AccountSettings({ onConnect }: { onConnect?: (edit?: HubProfile) => void }): JSX.Element {
   const t = useT();
+  const client = useSession((s) => s.client);
+  const activeId = useSession((s) => s.activeProfileId);
+  const switchProfile = useSession((s) => s.switchProfile);
   const disconnect = useSession((s) => s.disconnect);
   const teamId = useSession((s) => s.config.teamId);
   const baseUrl = useSession((s) => s.config.baseUrl);
+  const [profiles, setProfiles] = useState<HubProfile[]>(() => listProfiles());
+
+  async function remove(id: string): Promise<void> {
+    await removeProfile(id);
+    setProfiles(listProfiles());
+  }
+
+  return (
+    <>
+      <section className="setting-group">
+        <h3>{t('settings.accountCurrent')}</h3>
+        {client === null ? (
+          <p className="muted small">{t('settings.accountOffline')}</p>
+        ) : (
+          <>
+            <div className="setting-row">
+              <label>{t('settings.accountHub')}</label>
+              <span className="muted">{baseUrl}</span>
+            </div>
+            <div className="setting-row">
+              <label>{t('connect.team')}</label>
+              <span className="muted">{teamId}</span>
+            </div>
+          </>
+        )}
+        <div className="setting-row">
+          {client === null ? (
+            <button className="primary" onClick={() => onConnect?.()}>
+              {t('shell.connect')}
+            </button>
+          ) : (
+            <button className="danger" onClick={() => disconnect()}>
+              {t('settings.disconnect')}
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="setting-group">
+        <h3>{t('settings.accountProfiles')}</h3>
+        <p className="muted small">{t('settings.accountProfilesBlurb')}</p>
+        <div className="profile-list">
+          {profiles.map((p) => (
+            <div key={p.id} className={p.id === activeId ? 'profile-item active' : 'profile-item'}>
+              <button
+                className="profile-pick"
+                disabled={p.id === activeId}
+                onClick={() => void switchProfile(p.id)}
+              >
+                <span className="profile-name">{p.name}</span>
+                <span className="muted small">
+                  {p.teamId} · {p.baseUrl.replace(/^https?:\/\//, '')}
+                </span>
+              </button>
+              {p.id === activeId && <span className="pill ok">{t('settings.accountActive')}</span>}
+              <button className="link-btn" onClick={() => onConnect?.(p)}>
+                {t('profile.edit')}
+              </button>
+              <button className="link-btn" onClick={() => void remove(p.id)}>
+                {t('profile.remove')}
+              </button>
+            </div>
+          ))}
+          {profiles.length === 0 && <div className="muted small">{t('profile.none')}</div>}
+        </div>
+        <div className="setting-row">
+          <button onClick={() => onConnect?.()}>+ {t('profile.add')}</button>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/// About — app identity, version, and where to send feedback / read the source.
+function AboutSettings(): JSX.Element {
+  const t = useT();
   return (
     <section className="setting-group">
-      <h3>{t('settings.connection')}</h3>
-      <div className="setting-row">
-        <label>Hub</label>
-        <span className="muted">{baseUrl}</span>
+      <div className="about-head">
+        <div className="about-name">TermiPod</div>
+        <div className="muted small">{t('settings.aboutTagline')}</div>
       </div>
       <div className="setting-row">
-        <label>{t('connect.team')}</label>
-        <span className="muted">{teamId}</span>
+        <label>{t('settings.version')}</label>
+        <span className="muted mono">{__APP_VERSION__}</span>
       </div>
-      <div className="setting-row">
-        <button className="danger" onClick={() => disconnect()}>
-          {t('settings.disconnect')}
+      <p className="muted small">{t('settings.aboutBlurb')}</p>
+      <div className="setting-row about-links">
+        <button onClick={() => openExternal(`${REPO_URL}/issues`)}>
+          {t('settings.feedback')} <Icon name="external" size={13} />
+        </button>
+        <button onClick={() => openExternal(REPO_URL)}>
+          {t('settings.sourceCode')} <Icon name="external" size={13} />
         </button>
       </div>
     </section>
   );
 }
 
-type CatId = 'appearance' | 'updates' | 'security' | 'sshkeys' | 'storage' | 'voice' | 'connection';
+type CatId = 'account' | 'display' | 'input' | 'data' | 'sshkeys' | 'about' | 'updates';
 const CAT_LS_KEY = 'termipod.settings.cat';
 
 /// The Settings job surface (pinned to the bottom of the activity bar). Where the
@@ -215,40 +304,35 @@ const CAT_LS_KEY = 'termipod.settings.cat';
 /// splits them into a left category rail + a content pane, so the surface scales
 /// as more settings land instead of becoming an undifferentiated wall. Team/hub
 /// *policy* still lives in the Admin cockpit, not here — this is device prefs.
-export function SettingsSurface(): JSX.Element {
+export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile) => void }): JSX.Element {
   const t = useT();
   const tauri = isTauri();
 
+  // Order (director spec): Account first · Display · Input · Data (security +
+  // storage merged) · SSH Keys · About · Updates last.
   const cats: { id: CatId; label: string; render: () => JSX.Element }[] = [
-    { id: 'appearance', label: t('settings.catAppearance'), render: () => <AppearanceSettings /> },
-    { id: 'updates', label: t('settings.catUpdates'), render: () => <UpdateSection /> },
-    { id: 'security', label: t('settings.catSecurity'), render: () => <VaultPanel /> },
-    ...(tauri
-      ? [
-          {
-            id: 'sshkeys' as const,
-            label: t('settings.catSshKeys'),
-            render: () => <SshKeysSettings />,
-          },
-          {
-            id: 'storage' as const,
-            label: t('settings.catStorage'),
-            render: () => (
-              <>
-                <AttachmentLocation />
-                <CacheSettings />
-              </>
-            ),
-          },
-          { id: 'voice' as const, label: t('settings.catVoice'), render: () => <VoiceSettings /> },
-        ]
-      : [{ id: 'storage' as const, label: t('settings.catStorage'), render: () => <CacheSettings /> }]),
-    { id: 'connection', label: t('settings.catConnection'), render: () => <ConnectionSettings /> },
+    { id: 'account', label: t('settings.catAccount'), render: () => <AccountSettings onConnect={onConnect} /> },
+    { id: 'display', label: t('settings.catDisplay'), render: () => <AppearanceSettings /> },
+    ...(tauri ? [{ id: 'input' as const, label: t('settings.catInput'), render: () => <VoiceSettings /> }] : []),
+    {
+      id: 'data',
+      label: t('settings.catData'),
+      render: () => (
+        <>
+          <VaultPanel />
+          {tauri && <AttachmentLocation />}
+          <CacheSettings />
+        </>
+      ),
+    },
+    ...(tauri ? [{ id: 'sshkeys' as const, label: t('settings.catSshKeys'), render: () => <SshKeysSettings /> }] : []),
+    { id: 'about', label: t('settings.catAbout'), render: () => <AboutSettings /> },
+    ...(tauri ? [{ id: 'updates' as const, label: t('settings.catUpdates'), render: () => <UpdateSection /> }] : []),
   ];
 
   const [cat, setCat] = useState<CatId>(() => {
     const saved = localStorage.getItem(CAT_LS_KEY) as CatId | null;
-    return saved !== null && cats.some((c) => c.id === saved) ? saved : 'appearance';
+    return saved !== null && cats.some((c) => c.id === saved) ? saved : 'account';
   });
   function pick(id: CatId): void {
     setCat(id);

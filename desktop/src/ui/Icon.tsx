@@ -50,7 +50,13 @@ export type IconName =
   | 'cloud'
   | 'split-h'
   | 'split-v'
-  | 'trash';
+  | 'trash'
+  | 'key'
+  | 'eye'
+  | 'eye-off'
+  | 'star'
+  | 'search'
+  | 'lock';
 
 const PATHS: Record<IconName, JSX.Element> = {
   'chevron-left': <path d="M15 6l-6 6 6 6" />,
@@ -285,6 +291,41 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="M10.8 12.2L20 3" />
+      <path d="M16 7l3 3" />
+      <path d="M14 9l2.5 2.5" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  'eye-off': (
+    <>
+      <path d="M4 4l16 16" />
+      <path d="M9.9 5.2A9.8 9.8 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.3 4" />
+      <path d="M6.5 7.6A17.4 17.4 0 0 0 2 12s3.5 7 10 7a9.8 9.8 0 0 0 3.5-.7" />
+      <path d="M9.5 9.5a3 3 0 0 0 4.2 4.2" />
+    </>
+  ),
+  star: <path d="M12 3.5l2.6 5.3 5.9.85-4.25 4.15 1 5.85L12 16.9l-5.25 2.75 1-5.85L2.5 9.65l5.9-.85z" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-3.6-3.6" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="4.5" y="10" width="15" height="10.5" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
     </>
   ),
 };

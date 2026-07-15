@@ -1,12 +1,20 @@
 import { listConnections, type Connection } from '../state/connections';
 import { listKeys, type SshKeyMeta } from '../state/keys';
+import { exportItems, importItems, type VaultItemMeta } from '../state/vaultItems';
 import { loadJson, saveJson, secretGet, secretSet } from '../state/persist';
 
-/// The plaintext vault bundle (parity Phase 2b). Shape matches the mobile
-/// `_assembleBundle` (vault_service.dart) so a desktop and a phone seal/open the
-/// same JSON: connections array + an sshKeys object (meta + PEMs + passphrases)
-/// + a flat passwords map. Secrets are gathered from the OS keychain here and
-/// re-scattered back to it on import.
+/// The plaintext vault bundle (parity Phase 2b). The core shape matches the
+/// mobile `_assembleBundle` (vault_service.dart) so a desktop and a phone
+/// seal/open the same JSON: connections array + an sshKeys object (meta + PEMs +
+/// passphrases) + a flat passwords map. Secrets are gathered from the OS keychain
+/// here and re-scattered back on import.
+///
+/// `items` + `itemSecrets` are a desktop-only ADDITIVE extension (the generic
+/// "mini-1Password" vault items). They are optional so the bundle stays
+/// forward/backward compatible: an older client (or the phone) that doesn't know
+/// them simply omits the fields, and — crucially — importBundle only overwrites
+/// the local items when the fields are actually PRESENT, so pulling a
+/// mobile-authored bundle never wipes a desktop's items.
 
 export interface VaultBundle {
   connections: Connection[];
@@ -16,6 +24,8 @@ export interface VaultBundle {
     passphrases: Record<string, string>;
   };
   passwords: Record<string, string>;
+  items?: VaultItemMeta[];
+  itemSecrets?: Record<string, Record<string, string>>;
 }
 
 export async function assembleBundle(): Promise<VaultBundle> {
@@ -39,7 +49,9 @@ export async function assembleBundle(): Promise<VaultBundle> {
     if (jump !== null) passwords[`${c.id}_jump`] = jump;
   }
 
-  return { connections, sshKeys: { meta, privateKeys, passphrases }, passwords };
+  const { items, itemSecrets } = await exportItems();
+
+  return { connections, sshKeys: { meta, privateKeys, passphrases }, passwords, items, itemSecrets };
 }
 
 /** Merge a decrypted bundle into local storage + the keychain (restore/sync
@@ -54,6 +66,10 @@ export async function importBundle(bundle: VaultBundle): Promise<void> {
     for (const [id, pass] of Object.entries(ssh.passphrases ?? {})) await secretSet(`passphrase_${id}`, pass);
   }
   for (const [k, v] of Object.entries(bundle.passwords ?? {})) await secretSet(`password_${k}`, v);
+  // Only overwrite generic items when the bundle actually carries them — a
+  // client that doesn't know `items` omits the field, and we must keep the
+  // local items rather than wiping them to empty.
+  if (Array.isArray(bundle.items)) await importItems(bundle.items, bundle.itemSecrets ?? {});
 }
 
 export function readBundleJson(): Promise<string> {
@@ -70,6 +86,10 @@ export function parseBundle(json: string): VaultBundle {
       passphrases: b.sshKeys?.passphrases ?? {},
     },
     passwords: b.passwords ?? {},
+    // Preserved as-is (undefined when the bundle predates the items extension)
+    // so importBundle can tell "no items field" from "an empty items list".
+    items: Array.isArray(b.items) ? b.items : undefined,
+    itemSecrets: b.itemSecrets,
   };
 }
 

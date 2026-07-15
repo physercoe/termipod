@@ -1,0 +1,532 @@
+import { useEffect, useState } from 'react';
+import { useT } from '../i18n';
+import { openExternal } from '../platform';
+import { Icon, type IconName } from '../ui/Icon';
+import { listConnections } from '../state/connections';
+import {
+  deleteItem,
+  getItemSecret,
+  listItems,
+  saveItem,
+  toggleFavorite,
+  type VaultItemMeta,
+  type VaultItemType,
+} from '../state/vaultItems';
+import { SshKeysSettings } from './SshKeys';
+
+/// The vault item manager — a compact, 1Password/Bitwarden-style credential
+/// store layered over the app's keychain-backed secret layer. Everything the
+/// vault protects is visible and manageable in one place: generic Logins, API
+/// tokens and Secure notes (this store), plus read views into the SSH keys and
+/// saved connections that already seal into the same synced vault.
+///
+/// Layout follows the well-worn pattern: a category tab strip, a searchable item
+/// list, and a detail/editor pane. Secret fields are masked with reveal + copy
+/// affordances and are only read from the keychain on demand.
+
+type Tab = 'all' | 'favorites' | 'login' | 'api' | 'note' | 'sshkeys' | 'connections';
+const GENERIC: readonly VaultItemType[] = ['login', 'api', 'note'];
+
+function typeIcon(type: VaultItemType): IconName {
+  return type === 'login' ? 'key' : type === 'api' ? 'code' : 'note';
+}
+
+function msg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+// ── Field renderers ─────────────────────────────────────────────────────────
+
+function PlainRow({ label, value, link }: { label: string; value: string; link?: boolean }): JSX.Element | null {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  if (value === '') return null;
+  async function copy(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
+  return (
+    <div className="vault-field">
+      <span className="vault-field-label">{label}</span>
+      {link ? (
+        <button className="vault-field-val vault-link" onClick={() => openExternal(value)} title={value}>
+          {value}
+        </button>
+      ) : (
+        <span className="vault-field-val">{value}</span>
+      )}
+      <button className="icon-btn" title={copied ? t('vault.copied') : t('vault.copy')} onClick={() => void copy()}>
+        <Icon name={copied ? 'check' : 'copy'} size={15} />
+      </button>
+    </div>
+  );
+}
+
+/// A masked secret with reveal + copy. The plaintext is fetched from the keychain
+/// lazily (first reveal/copy) and cached for the lifetime of the row. `block`
+/// renders multi-line values (note bodies) as a pre block.
+function SecretRow({
+  itemId,
+  slot,
+  label,
+  block,
+}: {
+  itemId: string;
+  slot: string;
+  label: string;
+  block?: boolean;
+}): JSX.Element {
+  const t = useT();
+  const [val, setVal] = useState<string | null>(null);
+  const [show, setShow] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function load(): Promise<string> {
+    if (val !== null) return val;
+    const v = await getItemSecret(itemId, slot);
+    setVal(v);
+    return v;
+  }
+  async function reveal(): Promise<void> {
+    await load();
+    setShow((s) => !s);
+  }
+  async function copy(): Promise<void> {
+    const v = await load();
+    try {
+      await navigator.clipboard.writeText(v);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
+
+  const actions = (
+    <>
+      <button className="icon-btn" title={show ? t('vault.hide') : t('vault.reveal')} onClick={() => void reveal()}>
+        <Icon name={show ? 'eye-off' : 'eye'} size={15} />
+      </button>
+      <button className="icon-btn" title={copied ? t('vault.copied') : t('vault.copy')} onClick={() => void copy()}>
+        <Icon name={copied ? 'check' : 'copy'} size={15} />
+      </button>
+    </>
+  );
+
+  if (block === true) {
+    return (
+      <div className="vault-field vault-field-block">
+        <div className="vault-field-blockhead">
+          <span className="vault-field-label">{label}</span>
+          <span className="spacer" />
+          {actions}
+        </div>
+        {show && <pre className="vault-note mono">{val ?? ''}</pre>}
+      </div>
+    );
+  }
+  return (
+    <div className="vault-field">
+      <span className="vault-field-label">{label}</span>
+      <span className="vault-field-val mono">{show ? (val ?? '') : '••••••••••'}</span>
+      {actions}
+    </div>
+  );
+}
+
+// ── Detail (read) view ──────────────────────────────────────────────────────
+
+function ItemDetail({
+  item,
+  onEdit,
+  onDelete,
+}: {
+  item: VaultItemMeta;
+  onEdit: () => void;
+  onDelete: () => void;
+}): JSX.Element {
+  const t = useT();
+  const hasNotes = item.secretSlots.includes('notes');
+  // Two-step delete — `window.confirm` is unreliable in the Tauri webview
+  // (WebView2), so the trash button arms first, then a second click confirms.
+  const [armed, setArmed] = useState(false);
+  return (
+    <div className="vault-detail">
+      <div className="vault-detail-head">
+        <Icon name={typeIcon(item.type)} size={18} className="vault-detail-icon" />
+        <span className="vault-detail-title">{item.title}</span>
+        <span className="spacer" />
+        <button className="icon-btn" title={t('vault.edit')} onClick={onEdit}>
+          <Icon name="pen" size={15} />
+        </button>
+        {armed ? (
+          <button className="link-btn danger" onClick={onDelete}>
+            {t('vault.confirmDeleteShort')}
+          </button>
+        ) : (
+          <button
+            className="icon-btn danger"
+            title={t('vault.delete')}
+            onClick={() => {
+              setArmed(true);
+              setTimeout(() => setArmed(false), 3000);
+            }}
+          >
+            <Icon name="trash" size={15} />
+          </button>
+        )}
+      </div>
+
+      {item.type === 'login' && (
+        <>
+          <PlainRow label={t('vault.fUsername')} value={item.username} />
+          <PlainRow label={t('vault.fUrl')} value={item.url} link />
+          <SecretRow itemId={item.id} slot="password" label={t('vault.fPassword')} />
+        </>
+      )}
+      {item.type === 'api' && (
+        <>
+          <PlainRow label={t('vault.fEndpoint')} value={item.endpoint} />
+          <SecretRow itemId={item.id} slot="token" label={t('vault.fToken')} />
+        </>
+      )}
+      {item.type === 'note' && <SecretRow itemId={item.id} slot="content" label={t('vault.fContent')} block />}
+
+      {hasNotes && <SecretRow itemId={item.id} slot="notes" label={t('vault.fNotes')} block />}
+    </div>
+  );
+}
+
+// ── Editor ──────────────────────────────────────────────────────────────────
+
+function ItemEditor({
+  item,
+  type,
+  onSaved,
+  onCancel,
+}: {
+  item: VaultItemMeta | null;
+  type: VaultItemType;
+  onSaved: () => void;
+  onCancel: () => void;
+}): JSX.Element {
+  const t = useT();
+  const [title, setTitle] = useState(item?.title ?? '');
+  const [favorite, setFavorite] = useState(item?.favorite ?? false);
+  const [username, setUsername] = useState(item?.username ?? '');
+  const [url, setUrl] = useState(item?.url ?? '');
+  const [endpoint, setEndpoint] = useState(item?.endpoint ?? '');
+  const [password, setPassword] = useState('');
+  const [token, setToken] = useState('');
+  const [content, setContent] = useState('');
+  const [notes, setNotes] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Gate Save until existing secrets have loaded — otherwise saving before the
+  // async preload resolves would write empty strings and wipe the real values.
+  const [loading, setLoading] = useState(item !== null);
+
+  // Preload existing secrets for edit (blank for a brand-new item).
+  useEffect(() => {
+    if (item === null) return;
+    void (async () => {
+      if (item.secretSlots.includes('password')) setPassword(await getItemSecret(item.id, 'password'));
+      if (item.secretSlots.includes('token')) setToken(await getItemSecret(item.id, 'token'));
+      if (item.secretSlots.includes('content')) setContent(await getItemSecret(item.id, 'content'));
+      if (item.secretSlots.includes('notes')) setNotes(await getItemSecret(item.id, 'notes'));
+      setLoading(false);
+    })();
+    // Preload runs once — the editor is keyed per open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function save(): Promise<void> {
+    if (title.trim() === '') {
+      setErr(t('vault.titleRequired'));
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const secrets: Record<string, string> = { notes };
+      if (type === 'login') secrets.password = password;
+      if (type === 'api') secrets.token = token;
+      if (type === 'note') secrets.content = content;
+      await saveItem({ id: item?.id, type, title: title.trim(), favorite, username, url, endpoint, secrets });
+      onSaved();
+    } catch (e) {
+      setErr(msg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="vault-editor">
+      <div className="vault-detail-head">
+        <Icon name={typeIcon(type)} size={18} className="vault-detail-icon" />
+        <span className="vault-detail-title">
+          {item === null ? t(`vault.new_${type}`) : t('vault.edit')}
+        </span>
+        <span className="spacer" />
+        <button
+          className={favorite ? 'icon-btn fav-on' : 'icon-btn'}
+          title={t('vault.favorite')}
+          onClick={() => setFavorite((v) => !v)}
+        >
+          <Icon name="star" size={16} />
+        </button>
+      </div>
+
+      <label className="vault-lbl">
+        {t('vault.fTitle')}
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('vault.fTitle')} autoFocus />
+      </label>
+
+      {type === 'login' && (
+        <>
+          <label className="vault-lbl">
+            {t('vault.fUsername')}
+            <input value={username} onChange={(e) => setUsername(e.target.value)} />
+          </label>
+          <label className="vault-lbl">
+            {t('vault.fUrl')}
+            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" />
+          </label>
+          <label className="vault-lbl">
+            {t('vault.fPassword')}
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+        </>
+      )}
+      {type === 'api' && (
+        <>
+          <label className="vault-lbl">
+            {t('vault.fEndpoint')}
+            <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://api.example.com" />
+          </label>
+          <label className="vault-lbl">
+            {t('vault.fToken')}
+            <textarea className="vault-secret-area" spellCheck={false} value={token} onChange={(e) => setToken(e.target.value)} />
+          </label>
+        </>
+      )}
+      {type === 'note' && (
+        <label className="vault-lbl">
+          {t('vault.fContent')}
+          <textarea className="vault-note-area" spellCheck={false} value={content} onChange={(e) => setContent(e.target.value)} />
+        </label>
+      )}
+
+      <label className="vault-lbl">
+        {t('vault.fNotes')}
+        <textarea className="vault-note-area" spellCheck={false} value={notes} onChange={(e) => setNotes(e.target.value)} />
+      </label>
+
+      {err !== null && <div className="error">{err}</div>}
+      <div className="vault-editor-actions">
+        <button className="primary" disabled={busy || loading} onClick={() => void save()}>
+          {t('vault.save')}
+        </button>
+        <button onClick={onCancel}>{t('vault.cancel')}</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Read view: saved connections (edited in the terminal; synced here) ────────
+
+function VaultConnections(): JSX.Element {
+  const t = useT();
+  const conns = listConnections();
+  return (
+    <div className="vault-conns">
+      <p className="muted small">{t('vault.connsHint')}</p>
+      {conns.length === 0 && <div className="muted small">{t('term.noSaved')}</div>}
+      {conns.map((c) => (
+        <div key={c.id} className="vault-conn-row">
+          <span className="term-tab-kind ssh" />
+          <span className="vault-conn-name">{c.name}</span>
+          <span className="spacer" />
+          <span className="muted small mono">
+            {c.username}@{c.host}
+            {c.port !== 22 ? `:${c.port}` : ''}
+          </span>
+          <span className="pill">{c.authMethod === 'key' ? t('term.privateKey') : t('term.password')}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Manager ──────────────────────────────────────────────────────────────────
+
+export function VaultManager(): JSX.Element {
+  const t = useT();
+  const [items, setItems] = useState<VaultItemMeta[]>(() => listItems());
+  const [tab, setTab] = useState<Tab>('all');
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ item: VaultItemMeta | null; type: VaultItemType } | null>(null);
+  const [newMenu, setNewMenu] = useState(false);
+
+  const reload = (): void => setItems(listItems());
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'all', label: t('vault.tabAll') },
+    { id: 'favorites', label: t('vault.tabFav') },
+    { id: 'login', label: t('vault.tabLogins') },
+    { id: 'api', label: t('vault.tabTokens') },
+    { id: 'note', label: t('vault.tabNotes') },
+    { id: 'sshkeys', label: t('vault.tabKeys') },
+    { id: 'connections', label: t('vault.tabConns') },
+  ];
+
+  const query = q.trim().toLowerCase();
+  const listed = items
+    .filter((i) => {
+      if (tab === 'favorites') return i.favorite;
+      if ((GENERIC as readonly string[]).includes(tab)) return i.type === tab;
+      return tab === 'all';
+    })
+    .filter((i) =>
+      query === '' ? true : [i.title, i.username, i.url, i.endpoint].some((x) => x.toLowerCase().includes(query)),
+    )
+    .sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.title.localeCompare(b.title));
+
+  const selItem = items.find((i) => i.id === sel) ?? null;
+
+  function openNew(type: VaultItemType): void {
+    setEditing({ item: null, type });
+    setSel(null);
+    setNewMenu(false);
+  }
+  function onSaved(): void {
+    reload();
+    setEditing(null);
+  }
+  async function remove(id: string): Promise<void> {
+    await deleteItem(id);
+    reload();
+    if (sel === id) setSel(null);
+  }
+  function fav(id: string): void {
+    setItems(toggleFavorite(id));
+  }
+
+  const showItems = tab !== 'sshkeys' && tab !== 'connections';
+
+  return (
+    <div className="vault-mgr">
+      <div className="vault-tabs">
+        {tabs.map((tb) => (
+          <button
+            key={tb.id}
+            className={`vault-tab${tb.id === tab ? ' active' : ''}`}
+            onClick={() => {
+              setTab(tb.id);
+              setEditing(null);
+            }}
+          >
+            {tb.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'sshkeys' && <SshKeysSettings />}
+      {tab === 'connections' && <VaultConnections />}
+
+      {showItems && (
+        <>
+          <div className="vault-toolbar">
+            <div className="vault-search">
+              <Icon name="search" size={15} className="vault-search-icon" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('vault.search')} />
+            </div>
+            <div className="vault-new">
+              <button className="primary" onClick={() => setNewMenu((v) => !v)}>
+                <Icon name="plus" size={14} /> {t('vault.new')}
+              </button>
+              {newMenu && (
+                <>
+                  <div className="vault-new-backdrop" onClick={() => setNewMenu(false)} />
+                  <div className="vault-new-menu">
+                    <button onClick={() => openNew('login')}>
+                      <Icon name="key" size={15} /> {t('vault.new_login')}
+                    </button>
+                    <button onClick={() => openNew('api')}>
+                      <Icon name="code" size={15} /> {t('vault.new_api')}
+                    </button>
+                    <button onClick={() => openNew('note')}>
+                      <Icon name="note" size={15} /> {t('vault.new_note')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="vault-split">
+            <div className="vault-list">
+              {listed.length === 0 && <div className="muted small vault-empty">{t('vault.empty')}</div>}
+              {listed.map((i) => (
+                <div key={i.id} className={`vault-row${i.id === sel && editing === null ? ' active' : ''}`}>
+                  <button
+                    className="vault-row-pick"
+                    onClick={() => {
+                      setSel(i.id);
+                      setEditing(null);
+                    }}
+                  >
+                    <Icon name={typeIcon(i.type)} size={16} className="vault-row-icon" />
+                    <span className="vault-row-main">
+                      <span className="vault-row-title">{i.title}</span>
+                      <span className="vault-row-sub muted small">
+                        {i.type === 'login' ? i.username : i.type === 'api' ? i.endpoint : t('vault.typeNote')}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    className={i.favorite ? 'icon-btn fav-on' : 'icon-btn vault-row-fav'}
+                    title={t('vault.favorite')}
+                    onClick={() => fav(i.id)}
+                  >
+                    <Icon name="star" size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="vault-pane">
+              {editing !== null ? (
+                <ItemEditor
+                  key={editing.item?.id ?? `new-${editing.type}`}
+                  item={editing.item}
+                  type={editing.type}
+                  onSaved={onSaved}
+                  onCancel={() => setEditing(null)}
+                />
+              ) : selItem !== null ? (
+                <ItemDetail
+                  item={selItem}
+                  onEdit={() => setEditing({ item: selItem, type: selItem.type })}
+                  onDelete={() => void remove(selItem.id)}
+                />
+              ) : (
+                <div className="vault-pane-empty muted small">
+                  <Icon name="lock" size={28} />
+                  <p>{t('vault.pickHint')}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

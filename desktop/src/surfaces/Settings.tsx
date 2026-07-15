@@ -8,8 +8,8 @@ import { useTheme, type ThemePref } from '../state/theme';
 import { getVoiceApiKey, getVoiceModel, setVoiceApiKey, setVoiceModel, VOICE_MODELS } from '../voice/settings';
 import { activeRootLabel, useAttachmentConfig } from '../state/attachments';
 import { Icon } from '../ui/Icon';
-import { SshKeysSettings } from './SshKeys';
 import { UpdateSection } from './UpdateSection';
+import { VaultManager } from './VaultManager';
 import { VaultPanel } from './VaultPanel';
 
 const REPO_URL = 'https://github.com/physercoe/termipod';
@@ -335,7 +335,7 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
             render: () => (
               <>
                 <p className="muted small settings-lead">{t('settings.vaultLead')}</p>
-                <SshKeysSettings />
+                <VaultManager />
                 <VaultPanel />
               </>
             ),
@@ -376,7 +376,7 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
           </button>
         ))}
       </aside>
-      <div className="settings-content">
+      <div className={`settings-content${active.id === 'vault' ? ' wide' : ''}`}>
         <h2 className="settings-content-title">{active.label}</h2>
         {active.render()}
       </div>

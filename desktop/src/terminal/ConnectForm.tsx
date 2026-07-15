@@ -10,84 +10,13 @@ import {
   upsertConnection,
   type Connection,
 } from '../state/connections';
-import { deleteKey, getKeyMaterial, importKey, listKeys, type SshKeyMeta } from '../state/keys';
+import { getKeyMaterial, listKeys, type SshKeyMeta } from '../state/keys';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
 type Auth = 'password' | 'key';
-
-/// Key store manager (parity Phase 2a): import a pasted private key (validated +
-/// introspected by the Rust core) and list/remove saved keys. Secrets live in the
-/// OS keychain, not here.
-function KeyManager({ keys, onChange }: { keys: SshKeyMeta[]; onChange: () => void }): JSX.Element {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [pem, setPem] = useState('');
-  const [passphrase, setPassphrase] = useState('');
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function doImport(): Promise<void> {
-    setBusy(true);
-    setErr(null);
-    try {
-      await importKey({ name: name.trim() || 'key', pem, passphrase });
-      setName('');
-      setPem('');
-      setPassphrase('');
-      setOpen(false);
-      onChange();
-    } catch (e) {
-      setErr(msg(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="term-keys">
-      <div className="term-saved-head">
-        <strong>{t('term.keys')}</strong>
-        <button onClick={() => setOpen((v) => !v)}>{open ? t('admin.close') : t('term.importKey')}</button>
-      </div>
-      {open && (
-        <div className="key-import">
-          <input placeholder={t('term.keyName')} value={name} onChange={(e) => setName(e.target.value)} />
-          <textarea
-            placeholder={t('term.keyPlaceholder')}
-            spellCheck={false}
-            value={pem}
-            onChange={(e) => setPem(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder={t('term.passphrase')}
-            value={passphrase}
-            onChange={(e) => setPassphrase(e.target.value)}
-          />
-          {err !== null && <div className="error">{err}</div>}
-          <button className="primary" disabled={busy || pem.trim() === ''} onClick={() => void doImport()}>
-            {t('term.importKey')}
-          </button>
-        </div>
-      )}
-      {keys.map((k) => (
-        <div key={k.id} className="key-item">
-          <span className="key-name">{k.name}</span>
-          <span className="muted small">{k.type}</span>
-          <span className="spacer" />
-          <button className="link-btn" onClick={() => void deleteKey(k.id).then(onChange)}>
-            {t('term.delete')}
-          </button>
-        </div>
-      ))}
-      {keys.length === 0 && !open && <div className="muted small">{t('term.noKeys')}</div>}
-    </div>
-  );
-}
 
 /// The SSH connect surface (saved connections + key store over a connect form).
 /// Extracted from the old breakglass modal so the terminal dock can present it as
@@ -96,9 +25,12 @@ function KeyManager({ keys, onChange }: { keys: SshKeyMeta[]; onChange: () => vo
 export function ConnectForm({
   onConnected,
   onCancel,
+  initialConnId,
 }: {
   onConnected: (sessionId: string, title: string) => void;
   onCancel?: () => void;
+  /** Preselect this saved connection on mount (nav click in the terminal). */
+  initialConnId?: string;
 }): JSX.Element {
   const t = useT();
   const [id, setId] = useState<string | null>(null);
@@ -117,8 +49,15 @@ export function ConnectForm({
   const [keys, setKeys] = useState<SshKeyMeta[]>([]);
 
   useEffect(() => {
-    setConns(listConnections());
+    const list = listConnections();
+    setConns(list);
     setKeys(listKeys());
+    if (initialConnId !== undefined) {
+      const c = list.find((x) => x.id === initialConnId);
+      if (c !== undefined) void applyConnection(c);
+    }
+    // Prefill runs once on mount (the form remounts per open).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function resetForm(): void {
@@ -227,7 +166,6 @@ export function ConnectForm({
           </div>
         ))}
         {conns.length === 0 && <div className="muted small">{t('term.noSaved')}</div>}
-        <KeyManager keys={keys} onChange={() => setKeys(listKeys())} />
       </div>
 
       <div className="term-form">

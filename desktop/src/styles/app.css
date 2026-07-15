@@ -284,7 +284,9 @@ pre {
   padding: var(--spacing-s8) var(--spacing-s4);
   background: var(--canvas);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
+  /* Visible (not auto) so the hub-switcher dropdown at the top can escape the
+     narrow rail rather than being clipped; the job list owns the scroll. */
+  overflow: visible;
 }
 .activity-tab {
   display: flex;
@@ -317,31 +319,68 @@ pre {
 .job-icon {
   display: block;
 }
-/* Activity-bar brand mark (top) + the job list + a spacer that pushes the pinned
-   Settings tab to the bottom (the VS Code gear idiom). */
-.activity-brand {
+/* Activity-bar hub slot (top) — the hub identity / connection chrome (profile
+   switcher, or offline + connect), relocated here from the bottom status bar so
+   the hub you're driving leads the top-left. The job list grows to fill and owns
+   the scroll, pinning the Settings tab to the bottom (the VS Code gear idiom). */
+.activity-hub {
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-s4);
+  margin-bottom: var(--spacing-s4);
+  padding-bottom: var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.activity-brand-mark {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 30px;
-  margin-bottom: var(--spacing-s4);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--accent);
   font-size: var(--font-size-body);
 }
+/* Compact the relocated hub chrome to fit the 68px rail: full-width controls,
+   caption type, truncated profile name; the dropdown escapes rightward. */
+.activity-hub .profile-switcher {
+  width: 100%;
+}
+.activity-hub .switcher-pill {
+  width: 100%;
+  justify-content: space-between;
+  padding: 3px var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.activity-hub .switcher-menu {
+  left: 0;
+  top: calc(100% + 4px);
+}
+.activity-hub .pill.offline {
+  justify-content: center;
+  font-size: var(--font-size-label);
+}
+.activity-hub button.primary {
+  width: 100%;
+  padding: 3px var(--spacing-s8);
+  font-size: var(--font-size-caption);
+}
 .activity-jobs {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s2);
 }
-.activity-spacer {
-  flex: 1 1 auto;
-  min-height: var(--spacing-s8);
-}
 .activity-tab-pinned {
   flex: 0 0 auto;
+  margin-top: var(--spacing-s4);
 }
 /* Session chrome relocated from the old titlebar into the status bar's right end. */
 .statusbar-chrome {
@@ -3837,6 +3876,46 @@ button.danger:hover {
   padding: 2px 4px;
   font-size: var(--font-size-body-small);
 }
+.key-name {
+  font-weight: 600;
+}
+/* Settings → SSH Keys management. */
+.sshkey-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  max-width: 640px;
+  margin-bottom: var(--spacing-s16);
+}
+.sshkey-import-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.sshkey-name {
+  flex: 1;
+  min-width: 0;
+}
+.sshkey-pass {
+  flex: 1;
+  min-width: 0;
+}
+.sshkey-pem {
+  min-height: 96px;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+}
+.sshkey-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 640px;
+}
 .term-actions {
   display: flex;
   align-items: center;
@@ -4986,7 +5065,7 @@ th {
   padding-top: var(--spacing-s8);
 }
 
-/* ---- tmux management panel ---- */
+/* ---- per-session terminal sub-view (terminal / files) ---- */
 .term-view { display: flex; flex: 1 1 auto; min-height: 0; }
 .term-view.hidden { display: none; }
 
@@ -5084,49 +5163,7 @@ th {
   align-items: center;
   gap: var(--spacing-s8);
 }
-.tmux-panel {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--spacing-s8);
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: var(--spacing-s8);
-  overflow: auto;
-}
-.tmux-col {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: auto;
-}
-.tmux-col-head {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-s8);
-  padding: var(--spacing-s8);
-  border-bottom: 1px solid var(--border);
-}
-.tmux-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-s4);
-  padding: var(--spacing-s4) var(--spacing-s8);
-  border-bottom: 1px solid var(--border);
-}
-.tmux-row.active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
-.tmux-pick {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  flex: 1 1 auto;
-  min-width: 0;
-  background: none;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-}
-.tmux-name { font-weight: 600; }
 .link-btn.danger { color: var(--danger, #d33); }
-.tmux-err { margin: var(--spacing-s8); }
 
 /* ---- SFTP file-transfer panel ---- */
 .sftp-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
@@ -5256,7 +5293,9 @@ th {
 .term-panel.dock .term-nav {
   display: none;
 }
-/* Left nav (surface mode): open sessions + saved connections + spawn buttons. */
+/* Left nav (surface mode): saved SSH connections/hosts. Width is set inline
+   (resizable + persisted); `.folded` collapses it entirely (a reveal chevron in
+   the head brings it back). Border-right is the seat for the ResizeHandle. */
 .term-nav {
   flex: 0 0 auto;
   width: 210px;
@@ -5269,19 +5308,48 @@ th {
   border-right: 1px solid var(--border);
   background: var(--canvas);
 }
+.term-nav.folded {
+  display: none;
+}
 .term-nav-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s4);
   font-size: var(--font-size-label);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
   font-weight: 600;
 }
+.term-nav-fold,
+.term-nav-reveal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.term-nav-fold:hover,
+.term-nav-reveal:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.term-nav-reveal {
+  flex: 0 0 auto;
+  margin-right: var(--spacing-s4);
+}
 .term-nav-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: var(--spacing-s4);
 }
 .term-nav-actions button {
+  justify-content: flex-start;
   font-size: var(--font-size-caption);
 }
 .term-nav-actions button.active {
@@ -5346,7 +5414,51 @@ th {
 .term-nav-x:hover {
   color: var(--text);
 }
-/* Main column: head (tabs/title + split controls) over the pane area. */
+/* "+" new-session menu (local shell / SSH) in the head. */
+.term-add {
+  position: relative;
+  flex: 0 0 auto;
+}
+.term-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  min-width: 26px;
+  padding: 0 5px;
+}
+.term-add-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--spacing-s4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+.term-add-menu button {
+  justify-content: flex-start;
+  background: none;
+  border: none;
+  box-shadow: none;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+.term-add-menu button:hover {
+  background: var(--hover);
+  transform: none;
+}
+.term-tabs-empty {
+  padding: 0 var(--spacing-s4);
+}
+/* Main column: head (tabs + split controls) over the pane area. */
 .term-main {
   flex: 1;
   min-width: 0;
@@ -5575,7 +5687,7 @@ th {
   gap: var(--spacing-s8);
 }
 
-/* per-session view (terminal / tmux / files sub-switcher) */
+/* per-session view (terminal / files sub-switcher) */
 .session-view {
   flex: 1;
   min-height: 0;
@@ -5593,73 +5705,122 @@ th {
   display: flex;
 }
 
-/* xterm screen + OSC 133 command navigator (Blocks v1) */
+/* xterm screen + OSC 133 command navigator. Chrome FLOATS over the screen — the
+   find bar (top-right, Ctrl/Cmd+F) and the command-block HUD (bottom-right) — so
+   nothing steals a persistent horizontal strip of vertical space (the old bar,
+   which also collided with the panel nav's .term-nav, was removed in v0.3.46). */
 .term-screen-wrap {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  background: #0d1117;
 }
-.term-nav {
+/* Floating find bar. */
+.term-find {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 6;
   display: flex;
   align-items: center;
-  gap: var(--spacing-s4);
-  padding: var(--spacing-s4) var(--spacing-s8);
-  border-bottom: 1px solid var(--border);
+  gap: 2px;
+  padding: 3px;
   background: var(--surface);
-}
-.term-search {
-  height: 24px;
-  width: 160px;
-  font-size: var(--font-size-caption);
-}
-.term-nav-btn {
-  height: 24px;
-  min-width: 26px;
-  padding: 0 6px;
-  font-size: var(--font-size-caption);
-  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  color: var(--text);
-  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.34);
 }
-.term-nav-btn:hover:not(:disabled) { border-color: var(--border-strong); }
-.term-nav-btn.active {
-  border-color: var(--accent);
+.term-find-input {
+  height: 26px;
+  width: 190px;
+  font-size: var(--font-size-caption);
+}
+.term-find-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  min-width: 26px;
+  padding: 0 4px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.term-find-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* Floating command-block HUD — only mounted when there's something to show. */
+.term-hud {
+  position: absolute;
+  bottom: 8px;
+  right: 14px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-stadium);
+  backdrop-filter: blur(6px);
+}
+.term-hud-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  min-width: 24px;
+  padding: 0 7px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-stadium);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+.term-hud-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.term-hud-btn.active {
   color: var(--accent);
 }
-.term-nav-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.term-nav-sep {
-  width: 1px;
-  height: 18px;
-  background: var(--border);
-  margin: 0 2px;
-}
+/* Command-block list — a floating popover above the HUD. */
 .term-blocks {
+  position: absolute;
+  bottom: 40px;
+  right: 14px;
+  z-index: 6;
+  width: min(440px, 72%);
+  max-height: 46%;
   display: flex;
-  gap: var(--spacing-s4);
-  overflow-x: auto;
-  padding: var(--spacing-s4) var(--spacing-s8);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding: var(--spacing-s4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
 }
 .term-block {
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
-  padding: 2px var(--spacing-s8);
-  border: 1px solid var(--border);
+  padding: 3px var(--spacing-s8);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--surface);
   cursor: pointer;
   white-space: nowrap;
   font-size: var(--font-size-caption);
 }
-.term-block:hover { border-color: var(--border-strong); }
+.term-block:hover { background: var(--hover); }
 .term-block-dot {
   width: 7px;
   height: 7px;
@@ -5672,7 +5833,8 @@ th {
 .term-block-dot.run { background: var(--accent); }
 .term-block-dot.na { background: var(--text-muted); }
 .term-block-cmd {
-  max-width: 220px;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--font-mono);

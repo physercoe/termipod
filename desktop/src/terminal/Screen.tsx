@@ -23,8 +23,8 @@ interface Props {
   /** Auto-inject shell integration shortly after mount (local shells). */
   autoIntegrate?: boolean;
   /** Whether the OSC-133 (bash/zsh) integration can run in this shell at all —
-   *  false for cmd.exe / PowerShell, so the "Enable blocks" button is hidden and
-   *  no script is ever injected. Defaults true (SSH / POSIX). */
+   *  false for cmd.exe / PowerShell, so the "Enable blocks" affordance is hidden
+   *  and no script is ever injected. Defaults true (SSH / POSIX). */
   canIntegrate?: boolean;
 }
 
@@ -38,21 +38,27 @@ function fmtDuration(ms: number): string {
 
 /// A live xterm.js screen bound to one session (SSH or local), with the fit +
 /// search + serialize addons and OSC 133 command-block tracking (no WebGL — see
-/// the renderer note in the mount effect). The
-/// effect depends on `sessionId` ALONE: its cleanup calls sessionClose(), so
-/// re-running it on a parent re-render would tear the session down (the black-
-/// terminal / dead-input bug fixed in desktop-v0.3.10). Unmount closes the
-/// session — which now only happens when the owning tab is closed, since the dock
-/// hides inactive tabs via CSS rather than unmounting them.
+/// the renderer note in the mount effect). The effect depends on `sessionId`
+/// ALONE: its cleanup calls sessionClose(), so re-running it on a parent re-render
+/// would tear the session down (the black-terminal / dead-input bug fixed in
+/// desktop-v0.3.10). Unmount closes the session — which now only happens when the
+/// owning tab is closed, since inactive tabs are hidden via CSS, not unmounted.
+///
+/// Chrome is intentionally minimal (director feedback, v0.3.46): no persistent
+/// toolbar stealing vertical space. Find rides a floating bar toggled with
+/// Ctrl/Cmd+F (VS Code idiom); command-block navigation lives in a small corner
+/// HUD that only appears once blocks exist.
 export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = true }: Props): JSX.Element {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const integRef = useRef<ShellIntegration | null>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
   const navCursor = useRef(0);
   const [blocks, setBlocks] = useState<CommandBlock[]>([]);
   const [showList, setShowList] = useState(false);
+  const [showFind, setShowFind] = useState(false);
   const [query, setQuery] = useState('');
   const [integrated, setIntegrated] = useState(false);
 
@@ -62,9 +68,24 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
     let disposed = false;
     const term = new XTerm({
       cursorBlink: true,
-      fontFamily: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace',
+      // Modern, professional monospace stack — prefer ligature-friendly coding
+      // faces, fall back through the OS defaults. Slightly airier metrics than
+      // xterm's defaults so long sessions read cleanly.
+      fontFamily:
+        '"JetBrains Mono", "Cascadia Code", "SF Mono", ui-monospace, "Menlo", "Consolas", "DejaVu Sans Mono", monospace',
       fontSize: 13,
-      theme: { background: '#0a0c10', foreground: '#e6edf3' },
+      fontWeight: 400,
+      fontWeightBold: 600,
+      lineHeight: 1.25,
+      letterSpacing: 0.2,
+      cursorStyle: 'bar',
+      theme: {
+        background: '#0d1117',
+        foreground: '#e6edf3',
+        cursor: '#58a6ff',
+        cursorAccent: '#0d1117',
+        selectionBackground: '#2d4a72',
+      },
     });
     const fit = new FitAddon();
     const search = new SearchAddon();
@@ -73,6 +94,16 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
     term.loadAddon(search);
     term.loadAddon(serialize);
     term.open(el);
+    // Ctrl/Cmd+F opens the floating find bar (VS Code terminal idiom) instead of
+    // passing to the shell's readline forward-char. Returning false stops xterm
+    // from forwarding the key to the pty.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') {
+        if (!disposed) setShowFind(true);
+        return false;
+      }
+      return true;
+    });
     // NOTE: intentionally NO WebGL renderer. @xterm/addon-webgl on Windows
     // WebView2 (ANGLE/GL backend) renders a black screen and can wedge the GPU
     // process, freezing the app (director report, v0.3.11 Windows). xterm's
@@ -158,6 +189,16 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
+  // Focus the find field when the bar opens.
+  useEffect(() => {
+    if (showFind) findInputRef.current?.focus();
+  }, [showFind]);
+
+  function closeFind(): void {
+    setShowFind(false);
+    termRef.current?.focus();
+  }
+
   function enableIntegration(): void {
     if (integrated) return;
     // Leading space so shells with HISTCONTROL=ignorespace don't save the line.
@@ -195,49 +236,39 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
   }
 
   const recent = blocks.slice(-14);
+  const hasHud = (canIntegrate && !integrated) || blocks.length > 0;
 
   return (
     <div className="term-screen-wrap">
-      <div className="term-nav">
-        <input
-          className="term-search"
-          placeholder={t('term.search')}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') runSearch(e.shiftKey ? -1 : 1);
-          }}
-        />
-        <button className="term-nav-btn" title={t('term.searchPrev')} onClick={() => runSearch(-1)}>
-          <Icon name="chevron-up" />
-        </button>
-        <button className="term-nav-btn" title={t('term.searchNext')} onClick={() => runSearch(1)}>
-          <Icon name="chevron-down" />
-        </button>
-        <span className="term-nav-sep" />
-        <button className="term-nav-btn" title={t('term.prevCmd')} onClick={() => jump(-1)} disabled={blocks.length === 0}>
-          <Icon name="chevron-up" />
-        </button>
-        <button className="term-nav-btn" title={t('term.nextCmd')} onClick={() => jump(1)} disabled={blocks.length === 0}>
-          <Icon name="chevron-down" />
-        </button>
-        <button
-          className={showList ? 'term-nav-btn active' : 'term-nav-btn'}
-          onClick={() => setShowList((v) => !v)}
-          title={t('term.blocks')}
-        >
-          ⌗ {blocks.length}
-        </button>
-        <span className="spacer" />
-        {canIntegrate && !integrated && (
-          <button className="term-nav-btn" onClick={enableIntegration} title={t('term.enableBlocksHint')}>
-            {t('term.enableBlocks')}
+      {showFind && (
+        <div className="term-find">
+          <input
+            ref={findInputRef}
+            className="term-find-input"
+            placeholder={t('term.search')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') runSearch(e.shiftKey ? -1 : 1);
+              else if (e.key === 'Escape') closeFind();
+            }}
+          />
+          <button className="term-find-btn" title={t('term.searchPrev')} onClick={() => runSearch(-1)}>
+            <Icon name="chevron-up" size={14} />
           </button>
-        )}
-      </div>
-      {showList && (
+          <button className="term-find-btn" title={t('term.searchNext')} onClick={() => runSearch(1)}>
+            <Icon name="chevron-down" size={14} />
+          </button>
+          <button className="term-find-btn" title={t('common.cancel')} onClick={closeFind}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
+
+      <div className="term-screen" ref={ref} />
+
+      {showList && blocks.length > 0 && (
         <div className="term-blocks">
-          {recent.length === 0 && <span className="muted small">{t('term.noBlocks')}</span>}
           {recent.map((b) => {
             const state = b.running ? 'run' : b.exitCode === 0 ? 'ok' : b.exitCode === null ? 'na' : 'err';
             const dur = b.endedAt !== null ? fmtDuration(b.endedAt - b.startedAt) : b.running ? '…' : '';
@@ -262,7 +293,41 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
           })}
         </div>
       )}
-      <div className="term-screen" ref={ref} />
+
+      {hasHud && (
+        <div className="term-hud">
+          {canIntegrate && !integrated && (
+            <button className="term-hud-btn" onClick={enableIntegration} title={t('term.enableBlocksHint')}>
+              {t('term.enableBlocks')}
+            </button>
+          )}
+          {blocks.length > 0 && (
+            <>
+              <button
+                className="term-hud-btn"
+                title={t('term.prevCmd')}
+                onClick={() => jump(-1)}
+              >
+                <Icon name="chevron-up" size={14} />
+              </button>
+              <button
+                className="term-hud-btn"
+                title={t('term.nextCmd')}
+                onClick={() => jump(1)}
+              >
+                <Icon name="chevron-down" size={14} />
+              </button>
+              <button
+                className={showList ? 'term-hud-btn active' : 'term-hud-btn'}
+                onClick={() => setShowList((v) => !v)}
+                title={t('term.blocks')}
+              >
+                ⌗ {blocks.length}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

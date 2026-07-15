@@ -33,7 +33,7 @@ export function sshClose(id: string): Promise<void> {
   return invoke('ssh_close', { id });
 }
 /** Run a one-shot command over a fresh exec channel on an existing session and
- * resolve its stdout (+stderr). Substrate for tmux control (list/new/kill/…). */
+ * resolve its stdout (+stderr). General remote-exec substrate. */
 export function sshExec(id: string, command: string): Promise<string> {
   return invoke<string>('ssh_exec', { id, command });
 }

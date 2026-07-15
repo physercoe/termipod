@@ -145,22 +145,25 @@ export function AppShell(): JSX.Element {
     setConnectOpen(true);
   }
 
+  // Hub identity / connection state — lives at the top of the activity bar (the
+  // brand slot) so the hub you're driving is the first thing in the top-left.
+  const hubChrome =
+    client === null ? (
+      <>
+        <span className="pill offline">{t('shell.offline')}</span>
+        <button className="primary" onClick={() => openConnect()}>
+          {t('shell.connect')}
+        </button>
+      </>
+    ) : (
+      <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
+    );
+
+  // The command palette shortcut stays in the status bar's right end.
   const statusChrome = (
-    <>
-      {client === null ? (
-        <>
-          <span className="pill offline">{t('shell.offline')}</span>
-          <button className="primary" onClick={() => openConnect()}>
-            {t('shell.connect')}
-          </button>
-        </>
-      ) : (
-        <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
-      )}
-      <button className="statusbar-palette" onClick={() => setPaletteOpen(true)} title={t('cmd.palette')}>
-        ⌘K
-      </button>
-    </>
+    <button className="statusbar-palette" onClick={() => setPaletteOpen(true)} title={t('cmd.palette')}>
+      ⌘K
+    </button>
   );
 
   return (
@@ -168,7 +171,7 @@ export function AppShell(): JSX.Element {
       {client !== null && !online && <div className="offline-banner">{t('shell.offlineBanner')}</div>}
 
       <div className="workbench-row">
-        <ActivityBar />
+        <ActivityBar chrome={hubChrome} />
         <main className="workbench-main">
           {/* The terminal lives in an always-mounted panel (its <Screen>s die if
               unmounted); every other job renders in this stack, which the panel

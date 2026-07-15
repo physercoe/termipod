@@ -6,6 +6,7 @@ import { useSession } from '../state/session';
 import { useTheme, type ThemePref } from '../state/theme';
 import { getVoiceApiKey, getVoiceModel, setVoiceApiKey, setVoiceModel, VOICE_MODELS } from '../voice/settings';
 import { activeRootLabel, useAttachmentConfig } from '../state/attachments';
+import { SshKeysSettings } from './SshKeys';
 import { UpdateSection } from './UpdateSection';
 import { VaultPanel } from './VaultPanel';
 
@@ -206,7 +207,7 @@ function ConnectionSettings(): JSX.Element {
   );
 }
 
-type CatId = 'appearance' | 'updates' | 'security' | 'storage' | 'voice' | 'connection';
+type CatId = 'appearance' | 'updates' | 'security' | 'sshkeys' | 'storage' | 'voice' | 'connection';
 const CAT_LS_KEY = 'termipod.settings.cat';
 
 /// The Settings job surface (pinned to the bottom of the activity bar). Where the
@@ -224,6 +225,11 @@ export function SettingsSurface(): JSX.Element {
     { id: 'security', label: t('settings.catSecurity'), render: () => <VaultPanel /> },
     ...(tauri
       ? [
+          {
+            id: 'sshkeys' as const,
+            label: t('settings.catSshKeys'),
+            render: () => <SshKeysSettings />,
+          },
           {
             id: 'storage' as const,
             label: t('settings.catStorage'),

@@ -4,13 +4,13 @@ import { Icon } from '../ui/Icon';
 import { isTauri } from '../platform';
 import { useWorkbench } from '../state/workbench';
 import { listConnections, type Connection } from '../state/connections';
+import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { ConnectForm } from './ConnectForm';
 import { ptyOpen } from './pty';
 import { SessionView } from './SessionView';
 import { useTerminals } from './store';
-import { useWorkspace } from '../state/workspace';
 
-const AGENT_CMD_KEY = 'termipod.localAgent.termCmd';
+const NAV_FOLD_KEY = 'termipod.term.navFold';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -22,16 +22,15 @@ function msg(err: unknown): string {
 /// modes, switched purely by CSS so no `<Screen>` is ever re-parented:
 ///
 ///   • **surface** (the `terminal` job is active) — a full job surface: a left
-///     nav (open sessions + saved SSH connections + spawn buttons) and a split
-///     pane area that tiles several live sessions side-by-side (row) or stacked
-///     (column).
+///     nav listing saved SSH connections (resizable + foldable) and a main column
+///     whose head is a tab strip of the open sessions over a split-able pane area.
 ///   • **dock** (any other job) — the compact bottom strip of old, shown only
 ///     when toggled (Ctrl+`); absolutely positioned so it overlays the active
 ///     surface without disturbing it.
 ///
-/// The store (`useTerminals`) owns the sessions; this panel is a view over them,
-/// so both modes read the same `tabs`. The split layout is local state and, since
-/// the panel never unmounts, it survives job switches like the sessions do.
+/// Sessions and connections are deliberately *different categories* (director
+/// feedback): live sessions are the tabs in the head; saved connections are the
+/// left nav. The store (`useTerminals`) owns the sessions; this panel is a view.
 export function TerminalPanel(): JSX.Element {
   const t = useT();
   const job = useWorkbench((s) => s.job);
@@ -44,10 +43,8 @@ export function TerminalPanel(): JSX.Element {
   const setOpen = useTerminals((s) => s.setOpen);
 
   const tauri = isTauri();
-  const folder = useWorkspace((s) => s.folder);
   const [connecting, setConnecting] = useState(false);
-  const [agentForm, setAgentForm] = useState(false);
-  const [agentCmd, setAgentCmd] = useState(() => localStorage.getItem(AGENT_CMD_KEY) ?? 'claude');
+  const [initialConnId, setInitialConnId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [height, setHeight] = useState(340);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
@@ -59,6 +56,25 @@ export function TerminalPanel(): JSX.Element {
   const [orientation, setOrientation] = useState<'row' | 'column'>('row');
   const [conns, setConns] = useState<Connection[]>(() => (tauri ? listConnections() : []));
 
+  // Left-nav width (persisted, clamped) + fold state.
+  const [navW, onNavResize] = usePanelWidth('termipod.term.navW', 210, 150, 420);
+  const [navFold, setNavFold] = useState(() => localStorage.getItem(NAV_FOLD_KEY) === '1');
+  function toggleFold(): void {
+    setNavFold((v) => {
+      const n = !v;
+      try {
+        localStorage.setItem(NAV_FOLD_KEY, n ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return n;
+    });
+  }
+
+  // "+" new-session menu (local shell / SSH).
+  const [addMenu, setAddMenu] = useState(false);
+  const addRef = useRef<HTMLDivElement>(null);
+
   const mode: 'surface' | 'dock' = job === 'terminal' ? 'surface' : 'dock';
 
   // Refresh the saved-connections nav when the connect form closes (a new one may
@@ -66,6 +82,15 @@ export function TerminalPanel(): JSX.Element {
   useEffect(() => {
     if (!connecting && tauri) setConns(listConnections());
   }, [connecting, tauri]);
+
+  // Dismiss the "+" menu on an outside click.
+  useEffect(() => {
+    function onDoc(e: MouseEvent): void {
+      if (addRef.current !== null && !addRef.current.contains(e.target as Node)) setAddMenu(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
 
   // Seed / prune the split against the live session list. When nothing is tiled
   // yet, fall back to the active session so the surface is never blank with open
@@ -79,10 +104,11 @@ export function TerminalPanel(): JSX.Element {
   }, [tabs, activeId]);
 
   const paneShown = (id: string): boolean =>
-    mode === 'surface' ? panes.includes(id) : !connecting && !agentForm && id === activeId;
+    mode === 'surface' ? panes.includes(id) : !connecting && id === activeId;
 
   async function newLocal(): Promise<string | null> {
     setError(null);
+    setAddMenu(false);
     try {
       const { id, shell } = await ptyOpen({ cols: 80, rows: 24 });
       const uiId = addTab({ kind: 'local', sessionId: id, shell, title: t('term.localShell') });
@@ -94,33 +120,10 @@ export function TerminalPanel(): JSX.Element {
     }
   }
 
-  // Open a local *agent* CLI in a PTY (ConPTY on Windows) — the agent's full,
-  // native interactive TUI, run in the open workspace folder. The engine binary +
-  // flags are split into argv (no shell string → no injection); pty.rs routes an
-  // npm shim through cmd.exe on Windows. The tab is marked `agent` so no OSC-133
-  // shell-integration script is ever injected into the agent's prompt.
-  async function newAgent(): Promise<void> {
-    setError(null);
-    const parts = agentCmd.trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return;
-    try {
-      localStorage.setItem(AGENT_CMD_KEY, agentCmd.trim());
-    } catch {
-      /* ignore */
-    }
-    try {
-      const { id, shell } = await ptyOpen({
-        shell: parts[0],
-        args: parts.slice(1),
-        cwd: folder ?? undefined,
-        cols: 80,
-        rows: 24,
-      });
-      addTab({ kind: 'local', sessionId: id, shell, title: parts[0], agent: true });
-      setAgentForm(false);
-    } catch (e) {
-      setError(msg(e));
-    }
+  function openConnect(connId?: string): void {
+    setInitialConnId(connId ?? null);
+    setConnecting(true);
+    setAddMenu(false);
   }
 
   function onConnected(sessionId: string, title: string): void {
@@ -137,12 +140,11 @@ export function TerminalPanel(): JSX.Element {
     if (uiId !== null) setPanes((p) => (p.includes(uiId) ? p : [...p, uiId]));
   }
 
-  // Show a session as the sole tile (nav click) — or just focus it if it's
+  // Show a session as the sole tile (tab click) — or just focus it if it's
   // already tiled.
   function focusSession(id: string): void {
     setActive(id);
     setConnecting(false);
-    setAgentForm(false);
     if (mode === 'surface') setPanes((p) => (p.includes(id) ? p : [id]));
   }
 
@@ -177,37 +179,25 @@ export function TerminalPanel(): JSX.Element {
   const visible = mode === 'surface' || open;
   const panelClass = `term-panel ${mode}${visible ? '' : ' hidden'}`;
   const style = mode === 'dock' ? { height } : undefined;
+  const navStyle = mode === 'surface' && !navFold ? { width: navW } : undefined;
 
-  const spawnButtons = (
-    <>
-      <button onClick={() => void newLocal()} disabled={!tauri} title={t('term.newLocalHint')}>
-        <Icon name="plus" size={13} />
-        {t('term.localShell')}
-      </button>
+  const addMenuEl = (
+    <div className="term-add" ref={addRef}>
       <button
-        className={connecting ? 'active' : ''}
-        onClick={() => {
-          setConnecting(true);
-          setAgentForm(false);
-        }}
+        className="term-add-btn"
+        title={t('term.newSession')}
         disabled={!tauri}
+        onClick={() => setAddMenu((v) => !v)}
       >
-        <Icon name="plus" size={13} />
-        {t('term.ssh')}
+        <Icon name="plus" size={14} />
       </button>
-      <button
-        className={agentForm ? 'active' : ''}
-        onClick={() => {
-          setAgentForm(true);
-          setConnecting(false);
-        }}
-        disabled={!tauri}
-        title={t('term.newAgentHint')}
-      >
-        <Icon name="plus" size={13} />
-        {t('term.agent')}
-      </button>
-    </>
+      {addMenu && (
+        <div className="term-add-menu">
+          <button onClick={() => void newLocal()}>{t('term.localShell')}</button>
+          <button onClick={() => openConnect()}>{t('term.ssh')}</button>
+        </div>
+      )}
+    </div>
   );
 
   return (
@@ -219,76 +209,67 @@ export function TerminalPanel(): JSX.Element {
         />
       )}
 
-      {/* Left nav — always rendered (CSS-hidden in dock mode) so the pane area
-          keeps a stable DOM position and its <Screen>s are never re-parented. */}
-      <aside className="term-nav">
-        <div className="term-nav-head">{t('job.terminal')}</div>
-        <div className="term-nav-actions">{spawnButtons}</div>
-        <div className="term-nav-section">{t('term.navSessions')}</div>
+      {/* Left nav — saved connections/hosts (surface mode; CSS-hidden in dock).
+          Always rendered so the pane area keeps a stable DOM position and its
+          <Screen>s are never re-parented. */}
+      <aside className={`term-nav${navFold ? ' folded' : ''}`} style={navStyle}>
+        <div className="term-nav-head">
+          <span>{t('term.navConnections')}</span>
+          <button className="term-nav-fold" title={t('term.foldNav')} onClick={toggleFold}>
+            <Icon name="chevron-left" size={14} />
+          </button>
+        </div>
+        <div className="term-nav-actions">
+          <button disabled={!tauri} onClick={() => openConnect()}>
+            <Icon name="plus" size={13} />
+            {t('term.newConnection')}
+          </button>
+        </div>
         <div className="term-nav-list">
-          {tabs.length === 0 && <div className="muted small term-nav-empty">{t('term.navNoSessions')}</div>}
-          {tabs.map((tab) => (
-            <div key={tab.id} className={tab.id === activeId ? 'term-nav-item active' : 'term-nav-item'}>
-              <button className="term-nav-pick" title={tab.title} onClick={() => focusSession(tab.id)}>
-                <span className={`term-tab-kind ${tab.kind}`} />
-                {tab.title}
-              </button>
-              <button className="term-nav-x" title={t('term.closeTab')} onClick={() => close(tab.id)}>
-                <Icon name="close" size={12} />
-              </button>
-            </div>
+          {conns.length === 0 && <div className="muted small term-nav-empty">{t('term.noSaved')}</div>}
+          {conns.map((c) => (
+            <button
+              key={c.id}
+              className="term-nav-item term-nav-conn"
+              title={`${c.username}@${c.host}:${c.port}`}
+              onClick={() => openConnect(c.id)}
+            >
+              <span className="term-tab-kind ssh" />
+              {c.name}
+            </button>
           ))}
         </div>
-        {tauri && conns.length > 0 && (
-          <>
-            <div className="term-nav-section">{t('term.navConnections')}</div>
-            <div className="term-nav-list">
-              {conns.map((c) => (
-                <button
-                  key={c.id}
-                  className="term-nav-item term-nav-conn"
-                  title={`${c.username}@${c.host}:${c.port}`}
-                  onClick={() => {
-                    setConnecting(true);
-                    setAgentForm(false);
-                  }}
-                >
-                  <span className="term-tab-kind ssh" />
-                  {c.name}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
       </aside>
+      {mode === 'surface' && !navFold && <ResizeHandle onResize={onNavResize} />}
 
       <div className="term-main">
         <div className="term-head">
-          {mode === 'dock' ? (
-            <div className="term-tabs">
-              {tabs.map((tab) => (
-                <div key={tab.id} className={!connecting && tab.id === activeId ? 'term-tab active' : 'term-tab'}>
-                  <button
-                    className="term-tab-pick"
-                    onClick={() => {
-                      setActive(tab.id);
-                      setConnecting(false);
-                    }}
-                  >
-                    <span className={`term-tab-kind ${tab.kind}`} />
-                    {tab.title}
-                  </button>
-                  <button className="term-tab-x" title={t('term.closeTab')} onClick={() => close(tab.id)}>
-                    <Icon name="close" size={13} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <span className="term-head-title">{activeTitle(tabs, activeId, t('term.terminal'))}</span>
+          {mode === 'surface' && (
+            <button
+              className="term-nav-reveal"
+              title={t('term.foldNav')}
+              onClick={toggleFold}
+            >
+              <Icon name={navFold ? 'chevron-right' : 'chevron-left'} size={14} />
+            </button>
           )}
 
-          {mode === 'dock' && <span className="term-dock-add">{spawnButtons}</span>}
+          <div className="term-tabs">
+            {tabs.length === 0 && <span className="muted small term-tabs-empty">{t('term.navNoSessions')}</span>}
+            {tabs.map((tab) => (
+              <div key={tab.id} className={!connecting && tab.id === activeId ? 'term-tab active' : 'term-tab'}>
+                <button className="term-tab-pick" title={tab.title} onClick={() => focusSession(tab.id)}>
+                  <span className={`term-tab-kind ${tab.kind}`} />
+                  {tab.title}
+                </button>
+                <button className="term-tab-x" title={t('term.closeTab')} onClick={() => close(tab.id)}>
+                  <Icon name="close" size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {addMenuEl}
           <span className="spacer" />
 
           {mode === 'surface' && tauri && (
@@ -357,43 +338,15 @@ export function TerminalPanel(): JSX.Element {
 
               {connecting && (
                 <div className="term-pane term-pane-overlay">
-                  <ConnectForm onConnected={onConnected} onCancel={() => setConnecting(false)} />
-                </div>
-              )}
-              {agentForm && (
-                <div className="term-pane term-pane-overlay">
-                  <div className="agent-form">
-                    <div className="agent-form-title">{t('term.openAgent')}</div>
-                    <label className="agent-form-row">
-                      <span>{t('term.agentCmd')}</span>
-                      <input
-                        className="mono"
-                        value={agentCmd}
-                        autoFocus
-                        spellCheck={false}
-                        placeholder="claude"
-                        onChange={(e) => setAgentCmd(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void newAgent();
-                        }}
-                      />
-                    </label>
-                    <div className="muted small mono agent-form-cwd">
-                      {folder !== null ? t('term.agentCwd').replace('{dir}', folder) : t('term.agentCwdNone')}
-                    </div>
-                    <div className="agent-form-actions">
-                      <button className="primary" onClick={() => void newAgent()}>
-                        {t('term.openAgent')}
-                      </button>
-                      <button onClick={() => setAgentForm(false)}>{t('term.agentCancel')}</button>
-                    </div>
-                    {error !== null && <div className="error">{error}</div>}
-                    <div className="muted small">{t('term.agentCmdHint')}</div>
-                  </div>
+                  <ConnectForm
+                    initialConnId={initialConnId ?? undefined}
+                    onConnected={onConnected}
+                    onCancel={() => setConnecting(false)}
+                  />
                 </div>
               )}
 
-              {!connecting && !agentForm && tabs.length === 0 && (
+              {!connecting && tabs.length === 0 && (
                 <div className="term-empty">
                   <p className="muted">{t('term.emptyHint')}</p>
                   {error !== null && <div className="error">{error}</div>}
@@ -401,8 +354,7 @@ export function TerminalPanel(): JSX.Element {
                     <button className="primary" onClick={() => void newLocal()}>
                       + {t('term.localShell')}
                     </button>
-                    <button onClick={() => setConnecting(true)}>+ {t('term.ssh')}</button>
-                    <button onClick={() => setAgentForm(true)}>+ {t('term.agent')}</button>
+                    <button onClick={() => openConnect()}>+ {t('term.ssh')}</button>
                   </div>
                 </div>
               )}
@@ -412,13 +364,4 @@ export function TerminalPanel(): JSX.Element {
       </div>
     </div>
   );
-}
-
-function activeTitle(
-  tabs: { id: string; title: string }[],
-  activeId: string | null,
-  fallback: string,
-): string {
-  const a = tabs.find((tb) => tb.id === activeId);
-  return a?.title ?? fallback;
 }

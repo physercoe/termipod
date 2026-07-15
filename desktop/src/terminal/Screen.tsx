@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { SerializeAddon } from '@xterm/addon-serialize';
 import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
@@ -15,52 +14,32 @@ import {
   sessionWrite,
   type TermKind,
 } from './backend';
-import { ShellIntegration, shellIntegrationScript, type CommandBlock } from './osc133';
 
 interface Props {
   kind: TermKind;
   sessionId: string;
-  /** Auto-inject shell integration shortly after mount (local shells). */
-  autoIntegrate?: boolean;
-  /** Whether the OSC-133 (bash/zsh) integration can run in this shell at all —
-   *  false for cmd.exe / PowerShell, so the "Enable blocks" affordance is hidden
-   *  and no script is ever injected. Defaults true (SSH / POSIX). */
-  canIntegrate?: boolean;
-}
-
-function fmtDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const m = Math.floor(ms / 60_000);
-  const s = Math.round((ms % 60_000) / 1000);
-  return `${m}m${s.toString().padStart(2, '0')}s`;
 }
 
 /// A live xterm.js screen bound to one session (SSH or local), with the fit +
-/// search + serialize addons and OSC 133 command-block tracking (no WebGL — see
-/// the renderer note in the mount effect). The effect depends on `sessionId`
-/// ALONE: its cleanup calls sessionClose(), so re-running it on a parent re-render
-/// would tear the session down (the black-terminal / dead-input bug fixed in
-/// desktop-v0.3.10). Unmount closes the session — which now only happens when the
-/// owning tab is closed, since inactive tabs are hidden via CSS, not unmounted.
+/// search addons (no WebGL — see the renderer note in the mount effect). The
+/// effect depends on `sessionId` ALONE: its cleanup calls sessionClose(), so
+/// re-running it on a parent re-render would tear the session down (the
+/// black-terminal / dead-input bug fixed in desktop-v0.3.10). Unmount closes the
+/// session — which now only happens when the owning tab is closed, since inactive
+/// tabs are hidden via CSS, not unmounted.
 ///
 /// Chrome is intentionally minimal (director feedback, v0.3.46): no persistent
 /// toolbar stealing vertical space. Find rides a floating bar toggled with
-/// Ctrl/Cmd+F (VS Code idiom); command-block navigation lives in a small corner
-/// HUD that only appears once blocks exist.
-export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = true }: Props): JSX.Element {
+/// Ctrl/Cmd+F (VS Code idiom). (Command-block tracking was removed in v0.3.49 —
+/// the OSC-133 integration was unreliable.)
+export function Screen({ kind, sessionId }: Props): JSX.Element {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
-  const integRef = useRef<ShellIntegration | null>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
-  const navCursor = useRef(0);
-  const [blocks, setBlocks] = useState<CommandBlock[]>([]);
-  const [showList, setShowList] = useState(false);
   const [showFind, setShowFind] = useState(false);
   const [query, setQuery] = useState('');
-  const [integrated, setIntegrated] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -89,10 +68,8 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
     });
     const fit = new FitAddon();
     const search = new SearchAddon();
-    const serialize = new SerializeAddon();
     term.loadAddon(fit);
     term.loadAddon(search);
-    term.loadAddon(serialize);
     term.open(el);
     // Ctrl/Cmd+F opens the floating find bar (VS Code terminal idiom) instead of
     // passing to the shell's readline forward-char. Returning false stops xterm
@@ -111,9 +88,6 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
     // waits for a WebView2-safe path.
     termRef.current = term;
     searchRef.current = search;
-    integRef.current = new ShellIntegration(term, (b) => {
-      if (!disposed) setBlocks(b);
-    });
 
     // Re-fit + repaint whenever the container has a real size (initial open,
     // window/panel resize, and — critically — when un-hidden after a tab switch:
@@ -161,23 +135,10 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
     });
     term.focus();
 
-    // Local shells: enable command blocks automatically once the shell is ready.
-    let autoTimer: ReturnType<typeof setTimeout> | undefined;
-    if (autoIntegrate) {
-      autoTimer = setTimeout(() => {
-        if (disposed) return;
-        void sessionWrite(kind, sessionId, ` ${shellIntegrationScript}\r`);
-        setIntegrated(true);
-      }, 500);
-    }
-
     return () => {
       disposed = true;
-      if (autoTimer !== undefined) clearTimeout(autoTimer);
       ro.disconnect();
       onData.dispose();
-      integRef.current?.dispose();
-      integRef.current = null;
       void unlistenP.then((u) => u());
       void exitP.then((u) => u());
       void sessionClose(kind, sessionId);
@@ -199,44 +160,12 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
     termRef.current?.focus();
   }
 
-  function enableIntegration(): void {
-    if (integrated) return;
-    // Leading space so shells with HISTCONTROL=ignorespace don't save the line.
-    void sessionWrite(kind, sessionId, ` ${shellIntegrationScript}\r`);
-    setIntegrated(true);
-  }
-
-  function scrollToBlock(block: CommandBlock): void {
-    const term = termRef.current;
-    const line = block.promptMarker?.line;
-    if (term === null || line === undefined) return;
-    term.scrollLines(line - term.buffer.active.viewportY);
-  }
-
-  function jump(delta: number): void {
-    if (blocks.length === 0) return;
-    navCursor.current = Math.max(0, Math.min(blocks.length - 1, navCursor.current + delta));
-    scrollToBlock(blocks[navCursor.current]);
-  }
-
   function runSearch(dir: 1 | -1): void {
     const q = query.trim();
     if (q === '' || searchRef.current === null) return;
     if (dir === 1) searchRef.current.findNext(q);
     else searchRef.current.findPrevious(q);
   }
-
-  async function copyOutput(block: CommandBlock): Promise<void> {
-    const text = integRef.current?.getOutput(block) ?? '';
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* clipboard blocked — no-op */
-    }
-  }
-
-  const recent = blocks.slice(-14);
-  const hasHud = (canIntegrate && !integrated) || blocks.length > 0;
 
   return (
     <div className="term-screen-wrap">
@@ -266,68 +195,6 @@ export function Screen({ kind, sessionId, autoIntegrate = false, canIntegrate = 
       )}
 
       <div className="term-screen" ref={ref} />
-
-      {showList && blocks.length > 0 && (
-        <div className="term-blocks">
-          {recent.map((b) => {
-            const state = b.running ? 'run' : b.exitCode === 0 ? 'ok' : b.exitCode === null ? 'na' : 'err';
-            const dur = b.endedAt !== null ? fmtDuration(b.endedAt - b.startedAt) : b.running ? '…' : '';
-            return (
-              <div key={b.id} className="term-block" onClick={() => scrollToBlock(b)}>
-                <span className={`term-block-dot ${state}`} />
-                <span className="term-block-cmd">{b.command || t('term.command')}</span>
-                {dur !== '' && <span className="term-block-dur">{dur}</span>}
-                {b.exitCode !== null && b.exitCode !== 0 && <span className="term-block-code">{b.exitCode}</span>}
-                <button
-                  className="term-block-copy"
-                  title={t('term.copyOutput')}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void copyOutput(b);
-                  }}
-                >
-                  <Icon name="copy" size={14} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {hasHud && (
-        <div className="term-hud">
-          {canIntegrate && !integrated && (
-            <button className="term-hud-btn" onClick={enableIntegration} title={t('term.enableBlocksHint')}>
-              {t('term.enableBlocks')}
-            </button>
-          )}
-          {blocks.length > 0 && (
-            <>
-              <button
-                className="term-hud-btn"
-                title={t('term.prevCmd')}
-                onClick={() => jump(-1)}
-              >
-                <Icon name="chevron-up" size={14} />
-              </button>
-              <button
-                className="term-hud-btn"
-                title={t('term.nextCmd')}
-                onClick={() => jump(1)}
-              >
-                <Icon name="chevron-down" size={14} />
-              </button>
-              <button
-                className={showList ? 'term-hud-btn active' : 'term-hud-btn'}
-                onClick={() => setShowList((v) => !v)}
-                title={t('term.blocks')}
-              >
-                ⌗ {blocks.length}
-              </button>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -632,14 +632,6 @@ const en: Dict = {
   'term.search': 'Search',
   'term.searchPrev': 'Previous match',
   'term.searchNext': 'Next match',
-  'term.prevCmd': 'Previous command',
-  'term.nextCmd': 'Next command',
-  'term.blocks': 'Command blocks',
-  'term.noBlocks': 'No commands tracked yet.',
-  'term.command': '(command)',
-  'term.copyOutput': 'Copy output',
-  'term.enableBlocks': 'Enable blocks',
-  'term.enableBlocksHint': 'Inject shell integration to track commands (OSC 133)',
 
   // --- workbench rail + job surfaces (J1–J6) ---
   'job.rail': 'Workbench jobs',
@@ -1611,14 +1603,6 @@ const zh: Dict = {
   'term.search': '搜索',
   'term.searchPrev': '上一个匹配',
   'term.searchNext': '下一个匹配',
-  'term.prevCmd': '上一条命令',
-  'term.nextCmd': '下一条命令',
-  'term.blocks': '命令块',
-  'term.noBlocks': '尚未记录命令。',
-  'term.command': '（命令）',
-  'term.copyOutput': '复制输出',
-  'term.enableBlocks': '启用命令块',
-  'term.enableBlocksHint': '注入 shell 集成以跟踪命令（OSC 133）',
 
   // --- 工作台侧栏 + 作业界面 (J1–J6) ---
   'job.rail': '工作台作业',

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useT } from '../i18n';
 import { FileTransferPanel } from '../surfaces/FileTransferPanel';
-import { isPosixShell } from './osc133';
 import { Screen } from './Screen';
 import type { TermTab } from './store';
 
@@ -14,12 +13,6 @@ export function SessionView({ tab }: { tab: TermTab }): JSX.Element {
   const t = useT();
   const [view, setView] = useState<'term' | 'files'>('term');
   const isSsh = tab.kind === 'ssh';
-  // OSC-133 blocks ride a bash/zsh script; only offer/auto-run it where that
-  // shell can parse it. SSH (remote, shell kind unknown → assumed POSIX) keeps
-  // manual integration; a local cmd.exe / PowerShell gets neither. An agent tab
-  // never integrates — its TUI owns the screen, and injecting the script would
-  // type it straight into the agent's prompt.
-  const canIntegrate = tab.agent !== true && (isSsh || isPosixShell(tab.shell));
 
   return (
     <div className="session-view">
@@ -35,12 +28,7 @@ export function SessionView({ tab }: { tab: TermTab }): JSX.Element {
       )}
       <div className="session-body">
         <div className={view === 'term' ? 'term-view' : 'term-view hidden'}>
-          <Screen
-            kind={tab.kind}
-            sessionId={tab.sessionId}
-            autoIntegrate={tab.kind === 'local' && canIntegrate}
-            canIntegrate={canIntegrate}
-          />
+          <Screen kind={tab.kind} sessionId={tab.sessionId} />
         </div>
         {isSsh && view === 'files' && <FileTransferPanel sessionId={tab.sessionId} />}
       </div>

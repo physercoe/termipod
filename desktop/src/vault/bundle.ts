@@ -1,3 +1,8 @@
+import {
+  exportAppIntegrations,
+  importAppIntegrations,
+  type AppIntegrationsExport,
+} from '../state/appIntegrations';
 import { listConnections, type Connection } from '../state/connections';
 import { listKeys, type SshKeyMeta } from '../state/keys';
 import { exportItems, importItems, type VaultItemMeta } from '../state/vaultItems';
@@ -26,6 +31,9 @@ export interface VaultBundle {
   passwords: Record<string, string>;
   items?: VaultItemMeta[];
   itemSecrets?: Record<string, Record<string, string>>;
+  // TermiPod's own integration config + secrets (WebDAV/S3 sync, voice API key).
+  // Additive + optional, same forward-compat contract as `items`.
+  app?: AppIntegrationsExport;
 }
 
 export async function assembleBundle(): Promise<VaultBundle> {
@@ -50,8 +58,9 @@ export async function assembleBundle(): Promise<VaultBundle> {
   }
 
   const { items, itemSecrets } = await exportItems();
+  const app = await exportAppIntegrations();
 
-  return { connections, sshKeys: { meta, privateKeys, passphrases }, passwords, items, itemSecrets };
+  return { connections, sshKeys: { meta, privateKeys, passphrases }, passwords, items, itemSecrets, app };
 }
 
 /** Merge a decrypted bundle into local storage + the keychain (restore/sync
@@ -70,6 +79,11 @@ export async function importBundle(bundle: VaultBundle): Promise<void> {
   // client that doesn't know `items` omits the field, and we must keep the
   // local items rather than wiping them to empty.
   if (Array.isArray(bundle.items)) await importItems(bundle.items, bundle.itemSecrets ?? {});
+  // Only restore app integrations when the bundle carries them (older/mobile
+  // bundles omit the field — leave the local config/secrets untouched).
+  if (bundle.app !== undefined && bundle.app !== null) {
+    await importAppIntegrations(bundle.app.config, bundle.app.secrets);
+  }
 }
 
 export function readBundleJson(): Promise<string> {
@@ -90,6 +104,7 @@ export function parseBundle(json: string): VaultBundle {
     // so importBundle can tell "no items field" from "an empty items list".
     items: Array.isArray(b.items) ? b.items : undefined,
     itemSecrets: b.itemSecrets,
+    app: b.app,
   };
 }
 

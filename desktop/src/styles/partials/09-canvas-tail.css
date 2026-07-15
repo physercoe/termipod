@@ -1188,6 +1188,31 @@
   flex-direction: column;
   gap: var(--spacing-s4);
 }
+/* TermiPod tab — one card per app integration (config rows + secret rows). */
+.vault-app-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s12, 12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.vault-app-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s4);
+}
+.vault-app-edit {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  font-family: var(--font-mono, monospace);
+}
 .vault-conn-row {
   display: flex;
   align-items: center;

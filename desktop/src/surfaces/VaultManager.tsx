@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
 import { isTauri, openExternal } from '../platform';
 import { Icon, type IconName } from '../ui/Icon';
+import { listAppIntegrations, type AppIntegration } from '../state/appIntegrations';
 import { listConnections } from '../state/connections';
+import { secretDelete, secretGet, secretSet } from '../state/persist';
 import { runScript, type ScriptResult } from '../state/scriptRun';
 import { useWorkspace } from '../state/workspace';
 import {
@@ -26,7 +28,17 @@ import { SshKeysSettings } from './SshKeys';
 /// list, and a detail/editor pane. Secret fields are masked with reveal + copy
 /// affordances and are only read from the keychain on demand.
 
-type Tab = 'all' | 'favorites' | 'login' | 'api' | 'note' | 'env' | 'script' | 'sshkeys' | 'connections';
+type Tab =
+  | 'all'
+  | 'favorites'
+  | 'login'
+  | 'api'
+  | 'note'
+  | 'env'
+  | 'script'
+  | 'termipod'
+  | 'sshkeys'
+  | 'connections';
 const GENERIC: readonly VaultItemType[] = ['login', 'api', 'note', 'env', 'script'];
 
 // Informational shape of an env/config blob, and the interpreters a script item
@@ -493,6 +505,137 @@ function ItemEditor({
   );
 }
 
+// ── TermiPod tab: the app's own integrations (WebDAV/S3 sync + voice key) ─────
+
+/// A raw keychain-slot secret (not a vault item) with reveal / copy / inline edit.
+/// Used for the app-integration secrets, which live under fixed keychain keys.
+function AppSecretRow({ slot, label }: { slot: string; label: string }): JSX.Element {
+  const t = useT();
+  const [val, setVal] = useState<string | null>(null);
+  const [show, setShow] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Load once on mount so "set" vs "not set" renders correctly before a reveal.
+  // Cheap: all app secrets live in the one cached keychain document.
+  useEffect(() => {
+    void secretGet(slot).then((v) => setVal(v ?? ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function load(): Promise<string> {
+    if (val !== null) return val;
+    const v = (await secretGet(slot)) ?? '';
+    setVal(v);
+    return v;
+  }
+  async function reveal(): Promise<void> {
+    await load();
+    setShow((s) => !s);
+  }
+  async function copy(): Promise<void> {
+    const v = await load();
+    try {
+      await navigator.clipboard.writeText(v);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
+  async function startEdit(): Promise<void> {
+    setDraft(await load());
+    setEditing(true);
+  }
+  async function saveEdit(): Promise<void> {
+    setBusy(true);
+    try {
+      if (draft === '') await secretDelete(slot);
+      else await secretSet(slot, draft);
+      setVal(draft);
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const hasValue = val !== null ? val !== '' : true; // assume set until loaded
+  if (editing) {
+    return (
+      <div className="vault-field vault-field-block">
+        <div className="vault-field-blockhead">
+          <span className="vault-field-label">{label}</span>
+        </div>
+        <input
+          type="password"
+          className="vault-app-edit"
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <div className="vault-editor-actions">
+          <button className="primary" disabled={busy} onClick={() => void saveEdit()}>
+            {t('vault.save')}
+          </button>
+          <button disabled={busy} onClick={() => setEditing(false)}>
+            {t('vault.cancel')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="vault-field">
+      <span className="vault-field-label">{label}</span>
+      <span className="vault-field-val mono">
+        {show ? (val ?? '') : hasValue ? '••••••••••' : <span className="muted">{t('vault.tpNotSet')}</span>}
+      </span>
+      <button className="icon-btn" title={show ? t('vault.hide') : t('vault.reveal')} onClick={() => void reveal()}>
+        <Icon name={show ? 'eye-off' : 'eye'} size={15} />
+      </button>
+      <button className="icon-btn" title={copied ? t('vault.copied') : t('vault.copy')} onClick={() => void copy()}>
+        <Icon name={copied ? 'check' : 'copy'} size={15} />
+      </button>
+      <button className="icon-btn" title={t('vault.edit')} onClick={() => void startEdit()}>
+        <Icon name="pen" size={15} />
+      </button>
+    </div>
+  );
+}
+
+function IntegrationCard({ it }: { it: AppIntegration }): JSX.Element {
+  const t = useT();
+  return (
+    <div className="vault-app-card">
+      <div className="vault-app-head">
+        <Icon name={it.icon} size={16} className="vault-detail-icon" />
+        <span className="vault-detail-title">{t(it.titleKey)}</span>
+      </div>
+      {it.info.map((row) => (
+        <PlainRow key={row.labelKey} label={t(row.labelKey)} value={row.value} />
+      ))}
+      {it.secrets.map((s) => (
+        <AppSecretRow key={s.slot} slot={s.slot} label={t(s.labelKey)} />
+      ))}
+    </div>
+  );
+}
+
+function VaultTermipod(): JSX.Element {
+  const t = useT();
+  const integrations = listAppIntegrations();
+  return (
+    <div className="vault-conns">
+      <p className="muted small">{t('vault.tpHint')}</p>
+      {integrations.map((it) => (
+        <IntegrationCard key={it.id} it={it} />
+      ))}
+    </div>
+  );
+}
+
 // ── Read view: saved connections (edited in the terminal; synced here) ────────
 
 function VaultConnections(): JSX.Element {
@@ -539,6 +682,7 @@ export function VaultManager(): JSX.Element {
     { id: 'note', label: t('vault.tabNotes') },
     { id: 'env', label: t('vault.tabEnv') },
     { id: 'script', label: t('vault.tabScripts') },
+    { id: 'termipod', label: t('vault.tabTermipod') },
     { id: 'sshkeys', label: t('vault.tabKeys') },
     { id: 'connections', label: t('vault.tabConns') },
   ];
@@ -575,7 +719,7 @@ export function VaultManager(): JSX.Element {
     setItems(toggleFavorite(id));
   }
 
-  const showItems = tab !== 'sshkeys' && tab !== 'connections';
+  const showItems = tab !== 'sshkeys' && tab !== 'connections' && tab !== 'termipod';
 
   return (
     <div className="vault-mgr">
@@ -596,6 +740,7 @@ export function VaultManager(): JSX.Element {
 
       {tab === 'sshkeys' && <SshKeysSettings />}
       {tab === 'connections' && <VaultConnections />}
+      {tab === 'termipod' && <VaultTermipod />}
 
       {showItems && (
         <>

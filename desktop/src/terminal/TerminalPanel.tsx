@@ -4,6 +4,7 @@ import { Icon } from '../ui/Icon';
 import { isTauri } from '../platform';
 import { useWorkbench } from '../state/workbench';
 import { listConnections, type Connection } from '../state/connections';
+import { importSshConfig } from '../ssh/config';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { ConnectForm } from './ConnectForm';
 import { ptyOpen } from './pty';
@@ -46,6 +47,8 @@ export function TerminalPanel(): JSX.Element {
   const [connecting, setConnecting] = useState(false);
   const [initialConnId, setInitialConnId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const cfgRef = useRef<HTMLInputElement>(null);
   const [height, setHeight] = useState(340);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
 
@@ -124,6 +127,23 @@ export function TerminalPanel(): JSX.Element {
     setInitialConnId(connId ?? null);
     setConnecting(true);
     setAddMenu(false);
+  }
+
+  // Import an OpenSSH client config (~/.ssh/config) into saved connections. Read
+  // in the web layer via the File API (no fs plugin); re-import updates in place.
+  async function onImportConfig(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (file === undefined) return;
+    setError(null);
+    try {
+      const n = importSshConfig(await file.text(), listConnections());
+      setConns(listConnections());
+      setNotice(t('term.importedConfig').replace('{n}', String(n)));
+      setTimeout(() => setNotice(null), 3500);
+    } catch (ex) {
+      setError(msg(ex));
+    }
   }
 
   function onConnected(sessionId: string, title: string): void {
@@ -224,6 +244,19 @@ export function TerminalPanel(): JSX.Element {
             <Icon name="plus" size={13} />
             {t('term.newConnection')}
           </button>
+          <button disabled={!tauri} onClick={() => cfgRef.current?.click()} title={t('term.importConfigHint')}>
+            <Icon name="external" size={13} />
+            {t('term.importConfig')}
+          </button>
+          <input
+            ref={cfgRef}
+            type="file"
+            accept=".config,.txt,text/plain"
+            hidden
+            onChange={(e) => void onImportConfig(e)}
+          />
+          {notice !== null && <div className="muted small term-nav-notice">{notice}</div>}
+          {error !== null && <div className="error small term-nav-notice">{error}</div>}
         </div>
         <div className="term-nav-list">
           {conns.length === 0 && <div className="muted small term-nav-empty">{t('term.noSaved')}</div>}

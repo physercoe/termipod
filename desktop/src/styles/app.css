@@ -5416,6 +5416,9 @@ th {
   justify-content: flex-start;
   font-size: var(--font-size-caption);
 }
+.term-nav-notice {
+  padding: 2px 4px;
+}
 .term-nav-actions button.active {
   border-color: var(--accent);
   color: var(--accent);

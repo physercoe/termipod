@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useT } from '../i18n';
 import { useJsonDraft } from '../state/draft';
+import { ConfirmButton } from '../ui/ConfirmButton';
 import { Markdown } from '../ui/Markdown';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
@@ -96,9 +97,7 @@ export function RecordSurface(): JSX.Element {
               <div className="record-card-foot">
                 <span className="muted small">{new Date(r.ts).toLocaleString()}</span>
                 <span className="spacer" />
-                <button className="link-btn" onClick={() => remove(r.id)}>
-                  {t('record.delete')}
-                </button>
+                <ConfirmButton label={t('record.delete')} danger onConfirm={() => remove(r.id)} />
               </div>
             </div>
           ))}

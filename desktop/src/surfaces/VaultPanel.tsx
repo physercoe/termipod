@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
+import { ConfirmButton } from '../ui/ConfirmButton';
 import { useSession } from '../state/session';
 import {
   createVault,
@@ -100,9 +101,12 @@ export function VaultPanel(): JSX.Element | null {
                 <button disabled={busy} onClick={() => void run(async () => { await syncUp(client); })}>
                   {t('vault.syncUp')}
                 </button>
-                <button disabled={busy} onClick={() => void run(async () => { await syncDown(client); })}>
-                  {t('vault.syncDown')}
-                </button>
+                <ConfirmButton
+                  label={t('vault.syncDown')}
+                  danger
+                  disabled={busy}
+                  onConfirm={() => void run(async () => { await syncDown(client); })}
+                />
               </>
             )}
             {st !== null && st.exists && !st.hasLocalKey && (
@@ -111,9 +115,12 @@ export function VaultPanel(): JSX.Element | null {
               </button>
             )}
             {st !== null && st.hasLocalKey && (
-              <button className="danger" disabled={busy} onClick={() => void run(forgetLocalVault)}>
-                {t('vault.forget')}
-              </button>
+              <ConfirmButton
+                label={t('vault.forget')}
+                danger
+                disabled={busy}
+                onConfirm={() => void run(forgetLocalVault)}
+              />
             )}
           </div>
 

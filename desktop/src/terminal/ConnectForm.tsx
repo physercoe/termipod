@@ -11,6 +11,7 @@ import {
   type Connection,
 } from '../state/connections';
 import { getKeyMaterial, listKeys, type SshKeyMeta } from '../state/keys';
+import { ConfirmButton } from '../ui/ConfirmButton';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -225,11 +226,7 @@ export function ConnectForm({
           <button disabled={host.trim() === '' || user.trim() === ''} onClick={() => void saveCurrent()}>
             {id !== null ? t('term.update') : t('term.save')}
           </button>
-          {id !== null && (
-            <button className="danger" onClick={() => void removeCurrent()}>
-              {t('term.delete')}
-            </button>
-          )}
+          {id !== null && <ConfirmButton label={t('term.delete')} danger onConfirm={() => void removeCurrent()} />}
           {onCancel !== undefined && <button onClick={onCancel}>{t('common.cancel')}</button>}
           <span className="spacer" />
           <button className="primary" disabled={!canConnect || busy} onClick={() => void connect()}>

@@ -296,7 +296,7 @@ function AboutSettings(): JSX.Element {
   );
 }
 
-type CatId = 'account' | 'display' | 'input' | 'data' | 'vault' | 'about' | 'updates';
+type CatId = 'account' | 'display' | 'input' | 'data' | 'vault' | 'about';
 const CAT_LS_KEY = 'termipod.settings.cat';
 
 /// The Settings job surface (pinned to the bottom of the activity bar). Where the
@@ -309,8 +309,8 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
   const tauri = isTauri();
 
   // Order (director spec): Account first · Display · Input · Data (local storage)
-  // · Vault (sensitive credentials — keys + cross-device sync) · About · Updates
-  // last.
+  // · Vault (sensitive credentials — keys + cross-device sync) · About last
+  // (which now also carries the software-update panel on desktop).
   const cats: { id: CatId; label: string; render: () => JSX.Element }[] = [
     { id: 'account', label: t('settings.catAccount'), render: () => <AccountSettings onConnect={onConnect} /> },
     { id: 'display', label: t('settings.catDisplay'), render: () => <AppearanceSettings /> },
@@ -342,13 +342,25 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
           },
         ]
       : []),
-    { id: 'about', label: t('settings.catAbout'), render: () => <AboutSettings /> },
-    ...(tauri ? [{ id: 'updates' as const, label: t('settings.catUpdates'), render: () => <UpdateSection /> }] : []),
+    // About — app identity + version, and (desktop only) the software-update
+    // panel folded in beneath it, so there is one "what/which version am I
+    // running, and is there a newer one" home instead of two sibling tabs.
+    {
+      id: 'about',
+      label: t('settings.catAbout'),
+      render: () => (
+        <>
+          <AboutSettings />
+          {tauri && <UpdateSection />}
+        </>
+      ),
+    },
   ];
 
   const [cat, setCat] = useState<CatId>(() => {
     let saved = localStorage.getItem(CAT_LS_KEY);
     if (saved === 'sshkeys') saved = 'vault'; // migrate the renamed category
+    if (saved === 'updates') saved = 'about'; // Updates merged into About
     return saved !== null && cats.some((c) => c.id === saved) ? (saved as CatId) : 'account';
   });
   function pick(id: CatId): void {

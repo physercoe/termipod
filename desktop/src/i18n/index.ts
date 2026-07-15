@@ -252,7 +252,6 @@ const en: Dict = {
 
   'settings.title': 'Settings',
   'settings.catAppearance': 'Appearance',
-  'settings.catUpdates': 'Updates',
   'settings.catSecurity': 'Security',
   'settings.catVault': 'Vault',
   'settings.vaultLead': 'The vault holds your sensitive credentials — SSH keys, connection passwords, and tokens — in your OS keychain, and can sync them across devices end-to-end encrypted.',
@@ -1275,7 +1274,6 @@ const zh: Dict = {
 
   'settings.title': '设置',
   'settings.catAppearance': '外观',
-  'settings.catUpdates': '更新',
   'settings.catSecurity': '安全',
   'settings.catVault': '保险库',
   'settings.vaultLead': '保险库集中保管你的敏感凭据 —— SSH 密钥、连接密码与令牌 —— 存放在系统钥匙串中，并可端到端加密地在多设备间同步。',

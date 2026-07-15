@@ -1,0 +1,1202 @@
+/* ---- J4 canvas (spatial thinking board) ---- */
+.canvas-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.canvas-viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.canvas-viewport:active {
+  cursor: grabbing;
+}
+.canvas-viewport.connecting {
+  cursor: crosshair;
+}
+.canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.canvas-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.canvas-edge-line {
+  stroke: var(--border-strong, var(--text-muted));
+  stroke-width: 1.5;
+}
+#canvas-arrow path {
+  fill: var(--border-strong, var(--text-muted));
+}
+.canvas-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: auto;
+}
+.canvas-edge-type {
+  border: 1px solid var(--border);
+  background: var(--raised);
+  color: var(--text-secondary);
+  border-radius: var(--radius-stadium);
+  padding: 1px 8px;
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+.canvas-edge-type:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.canvas-edge-x {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.canvas-edge-x:hover {
+  color: var(--danger);
+}
+.canvas-card {
+  position: absolute;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--sh-1);
+  font-size: var(--font-size-body-small);
+  overflow: hidden;
+}
+.canvas-card.ref {
+  border-left: 3px solid var(--accent);
+}
+.canvas-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-tint), var(--sh-1);
+}
+.canvas-card.connect-src {
+  box-shadow: 0 0 0 2px var(--accent), var(--sh-1);
+}
+.canvas-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  background: var(--hover);
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+}
+.canvas-card-head:active {
+  cursor: grabbing;
+}
+.canvas-card-kind {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.canvas-card-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.canvas-card-note {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  resize: none;
+  padding: var(--spacing-s8);
+  min-height: 54px;
+  font: inherit;
+  font-size: var(--font-size-body-small);
+}
+.canvas-card-note:focus {
+  outline: none;
+}
+.canvas-card-ref {
+  padding: var(--spacing-s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.canvas-card-ref-tldr {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text-secondary);
+}
+.canvas-hint {
+  position: absolute;
+  top: var(--spacing-s12);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border-radius: var(--radius-stadium);
+  font-size: var(--font-size-body-small);
+  box-shadow: var(--sh-1);
+}
+.canvas-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 340px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-small);
+  pointer-events: none;
+}
+.canvas-inspector {
+  width: 288px;
+  flex: 0 0 auto;
+  border-left: 1px solid var(--border);
+  display: flex;
+  min-height: 0;
+  background: var(--panel, var(--bg));
+}
+.canvas-inspector-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-s16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}
+.canvas-insp-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.canvas-insp-title {
+  font-weight: 600;
+}
+.canvas-insp-abstract {
+  margin: var(--spacing-s4) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-small);
+}
+.canvas-insp-note {
+  min-height: 120px;
+}
+.canvas-insp-actions {
+  display: flex;
+  gap: var(--spacing-s8);
+  align-items: center;
+}
+.canvas-links-group + .canvas-links-group {
+  margin-top: var(--spacing-s12);
+}
+.canvas-links-label {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: var(--spacing-s4);
+}
+.canvas-link-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: var(--spacing-s4);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.canvas-link-row:hover {
+  background: var(--hover);
+}
+.canvas-link-type {
+  flex: 0 0 auto;
+  font-size: var(--font-size-label);
+  color: var(--accent);
+  font-family: var(--mono, ui-monospace, monospace);
+}
+.canvas-link-target {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-add-ref {
+  max-width: 160px;
+}
+
+/* Surface-level crash panel (ui/ErrorBoundary.tsx) — shown when a surface throws
+   during render, replacing the old blank-app-then-relaunch failure mode. */
+.surface-crash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+.surface-crash-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 520px;
+  padding: 20px 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.surface-crash-title {
+  font-weight: 600;
+  color: var(--danger);
+}
+.surface-crash-msg {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--accent-tint);
+  color: var(--text);
+  word-break: break-word;
+}
+.surface-crash-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* draw.io install screen — download + local-file install side by side. */
+.diagram-install-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Read attachment viewers (image / video / audio / text / epub) — ReadSurface
+   AttachmentView + ui/EpubView.tsx. The reader-doc container gives them height. */
+.att-image-wrap {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  background: var(--surface-sunken, var(--surface));
+}
+.att-image {
+  max-width: 100%;
+  height: auto;
+}
+.att-media {
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+.att-audio-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Rendered markdown attachment — the MarkdownReader manages its own scroll. */
+.att-md {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+}
+/* Markdown document reader: outline rail + scrolling body (ui/MarkdownReader). */
+.mdreader {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.mdreader-outline {
+  flex: 0 0 auto;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface-sunken, var(--surface));
+}
+.mdreader-outline-head {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-s8) var(--spacing-s8) var(--spacing-s4);
+}
+.mdreader-outline-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-s4);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.mdreader-outline-item {
+  /* Reset the global button chrome — these are list rows, not buttons. Without
+     this each item is a raised, bordered, shadowed pill, which in a narrow column
+     reads as an overlapping cramped mess. */
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  line-height: 1.45;
+  /* Wrap up to two lines instead of truncating to a lone ellipsis ("…") — a
+     narrow outline that clips every label to a single dot is unreadable. The
+     panel is also resizable now, so long headings can be widened out. */
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+.mdreader-outline-item:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+  border: none;
+  box-shadow: none;
+  transform: none;
+}
+.mdreader-outline-show {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin: var(--spacing-s8) 0 0 var(--spacing-s4);
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+.mdreader-outline-show:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+.mdreader-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+/* A reference's note opened in its own reader tab: outline rail (reusing the
+   .mdreader-outline styles) + a main column with the mode bar and the editor. */
+.notetab {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.notetab-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.notetab-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.notetab-body > .md-editor,
+.notetab-body > .milkdown-host {
+  flex: 1;
+  min-height: 0;
+}
+.att-text {
+  height: 100%;
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+/* Info-tab attachment summary card (type / location / preview). */
+.ref-attach-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+/* Attachments section header: label on the left, "Add file" on the right. */
+.att-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s8);
+}
+.att-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.att-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+.att-remove:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.att-err {
+  color: var(--danger);
+}
+/* Inline two-step remove confirm for an attachment. */
+.att-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.att-card {
+  display: flex;
+  gap: var(--spacing-s12);
+  align-items: flex-start;
+  padding: var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m, 8px);
+  background: var(--surface);
+}
+.att-thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-s, 6px);
+  background: var(--surface-sunken, var(--accent-tint));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.att-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.att-glyph {
+  color: var(--text-secondary);
+}
+.att-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.att-field {
+  display: flex;
+  gap: var(--spacing-s8);
+  align-items: baseline;
+  font-size: var(--font-size-body-small);
+}
+.att-k {
+  flex: 0 0 auto;
+  width: 64px;
+  color: var(--text-muted);
+}
+.att-v {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  word-break: break-word;
+}
+.att-v.mono {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-caption);
+}
+.att-reveal {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--text-muted);
+  padding: 2px;
+}
+.att-reveal:hover {
+  color: var(--accent);
+}
+.att-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s4);
+}
+.att-open {
+  align-self: flex-start;
+}
+.epub-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.epub-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.epub-toolbar .spacer {
+  flex: 1;
+}
+.epub-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.epub-toc {
+  flex: 0 0 auto; /* width is inline (resizable); never shrink below it */
+  width: 240px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.epub-toc-item {
+  /* Clean list rows, not raised button pills (matches .mdreader-outline-item). */
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-word;
+}
+.epub-toc-item:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+  border: none;
+  box-shadow: none;
+  transform: none;
+}
+.epub-host {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: #fff;
+}
+
+/* Author (J2) left file/workspace tree — surfaces/AuthorNav.tsx. Sits left of the
+   tab strip + editor; toggled from the header, width persisted + resizable. */
+.author-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.author-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.author-nav-col {
+  flex: none;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.author-nav {
+  width: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.author-nav-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.author-nav-sec.grow {
+  flex: 1;
+  min-height: 0;
+}
+.author-nav-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.author-nav-head .spacer {
+  flex: 1;
+}
+.author-nav-icon {
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: var(--font-size-caption);
+  line-height: 1;
+  color: var(--text-secondary);
+}
+.author-nav-icon:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+.author-nav-empty {
+  padding: 2px 6px;
+}
+.author-nav-root {
+  padding: 2px 6px 4px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.author-nav-doc,
+.author-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: var(--font-size-caption);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.author-nav-doc .author-nav-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.author-nav-doc:hover,
+.author-nav-item:hover {
+  background: var(--accent-tint);
+}
+.author-nav-doc.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.author-nav-kind {
+  flex: none;
+  font-size: var(--font-size-label);
+}
+.author-nav-tw {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.author-nav-item.dir {
+  font-weight: 500;
+}
+.author-nav-item.inert {
+  color: var(--text-muted);
+  cursor: default;
+}
+.author-nav-item.inert:hover {
+  background: transparent;
+}
+
+/* AgentCompanion: Hub/Local source toggle + the local one-shot conversation
+   (ui/LocalCompanion.tsx). */
+.companion-src {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.companion-src button {
+  padding: 2px 8px;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  background: transparent;
+}
+.companion-src button.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.companion-local-cmd {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.companion-local-cmdbtn {
+  width: 100%;
+  text-align: left;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.companion-local-cmdbtn:hover {
+  color: var(--text);
+}
+.companion-local-cmdin {
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-size-caption);
+}
+.companion-msg {
+  padding: 7px 10px;
+  margin: 4px 8px;
+  border-radius: 8px;
+  font-size: var(--font-size-body-small);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.companion-msg.user {
+  background: var(--accent-tint);
+  color: var(--text);
+  align-self: flex-end;
+}
+.companion-msg.agent {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.companion-msg.err {
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+/* ── Vault manager (Settings → Vault) — the mini-1Password credential store ── */
+.settings-content.wide {
+  max-width: none;
+}
+.settings-lead {
+  margin: 0 0 var(--spacing-s16);
+  max-width: 640px;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.icon-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.icon-btn.danger:hover {
+  color: var(--danger);
+}
+.icon-btn.fav-on {
+  color: var(--accent);
+}
+.icon-btn.fav-on .ui-icon {
+  fill: currentColor;
+}
+
+.vault-mgr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+  margin-bottom: var(--spacing-s24);
+}
+.vault-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--spacing-s8);
+}
+.vault-tab {
+  padding: 5px 12px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-body-small);
+}
+.vault-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.vault-tab.active {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.vault-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.vault-search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.vault-search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.vault-search input {
+  width: 100%;
+  padding: 6px 8px 6px 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+  color: var(--text);
+}
+.vault-new {
+  position: relative;
+  flex: 0 0 auto;
+}
+.vault-new > button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.vault-new-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+.vault-new-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: var(--spacing-s4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-menu, 0 8px 24px rgba(0, 0, 0, 0.28));
+}
+.vault-new-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.vault-new-menu button:hover {
+  background: var(--hover);
+}
+
+.vault-split {
+  display: flex;
+  gap: var(--spacing-s12);
+  align-items: stretch;
+  min-height: 280px;
+}
+.vault-list {
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 62vh;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding-right: var(--spacing-s8);
+}
+.vault-empty {
+  padding: var(--spacing-s12);
+}
+.vault-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.vault-row.active {
+  background: var(--accent-tint);
+}
+.vault-row:hover {
+  background: var(--hover);
+}
+.vault-row-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.vault-row-icon {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+.vault-row-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.vault-row-title {
+  font-size: var(--font-size-body-small);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vault-row-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vault-row-fav {
+  opacity: 0;
+}
+.vault-row:hover .vault-row-fav,
+.vault-row .icon-btn.fav-on {
+  opacity: 1;
+}
+
+.vault-pane {
+  flex: 1;
+  min-width: 0;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+.vault-pane-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s8);
+  height: 100%;
+  min-height: 240px;
+  color: var(--text-muted);
+}
+
+.vault-detail,
+.vault-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+  max-width: 520px;
+}
+.vault-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding-bottom: var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.vault-detail-icon {
+  color: var(--text-secondary);
+}
+.vault-detail-title {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vault-field {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) 0;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+.vault-field-label {
+  flex: 0 0 96px;
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.vault-field-val {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.vault-link {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: var(--accent);
+  cursor: pointer;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.vault-field-block {
+  flex-direction: column;
+  align-items: stretch;
+}
+.vault-field-blockhead {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.vault-note {
+  margin: var(--spacing-s4) 0 0;
+  padding: var(--spacing-s8);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--font-size-body-small);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.vault-lbl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+.vault-lbl input,
+.vault-lbl textarea,
+.vault-lbl select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+}
+.vault-secret-area {
+  min-height: 60px;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+}
+.vault-note-area {
+  min-height: 96px;
+  resize: vertical;
+}
+.vault-editor-actions {
+  display: flex;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s4);
+}
+
+/* Script quick-run — armed button, then captured stdout/stderr + exit code. */
+.vault-run {
+  margin-top: var(--spacing-s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.vault-run-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  flex-wrap: wrap;
+}
+.vault-run-cwd {
+  opacity: 0.8;
+}
+.vault-run-out {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.vault-run-code {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+.vault-run-code.ok {
+  color: var(--success, #3aa757);
+}
+.vault-run-code.bad {
+  color: var(--danger, #d9534f);
+}
+.vault-run-pre {
+  margin: 0;
+  padding: var(--spacing-s8);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--font-size-body-small);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.vault-run-pre.err {
+  color: var(--danger, #d9534f);
+}
+
+.vault-conns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.vault-conn-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.vault-conn-name {
+  font-size: var(--font-size-body-small);
+  font-weight: 500;
+}

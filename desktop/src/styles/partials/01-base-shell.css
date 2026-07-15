@@ -1,0 +1,271 @@
+
+/* TermiPod desktop control plane — shell styling.
+ * Consumes the shared DTCG tokens (--color-*, --spacing-*, --radius-*,
+ * --font-size-*) generated from design-tokens/tokens.json (WS1). Dark-first,
+ * matching the mobile app's backgroundDark palette. */
+
+/* Semantic theme layer — the elevated design language (2026-07). Kept
+ * desktop-local (does NOT mutate the shared design-tokens/tokens.json, which the
+ * mobile Flutter build mirrors): refined cool blue-biased neutrals with a real
+ * elevation scale, focus rings, motion, and a disciplined accent. Switched by
+ * <html data-theme>; dark is the default. */
+:root {
+  color-scheme: dark;
+  --pane-gap: 1px;
+  /* Surface ladder — a tight near-black scale (Linear/Radix-grounded); 1px
+   * hairlines carry separation, so the steps stay subtle and clean, not muddy. */
+  --bg: #08090c;          /* app ground */
+  --canvas: #0d0f13;      /* navigator + dock rails */
+  --surface: #131519;     /* cards, panels, popovers */
+  --raised: #191c22;      /* buttons, hover targets, inset controls */
+  --hover: #20242b;       /* row / interactive hover fill */
+  --input: #0b0c10;
+  --border: #23262d;      /* hairline (Radix step 6/7) */
+  --border-strong: #31363f; /* interactive / focus border (step 8) */
+  --text: #f4f6f8;        /* high-contrast ink */
+  --text-secondary: #a7aeba;
+  --text-muted: #6a727f;
+  /* accent — brand cyan, reserved for focus / selection / live data / one CTA */
+  --accent: var(--color-primary);
+  --accent-strong: var(--color-primary-dark);
+  --accent-ink: #00252b;
+  --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
+  /* semantic state — distinct from the accent hue */
+  --ok: var(--color-success);
+  --warn: var(--color-warning);
+  --danger: var(--color-error);
+  /* Elevation — hairline-first: cards carry NO shadow (Linear "resists drop
+   * shadows on dark almost entirely"). Shadow is reserved for things that truly
+   * float: --sh-2 for raised affordances, --sh-3 for overlays / popovers. */
+  --sh-1: none;
+  --sh-2: 0 6px 20px rgba(0, 0, 0, 0.38);
+  --sh-3: 0 20px 48px rgba(0, 0, 0, 0.58), 0 2px 8px rgba(0, 0, 0, 0.45);
+  --glow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Coding font — the transcript's code/tool/JSON blocks reference --font-mono
+   * (which was previously undefined, so they fell back to a plain system
+   * monospace). Bundle JetBrains Mono (offline, variable) and define BOTH names
+   * used across the sheet. */
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  --mono: var(--font-mono);
+  --sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* type tracking — negative on anything set large (Linear discipline) */
+  --track-tight: -0.018em;
+  --track-snug: -0.011em;
+  --track-body: -0.006em;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f7f8fa;
+  --canvas: #eef0f3;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --hover: #eef1f5;
+  --input: #f6f7f9;
+  --border: #e6e9ee;
+  --border-strong: #d4d9e1;
+  --text: #0f141c;
+  --text-secondary: #586173;
+  --text-muted: #8a93a3;
+  --accent: var(--color-primary-dark);
+  --accent-strong: var(--color-primary-dark);
+  --accent-ink: #ffffff;
+  --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 40%, transparent);
+  --ok: var(--color-success-on-light);
+  --warn: var(--color-on-warning-container-light);
+  --danger: var(--color-error);
+  --sh-1: none;
+  --sh-2: 0 6px 20px rgba(16, 24, 40, 0.10);
+  --sh-3: 0 20px 48px rgba(16, 24, 40, 0.16), 0 2px 8px rgba(16, 24, 40, 0.08);
+  --glow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--sans);
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+  letter-spacing: var(--track-body);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Inter's contextual alternates + stylistic set — the "designed" look. */
+  font-feature-settings: "cv05", "cv08", "ss01";
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings and emphasized labels take negative tracking + weight — the single
+ * biggest lever toward a professional feel (Linear sets display type at 500–600
+ * with measured negative tracking). Uppercase eyebrow labels keep positive
+ * tracking and are handled by their own rules, so scope this to real headings. */
+h1, h2, h3, h4 {
+  letter-spacing: var(--track-snug);
+}
+h1 { letter-spacing: var(--track-tight); }
+strong, b, .strong { letter-spacing: var(--track-snug); }
+
+/* Numeric-heavy data lines up when digits are tabular; identifiers get mono. */
+.mono,
+.ev-mono,
+code,
+pre {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Keyboard focus is always visible; pointer focus stays quiet. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--glow);
+  border-radius: var(--radius-xs);
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* ---- app shell: titlebar / body(nav|focus|dock) / statusbar ---- */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* The main middle band: the activity-bar rail + the active job surface. Grows
+   to fill between the titlebar and the terminal dock / status bar. */
+.workbench-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.workbench-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Positioning context for the terminal panel's dock-mode bottom strip. */
+  position: relative;
+}
+/* Holds every job surface except the terminal (which is the always-mounted
+   TerminalPanel sibling). Hidden — not unmounted — when the terminal job is
+   active, so switching jobs never tears down the other surfaces mid-flight. */
+.surface-stack {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.surface-stack.hidden {
+  display: none;
+}
+
+/* Fleet-scoped action bar — the control-plane surfaces (sessions, channels,
+   insights, search, me, admin) live with the Fleet tab, not in the global
+   titlebar, so they don't follow the researcher onto the workbench tabs. */
+.fleet-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+}
+.fleet-toolbar-label {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.fleet-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 var(--spacing-s8);
+}
+.titlebar-palette {
+  font-variant-numeric: tabular-nums;
+}
+
+.titlebar,
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s16);
+  padding: 0 var(--spacing-s16);
+  background: linear-gradient(180deg, var(--canvas), var(--surface));
+  border-bottom: 1px solid var(--border);
+}
+
+.titlebar {
+  height: 44px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.statusbar {
+  height: 28px;
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+  background: linear-gradient(180deg, var(--surface), var(--canvas));
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.shell-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 240px 1fr 320px;
+  gap: var(--pane-gap);
+  min-height: 0;
+  background: var(--border);
+}
+
+.region {
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.region-header {
+  padding: var(--spacing-s8) var(--spacing-s12);
+  font-size: var(--font-size-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  position: sticky;
+  top: 0;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+}
+
+.navigator,
+.dock {
+  background: var(--canvas);
+}
+
+.region-pad {
+  padding: var(--spacing-s12);
+}

@@ -1,0 +1,1081 @@
+/* ============================================================
+   J1 Read — reference library + discovery
+   ============================================================ */
+.read-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+/* A draggable divider between two panes (rail | center | inspector). */
+.resize-handle {
+  flex: 0 0 auto;
+  width: 6px;
+  background: var(--border);
+  cursor: col-resize;
+  touch-action: none;
+}
+.resize-handle:hover {
+  background: var(--accent);
+}
+.read-center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.read-inspector-pane {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+}
+.read-inspector-pane > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Collapsible rail / inspector. A thin always-visible strip (`read-pane-expand`)
+   re-opens a collapsed panel; a `read-fold` chevron inside each panel collapses
+   it. Widths + fold state persist in localStorage. */
+.read-fold {
+  padding: 0 var(--spacing-s6, 6px);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+.read-fold:hover {
+  color: var(--text);
+}
+.read-rail-head {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--spacing-s4) var(--spacing-s4) 0;
+}
+.read-pane-expand {
+  flex: 0 0 auto;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: none;
+  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+}
+.read-pane-expand:hover {
+  color: var(--accent);
+  background: var(--raised);
+}
+.ref-inspector-empty-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ref-inspector-empty-wrap .ref-tabs {
+  display: flex;
+}
+
+/* Reader — a full-surface reading view: the PDF is the main pane, the Inspector
+   (Info / Read / Notes / Cite) sits in a resizable side column so notes are
+   written alongside the document. */
+.reader-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.reader-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+/* Actions-only variant (no title — the tab strip already labels the doc):
+   tighten the vertical padding so it reads as a thin action strip. */
+.reader-topbar-actions {
+  padding: var(--spacing-s4) var(--spacing-s12);
+}
+.reader-title {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+.reader-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.reader-doc {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+}
+.reader-doc .pdf-frame {
+  flex: 1;
+  height: auto;
+  border: none;
+  border-radius: 0;
+}
+.reader-doc .pdfjs-view {
+  flex: 1;
+  min-width: 0;
+}
+/* THE epub-width fix: like .pdfjs-view, the EPUB view must GROW to fill the
+   reader pane. Without this it sizes to content width in the flex-row parent and
+   sits narrow with a large right blank — no amount of in-iframe content CSS can
+   widen a container that was never told to grow (3 prior passes chased the
+   symptom). Mirrors the pdfjs rule above. */
+.reader-doc .epub-view {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- pdf.js viewer ------------------------------------------------------- */
+.pdfjs-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  background: var(--bg);
+}
+.pdfjs-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.pdfjs-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+.pdfjs-zoom {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  min-width: 34px;
+  padding: var(--spacing-s2) var(--spacing-s8);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.pdfjs-zoom:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pdfjs-zoom.active {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.pdfjs-pagenav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.pdfjs-page-input {
+  width: 44px;
+  text-align: center;
+  padding: var(--spacing-s2) var(--spacing-s4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+/* Editable zoom-percent field + its trailing % sign, kept on one baseline. */
+.pdfjs-zoominput {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.pdfjs-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.pdfjs-toc {
+  flex: 0 0 auto; /* width is set inline (resizable, persisted); do NOT add .scroll —
+                     its flex:1 would override this and defeat the inline width. */
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.pdfjs-panel-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.pdfjs-panel-tabs button {
+  flex: 1;
+  padding: var(--spacing-s8) var(--spacing-s4);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+.pdfjs-panel-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.pdfjs-panel-body {
+  padding: var(--spacing-s8) 0;
+}
+.pdfjs-thumbs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: 0 var(--spacing-s8);
+}
+.pdfjs-thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+}
+.pdfjs-thumb-canvas {
+  width: auto;
+  max-width: 100%;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  background: #fff;
+}
+.pdfjs-thumb.active .pdfjs-thumb-canvas {
+  border-color: var(--accent);
+}
+.pdfjs-thumb-n {
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+}
+.pdfjs-thumb.active .pdfjs-thumb-n {
+  color: var(--accent);
+}
+.pdfjs-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pdfjs-toc-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font-size: var(--font-size-body-small);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfjs-toc-item:hover:not(:disabled) {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.pdfjs-toc-item:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+.pdfjs-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s16);
+}
+.pdfjs-page {
+  position: relative;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+  background: #fff;
+}
+.pdfjs-canvas {
+  display: block;
+}
+/* pdf.js text layer — invisible positioned spans over the canvas for selection,
+   search and copy. Rules inlined (not importing pdf_viewer.css) to stay self-
+   contained; the text layer sizes itself via calc(var(--scale-factor) * rawDims),
+   so --scale-factor is set on .pdfjs-page in the component. */
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 1;
+}
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.textLayer span.pdfjs-hl {
+  background: color-mix(in srgb, #ffd21e 65%, transparent);
+  border-radius: 2px;
+}
+/* Search-match highlight: a <mark> wrapping the exact matched substring inside a
+   text-layer span. The span's text is transparent (canvas shows the glyphs), so
+   only this translucent box paints — landing right over the matched word. */
+.textLayer mark.pdfjs-mark {
+  color: transparent;
+  background: color-mix(in srgb, #ffd21e 70%, transparent);
+  border-radius: 2px;
+}
+.textLayer ::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+/* Transparent hit-targets over in-PDF links; clicks route to the in-app browser
+   tab (never the OS browser / never a whole-app navigation). */
+.pdfjs-link {
+  position: absolute;
+  border: none;
+  /* A persistent faint tint + underline so links (refs, citations, figures) are
+     discoverable at a glance rather than only on hover — the ref token reads as
+     clickable. External links use the accent hue. */
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: pointer;
+  padding: 0;
+  z-index: 2; /* above the text layer so link clicks win over text selection */
+}
+.pdfjs-link:hover {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+/* Internal links (refs / figures / ToC jumps) get a distinct green tint so they
+   read as in-document navigation, not an external link. */
+.pdfjs-link.internal {
+  background: color-mix(in srgb, #22c55e 10%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, #22c55e 50%, transparent);
+}
+.pdfjs-link.internal:hover {
+  background: color-mix(in srgb, #22c55e 24%, transparent);
+}
+.pdfjs-find {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.pdfjs-find-input {
+  width: 150px;
+  padding: var(--spacing-s2) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+}
+.pdfjs-find-count {
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+  text-align: center;
+}
+.pdfjs-tonotes {
+  white-space: nowrap;
+}
+
+/* ---- PDF annotations (highlight / underline / note / area / ink) ----------
+   Geometry is stored in PDF points (scale-independent) and mapped to CSS px at
+   render; these rules are purely presentational. Layer order over the page:
+   canvas < textLayer(z1) < links(z2) < anno-layer(z3) < draw-surface(z4) <
+   editor(z5). */
+.pdfjs-anno-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  padding-left: var(--spacing-s4);
+  margin-left: var(--spacing-s2);
+  border-left: 1px solid var(--border);
+}
+.pdfjs-anno-palette {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  padding-left: var(--spacing-s4);
+}
+.pdfjs-anno-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  padding: 0;
+  cursor: pointer;
+}
+.pdfjs-anno-swatch.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.pdfjs-anno-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+.pdfjs-anno-layer.tooling {
+  pointer-events: none; /* let a new selection / drag pass through to the page */
+}
+.pdfjs-anno {
+  position: absolute;
+  border-radius: 2px;
+}
+.pdfjs-anno.highlight,
+.pdfjs-anno.underline,
+.pdfjs-anno.image {
+  cursor: pointer;
+}
+.pdfjs-anno.image {
+  border-radius: 3px;
+}
+.pdfjs-anno.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Note marker — a small coloured tab with the note glyph. */
+.pdfjs-anno.note {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 4px;
+  color: #1a1a1a; /* dark glyph reads on every palette swatch */
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+/* Pointer-capture surface for the click/drag tools. */
+.pdfjs-draw-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  cursor: crosshair;
+}
+.pdfjs-draft-rect {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+/* Editor popover for the selected annotation. */
+.pdfjs-anno-editor {
+  position: absolute;
+  z-index: 5;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.pdfjs-anno-colors {
+  display: flex;
+  gap: var(--spacing-s4);
+}
+.pdfjs-anno-comment {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.pdfjs-anno-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+/* Annotation tags — chip list + inline add input (in the popup editor). */
+.pdfjs-anno-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.pdfjs-anno-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px var(--spacing-s4) 1px var(--spacing-s8);
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--text);
+  font-size: var(--font-size-label);
+}
+.pdfjs-anno-tag-x {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.pdfjs-anno-tag-x:hover {
+  color: var(--danger);
+}
+.pdfjs-anno-taginput {
+  flex: 1;
+  min-width: 80px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  padding: 2px var(--spacing-s8);
+  font-size: var(--font-size-label);
+}
+/* Tag chips under an annotation row in the list. */
+.pdfjs-anno-rowtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 2px 0 4px 22px;
+}
+.pdfjs-anno-rowtag {
+  padding: 0 var(--spacing-s8);
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+}
+/* Area-annotation image actions (copy / save the screenshot). */
+.pdfjs-anno-imgacts {
+  display: flex;
+  gap: var(--spacing-s4);
+}
+.pdfjs-anno-imgbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  flex: 1;
+  justify-content: center;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font-size: var(--font-size-label);
+}
+.pdfjs-anno-del {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  padding: var(--spacing-s2) var(--spacing-s4);
+  color: var(--danger, #e5484d);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.pdfjs-anno-done {
+  padding: var(--spacing-s2) var(--spacing-s12);
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+/* Annotations panel tab — the Zotero-style list of every annotation. */
+.pdfjs-anno-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--spacing-s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+}
+.pdfjs-anno-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  width: 100%;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+}
+.pdfjs-anno-row:hover {
+  background: var(--raised);
+}
+.pdfjs-anno-row.active {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+.pdfjs-anno-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
+.pdfjs-anno-rowtext {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfjs-anno-pg {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+.pdfjs-anno-rowcomment {
+  padding: 0 var(--spacing-s8) var(--spacing-s2) 30px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfjs-anno-empty {
+  padding: var(--spacing-s12);
+  line-height: 1.5;
+}
+
+/* Larger, more legible toolbar controls — the annotation/nav icons now read at a
+   size comparable to the reader's Info/Notes tabs (override the inline 16px svg). */
+.pdfjs-toolbar .ui-icon {
+  width: 19px;
+  height: 19px;
+}
+.pdfjs-toolbar .pdfjs-zoom {
+  min-width: 38px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-s4) var(--spacing-s8);
+}
+
+/* Split view — the reading area holds the primary pane plus, when split, a
+   read-only mirror of the same document (Zotero-style). */
+.pdfjs-panes {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pdfjs-panes.split-vertical {
+  flex-direction: row;
+}
+.pdfjs-panes.split-horizontal {
+  flex-direction: column;
+}
+.pdfjs-panes > .pdfjs-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.pdfjs-panes.split-vertical > .pdfjs-mirror {
+  border-left: 1px solid var(--border);
+}
+.pdfjs-panes.split-horizontal > .pdfjs-mirror {
+  border-top: 1px solid var(--border);
+}
+
+/* Right-click context menu (annotate the selection · split view). */
+.pdfjs-ctxmenu {
+  position: fixed;
+  z-index: 50;
+  min-width: 184px;
+  padding: var(--spacing-s4);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.pdfjs-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 100%;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pdfjs-ctx-item:hover {
+  background: var(--accent-tint);
+}
+.pdfjs-ctx-item.active {
+  color: var(--accent);
+}
+.pdfjs-ctx-sep {
+  height: 1px;
+  margin: var(--spacing-s4) 0;
+  background: var(--border);
+}
+
+/* Library-row right-click menu (ReadSurface) — Zotero-style item context menu.
+   Shares the look of the PDF context menu. */
+.read-ctxmenu {
+  position: fixed;
+  z-index: 200;
+  min-width: 190px;
+  padding: var(--spacing-s4);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.read-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 100%;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.read-ctx-item:hover {
+  background: var(--accent-tint);
+}
+.read-ctx-item.danger {
+  color: var(--danger);
+}
+.read-ctx-item.danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.read-ctx-sep {
+  height: 1px;
+  margin: var(--spacing-s4) 0;
+  background: var(--border);
+}
+.reader-side {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+.reader-side > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Discovery source picker (OpenAlex / Semantic Scholar / Crossref / arXiv /
+   PubMed / CORE) + the free-PDF / API-key row. */
+.discover-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+  padding: 0 var(--spacing-s12) var(--spacing-s4);
+}
+.discover-src {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font-size: var(--font-size-12, 0.78rem);
+  color: var(--text-secondary);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+}
+.discover-src.active {
+  color: var(--accent);
+  background: var(--accent-tint);
+  border-color: var(--accent-line);
+}
+.discover-pdftoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  cursor: pointer;
+}
+.discover-source {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.discover-key {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: 0 var(--spacing-s12) var(--spacing-s8);
+}
+.discover-key-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* Inline delete confirmation in the inspector header (reliable in-webview
+   replacement for window.confirm). */
+.ref-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+
+/* Field header with an inline "open externally" affordance (URL / DOI). */
+.ref-field-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.ref-open-link {
+  padding: 0;
+  line-height: 1;
+}
+
+/* Draw attention to the storage (re-)link control when attachments can't open. */
+.import-btn.attn,
+.read-import-msg.attn {
+  border-color: var(--accent-line);
+}
+.import-btn.attn {
+  color: var(--accent);
+}
+
+/* Reader / browser tab strip — sits above the tab content; the "Library" pseudo
+   tab returns to the list. */
+.read-tabstrip {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: var(--spacing-s4) var(--spacing-s8) 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  overflow-x: auto;
+}
+.read-tabitem {
+  display: inline-flex;
+  align-items: center;
+  max-width: 240px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--text-secondary);
+  background: transparent;
+  white-space: nowrap;
+}
+.read-tabitem.active {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border);
+}
+.read-tabitem-label,
+.read-tabstrip > .read-tabitem {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.read-tabitem-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.read-tabitem-kind {
+  font-size: 0.85em;
+}
+.read-tabitem-x {
+  padding: 0 var(--spacing-s8) 0 var(--spacing-s4);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.read-tabitem-x:hover {
+  color: var(--text);
+}
+
+/* Zotero-style sortable column table for the library list. */
+.read-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.read-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: var(--font-size-13, 0.82rem);
+}
+.read-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  color: var(--text-secondary);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.read-table thead th.sorted {
+  color: var(--accent);
+}
+.read-th-arrow {
+  font-size: 0.7em;
+}
+.read-table tbody tr {
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+/* Zebra striping (Zotero-style): a faint tint on alternate rows makes long lists
+   easier to scan across columns. Declared before :hover/.active so those still
+   win by source order (equal specificity). */
+.read-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+.read-table tbody tr:hover {
+  background: var(--raised);
+}
+.read-table tbody tr.active {
+  background: var(--accent-tint);
+}
+.read-table td {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  color: var(--text);
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.read-td-title {
+  width: 45%;
+}
+.read-td-venue {
+  width: 22%;
+  color: var(--text-secondary);
+}
+.read-td-type {
+  color: var(--text-muted);
+}
+.read-table td.tnum {
+  font-variant-numeric: tabular-nums;
+  width: 3.5rem;
+}
+.read-pdf-dot {
+  margin-right: var(--spacing-s4);
+  color: var(--accent);
+}
+.read-pdf-dot:hover {
+  color: var(--accent-strong);
+}
+
+/* In-app browser tab — toolbar (back / forward / reload / address / open-ext)
+   over an iframe. */
+.browser-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.browser-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.browser-nav {
+  flex: 0 0 auto;
+  min-width: 1.9rem;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  color: var(--text-secondary);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.browser-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.browser-address {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.browser-hint {
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.browser-frame-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.browser-frame {
+  flex: 1;
+  border: none;
+  background: #fff;
+}

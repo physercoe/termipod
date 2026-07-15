@@ -1,0 +1,645 @@
+/* ---- rich transcript event cards (parity Phase 1a) ---- */
+.ev {
+  display: flex;
+  align-self: stretch;
+  max-width: 92%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ev-accent, var(--border-strong));
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s12) var(--spacing-s16);
+  box-shadow: var(--sh-1);
+}
+/* Director / user input reads as a distinct right-aligned bubble — the desktop
+ * has horizontal room the phone doesn't, so we use it to separate the two
+ * voices instead of stacking every card in one lane. */
+.ev--user {
+  align-self: flex-end;
+  max-width: 68%;
+  background: var(--accent-tint);
+  border-color: var(--accent-line);
+  border-left: 1px solid var(--accent-line);
+  border-radius: var(--radius-md);
+}
+.ev--user .ev-from {
+  color: var(--accent);
+}
+.ev-body {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  line-height: 1.55;
+}
+/* markdown blocks render tight in the feed */
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: var(--spacing-s4) 0;
+}
+/* Markdown images (incl. inline note-screenshot data-URIs) fit their column. */
+.md img {
+  max-width: 100%;
+  height: auto;
+}
+/* Placeholder while a termipod-att:// note image resolves to a blob. */
+.md-img-loading {
+  display: block;
+  width: 120px;
+  height: 80px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken, var(--bg));
+  border: 1px dashed var(--border);
+}
+.md pre {
+  overflow-x: auto;
+  padding: var(--spacing-s8);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.md pre code,
+.md pre code.hljs {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  line-height: 1.55;
+  background: transparent;
+  padding: 0;
+  color: var(--text);
+}
+.md :not(pre) > code {
+  font-family: var(--font-mono, monospace);
+  background: var(--input);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+}
+
+/* highlight.js token theme — tuned to the app's semantic palette so code reads
+   as part of the design in both themes rather than a bolted-on vendor theme.
+   rehype-highlight emits `hljs-*` classes; we colour the load-bearing groups. */
+.md .hljs-comment,
+.md .hljs-quote {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.md .hljs-keyword,
+.md .hljs-selector-tag,
+.md .hljs-literal,
+.md .hljs-doctag,
+.md .hljs-name {
+  color: var(--color-primary);
+}
+.md .hljs-string,
+.md .hljs-regexp,
+.md .hljs-meta .hljs-string {
+  color: var(--color-terminal-green, #7ee787);
+}
+.md .hljs-number,
+.md .hljs-symbol,
+.md .hljs-bullet {
+  color: var(--color-terminal-cyan, #79c0ff);
+}
+.md .hljs-title,
+.md .hljs-title.function_,
+.md .hljs-section,
+.md .hljs-selector-id {
+  color: var(--color-terminal-blue, #79c0ff);
+}
+.md .hljs-attr,
+.md .hljs-attribute,
+.md .hljs-variable,
+.md .hljs-template-variable,
+.md .hljs-property {
+  color: var(--color-terminal-yellow, #e3b341);
+}
+.md .hljs-type,
+.md .hljs-class .hljs-title,
+.md .hljs-built_in {
+  color: var(--color-secondary, #d2a8ff);
+}
+.md .hljs-tag,
+.md .hljs-punctuation {
+  color: var(--text-muted);
+}
+.md .hljs-deletion {
+  color: var(--color-error);
+}
+.md .hljs-addition {
+  color: var(--color-success);
+}
+.md .hljs-emphasis {
+  font-style: italic;
+}
+.md .hljs-strong {
+  font-weight: 600;
+}
+
+/* KaTeX: keep math near the surrounding text size and let long display math
+   scroll rather than widen the page. */
+.md .katex {
+  font-size: 1.02em;
+}
+.md .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--spacing-s4) 0;
+}
+.md ul,
+.md ol {
+  margin: var(--spacing-s4) 0;
+  padding-left: var(--spacing-s16);
+}
+.md table {
+  border-collapse: collapse;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 2px var(--spacing-s8);
+}
+.md-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+  /* Rendered as a <button> so a click opens the OS browser (never navigates the
+     SPA), but it must read like inline link text. */
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  display: inline;
+}
+.md-link:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: none;
+}
+.ev-thought {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.ev-thought-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: var(--spacing-s4);
+}
+.ev-mono {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: var(--spacing-s4) 0 0;
+  padding: var(--spacing-s8);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 320px;
+  overflow: auto;
+}
+.ev-collapse > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  list-style: revert;
+}
+
+/* Foldable text / thought blocks. The summary is a one-line preview with a
+   disclosure caret; the body reveals on toggle. */
+.ev-fold {
+  min-width: 0;
+}
+.ev-fold-sum {
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s4);
+  list-style: none;
+  color: var(--text-secondary);
+}
+.ev-fold-sum::-webkit-details-marker {
+  display: none;
+}
+.ev-fold-sum::before {
+  content: '▸';
+  color: var(--text-muted);
+  font-size: 0.72em;
+  transform: translateY(-1px);
+  transition: transform 0.12s ease;
+}
+.ev-fold[open] > .ev-fold-sum::before {
+  transform: translateY(-1px) rotate(90deg);
+}
+.ev-fold-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* Once open, the preview is redundant with the body — dim it to a caption. */
+.ev-fold[open] > .ev-fold-sum .ev-fold-preview {
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+}
+.ev-fold-body {
+  margin-top: var(--spacing-s4);
+}
+.ev-fold-thought > .ev-fold-sum {
+  font-style: italic;
+}
+.ev-tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.ev-tag {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+}
+.ev-tag.tool {
+  color: var(--color-terminal-blue);
+  border-color: color-mix(in srgb, var(--color-terminal-blue) 45%, transparent);
+}
+.ev-tag.err {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+}
+.ev-chip {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  font-size: var(--font-size-label);
+  border-radius: var(--radius-stadium);
+  padding: 3px 7px;
+}
+.ev-chip.ok {
+  color: var(--color-success);
+}
+.ev-chip.err {
+  color: var(--color-error);
+}
+.ev-result {
+  margin-top: var(--spacing-s4);
+}
+.ev-result.err .ev-mono {
+  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+}
+.ev-diff-path {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+}
+.diff-del {
+  color: var(--color-error);
+}
+.diff-add {
+  color: var(--color-success);
+}
+.ev-plan {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ev-plan li {
+  padding: 2px 0;
+}
+.ev-plan .plan-mark {
+  color: var(--text-secondary);
+}
+.ev-plan li.plan-completed,
+.ev-plan li.plan-done {
+  color: var(--text-muted);
+}
+.ev-input .ev-from {
+  display: inline-block;
+  color: var(--color-terminal-yellow);
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.ev-turn,
+.ev-usage,
+.ev-line,
+.ev-kv {
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+}
+.ev-usage {
+  font-family: var(--font-mono, monospace);
+}
+.ev-err-body {
+  color: var(--color-error);
+  white-space: pre-wrap;
+}
+.ev-kind-label {
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  margin-right: var(--spacing-s8);
+}
+.composer-wrap {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--bg), var(--canvas));
+}
+.composer {
+  display: flex;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  align-items: center;
+}
+.composer input[type='text'],
+.composer input:not([type]) {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s8) var(--spacing-s12);
+}
+.composer input[type='text'],
+.composer input:not([type]) {
+  flex: 1;
+}
+.composer .attach-btn {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  font-size: var(--font-size-body);
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+.composer-err {
+  padding: var(--spacing-s4) var(--spacing-s8) 0;
+}
+.composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s8) 0;
+}
+.att-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: 2px var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-stadium);
+  font-size: var(--font-size-label);
+  max-width: 260px;
+}
+.att-chip .att-kind {
+  text-transform: uppercase;
+  color: var(--color-terminal-blue);
+  letter-spacing: 0.03em;
+}
+.att-chip.k-image .att-kind {
+  color: var(--color-terminal-cyan);
+}
+.att-chip.k-text .att-kind {
+  color: var(--color-secondary);
+}
+.att-chip .att-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.att-chip .att-x {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: var(--font-size-body);
+  line-height: 1;
+}
+.digest pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--font-size-caption);
+}
+
+/* ---- attention dock cards ---- */
+
+.dock-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  box-shadow: var(--sh-1);
+  transition: box-shadow 0.13s var(--ease), border-color 0.13s var(--ease);
+}
+.card:hover {
+  box-shadow: var(--sh-2);
+  border-color: var(--border-strong);
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.card-kind {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: var(--font-size-caption);
+}
+.card-summary {
+  font-size: var(--font-size-body-small);
+}
+.card-detail {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+.card-detail code {
+  color: var(--color-info);
+}
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.card-meta {
+  display: flex;
+  gap: var(--spacing-s4);
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+}
+.card-actions {
+  display: flex;
+  gap: var(--spacing-s8);
+  align-items: center;
+}
+.card-actions input {
+  flex: 1;
+  min-width: 0;
+}
+.card-actions button {
+  padding: var(--spacing-s4) var(--spacing-s12);
+  font-size: var(--font-size-caption);
+}
+.sev {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  padding: 4px var(--spacing-s8);
+  border-radius: var(--radius-stadium);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--color-slate) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-slate) 30%, transparent);
+  color: var(--text-secondary);
+}
+.sev-high,
+.sev-critical {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  color: var(--danger);
+}
+.sev-warning,
+.sev-medium {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+  color: var(--warn);
+}
+
+/* ---- project board (kanban) ---- */
+
+.kanban {
+  display: flex;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  align-items: flex-start;
+  min-width: min-content;
+}
+.kanban-col {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.kanban-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  padding-bottom: var(--spacing-s4);
+  border-bottom: 1px solid var(--border);
+}
+.kanban-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+  box-shadow: var(--sh-1);
+  transition: box-shadow 0.13s var(--ease), border-color 0.13s var(--ease), transform 0.13s var(--ease);
+}
+.kanban-card-title {
+  font-size: var(--font-size-body-small);
+}
+.kanban-card-meta {
+  margin-top: var(--spacing-s4);
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+}
+.kanban-empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+  padding: var(--spacing-s4);
+}
+
+/* ---- admin & governance cockpit ---- */
+
+.admin {
+  width: 860px;
+  max-width: 94vw;
+  height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.admin-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12) var(--spacing-s16);
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--canvas), var(--surface));
+}
+.admin-tabs strong {
+  letter-spacing: -0.01em;
+}
+/* Draggable dialog header (Settings): grab to reposition the modal. */
+.admin-tabs-drag {
+  cursor: move;
+  user-select: none;
+}
+.admin-tabs-drag button {
+  cursor: pointer;
+}
+.admin-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-s12);
+}
+.admin-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-s16);
+}
+.admin-cols h3 {
+  margin: 0 0 var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.admin-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--spacing-s4) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+.admin-actions {
+  display: flex;
+  gap: var(--spacing-s4);
+}
+.admin-actions button {
+  padding: 2px var(--spacing-s8);
+  font-size: var(--font-size-label);
+}
+button.danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--danger);
+}
+button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: var(--danger);
+}

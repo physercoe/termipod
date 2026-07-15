@@ -1,0 +1,582 @@
+/* ---- search + docs + me (Phase 4) ---- */
+.search-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.search-bar input {
+  flex: 1;
+}
+.search-result {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 0;
+}
+.search-result-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 3px;
+}
+.search-result-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.doc-body {
+  max-width: 76ch;
+}
+.me-decision-kind {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-secondary);
+  margin-left: 8px;
+}
+
+/* ---- create paths (Phase 4 / F3) ---- */
+.tree-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tree-add {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 6px;
+  font-size: var(--font-size-body);
+}
+.tree-add:hover {
+  color: var(--text);
+  border-color: var(--color-primary);
+}
+
+/* ---- task create + sessions (Phase 4) ---- */
+.kanban-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--spacing-s8) var(--spacing-s8);
+}
+.task-detail {
+  width: 560px;
+  max-width: 94vw;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* ---- artifact / blob viewer ---- */
+.artifact-view {
+  width: 900px;
+  max-width: 94vw;
+  height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.artifact-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-s16);
+  display: flex;
+  flex-direction: column;
+}
+.artifact-img {
+  max-width: 100%;
+  align-self: center;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+.artifact-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  background: #fff;
+  border-radius: var(--radius-sm);
+}
+.artifact-text {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+}
+.artifact-download {
+  margin: auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}
+.artifact-chart,
+.artifact-json {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.artifact-code-bundle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s16);
+}
+.code-file-path {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  padding: var(--spacing-s4) 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--spacing-s4);
+}
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--spacing-s8);
+}
+.chart-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.chart-svg {
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+}
+.chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+.chart-axis {
+  fill: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+}
+.chart-line {
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.chart-bar {
+  fill: var(--color-primary);
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s12);
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+}
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.chart-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+/* An <a> styled to match buttons (download links in the artifact viewer). */
+.btn-like {
+  display: inline-block;
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--text);
+  text-decoration: none;
+  font-size: var(--font-size-body-small);
+}
+.btn-like:hover {
+  background: var(--hover);
+  border-color: var(--accent-line);
+}
+.task-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s12);
+}
+.task-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+.task-form .wide {
+  grid-column: 1 / -1;
+}
+.task-form textarea {
+  min-height: 80px;
+  resize: vertical;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+  color: var(--text);
+}
+.task-form select {
+  padding: var(--spacing-s4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--text);
+}
+.task-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.sessions-panel {
+  width: 960px;
+  max-width: 96vw;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.sessions-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.sessions-list {
+  flex: 0 0 300px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.session-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  cursor: pointer;
+  padding: var(--spacing-s8);
+  color: var(--text);
+}
+.session-item.active {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+.session-item .session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+}
+.sessions-detail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sessions-detail-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+}
+.sessions-detail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.chan-detail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.chan-feed {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-s12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.chan-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chan-from {
+  font-size: var(--font-size-label);
+  color: var(--color-primary);
+}
+.chan-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chan-sys {
+  text-align: center;
+}
+
+/* ---- hub profiles + offline (Phase 3) ---- */
+.profile-switcher {
+  position: relative;
+}
+.switcher-pill {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--input);
+}
+.switcher-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 260px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  padding: var(--spacing-s4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.switcher-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+.switcher-item.active {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+.switcher-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: var(--spacing-s4);
+  color: var(--text);
+}
+.switcher-pick .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+.switcher-add {
+  margin-top: var(--spacing-s4);
+  text-align: left;
+}
+.switcher-empty {
+  padding: var(--spacing-s8);
+}
+.offline-banner {
+  background: var(--color-warning);
+  color: #000;
+  text-align: center;
+  font-size: var(--font-size-caption);
+  padding: 2px var(--spacing-s8);
+}
+
+/* ---- vault (Phase 2b) ---- */
+.vault-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8);
+  justify-content: flex-start;
+  /* Reserve the action-row height so buttons slotting in after the async
+   * vaultStatus resolves don't shove the layout (no "splash" on open). */
+  min-height: 32px;
+}
+/* Async-loaded settings blocks fade in over reserved space instead of popping
+ * placeholder→data (proxy / vault status flashes on Settings open). */
+.settle {
+  opacity: 0;
+  transition: opacity 0.14s var(--ease);
+}
+.settle.settled {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settle {
+    transition: none;
+    opacity: 1;
+  }
+}
+.vault-restore {
+  display: flex;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) 0;
+}
+.vault-restore input {
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+}
+.vault-code {
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+  margin: var(--spacing-s8) 0;
+}
+.vault-code pre {
+  font-size: var(--font-size-body);
+  letter-spacing: 0.05em;
+  margin: var(--spacing-s4) 0;
+  user-select: all;
+}
+
+/* ---- software update ---- */
+
+.update-avail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8) 0;
+}
+.update-notes {
+  max-height: 160px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--spacing-s8);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.update-proxy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) 0;
+}
+.update-proxy input {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+}
+.small {
+  font-size: var(--font-size-caption);
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent, var(--text-secondary));
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: var(--font-size-caption);
+}
+.connect label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+.error {
+  color: var(--color-error);
+  font-size: var(--font-size-caption);
+}
+
+/* ---- command palette ---- */
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Sit above ALL surface content. Without an explicit z-index the backdrop is
+   * z-index:auto and only wins over siblings by DOM order — but any surface
+   * element with a positive z-index (e.g. the read-table sticky header th,
+   * z-index:1, or the PDF context menu, z-index:50) forms its own stacking
+   * context and paints *above* an auto backdrop regardless of tree order, so
+   * that row bleeds through the modal and steals its wheel/pointer events. */
+  z-index: 200;
+  background: rgba(6, 8, 12, 0.55);
+  backdrop-filter: blur(3px) saturate(0.9);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  animation: overlay-in 0.14s var(--ease);
+}
+/* Every modal/overlay panel floats above the backdrop with real elevation. */
+.palette-backdrop > * {
+  box-shadow: var(--sh-3);
+  animation: panel-in 0.16s var(--ease);
+}
+@keyframes overlay-in {
+  from { opacity: 0; }
+}
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
+}
+.palette {
+  width: 560px;
+  max-width: 90vw;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.palette input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: var(--spacing-s12) var(--spacing-s16);
+}
+.palette-item {
+  padding: var(--spacing-s8) var(--spacing-s16);
+  cursor: pointer;
+}
+.palette-item.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* ---- criteria create + deliverable send-back (Phase 5 parity) ---- */
+.crit-metric-row {
+  display: flex;
+  gap: var(--spacing-s8);
+}
+.crit-metric-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.checkbox-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.checkbox-row input {
+  width: auto;
+}
+.send-back-box textarea {
+  width: 100%;
+  min-height: 72px;
+}
+.inline-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin: 0 var(--spacing-s8);
+}

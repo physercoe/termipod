@@ -72,13 +72,9 @@ export function SshKeysSettings(): JSX.Element {
             onChange={(e) => setName(e.target.value)}
           />
           <button onClick={() => fileRef.current?.click()}>{t('term.importKeyFile')}</button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pem,.key,.txt,application/x-pem-file"
-            hidden
-            onChange={(e) => void onFile(e)}
-          />
+          {/* No `accept` filter — private keys are commonly extensionless
+              (`~/.ssh/id_ed25519`, `id_rsa`), which an extension filter hides. */}
+          <input ref={fileRef} type="file" hidden onChange={(e) => void onFile(e)} />
         </div>
         <textarea
           className="sshkey-pem"

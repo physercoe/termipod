@@ -45,18 +45,16 @@ export function ConnectForm({
   const [passphrase, setPassphrase] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [conns, setConns] = useState<Connection[]>([]);
   const [keys, setKeys] = useState<SshKeyMeta[]>([]);
 
   useEffect(() => {
-    const list = listConnections();
-    setConns(list);
     setKeys(listKeys());
     if (initialConnId !== undefined) {
-      const c = list.find((x) => x.id === initialConnId);
+      const c = listConnections().find((x) => x.id === initialConnId);
       if (c !== undefined) void applyConnection(c);
     }
-    // Prefill runs once on mount (the form remounts per open).
+    // Prefill runs once on mount (the form remounts per open — keyed on the
+    // selected connection in the terminal nav).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -102,16 +100,21 @@ export function ConnectForm({
       });
       if (auth === 'password' && password !== '') await setConnectionPassword(conn.id, password);
       setId(conn.id);
-      setConns(listConnections());
     } catch (e) {
       setError(msg(e));
     }
   }
 
-  async function removeConnection(cid: string): Promise<void> {
-    await deleteConnection(cid);
-    if (id === cid) resetForm();
-    setConns(listConnections());
+  // Delete the connection being edited, then close (the terminal nav — the single
+  // source of truth for the saved list — refreshes when this form unmounts).
+  async function removeCurrent(): Promise<void> {
+    if (id === null) return;
+    try {
+      await deleteConnection(id);
+      onCancel?.();
+    } catch (e) {
+      setError(msg(e));
+    }
   }
 
   async function connect(): Promise<void> {
@@ -146,29 +149,13 @@ export function ConnectForm({
 
   return (
     <div className="term-body term-connect">
-      <div className="term-sidebar">
-        <div className="term-saved-head">
-          <strong>{t('term.saved')}</strong>
-          <button onClick={resetForm}>{t('term.newConnection')}</button>
-        </div>
-        {conns.map((c) => (
-          <div key={c.id} className={c.id === id ? 'conn-item active' : 'conn-item'}>
-            <button className="conn-pick" onClick={() => void applyConnection(c)}>
-              <span className="conn-name">{c.name}</span>
-              <span className="muted small">
-                {c.username}@{c.host}
-                {c.port !== 22 ? `:${c.port}` : ''}
-              </span>
-            </button>
-            <button className="link-btn" onClick={() => void removeConnection(c.id)}>
-              {t('term.delete')}
-            </button>
-          </div>
-        ))}
-        {conns.length === 0 && <div className="muted small">{t('term.noSaved')}</div>}
-      </div>
-
       <div className="term-form">
+        <div className="term-form-head">
+          <strong>{id !== null ? t('term.editConnection') : t('term.newConnection')}</strong>
+          {id !== null && (
+            <button onClick={resetForm}>{t('term.newConnection')}</button>
+          )}
+        </div>
         <label className="wide">
           {t('term.name')}
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('term.namePlaceholder')} />
@@ -238,6 +225,11 @@ export function ConnectForm({
           <button disabled={host.trim() === '' || user.trim() === ''} onClick={() => void saveCurrent()}>
             {id !== null ? t('term.update') : t('term.save')}
           </button>
+          {id !== null && (
+            <button className="danger" onClick={() => void removeCurrent()}>
+              {t('term.delete')}
+            </button>
+          )}
           {onCancel !== undefined && <button onClick={onCancel}>{t('common.cancel')}</button>}
           <span className="spacer" />
           <button className="primary" disabled={!canConnect || busy} onClick={() => void connect()}>

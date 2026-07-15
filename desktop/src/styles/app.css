@@ -3857,60 +3857,20 @@ button.danger:hover {
   gap: var(--spacing-s12);
   align-items: stretch;
 }
-.term-sidebar {
-  flex: 0 0 220px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-s4);
-  border-right: 1px solid var(--border);
-  padding-right: var(--spacing-s12);
-  overflow: auto;
-}
-.term-saved-head {
+/* ConnectForm header — the saved-connection list moved to the terminal nav, so
+   the form fills the pane; this titles it (New / Edit) and offers a reset. */
+.term-form-head {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-s8);
-  margin-bottom: var(--spacing-s4);
 }
-.term-saved-head strong {
+.term-form-head strong {
   font-size: var(--font-size-label);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--text-secondary);
-}
-.conn-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-s4);
-  border-radius: var(--radius-sm);
-  padding: 2px 4px;
-}
-.conn-item.active {
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
-}
-.conn-pick {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  padding: var(--spacing-s4);
-  color: var(--text);
-}
-.conn-pick .conn-name {
-  font-size: var(--font-size-body-small);
-}
-.conn-pick .muted {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 160px;
 }
 .term-keys {
   margin-top: var(--spacing-s12);
@@ -5433,21 +5393,29 @@ th {
   flex: 0 0 auto;
   margin-right: var(--spacing-s4);
 }
+/* New + Import share one row (director spec — save vertical space). New fills
+   the width; Import is a compact icon button beside it. */
 .term-nav-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: var(--spacing-s4);
 }
 .term-nav-actions button {
-  justify-content: flex-start;
   font-size: var(--font-size-caption);
+}
+.term-nav-new {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+}
+.term-nav-import {
+  flex: 0 0 auto;
+  justify-content: center;
+  padding: 5px 7px;
 }
 .term-nav-notice {
   padding: 2px 4px;
-}
-.term-nav-actions button.active {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 .term-nav-section {
   margin-top: var(--spacing-s8);

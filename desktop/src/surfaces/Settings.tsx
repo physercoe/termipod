@@ -296,7 +296,7 @@ function AboutSettings(): JSX.Element {
   );
 }
 
-type CatId = 'account' | 'display' | 'input' | 'data' | 'sshkeys' | 'about' | 'updates';
+type CatId = 'account' | 'display' | 'input' | 'data' | 'vault' | 'about' | 'updates';
 const CAT_LS_KEY = 'termipod.settings.cat';
 
 /// The Settings job surface (pinned to the bottom of the activity bar). Where the
@@ -308,8 +308,9 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
   const t = useT();
   const tauri = isTauri();
 
-  // Order (director spec): Account first · Display · Input · Data (security +
-  // storage merged) · SSH Keys · About · Updates last.
+  // Order (director spec): Account first · Display · Input · Data (local storage)
+  // · Vault (sensitive credentials — keys + cross-device sync) · About · Updates
+  // last.
   const cats: { id: CatId; label: string; render: () => JSX.Element }[] = [
     { id: 'account', label: t('settings.catAccount'), render: () => <AccountSettings onConnect={onConnect} /> },
     { id: 'display', label: t('settings.catDisplay'), render: () => <AppearanceSettings /> },
@@ -319,20 +320,36 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
       label: t('settings.catData'),
       render: () => (
         <>
-          <VaultPanel />
           {tauri && <AttachmentLocation />}
           <CacheSettings />
         </>
       ),
     },
-    ...(tauri ? [{ id: 'sshkeys' as const, label: t('settings.catSshKeys'), render: () => <SshKeysSettings /> }] : []),
+    // Vault — the home for sensitive credentials (SSH keys, and the connection
+    // secrets the zero-knowledge vault seals) plus the cross-device sync.
+    ...(tauri
+      ? [
+          {
+            id: 'vault' as const,
+            label: t('settings.catVault'),
+            render: () => (
+              <>
+                <p className="muted small settings-lead">{t('settings.vaultLead')}</p>
+                <SshKeysSettings />
+                <VaultPanel />
+              </>
+            ),
+          },
+        ]
+      : []),
     { id: 'about', label: t('settings.catAbout'), render: () => <AboutSettings /> },
     ...(tauri ? [{ id: 'updates' as const, label: t('settings.catUpdates'), render: () => <UpdateSection /> }] : []),
   ];
 
   const [cat, setCat] = useState<CatId>(() => {
-    const saved = localStorage.getItem(CAT_LS_KEY) as CatId | null;
-    return saved !== null && cats.some((c) => c.id === saved) ? saved : 'account';
+    let saved = localStorage.getItem(CAT_LS_KEY);
+    if (saved === 'sshkeys') saved = 'vault'; // migrate the renamed category
+    return saved !== null && cats.some((c) => c.id === saved) ? (saved as CatId) : 'account';
   });
   function pick(id: CatId): void {
     setCat(id);

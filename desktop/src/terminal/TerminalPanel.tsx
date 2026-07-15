@@ -137,10 +137,13 @@ export function TerminalPanel(): JSX.Element {
     if (file === undefined) return;
     setError(null);
     try {
-      const n = importSshConfig(await file.text(), listConnections());
+      const res = await importSshConfig(await file.text(), listConnections());
       setConns(listConnections());
-      setNotice(t('term.importedConfig').replace('{n}', String(n)));
-      setTimeout(() => setNotice(null), 3500);
+      const base = t('term.importedConfig').replace('{n}', String(res.count));
+      setNotice(
+        res.keysAdded > 0 ? `${base} · ${t('term.importedKeys').replace('{n}', String(res.keysAdded))}` : base,
+      );
+      setTimeout(() => setNotice(null), 4000);
     } catch (ex) {
       setError(msg(ex));
     }
@@ -240,27 +243,34 @@ export function TerminalPanel(): JSX.Element {
           </button>
         </div>
         <div className="term-nav-actions">
-          <button disabled={!tauri} onClick={() => openConnect()}>
+          <button className="term-nav-new" disabled={!tauri} onClick={() => openConnect()}>
             <Icon name="plus" size={13} />
             {t('term.newConnection')}
           </button>
-          <button disabled={!tauri} onClick={() => cfgRef.current?.click()} title={t('term.importConfigHint')}>
+          <button
+            className="term-nav-import"
+            disabled={!tauri}
+            aria-label={t('term.importConfig')}
+            title={t('term.importConfigHint')}
+            onClick={() => cfgRef.current?.click()}
+          >
             <Icon name="external" size={13} />
-            {t('term.importConfig')}
           </button>
           {/* No `accept` filter — the OpenSSH config file is literally named
               `config` with no extension, which an extension filter would hide;
               the user picks it from wherever it lives via the native dialog. */}
           <input ref={cfgRef} type="file" hidden onChange={(e) => void onImportConfig(e)} />
-          {notice !== null && <div className="muted small term-nav-notice">{notice}</div>}
-          {error !== null && <div className="error small term-nav-notice">{error}</div>}
         </div>
+        {notice !== null && <div className="muted small term-nav-notice">{notice}</div>}
+        {error !== null && <div className="error small term-nav-notice">{error}</div>}
         <div className="term-nav-list">
           {conns.length === 0 && <div className="muted small term-nav-empty">{t('term.noSaved')}</div>}
           {conns.map((c) => (
             <button
               key={c.id}
-              className="term-nav-item term-nav-conn"
+              className={`term-nav-item term-nav-conn${
+                connecting && initialConnId === c.id ? ' active' : ''
+              }`}
               title={`${c.username}@${c.host}:${c.port}`}
               onClick={() => openConnect(c.id)}
             >
@@ -368,7 +378,11 @@ export function TerminalPanel(): JSX.Element {
 
               {connecting && (
                 <div className="term-pane term-pane-overlay">
+                  {/* Keyed on the picked connection so selecting a different host
+                      in the nav remounts the form with that host prefilled (a bare
+                      prop change wouldn't re-run the mount-time prefill). */}
                   <ConnectForm
+                    key={initialConnId ?? '__new__'}
                     initialConnId={initialConnId ?? undefined}
                     onConnected={onConnected}
                     onCancel={() => setConnecting(false)}

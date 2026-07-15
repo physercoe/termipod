@@ -1136,6 +1136,12 @@
   margin-top: var(--spacing-s4);
 }
 
+/* Soft over-64KB nudge — advisory, the item still saves. */
+.vault-size-warn {
+  margin-top: var(--spacing-s4);
+  color: var(--warn);
+}
+
 /* Script quick-run — armed button, then captured stdout/stderr + exit code. */
 .vault-run {
   margin-top: var(--spacing-s8);

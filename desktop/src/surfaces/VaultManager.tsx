@@ -46,6 +46,12 @@ const GENERIC: readonly VaultItemType[] = ['login', 'api', 'note', 'env', 'scrip
 const ENV_FORMATS = ['dotenv', 'shell', 'json', 'yaml', 'plain'] as const;
 const INTERPRETERS = ['bash', 'sh', 'zsh', 'python', 'node', 'pwsh', 'ruby'] as const;
 
+// Soft ceiling per item: not enforced (the item still saves), just a nudge. Every
+// vault secret shares one keychain document that loads whole into memory and
+// re-seals into each sync bundle, so multi-MB bodies tax every launch and sync.
+const SOFT_MAX_BYTES = 64 * 1024;
+const byteLen = (s: string): number => new TextEncoder().encode(s).length;
+
 function typeIcon(type: VaultItemType): IconName {
   switch (type) {
     case 'login':
@@ -495,6 +501,17 @@ function ItemEditor({
       </label>
 
       {err !== null && <div className="error">{err}</div>}
+      {(() => {
+        // Sum the item's secret-bearing fields — that's its footprint in the
+        // shared keychain document. Non-blocking; big items still save.
+        const bytes = byteLen(password) + byteLen(token) + byteLen(content) + byteLen(notes);
+        if (bytes <= SOFT_MAX_BYTES) return null;
+        return (
+          <div className="vault-size-warn small">
+            {`${Math.round(bytes / 1024)} KB · ${t('vault.sizeWarn')}`}
+          </div>
+        );
+      })()}
       <div className="vault-editor-actions">
         <button className="primary" disabled={busy || loading} onClick={() => void save()}>
           {t('vault.save')}

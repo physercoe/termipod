@@ -359,6 +359,8 @@ const en: Dict = {
   'vault.copy': 'Copy',
   'vault.copied': 'Copied',
   'vault.titleRequired': 'A title is required.',
+  'vault.sizeWarn':
+    'Large item — every vault secret loads into memory together and re-seals into each sync bundle, so keep bodies to snippets, not multi-MB files.',
   'vault.fTitle': 'Title',
   'vault.fUsername': 'Username',
   'vault.fUrl': 'Website',
@@ -1379,6 +1381,7 @@ const zh: Dict = {
   'vault.copy': '复制',
   'vault.copied': '已复制',
   'vault.titleRequired': '标题不能为空。',
+  'vault.sizeWarn': '内容较大 — 所有保险库密钥会一起载入内存并在每次同步时重新封装，请只存放代码片段，避免多 MB 的大文件。',
   'vault.fTitle': '标题',
   'vault.fUsername': '用户名',
   'vault.fUrl': '网址',

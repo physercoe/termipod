@@ -691,6 +691,23 @@ button > .ui-icon:not(:only-child):first-child,
   max-width: 100%;
   height: auto;
 }
+/* Crepe's floating selection toolbar (bold/italic/link…) styles its icons with
+   `color/fill: var(--crepe-color-outline)`, which we map to the deliberately
+   faint --border — so the icons wash out to near-invisible against the toolbar
+   surface (director report: "vague, near white or black"). Force a readable
+   foreground at rest; the active state keeps the accent (higher specificity so
+   it still beats our resting override). */
+.milkdown-host .milkdown .milkdown-toolbar {
+  border: 1px solid var(--border);
+}
+.milkdown-host .milkdown .milkdown-toolbar .toolbar-item svg {
+  color: var(--text);
+  fill: var(--text);
+}
+.milkdown-host .milkdown .milkdown-toolbar .toolbar-item.active svg {
+  color: var(--accent);
+  fill: var(--accent);
+}
 .ref-notes-preview {
   flex: 1;
   min-height: 0;
@@ -5756,6 +5773,33 @@ th {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+}
+/* A reference's note opened in its own reader tab: outline rail (reusing the
+   .mdreader-outline styles) + a main column with the mode bar and the editor. */
+.notetab {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.notetab-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.notetab-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.notetab-body > .md-editor,
+.notetab-body > .milkdown-host {
+  flex: 1;
+  min-height: 0;
 }
 .att-text {
   height: 100%;

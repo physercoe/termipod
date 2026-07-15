@@ -126,6 +126,27 @@ export class HubClient {
     return this.transport.delete(this.transport.team(`/references/${id}`));
   }
 
+  // --- reference annotations (ADR-053 companion, migration 0064) ---
+  /** PDF annotations are child records of a reference; agents reach the same
+   *  store via the `reference_annotation_*` MCP tools. The whole tree is nested
+   *  under the parent reference, so update/delete carry the ref id too. */
+  async listAnnotations(refId: string): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team(`/references/${refId}/annotations`));
+    return asArray(out);
+  }
+  createAnnotation(refId: string, body: Json): Promise<Entity> {
+    return this.transport.post(this.transport.team(`/references/${refId}/annotations`), body) as Promise<Entity>;
+  }
+  updateAnnotation(refId: string, annId: string, patch: Json): Promise<Entity> {
+    return this.transport.patch(
+      this.transport.team(`/references/${refId}/annotations/${annId}`),
+      patch,
+    ) as Promise<Entity>;
+  }
+  deleteAnnotation(refId: string, annId: string): Promise<Json> {
+    return this.transport.delete(this.transport.team(`/references/${refId}/annotations/${annId}`));
+  }
+
   /** Spawn the project's bound domain steward (`handleStartProject`) — direct
    * principal action, materialize-then-start (ADR-046). */
   startProject(id: string): Promise<Entity> {

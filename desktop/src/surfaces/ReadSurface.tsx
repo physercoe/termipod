@@ -18,6 +18,7 @@ import {
   writeNoteImage,
 } from '../state/attachments';
 import { syncLibrary } from '../state/librarySync';
+import { syncAnnotations } from '../state/annotationSync';
 import { useSession } from '../state/session';
 import {
   detectIdentifier,
@@ -36,6 +37,7 @@ import { BrowserView } from './BrowserView';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
 import { MarkdownReader } from '../ui/MarkdownReader';
+import { NoteTab } from '../ui/NoteTab';
 import { MarkdownEditor } from '../ui/MarkdownEditor';
 import { Icon, type IconName } from '../ui/Icon';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
@@ -86,7 +88,7 @@ const ALL = '__all__';
 // browser (an arbitrary URL). `activeTab === null` shows the library instead.
 interface ReadTab {
   id: string;
-  kind: 'pdf' | 'web';
+  kind: 'pdf' | 'web' | 'note';
   refId?: string;
   attId?: string; // which attachment of the reference this tab opened
   url?: string;
@@ -677,11 +679,13 @@ function RefMeta({
 function Inspector({
   refId,
   onOpenReader,
+  onOpenNote,
   onCollapse,
   embedded,
 }: {
   refId: string;
   onOpenReader?: (id: string, attId?: string) => void;
+  onOpenNote?: (refId: string) => void;
   onCollapse?: () => void;
   embedded?: boolean;
 }): JSX.Element {
@@ -1142,6 +1146,11 @@ function Inspector({
                 </button>
               </div>
               <span className="spacer" />
+              {onOpenNote !== undefined && (
+                <button className="link-btn" title={t('read.openNoteTab')} onClick={() => onOpenNote(ref.id)}>
+                  <Icon name="external" size={14} /> {t('read.openNoteTab')}
+                </button>
+              )}
               {isTauri() && (
                 <button className="link-btn" title={t('read.notesExport')} onClick={() => void exportNotes()}>
                   <Icon name="download" size={14} /> {t('read.notesExport')}
@@ -1216,11 +1225,13 @@ function ReaderView({
   attId,
   onGone,
   onOpenReader,
+  onOpenNote,
 }: {
   refId: string;
   attId?: string;
   onGone: () => void;
   onOpenReader?: (id: string, attId?: string) => void;
+  onOpenNote?: (refId: string) => void;
 }): JSX.Element {
   const t = useT();
   const ref = useLibrary((s) => s.references.find((r) => r.id === refId));
@@ -1328,7 +1339,7 @@ function ReaderView({
               }}
             />
             <aside className="reader-side" style={{ width: sideW }}>
-              <Inspector refId={refId} embedded onOpenReader={onOpenReader} />
+              <Inspector refId={refId} embedded onOpenReader={onOpenReader} onOpenNote={onOpenNote} />
             </aside>
           </>
         )}
@@ -1647,6 +1658,19 @@ export function ReadSurface(): JSX.Element {
     setActiveTab(id);
   }
 
+  function openNoteTab(refId: string): void {
+    const existing = tabs.find((tb) => tb.kind === 'note' && tb.refId === refId);
+    if (existing !== undefined) {
+      setActiveTab(existing.id);
+      return;
+    }
+    const r = useLibrary.getState().references.find((x) => x.id === refId);
+    const baseTitle = r !== undefined && r.title !== '' ? r.title : t('read.untitled');
+    const id = nextTabId();
+    setTabs((ts) => [...ts, { id, kind: 'note', refId, title: `${baseTitle} · ${t('read.noteTabSuffix')}` }]);
+    setActiveTab(id);
+  }
+
   function closeTab(id: string): void {
     setTabs((ts) => ts.filter((tb) => tb.id !== id));
     setActiveTab((a) => (a === id ? null : a));
@@ -1808,12 +1832,19 @@ export function ReadSurface(): JSX.Element {
     setImportMsg(null);
     try {
       const r = await syncLibrary(client);
-      setImportMsg(
-        t('read.syncDone')
-          .replace('{up}', String(r.pushed + r.created))
-          .replace('{down}', String(r.pulledAdded))
-          .replace('{fail}', String(r.failed)),
-      );
+      // Annotations hang off their parent reference's hub id, so they must sync
+      // AFTER the library (the push above stamps the hubIds they resolve against).
+      const a = await syncAnnotations(client);
+      let msg = t('read.syncDone')
+        .replace('{up}', String(r.pushed + r.created))
+        .replace('{down}', String(r.pulledAdded))
+        .replace('{fail}', String(r.failed + a.failed));
+      if (a.pushed + a.created + a.pulledAdded > 0) {
+        msg += ` · ${t('read.syncAnnotations')
+          .replace('{up}', String(a.pushed + a.created))
+          .replace('{down}', String(a.pulledAdded))}`;
+      }
+      setImportMsg(msg);
     } catch (e) {
       setImportMsg(t('read.syncFailed').replace('{err}', e instanceof Error ? e.message : String(e)));
     } finally {
@@ -1915,7 +1946,11 @@ export function ReadSurface(): JSX.Element {
           {tabs.map((tb) => (
             <span key={tb.id} className={`read-tabitem${activeTab === tb.id ? ' active' : ''}`}>
               <button className="read-tabitem-label" title={tb.title} onClick={() => setActiveTab(tb.id)}>
-                <Icon name={tb.kind === 'web' ? 'globe' : 'file-text'} size={13} className="read-tabitem-kind" />
+                <Icon
+                  name={tb.kind === 'web' ? 'globe' : tb.kind === 'note' ? 'note' : 'file-text'}
+                  size={13}
+                  className="read-tabitem-kind"
+                />
                 {tb.title}
               </button>
               <button className="read-tabitem-x" title={t('read.closeTab')} onClick={() => closeTab(tb.id)}>
@@ -1932,7 +1967,10 @@ export function ReadSurface(): JSX.Element {
             attId={activeTabObj.attId}
             onGone={() => closeTab(activeTabObj.id)}
             onOpenReader={openPdfTab}
+            onOpenNote={openNoteTab}
           />
+        ) : activeTabObj.kind === 'note' && activeTabObj.refId !== undefined ? (
+          <NoteTab refId={activeTabObj.refId} />
         ) : (
           <BrowserView initialUrl={activeTabObj.url ?? ''} />
         )
@@ -2148,7 +2186,12 @@ export function ReadSurface(): JSX.Element {
 
         <aside className="read-inspector-pane" style={{ width: inspW }}>
           {selected !== null ? (
-            <Inspector refId={selected} onOpenReader={openPdfTab} onCollapse={() => foldInsp(true)} />
+            <Inspector
+              refId={selected}
+              onOpenReader={openPdfTab}
+              onOpenNote={openNoteTab}
+              onCollapse={() => foldInsp(true)}
+            />
           ) : (
             <div className="ref-inspector-empty-wrap">
               <div className="ref-tabs">
@@ -2222,6 +2265,15 @@ export function ReadSurface(): JSX.Element {
                   <Icon name="window" size={14} /> {t('read.openInReader')}
                 </button>
               )}
+              <button
+                className="read-ctx-item"
+                onClick={() => {
+                  setRowMenu(null);
+                  openNoteTab(r.id);
+                }}
+              >
+                <Icon name="note" size={14} /> {t('read.openNoteTab')}
+              </button>
               {isTauri() && (
                 <button className="read-ctx-item" onClick={() => void ctxAddAttachment(r.id)}>
                   <Icon name="plus" size={14} /> {t('read.ctxAddAttachment')}

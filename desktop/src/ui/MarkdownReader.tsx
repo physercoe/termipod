@@ -10,7 +10,7 @@ import { ResizeHandle, usePanelWidth } from './ResizeHandle';
 /// Math renders via the shared <Markdown> (singleDollarMath + `\(…\)`/`\[…\]`
 /// normalization); heading `id`s are stamped so the outline can target them.
 
-interface Head {
+export interface Head {
   depth: number;
   text: string;
   slug: string;
@@ -28,7 +28,7 @@ function cleanInline(s: string): string {
 
 // ATX headings only (`#`…`######`), skipping fenced code blocks so a `# comment`
 // inside a code sample is never mistaken for a heading.
-function extractHeadings(md: string): Head[] {
+export function extractHeadings(md: string): Head[] {
   const out: Head[] = [];
   let inFence = false;
   let fenceChar = '';

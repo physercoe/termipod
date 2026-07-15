@@ -8,6 +8,7 @@ use tokio::sync::{Mutex, Notify};
 
 mod docfile;
 mod drawio;
+mod foldersync;
 mod keychain;
 mod local_agent;
 mod localfs;
@@ -500,6 +501,8 @@ pub fn run() {
             storage::save_image_as,
             webdav::webdav_verify,
             webdav::webdav_sync,
+            foldersync::folder_webdav_verify,
+            foldersync::folder_webdav_sync,
             docfile::doc_open,
             docfile::doc_read,
             docfile::doc_save,

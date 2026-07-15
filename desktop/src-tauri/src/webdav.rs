@@ -37,7 +37,7 @@ use serde::Serialize;
 
 const DAV_TIMEOUT_SECS: u64 = 90;
 
-fn client() -> Result<reqwest::Client, String> {
+pub(crate) fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent("termipod-desktop")
         .timeout(std::time::Duration::from_secs(DAV_TIMEOUT_SECS))
@@ -67,7 +67,7 @@ fn now_ms() -> i64 {
 /// equals `local`, case-insensitively. A deliberately tiny, dependency-free XML
 /// scan — enough for WebDAV `<D:href>` listings and our own flat `.prop` files,
 /// without pulling in a full XML parser.
-fn extract_all(xml: &str, local: &str) -> Vec<String> {
+pub(crate) fn extract_all(xml: &str, local: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut i = 0;
     while let Some(pos) = xml[i..].find('<') {

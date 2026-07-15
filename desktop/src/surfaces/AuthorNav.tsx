@@ -5,6 +5,7 @@ import { Icon } from '../ui/Icon';
 import { isTauri } from '../platform';
 import { useDocuments, type DocKind } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
+import { WorkspaceSyncModal } from './WorkspaceSyncModal';
 
 /// The Author (J2) left nav: a file/workspace tree. Two sections — the currently
 /// **open documents** (click to focus) and an on-disk **workspace folder** the
@@ -48,6 +49,7 @@ export function AuthorNav(): JSX.Element {
   const [nodes, setNodes] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showSync, setShowSync] = useState(false);
   const tauri = isTauri();
 
   const refresh = useCallback(
@@ -130,6 +132,11 @@ export function AuthorNav(): JSX.Element {
               <Icon name="refresh" size={15} />
             </button>
           )}
+          {tauri && folder !== null && (
+            <button className="author-nav-icon" title={t('author.navSync')} onClick={() => setShowSync(true)}>
+              <Icon name="cloud" size={15} />
+            </button>
+          )}
           {tauri && (
             <button className="author-nav-icon" title={t('author.navOpenFolder')} onClick={() => void pick()}>
               <Icon name="folder" size={15} />
@@ -154,6 +161,14 @@ export function AuthorNav(): JSX.Element {
           <TreeNode key={n.path} node={n} depth={0} onOpen={openFile} />
         ))}
       </div>
+
+      {showSync && (
+        <WorkspaceSyncModal
+          root={folder}
+          onClose={() => setShowSync(false)}
+          onSynced={() => void refresh(folder)}
+        />
+      )}
     </div>
   );
 }

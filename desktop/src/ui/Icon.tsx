@@ -48,6 +48,8 @@ export type IconName =
   | 'square'
   | 'pen'
   | 'cloud'
+  | 'split-h'
+  | 'split-v'
   | 'trash';
 
 const PATHS: Record<IconName, JSX.Element> = {
@@ -256,6 +258,20 @@ const PATHS: Record<IconName, JSX.Element> = {
   ),
   square: <rect x="4" y="4" width="16" height="16" rx="2" />,
   cloud: <path d="M6.5 19a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 9.5 4.25 4.25 0 0 1 17.5 18H6.5z" />,
+  // split-h — two panes side by side (a vertical divider): split right
+  'split-h': (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M12 4v16" />
+    </>
+  ),
+  // split-v — two panes stacked (a horizontal divider): split down
+  'split-v': (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 12h18" />
+    </>
+  ),
   pen: (
     <>
       <path d="M12 20h9" />

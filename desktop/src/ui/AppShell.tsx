@@ -27,8 +27,8 @@ import { ReadSurface } from '../surfaces/ReadSurface';
 import { RecordSurface } from '../surfaces/RecordSurface';
 import { SearchPanel } from '../surfaces/SearchPanel';
 import { SessionsPanel } from '../surfaces/SessionsPanel';
-import { Settings } from '../surfaces/Settings';
-import { TerminalDock } from '../terminal/TerminalDock';
+import { SettingsSurface } from '../surfaces/Settings';
+import { TerminalPanel } from '../terminal/TerminalPanel';
 import { useTerminals } from '../terminal/store';
 import { ActivityBar } from './ActivityBar';
 import { CommandPalette, type Command } from './CommandPalette';
@@ -47,12 +47,12 @@ export function AppShell(): JSX.Element {
   const selection = useFocus((s) => s.selection);
   const clear = useFocus((s) => s.clear);
   const job = useWorkbench((s) => s.job);
+  const setJob = useWorkbench((s) => s.setJob);
   const online = useOnline();
   const qc = useQueryClient();
   const t = useT();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
@@ -88,7 +88,6 @@ export function AppShell(): JSX.Element {
   // read-panel overlays that otherwise only dismiss on a backdrop click.
   function closeOverlays(): void {
     setAdminOpen(false);
-    setSettingsOpen(false);
     setSessionsOpen(false);
     setChannelsOpen(false);
     setInsightsOpen(false);
@@ -134,8 +133,8 @@ export function AppShell(): JSX.Element {
     { id: 'docs', label: t('cmd.docs'), run: () => setDocsOpen(true) },
     { id: 'me', label: t('cmd.me'), run: () => setMeOpen(true) },
     { id: 'search', label: t('cmd.search'), run: () => setSearchOpen(true) },
-    { id: 'terminal', label: t('cmd.terminal'), run: () => useTerminals.getState().setOpen(true) },
-    { id: 'settings', label: t('cmd.settings'), run: () => setSettingsOpen(true) },
+    { id: 'terminal', label: t('cmd.terminal'), run: () => setJob('terminal') },
+    { id: 'settings', label: t('cmd.settings'), run: () => setJob('settings') },
     client === null
       ? { id: 'connect', label: t('shell.connect'), run: () => openConnect() }
       : { id: 'disconnect', label: t('cmd.disconnect'), run: disconnect },
@@ -146,33 +145,35 @@ export function AppShell(): JSX.Element {
     setConnectOpen(true);
   }
 
+  const statusChrome = (
+    <>
+      {client === null ? (
+        <>
+          <span className="pill offline">{t('shell.offline')}</span>
+          <button className="primary" onClick={() => openConnect()}>
+            {t('shell.connect')}
+          </button>
+        </>
+      ) : (
+        <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
+      )}
+      <button className="statusbar-palette" onClick={() => setPaletteOpen(true)} title={t('cmd.palette')}>
+        ⌘K
+      </button>
+    </>
+  );
+
   return (
     <div className="shell">
-      <div className="titlebar">
-        <strong>TermiPod</strong>
-        {client === null ? (
-          <>
-            <span className="pill offline">{t('shell.offline')}</span>
-            <button className="primary" onClick={() => openConnect()}>
-              {t('shell.connect')}
-            </button>
-          </>
-        ) : (
-          <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
-        )}
-        <span className="spacer" />
-        <button onClick={() => useTerminals.getState().toggle()}>{t('shell.terminal')}</button>
-        <button onClick={() => setSettingsOpen(true)}>{t('shell.settings')}</button>
-        <button className="titlebar-palette" onClick={() => setPaletteOpen(true)} title={t('cmd.palette')}>
-          ⌘K
-        </button>
-      </div>
-
       {client !== null && !online && <div className="offline-banner">{t('shell.offlineBanner')}</div>}
 
       <div className="workbench-row">
         <ActivityBar />
         <main className="workbench-main">
+          {/* The terminal lives in an always-mounted panel (its <Screen>s die if
+              unmounted); every other job renders in this stack, which the panel
+              overlays in dock mode and replaces in surface mode. */}
+          <div className={`surface-stack${job === 'terminal' ? ' hidden' : ''}`}>
           <ErrorBoundary key={job} label={job}>
           {job === 'fleet' ? (
             <>
@@ -230,16 +231,18 @@ export function AppShell(): JSX.Element {
             <CanvasSurface />
           ) : job === 'compare' ? (
             <CompareSurface />
-          ) : (
+          ) : job === 'record' ? (
             <RecordSurface />
-          )}
+          ) : job === 'settings' ? (
+            <SettingsSurface />
+          ) : null /* terminal → the always-mounted TerminalPanel below */}
           </ErrorBoundary>
+          </div>
+          <TerminalPanel />
         </main>
       </div>
 
-      <TerminalDock />
-
-      <StatusBar />
+      <StatusBar right={statusChrome} />
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
@@ -249,7 +252,6 @@ export function AppShell(): JSX.Element {
       {docsOpen && <DocsPanel onClose={() => setDocsOpen(false)} />}
       {meOpen && <MePanel onClose={() => setMeOpen(false)} />}
       {searchOpen && <SearchPanel onClose={() => setSearchOpen(false)} />}
-      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
       {connectOpen && (
         <ConnectPanel
           edit={editProfile}

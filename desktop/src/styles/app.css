@@ -162,6 +162,22 @@ pre {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Positioning context for the terminal panel's dock-mode bottom strip. */
+  position: relative;
+}
+/* Holds every job surface except the terminal (which is the always-mounted
+   TerminalPanel sibling). Hidden — not unmounted — when the terminal job is
+   active, so switching jobs never tears down the other surfaces mid-flight. */
+.surface-stack {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.surface-stack.hidden {
+  display: none;
 }
 
 /* Fleet-scoped action bar — the control-plane surfaces (sessions, channels,
@@ -300,6 +316,54 @@ pre {
 }
 .job-icon {
   display: block;
+}
+/* Activity-bar brand mark (top) + the job list + a spacer that pushes the pinned
+   Settings tab to the bottom (the VS Code gear idiom). */
+.activity-brand {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  margin-bottom: var(--spacing-s4);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  font-size: var(--font-size-body);
+}
+.activity-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+}
+.activity-spacer {
+  flex: 1 1 auto;
+  min-height: var(--spacing-s8);
+}
+.activity-tab-pinned {
+  flex: 0 0 auto;
+}
+/* Session chrome relocated from the old titlebar into the status bar's right end. */
+.statusbar-chrome {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+}
+.statusbar-palette {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-caption);
+  padding: 1px 7px;
+}
+/* The status bar's own controls stay compact so the bar keeps its 28px height. */
+.statusbar .profile-switcher .switcher-pill {
+  padding: 1px 8px;
+  font-size: var(--font-size-caption);
+}
+/* Profile dropdown opens upward from the bottom bar. */
+.statusbar .switcher-menu {
+  top: auto;
+  bottom: 100%;
+  margin-bottom: 4px;
 }
 /* Shared inline icon (ui/Icon.tsx): baseline-aligned with adjacent text, never
    shrinks in a flex row, and a hair of optical spacing when it precedes a label. */
@@ -3456,6 +3520,64 @@ button.danger:hover {
   border-radius: var(--radius-md);
   overflow: hidden;
 }
+/* Settings job surface — a left category rail + a scrolling content pane, so the
+   preferences scale by category instead of stacking into one wall (replaces the
+   round-1 single-scroll modal). */
+.settings-surface {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.settings-cats {
+  flex: 0 0 auto;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--spacing-s8);
+  border-right: 1px solid var(--border);
+  background: var(--canvas);
+  overflow-y: auto;
+}
+.settings-cats-head {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: var(--spacing-s4) var(--spacing-s8) var(--spacing-s8);
+}
+.settings-cat {
+  text-align: left;
+  padding: var(--spacing-s8) var(--spacing-s12);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-body-small);
+}
+.settings-cat:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.settings-cat.active {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-s24) var(--spacing-s32);
+  max-width: 760px;
+}
+.settings-content-title {
+  margin: 0 0 var(--spacing-s16);
+  font-size: var(--font-size-body-large, var(--font-size-body));
+  color: var(--text);
+}
 .setting-group {
   margin-bottom: var(--spacing-s24);
 }
@@ -5101,15 +5223,158 @@ th {
 }
 
 /* ---- Persistent terminal dock (professional-terminal, → ADR-053) ---- */
-.term-dock {
+/* The terminal panel renders in two CSS modes (see TerminalPanel.tsx): a full
+   job surface (nav + split panes) and a compact bottom dock strip. It is always
+   mounted, so mode is a class swap — never an unmount (which would kill sessions). */
+.term-panel {
   display: flex;
-  flex-direction: column;
   min-height: 0;
   background: var(--surface);
-  border-top: 1px solid var(--border);
   position: relative;
 }
-.term-dock.hidden { display: none; }
+.term-panel.hidden {
+  display: none;
+}
+/* Surface mode — fills the workbench main area, nav on the left. */
+.term-panel.surface {
+  flex: 1;
+  min-width: 0;
+  flex-direction: row;
+}
+/* Dock mode — an absolute bottom strip overlaying the active surface; the nav is
+   hidden so the strip stays compact. Anchored to .workbench-main (position:relative). */
+.term-panel.dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  flex-direction: row;
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+}
+.term-panel.dock .term-nav {
+  display: none;
+}
+/* Left nav (surface mode): open sessions + saved connections + spawn buttons. */
+.term-nav {
+  flex: 0 0 auto;
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-s8);
+  border-right: 1px solid var(--border);
+  background: var(--canvas);
+}
+.term-nav-head {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.term-nav-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+}
+.term-nav-actions button {
+  font-size: var(--font-size-caption);
+}
+.term-nav-actions button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.term-nav-section {
+  margin-top: var(--spacing-s8);
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.term-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.term-nav-empty {
+  padding: var(--spacing-s4);
+}
+.term-nav-item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.term-nav-item.active {
+  background: var(--accent-tint);
+}
+.term-nav-pick,
+.term-nav-conn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 5px 8px;
+  font-size: var(--font-size-caption);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.term-nav-conn {
+  width: 100%;
+  border-radius: var(--radius-sm);
+}
+.term-nav-item:hover {
+  background: var(--hover);
+}
+.term-nav-x {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.term-nav-x:hover {
+  color: var(--text);
+}
+/* Main column: head (tabs/title + split controls) over the pane area. */
+.term-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.term-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  min-height: 34px;
+}
+.term-head-title {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.term-split-ctl {
+  display: flex;
+  gap: 2px;
+}
+.term-split-ctl button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .term-dock-resize {
   position: absolute;
   top: 0;
@@ -5186,18 +5451,81 @@ th {
   border-color: var(--accent);
   color: var(--accent);
 }
-.term-dock-body {
+/* The pane area — a flex box whose direction is the split orientation. Every
+   session's pane is a child; hidden ones are display:none (never unmounted), so
+   the visible ones tile evenly. `row` = side-by-side, `column` = stacked. */
+.term-panes {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   position: relative;
 }
-.dock-pane {
-  flex: 1;
+.term-panes.row {
+  flex-direction: row;
+}
+.term-panes.column {
+  flex-direction: column;
+}
+.term-pane {
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
   display: flex;
+  flex-direction: column;
 }
-.dock-pane.hidden { display: none; }
+.term-pane.hidden {
+  display: none;
+}
+/* A visible divider between tiled panes (only shown when more than one tiles). */
+.term-panes.row > .term-pane:not(.hidden) ~ .term-pane:not(.hidden) {
+  border-left: 1px solid var(--border);
+}
+.term-panes.column > .term-pane:not(.hidden) ~ .term-pane:not(.hidden) {
+  border-top: 1px solid var(--border);
+}
+.term-pane.focused .term-pane-head {
+  color: var(--accent);
+}
+.term-pane-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: 3px var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  background: var(--canvas);
+}
+.term-pane-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.term-pane-x {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 1px 4px;
+}
+.term-pane-x:hover {
+  color: var(--text);
+}
+.term-pane-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+/* Connect / agent forms overlay the whole pane area. */
+.term-pane-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+  z-index: 2;
+  overflow: auto;
+}
 .term-empty {
   flex: 1;
   display: flex;

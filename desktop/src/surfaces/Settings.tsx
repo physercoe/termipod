@@ -54,9 +54,7 @@ function AttachmentLocation(): JSX.Element {
         >
           {t('settings.attachChoose')}
         </button>
-        {customRoot !== null && (
-          <button onClick={() => clearCustom()}>{t('settings.attachReset')}</button>
-        )}
+        {customRoot !== null && <button onClick={() => clearCustom()}>{t('settings.attachReset')}</button>}
       </div>
       {label.kind === 'zotero' && <p className="muted small">{t('settings.attachZoteroNote')}</p>}
     </section>
@@ -116,19 +114,12 @@ function VoiceSettings(): JSX.Element {
   );
 }
 
-/// Device settings (mirrors the mobile Settings surface's device-prefs role):
-/// appearance (theme + language) and the current connection. Team/hub policy
-/// lives in the Admin cockpit, not here.
-export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
+function AppearanceSettings(): JSX.Element {
   const t = useT();
   const pref = useTheme((s) => s.pref);
   const setPref = useTheme((s) => s.setPref);
   const lang = useLang((s) => s.lang);
   const setLang = useLang((s) => s.setLang);
-  const disconnect = useSession((s) => s.disconnect);
-  const teamId = useSession((s) => s.config.teamId);
-  const baseUrl = useSession((s) => s.config.baseUrl);
-
   const themes: { v: ThemePref; label: string }[] = [
     { v: 'dark', label: t('theme.dark') },
     { v: 'light', label: t('theme.light') },
@@ -138,126 +129,149 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
     { v: 'en', label: 'English' },
     { v: 'zh', label: '中文' },
   ];
+  return (
+    <section className="setting-group">
+      <h3>{t('settings.appearance')}</h3>
+      <div className="setting-row">
+        <label>{t('settings.theme')}</label>
+        <div className="seg">
+          {themes.map((o) => (
+            <button key={o.v} className={pref === o.v ? 'seg-btn active' : 'seg-btn'} onClick={() => setPref(o.v)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="setting-row">
+        <label>{t('settings.language')}</label>
+        <div className="seg">
+          {langs.map((o) => (
+            <button key={o.v} className={lang === o.v ? 'seg-btn active' : 'seg-btn'} onClick={() => setLang(o.v)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
 
+function CacheSettings(): JSX.Element {
+  const t = useT();
   const [cacheKb, setCacheKb] = useState(() => Math.round(cacheSizeBytes() / 1024));
+  return (
+    <section className="setting-group">
+      <h3>{t('settings.cache')}</h3>
+      <p className="muted small">{t('settings.cacheBlurb')}</p>
+      <div className="setting-row">
+        <label>{t('settings.cacheSize')}</label>
+        <span className="muted">{cacheKb} KB</span>
+      </div>
+      <div className="setting-row">
+        <button
+          onClick={() => {
+            clearCache();
+            setCacheKb(0);
+          }}
+        >
+          {t('settings.clearCache')}
+        </button>
+      </div>
+    </section>
+  );
+}
 
-  // Draggable dialog: the modal is centred by default; grabbing its header offsets
-  // it so it can be repositioned (director: "the window cannot move"). Track via
-  // window listeners — WebView2's setPointerCapture is unreliable ([[memory]]).
-  const [drag, setDrag] = useState({ x: 0, y: 0 });
-  function startDrag(e: React.MouseEvent): void {
-    // Don't start a drag from the close button.
-    if ((e.target as HTMLElement).closest('button') !== null) return;
-    e.preventDefault();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const base = { ...drag };
-    const move = (ev: MouseEvent): void => {
-      setDrag({ x: base.x + (ev.clientX - startX), y: base.y + (ev.clientY - startY) });
-    };
-    const up = (): void => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
-    };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+function ConnectionSettings(): JSX.Element {
+  const t = useT();
+  const disconnect = useSession((s) => s.disconnect);
+  const teamId = useSession((s) => s.config.teamId);
+  const baseUrl = useSession((s) => s.config.baseUrl);
+  return (
+    <section className="setting-group">
+      <h3>{t('settings.connection')}</h3>
+      <div className="setting-row">
+        <label>Hub</label>
+        <span className="muted">{baseUrl}</span>
+      </div>
+      <div className="setting-row">
+        <label>{t('connect.team')}</label>
+        <span className="muted">{teamId}</span>
+      </div>
+      <div className="setting-row">
+        <button className="danger" onClick={() => disconnect()}>
+          {t('settings.disconnect')}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+type CatId = 'appearance' | 'updates' | 'security' | 'storage' | 'voice' | 'connection';
+const CAT_LS_KEY = 'termipod.settings.cat';
+
+/// The Settings job surface (pinned to the bottom of the activity bar). Where the
+/// round-1 build stacked every device preference into one scrolling modal, this
+/// splits them into a left category rail + a content pane, so the surface scales
+/// as more settings land instead of becoming an undifferentiated wall. Team/hub
+/// *policy* still lives in the Admin cockpit, not here — this is device prefs.
+export function SettingsSurface(): JSX.Element {
+  const t = useT();
+  const tauri = isTauri();
+
+  const cats: { id: CatId; label: string; render: () => JSX.Element }[] = [
+    { id: 'appearance', label: t('settings.catAppearance'), render: () => <AppearanceSettings /> },
+    { id: 'updates', label: t('settings.catUpdates'), render: () => <UpdateSection /> },
+    { id: 'security', label: t('settings.catSecurity'), render: () => <VaultPanel /> },
+    ...(tauri
+      ? [
+          {
+            id: 'storage' as const,
+            label: t('settings.catStorage'),
+            render: () => (
+              <>
+                <AttachmentLocation />
+                <CacheSettings />
+              </>
+            ),
+          },
+          { id: 'voice' as const, label: t('settings.catVoice'), render: () => <VoiceSettings /> },
+        ]
+      : [{ id: 'storage' as const, label: t('settings.catStorage'), render: () => <CacheSettings /> }]),
+    { id: 'connection', label: t('settings.catConnection'), render: () => <ConnectionSettings /> },
+  ];
+
+  const [cat, setCat] = useState<CatId>(() => {
+    const saved = localStorage.getItem(CAT_LS_KEY) as CatId | null;
+    return saved !== null && cats.some((c) => c.id === saved) ? saved : 'appearance';
+  });
+  function pick(id: CatId): void {
+    setCat(id);
+    try {
+      localStorage.setItem(CAT_LS_KEY, id);
+    } catch {
+      /* ignore */
+    }
   }
 
+  const active = cats.find((c) => c.id === cat) ?? cats[0];
+
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div
-        className="settings"
-        onMouseDown={(e) => e.stopPropagation()}
-        style={drag.x !== 0 || drag.y !== 0 ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined}
-      >
-        <div className="admin-tabs admin-tabs-drag" onMouseDown={startDrag}>
-          <strong>{t('settings.title')}</strong>
-          <span className="spacer" />
-          <button onClick={onClose}>{t('admin.close')}</button>
-        </div>
-        <div className="admin-body">
-          <section className="setting-group">
-            <h3>{t('settings.appearance')}</h3>
-            <div className="setting-row">
-              <label>{t('settings.theme')}</label>
-              <div className="seg">
-                {themes.map((o) => (
-                  <button
-                    key={o.v}
-                    className={pref === o.v ? 'seg-btn active' : 'seg-btn'}
-                    onClick={() => setPref(o.v)}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="setting-row">
-              <label>{t('settings.language')}</label>
-              <div className="seg">
-                {langs.map((o) => (
-                  <button
-                    key={o.v}
-                    className={lang === o.v ? 'seg-btn active' : 'seg-btn'}
-                    onClick={() => setLang(o.v)}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <UpdateSection />
-
-          <VaultPanel />
-
-          {isTauri() && <AttachmentLocation />}
-
-          <section className="setting-group">
-            <h3>{t('settings.cache')}</h3>
-            <p className="muted small">{t('settings.cacheBlurb')}</p>
-            <div className="setting-row">
-              <label>{t('settings.cacheSize')}</label>
-              <span className="muted">{cacheKb} KB</span>
-            </div>
-            <div className="setting-row">
-              <button
-                onClick={() => {
-                  clearCache();
-                  setCacheKb(0);
-                }}
-              >
-                {t('settings.clearCache')}
-              </button>
-            </div>
-          </section>
-
-          {isTauri() && <VoiceSettings />}
-
-          <section className="setting-group">
-            <h3>{t('settings.connection')}</h3>
-            <div className="setting-row">
-              <label>Hub</label>
-              <span className="muted">{baseUrl}</span>
-            </div>
-            <div className="setting-row">
-              <label>{t('connect.team')}</label>
-              <span className="muted">{teamId}</span>
-            </div>
-            <div className="setting-row">
-              <button
-                className="danger"
-                onClick={() => {
-                  onClose();
-                  disconnect();
-                }}
-              >
-                {t('settings.disconnect')}
-              </button>
-            </div>
-          </section>
-        </div>
+    <div className="settings-surface">
+      <aside className="settings-cats">
+        <div className="settings-cats-head">{t('settings.title')}</div>
+        {cats.map((c) => (
+          <button
+            key={c.id}
+            className={`settings-cat${c.id === active.id ? ' active' : ''}`}
+            onClick={() => pick(c.id)}
+          >
+            {c.label}
+          </button>
+        ))}
+      </aside>
+      <div className="settings-content">
+        <h2 className="settings-content-title">{active.label}</h2>
+        {active.render()}
       </div>
     </div>
   );

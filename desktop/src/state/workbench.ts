@@ -11,7 +11,16 @@ import { create } from 'zustand';
 /// and i18n keys — the ActivityBar renders it and the shell switches on the id,
 /// so adding a job is one entry here plus a surface component (never a scattered
 /// change).
-export type JobId = 'fleet' | 'read' | 'author' | 'debug' | 'canvas' | 'compare' | 'record';
+export type JobId =
+  | 'fleet'
+  | 'read'
+  | 'author'
+  | 'debug'
+  | 'canvas'
+  | 'compare'
+  | 'record'
+  | 'terminal'
+  | 'settings';
 
 export interface JobDef {
   id: JobId;
@@ -31,14 +40,29 @@ export const JOBS: JobDef[] = [
   { id: 'canvas', tag: 'J4', labelKey: 'job.canvas', hintKey: 'job.canvas.hint' },
   { id: 'compare', tag: 'J5', labelKey: 'job.compare', hintKey: 'job.compare.hint' },
   { id: 'record', tag: 'J6', labelKey: 'job.record', hintKey: 'job.record.hint' },
+  { id: 'terminal', tag: '', labelKey: 'job.terminal', hintKey: 'job.terminal.hint' },
 ];
+
+/// Settings is a job too, but pinned to the *bottom* of the activity bar (the VS
+/// Code gear idiom) rather than listed with the working jobs — so it lives out of
+/// `JOBS`. The ActivityBar renders it separately; the shell still switches on it.
+export const SETTINGS_JOB: JobDef = {
+  id: 'settings',
+  tag: '',
+  labelKey: 'job.settings',
+  hintKey: 'job.settings.hint',
+};
+
+// Every id the shell can restore to on launch — the rail jobs plus the pinned
+// settings tab.
+const KNOWN_JOBS: JobId[] = [...JOBS.map((j) => j.id), SETTINGS_JOB.id];
 
 const LS_KEY = 'termipod.workbench.job';
 
 function initialJob(): JobId {
   try {
     const v = localStorage.getItem(LS_KEY);
-    if (v !== null && JOBS.some((j) => j.id === v)) return v as JobId;
+    if (v !== null && KNOWN_JOBS.includes(v as JobId)) return v as JobId;
   } catch {
     /* ignore */
   }

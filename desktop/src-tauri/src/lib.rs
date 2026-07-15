@@ -13,6 +13,7 @@ mod keychain;
 mod local_agent;
 mod localfs;
 mod pty;
+mod s3;
 mod script;
 mod ssh;
 mod storage;
@@ -504,6 +505,8 @@ pub fn run() {
             webdav::webdav_sync,
             foldersync::folder_webdav_verify,
             foldersync::folder_webdav_sync,
+            s3::s3_sync_verify,
+            s3::s3_sync,
             docfile::doc_open,
             docfile::doc_read,
             docfile::doc_save,

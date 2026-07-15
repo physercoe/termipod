@@ -32,9 +32,9 @@ use serde::Serialize;
 use crate::webdav::extract_all;
 
 const DAV_TIMEOUT_SECS: u64 = 90;
-const MAX_ENTRIES: usize = 5000; // per side — mirrors workspace_list's cap
-const MAX_DEPTH: usize = 8;
-const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024; // don't buffer giant blobs in memory
+pub(crate) const MAX_ENTRIES: usize = 5000; // per side — mirrors workspace_list's cap
+pub(crate) const MAX_DEPTH: usize = 8;
+pub(crate) const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024; // don't buffer giant blobs in memory
 
 // Build/VCS/cache dirs — noise in a vault, and never what a user means to sync.
 // Dotfiles (incl. `.obsidian/`) are already skipped by the `.`-prefix rule, which
@@ -94,8 +94,9 @@ fn pct_decode(s: &str) -> String {
 }
 
 /// Days since the Unix epoch for a civil date (Howard Hinnant's algorithm) — lets
-/// us turn an RFC-1123 `getlastmodified` into epoch ms without a date crate.
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+/// us turn an RFC-1123 `getlastmodified` (or an S3 ISO-8601 `LastModified`) into
+/// epoch ms without a date crate. Shared with the S3 backend.
+pub(crate) fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;
@@ -144,12 +145,13 @@ struct RemoteFile {
     mtime_ms: Option<i64>,
 }
 
-/// Split a multistatus body into its `<response>` blocks (namespace prefix
-/// stripped), so href/size/mtime can be read per entry rather than flattened.
-/// Delimiter-aware on the tag *localname* — so `<responsedescription>` (a real
-/// WebDAV element sharing the "response" prefix) never opens a bogus block.
-/// `<response>` elements don't nest, so a close simply ends the open block.
-fn response_blocks(xml: &str) -> Vec<&str> {
+/// Split an XML body into the inner content of every top-level `<name>…</name>`
+/// element (namespace prefix stripped), so per-entry fields can be read rather
+/// than flattened. Delimiter-aware on the tag *localname* — so `<responsedescription>`
+/// never matches `response`, and `<ContentsFoo>` never matches `Contents`. The
+/// target elements don't nest, so a close simply ends the open block. Shared by
+/// the WebDAV (`response`) and S3 (`Contents`) backends.
+pub(crate) fn element_blocks<'a>(xml: &'a str, name: &str) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut open_start: Option<usize> = None;
     let mut i = 0;
@@ -167,7 +169,7 @@ fn response_blocks(xml: &str) -> Vec<&str> {
         }
         let nm = head.split([' ', '\t', '\n', '\r', '/']).next().unwrap_or("");
         let localname = nm.rsplit(':').next().unwrap_or(nm);
-        if localname.eq_ignore_ascii_case("response") {
+        if localname.eq_ignore_ascii_case(name) {
             if closing {
                 if let Some(cs) = open_start.take() {
                     out.push(&xml[cs..lt]);
@@ -236,7 +238,7 @@ async fn propfind_dir(
     // The listed collection's own encoded path, to skip its self-entry.
     let self_path = child_url(base, dir_rel, true)?.path().to_string();
     let self_trim = self_path.trim_end_matches('/');
-    for block in response_blocks(&body) {
+    for block in element_blocks(&body, "response") {
         let Some(href) = extract_all(block, "href").into_iter().next() else {
             continue;
         };
@@ -309,14 +311,14 @@ async fn enumerate_remote(
     Ok(files)
 }
 
-// ── local listing ───────────────────────────────────────────────────────────
-struct LocalFile {
-    abs: PathBuf,
-    size: u64,
-    mtime_ms: Option<i64>,
+// ── local listing (shared with the S3 backend) ──────────────────────────────
+pub(crate) struct LocalFile {
+    pub(crate) abs: PathBuf,
+    pub(crate) size: u64,
+    pub(crate) mtime_ms: Option<i64>,
 }
 
-fn enumerate_local(root: &Path) -> BTreeMap<String, LocalFile> {
+pub(crate) fn enumerate_local(root: &Path) -> BTreeMap<String, LocalFile> {
     let mut out = BTreeMap::new();
     walk_local(root, "", 0, &mut out);
     out
@@ -442,11 +444,38 @@ async fn download(c: &reqwest::Client, base: &Url, rel: &str, root: &Path) -> Re
 
 #[derive(Serialize, Default)]
 pub struct FolderSyncReport {
-    uploaded: usize,
-    downloaded: usize,
-    skipped: usize,
-    conflicts: usize,
-    errors: Vec<String>,
+    pub(crate) uploaded: usize,
+    pub(crate) downloaded: usize,
+    pub(crate) skipped: usize,
+    pub(crate) conflicts: usize,
+    pub(crate) errors: Vec<String>,
+}
+
+/// The direction picked for a path present on BOTH sides. The additive,
+/// never-delete rule shared by every backend: equal byte-length ⇒ identical
+/// (skip, no whole-tree hashing / ping-pong); else newest mtime wins; equal or
+/// unknown mtime ⇒ a genuine conflict we never guess.
+pub(crate) enum SyncAction {
+    Upload,
+    Download,
+    Skip,
+    Conflict,
+}
+
+pub(crate) fn decide_both(
+    l_size: u64,
+    l_mtime: Option<i64>,
+    r_size: u64,
+    r_mtime: Option<i64>,
+) -> SyncAction {
+    if l_size == r_size {
+        return SyncAction::Skip;
+    }
+    match (l_mtime, r_mtime) {
+        (Some(lm), Some(rm)) if lm > rm => SyncAction::Upload,
+        (Some(lm), Some(rm)) if rm > lm => SyncAction::Download,
+        _ => SyncAction::Conflict,
+    }
 }
 
 // ── commands ────────────────────────────────────────────────────────────────
@@ -520,23 +549,18 @@ pub async fn folder_webdav_sync(
                         report.downloaded += 1;
                     }
                 }
-                (Some(l), Some(r)) => {
-                    if l.size == r.size {
-                        report.skipped += 1; // equal length ⇒ treat as identical
-                    } else {
-                        match (l.mtime_ms, r.mtime_ms) {
-                            (Some(lm), Some(rm)) if lm > rm => {
-                                upload(&c, &base, &rel, l, &mut made).await?;
-                                report.uploaded += 1;
-                            }
-                            (Some(lm), Some(rm)) if rm > lm => {
-                                download(&c, &base, &rel, &root_path).await?;
-                                report.downloaded += 1;
-                            }
-                            _ => report.conflicts += 1, // equal or unknown mtime — never guess
-                        }
+                (Some(l), Some(r)) => match decide_both(l.size, l.mtime_ms, r.size, r.mtime_ms) {
+                    SyncAction::Skip => report.skipped += 1,
+                    SyncAction::Upload => {
+                        upload(&c, &base, &rel, l, &mut made).await?;
+                        report.uploaded += 1;
                     }
-                }
+                    SyncAction::Download => {
+                        download(&c, &base, &rel, &root_path).await?;
+                        report.downloaded += 1;
+                    }
+                    SyncAction::Conflict => report.conflicts += 1,
+                },
                 (None, None) => {}
             }
             Ok(())

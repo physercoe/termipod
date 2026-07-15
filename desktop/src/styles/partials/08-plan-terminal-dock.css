@@ -125,6 +125,30 @@
 .webdav-hint {
   margin: 0;
 }
+/* Workspace-sync backend selector (WebDAV | S3). */
+.sync-backend-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  background: var(--input);
+}
+.sync-backend-tab {
+  flex: 1;
+  padding: 5px 8px;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-small);
+  cursor: pointer;
+}
+.sync-backend-tab.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
 .webdav-field {
   display: flex;
   flex-direction: column;

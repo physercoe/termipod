@@ -77,6 +77,9 @@ aes-gcm = "0.10"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 hkdf = "0.12"
 sha2 = "0.10"
+# AWS SigV4 request signing for the S3 workspace-sync backend (s3.rs). RustCrypto,
+# pairs with sha2 above (shared digest 0.10) — no S3 SDK, no system deps.
+hmac = "0.12"
 # MD5 for Zotero WebDAV file sync (webdav.rs): Zotero's `<KEY>.prop` carries the
 # attachment's MD5, and real Zotero clients reject a prop whose hash is wrong, so
 # we compute it for real. RustCrypto (pure Rust, no system deps) like sha2 above.

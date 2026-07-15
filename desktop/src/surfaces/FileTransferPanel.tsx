@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onSftpProgress, sftpList, sftpRead, sftpWrite, type SftpEntry } from '../ssh/tauri';
+import { localHome, localList, localRead, localWrite, type LocalEntry, type LocalListing } from '../state/localfs';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 
-/// SFTP file-transfer panel (parity — mobile file_transfer_provider + remote
-/// file browser). Browses a remote directory over the session's SFTP subsystem,
-/// downloads a file (bytes → browser download) and uploads a picked file
-/// (base64 → sftp_write into the current directory). Transfers stream in chunks
-/// and surface a live progress bar via `sftp-progress` events.
+/// Two-pane file transfer (FileZilla-style): the local machine on the left, the
+/// remote host (over the session's SFTP subsystem) on the right. Browse either
+/// side; transfer a file with one click — upload (local → remote) drops it into
+/// the remote pane's current directory, download (remote → local) drops it into
+/// the local pane's current directory. Transfers stream in chunks with a live
+/// progress bar off the `sftp-progress` events.
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** A transfer in flight (or its just-finished terminal state), for the bar. */
 interface Transfer {
   id: string;
   name: string;
@@ -23,8 +24,8 @@ interface Transfer {
   error?: string;
 }
 
-// Monotonic transfer id — unique within the session, no secure-context
-// dependency (crypto.randomUUID isn't guaranteed under the tauri:// scheme).
+// Monotonic transfer id — unique within the session, no secure-context dependency
+// (crypto.randomUUID isn't guaranteed under the tauri:// scheme).
 let txSeq = 0;
 function nextTransferId(): string {
   txSeq += 1;
@@ -38,48 +39,35 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function joinPath(dir: string, name: string): string {
-  if (dir === '/' ) return `/${name}`;
+// Remote paths are always POSIX ('/'); local targets use the listed absolute dir
+// plus '/' + name — Rust's std::fs accepts forward slashes on Windows too.
+function joinPosix(dir: string, name: string): string {
+  if (dir === '/') return `/${name}`;
   return `${dir.replace(/\/$/, '')}/${name}`;
 }
-function parentPath(dir: string): string {
+function parentPosix(dir: string): string {
   if (dir === '/' || dir === '') return '/';
   const trimmed = dir.replace(/\/$/, '');
   const idx = trimmed.lastIndexOf('/');
   return idx <= 0 ? '/' : trimmed.slice(0, idx);
 }
 
-async function fileToBase64(file: File): Promise<string> {
-  const buf = new Uint8Array(await file.arrayBuffer());
-  let binary = '';
-  for (let i = 0; i < buf.length; i += 1) binary += String.fromCharCode(buf[i]);
-  return btoa(binary);
-}
-
-function downloadBytes(name: string, base64: string): void {
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-  const url = URL.createObjectURL(new Blob([bytes]));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Element {
   const t = useT();
-  const [dir, setDir] = useState('.');
-  const [entries, setEntries] = useState<SftpEntry[]>([]);
+  // Remote (SFTP) pane.
+  const [rdir, setRdir] = useState('.');
+  const [rentries, setREntries] = useState<SftpEntry[]>([]);
+  const [rbusy, setRBusy] = useState(false);
+  // Local pane — `local` carries the absolute path + parent so navigation never
+  // re-joins paths client-side; `lpath` is the editable path field.
+  const [local, setLocal] = useState<LocalListing | null>(null);
+  const [lpath, setLpath] = useState('');
+  const [lbusy, setLBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [transfer, setTransfer] = useState<Transfer | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Keep a finished transfer visible briefly, then fade it; errors linger until
-  // the next action so they aren't missed.
   const settle = useCallback((id: string, patch: Partial<Transfer>): void => {
     setTransfer((prev) => (prev !== null && prev.id === id ? { ...prev, ...patch } : prev));
     if (patch.status === 'done') {
@@ -90,38 +78,66 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     }
   }, []);
 
-  useEffect(() => () => {
-    if (clearTimer.current !== undefined) clearTimeout(clearTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (clearTimer.current !== undefined) clearTimeout(clearTimer.current);
+    },
+    [],
+  );
 
-  const load = useCallback(async (path: string): Promise<void> => {
-    setBusy(true);
+  const loadRemote = useCallback(
+    async (path: string): Promise<void> => {
+      setRBusy(true);
+      setErr(null);
+      try {
+        setREntries(await sftpList(sessionId, path));
+      } catch (e) {
+        setErr(msg(e));
+      } finally {
+        setRBusy(false);
+      }
+    },
+    [sessionId],
+  );
+
+  const loadLocal = useCallback(async (path: string): Promise<void> => {
+    setLBusy(true);
     setErr(null);
     try {
-      setEntries(await sftpList(sessionId, path));
+      const listing = await localList(path);
+      setLocal(listing);
+      setLpath(listing.path);
     } catch (e) {
       setErr(msg(e));
     } finally {
-      setBusy(false);
+      setLBusy(false);
     }
-  }, [sessionId]);
+  }, []);
 
   useEffect(() => {
-    void load(dir);
-  }, [dir, load]);
+    void loadRemote(rdir);
+  }, [rdir, loadRemote]);
 
-  async function download(name: string): Promise<void> {
+  // Seed the local pane at the user's home on mount.
+  useEffect(() => {
+    void localHome()
+      .then((h) => loadLocal(h))
+      .catch((e) => setErr(msg(e)));
+  }, [loadLocal]);
+
+  // Download: remote → the local pane's current directory.
+  async function download(entry: SftpEntry): Promise<void> {
+    if (local === null) return;
     setBusy(true);
     setErr(null);
     const tid = nextTransferId();
-    const total = entries.find((e) => e.name === name)?.size ?? 0;
-    setTransfer({ id: tid, name, dir: 'down', done: 0, total, status: 'active' });
-    // Register the progress listener BEFORE the transfer so no early tick is lost.
+    setTransfer({ id: tid, name: entry.name, dir: 'down', done: 0, total: entry.size, status: 'active' });
     const unlisten = await onSftpProgress(tid, (done) => settle(tid, { done }));
     try {
-      const b64 = await sftpRead(sessionId, joinPath(dir, name), tid);
-      downloadBytes(name, b64);
-      settle(tid, { status: 'done', done: total > 0 ? total : 0 });
+      const b64 = await sftpRead(sessionId, joinPosix(rdir, entry.name), tid);
+      await localWrite(joinPosix(local.path, entry.name), b64);
+      settle(tid, { status: 'done', done: entry.size > 0 ? entry.size : 0 });
+      await loadLocal(local.path);
     } catch (e) {
       setErr(msg(e));
       settle(tid, { status: 'error', error: msg(e) });
@@ -131,50 +147,29 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     }
   }
 
-  async function upload(file: File): Promise<void> {
+  // Upload: a local file → the remote pane's current directory.
+  async function upload(entry: LocalEntry): Promise<void> {
     setBusy(true);
     setErr(null);
     const tid = nextTransferId();
-    setTransfer({ id: tid, name: file.name, dir: 'up', done: 0, total: file.size, status: 'active' });
+    setTransfer({ id: tid, name: entry.name, dir: 'up', done: 0, total: entry.size, status: 'active' });
     const unlisten = await onSftpProgress(tid, (done) => settle(tid, { done }));
     try {
-      const b64 = await fileToBase64(file);
-      await sftpWrite(sessionId, joinPath(dir, file.name), b64, tid);
-      settle(tid, { status: 'done', done: file.size });
-      await load(dir);
+      const b64 = await localRead(entry.path);
+      await sftpWrite(sessionId, joinPosix(rdir, entry.name), b64, tid);
+      settle(tid, { status: 'done', done: entry.size });
+      await loadRemote(rdir);
     } catch (e) {
       setErr(msg(e));
       settle(tid, { status: 'error', error: msg(e) });
     } finally {
       unlisten();
       setBusy(false);
-      if (fileRef.current !== null) fileRef.current.value = '';
     }
   }
 
   return (
     <div className="sftp-panel">
-      <div className="sftp-bar">
-        <button disabled={busy} onClick={() => setDir(parentPath(dir))} title={t('sftp.up')}>
-          <Icon name="chevron-up" />
-        </button>
-        <input
-          className="sftp-path mono"
-          value={dir}
-          onChange={(e) => setDir(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void load(dir);
-          }}
-        />
-        <button disabled={busy} onClick={() => void load(dir)}>
-          {t('sftp.go')}
-        </button>
-        <span className="spacer" />
-        <input ref={fileRef} type="file" hidden onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
-        <button disabled={busy} onClick={() => fileRef.current?.click()}>
-          {t('sftp.upload')}
-        </button>
-      </div>
       {err !== null && <div className="error sftp-err">{err}</div>}
       {transfer !== null && (
         <div className={`sftp-transfer ${transfer.status}`}>
@@ -209,27 +204,99 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
           )}
         </div>
       )}
-      <div className="sftp-list scroll">
-        {entries.map((e) => (
-          <div key={e.name} className="sftp-row">
+
+      <div className="sftp-dual">
+        {/* Local pane */}
+        <div className="sftp-pane">
+          <div className="sftp-pane-head">{t('sftp.local')}</div>
+          <div className="sftp-bar">
             <button
-              className="sftp-name-btn"
-              disabled={busy}
-              onClick={() => (e.is_dir ? setDir(joinPath(dir, e.name)) : void download(e.name))}
+              disabled={lbusy || local?.parent == null}
+              onClick={() => local?.parent != null && void loadLocal(local.parent)}
+              title={t('sftp.up')}
             >
-              <Icon name={e.is_dir ? 'folder' : 'file-text'} size={15} className="sftp-icon" />
-              <span className="sftp-name">{e.name}</span>
+              <Icon name="chevron-up" />
             </button>
-            <span className="spacer" />
-            <span className="muted small">{e.is_dir ? '' : `${e.size} B`}</span>
-            {!e.is_dir && (
-              <button className="link-btn" disabled={busy} onClick={() => void download(e.name)}>
-                {t('sftp.download')}
-              </button>
+            <input
+              className="sftp-path mono"
+              value={lpath}
+              onChange={(e) => setLpath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void loadLocal(lpath);
+              }}
+            />
+            <button disabled={lbusy} onClick={() => void loadLocal(lpath)}>
+              {t('sftp.go')}
+            </button>
+          </div>
+          <div className="sftp-list scroll">
+            {(local?.entries ?? []).map((e) => (
+              <div key={e.path} className="sftp-row">
+                <button
+                  className="sftp-name-btn"
+                  disabled={busy}
+                  onClick={() => (e.is_dir ? void loadLocal(e.path) : void upload(e))}
+                >
+                  <Icon name={e.is_dir ? 'folder' : 'file-text'} size={15} className="sftp-icon" />
+                  <span className="sftp-name">{e.name}</span>
+                </button>
+                <span className="spacer" />
+                <span className="muted small">{e.is_dir ? '' : formatBytes(e.size)}</span>
+                {!e.is_dir && (
+                  <button className="link-btn" disabled={busy} title={t('sftp.upload')} onClick={() => void upload(e)}>
+                    {t('sftp.toRemote')} <Icon name="chevron-right" size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {!lbusy && (local?.entries.length ?? 0) === 0 && (
+              <div className="muted small region-pad">{t('sftp.empty')}</div>
             )}
           </div>
-        ))}
-        {!busy && entries.length === 0 && <div className="muted small region-pad">{t('sftp.empty')}</div>}
+        </div>
+
+        {/* Remote pane */}
+        <div className="sftp-pane">
+          <div className="sftp-pane-head">{t('sftp.remote')}</div>
+          <div className="sftp-bar">
+            <button disabled={rbusy} onClick={() => setRdir(parentPosix(rdir))} title={t('sftp.up')}>
+              <Icon name="chevron-up" />
+            </button>
+            <input
+              className="sftp-path mono"
+              value={rdir}
+              onChange={(e) => setRdir(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void loadRemote(rdir);
+              }}
+            />
+            <button disabled={rbusy} onClick={() => void loadRemote(rdir)}>
+              {t('sftp.go')}
+            </button>
+          </div>
+          <div className="sftp-list scroll">
+            {rentries.map((e) => (
+              <div key={e.name} className="sftp-row">
+                <button
+                  className="sftp-name-btn"
+                  disabled={busy}
+                  onClick={() => (e.is_dir ? setRdir(joinPosix(rdir, e.name)) : void download(e))}
+                >
+                  <Icon name={e.is_dir ? 'folder' : 'file-text'} size={15} className="sftp-icon" />
+                  <span className="sftp-name">{e.name}</span>
+                </button>
+                <span className="spacer" />
+                <span className="muted small">{e.is_dir ? '' : formatBytes(e.size)}</span>
+                {!e.is_dir && (
+                  <button className="link-btn" disabled={busy} title={t('sftp.download')} onClick={() => void download(e)}>
+                    <Icon name="chevron-left" size={13} /> {t('sftp.toLocal')}
+                  </button>
+                )}
+              </div>
+            ))}
+            {!rbusy && rentries.length === 0 && <div className="muted small region-pad">{t('sftp.empty')}</div>}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -248,13 +248,10 @@ export function TerminalPanel(): JSX.Element {
             <Icon name="external" size={13} />
             {t('term.importConfig')}
           </button>
-          <input
-            ref={cfgRef}
-            type="file"
-            accept=".config,.txt,text/plain"
-            hidden
-            onChange={(e) => void onImportConfig(e)}
-          />
+          {/* No `accept` filter — the OpenSSH config file is literally named
+              `config` with no extension, which an extension filter would hide;
+              the user picks it from wherever it lives via the native dialog. */}
+          <input ref={cfgRef} type="file" hidden onChange={(e) => void onImportConfig(e)} />
           {notice !== null && <div className="muted small term-nav-notice">{notice}</div>}
           {error !== null && <div className="error small term-nav-notice">{error}</div>}
         </div>

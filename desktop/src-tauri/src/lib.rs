@@ -10,6 +10,7 @@ mod docfile;
 mod drawio;
 mod keychain;
 mod local_agent;
+mod localfs;
 mod pty;
 mod ssh;
 mod storage;
@@ -506,6 +507,10 @@ pub fn run() {
             workspace::workspace_pick_folder,
             workspace::workspace_list,
             local_agent::local_agent_run,
+            localfs::localfs_home,
+            localfs::localfs_list,
+            localfs::localfs_read,
+            localfs::localfs_write,
             drawio::drawio_status,
             drawio::drawio_download,
             drawio::drawio_install_file,

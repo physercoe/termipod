@@ -13,6 +13,7 @@ mod keychain;
 mod local_agent;
 mod localfs;
 mod pty;
+mod script;
 mod ssh;
 mod storage;
 mod vault;
@@ -510,6 +511,7 @@ pub fn run() {
             workspace::workspace_pick_folder,
             workspace::workspace_list,
             local_agent::local_agent_run,
+            script::script_run,
             localfs::localfs_home,
             localfs::localfs_list,
             localfs::localfs_read,

@@ -16,7 +16,11 @@ import { loadJson, newId, saveJson, secretDelete, secretGet, secretSet } from '.
 /// The whole store seals into the zero-knowledge vault for cross-device sync
 /// (see vault/bundle.ts): the metadata list plus a per-item map of its secrets.
 
-export type VaultItemType = 'login' | 'api' | 'note';
+/// `env`   — a config/dotenv/rc blob to seed a new machine (the whole body is
+///           secret, since env files routinely carry tokens).
+/// `script`— a runnable snippet (setup/bootstrap script); the body is secret and
+///           can be executed on-device via `script_run` (foldersync-style Rust).
+export type VaultItemType = 'login' | 'api' | 'note' | 'env' | 'script';
 
 /// The secret slots each item type can hold. `notes` (free-form) is common to
 /// every type; the rest are type-specific. Kept as a plain list so assemble /
@@ -26,6 +30,8 @@ export const SECRET_SLOTS: Record<VaultItemType, string[]> = {
   login: ['password', 'totp', 'notes'],
   api: ['token', 'notes'],
   note: ['content', 'notes'],
+  env: ['content', 'notes'],
+  script: ['content', 'notes'],
 };
 
 export interface VaultItemMeta {
@@ -37,6 +43,8 @@ export interface VaultItemMeta {
   username: string; // login
   url: string; // login — the website
   endpoint: string; // api — the base URL / host the token is for
+  format: string; // env — informational shape: dotenv | shell | json | yaml | plain
+  interpreter: string; // script — bash | sh | zsh | python | node | pwsh
   // Which secret slots actually hold a value in the keychain right now.
   secretSlots: string[];
   createdAt: string; // ISO-8601
@@ -66,6 +74,8 @@ export interface SaveItemInput {
   username?: string;
   url?: string;
   endpoint?: string;
+  format?: string;
+  interpreter?: string;
   /** slot → plaintext value; '' (or omitted) clears/removes that slot. */
   secrets?: Record<string, string>;
 }
@@ -108,6 +118,8 @@ export async function saveItem(input: SaveItemInput): Promise<VaultItemMeta> {
     username: input.username ?? existing?.username ?? '',
     url: input.url ?? existing?.url ?? '',
     endpoint: input.endpoint ?? existing?.endpoint ?? '',
+    format: input.format ?? existing?.format ?? '',
+    interpreter: input.interpreter ?? existing?.interpreter ?? (input.type === 'script' ? 'bash' : ''),
     secretSlots: [...slots],
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

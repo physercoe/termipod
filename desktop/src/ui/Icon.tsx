@@ -56,7 +56,9 @@ export type IconName =
   | 'eye-off'
   | 'star'
   | 'search'
-  | 'lock';
+  | 'lock'
+  | 'terminal'
+  | 'sliders';
 
 const PATHS: Record<IconName, JSX.Element> = {
   'chevron-left': <path d="M15 6l-6 6 6 6" />,
@@ -326,6 +328,23 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <rect x="4.5" y="10" width="15" height="10.5" rx="2" />
       <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  terminal: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M7 9l3 3-3 3" />
+      <path d="M13 15h4" />
+    </>
+  ),
+  sliders: (
+    <>
+      <path d="M4 7h9" />
+      <path d="M17 7h3" />
+      <circle cx="15" cy="7" r="2" />
+      <path d="M4 17h3" />
+      <path d="M11 17h9" />
+      <circle cx="9" cy="17" r="2" />
     </>
   ),
 };

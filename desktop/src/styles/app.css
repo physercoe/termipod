@@ -6929,7 +6929,8 @@ th {
   color: var(--text-muted);
 }
 .vault-lbl input,
-.vault-lbl textarea {
+.vault-lbl textarea,
+.vault-lbl select {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -6950,6 +6951,53 @@ th {
   display: flex;
   gap: var(--spacing-s8);
   margin-top: var(--spacing-s4);
+}
+
+/* Script quick-run — armed button, then captured stdout/stderr + exit code. */
+.vault-run {
+  margin-top: var(--spacing-s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.vault-run-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  flex-wrap: wrap;
+}
+.vault-run-cwd {
+  opacity: 0.8;
+}
+.vault-run-out {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.vault-run-code {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+.vault-run-code.ok {
+  color: var(--success, #3aa757);
+}
+.vault-run-code.bad {
+  color: var(--danger, #d9534f);
+}
+.vault-run-pre {
+  margin: 0;
+  padding: var(--spacing-s8);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--font-size-body-small);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.vault-run-pre.err {
+  color: var(--danger, #d9534f);
 }
 
 .vault-conns {

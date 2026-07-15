@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
-import { openExternal } from '../platform';
+import { isTauri, openExternal } from '../platform';
 import { Icon, type IconName } from '../ui/Icon';
 import { listConnections } from '../state/connections';
+import { runScript, type ScriptResult } from '../state/scriptRun';
+import { useWorkspace } from '../state/workspace';
 import {
   deleteItem,
   getItemSecret,
@@ -24,11 +26,27 @@ import { SshKeysSettings } from './SshKeys';
 /// list, and a detail/editor pane. Secret fields are masked with reveal + copy
 /// affordances and are only read from the keychain on demand.
 
-type Tab = 'all' | 'favorites' | 'login' | 'api' | 'note' | 'sshkeys' | 'connections';
-const GENERIC: readonly VaultItemType[] = ['login', 'api', 'note'];
+type Tab = 'all' | 'favorites' | 'login' | 'api' | 'note' | 'env' | 'script' | 'sshkeys' | 'connections';
+const GENERIC: readonly VaultItemType[] = ['login', 'api', 'note', 'env', 'script'];
+
+// Informational shape of an env/config blob, and the interpreters a script item
+// can be run with (mirrors the Rust allowlist in script.rs).
+const ENV_FORMATS = ['dotenv', 'shell', 'json', 'yaml', 'plain'] as const;
+const INTERPRETERS = ['bash', 'sh', 'zsh', 'python', 'node', 'pwsh', 'ruby'] as const;
 
 function typeIcon(type: VaultItemType): IconName {
-  return type === 'login' ? 'key' : type === 'api' ? 'code' : 'note';
+  switch (type) {
+    case 'login':
+      return 'key';
+    case 'api':
+      return 'code';
+    case 'env':
+      return 'sliders';
+    case 'script':
+      return 'terminal';
+    default:
+      return 'note';
+  }
 }
 
 function msg(e: unknown): string {
@@ -139,6 +157,66 @@ function SecretRow({
   );
 }
 
+/// Quick-run a script item: a two-step armed Run (executing is consequential and
+/// `window.confirm` is unreliable in WebView2), then invoke the Rust runner and
+/// show stdout/stderr/exit inline. Runs in the open workspace folder when there
+/// is one, so a bootstrap script sees the director's files.
+function ScriptRunner({ item }: { item: VaultItemMeta }): JSX.Element {
+  const t = useT();
+  const cwd = useWorkspace((s) => s.folder);
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<ScriptResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run(): Promise<void> {
+    setArmed(false);
+    setBusy(true);
+    setErr(null);
+    setRes(null);
+    try {
+      const content = await getItemSecret(item.id, 'content');
+      if (content.trim() === '') {
+        setErr(t('vault.scriptEmpty'));
+        return;
+      }
+      setRes(await runScript(item.interpreter || 'bash', content, cwd ?? undefined));
+    } catch (e) {
+      setErr(msg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="vault-run">
+      <div className="vault-run-bar">
+        {armed ? (
+          <button className="primary" disabled={busy} onClick={() => void run()}>
+            {t('vault.runConfirm')}
+          </button>
+        ) : (
+          <button disabled={busy} onClick={() => setArmed(true)}>
+            <Icon name="terminal" size={14} /> {busy ? t('vault.running') : t('vault.run')}
+          </button>
+        )}
+        {armed && !busy && <span className="muted small">{t('vault.runArmedHint')}</span>}
+        {cwd !== null && <span className="muted small mono vault-run-cwd">{t('vault.runIn')}</span>}
+      </div>
+      {err !== null && <div className="error small">{err}</div>}
+      {res !== null && (
+        <div className="vault-run-out">
+          <div className={`vault-run-code${(res.code ?? 1) === 0 ? ' ok' : ' bad'}`}>
+            {res.timedOut ? t('vault.runTimeout') : t('vault.exitCode').replace('{n}', String(res.code ?? '?'))}
+          </div>
+          {res.stdout !== '' && <pre className="vault-run-pre mono">{res.stdout}</pre>}
+          {res.stderr !== '' && <pre className="vault-run-pre mono err">{res.stderr}</pre>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Detail (read) view ──────────────────────────────────────────────────────
 
 function ItemDetail({
@@ -196,6 +274,19 @@ function ItemDetail({
         </>
       )}
       {item.type === 'note' && <SecretRow itemId={item.id} slot="content" label={t('vault.fContent')} block />}
+      {item.type === 'env' && (
+        <>
+          <PlainRow label={t('vault.fFormat')} value={item.format} />
+          <SecretRow itemId={item.id} slot="content" label={t('vault.fEnv')} block />
+        </>
+      )}
+      {item.type === 'script' && (
+        <>
+          <PlainRow label={t('vault.fInterpreter')} value={item.interpreter} />
+          <SecretRow itemId={item.id} slot="content" label={t('vault.fScript')} block />
+          {isTauri() && <ScriptRunner item={item} />}
+        </>
+      )}
 
       {hasNotes && <SecretRow itemId={item.id} slot="notes" label={t('vault.fNotes')} block />}
     </div>
@@ -221,6 +312,10 @@ function ItemEditor({
   const [username, setUsername] = useState(item?.username ?? '');
   const [url, setUrl] = useState(item?.url ?? '');
   const [endpoint, setEndpoint] = useState(item?.endpoint ?? '');
+  const [format, setFormat] = useState(item?.format !== undefined && item.format !== '' ? item.format : 'dotenv');
+  const [interpreter, setInterpreter] = useState(
+    item?.interpreter !== undefined && item.interpreter !== '' ? item.interpreter : 'bash',
+  );
   const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
   const [content, setContent] = useState('');
@@ -256,8 +351,19 @@ function ItemEditor({
       const secrets: Record<string, string> = { notes };
       if (type === 'login') secrets.password = password;
       if (type === 'api') secrets.token = token;
-      if (type === 'note') secrets.content = content;
-      await saveItem({ id: item?.id, type, title: title.trim(), favorite, username, url, endpoint, secrets });
+      if (type === 'note' || type === 'env' || type === 'script') secrets.content = content;
+      await saveItem({
+        id: item?.id,
+        type,
+        title: title.trim(),
+        favorite,
+        username,
+        url,
+        endpoint,
+        format,
+        interpreter,
+        secrets,
+      });
       onSaved();
     } catch (e) {
       setErr(msg(e));
@@ -322,6 +428,54 @@ function ItemEditor({
           <textarea className="vault-note-area" spellCheck={false} value={content} onChange={(e) => setContent(e.target.value)} />
         </label>
       )}
+      {type === 'env' && (
+        <>
+          <label className="vault-lbl">
+            {t('vault.fFormat')}
+            <select value={format} onChange={(e) => setFormat(e.target.value)}>
+              {ENV_FORMATS.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="vault-lbl">
+            {t('vault.fEnv')}
+            <textarea
+              className="vault-note-area mono"
+              spellCheck={false}
+              value={content}
+              placeholder={'KEY=value\nAPI_TOKEN=…'}
+              onChange={(e) => setContent(e.target.value)}
+            />
+          </label>
+        </>
+      )}
+      {type === 'script' && (
+        <>
+          <label className="vault-lbl">
+            {t('vault.fInterpreter')}
+            <select value={interpreter} onChange={(e) => setInterpreter(e.target.value)}>
+              {INTERPRETERS.map((i) => (
+                <option key={i} value={i}>
+                  {i}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="vault-lbl">
+            {t('vault.fScript')}
+            <textarea
+              className="vault-note-area mono"
+              spellCheck={false}
+              value={content}
+              placeholder={'#!/usr/bin/env bash\nset -euo pipefail\n…'}
+              onChange={(e) => setContent(e.target.value)}
+            />
+          </label>
+        </>
+      )}
 
       <label className="vault-lbl">
         {t('vault.fNotes')}
@@ -383,6 +537,8 @@ export function VaultManager(): JSX.Element {
     { id: 'login', label: t('vault.tabLogins') },
     { id: 'api', label: t('vault.tabTokens') },
     { id: 'note', label: t('vault.tabNotes') },
+    { id: 'env', label: t('vault.tabEnv') },
+    { id: 'script', label: t('vault.tabScripts') },
     { id: 'sshkeys', label: t('vault.tabKeys') },
     { id: 'connections', label: t('vault.tabConns') },
   ];
@@ -465,6 +621,12 @@ export function VaultManager(): JSX.Element {
                     <button onClick={() => openNew('note')}>
                       <Icon name="note" size={15} /> {t('vault.new_note')}
                     </button>
+                    <button onClick={() => openNew('env')}>
+                      <Icon name="sliders" size={15} /> {t('vault.new_env')}
+                    </button>
+                    <button onClick={() => openNew('script')}>
+                      <Icon name="terminal" size={15} /> {t('vault.new_script')}
+                    </button>
                   </div>
                 </>
               )}
@@ -487,7 +649,15 @@ export function VaultManager(): JSX.Element {
                     <span className="vault-row-main">
                       <span className="vault-row-title">{i.title}</span>
                       <span className="vault-row-sub muted small">
-                        {i.type === 'login' ? i.username : i.type === 'api' ? i.endpoint : t('vault.typeNote')}
+                        {i.type === 'login'
+                          ? i.username
+                          : i.type === 'api'
+                            ? i.endpoint
+                            : i.type === 'env'
+                              ? i.format || t('vault.typeEnv')
+                              : i.type === 'script'
+                                ? i.interpreter || t('vault.typeScript')
+                                : t('vault.typeNote')}
                       </span>
                     </span>
                   </button>

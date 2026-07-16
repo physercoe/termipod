@@ -96,6 +96,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const feedContentRef = useRef<HTMLDivElement>(null);
   // Whether the feed is pinned to the tail. True while the user is at the
   // bottom; a manual scroll-up releases it so a streamed event (or the history
   // backfill) doesn't yank them back down.
@@ -148,6 +149,26 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     const el = feedRef.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
   }, [events, mode, lens, verbose]);
+
+  // Hold the tail as cards *grow after mount*. EventCard content settles async —
+  // markdown lays out, KaTeX/highlight.js restyle, images load with no reserved
+  // height — so the one-shot pin above lands before the real height is known and
+  // the view then drifts as content hydrates (the "keeps scrolling" bug). A
+  // ResizeObserver on the feed content re-pins to the bottom on every height
+  // change while the user is at the tail, so the latest message stays in view as
+  // the backfill fills in above and cards finish rendering. Releasing on a manual
+  // scroll-up (stickRef) means reading history is never yanked.
+  useLayoutEffect(() => {
+    const content = feedContentRef.current;
+    const el = feedRef.current;
+    if (content === null || el === null) return;
+    const ro = new ResizeObserver(() => {
+      if (mode !== 'live' || lens !== 'all' || !stickRef.current) return;
+      el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [mode, lens]);
 
   // Track whether the user is at the bottom, so streamed events follow the tail
   // only when they haven't scrolled up to read history.
@@ -319,8 +340,10 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
             )}
           </div>
           <div className="feed" ref={feedRef} onScroll={onFeedScroll}>
-            {shown.map(renderCard)}
-            {shown.length === 0 && <div className="region-pad muted">{lens === 'all' ? t('tx.noEvents') : t('tx.noMatches')}</div>}
+            <div className="feed-content" ref={feedContentRef}>
+              {shown.map(renderCard)}
+              {shown.length === 0 && <div className="region-pad muted">{lens === 'all' ? t('tx.noEvents') : t('tx.noMatches')}</div>}
+            </div>
           </div>
           <Composer onSend={send} />
         </>

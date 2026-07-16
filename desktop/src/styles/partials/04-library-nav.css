@@ -837,3 +837,14 @@ button.small,
   flex-direction: column;
   gap: var(--spacing-s12);
 }
+
+/* The live feed wraps its cards in this element so a ResizeObserver can watch
+   the content height (the .feed scroll box itself has a fixed size) and keep the
+   view pinned to the tail as cards grow. It carries the column layout + gap the
+   cards had as direct .feed children. The insight feed renders cards straight
+   into .feed, so it keeps using .feed's own flex/gap. */
+.feed-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}

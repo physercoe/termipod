@@ -1,7 +1,7 @@
 import type { HubClient } from '../hub/client';
 import { HubApiError } from '../hub/errors';
 import { num, str } from '../hub/types';
-import { secretDelete, secretGet, secretSet } from '../state/persist';
+import { secretDeleteMany, secretGet, secretSet } from '../state/persist';
 import { assembleBundle, importBundle, loadVaultState, parseBundle, saveVaultState } from './bundle';
 import {
   vaultGenerateDevice,
@@ -151,7 +151,6 @@ export async function restoreWithRecovery(client: HubClient, code: string): Prom
 
 /** Forget this device's vault material (leaves the hub vault untouched). */
 export async function forgetLocalVault(): Promise<void> {
-  await secretDelete(KEY_VAULT);
-  await secretDelete(KEY_SEED);
+  await secretDeleteMany([KEY_VAULT, KEY_SEED]);
   saveVaultState({ version: 0, deviceId: null, enrolled: false });
 }

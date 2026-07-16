@@ -1,4 +1,4 @@
-import { loadJson, newId, saveJson, secretDelete, secretGet, secretSet } from './persist';
+import { loadJson, newId, saveJson, secretDelete, secretDeleteMany, secretGet, secretSet } from './persist';
 
 /// Generic vault items — the "mini-1Password" store that sits alongside the
 /// specialised SSH-key and connection stores. Modelled on 1Password / Bitwarden
@@ -141,7 +141,7 @@ export function toggleFavorite(id: string): VaultItemMeta[] {
 export async function deleteItem(id: string): Promise<void> {
   const item = listItems().find((i) => i.id === id);
   if (item !== undefined) {
-    for (const slot of item.secretSlots) await secretDelete(slotKey(id, slot));
+    await secretDeleteMany(item.secretSlots.map((slot) => slotKey(id, slot)));
   }
   saveJson(
     STORAGE_KEY,

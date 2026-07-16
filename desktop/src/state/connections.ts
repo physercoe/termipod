@@ -1,4 +1,4 @@
-import { loadJson, newId, saveJson, secretDelete, secretGet, secretSet } from './persist';
+import { loadJson, newId, saveJson, secretDeleteMany, secretGet, secretSet } from './persist';
 
 /// Saved SSH connections (parity Phase 2a). The shape mirrors the mobile
 /// `Connection` (lib/providers/connection_provider.dart) key-for-key so the
@@ -77,8 +77,7 @@ export function upsertConnection(input: Partial<Connection> & { name: string; ho
 
 export async function deleteConnection(id: string): Promise<void> {
   persist(listConnections().filter((c) => c.id !== id));
-  await secretDelete(pwKey(id));
-  await secretDelete(jumpPwKey(id));
+  await secretDeleteMany([pwKey(id), jumpPwKey(id)]);
 }
 
 export function touchConnection(id: string): void {

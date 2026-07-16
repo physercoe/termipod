@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../platform';
-import { loadJson, newId, saveJson, secretDelete, secretGet, secretSet } from './persist';
+import { loadJson, newId, saveJson, secretDeleteMany, secretGet, secretSet } from './persist';
 
 /// SSH key store (parity Phase 2a). `SshKeyMeta` mirrors the mobile
 /// lib/providers/key_provider.dart key-for-key (vault-bundle parity). The
@@ -90,8 +90,7 @@ export async function importKey(opts: {
 
 export async function deleteKey(id: string): Promise<void> {
   persist(listKeys().filter((k) => k.id !== id));
-  await secretDelete(pkKey(id));
-  await secretDelete(passKey(id));
+  await secretDeleteMany([pkKey(id), passKey(id)]);
 }
 
 /** The private-key PEM + passphrase for a saved key, for the connect flow. */

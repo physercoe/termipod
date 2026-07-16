@@ -9,19 +9,17 @@ import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { useWorkbench } from '../state/workbench';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
-import { AgentTranscript } from '../surfaces/AgentTranscript';
 import { AttentionDock } from '../surfaces/AttentionDock';
-import { AuditConsole } from '../surfaces/AuditConsole';
 import { AuthorSurface } from '../surfaces/AuthorSurface';
 import { ChannelsPanel } from '../surfaces/ChannelsPanel';
 import { CompareSurface } from '../surfaces/CompareSurface';
 import { DebugSurface } from '../surfaces/DebugSurface';
 import { DocsPanel } from '../surfaces/DocsPanel';
-import { HostBoard } from '../surfaces/HostBoard';
+import { FocusRegion } from '../surfaces/FocusRegion';
 import { InsightsPanel } from '../surfaces/InsightsPanel';
 import { MePanel } from '../surfaces/MePanel';
 import { Navigator } from '../surfaces/Navigator';
-import { ProjectBoard } from '../surfaces/ProjectBoard';
+import { ProjectsSurface } from '../surfaces/ProjectsSurface';
 import { ReadSurface } from '../surfaces/ReadSurface';
 import { RecordSurface } from '../surfaces/RecordSurface';
 import { SearchPanel } from '../surfaces/SearchPanel';
@@ -43,7 +41,6 @@ export function AppShell(): JSX.Element {
   const client = useSession((s) => s.client);
   const disconnect = useSession((s) => s.disconnect);
   const init = useSession((s) => s.init);
-  const selection = useFocus((s) => s.selection);
   const clear = useFocus((s) => s.clear);
   const job = useWorkbench((s) => s.job);
   const setJob = useWorkbench((s) => s.setJob);
@@ -196,26 +193,7 @@ export function AppShell(): JSX.Element {
                   <Navigator />
                 </div>
 
-              <div className="region focus">
-                <div className="region-header">
-                  {selection?.type === 'agent'
-                    ? `${t('region.agent')} · ${selection.id}`
-                    : selection?.type === 'project'
-                      ? `${t('region.project')} · ${selection.id}`
-                      : selection?.type === 'host'
-                        ? `${t('region.host')} · ${selection.id}`
-                        : t('region.activity')}
-                </div>
-                {selection?.type === 'agent' ? (
-                  <AgentTranscript agentId={selection.id} />
-                ) : selection?.type === 'project' ? (
-                  <ProjectBoard projectId={selection.id} />
-                ) : selection?.type === 'host' ? (
-                  <HostBoard hostId={selection.id} />
-                ) : (
-                  <AuditConsole />
-                )}
-              </div>
+                <FocusRegion />
 
                 <div className="region dock">
                   <div className="region-header">{t('region.attention')}</div>
@@ -223,6 +201,8 @@ export function AppShell(): JSX.Element {
                 </div>
               </div>
             </>
+          ) : job === 'projects' ? (
+            <ProjectsSurface />
           ) : job === 'read' ? (
             <ReadSurface />
           ) : job === 'author' ? (

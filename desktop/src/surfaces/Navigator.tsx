@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { useAgents, useHosts, useProjects } from '../hub/queries';
+import { useAgents, useHosts } from '../hub/queries';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { AgentSpawn } from './AgentSpawn';
-import { ProjectCreate } from './ProjectCreate';
 
 function statusClass(status: string | undefined): string {
   switch (status) {
@@ -65,26 +64,23 @@ function KindSection(props: {
 }
 
 /// Left region — the persistent fleet tree, one section per entity kind:
-/// Projects · Stewards · Agents · Hosts. Selection drives the Focus region
-/// (agent transcript / project board).
+/// Stewards · Agents · Hosts (the ops roster). Projects moved to their own tab
+/// (`ProjectsSurface`); the fleet is now hosts + agents + attention, mirroring
+/// the mobile Me/Hosts view. Selection drives the shared Focus region.
 export function Navigator(): JSX.Element {
   const t = useT();
   const agentsQ = useAgents();
   const hostsQ = useHosts();
-  const projectsQ = useProjects();
   const selection = useFocus((s) => s.selection);
   const selectAgent = useFocus((s) => s.selectAgent);
-  const selectProject = useFocus((s) => s.selectProject);
   const selectHost = useFocus((s) => s.selectHost);
   const connected = useSession((s) => s.client) !== null;
-  const [creating, setCreating] = useState(false);
   const [spawning, setSpawning] = useState(false);
-  const [open, setOpen] = useState({ projects: true, stewards: true, agents: true, hosts: true });
+  const [open, setOpen] = useState({ stewards: true, agents: true, hosts: true });
   const toggle = (k: keyof typeof open): void => setOpen((o) => ({ ...o, [k]: !o[k] }));
 
   const agents = agentsQ.data ?? [];
   const hosts = hostsQ.data ?? [];
-  const projects = projectsQ.data ?? [];
 
   const stewards = agents.filter(isSteward);
   const workers = agents.filter((a) => !isSteward(a));
@@ -96,8 +92,6 @@ export function Navigator(): JSX.Element {
 
   const agentSelected = (id: string): boolean =>
     selection?.type === 'agent' && selection.id === id;
-  const projectSelected = (id: string): boolean =>
-    selection?.type === 'project' && selection.id === id;
   const hostSelected = (id: string): boolean =>
     selection?.type === 'host' && selection.id === id;
 
@@ -129,36 +123,6 @@ export function Navigator(): JSX.Element {
 
   return (
     <div className="tree">
-      {/* Projects — the units of directed work. */}
-      <KindSection
-        title={t('nav.projects')}
-        count={projects.length}
-        open={open.projects}
-        onToggle={() => toggle('projects')}
-        onAdd={connected ? () => setCreating(true) : undefined}
-        addTitle={t('project.new')}
-      >
-        {projects.length === 0
-          ? loadingOrEmpty(projectsQ.isLoading, t('nav.noProjects'))
-          : projects.map((p) => {
-              const id = str(p, 'id') ?? '';
-              const label = str(p, 'name') ?? str(p, 'title') ?? id;
-              return (
-                <div
-                  key={id}
-                  className={`tree-agent${projectSelected(id) ? ' selected' : ''}`}
-                  onClick={() => selectProject(id)}
-                >
-                  <span className="dot muted" />
-                  <span className="tree-agent-label">{label}</span>
-                  {str(p, 'phase') !== undefined && (
-                    <span className="tree-agent-kind">{str(p, 'phase')}</span>
-                  )}
-                </div>
-              );
-            })}
-      </KindSection>
-
       {/* Stewards — coordinating agents (kind steward.*). */}
       <KindSection
         title={t('nav.stewards')}
@@ -218,7 +182,6 @@ export function Navigator(): JSX.Element {
             })}
       </KindSection>
 
-      {creating && <ProjectCreate onClose={() => setCreating(false)} />}
       {spawning && <AgentSpawn onClose={() => setSpawning(false)} />}
     </div>
   );

@@ -13,6 +13,7 @@ import { create } from 'zustand';
 /// change).
 export type JobId =
   | 'fleet'
+  | 'projects'
   | 'read'
   | 'author'
   | 'debug'
@@ -33,6 +34,10 @@ export interface JobDef {
 
 export const JOBS: JobDef[] = [
   { id: 'fleet', tag: '', labelKey: 'job.fleet', hintKey: 'job.fleet.hint' },
+  // Projects (the units of directed work) are their own tab — pulled out of the
+  // fleet tree so the fleet stays an ops roster (hosts · agents · attention),
+  // mirroring the mobile Projects tab being separate from Me/Hosts.
+  { id: 'projects', tag: '', labelKey: 'job.projects', hintKey: 'job.projects.hint' },
   { id: 'read', tag: 'J1', labelKey: 'job.read', hintKey: 'job.read.hint' },
   // Author (J2) now also hosts the spatial **canvas** and **table/database** as
   // document kinds — the standalone J4 Canvas surface was folded in.

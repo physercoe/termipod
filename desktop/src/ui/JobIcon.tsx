@@ -16,6 +16,14 @@ const PATHS: Record<JobId, JSX.Element> = {
       <rect x="3" y="16" width="7" height="5" rx="1.3" />
     </>
   ),
+  // projects — stacked layers (units of directed work)
+  projects: (
+    <>
+      <path d="M12 3l8 4.5-8 4.5-8-4.5z" />
+      <path d="M4 12l8 4.5 8-4.5" />
+      <path d="M4 16.5l8 4.5 8-4.5" opacity="0.55" />
+    </>
+  ),
   // read — an open book
   read: (
     <>

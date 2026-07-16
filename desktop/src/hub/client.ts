@@ -152,6 +152,12 @@ export class HubClient {
   startProject(id: string): Promise<Entity> {
     return this.transport.post(this.transport.team(`/projects/${id}/start`), {}) as Promise<Entity>;
   }
+  /** PATCH a project's mutable fields (`handleUpdateProject`) — e.g. bind a
+   * steward via `on_create_template_id` so the project becomes startable.
+   * Returns the updated project. */
+  updateProject(id: string, patch: Record<string, unknown>): Promise<Entity> {
+    return this.transport.patch(this.transport.team(`/projects/${id}`), patch) as Promise<Entity>;
+  }
 
   // --- agent spawn (Phase 4 / F3) ---
   /** Spawn an agent (`handleSpawn`, self-governing). Returns `{status, agent_id}`

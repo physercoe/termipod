@@ -133,12 +133,96 @@ function NewTaskForm({ projectId, onDone }: { projectId: string; onDone: () => v
   );
 }
 
+/// Bind a domain steward to a project (the mobile "settings" step). Sets
+/// `on_create_template_id` via PATCH so the project becomes startable, instead
+/// of the bare Start button 422-ing. A free-text template id (mirrors the
+/// mobile edit sheet) with a datalist of the team's steward agent templates.
+function StewardBind({
+  projectId,
+  current,
+  onClose,
+}: {
+  projectId: string;
+  current: string;
+  onClose: () => void;
+}): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const qc = useQueryClient();
+  const [tpl, setTpl] = useState(current);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const suggestQ = useQuery({
+    queryKey: ['agent-templates'],
+    enabled: client !== null,
+    queryFn: () => client!.listTemplates('agents'),
+  });
+  const suggestions = (suggestQ.data ?? [])
+    .map((e) => `${str(e, 'category') ?? 'agents'}/${str(e, 'name') ?? ''}`)
+    .filter((s) => /steward/i.test(s));
+
+  async function save(): Promise<void> {
+    if (client === null || tpl.trim() === '') return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await client.updateProject(projectId, { on_create_template_id: tpl.trim() });
+      await qc.invalidateQueries({ queryKey: ['project', projectId] });
+      await qc.invalidateQueries({ queryKey: ['project-overview', projectId] });
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="palette-backdrop" onMouseDown={onClose}>
+      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="admin-tabs">
+          <strong>{t('project.bindStewardTitle')}</strong>
+          <span className="spacer" />
+          <button onClick={onClose}>{t('admin.close')}</button>
+        </div>
+        <div className="task-form">
+          <p className="muted small wide">{t('project.bindStewardDesc')}</p>
+          <label className="wide">
+            {t('project.stewardTemplate')}
+            <input
+              list="steward-tpl-suggest"
+              value={tpl}
+              spellCheck={false}
+              onChange={(e) => setTpl(e.target.value)}
+              placeholder={t('project.bindStewardHint')}
+              autoFocus
+            />
+            <datalist id="steward-tpl-suggest">
+              {suggestions.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          </label>
+          {err !== null && <div className="error wide">{err}</div>}
+          <div className="wide task-form-actions">
+            <button className="primary" disabled={busy || tpl.trim() === ''} onClick={() => void save()}>
+              {t('project.bind')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const { run, busy, error } = useHubAction();
   const [openDeliv, setOpenDeliv] = useState<string | null>(null);
   const [phaseSummary, setPhaseSummary] = useState<string | null>(null);
+  const [binding, setBinding] = useState(false);
   const q = useQuery({
     queryKey: ['project-overview', projectId],
     enabled: client !== null,
@@ -162,6 +246,10 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
   const ov = q.data ?? {};
   const proj = projQ.data ?? {};
   const started = ov['steward_started'] === true;
+  // A project can only start once a domain steward is bound
+  // (`on_create_template_id`); otherwise the hub 422s. Mirror mobile: offer to
+  // bind one instead of showing a Start button that fails.
+  const bound = (str(proj, 'on_create_template_id') ?? '') !== '';
   const phases = Array.isArray(ov['phases']) ? (ov['phases'] as string[]) : [];
   const phase = str(ov, 'phase') ?? '';
   const phaseIndex = num(ov, 'phase_index') ?? -1;
@@ -182,18 +270,24 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
       <section className="setting-group">
         <div className="setting-row">
           <span className={started ? 'sev sev-medium' : 'muted'}>
-            {started ? t('project.started') : t('project.start')}
+            {started ? t('project.started') : bound ? t('project.start') : t('project.noSteward')}
           </span>
-          {!started && (
-            <button
-              className="primary"
-              disabled={busy}
-              onClick={() => void run(() => client!.startProject(projectId), { invalidate: [['project-overview', projectId], ['agents']] })}
-            >
-              {busy ? t('project.starting') : t('project.start')}
-            </button>
-          )}
+          {!started &&
+            (bound ? (
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={() => void run(() => client!.startProject(projectId), { invalidate: [['project-overview', projectId], ['agents']] })}
+              >
+                {busy ? t('project.starting') : t('project.start')}
+              </button>
+            ) : (
+              <button className="primary" onClick={() => setBinding(true)}>
+                {t('project.bindSteward')}
+              </button>
+            ))}
         </div>
+        {!started && !bound && <p className="muted small proj-nosteward-hint">{t('project.noStewardHint')}</p>}
         {error !== null && <div className="error">{error}</div>}
       </section>
 
@@ -298,6 +392,13 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
           })
         )}
       </section>
+      {binding && (
+        <StewardBind
+          projectId={projectId}
+          current={str(proj, 'on_create_template_id') ?? ''}
+          onClose={() => setBinding(false)}
+        />
+      )}
       {openDeliv !== null && (
         <DeliverableDetail projectId={projectId} deliverableId={openDeliv} onClose={() => setOpenDeliv(null)} />
       )}

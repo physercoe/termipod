@@ -38,16 +38,6 @@ const PATHS: Record<JobId, JSX.Element> = {
       <path d="M13.5 5l-3 14" />
     </>
   ),
-  // canvas — connected nodes
-  canvas: (
-    <>
-      <circle cx="18" cy="5" r="2.4" />
-      <circle cx="6" cy="12" r="2.4" />
-      <circle cx="18" cy="19" r="2.4" />
-      <path d="M8.1 10.9l7.7-4.5" />
-      <path d="M8.1 13.1l7.7 4.5" />
-    </>
-  ),
   // compare — overlaid metric curves
   compare: (
     <>

@@ -13,7 +13,6 @@ import { AgentTranscript } from '../surfaces/AgentTranscript';
 import { AttentionDock } from '../surfaces/AttentionDock';
 import { AuditConsole } from '../surfaces/AuditConsole';
 import { AuthorSurface } from '../surfaces/AuthorSurface';
-import { CanvasSurface } from '../surfaces/CanvasSurface';
 import { ChannelsPanel } from '../surfaces/ChannelsPanel';
 import { CompareSurface } from '../surfaces/CompareSurface';
 import { DebugSurface } from '../surfaces/DebugSurface';
@@ -230,8 +229,6 @@ export function AppShell(): JSX.Element {
             <AuthorSurface />
           ) : job === 'debug' ? (
             <DebugSurface />
-          ) : job === 'canvas' ? (
-            <CanvasSurface />
           ) : job === 'compare' ? (
             <CompareSurface />
           ) : job === 'record' ? (

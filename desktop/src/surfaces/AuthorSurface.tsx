@@ -6,7 +6,10 @@ import { AgentCompanion } from '../ui/AgentCompanion';
 import { Icon, type IconName } from '../ui/Icon';
 import { AuthorNav } from './AuthorNav';
 import { DiagramEditor } from './DiagramEditor';
+import { CanvasEditor } from '../ui/CanvasEditor';
 import { Markdown } from '../ui/Markdown';
+// The table/database grid is only pulled in when a table doc is opened.
+const TableEditor = lazy(() => import('../ui/TableEditor').then((m) => ({ default: m.TableEditor })));
 import type { MarkdownEditorHandle } from '../ui/MarkdownEditor';
 // CodeMirror is heavy (~500 KB) and Author isn't the landing tab — split it out.
 const MarkdownEditor = lazy(() => import('../ui/MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })));
@@ -41,6 +44,19 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 function baseName(path: string): string {
   const parts = path.split(/[\\/]/);
   return parts[parts.length - 1] || path;
+}
+
+function kindIcon(kind: Doc['kind']): IconName {
+  switch (kind) {
+    case 'diagram':
+      return 'diagram';
+    case 'canvas':
+      return 'canvas';
+    case 'table':
+      return 'table';
+    default:
+      return 'note';
+  }
 }
 
 type ViewMode = 'wysiwyg' | 'edit' | 'split' | 'read';
@@ -254,6 +270,14 @@ export function AuthorSurface(): JSX.Element {
             <Icon name="diagram" size={14} />
             {t('author.newDiagram')}
           </button>
+          <button className="import-btn" onClick={() => create('canvas')}>
+            <Icon name="canvas" size={14} />
+            {t('author.newCanvas')}
+          </button>
+          <button className="import-btn" onClick={() => create('table')}>
+            <Icon name="table" size={14} />
+            {t('author.newTable')}
+          </button>
           {tauri && (
             <>
               <button className="import-btn" disabled={busy} onClick={() => void onOpen()}>
@@ -301,7 +325,7 @@ export function AuthorSurface(): JSX.Element {
           {docs.map((d) => (
             <span key={d.id} className={`read-tabitem${activeId === d.id ? ' active' : ''}`}>
               <button className="read-tabitem-label" title={d.filePath ?? d.title} onClick={() => setActive(d.id)}>
-                <Icon name={d.kind === 'diagram' ? 'diagram' : 'note'} size={13} className="read-tabitem-kind" />
+                <Icon name={kindIcon(d.kind)} size={13} className="read-tabitem-kind" />
                 {d.dirty === true ? '● ' : ''}
                 {d.title !== '' ? d.title : t('author.untitled')}
               </button>
@@ -320,10 +344,19 @@ export function AuthorSurface(): JSX.Element {
         <div className="author-split">
           {active.kind === 'diagram' ? (
             <DiagramEditor key={active.id} doc={active} />
+          ) : active.kind === 'canvas' ? (
+            <CanvasEditor key={active.id} value={active.body} onChange={(v) => update(active.id, { body: v })} />
+          ) : active.kind === 'table' ? (
+            <Suspense fallback={<div className="muted region-pad">{t('author.loadingEditor')}</div>}>
+              <TableEditor key={active.id} value={active.body} onChange={(v) => update(active.id, { body: v })} />
+            </Suspense>
           ) : (
             <Editor key={active.id} doc={active} />
           )}
-          {showAgent && (
+          {/* Agent-assist inserts prose into the body — only meaningful for a
+              markdown doc; a diagram/canvas/table body is structured
+              (XML/JSON) and would be corrupted by an append. */}
+          {showAgent && active.kind === 'markdown' && (
             <>
               <ResizeHandle
                 onResize={(dx) =>

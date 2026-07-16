@@ -1231,3 +1231,199 @@
   font-size: var(--font-size-body-small);
   font-weight: 500;
 }
+
+/* ---- Canvas & table as Author document kinds ---- */
+/* Both fill the author-split area and stack a toolbar over their content. */
+.author-split > .canvas-editor,
+.author-split > .table-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.canvas-toolbar,
+.table-toolbar {
+  flex: 0 0 auto;
+}
+
+/* ---- Table / database document ---- */
+.table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-s8) var(--spacing-s12) var(--spacing-s16);
+}
+.db-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  font-size: var(--font-size-body-small);
+}
+.db-th,
+.db-td {
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  vertical-align: middle;
+  position: relative;
+}
+.db-table thead .db-th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+.db-th:first-child,
+.db-td:first-child {
+  border-left: 1px solid var(--border);
+}
+.db-th-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px;
+}
+.db-colname {
+  flex: 1;
+  min-width: 90px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--font-size-body-small);
+  padding: 6px 4px;
+}
+.db-colname:focus {
+  outline: none;
+  background: var(--input);
+  border-radius: var(--radius-sm);
+}
+.db-col-menu {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.db-col-menu:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.db-col-pop {
+  position: absolute;
+  top: 100%;
+  left: 4px;
+  z-index: 5;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2, 0 4px 16px rgba(0, 0, 0, 0.3));
+}
+.db-col-poprow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s8);
+}
+.db-col-poprow select,
+.db-col-poprow input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+  color: var(--text);
+}
+.db-col-del {
+  align-self: stretch;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+.db-col-del:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.db-rownum {
+  width: 40px;
+  text-align: center;
+  white-space: nowrap;
+  background: var(--surface);
+}
+.db-rownum-n {
+  display: inline;
+}
+.db-tr:hover .db-rownum-n {
+  display: none;
+}
+.db-row-del {
+  display: none;
+  padding: 2px 6px;
+  color: var(--danger);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.db-tr:hover .db-row-del {
+  display: inline;
+}
+.db-cell {
+  width: 100%;
+  min-width: 90px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: var(--font-size-body-small);
+  font-family: inherit;
+}
+.db-cell:focus {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+  border-radius: 2px;
+}
+.db-cell-num {
+  text-align: right;
+}
+.db-cell-check {
+  display: block;
+  margin: 6px auto;
+}
+.db-td {
+  padding: 0;
+}
+.db-empty {
+  padding: var(--spacing-s16);
+  text-align: center;
+}
+.db-addrow-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: var(--spacing-s8);
+  padding: 6px 10px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.db-addrow-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}

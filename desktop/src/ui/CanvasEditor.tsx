@@ -2,19 +2,27 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import {
   EDGE_TYPES,
-  useCanvas,
+  emptyBoard,
+  newId,
+  parseBoard,
+  serializeBoard,
+  type Board,
   type CanvasCard,
+  type EdgeType,
 } from '../state/canvas';
 import { useLibrary, type Reference } from '../state/library';
-import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { ConfirmButton } from './ConfirmButton';
 
-/// J4 — a spatial thinking canvas (BUILD, not a tldraw embed): note & reference
-/// cards on an infinite pan/zoom surface, joined by typed edges, wired to the J1
-/// reference library. Drag a card's header to move it, scroll to zoom, drag the
-/// background to pan; "Link" arms a connect from the selected card. The inspector
-/// shows a card's content and its backlinks (what points at it) so the board
-/// reads as a Zettelkasten, not just a whiteboard. Round-1 storage is
-/// device-local (`state/canvas.ts`), the same posture as the reference library.
+/// The canvas document editor — note & reference cards on an infinite pan/zoom
+/// surface, joined by typed edges, wired to the J1 reference library. Drag a
+/// card's header to move it, scroll to zoom, drag the background to pan; "Link"
+/// arms a connect from the selected card. The inspector shows a card's content
+/// and its backlinks (what points at it) so the board reads as a Zettelkasten,
+/// not just a whiteboard.
+///
+/// State lives in the owning Author document's `body` (JSON). This component
+/// parses it once on mount (it is keyed per doc, so switching docs remounts with
+/// fresh state) and writes every mutation back through `onChange`.
 
 const CARD_W = 210;
 const MIN_SCALE = 0.35;
@@ -35,18 +43,50 @@ function refTitle(r: Reference | undefined, fallback: string): string {
   return r.title !== '' ? r.title : fallback;
 }
 
-export function CanvasSurface(): JSX.Element {
+export function CanvasEditor({ value, onChange }: { value: string; onChange: (next: string) => void }): JSX.Element {
   const t = useT();
-  const cards = useCanvas((s) => s.cards);
-  const edges = useCanvas((s) => s.edges);
-  const addCard = useCanvas((s) => s.addCard);
-  const updateCard = useCanvas((s) => s.updateCard);
-  const removeCard = useCanvas((s) => s.removeCard);
-  const addEdge = useCanvas((s) => s.addEdge);
-  const setEdgeType = useCanvas((s) => s.setEdgeType);
-  const removeEdge = useCanvas((s) => s.removeEdge);
-  const clearBoard = useCanvas((s) => s.clear);
   const references = useLibrary((s) => s.references);
+
+  // The board is owned locally and mirrored into the document body on every
+  // mutation. Parsed once (keyed per doc by the caller); a ref keeps every
+  // handler reading the latest board without stale closures.
+  const [board, setBoard] = useState<Board>(() => parseBoard(value));
+  const boardRef = useRef(board);
+  boardRef.current = board;
+  function mutate(fn: (b: Board) => Board): void {
+    const next = fn(boardRef.current);
+    boardRef.current = next;
+    setBoard(next);
+    onChange(serializeBoard(next));
+  }
+
+  const cards = board.cards;
+  const edges = board.edges;
+
+  const addCard = (c: Omit<CanvasCard, 'id'>): string => {
+    const id = newId('card');
+    mutate((b) => ({ ...b, cards: [...b.cards, { ...c, id }] }));
+    return id;
+  };
+  const updateCard = (id: string, patch: Partial<Omit<CanvasCard, 'id'>>): void =>
+    mutate((b) => ({ ...b, cards: b.cards.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+  const removeCard = (id: string): void =>
+    mutate((b) => ({
+      cards: b.cards.filter((c) => c.id !== id),
+      edges: b.edges.filter((e) => e.from !== id && e.to !== id),
+    }));
+  const addEdge = (from: string, to: string, type: EdgeType): void => {
+    if (from === to) return;
+    mutate((b) =>
+      b.edges.some((e) => e.from === from && e.to === to)
+        ? b
+        : { ...b, edges: [...b.edges, { id: newId('edge'), from, to, type }] },
+    );
+  };
+  const setEdgeType = (id: string, type: EdgeType): void =>
+    mutate((b) => ({ ...b, edges: b.edges.map((e) => (e.id === id ? { ...e, type } : e)) }));
+  const removeEdge = (id: string): void => mutate((b) => ({ ...b, edges: b.edges.filter((e) => e.id !== id) }));
+  const clearBoard = (): void => mutate(() => emptyBoard());
 
   const [view, setView] = useState<View>({ ox: 0, oy: 0, scale: 1 });
   const [selected, setSelected] = useState<string | null>(null);
@@ -173,43 +213,42 @@ export function CanvasSurface(): JSX.Element {
   const selectedCard = selected !== null ? cardById.get(selected) : undefined;
 
   return (
-    <WorkbenchSurface
-      job="canvas"
-      actions={
-        <>
-          <button onClick={addNote}>+ {t('canvas.addNote')}</button>
-          <select
-            className="canvas-add-ref"
-            value=""
-            disabled={references.length === 0}
-            onChange={(e) => {
-              if (e.target.value !== '') addRefCard(e.target.value);
+    <div className="canvas-editor">
+      <div className="author-doc-bar canvas-toolbar">
+        <button className="import-btn" onClick={addNote}>
+          + {t('canvas.addNote')}
+        </button>
+        <select
+          className="canvas-add-ref"
+          value=""
+          disabled={references.length === 0}
+          onChange={(e) => {
+            if (e.target.value !== '') addRefCard(e.target.value);
+          }}
+        >
+          <option value="">+ {t('canvas.addRef')}</option>
+          {references.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.title !== '' ? r.title : t('read.untitled')}
+            </option>
+          ))}
+        </select>
+        <button className="import-btn" onClick={() => setView({ ox: 0, oy: 0, scale: 1 })}>
+          {t('canvas.resetView')}
+        </button>
+        <span className="spacer" />
+        {cards.length > 0 && (
+          <ConfirmButton
+            danger
+            label={t('canvas.clear')}
+            onConfirm={() => {
+              clearBoard();
+              setSelected(null);
             }}
-          >
-            <option value="">+ {t('canvas.addRef')}</option>
-            {references.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.title !== '' ? r.title : t('read.untitled')}
-              </option>
-            ))}
-          </select>
-          <button onClick={() => setView({ ox: 0, oy: 0, scale: 1 })}>{t('canvas.resetView')}</button>
-          {cards.length > 0 && (
-            <button
-              className="link-btn danger"
-              onClick={() => {
-                if (window.confirm(t('canvas.clearConfirm'))) {
-                  clearBoard();
-                  setSelected(null);
-                }
-              }}
-            >
-              {t('canvas.clear')}
-            </button>
-          )}
-        </>
-      }
-    >
+          />
+        )}
+      </div>
+
       <div className="canvas-layout">
         <div
           className={`canvas-viewport${connectFrom !== null ? ' connecting' : ''}`}
@@ -333,9 +372,12 @@ export function CanvasSurface(): JSX.Element {
           <aside className="canvas-inspector">
             <Inspector
               card={selectedCard}
+              cards={cards}
+              edges={edges}
               reference={refById.get(selectedCard.refId ?? '')}
               connecting={connectFrom === selectedCard.id}
               onArmConnect={() => setConnectFrom(selectedCard.id)}
+              onUpdateCard={updateCard}
               onRemove={() => {
                 removeCard(selectedCard.id);
                 setSelected(null);
@@ -345,7 +387,7 @@ export function CanvasSurface(): JSX.Element {
           </aside>
         )}
       </div>
-    </WorkbenchSurface>
+    </div>
   );
 }
 
@@ -353,17 +395,17 @@ export function CanvasSurface(): JSX.Element {
 
 function Inspector(props: {
   card: CanvasCard;
+  cards: CanvasCard[];
+  edges: { id: string; from: string; to: string; type: EdgeType }[];
   reference: Reference | undefined;
   connecting: boolean;
   onArmConnect: () => void;
+  onUpdateCard: (id: string, patch: Partial<Omit<CanvasCard, 'id'>>) => void;
   onRemove: () => void;
   onSelect: (id: string) => void;
 }): JSX.Element {
-  const { card, reference, connecting, onArmConnect, onRemove, onSelect } = props;
+  const { card, cards, edges, reference, connecting, onArmConnect, onUpdateCard, onRemove, onSelect } = props;
   const t = useT();
-  const cards = useCanvas((s) => s.cards);
-  const edges = useCanvas((s) => s.edges);
-  const updateCard = useCanvas((s) => s.updateCard);
 
   const title = (id: string): string => {
     const c = cards.find((x) => x.id === id);
@@ -407,7 +449,7 @@ function Inspector(props: {
           className="canvas-insp-note editor-pane"
           value={card.text}
           placeholder={t('canvas.notePlaceholder')}
-          onChange={(e) => updateCard(card.id, { text: e.target.value })}
+          onChange={(e) => onUpdateCard(card.id, { text: e.target.value })}
         />
       )}
 

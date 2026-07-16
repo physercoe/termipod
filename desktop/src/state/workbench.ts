@@ -16,7 +16,6 @@ export type JobId =
   | 'read'
   | 'author'
   | 'debug'
-  | 'canvas'
   | 'compare'
   | 'record'
   | 'terminal'
@@ -35,9 +34,10 @@ export interface JobDef {
 export const JOBS: JobDef[] = [
   { id: 'fleet', tag: '', labelKey: 'job.fleet', hintKey: 'job.fleet.hint' },
   { id: 'read', tag: 'J1', labelKey: 'job.read', hintKey: 'job.read.hint' },
+  // Author (J2) now also hosts the spatial **canvas** and **table/database** as
+  // document kinds — the standalone J4 Canvas surface was folded in.
   { id: 'author', tag: 'J2', labelKey: 'job.author', hintKey: 'job.author.hint' },
   { id: 'debug', tag: 'J3', labelKey: 'job.debug', hintKey: 'job.debug.hint' },
-  { id: 'canvas', tag: 'J4', labelKey: 'job.canvas', hintKey: 'job.canvas.hint' },
   { id: 'compare', tag: 'J5', labelKey: 'job.compare', hintKey: 'job.compare.hint' },
   { id: 'record', tag: 'J6', labelKey: 'job.record', hintKey: 'job.record.hint' },
   { id: 'terminal', tag: '', labelKey: 'job.terminal', hintKey: 'job.terminal.hint' },
@@ -62,6 +62,7 @@ const LS_KEY = 'termipod.workbench.job';
 function initialJob(): JobId {
   try {
     const v = localStorage.getItem(LS_KEY);
+    if (v === 'canvas') return 'author'; // Canvas folded into Author
     if (v !== null && KNOWN_JOBS.includes(v as JobId)) return v as JobId;
   } catch {
     /* ignore */

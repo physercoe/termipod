@@ -1,11 +1,14 @@
-import { create } from 'zustand';
-
-/// J4 Canvas — a spatial thinking board (Zettelkasten-shaped): **cards** placed
-/// on an infinite surface, joined by **typed edges**. A card is either a free
-/// note or a handle onto a library `Reference` (so the canvas is wired to J1's
-/// reference library, not a disconnected whiteboard). Round-1 storage is
-/// device-local (`localStorage`), the same posture as the reference library; a
-/// later round promotes boards to hub-backed incubation notes.
+/// J2 Author — the **canvas** document model (spatial thinking board,
+/// Zettelkasten-shaped): **cards** placed on an infinite surface, joined by
+/// **typed edges**. A card is either a free note or a handle onto a library
+/// `Reference` (so the canvas is wired to J1's reference library, not a
+/// disconnected whiteboard).
+///
+/// A canvas is no longer a standalone surface with a single global board — it is
+/// **one kind of Author document** (like markdown or diagram), so a workspace can
+/// hold many boards as tabs/files. The board is serialized as JSON into the
+/// document's `body` (see `state/documents.ts`); this module is the pure model +
+/// (de)serialization, and `ui/CanvasEditor.tsx` is the interactive editor.
 
 export type CardKind = 'note' | 'ref';
 
@@ -28,97 +31,32 @@ export interface CanvasEdge {
   type: EdgeType;
 }
 
-interface CanvasState {
-  cards: CanvasCard[];
-  edges: CanvasEdge[];
-  addCard: (c: Omit<CanvasCard, 'id'>) => string;
-  updateCard: (id: string, patch: Partial<Omit<CanvasCard, 'id'>>) => void;
-  removeCard: (id: string) => void;
-  addEdge: (from: string, to: string, type: EdgeType) => void;
-  setEdgeType: (id: string, type: EdgeType) => void;
-  removeEdge: (id: string) => void;
-  clear: () => void;
-}
-
-const LS_KEY = 'termipod.canvas.v1';
-
-interface Persisted {
+export interface Board {
   cards: CanvasCard[];
   edges: CanvasEdge[];
 }
 
-function load(): Persisted {
+export const emptyBoard = (): Board => ({ cards: [], edges: [] });
+
+/// Parse a document body into a board, tolerating anything malformed (a brand-new
+/// or corrupt doc reads as an empty board rather than throwing).
+export function parseBoard(body: string): Board {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw !== null) return JSON.parse(raw) as Persisted;
+    const b = JSON.parse(body) as Partial<Board>;
+    if (b !== null && Array.isArray(b.cards) && Array.isArray(b.edges)) {
+      return { cards: b.cards, edges: b.edges };
+    }
   } catch {
-    /* ignore */
+    /* fall through to empty */
   }
-  return { cards: [], edges: [] };
+  return emptyBoard();
 }
 
-function save(p: Persisted): void {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(p));
-  } catch {
-    /* ignore */
-  }
-}
+export const serializeBoard = (b: Board): string => JSON.stringify(b);
 
 // Monotonic id — no crypto.randomUUID under tauri:// (see library.ts note).
 let seq = 0;
-function newId(prefix: string): string {
+export function newId(prefix: string): string {
   seq += 1;
   return `${prefix}${Date.now().toString(36)}${seq}`;
 }
-
-export const useCanvas = create<CanvasState>((set, get) => ({
-  ...load(),
-
-  addCard: (c) => {
-    const id = newId('card');
-    const cards = [...get().cards, { ...c, id }];
-    set({ cards });
-    save({ cards, edges: get().edges });
-    return id;
-  },
-
-  updateCard: (id, patch) => {
-    const cards = get().cards.map((c) => (c.id === id ? { ...c, ...patch } : c));
-    set({ cards });
-    save({ cards, edges: get().edges });
-  },
-
-  removeCard: (id) => {
-    const cards = get().cards.filter((c) => c.id !== id);
-    const edges = get().edges.filter((e) => e.from !== id && e.to !== id);
-    set({ cards, edges });
-    save({ cards, edges });
-  },
-
-  addEdge: (from, to, type) => {
-    if (from === to) return;
-    const exists = get().edges.some((e) => e.from === from && e.to === to);
-    if (exists) return;
-    const edges = [...get().edges, { id: newId('edge'), from, to, type }];
-    set({ edges });
-    save({ cards: get().cards, edges });
-  },
-
-  setEdgeType: (id, type) => {
-    const edges = get().edges.map((e) => (e.id === id ? { ...e, type } : e));
-    set({ edges });
-    save({ cards: get().cards, edges });
-  },
-
-  removeEdge: (id) => {
-    const edges = get().edges.filter((e) => e.id !== id);
-    set({ edges });
-    save({ cards: get().cards, edges });
-  },
-
-  clear: () => {
-    set({ cards: [], edges: [] });
-    save({ cards: [], edges: [] });
-  },
-}));

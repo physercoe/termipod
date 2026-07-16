@@ -4,8 +4,6 @@ import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 import { useFocus } from '../state/focus';
-import { useSession } from '../state/session';
-import { AgentSpawn } from './AgentSpawn';
 
 function statusClass(status: string | undefined): string {
   switch (status) {
@@ -74,8 +72,6 @@ export function Navigator(): JSX.Element {
   const selection = useFocus((s) => s.selection);
   const selectAgent = useFocus((s) => s.selectAgent);
   const selectHost = useFocus((s) => s.selectHost);
-  const connected = useSession((s) => s.client) !== null;
-  const [spawning, setSpawning] = useState(false);
   const [open, setOpen] = useState({ stewards: true, agents: true, hosts: true });
   const toggle = (k: keyof typeof open): void => setOpen((o) => ({ ...o, [k]: !o[k] }));
   // Agents and Hosts are separate subtabs so the roster isn't one long mixed
@@ -176,8 +172,6 @@ export function Navigator(): JSX.Element {
             count={workers.length}
             open={open.agents}
             onToggle={() => toggle('agents')}
-            onAdd={connected ? () => setSpawning(true) : undefined}
-            addTitle={t('spawn.title')}
           >
             {!agentsQ.isError &&
               (workers.length === 0
@@ -214,8 +208,6 @@ export function Navigator(): JSX.Element {
               })}
         </KindSection>
       )}
-
-      {spawning && <AgentSpawn onClose={() => setSpawning(false)} />}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { useWorkbench } from '../state/workbench';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
+import { AgentSpawn } from '../surfaces/AgentSpawn';
 import { AuthorSurface } from '../surfaces/AuthorSurface';
 import { ChannelsPanel } from '../surfaces/ChannelsPanel';
 import { CompareSurface } from '../surfaces/CompareSurface';
@@ -54,6 +55,7 @@ export function AppShell(): JSX.Element {
   const [docsOpen, setDocsOpen] = useState(false);
   const [meOpen, setMeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [spawnOpen, setSpawnOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [editProfile, setEditProfile] = useState<HubProfile | undefined>(undefined);
 
@@ -126,7 +128,8 @@ export function AppShell(): JSX.Element {
     { id: 'channels', label: t('cmd.channels'), run: () => setChannelsOpen(true) },
     { id: 'insights', label: t('cmd.insights'), run: () => setInsightsOpen(true) },
     { id: 'docs', label: t('cmd.docs'), run: () => setDocsOpen(true) },
-    { id: 'me', label: t('cmd.me'), run: () => setMeOpen(true) },
+    { id: 'me', label: t('cmd.history'), run: () => setMeOpen(true) },
+    { id: 'spawn', label: t('spawn.title'), run: () => setSpawnOpen(true) },
     { id: 'search', label: t('cmd.search'), run: () => setSearchOpen(true) },
     { id: 'terminal', label: t('cmd.terminal'), run: () => setJob('terminal') },
     { id: 'settings', label: t('cmd.settings'), run: () => setJob('settings') },
@@ -181,12 +184,15 @@ export function AppShell(): JSX.Element {
                 <>
                   <span className="fleet-toolbar-label">{t('nav.fleet')}</span>
                   <span className="fleet-toolbar-sep" />
+                  <button className="primary" disabled={client === null} onClick={() => setSpawnOpen(true)}>
+                    {t('spawn.title')}
+                  </button>
                   <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
                   <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
                   <button onClick={() => setInsightsOpen(true)}>{t('shell.insights')}</button>
                   <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
                   <span className="spacer" />
-                  <button onClick={() => setMeOpen(true)}>{t('shell.me')}</button>
+                  <button onClick={() => setMeOpen(true)}>{t('shell.history')}</button>
                   <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
                 </>
               }
@@ -222,6 +228,7 @@ export function AppShell(): JSX.Element {
       {docsOpen && <DocsPanel onClose={() => setDocsOpen(false)} />}
       {meOpen && <MePanel onClose={() => setMeOpen(false)} />}
       {searchOpen && <SearchPanel onClose={() => setSearchOpen(false)} />}
+      {spawnOpen && <AgentSpawn onClose={() => setSpawnOpen(false)} />}
       {connectOpen && (
         <ConnectPanel
           edit={editProfile}

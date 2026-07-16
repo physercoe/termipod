@@ -253,8 +253,7 @@ pre {
   min-width: 0;
 }
 .shell-body > .dock {
-  flex: 0 0 auto;
-  width: 320px;
+  flex: 0 0 auto; /* width set inline by MissionLayout (resizable) */
 }
 
 .region {

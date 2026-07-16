@@ -33,6 +33,10 @@ export function MissionLayout({
   const t = useT();
   const [open, setOpen] = useState(() => loadBool(`termipod.${storageKey}.navOpen`, true));
   const [w, onResize] = usePanelWidth(`termipod.${storageKey}.navW`, 240, 180, 480);
+  // The attention dock is resizable too (its handle is on its LEFT edge, so
+  // dragging left widens it → sign -1). Resizing either side reflows the main
+  // (focus) page between them, so the director can size the centre as they like.
+  const [dockW, onResizeDock] = usePanelWidth(`termipod.${storageKey}.dockW`, 320, 240, 560, -1);
 
   function toggle(): void {
     setOpen((o) => {
@@ -72,7 +76,8 @@ export function MissionLayout({
 
         <FocusRegion />
 
-        <div className="region dock">
+        <ResizeHandle onResize={onResizeDock} />
+        <div className="region dock" style={{ width: dockW }}>
           <div className="region-header">{t('region.attention')}</div>
           <AttentionDock />
         </div>

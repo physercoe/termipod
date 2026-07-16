@@ -245,6 +245,7 @@ export function DeliverableDetail({
   const { run, busy, error } = useHubAction();
   const [sendingBack, setSendingBack] = useState(false);
   const [note, setNote] = useState('');
+  const [openComp, setOpenComp] = useState<{ kind: string; refId: string } | null>(null);
   const delivQ = useQuery({
     queryKey: ['deliverable', projectId, deliverableId],
     enabled: client !== null,
@@ -329,14 +330,27 @@ export function DeliverableDetail({
             {components.length === 0 ? (
               <div className="muted">{t('deliv.noComponents')}</div>
             ) : (
-              components.map((c, i) => (
-                <div key={str(c, 'ref_id') ?? String(i)} className="admin-row">
-                  <span className="pill">{str(c, 'kind') ?? '—'}</span>
-                  <span className="mono small">{str(c, 'ref_id') ?? ''}</span>
-                  <span className="spacer" />
-                  {bool(c, 'required') === true && <span className="muted small">{t('crit.required')}</span>}
-                </div>
-              ))
+              components.map((c, i) => {
+                const refId = str(c, 'ref_id') ?? '';
+                const ckind = str(c, 'kind') ?? '';
+                // Documents and artifacts have viewable content; a task/criteria
+                // component is just a reference, so its row stays inert.
+                const viewable = refId !== '' && isViewableComponent(ckind);
+                return (
+                  <button
+                    key={refId || String(i)}
+                    className="file-row"
+                    disabled={!viewable}
+                    title={viewable ? t('deliv.viewComponent') : undefined}
+                    onClick={() => viewable && setOpenComp({ kind: ckind, refId })}
+                  >
+                    <span className="pill">{ckind || '—'}</span>
+                    <span className="mono small">{refId}</span>
+                    <span className="spacer" />
+                    {bool(c, 'required') === true && <span className="muted small">{t('crit.required')}</span>}
+                  </button>
+                );
+              })
             )}
           </section>
 
@@ -355,6 +369,118 @@ export function DeliverableDetail({
               ))
             )}
           </section>
+        </div>
+      </div>
+      {openComp !== null && (
+        <ComponentView
+          projectId={projectId}
+          kind={openComp.kind}
+          refId={openComp.refId}
+          onClose={() => setOpenComp(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Deliverable component kinds whose content we can render inline: authored
+// documents (markdown) and blob-backed artifacts. Everything else (task,
+// criteria, run refs) is a pointer, not a document.
+const DOC_KINDS = new Set(['document', 'doc', 'report', 'memo', 'draft', 'review', 'sample']);
+function isViewableComponent(kind: string): boolean {
+  return DOC_KINDS.has(kind) || kind === 'artifact';
+}
+
+/// The blob sha for an artifact row — the handle lives in `uri` as
+/// `blob:sha256/<hex>` (or `hub-blob://<hex>`); `sha256` is rarely populated.
+function shaFromArtifact(a: Entity): string | undefined {
+  const uri = str(a, 'uri') ?? '';
+  return (
+    (str(a, 'sha256') ?? '') ||
+    (uri.startsWith('blob:sha256/')
+      ? uri.slice('blob:sha256/'.length)
+      : uri.startsWith('hub-blob://')
+        ? uri.slice('hub-blob://'.length)
+        : undefined)
+  );
+}
+
+/// View a deliverable component's actual content (director asked "how do I see
+/// the output, not just its id"). A `document` resolves via `getDocument` and
+/// renders its inline markdown; an `artifact` (or an artifact-backed document)
+/// resolves to a blob via the project's artifact list and defers to the full
+/// `ArtifactViewer`. A component with no viewable body shows a clear note.
+function ComponentView({
+  projectId,
+  kind,
+  refId,
+  onClose,
+}: {
+  projectId: string;
+  kind: string;
+  refId: string;
+  onClose: () => void;
+}): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const isDoc = DOC_KINDS.has(kind);
+
+  const docQ = useQuery({
+    queryKey: ['document', refId],
+    enabled: client !== null && isDoc,
+    queryFn: () => client!.getDocument(refId),
+  });
+  const artsQ = useQuery({
+    queryKey: ['project-artifacts', projectId],
+    enabled: client !== null,
+    queryFn: () => client!.listArtifacts({ project: projectId }),
+  });
+
+  const doc = docQ.data;
+  const inline = doc !== undefined ? str(doc, 'content_inline') : undefined;
+  // The artifact to resolve: an artifact component's ref directly, or a
+  // document's backing artifact when it has no inline body.
+  const backingArtId = isDoc ? (doc !== undefined ? str(doc, 'artifact_id') : undefined) : refId;
+  const art =
+    backingArtId !== undefined && backingArtId !== ''
+      ? (artsQ.data ?? []).find((a) => str(a, 'id') === backingArtId)
+      : undefined;
+  const sha = art !== undefined ? shaFromArtifact(art) : undefined;
+
+  // A blob-backed component → hand off to the dedicated artifact viewer.
+  if (art !== undefined && sha !== undefined && sha !== '') {
+    return (
+      <ArtifactViewer
+        sha={sha}
+        name={str(art, 'name') ?? (doc !== undefined ? str(doc, 'title') : undefined) ?? refId}
+        mime={str(art, 'mime')}
+        kind={str(art, 'kind')}
+        onClose={onClose}
+      />
+    );
+  }
+
+  const loading = (isDoc && docQ.isLoading) || (backingArtId !== undefined && artsQ.isLoading);
+  const title = (doc !== undefined ? str(doc, 'title') : undefined) ?? kind ?? t('deliv.component');
+
+  return (
+    <div className="palette-backdrop" onMouseDown={onClose}>
+      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="admin-tabs">
+          <strong>{title}</strong>
+          <span className="spacer" />
+          <button onClick={onClose}>{t('admin.close')}</button>
+        </div>
+        <div className="region-pad scroll doc-body">
+          {loading && <div className="muted">{t('common.loading')}</div>}
+          {isDoc && docQ.isError && <div className="error">{(docQ.error as Error).message}</div>}
+          {!loading && inline !== undefined && inline !== '' ? (
+            <Markdown text={inline} />
+          ) : !loading ? (
+            <div className="muted">
+              {t('deliv.componentUnviewable')} <span className="mono small">{kind} · {refId}</span>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
@@ -13,6 +13,33 @@ import { RunReport } from '../ui/RunReport';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// How many events to fetch for the FIRST paint (small → instant, already at the
+// latest message) vs the background HISTORY backfill (a larger tail, merged in
+// once the tail is on screen so scrollback is available without blocking open).
+const INITIAL_TAIL = 60;
+const HISTORY_TAIL = 500;
+
+/// Union two event batches by `seq` (unique + monotonic per agent), sorted
+/// ascending. Idempotent, so a streamed event that also appears in the history
+/// backfill (overlap around the cursor) collapses to one, and the background
+/// history merges under the already-streamed tail without duplicates.
+function mergeEvents(a: Entity[], b: Entity[]): Entity[] {
+  const bySeq = new Map<number, Entity>();
+  const noSeq: Entity[] = [];
+  for (const e of a) {
+    const s = num(e, 'seq');
+    if (s === undefined) noSeq.push(e);
+    else bySeq.set(s, e);
+  }
+  for (const e of b) {
+    const s = num(e, 'seq');
+    if (s === undefined) noSeq.push(e);
+    else bySeq.set(s, e);
+  }
+  const merged = [...bySeq.values()].sort((x, y) => (num(x, 'seq') ?? 0) - (num(y, 'seq') ?? 0));
+  return noSeq.length > 0 ? [...merged, ...noSeq] : merged;
 }
 
 /// Build the tool-pairing maps over the flat event feed: a tool_call folds its
@@ -68,8 +95,11 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const [navTab, setNavTab] = useState<'turns' | 'errors'>('turns');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  // Whether the feed is pinned to the tail. True while the user is at the
+  // bottom; a manual scroll-up releases it so a streamed event (or the history
+  // backfill) doesn't yank them back down.
+  const stickRef = useRef(true);
 
   useEffect(() => {
     if (client === null) return;
@@ -77,18 +107,29 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     let handle: SseHandle | null = null;
     setEvents([]);
     setError(null);
+    stickRef.current = true; // a freshly-opened transcript starts pinned to the latest
     void (async () => {
       try {
-        const initial = await client.listAgentEvents(agentId, { tail: 200 });
+        // 1) Small tail → instant first paint, already scrolled to the latest.
+        const initial = await client.listAgentEvents(agentId, { tail: INITIAL_TAIL });
         if (cancelled) return;
-        initial.sort((a, b) => (num(a, 'seq') ?? 0) - (num(b, 'seq') ?? 0));
-        setEvents(initial);
-        const last = initial.length > 0 ? num(initial[initial.length - 1], 'seq') : undefined;
+        const sorted = mergeEvents(initial, []);
+        setEvents(sorted);
+        const last = sorted.length > 0 ? num(sorted[sorted.length - 1], 'seq') : undefined;
+        // 2) Live stream from the tail cursor (merge dedupes any overlap).
         handle = client.streamAgent(agentId, {
           since: last !== undefined ? String(last) : undefined,
-          onEvent: (e) => setEvents((prev) => [...prev, e as Entity]),
+          onEvent: (e) => setEvents((prev) => mergeEvents(prev, [e as Entity])),
           onError: (err) => setError(msg(err)),
         });
+        // 3) Backfill deeper history in the background — merges *under* the tail
+        //    that's already on screen, so scrollback fills in without the open
+        //    ever blocking on it or jumping the view (we stay pinned to bottom).
+        if (HISTORY_TAIL > INITIAL_TAIL) {
+          const history = await client.listAgentEvents(agentId, { tail: HISTORY_TAIL });
+          if (cancelled) return;
+          setEvents((prev) => mergeEvents(prev, history));
+        }
       } catch (err) {
         if (!cancelled) setError(msg(err));
       }
@@ -99,11 +140,21 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     };
   }, [agentId, client]);
 
-  // Only autoscroll to the tail in Live/all mode — a filter or an Insight jump
-  // must not be yanked back to the bottom by a new streamed event.
-  useEffect(() => {
-    if (mode === 'live' && lens === 'all') bottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [events, mode, lens]);
+  // Pin the feed to the tail (instantly, no animation) after a render — but only
+  // in Live/all mode and only while the user is at the bottom. A filter, an
+  // Insight jump, or a manual scroll-up all leave the view where it is.
+  useLayoutEffect(() => {
+    if (mode !== 'live' || lens !== 'all' || !stickRef.current) return;
+    const el = feedRef.current;
+    if (el !== null) el.scrollTop = el.scrollHeight;
+  }, [events, mode, lens, verbose]);
+
+  // Track whether the user is at the bottom, so streamed events follow the tail
+  // only when they haven't scrolled up to read history.
+  function onFeedScroll(): void {
+    const el = feedRef.current;
+    if (el !== null) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
 
   const digestQ = useQuery({
     queryKey: ['agent-digest', agentId],
@@ -267,10 +318,9 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
               </span>
             )}
           </div>
-          <div className="feed" ref={feedRef}>
+          <div className="feed" ref={feedRef} onScroll={onFeedScroll}>
             {shown.map(renderCard)}
             {shown.length === 0 && <div className="region-pad muted">{lens === 'all' ? t('tx.noEvents') : t('tx.noMatches')}</div>}
-            <div ref={bottomRef} />
           </div>
           <Composer onSend={send} />
         </>

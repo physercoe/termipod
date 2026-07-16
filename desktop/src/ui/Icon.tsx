@@ -9,6 +9,8 @@
 /// pass `size` for larger). Colour is inherited, so it follows active/hover/muted
 /// states automatically.
 
+import type { DocKind } from '../state/documents';
+
 export type IconName =
   | 'chevron-left'
   | 'chevron-right'
@@ -393,4 +395,19 @@ export function Icon({
       {PATHS[name]}
     </svg>
   );
+}
+
+/// The tab/nav glyph for an Author document kind. Shared so the tab strip and the
+/// nav list can't drift apart.
+export function docKindIcon(kind: DocKind): IconName {
+  switch (kind) {
+    case 'diagram':
+      return 'diagram';
+    case 'canvas':
+      return 'canvas';
+    case 'table':
+      return 'table';
+    default:
+      return 'note';
+  }
 }

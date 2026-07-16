@@ -1,9 +1,9 @@
 import { lazy, Suspense, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
-import { useDocuments, type Doc } from '../state/documents';
+import { bodyToFile, extForKind, fileToBody, kindForExt, useDocuments, type Doc } from '../state/documents';
 import { AgentCompanion } from '../ui/AgentCompanion';
-import { Icon, type IconName } from '../ui/Icon';
+import { docKindIcon, Icon, type IconName } from '../ui/Icon';
 import { AuthorNav } from './AuthorNav';
 import { DiagramEditor } from './DiagramEditor';
 import { CanvasEditor } from '../ui/CanvasEditor';
@@ -46,17 +46,8 @@ function baseName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-function kindIcon(kind: Doc['kind']): IconName {
-  switch (kind) {
-    case 'diagram':
-      return 'diagram';
-    case 'canvas':
-      return 'canvas';
-    case 'table':
-      return 'table';
-    default:
-      return 'note';
-  }
+function extOf(path: string): string {
+  return path.split('.').pop()?.toLowerCase() ?? '';
 }
 
 type ViewMode = 'wysiwyg' | 'edit' | 'split' | 'read';
@@ -207,14 +198,15 @@ export function AuthorSurface(): JSX.Element {
     if (active === undefined || !tauri) return;
     setBusy(true);
     try {
+      const content = bodyToFile(active.kind, active.body, t('table.colName'));
       if (active.filePath !== undefined) {
-        await invoke('doc_write', { path: active.filePath, content: active.body });
+        await invoke('doc_write', { path: active.filePath, content });
         markSaved(active.id, active.filePath);
       } else {
         const name = (active.title !== '' ? active.title : 'document').replace(/[^\w.-]+/g, '-');
         const path = await invoke<string | null>('doc_save', {
-          content: active.body,
-          defaultName: `${name}.md`,
+          content,
+          defaultName: `${name}.${extForKind(active.kind)}`,
         });
         if (path !== null) markSaved(active.id, path, baseName(path));
       }
@@ -231,7 +223,12 @@ export function AuthorSurface(): JSX.Element {
     try {
       const res = await invoke<{ path: string; content: string } | null>('doc_open');
       if (res !== null) {
-        create('markdown', { title: baseName(res.path), body: res.content, filePath: res.path });
+        const kind = kindForExt(extOf(res.path));
+        create(kind, {
+          title: baseName(res.path),
+          body: fileToBody(kind, res.content, t('table.colName')),
+          filePath: res.path,
+        });
       }
     } catch {
       /* ignore */
@@ -325,7 +322,7 @@ export function AuthorSurface(): JSX.Element {
           {docs.map((d) => (
             <span key={d.id} className={`read-tabitem${activeId === d.id ? ' active' : ''}`}>
               <button className="read-tabitem-label" title={d.filePath ?? d.title} onClick={() => setActive(d.id)}>
-                <Icon name={kindIcon(d.kind)} size={13} className="read-tabitem-kind" />
+                <Icon name={docKindIcon(d.kind)} size={13} className="read-tabitem-kind" />
                 {d.dirty === true ? '● ' : ''}
                 {d.title !== '' ? d.title : t('author.untitled')}
               </button>

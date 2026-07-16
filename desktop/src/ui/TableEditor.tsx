@@ -1,68 +1,23 @@
 import { useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
+import {
+  COL_TYPES,
+  newId,
+  parseTable,
+  serializeTable,
+  tableToCsv,
+  type ColType,
+  type TableColumn,
+  type TableData,
+} from '../state/table';
 import { Icon } from './Icon';
 
 /// The **table / database** document editor — a lightweight Notion/Obsidian-style
 /// grid: typed columns (text · number · checkbox · select · date) over rows of
-/// cells. It is one kind of Author document; the whole table serializes as JSON
-/// into the document `body`, so it saves, syncs, and exports like any other file.
-///
-/// Deliberately local + dependency-free (no grid library): a plain table with
+/// cells. It is one kind of Author document; on disk a table is a real `.csv`
+/// file (see `state/table.ts`). Deliberately dependency-free (no grid library):
 /// per-type inline cell editors, add/remove row & column, rename/retype a column,
-/// and CSV export. Keyed per doc by the caller, so switching tabs remounts clean.
-
-export type ColType = 'text' | 'number' | 'checkbox' | 'select' | 'date';
-export const COL_TYPES: ColType[] = ['text', 'number', 'checkbox', 'select', 'date'];
-
-export interface TableColumn {
-  id: string;
-  name: string;
-  type: ColType;
-  options?: string[]; // for `select`
-}
-export interface TableRow {
-  id: string;
-  cells: Record<string, string | number | boolean>;
-}
-export interface TableData {
-  columns: TableColumn[];
-  rows: TableRow[];
-}
-
-let seq = 0;
-function newId(prefix: string): string {
-  seq += 1;
-  return `${prefix}${Date.now().toString(36)}${seq}`;
-}
-
-/// A fresh table body: one text column ("Name") and three empty rows — the same
-/// gentle default Notion opens a new database with.
-export function emptyTable(nameCol: string): TableData {
-  const col: TableColumn = { id: newId('col'), name: nameCol, type: 'text' };
-  const rows: TableRow[] = [0, 1, 2].map(() => ({ id: newId('row'), cells: {} }));
-  return { columns: [col], rows };
-}
-
-export function parseTable(body: string, nameCol: string): TableData {
-  try {
-    const d = JSON.parse(body) as Partial<TableData>;
-    if (d !== null && Array.isArray(d.columns) && Array.isArray(d.rows)) {
-      return { columns: d.columns, rows: d.rows };
-    }
-  } catch {
-    /* fall through */
-  }
-  return emptyTable(nameCol);
-}
-
-function csvEscape(v: string): string {
-  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-}
-function cellText(v: string | number | boolean | undefined, type: ColType): string {
-  if (v === undefined || v === null) return '';
-  if (type === 'checkbox') return v === true ? 'true' : 'false';
-  return String(v);
-}
+/// CSV export. Keyed per doc by the caller, so switching tabs remounts clean.
 
 export function TableEditor({ value, onChange }: { value: string; onChange: (next: string) => void }): JSX.Element {
   const t = useT();
@@ -73,7 +28,7 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
     const next = fn(dataRef.current);
     dataRef.current = next;
     setData(next);
-    onChange(JSON.stringify(next));
+    onChange(serializeTable(next));
   }
 
   const { columns, rows } = data;
@@ -114,12 +69,7 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
     }));
 
   function exportCsv(): void {
-    const header = columns.map((c) => csvEscape(c.name)).join(',');
-    const body = rows
-      .map((r) => columns.map((c) => csvEscape(cellText(r.cells[c.id], c.type))).join(','))
-      .join('\n');
-    const csv = `${header}\n${body}`;
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob([tableToCsv(data)], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

@@ -16,7 +16,10 @@ pub struct OpenedDoc {
     content: String,
 }
 
-const TEXT_EXTS: &[&str] = &["md", "markdown", "txt", "drawio", "xml", "svg"];
+// Openable Author document files: markdown/diagram plus the canvas board
+// (`.canvas` JSON) and table/database (`.csv`) document kinds. The frontend maps
+// the extension to a document kind (see state/documents.ts `kindForExt`).
+const TEXT_EXTS: &[&str] = &["md", "markdown", "txt", "drawio", "xml", "svg", "canvas", "csv"];
 
 /// Pick a text file and read it. `Ok(None)` if the user cancels.
 #[tauri::command]

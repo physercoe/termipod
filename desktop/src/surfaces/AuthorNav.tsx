@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useT } from '../i18n';
-import { Icon } from '../ui/Icon';
+import { docKindIcon, Icon } from '../ui/Icon';
 import { isTauri } from '../platform';
-import { useDocuments, type DocKind } from '../state/documents';
+import { fileToBody, kindForExt, useDocuments } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
 import { WorkspaceSyncModal } from './WorkspaceSyncModal';
 
@@ -24,7 +24,7 @@ interface FileNode {
 // Files we can meaningfully open in a text editor. Others stay visible but inert
 // (open them in the Read surface instead).
 const TEXT_EXT = new Set([
-  'md', 'markdown', 'txt', 'xml', 'svg', 'drawio', 'json', 'csv', 'tsv', 'log',
+  'md', 'markdown', 'txt', 'xml', 'svg', 'drawio', 'canvas', 'json', 'csv', 'tsv', 'log',
   'yml', 'yaml', 'toml', 'ini', 'html', 'htm', 'css', 'js', 'ts', 'tsx', 'jsx',
   'py', 'go', 'rs', 'sh', 'c', 'h', 'cpp', 'hpp', 'java', 'rb', 'php', 'sql',
 ]);
@@ -95,8 +95,8 @@ export function AuthorNav(): JSX.Element {
     if (!TEXT_EXT.has(extOf(path))) return; // binary/unsupported — inert
     try {
       const res = await invoke<{ path: string; content: string }>('doc_read', { path });
-      const kind: DocKind = extOf(path) === 'drawio' ? 'diagram' : 'markdown';
-      create(kind, { title: baseName(path), body: res.content, filePath: path });
+      const kind = kindForExt(extOf(path)); // .canvas → canvas · .csv → table · .drawio → diagram
+      create(kind, { title: baseName(path), body: fileToBody(kind, res.content, t('table.colName')), filePath: path });
     } catch {
       /* unreadable/binary — ignore */
     }
@@ -114,7 +114,7 @@ export function AuthorNav(): JSX.Element {
             title={d.filePath ?? d.title}
             onClick={() => setActive(d.id)}
           >
-            <Icon name={d.kind === 'diagram' ? 'diagram' : 'note'} size={14} className="author-nav-kind" />
+            <Icon name={docKindIcon(d.kind)} size={14} className="author-nav-kind" />
             <span className="author-nav-name">
               {d.dirty === true ? '● ' : ''}
               {d.title !== '' ? d.title : t('author.untitled')}

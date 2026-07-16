@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { csvToTable, parseTable, serializeTable, tableToCsv } from './table';
 
 /// The J2 Author workspace — multiple open documents as tabs (director request:
 /// "the Author tab should support multiple tabs").
@@ -47,6 +48,42 @@ function seedBody(kind: DocKind): string {
     default:
       return '';
   }
+}
+
+// ── On-disk file round-trip ─────────────────────────────────────────────────
+// A document's kind ↔ file extension, and the body ↔ file-text bridge, so canvas
+// and table save/open as real files in the workspace tree. Canvas is a `.canvas`
+// JSON, table a real `.csv` (converted at the boundary — the in-app body is JSON,
+// see state/table.ts), markdown `.md`, diagram draw.io `.drawio` XML.
+export function extForKind(kind: DocKind): string {
+  switch (kind) {
+    case 'canvas':
+      return 'canvas';
+    case 'table':
+      return 'csv';
+    case 'diagram':
+      return 'drawio';
+    default:
+      return 'md';
+  }
+}
+export function kindForExt(ext: string): DocKind {
+  switch (ext.toLowerCase()) {
+    case 'canvas':
+      return 'canvas';
+    case 'csv':
+      return 'table';
+    case 'drawio':
+      return 'diagram';
+    default:
+      return 'markdown';
+  }
+}
+export function bodyToFile(kind: DocKind, body: string, nameFallback: string): string {
+  return kind === 'table' ? tableToCsv(parseTable(body, nameFallback)) : body;
+}
+export function fileToBody(kind: DocKind, text: string, nameFallback: string): string {
+  return kind === 'table' ? serializeTable(csvToTable(text, nameFallback)) : text;
 }
 
 interface DocsState {

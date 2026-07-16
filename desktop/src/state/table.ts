@@ -51,6 +51,18 @@ export function parseTable(body: string, nameCol: string): TableData {
 
 export const serializeTable = (d: TableData): string => JSON.stringify(d);
 
+/// Does this text look like a table document (our `{columns, rows}` JSON)? Used to
+/// content-sniff a `.json` file on open so an *arbitrary* JSON file opens as text,
+/// not hijacked into the grid editor.
+export function isTableBody(text: string): boolean {
+  try {
+    const d = JSON.parse(text) as Partial<TableData>;
+    return d !== null && Array.isArray(d.columns) && Array.isArray(d.rows);
+  } catch {
+    return false;
+  }
+}
+
 function csvEscape(v: string): string {
   return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }

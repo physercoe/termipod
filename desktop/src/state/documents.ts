@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { csvToTable, parseTable, serializeTable, tableToCsv } from './table';
+import { csvToTable, isTableBody, parseTable, serializeTable, tableToCsv } from './table';
 
 /// The J2 Author workspace — multiple open documents as tabs (director request:
 /// "the Author tab should support multiple tabs").
@@ -52,22 +52,34 @@ function seedBody(kind: DocKind): string {
 
 // ── On-disk file round-trip ─────────────────────────────────────────────────
 // A document's kind ↔ file extension, and the body ↔ file-text bridge, so canvas
-// and table save/open as real files in the workspace tree. Canvas is a `.canvas`
-// JSON, table a real `.csv` (converted at the boundary — the in-app body is JSON,
-// see state/table.ts), markdown `.md`, diagram draw.io `.drawio` XML.
+// and table save/open as real files in the workspace tree.
+//
+// The in-app body is ALWAYS JSON for canvas/table. On disk:
+//   • canvas → `.canvas` JSON (verbatim);
+//   • table  → **`.json` (canonical, lossless)** — the whole typed model. A `.csv`
+//     is still supported for import/export interop, but it is lossy (CSV is
+//     untyped), so it converts at the boundary; a table linked to a `.csv` keeps
+//     re-saving as CSV, while a new table defaults to `.json`.
+//   • markdown → `.md`; diagram → draw.io `.drawio` XML.
+
+/// Default extension for a NEW save of each kind (table → the lossless `.json`).
 export function extForKind(kind: DocKind): string {
   switch (kind) {
     case 'canvas':
       return 'canvas';
     case 'table':
-      return 'csv';
+      return 'json';
     case 'diagram':
       return 'drawio';
     default:
       return 'md';
   }
 }
-export function kindForExt(ext: string): DocKind {
+
+/// The document kind for a file being opened. Extension decides everything except
+/// `.json`, which is content-sniffed: a `{columns, rows}` doc is a table, any
+/// other JSON opens as plain text (markdown) so arbitrary JSON isn't hijacked.
+export function kindForFile(ext: string, content: string): DocKind {
   switch (ext.toLowerCase()) {
     case 'canvas':
       return 'canvas';
@@ -75,15 +87,20 @@ export function kindForExt(ext: string): DocKind {
       return 'table';
     case 'drawio':
       return 'diagram';
+    case 'json':
+      return isTableBody(content) ? 'table' : 'markdown';
     default:
       return 'markdown';
   }
 }
-export function bodyToFile(kind: DocKind, body: string, nameFallback: string): string {
-  return kind === 'table' ? tableToCsv(parseTable(body, nameFallback)) : body;
+
+// The disk representation depends on the linked file's extension, not just the
+// kind: a table is JSON-verbatim in a `.json` and lossy-CSV in a `.csv`.
+export function bodyToFile(kind: DocKind, body: string, ext: string, nameFallback: string): string {
+  return kind === 'table' && ext.toLowerCase() === 'csv' ? tableToCsv(parseTable(body, nameFallback)) : body;
 }
-export function fileToBody(kind: DocKind, text: string, nameFallback: string): string {
-  return kind === 'table' ? serializeTable(csvToTable(text, nameFallback)) : text;
+export function fileToBody(kind: DocKind, text: string, ext: string, nameFallback: string): string {
+  return kind === 'table' && ext.toLowerCase() === 'csv' ? serializeTable(csvToTable(text, nameFallback)) : text;
 }
 
 interface DocsState {

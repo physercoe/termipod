@@ -1,7 +1,7 @@
 import { lazy, Suspense, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
-import { bodyToFile, extForKind, fileToBody, kindForExt, useDocuments, type Doc } from '../state/documents';
+import { bodyToFile, extForKind, fileToBody, kindForFile, useDocuments, type Doc } from '../state/documents';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { docKindIcon, Icon, type IconName } from '../ui/Icon';
 import { AuthorNav } from './AuthorNav';
@@ -198,7 +198,10 @@ export function AuthorSurface(): JSX.Element {
     if (active === undefined || !tauri) return;
     setBusy(true);
     try {
-      const content = bodyToFile(active.kind, active.body, t('table.colName'));
+      // The disk format follows the target file's extension (a table re-saves as
+      // CSV if linked to a .csv, else the lossless .json default).
+      const ext = active.filePath !== undefined ? extOf(active.filePath) : extForKind(active.kind);
+      const content = bodyToFile(active.kind, active.body, ext, t('table.colName'));
       if (active.filePath !== undefined) {
         await invoke('doc_write', { path: active.filePath, content });
         markSaved(active.id, active.filePath);
@@ -223,10 +226,11 @@ export function AuthorSurface(): JSX.Element {
     try {
       const res = await invoke<{ path: string; content: string } | null>('doc_open');
       if (res !== null) {
-        const kind = kindForExt(extOf(res.path));
+        const ext = extOf(res.path);
+        const kind = kindForFile(ext, res.content);
         create(kind, {
           title: baseName(res.path),
-          body: fileToBody(kind, res.content, t('table.colName')),
+          body: fileToBody(kind, res.content, ext, t('table.colName')),
           filePath: res.path,
         });
       }

@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useT } from '../i18n';
 import { docKindIcon, Icon } from '../ui/Icon';
 import { isTauri } from '../platform';
-import { fileToBody, kindForExt, useDocuments } from '../state/documents';
+import { fileToBody, kindForFile, useDocuments } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
 import { WorkspaceSyncModal } from './WorkspaceSyncModal';
 
@@ -95,8 +95,9 @@ export function AuthorNav(): JSX.Element {
     if (!TEXT_EXT.has(extOf(path))) return; // binary/unsupported — inert
     try {
       const res = await invoke<{ path: string; content: string }>('doc_read', { path });
-      const kind = kindForExt(extOf(path)); // .canvas → canvas · .csv → table · .drawio → diagram
-      create(kind, { title: baseName(path), body: fileToBody(kind, res.content, t('table.colName')), filePath: path });
+      const ext = extOf(path); // .canvas→canvas · .csv→table · .drawio→diagram · .json→sniff
+      const kind = kindForFile(ext, res.content);
+      create(kind, { title: baseName(path), body: fileToBody(kind, res.content, ext, t('table.colName')), filePath: path });
     } catch {
       /* unreadable/binary — ignore */
     }

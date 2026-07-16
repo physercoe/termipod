@@ -5,7 +5,7 @@ import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
-import { ActivityTab, CriteriaTab, DeliverableDetail, FilesTab } from './ProjectPanels';
+import { ActivityTab, CriteriaTab, DeliverableDetail, DocumentsTab, FilesTab } from './ProjectPanels';
 import { ProjectHero } from './ProjectHero';
 import { PhaseSummary } from './PhaseSummary';
 import { PlanDetail } from './PlanDetail';
@@ -14,7 +14,7 @@ import { TaskDetail } from './TaskDetail';
 
 const COLUMNS = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'med', 'high', 'urgent'];
-type Tab = 'overview' | 'agents' | 'tasks' | 'runs' | 'plans' | 'criteria' | 'files' | 'activity';
+type Tab = 'overview' | 'agents' | 'tasks' | 'runs' | 'plans' | 'criteria' | 'documents' | 'files' | 'activity';
 
 function AgentsTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
@@ -603,6 +603,7 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
     { v: 'criteria', label: t('proj.criteria') },
     { v: 'runs', label: t('proj.runs') },
     { v: 'plans', label: t('proj.plans') },
+    { v: 'documents', label: t('proj.documents') },
     { v: 'files', label: t('proj.files') },
     { v: 'activity', label: t('proj.activity') },
   ];
@@ -624,6 +625,7 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
         {tab === 'criteria' && <CriteriaTab projectId={projectId} />}
         {tab === 'runs' && <RunsTab projectId={projectId} />}
         {tab === 'plans' && <PlansTab projectId={projectId} />}
+        {tab === 'documents' && <DocumentsTab projectId={projectId} />}
         {tab === 'files' && <FilesTab projectId={projectId} />}
         {tab === 'activity' && <ActivityTab projectId={projectId} />}
       </div>

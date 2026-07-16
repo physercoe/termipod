@@ -487,6 +487,56 @@ function ComponentView({
   );
 }
 
+// ---- Documents: the project's hub Documents (authored reports/memos) --------
+// Parity with the mobile project "Documents" tile. These are the hub Document
+// entities (not the docs_root files under Files) — the authored outputs a
+// steward produces; clicking one renders its content inline via ComponentView.
+
+export function DocumentsTab({ projectId }: { projectId: string }): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const [open, setOpen] = useState<{ kind: string; refId: string } | null>(null);
+
+  const q = useQuery({
+    queryKey: ['documents', projectId],
+    enabled: client !== null,
+    refetchInterval: 20000,
+    queryFn: () => client!.listDocuments(projectId),
+  });
+  const docs = q.data ?? [];
+
+  return (
+    <div className="region-pad scroll">
+      <p className="muted small">{t('docs.projectGuidance')}</p>
+      {q.isLoading && <div className="muted">{t('common.loading')}</div>}
+      {q.isError && <div className="error">{(q.error as Error).message}</div>}
+      {!q.isLoading && docs.length === 0 && <div className="muted">{t('docs.none')}</div>}
+      {docs.map((d, i) => {
+        const id = str(d, 'id') ?? '';
+        const kind = str(d, 'kind') ?? 'document';
+        return (
+          <button
+            key={id || String(i)}
+            className="file-row"
+            disabled={id === ''}
+            onClick={() => id !== '' && setOpen({ kind: 'document', refId: id })}
+          >
+            <span className="file-name">{str(d, 'title') ?? `${kind} · ${id}`}</span>
+            <span className="spacer" />
+            <span className="muted small mono">
+              {kind}
+              {num(d, 'version') !== undefined ? ` · v${num(d, 'version')}` : ''}
+            </span>
+          </button>
+        );
+      })}
+      {open !== null && (
+        <ComponentView projectId={projectId} kind={open.kind} refId={open.refId} onClose={() => setOpen(null)} />
+      )}
+    </div>
+  );
+}
+
 // ---- Files: docs_root tree + project artifacts (parity — DocsSection) --------
 
 export function FilesTab({ projectId }: { projectId: string }): JSX.Element {

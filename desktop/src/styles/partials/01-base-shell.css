@@ -262,6 +262,36 @@ pre {
   background: var(--bg);
 }
 
+/* Focus-region header: a back control (shown after a drill-down) + the title. */
+.focus-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.focus-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px 1px 3px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--font-size-caption);
+}
+.focus-back:hover {
+  background: var(--surface);
+  color: var(--accent);
+}
+.focus-header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Nav fold toggle (left of the Fleet/Projects toolbar). */
 .nav-fold-btn {
   display: inline-flex;

@@ -234,19 +234,69 @@ pre {
   color: var(--text-secondary);
 }
 
+/* Fleet / Projects three-region frame. Flex (not grid) so the left nav is
+   resizable (a ResizeHandle between nav and focus) and foldable (the nav +
+   handle drop out entirely) — see ui/MissionLayout.tsx. The nav width is set
+   inline + persisted; the dock stays fixed; focus takes the rest. */
 .shell-body {
   flex: 1;
-  display: grid;
-  grid-template-columns: 240px 1fr 320px;
+  display: flex;
   gap: var(--pane-gap);
   min-height: 0;
   background: var(--border);
+}
+.shell-body > .navigator {
+  flex: 0 0 auto; /* width set inline by MissionLayout (resizable) */
+}
+.shell-body > .focus {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.shell-body > .dock {
+  flex: 0 0 auto;
+  width: 320px;
 }
 
 .region {
   min-height: 0;
   overflow: auto;
   background: var(--bg);
+}
+
+/* Nav fold toggle (left of the Fleet/Projects toolbar). */
+.nav-fold-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+.nav-fold-btn:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.nav-fold-btn.active {
+  color: var(--accent);
+}
+
+/* Agents/Hosts and Projects/Workspaces subtab bar at the top of a nav. */
+.nav-subtabs {
+  display: flex;
+  margin: var(--spacing-s8) var(--spacing-s8) var(--spacing-s4);
+}
+.nav-subtabs .seg-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s4);
+}
+.nav-subtab-count {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
 }
 
 .region-header {

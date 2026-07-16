@@ -62,9 +62,17 @@ export type IconName =
   | 'terminal'
   | 'sliders'
   | 'canvas'
-  | 'table';
+  | 'table'
+  | 'sidebar';
 
 const PATHS: Record<IconName, JSX.Element> = {
+  // sidebar — a panel with a left column, for the nav fold toggle
+  sidebar: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+    </>
+  ),
   'chevron-left': <path d="M15 6l-6 6 6 6" />,
   'chevron-right': <path d="M9 6l6 6-6 6" />,
   'chevron-up': <path d="M6 15l6-6 6 6" />,

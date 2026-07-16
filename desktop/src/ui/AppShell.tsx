@@ -9,13 +9,11 @@ import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { useWorkbench } from '../state/workbench';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
-import { AttentionDock } from '../surfaces/AttentionDock';
 import { AuthorSurface } from '../surfaces/AuthorSurface';
 import { ChannelsPanel } from '../surfaces/ChannelsPanel';
 import { CompareSurface } from '../surfaces/CompareSurface';
 import { DebugSurface } from '../surfaces/DebugSurface';
 import { DocsPanel } from '../surfaces/DocsPanel';
-import { FocusRegion } from '../surfaces/FocusRegion';
 import { InsightsPanel } from '../surfaces/InsightsPanel';
 import { MePanel } from '../surfaces/MePanel';
 import { Navigator } from '../surfaces/Navigator';
@@ -30,6 +28,7 @@ import { useTerminals } from '../terminal/store';
 import { ActivityBar } from './ActivityBar';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
+import { MissionLayout } from './MissionLayout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { StatusBar } from './StatusBar';
@@ -175,32 +174,23 @@ export function AppShell(): JSX.Element {
           <div className={`surface-stack${job === 'terminal' ? ' hidden' : ''}`}>
           <ErrorBoundary key={job} label={job}>
           {job === 'fleet' ? (
-            <>
-              <div className="fleet-toolbar">
-                <span className="fleet-toolbar-label">{t('nav.fleet')}</span>
-                <span className="fleet-toolbar-sep" />
-                <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
-                <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
-                <button onClick={() => setInsightsOpen(true)}>{t('shell.insights')}</button>
-                <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
-                <span className="spacer" />
-                <button onClick={() => setMeOpen(true)}>{t('shell.me')}</button>
-                <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
-              </div>
-              <div className="shell-body">
-                <div className="region navigator">
-                  <div className="region-header">{t('nav.fleet')}</div>
-                  <Navigator />
-                </div>
-
-                <FocusRegion />
-
-                <div className="region dock">
-                  <div className="region-header">{t('region.attention')}</div>
-                  <AttentionDock />
-                </div>
-              </div>
-            </>
+            <MissionLayout
+              storageKey="fleet"
+              nav={<Navigator />}
+              toolbar={
+                <>
+                  <span className="fleet-toolbar-label">{t('nav.fleet')}</span>
+                  <span className="fleet-toolbar-sep" />
+                  <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
+                  <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
+                  <button onClick={() => setInsightsOpen(true)}>{t('shell.insights')}</button>
+                  <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
+                  <span className="spacer" />
+                  <button onClick={() => setMeOpen(true)}>{t('shell.me')}</button>
+                  <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
+                </>
+              }
+            />
           ) : job === 'projects' ? (
             <ProjectsSurface />
           ) : job === 'read' ? (

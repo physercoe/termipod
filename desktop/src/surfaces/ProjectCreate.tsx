@@ -8,13 +8,19 @@ import { useSession } from '../state/session';
 /// Create a project (parity Phase 4 / F3). Direct POST for the principal
 /// (`handleCreateProject`); agents would instead `propose(kind="project.create")`.
 /// On success, selects the new project so the board opens.
-export function ProjectCreate({ onClose }: { onClose: () => void }): JSX.Element {
+export function ProjectCreate({
+  onClose,
+  initialKind = 'goal',
+}: {
+  onClose: () => void;
+  initialKind?: 'goal' | 'standing';
+}): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const selectProject = useFocus((s) => s.selectProject);
   const { run, busy, error } = useHubAction();
   const [name, setName] = useState('');
-  const [kind, setKind] = useState<'goal' | 'standing'>('goal');
+  const [kind, setKind] = useState<'goal' | 'standing'>(initialKind);
   const [goal, setGoal] = useState('');
   const [configYaml, setConfigYaml] = useState('');
 

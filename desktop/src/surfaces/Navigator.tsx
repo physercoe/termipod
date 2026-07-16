@@ -78,6 +78,24 @@ export function Navigator(): JSX.Element {
   const [spawning, setSpawning] = useState(false);
   const [open, setOpen] = useState({ stewards: true, agents: true, hosts: true });
   const toggle = (k: keyof typeof open): void => setOpen((o) => ({ ...o, [k]: !o[k] }));
+  // Agents and Hosts are separate subtabs so the roster isn't one long mixed
+  // tree (director request). The Agents subtab groups stewards + workers; Hosts
+  // is the machines. Selection persists across launches.
+  const [sub, setSub] = useState<'agents' | 'hosts'>(() => {
+    try {
+      return localStorage.getItem('termipod.fleet.navSub') === 'hosts' ? 'hosts' : 'agents';
+    } catch {
+      return 'agents';
+    }
+  });
+  const pickSub = (s: 'agents' | 'hosts'): void => {
+    setSub(s);
+    try {
+      localStorage.setItem('termipod.fleet.navSub', s);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const agents = agentsQ.data ?? [];
   const hosts = hostsQ.data ?? [];
@@ -123,64 +141,79 @@ export function Navigator(): JSX.Element {
 
   return (
     <div className="tree">
-      {/* Stewards — coordinating agents (kind steward.*). */}
-      <KindSection
-        title={t('nav.stewards')}
-        count={stewards.length}
-        open={open.stewards}
-        onToggle={() => toggle('stewards')}
-      >
-        {agentsQ.isError && (
-          <div className="region-pad error">{(agentsQ.error as Error).message}</div>
-        )}
-        {!agentsQ.isError &&
-          (stewards.length === 0
-            ? loadingOrEmpty(agentsQ.isLoading, t('nav.noStewards'))
-            : stewards.map((a) => agentRow(a, { showHost: true })))}
-      </KindSection>
+      <div className="nav-subtabs seg">
+        <button className={sub === 'agents' ? 'seg-btn active' : 'seg-btn'} onClick={() => pickSub('agents')}>
+          {t('nav.agents')}
+          <span className="nav-subtab-count">{stewards.length + workers.length}</span>
+        </button>
+        <button className={sub === 'hosts' ? 'seg-btn active' : 'seg-btn'} onClick={() => pickSub('hosts')}>
+          {t('nav.hosts')}
+          <span className="nav-subtab-count">{hosts.length}</span>
+        </button>
+      </div>
 
-      {/* Agents — the worker executors (non-steward). */}
-      <KindSection
-        title={t('nav.agents')}
-        count={workers.length}
-        open={open.agents}
-        onToggle={() => toggle('agents')}
-        onAdd={connected ? () => setSpawning(true) : undefined}
-        addTitle={t('spawn.title')}
-      >
-        {!agentsQ.isError &&
-          (workers.length === 0
-            ? loadingOrEmpty(agentsQ.isLoading, t('nav.noAgents'))
-            : workers.map((a) => agentRow(a, { showHost: true })))}
-      </KindSection>
+      {sub === 'agents' ? (
+        <>
+          {/* Stewards — coordinating agents (kind steward.*). */}
+          <KindSection
+            title={t('nav.stewards')}
+            count={stewards.length}
+            open={open.stewards}
+            onToggle={() => toggle('stewards')}
+          >
+            {agentsQ.isError && (
+              <div className="region-pad error">{(agentsQ.error as Error).message}</div>
+            )}
+            {!agentsQ.isError &&
+              (stewards.length === 0
+                ? loadingOrEmpty(agentsQ.isLoading, t('nav.noStewards'))
+                : stewards.map((a) => agentRow(a, { showHost: true })))}
+          </KindSection>
 
-      {/* Hosts — the machines the fleet runs on. */}
-      <KindSection
-        title={t('nav.hosts')}
-        count={hosts.length}
-        open={open.hosts}
-        onToggle={() => toggle('hosts')}
-      >
-        {hosts.length === 0
-          ? loadingOrEmpty(hostsQ.isLoading, t('nav.noHosts'))
-          : hosts.map((h) => {
-              const id = str(h, 'id') ?? '';
-              const label = str(h, 'name') ?? str(h, 'hostname') ?? id;
-              const count = agents.filter((a) => (str(a, 'host_id') ?? '') === id).length;
-              return (
-                <div
-                  key={id}
-                  className={`tree-agent tree-host-row${hostSelected(id) ? ' selected' : ''}`}
-                  title={str(h, 'hostname') ?? label}
-                  onClick={() => selectHost(id)}
-                >
-                  <span className={`dot ${statusClass(str(h, 'status'))}`} />
-                  <span className="tree-agent-label">{label}</span>
-                  <span className="tree-agent-kind">{t('nav.hostAgents').replace('{n}', String(count))}</span>
-                </div>
-              );
-            })}
-      </KindSection>
+          {/* Agents — the worker executors (non-steward). */}
+          <KindSection
+            title={t('nav.agents')}
+            count={workers.length}
+            open={open.agents}
+            onToggle={() => toggle('agents')}
+            onAdd={connected ? () => setSpawning(true) : undefined}
+            addTitle={t('spawn.title')}
+          >
+            {!agentsQ.isError &&
+              (workers.length === 0
+                ? loadingOrEmpty(agentsQ.isLoading, t('nav.noAgents'))
+                : workers.map((a) => agentRow(a, { showHost: true })))}
+          </KindSection>
+        </>
+      ) : (
+        /* Hosts — the machines the fleet runs on. */
+        <KindSection
+          title={t('nav.hosts')}
+          count={hosts.length}
+          open={open.hosts}
+          onToggle={() => toggle('hosts')}
+        >
+          {hosts.length === 0
+            ? loadingOrEmpty(hostsQ.isLoading, t('nav.noHosts'))
+            : hosts.map((h) => {
+                const id = str(h, 'id') ?? '';
+                const label = str(h, 'name') ?? str(h, 'hostname') ?? id;
+                const count = agents.filter((a) => (str(a, 'host_id') ?? '') === id).length;
+                return (
+                  <div
+                    key={id}
+                    className={`tree-agent tree-host-row${hostSelected(id) ? ' selected' : ''}`}
+                    title={str(h, 'hostname') ?? label}
+                    onClick={() => selectHost(id)}
+                  >
+                    <span className={`dot ${statusClass(str(h, 'status'))}`} />
+                    <span className="tree-agent-label">{label}</span>
+                    <span className="tree-agent-kind">{t('nav.hostAgents').replace('{n}', String(count))}</span>
+                  </div>
+                );
+              })}
+        </KindSection>
+      )}
 
       {spawning && <AgentSpawn onClose={() => setSpawning(false)} />}
     </div>

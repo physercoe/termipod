@@ -1,76 +1,105 @@
 import { useState } from 'react';
 import { useProjects } from '../hub/queries';
-import { str } from '../hub/types';
+import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
-import { AttentionDock } from './AttentionDock';
-import { FocusRegion } from './FocusRegion';
+import { MissionLayout } from '../ui/MissionLayout';
 import { ProjectCreate } from './ProjectCreate';
 
 /// The **Projects** tab — the units of directed work, split out of the fleet
-/// tree into their own surface (director request). Same three-region frame as
-/// the fleet (list · focus · attention) so the app reads consistently, but the
-/// left nav is *only* the projects list; selecting one drives the shared
-/// `FocusRegion` to that project's board. The fleet tab, meanwhile, keeps just
-/// the ops roster (stewards · agents · hosts).
+/// tree (director request). Its left nav has two subtabs so the two hub project
+/// *kinds* no longer intermix: **Projects** (`kind:'goal'`, phased directed work)
+/// and **Workspaces** (`kind:'standing'`, long-lived spaces with no goal
+/// lifecycle). Selecting either drives the shared FocusRegion to its board; "New"
+/// pre-selects the active subtab's kind.
+type Sub = 'goal' | 'standing';
+
+function loadSub(): Sub {
+  try {
+    return localStorage.getItem('termipod.projects.navSub') === 'standing' ? 'standing' : 'goal';
+  } catch {
+    return 'goal';
+  }
+}
+
 export function ProjectsSurface(): JSX.Element {
   const t = useT();
   const projectsQ = useProjects();
   const selection = useFocus((s) => s.selection);
   const selectProject = useFocus((s) => s.selectProject);
   const connected = useSession((s) => s.client) !== null;
+  const [sub, setSub] = useState<Sub>(loadSub);
   const [creating, setCreating] = useState(false);
 
-  const projects = projectsQ.data ?? [];
+  function pick(s: Sub): void {
+    setSub(s);
+    try {
+      localStorage.setItem('termipod.projects.navSub', s);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const all = projectsQ.data ?? [];
+  // A project with no `kind` predates the goal/standing split — treat it as a
+  // goal project (the original meaning) so nothing vanishes from the list.
+  const kindOf = (p: Entity): Sub => (str(p, 'kind') === 'standing' ? 'standing' : 'goal');
+  const shown = all.filter((p) => kindOf(p) === sub);
   const projectSelected = (id: string): boolean => selection?.type === 'project' && selection.id === id;
+
+  const toolbar = (
+    <>
+      <span className="fleet-toolbar-label">{t('nav.projects')}</span>
+      <span className="fleet-toolbar-sep" />
+      <button disabled={!connected} onClick={() => setCreating(true)}>
+        {sub === 'standing' ? t('project.newWorkspace') : t('project.new')}
+      </button>
+    </>
+  );
+
+  const nav = (
+    <div className="tree">
+      <div className="nav-subtabs seg">
+        <button className={sub === 'goal' ? 'seg-btn active' : 'seg-btn'} onClick={() => pick('goal')}>
+          {t('nav.projects')}
+        </button>
+        <button className={sub === 'standing' ? 'seg-btn active' : 'seg-btn'} onClick={() => pick('standing')}>
+          {t('nav.workspaces')}
+        </button>
+      </div>
+      {shown.length === 0 ? (
+        <div className="region-pad muted">
+          {projectsQ.isLoading
+            ? t('common.loading')
+            : sub === 'standing'
+              ? t('nav.noWorkspaces')
+              : t('nav.noProjects')}
+        </div>
+      ) : (
+        shown.map((p) => {
+          const id = str(p, 'id') ?? '';
+          const label = str(p, 'name') ?? str(p, 'title') ?? id;
+          return (
+            <div
+              key={id}
+              className={`tree-agent${projectSelected(id) ? ' selected' : ''}`}
+              onClick={() => selectProject(id)}
+            >
+              <span className="dot muted" />
+              <span className="tree-agent-label">{label}</span>
+              {str(p, 'phase') !== undefined && <span className="tree-agent-kind">{str(p, 'phase')}</span>}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
 
   return (
     <>
-      <div className="fleet-toolbar">
-        <span className="fleet-toolbar-label">{t('nav.projects')}</span>
-        <span className="fleet-toolbar-sep" />
-        <button disabled={!connected} onClick={() => setCreating(true)}>
-          {t('project.new')}
-        </button>
-      </div>
-      <div className="shell-body">
-        <div className="region navigator">
-          <div className="region-header">{t('nav.projects')}</div>
-          <div className="tree">
-            {projects.length === 0 ? (
-              <div className="region-pad muted">
-                {projectsQ.isLoading ? t('common.loading') : t('nav.noProjects')}
-              </div>
-            ) : (
-              projects.map((p) => {
-                const id = str(p, 'id') ?? '';
-                const label = str(p, 'name') ?? str(p, 'title') ?? id;
-                return (
-                  <div
-                    key={id}
-                    className={`tree-agent${projectSelected(id) ? ' selected' : ''}`}
-                    onClick={() => selectProject(id)}
-                  >
-                    <span className="dot muted" />
-                    <span className="tree-agent-label">{label}</span>
-                    {str(p, 'phase') !== undefined && <span className="tree-agent-kind">{str(p, 'phase')}</span>}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        <FocusRegion />
-
-        <div className="region dock">
-          <div className="region-header">{t('region.attention')}</div>
-          <AttentionDock />
-        </div>
-      </div>
-
-      {creating && <ProjectCreate onClose={() => setCreating(false)} />}
+      <MissionLayout storageKey="projects" toolbar={toolbar} nav={nav} />
+      {creating && <ProjectCreate initialKind={sub} onClose={() => setCreating(false)} />}
     </>
   );
 }

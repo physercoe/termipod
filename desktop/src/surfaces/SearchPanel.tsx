@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useHubAction } from '../hub/action';
 import { useSession } from '../state/session';
+import { useAgents } from '../hub/queries';
+import { useFocus } from '../state/focus';
+import { Icon } from '../ui/Icon';
 
 /// Search surface (parity Phase 4). The hub has no cross-entity search
 /// (grounded); `GET /v1/search?q=` is FTS5 over event **text parts** only
@@ -21,6 +24,15 @@ export function SearchPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const { run, busy, error } = useHubAction();
+  const selectAgent = useFocus((s) => s.selectAgent);
+  const agentsQ = useAgents();
+  // Event search returns each hit's `from_id`; for agent-emitted events that IS
+  // the agent id (hostrunner sets from_id = agent_id), so a hit whose from_id
+  // matches a known agent can jump straight to that agent's transcript.
+  const agentIds = useMemo(
+    () => new Set((agentsQ.data ?? []).map((a) => str(a, 'id')).filter((v): v is string => v !== undefined && v !== '')),
+    [agentsQ.data],
+  );
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Entity[] | null>(null);
 
@@ -28,6 +40,11 @@ export function SearchPanel({ onClose }: { onClose: () => void }): JSX.Element {
     if (client === null || q.trim() === '') return;
     const r = await run(() => client.searchEvents(q.trim(), 100));
     if (r !== undefined) setResults(r as Entity[]);
+  }
+
+  function openAgent(id: string): void {
+    selectAgent(id);
+    onClose();
   }
 
   return (
@@ -58,16 +75,35 @@ export function SearchPanel({ onClose }: { onClose: () => void }): JSX.Element {
         <div className="region-pad scroll">
           {error !== null && <div className="error">{error}</div>}
           {results !== null && results.length === 0 && <div className="muted">{t('search.noResults')}</div>}
-          {results?.map((item, i) => (
-            <div key={str(item, 'id') ?? String(i)} className="search-result">
+          {results?.map((item, i) => {
+            const from = str(item, 'from_id') ?? '';
+            const jumpable = from !== '' && agentIds.has(from);
+            const meta = (
               <div className="search-result-meta muted small">
                 <span className="pill">{str(item, 'type') ?? 'event'}</span>
-                <span className="mono">{str(item, 'from_id') ?? ''}</span>
+                <span className="mono">{from}</span>
                 <span>{str(item, 'received_ts') ?? ''}</span>
+                {jumpable && <Icon name="chevron-right" size={13} />}
               </div>
-              <div className="search-result-text">{partsText(item)}</div>
-            </div>
-          ))}
+            );
+            const key = str(item, 'id') ?? String(i);
+            return jumpable ? (
+              <button
+                key={key}
+                className="search-result search-result-link"
+                title={t('search.openAgent')}
+                onClick={() => openAgent(from)}
+              >
+                {meta}
+                <div className="search-result-text">{partsText(item)}</div>
+              </button>
+            ) : (
+              <div key={key} className="search-result">
+                {meta}
+                <div className="search-result-text">{partsText(item)}</div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

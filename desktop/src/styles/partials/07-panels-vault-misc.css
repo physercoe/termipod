@@ -11,6 +11,21 @@
   border-bottom: 1px solid var(--border);
   padding: 8px 0;
 }
+/* A hit whose from_id is a known agent — the whole row jumps to its transcript. */
+button.search-result-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+button.search-result-link:hover {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.08));
+}
 .search-result-meta {
   display: flex;
   gap: 8px;

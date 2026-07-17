@@ -797,61 +797,32 @@
   background: var(--accent);
   color: var(--accent-ink);
 }
-.companion-local-cmd {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
-}
-/* Local-agent embedded terminal (interactive PTY, cwd = workspace). */
-.companion-term-wrap {
-  flex: 1;
-  min-height: 0;
+/* Local-agent launcher — spawns the CLI into the shared terminal dock. */
+.companion-launch {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
 }
-.companion-term {
-  flex: 1;
-  min-height: 0;
-  padding: 4px 2px 4px 6px;
-  background: #000;
-  overflow: hidden;
-}
-.companion-term-restart {
-  flex: 0 0 auto;
-  display: inline-flex;
-  color: var(--text-secondary);
-}
-.companion-term-restart:hover {
-  color: var(--text);
-}
-.companion-term-hint {
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
-}
-.companion-term-exit {
+.companion-launch-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
-  border-top: 1px solid var(--border);
 }
-.companion-local-cmdbtn {
-  width: 100%;
-  text-align: left;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.companion-launch-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
-.companion-local-cmdbtn:hover {
-  color: var(--text);
+.companion-launch-cwd {
+  word-break: break-all;
 }
 .companion-local-cmdin {
-  width: 100%;
-  padding: 2px 4px;
-  border: 1px solid var(--accent);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface);
   color: var(--text);

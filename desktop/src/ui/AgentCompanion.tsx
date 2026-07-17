@@ -11,7 +11,7 @@ import { listWorkspaceFiles, readWorkspaceFile, type WorkspaceFile } from '../st
 import { Composer } from './Composer';
 import { callToolId, EventCard, toFeedEvent } from './EventCard';
 import { isHiddenInFeed } from './feedLens';
-import { LocalCompanion } from './LocalCompanion';
+import { LocalAgentLauncher } from './LocalAgentLauncher';
 
 // Cap per-mention file text so a large file can't blow the message context.
 const MENTION_MAX = 100_000;
@@ -249,13 +249,15 @@ export function AgentCompanion({
     </div>
   );
 
-  // Local agent runs on this machine as an interactive terminal — no hub client
-  // and no context/insert plumbing (its CLI owns input + file access directly).
+  // Local agent runs on this machine — launched into the shared terminal dock
+  // (raw CLI, cwd = workspace) rather than embedded here, so it fits the width and
+  // is reachable from any tab. The structured/chat interaction stays the hub path
+  // above; a local structured-protocol driver is the tracked follow-up.
   if (source === 'local') {
     return (
       <div className="companion">
         {head}
-        <LocalCompanion />
+        <LocalAgentLauncher />
       </div>
     );
   }

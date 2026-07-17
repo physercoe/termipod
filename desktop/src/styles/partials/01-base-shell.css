@@ -234,6 +234,23 @@ pre {
   color: var(--text-secondary);
 }
 
+/* Terminal-dock indicator/toggle — live session count, reachable from any tab. */
+.statusbar-term {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  font: inherit;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.statusbar-term:hover,
+.statusbar-term.active {
+  color: var(--accent);
+}
+
 /* Background-sync indicator (Author workspace + Read/Zotero library jobs). Shown
    here because the status bar is the only always-visible chrome once a sync
    modal is closed and the user switches tabs. */

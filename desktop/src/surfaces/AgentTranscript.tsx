@@ -214,6 +214,33 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const liveData = useMemo(() => shown.filter((ev) => !isFolded(ev)), [shown, callIds]);
   const insightData = useMemo(() => feed.filter((ev) => !isFolded(ev)), [feed, callIds]);
   const matchSeqs = useMemo(() => liveData.map((ev) => ev.seq), [liveData]);
+
+  // Land on the last message on (re)mount. `initialTopMostItemIndex` is a
+  // one-shot Virtuoso reads at mount, but a tab switch remounts this into a flex
+  // container whose height — and each card's height, as markdown/KaTeX/images
+  // hydrate — settles a frame or two LATER, so that single positioning lands
+  // short of the bottom. Re-assert the end over a short settle window (reading the
+  // live length from a ref so late history/stream rows are included). Keyed on
+  // agent/load/mode only — NOT on liveData.length — so it fires on arrival at the
+  // feed but doesn't yank the view every time a streamed event appends (that's
+  // followOutput's job, and it already yields once the user scrolls up).
+  const liveLenRef = useRef(0);
+  liveLenRef.current = liveData.length;
+  useEffect(() => {
+    if (!loaded || mode !== 'live') return;
+    let cancelled = false;
+    const pin = (): void => {
+      const n = liveLenRef.current;
+      if (!cancelled && n > 0) virtuosoRef.current?.scrollToIndex({ index: n - 1, align: 'end' });
+    };
+    const raf = requestAnimationFrame(pin);
+    const timers = [80, 220, 480].map((d) => window.setTimeout(pin, d));
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      timers.forEach((id) => window.clearTimeout(id));
+    };
+  }, [agentId, loaded, mode]);
   // How many low-signal rows the verbose toggle would reveal (for its badge).
   const verboseHidden = useMemo(
     () => (verbose ? 0 : feed.filter((ev) => isHiddenInFeed(ev, false) && !isHiddenInFeed(ev, true)).length),

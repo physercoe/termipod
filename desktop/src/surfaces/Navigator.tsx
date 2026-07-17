@@ -69,7 +69,7 @@ export function Navigator(): JSX.Element {
   const t = useT();
   const agentsQ = useAgents();
   const hostsQ = useHosts();
-  const selection = useFocus((s) => s.selection);
+  const selection = useFocus((s) => s.fleet.selection);
   const selectAgent = useFocus((s) => s.selectAgent);
   const selectHost = useFocus((s) => s.selectHost);
   const [open, setOpen] = useState({ stewards: true, agents: true, hosts: true });
@@ -120,7 +120,7 @@ export function Navigator(): JSX.Element {
       <div
         key={id}
         className={`tree-agent${agentSelected(id) ? ' selected' : ''}`}
-        onClick={() => selectAgent(id)}
+        onClick={() => selectAgent('fleet', id)}
         title={kind}
       >
         <span className={`dot ${statusClass(str(a, 'status'))}`} />
@@ -198,7 +198,7 @@ export function Navigator(): JSX.Element {
                     key={id}
                     className={`tree-agent tree-host-row${hostSelected(id) ? ' selected' : ''}`}
                     title={str(h, 'hostname') ?? label}
-                    onClick={() => selectHost(id)}
+                    onClick={() => selectHost('fleet', id)}
                   >
                     <span className={`dot ${statusClass(str(h, 'status'))}`} />
                     <span className="tree-agent-label">{label}</span>

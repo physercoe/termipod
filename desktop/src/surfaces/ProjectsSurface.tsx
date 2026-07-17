@@ -26,7 +26,7 @@ function loadSub(): Sub {
 export function ProjectsSurface(): JSX.Element {
   const t = useT();
   const projectsQ = useProjects();
-  const selection = useFocus((s) => s.selection);
+  const selection = useFocus((s) => s.projects.selection);
   const selectProject = useFocus((s) => s.selectProject);
   const connected = useSession((s) => s.client) !== null;
   const [sub, setSub] = useState<Sub>(loadSub);
@@ -84,7 +84,7 @@ export function ProjectsSurface(): JSX.Element {
             <div
               key={id}
               className={`tree-agent${projectSelected(id) ? ' selected' : ''}`}
-              onClick={() => selectProject(id)}
+              onClick={() => selectProject('projects', id)}
             >
               <span className="dot muted" />
               <span className="tree-agent-label">{label}</span>

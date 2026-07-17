@@ -38,7 +38,7 @@ export function ProjectCreate({
     );
     if (created !== undefined) {
       const id = str(created, 'id');
-      if (id !== undefined) selectProject(id);
+      if (id !== undefined) selectProject('projects', id);
       onClose();
     }
   }

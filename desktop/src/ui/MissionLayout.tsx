@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { useT } from '../i18n';
+import type { FocusScope } from '../state/focus';
 import { AttentionDock } from '../surfaces/AttentionDock';
 import { FocusRegion } from '../surfaces/FocusRegion';
 import { Icon } from './Icon';
@@ -26,7 +27,7 @@ export function MissionLayout({
   toolbar,
   nav,
 }: {
-  storageKey: string;
+  storageKey: FocusScope;
   toolbar: ReactNode;
   nav: ReactNode;
 }): JSX.Element {
@@ -74,7 +75,7 @@ export function MissionLayout({
           </>
         )}
 
-        <FocusRegion />
+        <FocusRegion scope={storageKey} />
 
         <ResizeHandle onResize={onResizeDock} />
         <div className="region dock" style={{ width: dockW }}>

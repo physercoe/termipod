@@ -112,7 +112,9 @@ export function AppShell(): JSX.Element {
   }, []);
 
   const commands: Command[] = [
-    { id: 'audit', label: t('cmd.audit'), run: () => clear() },
+    // "Audit" drops the current tab's focus back to its activity console. Only the
+    // Fleet and Projects tabs own a FocusRegion scope; elsewhere it's a no-op.
+    { id: 'audit', label: t('cmd.audit'), run: () => (job === 'fleet' || job === 'projects') && clear(job) },
     {
       id: 'refresh-fleet',
       label: t('cmd.refreshFleet'),

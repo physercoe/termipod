@@ -183,7 +183,7 @@ export function HostBoard({ hostId }: { hostId: string }): JSX.Element {
               const label = str(a, 'handle') ?? str(a, 'name') ?? id;
               const kind = str(a, 'kind') ?? '';
               return (
-                <button key={id} className="host-agent-row" onClick={() => selectAgent(id)}>
+                <button key={id} className="host-agent-row" onClick={() => selectAgent('fleet', id)}>
                   <span className={`dot ${agentStatusClass(str(a, 'status'))}`} />
                   <span className="host-agent-label">{label}</span>
                   <span className="host-agent-kind">{kind.replace(/^steward\./, '★')}</span>

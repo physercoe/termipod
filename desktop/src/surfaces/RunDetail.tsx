@@ -174,7 +174,7 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
           {agentId !== undefined && (
             <button
               onClick={() => {
-                selectAgent(agentId);
+                selectAgent('projects', agentId);
                 onClose();
               }}
             >

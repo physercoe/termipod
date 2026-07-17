@@ -54,7 +54,7 @@ export function SearchPanel({ onClose }: { onClose: () => void }): JSX.Element {
   }
 
   function openAgent(id: string): void {
-    selectAgent(id);
+    selectAgent('fleet', id);
     onClose();
   }
 

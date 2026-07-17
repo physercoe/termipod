@@ -1,23 +1,24 @@
 import { useT } from '../i18n';
-import { useFocus, type Selection } from '../state/focus';
+import { useFocus, type FocusScope, type Selection } from '../state/focus';
 import { Icon } from '../ui/Icon';
 import { AgentTranscript } from './AgentTranscript';
 import { AuditConsole } from './AuditConsole';
 import { HostBoard } from './HostBoard';
 import { ProjectBoard } from './ProjectBoard';
 
-/// The centre (Focus) region, shared by the Fleet and Projects tabs. What it
-/// shows is driven by the global `useFocus` selection — an agent transcript, a
-/// project board, a host board, or (nothing selected) the activity console — so
-/// a drill-down from either tab's left nav lands in the same place.
+/// The centre (Focus) region. What it shows is driven by its tab's `useFocus`
+/// scope — an agent transcript, a project board, a host board, or (nothing
+/// selected) the activity console — so a drill-down from the tab's left nav lands
+/// here. The scope is per-tab (Fleet vs Projects) so the two tabs don't share one
+/// selection; see `FocusScope`.
 ///
 /// When a drill-down happened (e.g. opening an agent from a project board), the
 /// header shows a **back** control that returns to the prior selection (the
 /// project), so the transcript isn't a dead end.
-export function FocusRegion(): JSX.Element {
+export function FocusRegion({ scope }: { scope: FocusScope }): JSX.Element {
   const t = useT();
-  const selection = useFocus((s) => s.selection);
-  const prev = useFocus((s) => s.prev);
+  const selection = useFocus((s) => s[scope].selection);
+  const prev = useFocus((s) => s[scope].prev);
   const back = useFocus((s) => s.back);
 
   const kindLabel = (s: Selection): string =>
@@ -39,7 +40,7 @@ export function FocusRegion(): JSX.Element {
         {canBack && (
           <button
             className="focus-back"
-            onClick={back}
+            onClick={() => back(scope)}
             title={t('focus.backTo').replace('{what}', kindLabel(prev))}
           >
             <Icon name="chevron-left" size={13} />

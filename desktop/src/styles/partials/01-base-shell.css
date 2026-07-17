@@ -234,6 +234,35 @@ pre {
   color: var(--text-secondary);
 }
 
+/* Background-sync indicator (Author workspace + Read/Zotero library jobs). Shown
+   here because the status bar is the only always-visible chrome once a sync
+   modal is closed and the user switches tabs. */
+.statusbar-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  color: var(--accent);
+  font: inherit;
+}
+.statusbar-sync .ui-icon {
+  animation: statusbar-sync-spin 1.1s linear infinite;
+}
+.statusbar-sync.err {
+  color: var(--danger);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.statusbar-sync.err .ui-icon {
+  animation: none;
+}
+@keyframes statusbar-sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Fleet / Projects three-region frame. Flex (not grid) so the left nav is
    resizable (a ResizeHandle between nav and focus) and foldable (the nav +
    handle drop out entirely) — see ui/MissionLayout.tsx. The nav width is set

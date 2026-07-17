@@ -129,12 +129,25 @@ fn build_index(path: PathBuf) -> Result<StorageIndex, String> {
 
 /// Open a native folder picker and index the chosen Zotero `storage/` tree.
 /// Returns `Ok(None)` when the user cancels. The returned `path` is what the
-/// frontend persists so the link survives a restart.
+/// frontend persists so the link survives a restart. `start` seeds the dialog's
+/// initial directory (the current real storage location) so it doesn't open at
+/// whatever folder another tab last browsed — the OS keeps one app-global
+/// last-used dir otherwise.
 #[tauri::command]
-pub async fn storage_pick_folder(app: AppHandle) -> Result<Option<StorageIndex>, String> {
+pub async fn storage_pick_folder(
+    app: AppHandle,
+    start: Option<String>,
+) -> Result<Option<StorageIndex>, String> {
     // `blocking_pick_folder` must not run on the main (event-loop) thread; a
     // tauri async command runs on a worker thread, so this is safe.
-    let picked = app.dialog().file().blocking_pick_folder();
+    let mut dialog = app.dialog().file();
+    if let Some(dir) = start.filter(|d| !d.is_empty()) {
+        let p = PathBuf::from(dir);
+        if p.is_dir() {
+            dialog = dialog.set_directory(p);
+        }
+    }
+    let picked = dialog.blocking_pick_folder();
     let Some(fp) = picked else {
         return Ok(None);
     };

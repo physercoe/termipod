@@ -42,8 +42,13 @@ interface ZoteroStorageState {
   path: string | null; // tauri: absolute linked-folder path (persisted)
   rels: Map<string, string>; // tauri: "key/file" -> path relative to root
   files: Map<string, File>; // browser: "key/file" -> live File handle
-  /** Native folder pick (Tauri). Returns an error message, or null on success/cancel. */
-  linkNative: () => Promise<string | null>;
+  /**
+   * Native folder pick (Tauri). `start` seeds the dialog's initial directory so it
+   * opens at the current real storage location rather than whatever folder another
+   * tab last browsed (the OS reuses one app-global last-used dir otherwise).
+   * Returns an error message, or null on success/cancel.
+   */
+  linkNative: (start?: string) => Promise<string | null>;
   /** Re-index the persisted path on startup (Tauri). No-op with nothing saved. */
   reindex: () => Promise<void>;
   /** Browser fallback — index a `<input webkitdirectory>` FileList (session-only). */
@@ -78,9 +83,9 @@ export const useZoteroStorage = create<ZoteroStorageState>((set) => ({
   rels: new Map(),
   files: new Map(),
 
-  linkNative: async () => {
+  linkNative: async (start) => {
     try {
-      const idx = await invoke<RustIndex | null>('storage_pick_folder');
+      const idx = await invoke<RustIndex | null>('storage_pick_folder', { start: start ?? null });
       if (idx === null) return null; // user cancelled
       const rels = relsFrom(idx);
       persistPath(idx.path);

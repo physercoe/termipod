@@ -12,30 +12,31 @@ import {
   saveZoteroS3Config,
   setWebdavPassword,
   setZoteroS3Secret,
-  syncWebdav,
   verifyWebdav,
   verifyZoteroS3,
-  type SyncReport,
 } from '../state/webdav';
+import { useZoteroSyncJob } from '../state/zoteroSyncJob';
 import type { S3Config, SyncBackend } from '../state/workspaceSync';
 
 /// File-sync config + actions for the Read surface (Zotero-compatible). A modal
 /// (WebView2 blocks `window.prompt`). Two backends: **WebDAV** (interoperates with
 /// the real Zotero apps) or **S3** (TermiPod-to-TermiPod only, since Zotero can't
 /// read S3). Configure, Verify, then Sync; both directions run in the Rust core
-/// (`webdav.rs` / `s3.rs` `s3_zotero_sync`).
+/// (`webdav.rs` / `s3.rs` `s3_zotero_sync`). The transfer runs as a **background
+/// job** ([[zoteroSyncJob]]), so this dialog can be closed while a large library
+/// syncs; the StatusBar shows the running state across tabs.
 
 type Status =
   | { t: 'idle' }
   | { t: 'busy'; msg: string }
   | { t: 'ok'; msg: string }
-  | { t: 'err'; msg: string }
-  | { t: 'report'; report: SyncReport };
+  | { t: 'err'; msg: string };
 
 const EMPTY_S3: S3Config = { endpoint: '', region: '', bucket: '', prefix: '', accessKeyId: '' };
 
 export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
   const t = useT();
+  const job = useZoteroSyncJob();
   const [backend, setBackend] = useState<SyncBackend>('webdav');
   const [url, setUrl] = useState('');
   const [user, setUser] = useState('');
@@ -89,12 +90,14 @@ export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
     }
   }
 
+  // Kick the sync as a BACKGROUND job and return immediately — the dialog can be
+  // closed and the user can keep working (and switch tabs) while a large library
+  // transfers; the StatusBar carries the running/failed state.
   async function onSync(): Promise<void> {
-    setStatus({ t: 'busy', msg: t('read.webdavSyncing') });
     try {
       await persist();
-      const report = await syncWebdav();
-      setStatus({ t: 'report', report });
+      setStatus({ t: 'idle' });
+      useZoteroSyncJob.getState().start();
     } catch (e) {
       setStatus({ t: 'err', msg: e instanceof Error ? e.message : String(e) });
     }
@@ -103,6 +106,7 @@ export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
   const busy = status.t === 'busy';
   const configured = backend === 's3' ? s3.bucket.trim() !== '' : url.trim() !== '';
   const canAct = configured && !busy;
+  const canSync = canAct && !job.running;
 
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
@@ -186,22 +190,26 @@ export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
         {status.t === 'busy' && <div className="webdav-status busy">{status.msg}</div>}
         {status.t === 'ok' && <div className="webdav-status ok">{status.msg}</div>}
         {status.t === 'err' && <div className="webdav-status err">{status.msg}</div>}
-        {status.t === 'report' && (
+
+        {/* Background sync job state (survives closing this dialog). */}
+        {job.running && <div className="webdav-status busy">{t('author.syncBackground')}</div>}
+        {!job.running && job.error !== null && <div className="webdav-status err">{job.error}</div>}
+        {!job.running && job.report !== null && (
           <div className="webdav-status ok webdav-report">
             <div>
               {t('read.webdavDone')
-                .replace('{up}', String(status.report.uploaded))
-                .replace('{down}', String(status.report.downloaded))
-                .replace('{skip}', String(status.report.skipped))}
+                .replace('{up}', String(job.report.uploaded))
+                .replace('{down}', String(job.report.downloaded))
+                .replace('{skip}', String(job.report.skipped))}
             </div>
-            {status.report.conflicts > 0 && (
+            {job.report.conflicts > 0 && (
               <div className="webdav-warn">
-                {t('read.webdavConflicts').replace('{n}', String(status.report.conflicts))}
+                {t('read.webdavConflicts').replace('{n}', String(job.report.conflicts))}
               </div>
             )}
-            {status.report.errors.length > 0 && (
+            {job.report.errors.length > 0 && (
               <ul className="webdav-errs">
-                {status.report.errors.slice(0, 6).map((e, i) => (
+                {job.report.errors.slice(0, 6).map((e, i) => (
                   <li key={i}>{e}</li>
                 ))}
               </ul>
@@ -217,10 +225,11 @@ export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
             {t('read.webdavSave')}
           </button>
           <span className="spacer" />
-          <button className="primary" disabled={!canAct} onClick={() => void onSync()}>
-            {t('read.webdavSync')}
+          <button className="primary" disabled={!canSync} onClick={() => void onSync()}>
+            {job.running ? t('read.webdavSyncing') : t('read.webdavSync')}
           </button>
         </div>
+        {job.running && <p className="muted small webdav-hint">{t('author.syncBackgroundHint')}</p>}
       </div>
     </div>
   );

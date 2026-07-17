@@ -12,6 +12,7 @@ import {
 } from '../state/library';
 import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zoteroStorage';
 import {
+  activeAttachmentRoot,
   deleteManagedAttachmentFile,
   pickAndCopyAttachment,
   useAttachmentConfig,
@@ -1585,6 +1586,7 @@ export function ReadSurface(): JSX.Element {
   const linkNative = useZoteroStorage((s) => s.linkNative);
   const reindex = useZoteroStorage((s) => s.reindex);
   const storageCount = useZoteroStorage((s) => s.count);
+  const storagePath = useZoteroStorage((s) => s.path);
 
   const [mode, setMode] = useState<Mode>('library');
   const [collection, setCollection] = useState<string>(ALL);
@@ -1737,7 +1739,11 @@ export function ReadSurface(): JSX.Element {
   // build falls back to the session-only webkitdirectory picker.
   async function onLinkStorage(): Promise<void> {
     if (isTauri()) {
-      const err = await linkNative();
+      // Seed the picker at the real storage location — the currently-linked folder
+      // if any, else the active attachment root — so it doesn't open at whatever
+      // dir another tab/workspace last browsed.
+      const start = storagePath ?? activeAttachmentRoot() ?? undefined;
+      const err = await linkNative(start);
       if (err !== null) setImportMsg(err);
     } else {
       dirRef.current?.click();
@@ -1898,7 +1904,7 @@ export function ReadSurface(): JSX.Element {
           </button>
           {isTauri() && (
             <button className="import-btn" title={t('read.webdavHint')} onClick={() => setShowWebdav(true)}>
-              <Icon name="cloud" size={14} /> {t('read.webdav')}
+              <Icon name="cloud" size={14} /> {t('read.syncFiles')}
             </button>
           )}
           <div className="seg">

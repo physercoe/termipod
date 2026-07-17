@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
@@ -15,10 +15,15 @@ function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// How many events to fetch for the FIRST paint (small → instant, already at the
-// latest message) vs the background HISTORY backfill (a larger tail, merged in
-// once the tail is on screen so scrollback is available without blocking open).
-const INITIAL_TAIL = 60;
+// How many events to render on the FIRST paint — just enough to overfill the
+// viewport so the view lands on the latest message and only a handful of cards
+// hydrate. The deeper HISTORY tail is *prefetched* in the background but held
+// out of the DOM until the user scrolls up (see revealHistory): rendering all of
+// it on open makes hundreds of markdown/KaTeX/image cards lay out at once, and
+// each one growing as it hydrates churns the scroll — the "scrolls a lot on
+// open" bug. Lazy reveal keeps open cheap; scrollback is instant since the bytes
+// are already fetched.
+const INITIAL_TAIL = 40;
 const HISTORY_TAIL = 500;
 
 /// Union two event batches by `seq` (unique + monotonic per agent), sorted
@@ -101,6 +106,41 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   // bottom; a manual scroll-up releases it so a streamed event (or the history
   // backfill) doesn't yank them back down.
   const stickRef = useRef(true);
+  // Deeper history, prefetched in the background but held out of the DOM until
+  // the user scrolls up (revealHistory merges it once). Keeps the open path to
+  // just the tail's worth of cards.
+  const historyRef = useRef<Entity[] | null>(null);
+  const historyMergedRef = useRef(false);
+  // Current mode, readable from the (stale-closure) load effect so it can force
+  // the history reveal if the user is already in Insight mode when it lands.
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+
+  // Merge the prefetched deeper history into the feed exactly once — when the
+  // user scrolls up to the top, or right away if the tail didn't fill the
+  // viewport. We compensate scrollTop by the height the older rows add above the
+  // viewport so the rows being read stay put; the browser's scroll anchoring
+  // absorbs the rest as those rows hydrate. A no-op until the prefetch lands or
+  // if the user is still down at the tail. `force` reveals unconditionally —
+  // Insight mode needs the full window in the DOM so jump-to-turn can find any
+  // row, so it doesn't wait for a scroll-up.
+  const revealHistory = useCallback((force = false): void => {
+    const el = feedRef.current;
+    if (historyRef.current === null || historyMergedRef.current) return;
+    // Still reading near the tail (and there's room to scroll) — wait for scroll-up.
+    if (!force && el !== null && el.scrollTop >= 200 && el.scrollHeight > el.clientHeight) return;
+    historyMergedRef.current = true;
+    const extra = historyRef.current;
+    historyRef.current = null;
+    const prevHeight = el?.scrollHeight ?? 0;
+    const prevTop = el?.scrollTop ?? 0;
+    setEvents((prev) => mergeEvents(prev, extra));
+    // Keep the viewport where it was after the older rows prepend above it.
+    requestAnimationFrame(() => {
+      const el2 = feedRef.current;
+      if (el2 !== null) el2.scrollTop = prevTop + (el2.scrollHeight - prevHeight);
+    });
+  }, []);
 
   useEffect(() => {
     if (client === null) return;
@@ -109,6 +149,8 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     setEvents([]);
     setError(null);
     stickRef.current = true; // a freshly-opened transcript starts pinned to the latest
+    historyRef.current = null;
+    historyMergedRef.current = false;
     void (async () => {
       try {
         // 1) Small tail → instant first paint, already scrolled to the latest.
@@ -123,13 +165,16 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
           onEvent: (e) => setEvents((prev) => mergeEvents(prev, [e as Entity])),
           onError: (err) => setError(msg(err)),
         });
-        // 3) Backfill deeper history in the background — merges *under* the tail
-        //    that's already on screen, so scrollback fills in without the open
-        //    ever blocking on it or jumping the view (we stay pinned to bottom).
+        // 3) Prefetch deeper history in the background but DON'T render it yet —
+        //    hold it in historyRef so scrollback is instant, while the open path
+        //    stays limited to the tail's cards. revealHistory merges it the
+        //    moment the user scrolls up (or now, if the tail didn't fill the
+        //    viewport and they're already at the top).
         if (HISTORY_TAIL > INITIAL_TAIL) {
           const history = await client.listAgentEvents(agentId, { tail: HISTORY_TAIL });
           if (cancelled) return;
-          setEvents((prev) => mergeEvents(prev, history));
+          historyRef.current = history;
+          revealHistory(modeRef.current === 'insight');
         }
       } catch (err) {
         if (!cancelled) setError(msg(err));
@@ -170,11 +215,19 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     return () => ro.disconnect();
   }, [mode, lens]);
 
+  // Insight mode navigates the FULL feed (jump-to-turn / jump-to-error), so it
+  // needs the deeper history in the DOM even without a scroll-up — force it in.
+  useEffect(() => {
+    if (mode === 'insight') revealHistory(true);
+  }, [mode, revealHistory]);
+
   // Track whether the user is at the bottom, so streamed events follow the tail
   // only when they haven't scrolled up to read history.
   function onFeedScroll(): void {
     const el = feedRef.current;
-    if (el !== null) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (el === null) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (el.scrollTop < 200) revealHistory(); // reached the top → fill in older history
   }
 
   const digestQ = useQuery({

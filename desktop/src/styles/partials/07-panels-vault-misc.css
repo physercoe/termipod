@@ -295,7 +295,49 @@ button.search-result-link:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 260px;
+  min-width: 0;
+}
+.sessions-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: var(--spacing-s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.sessions-search {
+  width: 100%;
+}
+.sessions-filter {
+  align-self: stretch;
+}
+.sessions-filter .seg-btn {
+  flex: 1;
+}
+.sessions-group-head {
+  padding: 6px var(--spacing-s8) 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.session-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.session-age {
+  flex: 0 0 auto;
+}
+.session-row-sub {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 .sessions-detail {
   flex: 1;

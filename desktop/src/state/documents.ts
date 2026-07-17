@@ -37,7 +37,7 @@ export interface Doc {
 const CANVAS_SEED = '{"cards":[],"edges":[]}';
 const TABLE_SEED =
   '{"columns":[{"id":"col0","name":"Name","type":"text"}],"rows":[{"id":"row0","cells":{}},{"id":"row1","cells":{}},{"id":"row2","cells":{}}]}';
-function seedBody(kind: DocKind): string {
+export function seedBody(kind: DocKind): string {
   switch (kind) {
     case 'markdown':
       return '# \n';

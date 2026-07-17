@@ -46,6 +46,7 @@ export function AuthorNav(): JSX.Element {
   const create = useDocuments((s) => s.create);
   const folder = useWorkspace((s) => s.folder);
   const setFolder = useWorkspace((s) => s.setFolder);
+  const rev = useWorkspace((s) => s.rev);
   const [nodes, setNodes] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -72,9 +73,11 @@ export function AuthorNav(): JSX.Element {
     [tauri],
   );
 
+  // Re-list on folder change and whenever the folder is `touch`ed (a new document
+  // was materialized into it from the toolbar), so new files appear immediately.
   useEffect(() => {
     void refresh(folder);
-  }, [folder, refresh]);
+  }, [folder, rev, refresh]);
 
   async function pick(): Promise<void> {
     if (!tauri) return;

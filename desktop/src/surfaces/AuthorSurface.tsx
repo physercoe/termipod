@@ -1,7 +1,17 @@
 import { lazy, Suspense, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
-import { bodyToFile, extForKind, fileToBody, kindForFile, useDocuments, type Doc } from '../state/documents';
+import {
+  bodyToFile,
+  extForKind,
+  fileToBody,
+  kindForFile,
+  seedBody,
+  useDocuments,
+  type Doc,
+  type DocKind,
+} from '../state/documents';
+import { useWorkspace } from '../state/workspace';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { docKindIcon, Icon, type IconName } from '../ui/Icon';
 import { AuthorNav } from './AuthorNav';
@@ -48,6 +58,34 @@ function baseName(path: string): string {
 
 function extOf(path: string): string {
   return path.split('.').pop()?.toLowerCase() ?? '';
+}
+
+// Base filename for a new document of each kind, when materialized into a
+// workspace folder (`document.md`, `diagram.drawio`, …).
+const NEW_BASE: Record<DocKind, string> = {
+  markdown: 'document',
+  diagram: 'diagram',
+  canvas: 'canvas',
+  table: 'table',
+};
+
+/// A collision-free path for a new document at the workspace root. Lists the
+/// folder (best-effort) and walks `base`, `base-1`, … until a free name, so a
+/// second "New diagram" doesn't overwrite the first.
+async function uniqueWorkspacePath(dir: string, kind: DocKind, ext: string): Promise<string> {
+  const sep = dir.includes('\\') ? '\\' : '/';
+  let taken = new Set<string>();
+  try {
+    const nodes = await invoke<{ name: string }[]>('workspace_list', { path: dir });
+    taken = new Set(nodes.map((n) => n.name.toLowerCase()));
+  } catch {
+    /* best-effort; the unique walk still avoids clobbering what we can see */
+  }
+  const base = NEW_BASE[kind];
+  for (let i = 0; ; i += 1) {
+    const name = `${base}${i === 0 ? '' : `-${i}`}.${ext}`;
+    if (!taken.has(name.toLowerCase())) return `${dir}${sep}${name}`;
+  }
 }
 
 type ViewMode = 'wysiwyg' | 'edit' | 'split' | 'read';
@@ -169,6 +207,8 @@ export function AuthorSurface(): JSX.Element {
   const setActive = useDocuments((s) => s.setActive);
   const markSaved = useDocuments((s) => s.markSaved);
   const update = useDocuments((s) => s.update);
+  const folder = useWorkspace((s) => s.folder);
+  const touchWs = useWorkspace((s) => s.touch);
   const [busy, setBusy] = useState(false);
   // Left file/workspace tree. On by default; width persisted.
   const [showNav, setShowNav] = useState(() => localStorage.getItem('termipod.author.showNav') !== '0');
@@ -220,6 +260,32 @@ export function AuthorSurface(): JSX.Element {
     }
   }
 
+  // Create a new document. With a workspace folder open (desktop), it's
+  // materialized as a real file IN that folder — so it appears in the tree and
+  // round-trips on Save — instead of a device-local draft disconnected from the
+  // workspace (director report: "the file is not added to the workspace"). With
+  // no folder open, or in the browser build, it stays an in-memory draft.
+  async function createDoc(kind: DocKind): Promise<void> {
+    if (!tauri || folder === null) {
+      create(kind);
+      return;
+    }
+    setBusy(true);
+    try {
+      const ext = extForKind(kind);
+      const body = seedBody(kind);
+      const path = await uniqueWorkspacePath(folder, kind, ext);
+      await invoke('doc_write', { path, content: bodyToFile(kind, body, ext, t('table.colName')) });
+      create(kind, { title: baseName(path), body, filePath: path });
+      touchWs();
+    } catch {
+      // Permissions / race — still give the user a document, just in-memory.
+      create(kind);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onOpen(): Promise<void> {
     if (!tauri) return;
     setBusy(true);
@@ -263,19 +329,19 @@ export function AuthorSurface(): JSX.Element {
           >
             {t('author.files')}
           </button>
-          <button className="import-btn" onClick={() => create('markdown')}>
+          <button className="import-btn" disabled={busy} onClick={() => void createDoc('markdown')}>
             <Icon name="plus" size={14} />
             {t('author.newDoc')}
           </button>
-          <button className="import-btn" onClick={() => create('diagram')}>
+          <button className="import-btn" disabled={busy} onClick={() => void createDoc('diagram')}>
             <Icon name="diagram" size={14} />
             {t('author.newDiagram')}
           </button>
-          <button className="import-btn" onClick={() => create('canvas')}>
+          <button className="import-btn" disabled={busy} onClick={() => void createDoc('canvas')}>
             <Icon name="canvas" size={14} />
             {t('author.newCanvas')}
           </button>
-          <button className="import-btn" onClick={() => create('table')}>
+          <button className="import-btn" disabled={busy} onClick={() => void createDoc('table')}>
             <Icon name="table" size={14} />
             {t('author.newTable')}
           </button>

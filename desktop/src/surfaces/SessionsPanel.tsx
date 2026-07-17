@@ -5,10 +5,39 @@ import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { useProjects } from '../hub/queries';
 import { RunReport } from '../ui/RunReport';
+import { Icon } from '../ui/Icon';
+import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
+import { useFloatingBox, type Box } from '../ui/useFloatingBox';
 import { AgentTranscript } from './AgentTranscript';
+
+/// Load the persisted collapsed-group set (scope keys), tolerating a missing or
+/// malformed value.
+function loadCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem('termipod.sessions.collapsed');
+    if (raw !== null) {
+      const arr = JSON.parse(raw) as unknown;
+      if (Array.isArray(arr)) return new Set(arr.filter((v): v is string => typeof v === 'string'));
+    }
+  } catch {
+    /* ignore */
+  }
+  return new Set();
+}
+
+/// Default floating box: a 960×80vh panel centred in the viewport (matches the
+/// old fixed modal), used only when there's no persisted position yet.
+function defaultBox(): Box {
+  const w = Math.min(960, window.innerWidth * 0.96);
+  const h = window.innerHeight * 0.8;
+  return { x: Math.max(0, (window.innerWidth - w) / 2), y: window.innerHeight * 0.1, w, h };
+}
 
 const SESSION_FILTERS = ['all', 'active', 'paused', 'archived'] as const;
 type SessionFilter = (typeof SESSION_FILTERS)[number];
+
+/// Smallest the floating dialog may shrink to (keeps both panes usable).
+const MIN_PANEL = { w: 560, h: 360 };
 
 /// The session's own name (mobile `sessionDisplayTitle`): explicit title, then
 /// the hub's `session_name_hint`. Null when unnamed — the row shows a localized
@@ -77,6 +106,23 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameErr, setRenameErr] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
+  const { box, startMove, startResize } = useFloatingBox('termipod.sessions.box', defaultBox, MIN_PANEL);
+  const [listW, resizeList] = usePanelWidth('termipod.sessions.listWidth', 300, 220, 520);
+
+  function toggleGroup(key: string): void {
+    setCollapsed((cur) => {
+      const next = new Set(cur);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem('termipod.sessions.collapsed', JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   const listQ = useQuery({
     queryKey: ['sessions', client?.transport.teamId],
@@ -180,15 +226,21 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const agentId = resolveAgentId();
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="admin-tabs">
+    <div className="palette-backdrop sessions-overlay" onMouseDown={onClose}>
+      <div
+        className="sessions-panel floating"
+        style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="admin-tabs admin-tabs-drag" onPointerDown={startMove}>
           <strong>{t('sessions.title')}</strong>
           <span className="spacer" />
-          <button onClick={onClose}>{t('admin.close')}</button>
+          <button onPointerDown={(e) => e.stopPropagation()} onClick={onClose}>
+            {t('admin.close')}
+          </button>
         </div>
         <div className="sessions-body">
-          <div className="sessions-list">
+          <div className="sessions-list" style={{ flex: `0 0 ${listW}px`, width: listW }}>
             <div className="sessions-toolbar">
               <input
                 className="sessions-search"
@@ -210,12 +262,20 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
             </div>
             {listQ.isLoading && <div className="muted region-pad">{t('sessions.loading')}</div>}
             {listQ.isError && <div className="error region-pad">{(listQ.error as Error).message}</div>}
-            {groups.map((g) => (
+            {groups.map((g) => {
+              const isCollapsed = collapsed.has(g.key);
+              return (
               <div key={g.key} className="sessions-group">
-                <div className="sessions-group-head muted small">
-                  {g.label} <span className="pill">{g.items.length}</span>
-                </div>
-                {g.items.map((s) => {
+                <button
+                  className="sessions-group-head muted small"
+                  onClick={() => toggleGroup(g.key)}
+                  title={t(isCollapsed ? 'sessions.expandGroup' : 'sessions.collapseGroup')}
+                >
+                  <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={13} />
+                  <span className="sessions-group-label">{g.label}</span>
+                  <span className="pill">{g.items.length}</span>
+                </button>
+                {!isCollapsed && g.items.map((s) => {
                   const id = str(s, 'id') ?? '';
                   const status = str(s, 'status') ?? '';
                   const scope = str(s, 'scope_kind') ?? '';
@@ -251,11 +311,13 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
                   );
                 })}
               </div>
-            ))}
+              );
+            })}
             {!listQ.isLoading && groups.length === 0 && (
               <div className="muted region-pad">{sessions.length === 0 ? t('sessions.none') : t('sessions.noMatch')}</div>
             )}
           </div>
+          <ResizeHandle onResize={resizeList} />
           <div className="sessions-detail">
             {selected === null ? (
               <div className="muted region-pad">{t('sessions.pick')}</div>
@@ -310,6 +372,9 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
             </div>
           </>
         )}
+        <div className="fp-resize fp-e" onPointerDown={startResize('e')} />
+        <div className="fp-resize fp-s" onPointerDown={startResize('s')} />
+        <div className="fp-resize fp-se" onPointerDown={startResize('se')} />
       </div>
       {renaming !== null && (
         <div className="palette-backdrop" onMouseDown={() => setRenaming(null)}>

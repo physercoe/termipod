@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useHubAction } from '../hub/action';
 import { useSession } from '../state/session';
-import { useAgents } from '../hub/queries';
 import { useFocus } from '../state/focus';
 import { Icon } from '../ui/Icon';
 
@@ -25,10 +25,21 @@ export function SearchPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const client = useSession((s) => s.client);
   const { run, busy, error } = useHubAction();
   const selectAgent = useFocus((s) => s.selectAgent);
-  const agentsQ = useAgents();
   // Event search returns each hit's `from_id`; for agent-emitted events that IS
   // the agent id (hostrunner sets from_id = agent_id), so a hit whose from_id
   // matches a known agent can jump straight to that agent's transcript.
+  //
+  // Search runs over the *historical* event stream, so most hits come from agents
+  // that have since terminated. The default agent list hides
+  // terminated/failed/crashed/archived agents (handlers_agents.go), which would
+  // make almost every result un-clickable — so this jump-map explicitly includes
+  // them. The `/agents/{id}/events` feed is served from stored events, so a
+  // terminated agent's transcript still opens.
+  const agentsQ = useQuery({
+    queryKey: ['agents', 'search-jump', client?.transport.teamId],
+    enabled: client !== null,
+    queryFn: () => client!.listAgents({ include_terminated: true, include_archived: true }),
+  });
   const agentIds = useMemo(
     () => new Set((agentsQ.data ?? []).map((a) => str(a, 'id')).filter((v): v is string => v !== undefined && v !== '')),
     [agentsQ.data],

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
@@ -15,16 +16,13 @@ function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// How many events to render on the FIRST paint — just enough to overfill the
-// viewport so the view lands on the latest message and only a handful of cards
-// hydrate. The deeper HISTORY tail is *prefetched* in the background but held
-// out of the DOM until the user scrolls up (see revealHistory): rendering all of
-// it on open makes hundreds of markdown/KaTeX/image cards lay out at once, and
-// each one growing as it hydrates churns the scroll — the "scrolls a lot on
-// open" bug. Lazy reveal keeps open cheap; scrollback is instant since the bytes
-// are already fetched.
-const INITIAL_TAIL = 40;
-const HISTORY_TAIL = 500;
+// The deepest history the events endpoint serves in one call (tail = last N; it
+// has no older-than cursor). We load it once and let the virtual list render only
+// the visible slice — so there's no render storm, and the measured, bottom-
+// anchored scroller keeps the view pinned to the latest message with no jump as
+// cards hydrate (markdown/KaTeX/images settling), which one-shot JS pinning
+// couldn't do on WebKit.
+const LOAD_TAIL = 500;
 
 /// Union two event batches by `seq` (unique + monotonic per agent), sorted
 /// ascending. Idempotent, so a streamed event that also appears in the history
@@ -118,53 +116,12 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Gates the live feed visible until it has settled at the bottom. The tail's
-  // cards pin + reflow (fonts, late layout) over the first frames after open;
-  // holding the content invisible until then means the user sees it already at
-  // the latest message instead of watching it scroll into place. (This is what
-  // chat UIs do — position at the bottom before the first painted frame.)
-  const [feedReady, setFeedReady] = useState(false);
-  const feedRef = useRef<HTMLDivElement>(null);
-  const feedContentRef = useRef<HTMLDivElement>(null);
-  // Whether the feed is pinned to the tail. True while the user is at the
-  // bottom; a manual scroll-up releases it so a streamed event (or the history
-  // backfill) doesn't yank them back down.
-  const stickRef = useRef(true);
-  // Deeper history, prefetched in the background but held out of the DOM until
-  // the user scrolls up (revealHistory merges it once). Keeps the open path to
-  // just the tail's worth of cards.
-  const historyRef = useRef<Entity[] | null>(null);
-  const historyMergedRef = useRef(false);
-  // Current mode, readable from the (stale-closure) load effect so it can force
-  // the history reveal if the user is already in Insight mode when it lands.
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
-
-  // Merge the prefetched deeper history into the feed exactly once — when the
-  // user scrolls up to the top, or right away if the tail didn't fill the
-  // viewport. We compensate scrollTop by the height the older rows add above the
-  // viewport so the rows being read stay put; the browser's scroll anchoring
-  // absorbs the rest as those rows hydrate. A no-op until the prefetch lands or
-  // if the user is still down at the tail. `force` reveals unconditionally —
-  // Insight mode needs the full window in the DOM so jump-to-turn can find any
-  // row, so it doesn't wait for a scroll-up.
-  const revealHistory = useCallback((force = false): void => {
-    const el = feedRef.current;
-    if (historyRef.current === null || historyMergedRef.current) return;
-    // Still reading near the tail (and there's room to scroll) — wait for scroll-up.
-    if (!force && el !== null && el.scrollTop >= 200 && el.scrollHeight > el.clientHeight) return;
-    historyMergedRef.current = true;
-    const extra = historyRef.current;
-    historyRef.current = null;
-    const prevHeight = el?.scrollHeight ?? 0;
-    const prevTop = el?.scrollTop ?? 0;
-    setEvents((prev) => mergeEvents(prev, extra));
-    // Keep the viewport where it was after the older rows prepend above it.
-    requestAnimationFrame(() => {
-      const el2 = feedRef.current;
-      if (el2 !== null) el2.scrollTop = prevTop + (el2.scrollHeight - prevHeight);
-    });
-  }, []);
+  const [loaded, setLoaded] = useState(false);
+  // Seq to flash briefly after a jump (Insight jump / live stepper). An off-screen
+  // row in a virtual list isn't in the DOM to take a class, so we track it in
+  // state and apply it when the row renders.
+  const [flashSeq, setFlashSeq] = useState<number | null>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
 
   useEffect(() => {
     if (client === null) return;
@@ -172,38 +129,25 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     let handle: SseHandle | null = null;
     setEvents([]);
     setError(null);
-    setFeedReady(false);
-    stickRef.current = true; // a freshly-opened transcript starts pinned to the latest
-    historyRef.current = null;
-    historyMergedRef.current = false;
+    setLoaded(false);
     void (async () => {
       try {
-        // 1) Small tail → instant first paint, already scrolled to the latest.
-        const initial = await client.listAgentEvents(agentId, { tail: INITIAL_TAIL });
+        // One load of the deepest tail; the virtual list renders only the visible
+        // slice, so holding the full window is cheap.
+        const history = await client.listAgentEvents(agentId, { tail: LOAD_TAIL });
         if (cancelled) return;
-        const sorted = mergeEvents(initial, []);
+        const sorted = mergeEvents(history, []);
         setEvents(sorted);
-        // Reveal once the tail has committed + pinned (two frames covers the
-        // layout-effect pin and the immediate reflow), so the settle is off-screen.
-        requestAnimationFrame(() => requestAnimationFrame(() => !cancelled && setFeedReady(true)));
+        setLoaded(true);
         const last = sorted.length > 0 ? num(sorted[sorted.length - 1], 'seq') : undefined;
-        // 2) Live stream from the tail cursor (merge dedupes any overlap).
+        // Live stream from the tail cursor (merge dedupes any overlap); appended
+        // events stick to the bottom via the list's followOutput when the user is
+        // there, and don't yank them if they've scrolled up.
         handle = client.streamAgent(agentId, {
           since: last !== undefined ? String(last) : undefined,
           onEvent: (e) => setEvents((prev) => mergeEvents(prev, [e as Entity])),
           onError: (err) => setError(msg(err)),
         });
-        // 3) Prefetch deeper history in the background but DON'T render it yet —
-        //    hold it in historyRef so scrollback is instant, while the open path
-        //    stays limited to the tail's cards. revealHistory merges it the
-        //    moment the user scrolls up (or now, if the tail didn't fill the
-        //    viewport and they're already at the top).
-        if (HISTORY_TAIL > INITIAL_TAIL) {
-          const history = await client.listAgentEvents(agentId, { tail: HISTORY_TAIL });
-          if (cancelled) return;
-          historyRef.current = history;
-          revealHistory(modeRef.current === 'insight');
-        }
       } catch (err) {
         if (!cancelled) setError(msg(err));
       }
@@ -213,50 +157,6 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
       handle?.close();
     };
   }, [agentId, client]);
-
-  // Pin the feed to the tail (instantly, no animation) after a render — but only
-  // in Live/all mode and only while the user is at the bottom. A filter, an
-  // Insight jump, or a manual scroll-up all leave the view where it is.
-  useLayoutEffect(() => {
-    if (mode !== 'live' || lens !== 'all' || !stickRef.current) return;
-    const el = feedRef.current;
-    if (el !== null) el.scrollTop = el.scrollHeight;
-  }, [events, mode, lens, verbose]);
-
-  // Hold the tail as cards *grow after mount*. EventCard content settles async —
-  // markdown lays out, KaTeX/highlight.js restyle, images load with no reserved
-  // height — so the one-shot pin above lands before the real height is known and
-  // the view then drifts as content hydrates (the "keeps scrolling" bug). A
-  // ResizeObserver on the feed content re-pins to the bottom on every height
-  // change while the user is at the tail, so the latest message stays in view as
-  // the backfill fills in above and cards finish rendering. Releasing on a manual
-  // scroll-up (stickRef) means reading history is never yanked.
-  useLayoutEffect(() => {
-    const content = feedContentRef.current;
-    const el = feedRef.current;
-    if (content === null || el === null) return;
-    const ro = new ResizeObserver(() => {
-      if (mode !== 'live' || lens !== 'all' || !stickRef.current) return;
-      el.scrollTop = el.scrollHeight;
-    });
-    ro.observe(content);
-    return () => ro.disconnect();
-  }, [mode, lens]);
-
-  // Insight mode navigates the FULL feed (jump-to-turn / jump-to-error), so it
-  // needs the deeper history in the DOM even without a scroll-up — force it in.
-  useEffect(() => {
-    if (mode === 'insight') revealHistory(true);
-  }, [mode, revealHistory]);
-
-  // Track whether the user is at the bottom, so streamed events follow the tail
-  // only when they haven't scrolled up to read history.
-  function onFeedScroll(): void {
-    const el = feedRef.current;
-    if (el === null) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (el.scrollTop < 200) revealHistory(); // reached the top → fill in older history
-  }
 
   const digestQ = useQuery({
     queryKey: ['agent-digest', agentId],
@@ -274,29 +174,46 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
   const { resultById, nameById, callIds } = useToolMaps(feed);
 
-  // Render helper — one card per event with tool folding applied.
-  function renderCard(ev: FeedEvent): JSX.Element | null {
+  // A tool_result folded into its matching tool_call — not rendered on its own.
+  const isFolded = (ev: FeedEvent): boolean => {
+    if (ev.kind !== 'tool_result') return false;
+    const id = str(ev.payload, 'tool_use_id');
+    return id !== undefined && callIds.has(id);
+  };
+
+  // Render helper — one card per event with tool folding applied. Folded
+  // tool_results are dropped from the virtual list's data (below), so this only
+  // sees rows that actually render.
+  function renderCard(ev: FeedEvent): JSX.Element {
     if (ev.kind === 'tool_result') {
       const id = str(ev.payload, 'tool_use_id');
-      if (id !== undefined && callIds.has(id)) return null; // folded into its call
-      return <EventCard key={ev.id} ev={ev} callName={id !== undefined ? nameById.get(id) : undefined} />;
+      return <EventCard ev={ev} callName={id !== undefined ? nameById.get(id) : undefined} />;
     }
     if (ev.kind === 'tool_call') {
       const id = callToolId(ev.payload);
-      return <EventCard key={ev.id} ev={ev} result={id !== undefined ? resultById.get(id) : undefined} />;
+      return <EventCard ev={ev} result={id !== undefined ? resultById.get(id) : undefined} />;
     }
-    return <EventCard key={ev.id} ev={ev} />;
+    return <EventCard ev={ev} />;
+  }
+
+  // The item wrapper for the virtual list: carries the transient jump flash and
+  // the row spacing.
+  function feedItem(ev: FeedEvent): JSX.Element {
+    return <div className={ev.seq === flashSeq ? 'feed-item ev-flash' : 'feed-item'}>{renderCard(ev)}</div>;
   }
 
   // Live-mode filtering: first drop feed noise (mobile verbose model), then
-  // apply the lens (mobile `lensed`). Tool folding still runs over the FULL
+  // apply the lens (mobile `lensed`), then drop folded tool_results so the list
+  // data is exactly the rows that render. Tool folding still runs over the FULL
   // feed above, so a hidden telemetry row never orphans a paired result.
   const visible = useMemo(() => feed.filter((ev) => !isHiddenInFeed(ev, verbose)), [feed, verbose]);
   const shown = useMemo(
     () => (lens === 'all' ? visible : visible.filter((ev) => matchesLens(ev, lens, resultById))),
     [visible, lens, resultById],
   );
-  const matchSeqs = useMemo(() => shown.map((ev) => ev.seq), [shown]);
+  const liveData = useMemo(() => shown.filter((ev) => !isFolded(ev)), [shown, callIds]);
+  const insightData = useMemo(() => feed.filter((ev) => !isFolded(ev)), [feed, callIds]);
+  const matchSeqs = useMemo(() => liveData.map((ev) => ev.seq), [liveData]);
   // How many low-signal rows the verbose toggle would reveal (for its badge).
   const verboseHidden = useMemo(
     () => (verbose ? 0 : feed.filter((ev) => isHiddenInFeed(ev, false) && !isHiddenInFeed(ev, true)).length),
@@ -319,12 +236,16 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
 
   const turns = turnsQ.data ?? [];
 
+  // Jump the virtual list to a seq (Insight jump / live stepper). Off-screen rows
+  // aren't in the DOM, so we resolve the seq to an index in the active list and
+  // let Virtuoso scroll to it, then flash it once it's mounted.
   function scrollToSeq(seq: number): void {
-    const el = feedRef.current?.querySelector(`[data-seq="${seq}"]`);
-    if (el === null || el === undefined) return;
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    el.classList.add('ev-flash');
-    window.setTimeout(() => el.classList.remove('ev-flash'), 1400);
+    const list = mode === 'insight' ? insightData : liveData;
+    const index = list.findIndex((ev) => ev.seq === seq);
+    if (index < 0) return;
+    virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+    setFlashSeq(seq);
+    window.setTimeout(() => setFlashSeq((s) => (s === seq ? null : s)), 1400);
   }
 
   function step(delta: number): void {
@@ -420,12 +341,26 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
               </span>
             )}
           </div>
-          <div className="feed" ref={feedRef} onScroll={onFeedScroll}>
-            <div className="feed-content" ref={feedContentRef} style={{ opacity: feedReady ? 1 : 0 }}>
-              {shown.map(renderCard)}
-              {shown.length === 0 && <div className="region-pad muted">{lens === 'all' ? t('tx.noEvents') : t('tx.noMatches')}</div>}
-            </div>
-          </div>
+          {loaded ? (
+            <Virtuoso
+              key={agentId}
+              ref={virtuosoRef}
+              className="feed-virt"
+              data={liveData}
+              computeItemKey={(_i, ev) => ev.id}
+              initialTopMostItemIndex={Math.max(0, liveData.length - 1)}
+              alignToBottom
+              followOutput={(atBottom) => (atBottom ? 'auto' : false)}
+              itemContent={(_i, ev) => feedItem(ev)}
+              components={{
+                EmptyPlaceholder: () => (
+                  <div className="region-pad muted">{lens === 'all' ? t('tx.noEvents') : t('tx.noMatches')}</div>
+                ),
+              }}
+            />
+          ) : (
+            <div className="feed muted region-pad">{t('common.loading')}</div>
+          )}
           <Composer onSend={send} />
         </>
       )}
@@ -503,10 +438,14 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
             </div>
             )}
           </div>
-          <div className="feed insight-feed" ref={feedRef}>
-            {feed.map(renderCard)}
-            {feed.length === 0 && <div className="region-pad muted">{t('tx.noEvents')}</div>}
-          </div>
+          <Virtuoso
+            ref={virtuosoRef}
+            className="feed-virt insight-feed"
+            data={insightData}
+            computeItemKey={(_i, ev) => ev.id}
+            itemContent={(_i, ev) => feedItem(ev)}
+            components={{ EmptyPlaceholder: () => <div className="region-pad muted">{t('tx.noEvents')}</div> }}
+          />
         </div>
       )}
 

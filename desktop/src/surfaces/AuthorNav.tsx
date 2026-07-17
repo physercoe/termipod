@@ -6,6 +6,7 @@ import { isTauri } from '../platform';
 import { fileToBody, kindForFile, useDocuments } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
 import { writeDocToWorkspace } from '../state/workspaceFiles';
+import { useSyncJob } from '../state/syncJob';
 import { WorkspaceSyncModal } from './WorkspaceSyncModal';
 
 const DRAG_TYPE = 'application/x-termipod-doc';
@@ -54,6 +55,7 @@ export function AuthorNav(): JSX.Element {
   const setFolder = useWorkspace((s) => s.setFolder);
   const touch = useWorkspace((s) => s.touch);
   const rev = useWorkspace((s) => s.rev);
+  const syncRunning = useSyncJob((s) => s.running);
   const [nodes, setNodes] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -216,8 +218,12 @@ export function AuthorNav(): JSX.Element {
             </button>
           )}
           {tauri && folder !== null && (
-            <button className="author-nav-icon" title={t('author.navSync')} onClick={() => setShowSync(true)}>
-              <Icon name="cloud" size={15} />
+            <button
+              className={`author-nav-icon${syncRunning ? ' syncing' : ''}`}
+              title={syncRunning ? t('author.syncInProgress') : t('author.navSync')}
+              onClick={() => setShowSync(true)}
+            >
+              <Icon name={syncRunning ? 'refresh' : 'cloud'} size={15} />
             </button>
           )}
           {tauri && (
@@ -245,13 +251,7 @@ export function AuthorNav(): JSX.Element {
         ))}
       </div>
 
-      {showSync && (
-        <WorkspaceSyncModal
-          root={folder}
-          onClose={() => setShowSync(false)}
-          onSynced={() => void refresh(folder)}
-        />
-      )}
+      {showSync && <WorkspaceSyncModal root={folder} onClose={() => setShowSync(false)} />}
 
       {menu !== null &&
         (() => {

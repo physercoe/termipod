@@ -12,40 +12,38 @@ import {
   saveWorkspaceSyncConfig,
   setS3Secret,
   setWorkspaceSyncPassword,
-  syncWorkspace,
   verifyS3Sync,
   verifyWorkspaceSync,
-  type FolderSyncReport,
   type S3Config,
   type SyncBackend,
 } from '../state/workspaceSync';
+import { useSyncJob } from '../state/syncJob';
 
 /// Sync config + actions for the Author **workspace** folder (Obsidian-vault
 /// style). A modal (WebView2 blocks `window.prompt`). Pick a backend (WebDAV or
 /// S3), configure it, Verify, then Sync — a two-way, never-delete tree mirror in
 /// the Rust core (`foldersync.rs` / `s3.rs`). `root` is the open workspace folder;
-/// sync is disabled until one is set. On a run that pulls files down, `onSynced`
-/// lets the caller refresh the file tree.
+/// sync is disabled until one is set. The actual transfer runs as a **background
+/// job** (`useSyncJob`), so this dialog can be closed while a large vault syncs;
+/// the file tree refreshes on completion via the workspace store.
 
 type Status =
   | { t: 'idle' }
   | { t: 'busy'; msg: string }
   | { t: 'ok'; msg: string }
-  | { t: 'err'; msg: string }
-  | { t: 'report'; report: FolderSyncReport };
+  | { t: 'err'; msg: string };
 
 const EMPTY_S3: S3Config = { endpoint: '', region: '', bucket: '', prefix: '', accessKeyId: '' };
 
 export function WorkspaceSyncModal({
   root,
   onClose,
-  onSynced,
 }: {
   root: string | null;
   onClose: () => void;
-  onSynced?: () => void;
 }): JSX.Element {
   const t = useT();
+  const job = useSyncJob();
   const [backend, setBackend] = useState<SyncBackend>('webdav');
   const [url, setUrl] = useState('');
   const [user, setUser] = useState('');
@@ -98,14 +96,14 @@ export function WorkspaceSyncModal({
     }
   }
 
+  // Kick the sync as a BACKGROUND job and return immediately — the dialog can be
+  // closed and the user can keep working while a large vault transfers.
   async function onSync(): Promise<void> {
     if (root === null) return;
-    setStatus({ t: 'busy', msg: t('author.syncSyncing') });
     try {
       await persist();
-      const report = await syncWorkspace(root);
-      setStatus({ t: 'report', report });
-      if (report.downloaded > 0) onSynced?.();
+      setStatus({ t: 'idle' });
+      useSyncJob.getState().start(root);
     } catch (e) {
       setStatus({ t: 'err', msg: e instanceof Error ? e.message : String(e) });
     }
@@ -114,7 +112,7 @@ export function WorkspaceSyncModal({
   const busy = status.t === 'busy';
   const configured = backend === 's3' ? s3.bucket.trim() !== '' : url.trim() !== '';
   const canAct = configured && !busy;
-  const canSync = canAct && root !== null;
+  const canSync = canAct && root !== null && !job.running;
 
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
@@ -198,22 +196,26 @@ export function WorkspaceSyncModal({
         {status.t === 'busy' && <div className="webdav-status busy">{status.msg}</div>}
         {status.t === 'ok' && <div className="webdav-status ok">{status.msg}</div>}
         {status.t === 'err' && <div className="webdav-status err">{status.msg}</div>}
-        {status.t === 'report' && (
+
+        {/* Background sync job state (survives closing this dialog). */}
+        {job.running && <div className="webdav-status busy">{t('author.syncBackground')}</div>}
+        {!job.running && job.error !== null && <div className="webdav-status err">{job.error}</div>}
+        {!job.running && job.report !== null && (
           <div className="webdav-status ok webdav-report">
             <div>
               {t('read.webdavDone')
-                .replace('{up}', String(status.report.uploaded))
-                .replace('{down}', String(status.report.downloaded))
-                .replace('{skip}', String(status.report.skipped))}
+                .replace('{up}', String(job.report.uploaded))
+                .replace('{down}', String(job.report.downloaded))
+                .replace('{skip}', String(job.report.skipped))}
             </div>
-            {status.report.conflicts > 0 && (
+            {job.report.conflicts > 0 && (
               <div className="webdav-warn">
-                {t('read.webdavConflicts').replace('{n}', String(status.report.conflicts))}
+                {t('read.webdavConflicts').replace('{n}', String(job.report.conflicts))}
               </div>
             )}
-            {status.report.errors.length > 0 && (
+            {job.report.errors.length > 0 && (
               <ul className="webdav-errs">
-                {status.report.errors.slice(0, 6).map((e, i) => (
+                {job.report.errors.slice(0, 6).map((e, i) => (
                   <li key={i}>{e}</li>
                 ))}
               </ul>
@@ -230,9 +232,10 @@ export function WorkspaceSyncModal({
           </button>
           <span className="spacer" />
           <button className="primary" disabled={!canSync} onClick={() => void onSync()}>
-            {t('read.webdavSync')}
+            {job.running ? t('author.syncSyncing') : t('read.webdavSync')}
           </button>
         </div>
+        {job.running && <p className="muted small webdav-hint">{t('author.syncBackgroundHint')}</p>}
       </div>
     </div>
   );

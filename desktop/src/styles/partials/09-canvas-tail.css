@@ -677,6 +677,18 @@
   background: var(--accent-tint);
   color: var(--text);
 }
+/* Background workspace-sync in progress — the cloud/refresh glyph spins. */
+.author-nav-icon.syncing {
+  color: var(--accent);
+}
+.author-nav-icon.syncing .ui-icon {
+  animation: author-sync-spin 1s linear infinite;
+}
+@keyframes author-sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .author-nav-empty {
   padding: 2px 6px;
 }

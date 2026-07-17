@@ -12,6 +12,7 @@ import {
   type DocKind,
 } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
+import { NEW_BASE, uniqueWorkspacePath } from '../state/workspaceFiles';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { docKindIcon, Icon, type IconName } from '../ui/Icon';
 import { AuthorNav } from './AuthorNav';
@@ -58,34 +59,6 @@ function baseName(path: string): string {
 
 function extOf(path: string): string {
   return path.split('.').pop()?.toLowerCase() ?? '';
-}
-
-// Base filename for a new document of each kind, when materialized into a
-// workspace folder (`document.md`, `diagram.drawio`, …).
-const NEW_BASE: Record<DocKind, string> = {
-  markdown: 'document',
-  diagram: 'diagram',
-  canvas: 'canvas',
-  table: 'table',
-};
-
-/// A collision-free path for a new document at the workspace root. Lists the
-/// folder (best-effort) and walks `base`, `base-1`, … until a free name, so a
-/// second "New diagram" doesn't overwrite the first.
-async function uniqueWorkspacePath(dir: string, kind: DocKind, ext: string): Promise<string> {
-  const sep = dir.includes('\\') ? '\\' : '/';
-  let taken = new Set<string>();
-  try {
-    const nodes = await invoke<{ name: string }[]>('workspace_list', { path: dir });
-    taken = new Set(nodes.map((n) => n.name.toLowerCase()));
-  } catch {
-    /* best-effort; the unique walk still avoids clobbering what we can see */
-  }
-  const base = NEW_BASE[kind];
-  for (let i = 0; ; i += 1) {
-    const name = `${base}${i === 0 ? '' : `-${i}`}.${ext}`;
-    if (!taken.has(name.toLowerCase())) return `${dir}${sep}${name}`;
-  }
 }
 
 type ViewMode = 'wysiwyg' | 'edit' | 'split' | 'read';
@@ -274,7 +247,7 @@ export function AuthorSurface(): JSX.Element {
     try {
       const ext = extForKind(kind);
       const body = seedBody(kind);
-      const path = await uniqueWorkspacePath(folder, kind, ext);
+      const path = await uniqueWorkspacePath(folder, NEW_BASE[kind], ext);
       await invoke('doc_write', { path, content: bodyToFile(kind, body, ext, t('table.colName')) });
       create(kind, { title: baseName(path), body, filePath: path });
       touchWs();
@@ -420,10 +393,12 @@ export function AuthorSurface(): JSX.Element {
           ) : (
             <Editor key={active.id} doc={active} />
           )}
-          {/* Agent-assist inserts prose into the body — only meaningful for a
-              markdown doc; a diagram/canvas/table body is structured
-              (XML/JSON) and would be corrupted by an append. */}
-          {showAgent && active.kind === 'markdown' && (
+          {/* The agent panel is available for every document kind. Its
+              "insert reply" affordance appends prose to the body, so it's wired
+              only for markdown — a diagram/canvas/table body is structured
+              (XML/JSON) and would be corrupted by an append; for those the panel
+              is read/assist-only. */}
+          {showAgent && (
             <>
               <ResizeHandle
                 onResize={(dx) =>
@@ -444,10 +419,19 @@ export function AuthorSurface(): JSX.Element {
                   context={{
                     label: active.title !== '' ? active.title : t('author.untitled'),
                     build: () =>
-                      `I'm writing a document titled "${active.title}". Current draft:\n\n${active.body}`,
+                      active.kind === 'markdown'
+                        ? `I'm writing a document titled "${active.title}". Current draft:\n\n${active.body}`
+                        : `I'm editing a ${active.kind} document titled "${active.title}"${
+                            active.filePath !== undefined ? ` (file: ${active.filePath})` : ''
+                          }.`,
                   }}
-                  onInsert={(text) =>
-                    update(active.id, { body: active.body.trimEnd() === '' ? text : `${active.body.trimEnd()}\n\n${text}` })
+                  onInsert={
+                    active.kind === 'markdown'
+                      ? (text) =>
+                          update(active.id, {
+                            body: active.body.trimEnd() === '' ? text : `${active.body.trimEnd()}\n\n${text}`,
+                          })
+                      : undefined
                   }
                 />
               </div>

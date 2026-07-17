@@ -1,9 +1,16 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { VoiceSession } from '../voice/session';
 import { checkAddable, classify, compose, stage, type Pending } from './attach';
+
+/// A `@`-mention candidate (a workspace file). `label` is shown + inserted as
+/// `@label`; the consumer resolves the pick (e.g. reads the file as context).
+export interface MentionItem {
+  label: string;
+  value: string;
+}
 
 function humanSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
@@ -16,8 +23,12 @@ function humanSize(bytes: number): string {
 /// files (inlined as fenced blocks), clamped to the hub caps client-side.
 export function Composer({
   onSend,
+  mention,
 }: {
   onSend: (body: string, att: InputAttachments) => Promise<void>;
+  /// When set, typing `@` opens a file picker over `items`; a pick inserts
+  /// `@value` and calls `onPick` (the consumer attaches the file as context).
+  mention?: { items: MentionItem[]; onPick: (item: MentionItem) => void };
 }): JSX.Element {
   const t = useT();
   const [draft, setDraft] = useState('');
@@ -25,9 +36,56 @@ export function Composer({
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [atOpen, setAtOpen] = useState(false);
+  const [atQuery, setAtQuery] = useState('');
+  const [atIdx, setAtIdx] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLInputElement>(null);
   const voiceRef = useRef<VoiceSession | null>(null);
   const draftBaseRef = useRef('');
+
+  // The active `@query` immediately before the caret, if any (start-of-input or
+  // after whitespace, no spaces in the token).
+  const AT_RE = /(^|\s)@([^\s@]*)$/;
+  const atMatches = useMemo(() => {
+    if (mention === undefined || !atOpen) return [];
+    const q = atQuery.toLowerCase();
+    return mention.items.filter((it) => it.label.toLowerCase().includes(q)).slice(0, 8);
+  }, [mention, atOpen, atQuery]);
+
+  function onDraftChange(value: string, caret: number): void {
+    setDraft(value);
+    if (mention === undefined) return;
+    const m = AT_RE.exec(value.slice(0, caret));
+    if (m !== null) {
+      setAtOpen(true);
+      setAtQuery(m[2]);
+      setAtIdx(0);
+    } else {
+      setAtOpen(false);
+    }
+  }
+
+  function pickMention(it: MentionItem): void {
+    const el = textRef.current;
+    const caret = el?.selectionStart ?? draft.length;
+    const before = draft.slice(0, caret);
+    const after = draft.slice(caret);
+    const m = AT_RE.exec(before);
+    if (m === null) return;
+    const start = m.index + m[1].length; // the '@'
+    const insert = `@${it.value} `;
+    setDraft(before.slice(0, start) + insert + after);
+    setAtOpen(false);
+    mention?.onPick(it);
+    const pos = start + insert.length;
+    requestAnimationFrame(() => {
+      if (el !== null) {
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      }
+    });
+  }
 
   async function toggleVoice(): Promise<void> {
     if (recording) {
@@ -141,11 +199,51 @@ export function Composer({
             {recording ? '■' : '🎤'}
           </button>
         )}
+        {atOpen && atMatches.length > 0 && (
+          <div className="mention-pop">
+            {atMatches.map((it, i) => (
+              <button
+                key={it.value}
+                className={i === atIdx ? 'mention-item active' : 'mention-item'}
+                // mousedown (not click) so the pick lands before the input blurs.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pickMention(it);
+                }}
+              >
+                {it.label}
+              </button>
+            ))}
+          </div>
+        )}
         <input
+          ref={textRef}
           value={draft}
           placeholder={t('tx.sendPlaceholder')}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => onDraftChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
           onKeyDown={(e) => {
+            if (atOpen && atMatches.length > 0) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setAtIdx((n) => Math.min(atMatches.length - 1, n + 1));
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setAtIdx((n) => Math.max(0, n - 1));
+                return;
+              }
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                pickMention(atMatches[atIdx]);
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setAtOpen(false);
+                return;
+              }
+            }
             if (e.key === 'Enter') {
               e.preventDefault();
               void send();

@@ -6,10 +6,15 @@ import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { useSession } from '../state/session';
 import { useAgents } from '../hub/queries';
+import { useWorkspace } from '../state/workspace';
+import { listWorkspaceFiles, readWorkspaceFile, type WorkspaceFile } from '../state/workspaceFiles';
 import { Composer } from './Composer';
 import { callToolId, EventCard, toFeedEvent } from './EventCard';
 import { isHiddenInFeed } from './feedLens';
 import { LocalCompanion } from './LocalCompanion';
+
+// Cap per-mention file text so a large file can't blow the message context.
+const MENTION_MAX = 100_000;
 
 /// The **AgentCompanion** — a hub-attached assistant panel that mounts alongside a
 /// surface (Read J1, Author J2). It reuses the hub SDK's agent stream + the shared
@@ -57,6 +62,28 @@ export function AgentCompanion({
   const [error, setError] = useState<string | null>(null);
   const [useContext, setUseContext] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // `@`-mention support: the workspace files (candidates) + the files the user has
+  // mentioned for the next message (attached as context on send).
+  const folder = useWorkspace((s) => s.folder);
+  const [wsFiles, setWsFiles] = useState<WorkspaceFile[]>([]);
+  const [mentioned, setMentioned] = useState<WorkspaceFile[]>([]);
+  useEffect(() => {
+    if (folder === null || !isTauri()) {
+      setWsFiles([]);
+      return;
+    }
+    let cancelled = false;
+    void listWorkspaceFiles(folder).then((fs) => {
+      if (!cancelled) setWsFiles(fs);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [folder]);
+  function addMention(rel: string): void {
+    const f = wsFiles.find((x) => x.rel === rel);
+    if (f !== undefined) setMentioned((m) => (m.some((x) => x.rel === rel) ? m : [...m, f]));
+  }
 
   // Auto-select the first running agent when connected and none is chosen.
   useEffect(() => {
@@ -171,11 +198,25 @@ export function AgentCompanion({
   async function send(body: string, att: InputAttachments): Promise<void> {
     if (client === null || agentId === '') throw new Error(t('companion.noAgent'));
     let full = body;
+    // Resolve @-mentioned workspace files into fenced context blocks.
+    if (mentioned.length > 0) {
+      const blocks: string[] = [];
+      for (const f of mentioned) {
+        try {
+          const text = await readWorkspaceFile(f.path);
+          blocks.push(`File \`${f.rel}\`:\n\n\`\`\`\n${text.slice(0, MENTION_MAX)}\n\`\`\``);
+        } catch {
+          /* skip an unreadable mention */
+        }
+      }
+      if (blocks.length > 0) full = `${blocks.join('\n\n')}\n\n---\n\n${full}`;
+    }
     if (useContext && context !== undefined) {
       const ctx = context.build().trim();
-      if (ctx !== '') full = `${ctx}\n\n---\n\n${body}`;
+      if (ctx !== '') full = `${ctx}\n\n---\n\n${full}`;
     }
     await client.postAgentInput(agentId, full, att);
+    setMentioned([]);
   }
 
   const head = (
@@ -208,12 +249,13 @@ export function AgentCompanion({
     </div>
   );
 
-  // Local agent runs on this machine — no hub client needed.
+  // Local agent runs on this machine as an interactive terminal — no hub client
+  // and no context/insert plumbing (its CLI owns input + file access directly).
   if (source === 'local') {
     return (
       <div className="companion">
         {head}
-        <LocalCompanion context={context} onInsert={onInsert} />
+        <LocalCompanion />
       </div>
     );
   }
@@ -259,7 +301,30 @@ export function AgentCompanion({
           </span>
         </label>
       )}
-      <Composer onSend={send} />
+      {mentioned.length > 0 && (
+        <div className="companion-mentions">
+          {mentioned.map((f) => (
+            <span key={f.rel} className="att-chip k-file" title={f.path}>
+              <span className="att-name">@{f.rel}</span>
+              <button
+                className="att-x"
+                aria-label="remove"
+                onClick={() => setMentioned((m) => m.filter((x) => x.rel !== f.rel))}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <Composer
+        onSend={send}
+        mention={
+          folder !== null && wsFiles.length > 0
+            ? { items: wsFiles.map((f) => ({ label: f.rel, value: f.rel })), onPick: (it) => addMention(it.value) }
+            : undefined
+        }
+      />
     </div>
   );
 }

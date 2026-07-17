@@ -5,7 +5,10 @@ import { docKindIcon, Icon } from '../ui/Icon';
 import { isTauri } from '../platform';
 import { fileToBody, kindForFile, useDocuments } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
+import { writeDocToWorkspace } from '../state/workspaceFiles';
 import { WorkspaceSyncModal } from './WorkspaceSyncModal';
+
+const DRAG_TYPE = 'application/x-termipod-doc';
 
 /// The Author (J2) left nav: a file/workspace tree. Two sections — the currently
 /// **open documents** (click to focus) and an on-disk **workspace folder** the
@@ -44,14 +47,36 @@ export function AuthorNav(): JSX.Element {
   const activeId = useDocuments((s) => s.activeId);
   const setActive = useDocuments((s) => s.setActive);
   const create = useDocuments((s) => s.create);
+  const remove = useDocuments((s) => s.remove);
+  const update = useDocuments((s) => s.update);
+  const markSaved = useDocuments((s) => s.markSaved);
   const folder = useWorkspace((s) => s.folder);
   const setFolder = useWorkspace((s) => s.setFolder);
+  const touch = useWorkspace((s) => s.touch);
   const rev = useWorkspace((s) => s.rev);
   const [nodes, setNodes] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showSync, setShowSync] = useState(false);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const [dropActive, setDropActive] = useState(false);
   const tauri = isTauri();
+
+  // Materialize an in-memory draft into the workspace folder (drag-to-folder or
+  // the "Save to workspace" menu item), then link it so Save round-trips to disk.
+  async function saveDraftToWorkspace(id: string): Promise<void> {
+    if (folder === null) return;
+    const d = docs.find((x) => x.id === id);
+    if (d === undefined || d.filePath !== undefined) return;
+    try {
+      const path = await writeDocToWorkspace(folder, d);
+      markSaved(id, path, baseName(path));
+      touch();
+    } catch {
+      /* permissions / race — leave the draft in memory */
+    }
+  }
 
   const refresh = useCallback(
     async (f: string | null): Promise<void> => {
@@ -111,23 +136,77 @@ export function AuthorNav(): JSX.Element {
       <div className="author-nav-sec">
         <div className="author-nav-head">{t('author.navOpen')}</div>
         {docs.length === 0 && <div className="muted small author-nav-empty">{t('author.navNoOpen')}</div>}
-        {docs.map((d) => (
-          <button
-            key={d.id}
-            className={`author-nav-doc${activeId === d.id ? ' active' : ''}`}
-            title={d.filePath ?? d.title}
-            onClick={() => setActive(d.id)}
-          >
-            <Icon name={docKindIcon(d.kind)} size={14} className="author-nav-kind" />
-            <span className="author-nav-name">
-              {d.dirty === true ? '● ' : ''}
-              {d.title !== '' ? d.title : t('author.untitled')}
-            </span>
-          </button>
-        ))}
+        {docs.map((d) => {
+          const draft = d.filePath === undefined;
+          if (renaming !== null && renaming.id === d.id) {
+            return (
+              <input
+                key={d.id}
+                className="author-nav-rename"
+                autoFocus
+                value={renaming.value}
+                onChange={(e) => setRenaming({ id: d.id, value: e.target.value })}
+                onBlur={() => {
+                  if (renaming.value.trim() !== '') update(d.id, { title: renaming.value.trim() });
+                  setRenaming(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') setRenaming(null);
+                }}
+              />
+            );
+          }
+          return (
+            <button
+              key={d.id}
+              className={`author-nav-doc${activeId === d.id ? ' active' : ''}${draft ? ' draft' : ''}`}
+              title={draft ? t('author.navDraftHint') : d.filePath}
+              draggable={draft}
+              onDragStart={(e) => {
+                e.dataTransfer.setData(DRAG_TYPE, d.id);
+                e.dataTransfer.effectAllowed = 'copy';
+              }}
+              onClick={() => setActive(d.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ id: d.id, x: e.clientX, y: e.clientY });
+              }}
+            >
+              <Icon name={docKindIcon(d.kind)} size={14} className="author-nav-kind" />
+              <span className="author-nav-name">
+                {d.dirty === true ? '● ' : ''}
+                {d.title !== '' ? d.title : t('author.untitled')}
+              </span>
+              {draft && <span className="author-nav-badge muted" title={t('author.navDraftHint')}>{t('author.navDraft')}</span>}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="author-nav-sec grow">
+      <div
+        className={`author-nav-sec grow${dropActive ? ' drop-active' : ''}`}
+        onDragOver={(e) => {
+          // Only a draft drag (our type) is a valid drop; folder must be open.
+          if (folder !== null && Array.from(e.dataTransfer.types).includes(DRAG_TYPE)) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            setDropActive(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          // Ignore leaves into descendant elements (relatedTarget still inside).
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropActive(false);
+        }}
+        onDrop={(e) => {
+          const id = e.dataTransfer.getData(DRAG_TYPE);
+          setDropActive(false);
+          if (id !== '') {
+            e.preventDefault();
+            void saveDraftToWorkspace(id);
+          }
+        }}
+      >
         <div className="author-nav-head">
           {t('author.navFiles')}
           <span className="spacer" />
@@ -173,6 +252,46 @@ export function AuthorNav(): JSX.Element {
           onSynced={() => void refresh(folder)}
         />
       )}
+
+      {menu !== null &&
+        (() => {
+          const d = docs.find((x) => x.id === menu.id);
+          if (d === undefined) return null;
+          const draft = d.filePath === undefined;
+          return (
+            <>
+              <div className="context-backdrop" onMouseDown={() => setMenu(null)} onContextMenu={(e) => e.preventDefault()} />
+              <div className="context-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
+                {draft && folder !== null && (
+                  <button
+                    onClick={() => {
+                      void saveDraftToWorkspace(menu.id);
+                      setMenu(null);
+                    }}
+                  >
+                    {t('author.navSaveToWorkspace')}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setRenaming({ id: menu.id, value: d.title });
+                    setMenu(null);
+                  }}
+                >
+                  {t('author.navRename')}
+                </button>
+                <button
+                  onClick={() => {
+                    remove(menu.id);
+                    setMenu(null);
+                  }}
+                >
+                  {t('author.navClose')}
+                </button>
+              </div>
+            </>
+          );
+        })()}
     </div>
   );
 }

@@ -356,10 +356,51 @@
   background: linear-gradient(180deg, var(--bg), var(--canvas));
 }
 .composer {
+  position: relative;
   display: flex;
   gap: var(--spacing-s8);
   padding: var(--spacing-s12);
   align-items: center;
+}
+/* `@`-mention file picker: floats above the composer input. */
+.mention-pop {
+  position: absolute;
+  left: var(--spacing-s12);
+  right: var(--spacing-s12);
+  bottom: calc(100% - var(--spacing-s8));
+  z-index: 20;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--sh-3);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.mention-item {
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mention-item.active,
+.mention-item:hover {
+  background: var(--accent-tint);
+}
+.companion-mentions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s12) 0;
 }
 .composer input[type='text'],
 .composer input:not([type]) {

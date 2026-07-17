@@ -1,45 +1,39 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import type { InputAttachments } from '../hub/client';
+import { useEffect, useRef, useState } from 'react';
+import { FitAddon } from '@xterm/addon-fit';
+import { Terminal as XTerm } from '@xterm/xterm';
+import '@xterm/xterm/css/xterm.css';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import { useT } from '../i18n';
+import { Icon } from './Icon';
+import { isTauri } from '../platform';
 import { useWorkspace } from '../state/workspace';
-import { Composer } from './Composer';
-import type { CompanionContext } from './AgentCompanion';
+import { onPtyData, onPtyExit, ptyClose, ptyOpen, ptyResize, ptyStart, ptyWrite } from '../terminal/pty';
 
-/// The **local** half of the AgentCompanion: the assistant drives an engine CLI
-/// running on THIS machine (via the Rust `local_agent_run` command) instead of a
-/// hub agent on another host. One-shot, non-interactive "print" mode — the user's
-/// message (with the surface context prepended) is sent as a single prompt and the
-/// stdout comes back as one reply. The command is configurable (default
-/// `claude -p`); it runs in the Author workspace folder when one is open, so the
-/// local agent sees the files being edited.
-
-interface Msg {
-  role: 'user' | 'agent' | 'err';
-  text: string;
-}
+/// The **local** half of the AgentCompanion: an interactive terminal running an
+/// engine CLI (default `claude`) on THIS machine, in a real PTY, with cwd = the
+/// open Author workspace folder — so the local agent is a full interactive session
+/// (edit, approve, @-mention files in its own TUI), not the former one-shot
+/// print-mode call. Desktop-only; reuses the `pty.rs` bridge (ptyOpen documents
+/// this exact "local agent CLI" use). Editing the command doesn't relaunch until
+/// Restart, so a running agent isn't killed by a stray keystroke.
 
 const CMD_KEY = 'termipod.localAgent.cmd';
 
-export function LocalCompanion({
-  context,
-  onInsert,
-}: {
-  context?: CompanionContext;
-  onInsert?: (text: string) => void;
-}): JSX.Element {
+export function LocalCompanion(): JSX.Element {
   const t = useT();
   const folder = useWorkspace((s) => s.folder);
-  const [cmd, setCmd] = useState(() => localStorage.getItem(CMD_KEY) ?? 'claude -p');
+  const [cmd, setCmd] = useState(() => localStorage.getItem(CMD_KEY) ?? 'claude');
   const [editCmd, setEditCmd] = useState(false);
-  const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [useContext, setUseContext] = useState(true);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [msgs, busy]);
+  const [runNonce, setRunNonce] = useState(0);
+  const [exited, setExited] = useState(false);
+  const hostRef = useRef<HTMLDivElement>(null);
+  // Current cmd/cwd are read at launch time (not baked into the effect deps) so
+  // editing the command box doesn't tear down a live agent — only Restart does.
+  const cmdRef = useRef(cmd);
+  cmdRef.current = cmd;
+  const folderRef = useRef(folder);
+  folderRef.current = folder;
+  const mountedRef = useRef(false);
 
   function saveCmd(v: string): void {
     setCmd(v);
@@ -50,38 +44,99 @@ export function LocalCompanion({
     }
   }
 
-  const lastReply = useMemo(() => {
-    for (let i = msgs.length - 1; i >= 0; i -= 1) if (msgs[i].role === 'agent') return msgs[i].text;
-    return undefined;
-  }, [msgs]);
+  // Relaunch when the workspace folder changes (the agent's cwd is stale
+  // otherwise) or on an explicit Restart. Skip the initial folder value — the
+  // launch effect below already spawns once for it, so bumping here too would
+  // double-spawn on mount.
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    setRunNonce((n) => n + 1);
+  }, [folder]);
 
-  async function send(body: string, _att: InputAttachments): Promise<void> {
-    const parts = cmd.trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) throw new Error(t('companion.localNoCmd'));
-    let prompt = body;
-    if (useContext && context !== undefined) {
-      const ctx = context.build().trim();
-      if (ctx !== '') prompt = `${ctx}\n\n---\n\n${body}`;
-    }
-    setMsgs((m) => [...m, { role: 'user', text: body }]);
-    setBusy(true);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (host === null || !isTauri()) return;
+    setExited(false);
+    const term = new XTerm({
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+      fontSize: 12,
+      cursorBlink: true,
+      convertEol: false,
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(host);
     try {
-      const reply = await invoke<string>('local_agent_run', {
-        program: parts[0],
-        args: parts.slice(1),
-        prompt,
-        cwd: folder,
-      });
-      setMsgs((m) => [...m, { role: 'agent', text: reply !== '' ? reply : t('companion.localEmpty') }]);
-    } catch (e) {
-      setMsgs((m) => [...m, { role: 'err', text: e instanceof Error ? e.message : String(e) }]);
-    } finally {
-      setBusy(false);
+      fit.fit();
+    } catch {
+      /* host not laid out yet — the ResizeObserver will fit shortly */
     }
+
+    let sessionId = '';
+    let disposed = false;
+    let unlistenData: UnlistenFn | null = null;
+    let unlistenExit: UnlistenFn | null = null;
+    const dataDisp = term.onData((d) => {
+      if (sessionId !== '') void ptyWrite(sessionId, d);
+    });
+
+    void (async () => {
+      const parts = cmdRef.current.trim().split(/\s+/).filter(Boolean);
+      try {
+        // Open BEFORE start, and attach listeners before start, so the first
+        // output can't race ahead of the subscriber (the black-terminal bug).
+        const opened = await ptyOpen({
+          shell: parts[0],
+          args: parts.slice(1),
+          cwd: folderRef.current ?? undefined,
+          cols: term.cols,
+          rows: term.rows,
+        });
+        if (disposed) {
+          void ptyClose(opened.id);
+          return;
+        }
+        sessionId = opened.id;
+        unlistenData = await onPtyData(opened.id, (bytes) => term.write(bytes));
+        unlistenExit = await onPtyExit(opened.id, () => {
+          if (!disposed) setExited(true);
+        });
+        await ptyStart(opened.id);
+      } catch (e) {
+        if (!disposed) term.write(`\r\n\x1b[31m${e instanceof Error ? e.message : String(e)}\x1b[0m\r\n`);
+      }
+    })();
+
+    const ro = new ResizeObserver(() => {
+      try {
+        fit.fit();
+      } catch {
+        /* ignore */
+      }
+      if (sessionId !== '') void ptyResize(sessionId, term.cols, term.rows);
+    });
+    ro.observe(host);
+
+    return () => {
+      disposed = true;
+      ro.disconnect();
+      dataDisp.dispose();
+      unlistenData?.();
+      unlistenExit?.();
+      if (sessionId !== '') void ptyClose(sessionId);
+      term.dispose();
+    };
+  }, [runNonce]);
+
+  if (!isTauri()) {
+    return <div className="companion-empty muted">{t('companion.localDesktopOnly')}</div>;
   }
 
   return (
-    <>
+    <div className="companion-term-wrap">
       <div className="companion-local-cmd">
         {editCmd ? (
           <input
@@ -89,10 +144,14 @@ export function LocalCompanion({
             value={cmd}
             autoFocus
             spellCheck={false}
+            placeholder="claude"
             onChange={(e) => saveCmd(e.target.value)}
             onBlur={() => setEditCmd(false)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') setEditCmd(false);
+              if (e.key === 'Enter') {
+                setEditCmd(false);
+                setRunNonce((n) => n + 1);
+              }
             }}
           />
         ) : (
@@ -101,31 +160,25 @@ export function LocalCompanion({
             {folder !== null && <span className="muted"> · {folder}</span>}
           </button>
         )}
-      </div>
-      <div className="companion-feed scroll">
-        {msgs.length === 0 && <div className="companion-empty muted">{t('companion.localIntro')}</div>}
-        {msgs.map((m, i) => (
-          <div key={i} className={`companion-msg ${m.role}`}>
-            {m.text}
-          </div>
-        ))}
-        {busy && <div className="companion-msg agent muted">{t('companion.localRunning')}</div>}
-        <div ref={bottomRef} />
-      </div>
-      {onInsert !== undefined && lastReply !== undefined && (
-        <button className="companion-insert link-btn" onClick={() => onInsert(lastReply)}>
-          {t('companion.insertReply')} ↧
+        <span className="spacer" />
+        <button
+          className="companion-term-restart"
+          title={t('companion.localRestart')}
+          onClick={() => setRunNonce((n) => n + 1)}
+        >
+          <Icon name="refresh" size={14} />
         </button>
+      </div>
+      {folder === null && <div className="companion-term-hint muted small">{t('companion.localNoFolder')}</div>}
+      <div className="companion-term" ref={hostRef} />
+      {exited && (
+        <div className="companion-term-exit muted small">
+          {t('companion.localExited')}
+          <button className="link-btn" onClick={() => setRunNonce((n) => n + 1)}>
+            {t('companion.localRestart')}
+          </button>
+        </div>
       )}
-      {context !== undefined && (
-        <label className="companion-ctx">
-          <input type="checkbox" checked={useContext} onChange={(e) => setUseContext(e.target.checked)} />
-          <span className="companion-ctx-label" title={context.label}>
-            {t('companion.withContext').replace('{ctx}', context.label)}
-          </span>
-        </label>
-      )}
-      <Composer onSend={send} />
-    </>
+    </div>
   );
 }

@@ -215,32 +215,46 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const insightData = useMemo(() => feed.filter((ev) => !isFolded(ev)), [feed, callIds]);
   const matchSeqs = useMemo(() => liveData.map((ev) => ev.seq), [liveData]);
 
-  // Land on the last message on (re)mount. `initialTopMostItemIndex` is a
-  // one-shot Virtuoso reads at mount, but a tab switch remounts this into a flex
-  // container whose height — and each card's height, as markdown/KaTeX/images
-  // hydrate — settles a frame or two LATER, so that single positioning lands
-  // short of the bottom. Re-assert the end over a short settle window (reading the
-  // live length from a ref so late history/stream rows are included). Keyed on
-  // agent/load/mode only — NOT on liveData.length — so it fires on arrival at the
-  // feed but doesn't yank the view every time a streamed event appends (that's
-  // followOutput's job, and it already yields once the user scrolls up).
+  // Keep the live feed pinned to the last message while it settles. On a tab
+  // switch this view remounts and Virtuoso re-measures the whole log over many
+  // frames (markdown/KaTeX/images hydrating). As rows above the fold grow,
+  // Virtuoso holds the *topmost* visible row fixed, so the bottom drifts up and
+  // the last message leaves the viewport (director report: "the scrollbar creeps
+  // up"). A fixed re-pin window can't cover an arbitrarily long hydration, so we
+  // re-assert the end on EVERY measured height change (`totalListHeightChanged`)
+  // until the user takes control. `liveLenRef` feeds the current tail length in
+  // without making the pin logic a render dependency.
   const liveLenRef = useRef(0);
   liveLenRef.current = liveData.length;
+  const stickBottomRef = useRef(true);
+  // Re-arm the pin on (re)mount, agent change, or return to the live tab.
   useEffect(() => {
-    if (!loaded || mode !== 'live') return;
-    let cancelled = false;
-    const pin = (): void => {
-      const n = liveLenRef.current;
-      if (!cancelled && n > 0) virtuosoRef.current?.scrollToIndex({ index: n - 1, align: 'end' });
-    };
-    const raf = requestAnimationFrame(pin);
-    const timers = [80, 220, 480].map((d) => window.setTimeout(pin, d));
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(raf);
-      timers.forEach((id) => window.clearTimeout(id));
-    };
+    stickBottomRef.current = true;
   }, [agentId, loaded, mode]);
+  function pinBottom(): void {
+    const n = liveLenRef.current;
+    if (stickBottomRef.current && n > 0) {
+      virtuosoRef.current?.scrollToIndex({ index: n - 1, align: 'end' });
+    }
+  }
+  // A real scroll gesture releases the pin so we never fight the user mid-settle;
+  // returning to the bottom (`atBottomStateChange`) re-arms it. Listeners go on
+  // Virtuoso's own scroller element (via `scrollerRef`).
+  const [feedScroller, setFeedScroller] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (feedScroller === null) return;
+    const release = (): void => {
+      stickBottomRef.current = false;
+    };
+    feedScroller.addEventListener('wheel', release, { passive: true });
+    feedScroller.addEventListener('touchmove', release, { passive: true });
+    feedScroller.addEventListener('keydown', release);
+    return () => {
+      feedScroller.removeEventListener('wheel', release);
+      feedScroller.removeEventListener('touchmove', release);
+      feedScroller.removeEventListener('keydown', release);
+    };
+  }, [feedScroller]);
   // How many low-signal rows the verbose toggle would reveal (for its badge).
   const verboseHidden = useMemo(
     () => (verbose ? 0 : feed.filter((ev) => isHiddenInFeed(ev, false) && !isHiddenInFeed(ev, true)).length),
@@ -270,6 +284,9 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     const list = mode === 'insight' ? insightData : liveData;
     const index = list.findIndex((ev) => ev.seq === seq);
     if (index < 0) return;
+    // An explicit jump means "hold here" — release the bottom pin so a late
+    // height change doesn't yank the view back down off the target.
+    stickBottomRef.current = false;
     virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
     setFlashSeq(seq);
     window.setTimeout(() => setFlashSeq((s) => (s === seq ? null : s)), 1400);
@@ -374,10 +391,15 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
               ref={virtuosoRef}
               className="feed-virt"
               data={liveData}
+              scrollerRef={(el) => setFeedScroller(el instanceof HTMLElement ? el : null)}
               computeItemKey={(_i, ev) => ev.id}
               initialTopMostItemIndex={{ index: Math.max(0, liveData.length - 1), align: 'end' }}
               alignToBottom
               followOutput={(atBottom) => (atBottom ? 'auto' : false)}
+              atBottomStateChange={(atBottom) => {
+                if (atBottom) stickBottomRef.current = true;
+              }}
+              totalListHeightChanged={pinBottom}
               itemContent={(_i, ev) => feedItem(ev)}
               components={{
                 EmptyPlaceholder: () => (

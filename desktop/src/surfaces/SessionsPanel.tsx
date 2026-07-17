@@ -1,26 +1,37 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { arr, num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { useProjects } from '../hub/queries';
 import { RunReport } from '../ui/RunReport';
 import { AgentTranscript } from './AgentTranscript';
 
 const SESSION_FILTERS = ['all', 'active', 'paused', 'archived'] as const;
 type SessionFilter = (typeof SESSION_FILTERS)[number];
 
-/// Title precedence mirrors mobile `sessionDisplayTitle`: explicit title, then
-/// the hub's `session_name_hint`, then the id.
-function sessionTitle(s: Entity): string {
-  return str(s, 'title') ?? str(s, 'session_name_hint') ?? str(s, 'name') ?? str(s, 'id') ?? '—';
+/// The session's own name (mobile `sessionDisplayTitle`): explicit title, then
+/// the hub's `session_name_hint`. Null when unnamed — the row shows a localized
+/// "Untitled session" placeholder rather than the raw id (rename via right-click).
+function sessionName(s: Entity): string | null {
+  return str(s, 'title') ?? str(s, 'session_name_hint') ?? null;
 }
 
-/// A session is "live" (Active group) while active or paused; everything else
-/// (archived/deleted) falls to the Previous group. Mirrors mobile's active vs
-/// previous bucketing.
+/// A session is "live" while active or paused; used to float live sessions to
+/// the top within a scope group.
 function isLive(s: Entity): boolean {
   const st = str(s, 'status') ?? '';
   return st === 'active' || st === 'paused';
+}
+
+/// Scope bucket key — Team (team/empty scope), a per-project bucket, or the
+/// Approving (attention) bucket. Mirrors mobile's scope split.
+function scopeKey(s: Entity): string {
+  const kind = str(s, 'scope_kind') ?? '';
+  const sid = str(s, 'scope_id') ?? '';
+  if (kind === 'project' && sid !== '') return `project:${sid}`;
+  if (kind === 'attention') return 'attention';
+  return 'team';
 }
 
 function lastActiveMs(s: Entity): number {
@@ -56,10 +67,16 @@ function shortId(id: string): string {
 export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
+  const qc = useQueryClient();
+  const projects = useProjects().data ?? [];
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<'digest' | 'transcript'>('digest');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<SessionFilter>('all');
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameErr, setRenameErr] = useState<string | null>(null);
 
   const listQ = useQuery({
     queryKey: ['sessions', client?.transport.teamId],
@@ -76,14 +93,21 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
 
   const sessions = listQ.data ?? [];
 
-  // Text filter + status filter, then Active/Previous grouping, newest-first.
+  const projectName = (pid: string): string => {
+    const p = projects.find((x) => str(x, 'id') === pid);
+    return (p !== undefined ? str(p, 'name') ?? str(p, 'title') : undefined) ?? shortId(pid);
+  };
+
+  // Text + status filter, then group by scope (Team / each Project / Approving),
+  // live sessions first then newest within each group. Team first, projects next
+  // (by name), Approving last.
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = sessions.filter((s) => {
       const status = str(s, 'status') ?? '';
       if (filter !== 'all' && status !== filter) return false;
       if (q !== '') {
-        const hay = [sessionTitle(s), status, str(s, 'scope_kind'), str(s, 'id'), str(s, 'current_agent_id')]
+        const hay = [sessionName(s) ?? '', status, str(s, 'scope_kind'), str(s, 'id'), str(s, 'current_agent_id')]
           .filter((v): v is string => v !== undefined && v !== '')
           .join(' ')
           .toLowerCase();
@@ -91,14 +115,47 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
       }
       return true;
     });
-    const byAge = (a: Entity, b: Entity): number => lastActiveMs(b) - lastActiveMs(a);
-    const live = filtered.filter(isLive).sort(byAge);
-    const prev = filtered.filter((s) => !isLive(s)).sort(byAge);
-    return [
-      { key: 'active', label: t('sessions.groupActive'), items: live },
-      { key: 'previous', label: t('sessions.groupPrevious'), items: prev },
-    ].filter((g) => g.items.length > 0);
-  }, [sessions, query, filter, t]);
+    const byKey = new Map<string, Entity[]>();
+    for (const s of filtered) {
+      const k = scopeKey(s);
+      const bucket = byKey.get(k);
+      if (bucket !== undefined) bucket.push(s);
+      else byKey.set(k, [s]);
+    }
+    const order = (k: string): number => (k === 'team' ? 0 : k.startsWith('project:') ? 1 : 2);
+    const label = (k: string): string =>
+      k === 'team'
+        ? t('sessions.groupTeam')
+        : k === 'attention'
+          ? t('sessions.groupApproving')
+          : `${t('sessions.groupProject')}: ${projectName(k.slice('project:'.length))}`;
+    const liveFirst = (a: Entity, b: Entity): number =>
+      Number(isLive(b)) - Number(isLive(a)) || lastActiveMs(b) - lastActiveMs(a);
+    return [...byKey.entries()]
+      .map(([k, items]) => ({ key: k, label: label(k), items: items.sort(liveFirst) }))
+      .sort((a, b) => order(a.key) - order(b.key) || a.label.localeCompare(b.label));
+  }, [sessions, query, filter, projects, t]);
+
+  function startRename(id: string): void {
+    const s = sessions.find((x) => str(x, 'id') === id);
+    setRenameErr(null);
+    setRenaming({ id, value: (s !== undefined ? str(s, 'title') : undefined) ?? '' });
+    setMenu(null);
+  }
+  async function saveRename(): Promise<void> {
+    if (client === null || renaming === null) return;
+    setRenameBusy(true);
+    setRenameErr(null);
+    try {
+      await client.renameSession(renaming.id, renaming.value.trim());
+      await qc.invalidateQueries({ queryKey: ['sessions'] });
+      setRenaming(null);
+    } catch (err) {
+      setRenameErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRenameBusy(false);
+    }
+  }
 
   /// The transcript is per-agent (there is no session-level events endpoint), so
   /// resolve the session's agent from the digest's `current_agent_id` /
@@ -164,15 +221,22 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
                   const scope = str(s, 'scope_kind') ?? '';
                   const cost = num(s, 'session_cost_usd_imputed');
                   const age = relTime(s);
+                  const name = sessionName(s);
                   return (
                     <button
                       key={id}
                       className={id === selected ? 'session-item active' : 'session-item'}
                       onClick={() => setSelected(id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setMenu({ id, x: e.clientX, y: e.clientY });
+                      }}
                     >
                       <span className="session-row-top">
                         <span className={`dot ${status === 'active' ? 'running' : status === 'paused' ? 'paused' : 'muted'}`} />
-                        <span className="session-name">{sessionTitle(s)}</span>
+                        <span className={name !== null ? 'session-name' : 'session-name muted'}>
+                          {name ?? t('sessions.untitled')}
+                        </span>
                         <span className="spacer" />
                         {age !== '' && <span className="muted small session-age">{age}</span>}
                       </span>
@@ -238,7 +302,39 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
             )}
           </div>
         </div>
+        {menu !== null && (
+          <>
+            <div className="context-backdrop" onMouseDown={() => setMenu(null)} />
+            <div className="context-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
+              <button onClick={() => startRename(menu.id)}>{t('sessions.rename')}</button>
+            </div>
+          </>
+        )}
       </div>
+      {renaming !== null && (
+        <div className="palette-backdrop" onMouseDown={() => setRenaming(null)}>
+          <div className="rename-modal" onMouseDown={(e) => e.stopPropagation()}>
+            <strong>{t('sessions.renameTitle')}</strong>
+            <input
+              autoFocus
+              value={renaming.value}
+              placeholder={t('sessions.untitled')}
+              onChange={(e) => setRenaming({ id: renaming.id, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void saveRename();
+                if (e.key === 'Escape') setRenaming(null);
+              }}
+            />
+            {renameErr !== null && <div className="error small">{renameErr}</div>}
+            <div className="rename-actions">
+              <button onClick={() => setRenaming(null)}>{t('common.cancel')}</button>
+              <button className="primary" disabled={renameBusy} onClick={() => void saveRename()}>
+                {t('sessions.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -93,6 +93,11 @@ export class HubClient {
   getSession(id: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/sessions/${id}`)) as Promise<Entity>;
   }
+  /** Rename a session (handlePatchSession — the only editable field is `title`;
+   * '' clears it back to untitled). Returns 204, no body. */
+  renameSession(id: string, title: string): Promise<unknown> {
+    return this.transport.patch(this.transport.team(`/sessions/${id}`), { title });
+  }
   /** The session-scoped run digest (ADR-038 §5) — same wire shape as the agent
    * digest, rolled up across the session's agents. Renders in `RunReport`. */
   getSessionDigest(id: string): Promise<Entity> {

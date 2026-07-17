@@ -339,6 +339,56 @@ button.search-result-link:hover {
   white-space: nowrap;
   max-width: 100%;
 }
+/* Right-click menu (session rename). Fixed to the cursor; backdrop closes it. */
+.context-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.context-menu {
+  position: fixed;
+  z-index: 41;
+  min-width: 140px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.context-menu button {
+  text-align: left;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 6px);
+  font: inherit;
+}
+.context-menu button:hover {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.1));
+}
+.rename-modal {
+  width: 420px;
+  max-width: 92vw;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}
+.rename-modal input {
+  width: 100%;
+}
+.rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-s8);
+}
 .sessions-detail {
   flex: 1;
   min-width: 0;

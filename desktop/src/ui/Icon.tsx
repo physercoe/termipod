@@ -52,6 +52,8 @@ export type IconName =
   | 'cloud'
   | 'split-h'
   | 'split-v'
+  | 'dock-bottom'
+  | 'dock-right'
   | 'trash'
   | 'key'
   | 'eye'
@@ -290,6 +292,20 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M3 12h18" />
+    </>
+  ),
+  // dock-bottom — panel docked along the bottom edge.
+  'dock-bottom': (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 15h18" />
+    </>
+  ),
+  // dock-right — panel docked along the right edge.
+  'dock-right': (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M15 4v16" />
     </>
   ),
   pen: (

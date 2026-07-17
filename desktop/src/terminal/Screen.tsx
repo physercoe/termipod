@@ -51,7 +51,7 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       // faces, fall back through the OS defaults. Slightly airier metrics than
       // xterm's defaults so long sessions read cleanly.
       fontFamily:
-        '"JetBrains Mono", "Cascadia Code", "SF Mono", ui-monospace, "Menlo", "Consolas", "DejaVu Sans Mono", monospace',
+        '"JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "SF Mono", ui-monospace, "Menlo", "Consolas", "DejaVu Sans Mono", monospace',
       fontSize: 13,
       fontWeight: 400,
       fontWeightBold: 600,
@@ -118,6 +118,14 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       }
     };
     refit();
+    // The terminal font (JetBrains Mono) is an async web font: the first fit runs
+    // with a fallback metric, so its wider cells later overflow the right edge and
+    // an agent TUI's rightmost columns get clipped (the kimi right-truncation).
+    // Re-fit once the real font is ready, plus a couple of delayed re-fits to catch
+    // late layout settling (dock open animation, first pane reveal).
+    void document.fonts?.ready.then(() => refit());
+    const settle1 = setTimeout(refit, 120);
+    const settle2 = setTimeout(refit, 450);
 
     const onData = term.onData((s) => void sessionWrite(kind, sessionId, s));
     const ro = new ResizeObserver(() => refit());
@@ -137,6 +145,8 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
 
     return () => {
       disposed = true;
+      clearTimeout(settle1);
+      clearTimeout(settle2);
       ro.disconnect();
       onData.dispose();
       void unlistenP.then((u) => u());

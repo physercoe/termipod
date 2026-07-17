@@ -42,6 +42,8 @@ export function TerminalPanel(): JSX.Element {
   const closeTab = useTerminals((s) => s.closeTab);
   const setActive = useTerminals((s) => s.setActive);
   const setOpen = useTerminals((s) => s.setOpen);
+  const dockSide = useTerminals((s) => s.dockSide);
+  const setDockSide = useTerminals((s) => s.setDockSide);
 
   const tauri = isTauri();
   const [connecting, setConnecting] = useState(false);
@@ -49,8 +51,11 @@ export function TerminalPanel(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const cfgRef = useRef<HTMLInputElement>(null);
-  const [height, setHeight] = useState(340);
-  const dragRef = useRef<{ startY: number; startH: number } | null>(null);
+  const [height, setHeight] = useState(340); // bottom-dock height
+  const [width, setWidth] = useState(480); // right-dock width
+  // Drag state for the dock resize edge — `axis` follows the dock side (top edge
+  // for the bottom dock, left edge for the right dock).
+  const dragRef = useRef<{ axis: 'y' | 'x'; start: number; startSize: number } | null>(null);
 
   // Surface-mode split layout (local — the panel never unmounts, so it persists
   // across job switches like the sessions do). `panes` is the set of session ids
@@ -180,13 +185,20 @@ export function TerminalPanel(): JSX.Element {
     closeTab(id);
   }
 
-  // Drag the top edge to resize the dock height (dock mode only; clamped).
+  // Drag the dock's inner edge to resize it (dock mode only; clamped). The bottom
+  // dock resizes its height from the top edge; the right dock its width from the
+  // left edge.
   useEffect(() => {
     function onMove(e: MouseEvent): void {
       const d = dragRef.current;
       if (d === null) return;
-      const next = d.startH + (d.startY - e.clientY);
-      setHeight(Math.max(140, Math.min(next, window.innerHeight - 160)));
+      if (d.axis === 'y') {
+        const next = d.startSize + (d.start - e.clientY);
+        setHeight(Math.max(140, Math.min(next, window.innerHeight - 160)));
+      } else {
+        const next = d.startSize + (d.start - e.clientX);
+        setWidth(Math.max(260, Math.min(next, window.innerWidth - 200)));
+      }
     }
     function onUp(): void {
       dragRef.current = null;
@@ -200,8 +212,8 @@ export function TerminalPanel(): JSX.Element {
   }, []);
 
   const visible = mode === 'surface' || open;
-  const panelClass = `term-panel ${mode}${visible ? '' : ' hidden'}`;
-  const style = mode === 'dock' ? { height } : undefined;
+  const panelClass = `term-panel ${mode}${mode === 'dock' ? ` ${dockSide}` : ''}${visible ? '' : ' hidden'}`;
+  const style = mode === 'dock' ? (dockSide === 'right' ? { width } : { height }) : undefined;
   const navStyle = mode === 'surface' && !navFold ? { width: navW } : undefined;
 
   const addMenuEl = (
@@ -228,7 +240,12 @@ export function TerminalPanel(): JSX.Element {
       {mode === 'dock' && (
         <div
           className="term-dock-resize"
-          onMouseDown={(e) => (dragRef.current = { startY: e.clientY, startH: height })}
+          onMouseDown={(e) =>
+            (dragRef.current =
+              dockSide === 'right'
+                ? { axis: 'x', start: e.clientX, startSize: width }
+                : { axis: 'y', start: e.clientY, startSize: height })
+          }
         />
       )}
 
@@ -334,9 +351,18 @@ export function TerminalPanel(): JSX.Element {
           )}
 
           {mode === 'dock' && (
-            <button className="term-dock-hide" title={t('term.hideDock')} onClick={() => setOpen(false)}>
-              <Icon name="chevron-down" />
-            </button>
+            <>
+              <button
+                className="term-dock-side"
+                title={dockSide === 'right' ? t('term.dockBottom') : t('term.dockRight')}
+                onClick={() => setDockSide(dockSide === 'right' ? 'bottom' : 'right')}
+              >
+                <Icon name={dockSide === 'right' ? 'dock-bottom' : 'dock-right'} size={14} />
+              </button>
+              <button className="term-dock-hide" title={t('term.hideDock')} onClick={() => setOpen(false)}>
+                <Icon name={dockSide === 'right' ? 'chevron-right' : 'chevron-down'} size={15} />
+              </button>
+            </>
           )}
         </div>
 

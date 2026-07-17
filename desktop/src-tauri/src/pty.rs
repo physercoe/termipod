@@ -37,7 +37,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
@@ -131,6 +131,43 @@ struct ExitPayload {
     id: String,
 }
 
+/// The user's real login-shell `PATH`, resolved once and cached.
+///
+/// A GUI app launched from Finder/Dock on macOS (and some Linux desktop
+/// environments) inherits only a minimal `PATH` — *not* the one the user's
+/// `.zshrc` / `.zprofile` / `.bash_profile` builds — so an agent CLI installed via
+/// npm / Homebrew / nvm (`kimi`, `claude`, …) isn't found in TermiPod's terminal
+/// even though it runs fine in Terminal.app. We resolve the login shell's PATH by
+/// spawning `$SHELL -ilc` (interactive + login, so it sources the same startup
+/// files a real terminal does) and print `$PATH` between markers to strip any
+/// startup-script stdout noise. Cached — stable for the app's lifetime; `None` on
+/// any failure, which leaves the inherited PATH untouched.
+#[cfg(unix)]
+fn login_path() -> Option<&'static str> {
+    static CACHE: OnceLock<Option<String>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            use std::process::Command;
+            const MARK: &str = "__TP_PATH__";
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
+            let script = format!("printf '{MARK}%s{MARK}' \"$PATH\"");
+            // `output()` gives the child a closed stdin, so an interactive shell
+            // reading input just sees EOF and exits (no hang).
+            let out = Command::new(&shell).args(["-ilc", &script]).output().ok()?;
+            let s = String::from_utf8_lossy(&out.stdout);
+            let start = s.find(MARK)? + MARK.len();
+            let rest = &s[start..];
+            let end = rest.find(MARK)?;
+            let path = rest[..end].trim();
+            if path.is_empty() {
+                None
+            } else {
+                Some(path.to_string())
+            }
+        })
+        .as_deref()
+}
+
 /// The user's login shell, or a sensible per-OS default when `$SHELL` /
 /// `%COMSPEC%` is unset (e.g. a bare service environment).
 fn default_shell() -> String {
@@ -166,6 +203,12 @@ pub async fn pty_open(state: State<'_, PtyState>, req: PtyOpenReq) -> Result<Pty
     }
     // TERM so full-screen apps (vim, tmux, an agent TUI) and colour work out of the box.
     cmd.env("TERM", "xterm-256color");
+    // Inject the login-shell PATH so npm/Homebrew/nvm-installed agent CLIs resolve
+    // even when launched from a Finder/Dock GUI with a minimal inherited PATH.
+    #[cfg(unix)]
+    if let Some(path) = login_path() {
+        cmd.env("PATH", path);
+    }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;
     // Drop the slave once the child holds it, so the master's reader observes EOF

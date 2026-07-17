@@ -354,6 +354,27 @@
 .term-panel.dock .term-nav {
   display: none;
 }
+/* Right-dock variant — attaches to the right edge, full height; width is set
+   inline (resizable + persisted); left border/shadow instead of the top ones. */
+.term-panel.dock.right {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: auto;
+  border-top: none;
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
+}
+/* Its resize handle sits on the LEFT edge (ew-resize) rather than the top. */
+.term-panel.dock.right .term-dock-resize {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: 5px;
+  height: auto;
+  cursor: ew-resize;
+}
 /* Left nav (surface mode): saved SSH connections/hosts. Width is set inline
    (resizable + persisted); `.folded` collapses it entirely (a reveal chevron in
    the head brings it back). Border-right is the seat for the ResizeHandle. */
@@ -631,6 +652,11 @@
 }
 .term-dock-add button,
 .term-dock-hide { font-size: var(--font-size-caption); }
+.term-dock-side {
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+.term-dock-side:hover { color: var(--text); }
 .term-dock-add button.active {
   border-color: var(--accent);
   color: var(--accent);

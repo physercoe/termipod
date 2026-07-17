@@ -24,12 +24,25 @@ export interface TermTab {
   agent?: boolean;
 }
 
+/** Where the dock (non-Terminal-surface mode) attaches. Persisted. */
+export type DockSide = 'bottom' | 'right';
+const SIDE_KEY = 'termipod.term.dockSide';
+function loadSide(): DockSide {
+  try {
+    return localStorage.getItem(SIDE_KEY) === 'right' ? 'right' : 'bottom';
+  } catch {
+    return 'bottom';
+  }
+}
+
 interface TerminalState {
   open: boolean;
   tabs: TermTab[];
   activeId: string | null;
+  dockSide: DockSide;
   toggle: () => void;
   setOpen: (open: boolean) => void;
+  setDockSide: (side: DockSide) => void;
   /** Register an already-opened session as a new tab; returns its UI id. */
   addTab: (tab: Omit<TermTab, 'id'>) => string;
   /** Close a tab and tear its session down. */
@@ -44,8 +57,17 @@ export const useTerminals = create<TerminalState>((set, get) => ({
   open: false,
   tabs: [],
   activeId: null,
+  dockSide: loadSide(),
   toggle: () => set((s) => ({ open: !s.open })),
   setOpen: (open) => set({ open }),
+  setDockSide: (side) => {
+    try {
+      localStorage.setItem(SIDE_KEY, side);
+    } catch {
+      /* ignore */
+    }
+    set({ dockSide: side });
+  },
   addTab: (tab) => {
     const id = `t${seq++}`;
     set((s) => ({ tabs: [...s.tabs, { ...tab, id }], activeId: id, open: true }));

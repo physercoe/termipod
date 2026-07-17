@@ -98,8 +98,32 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const [verbose, setVerbose] = useState(false);
   const [matchIndex, setMatchIndex] = useState(0);
   const [navTab, setNavTab] = useState<'turns' | 'errors'>('turns');
+  const [insightNavOpen, setInsightNavOpen] = useState(() => {
+    try {
+      return localStorage.getItem('termipod.insight.navOpen') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  function toggleInsightNav(): void {
+    setInsightNavOpen((v) => {
+      const n = !v;
+      try {
+        localStorage.setItem('termipod.insight.navOpen', n ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return n;
+    });
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Gates the live feed visible until it has settled at the bottom. The tail's
+  // cards pin + reflow (fonts, late layout) over the first frames after open;
+  // holding the content invisible until then means the user sees it already at
+  // the latest message instead of watching it scroll into place. (This is what
+  // chat UIs do — position at the bottom before the first painted frame.)
+  const [feedReady, setFeedReady] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
   const feedContentRef = useRef<HTMLDivElement>(null);
   // Whether the feed is pinned to the tail. True while the user is at the
@@ -148,6 +172,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     let handle: SseHandle | null = null;
     setEvents([]);
     setError(null);
+    setFeedReady(false);
     stickRef.current = true; // a freshly-opened transcript starts pinned to the latest
     historyRef.current = null;
     historyMergedRef.current = false;
@@ -158,6 +183,9 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
         if (cancelled) return;
         const sorted = mergeEvents(initial, []);
         setEvents(sorted);
+        // Reveal once the tail has committed + pinned (two frames covers the
+        // layout-effect pin and the immediate reflow), so the settle is off-screen.
+        requestAnimationFrame(() => requestAnimationFrame(() => !cancelled && setFeedReady(true)));
         const last = sorted.length > 0 ? num(sorted[sorted.length - 1], 'seq') : undefined;
         // 2) Live stream from the tail cursor (merge dedupes any overlap).
         handle = client.streamAgent(agentId, {
@@ -393,7 +421,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
             )}
           </div>
           <div className="feed" ref={feedRef} onScroll={onFeedScroll}>
-            <div className="feed-content" ref={feedContentRef}>
+            <div className="feed-content" ref={feedContentRef} style={{ opacity: feedReady ? 1 : 0 }}>
               {shown.map(renderCard)}
               {shown.length === 0 && <div className="region-pad muted">{lens === 'all' ? t('tx.noEvents') : t('tx.noMatches')}</div>}
             </div>
@@ -404,15 +432,27 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
 
       {mode === 'insight' && (
         <div className="insight-body">
-          <div className="insight-nav">
-            <div className="tabs">
-              <button className={navTab === 'turns' ? 'tab active' : 'tab'} onClick={() => setNavTab('turns')}>
-                {t('insight.turns')} <span className="pill">{turns.length}</span>
+          <div className={insightNavOpen ? 'insight-nav' : 'insight-nav collapsed'}>
+            <div className="insight-nav-head">
+              <button
+                className="nav-fold-btn"
+                title={insightNavOpen ? t('nav.collapse') : t('nav.expand')}
+                onClick={toggleInsightNav}
+              >
+                <Icon name="sidebar" size={15} />
               </button>
-              <button className={navTab === 'errors' ? 'tab active' : 'tab'} onClick={() => setNavTab('errors')}>
-                {t('insight.errors')} <span className="pill">{errorRows.length}</span>
-              </button>
+              {insightNavOpen && (
+                <div className="tabs">
+                  <button className={navTab === 'turns' ? 'tab active' : 'tab'} onClick={() => setNavTab('turns')}>
+                    {t('insight.turns')} <span className="pill">{turns.length}</span>
+                  </button>
+                  <button className={navTab === 'errors' ? 'tab active' : 'tab'} onClick={() => setNavTab('errors')}>
+                    {t('insight.errors')} <span className="pill">{errorRows.length}</span>
+                  </button>
+                </div>
+              )}
             </div>
+            {insightNavOpen && (
             <div className="insight-list">
               {navTab === 'turns' ? (
                 turnsQ.isLoading ? (
@@ -461,6 +501,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
                 ))
               )}
             </div>
+            )}
           </div>
           <div className="feed insight-feed" ref={feedRef}>
             {feed.map(renderCard)}

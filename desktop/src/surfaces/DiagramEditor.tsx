@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
+import { proxyForConnection } from '../state/proxy';
 
 /// The J2 Author **diagram** editor — an offline draw.io embed. draw.io is
 /// Apache-2.0 and fully client-side but ~50 MB, so it is NOT bundled: the user
@@ -45,7 +46,7 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
     setDownloading(true);
     setErr(null);
     try {
-      setStatus(await invoke<DrawioStatus>('drawio_download'));
+      setStatus(await invoke<DrawioStatus>('drawio_download', { proxy: proxyForConnection('drawio') ?? null }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {

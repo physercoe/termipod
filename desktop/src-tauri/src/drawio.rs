@@ -50,12 +50,12 @@ pub async fn drawio_status(app: AppHandle) -> Result<DrawioStatus, String> {
 /// `drawio_install_file` command below is the offline fallback — the user
 /// downloads `draw.war` manually and installs it from disk.
 #[tauri::command]
-pub async fn drawio_download(app: AppHandle) -> Result<DrawioStatus, String> {
+pub async fn drawio_download(app: AppHandle, proxy: Option<String>) -> Result<DrawioStatus, String> {
     let root = drawio_root(&app)?;
     if root.join("index.html").is_file() {
         return Ok(status_of(&root));
     }
-    let client = reqwest::Client::builder()
+    let client = crate::net::client_builder(proxy.as_deref())
         // GitHub release-asset URLs redirect to the githubusercontent CDN; follow
         // them (default is 10, but be explicit) and identify a UA so no proxy
         // rejects a header-less request.

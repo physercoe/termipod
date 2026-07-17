@@ -1,4 +1,5 @@
 import { isTauri } from '../platform';
+import { proxyForConnection } from './proxy';
 import { secretDelete, secretGet, secretSet } from './persist';
 
 /// WebDAV sync for the Author **workspace** folder — an Obsidian-vault–style
@@ -97,7 +98,12 @@ export async function setWorkspaceSyncPassword(pw: string): Promise<void> {
 /// success; rejects with the server/auth error message.
 export async function verifyWorkspaceSync(url: string, user: string, pass: string): Promise<void> {
   if (!isTauri()) throw new Error('workspace sync requires the desktop app');
-  await invoke<string>('folder_webdav_verify', { url: url.trim(), user, pass });
+  await invoke<string>('folder_webdav_verify', {
+    url: url.trim(),
+    user,
+    pass,
+    proxy: proxyForConnection('workspace') ?? null,
+  });
 }
 
 // ── backend selection ───────────────────────────────────────────────────────
@@ -175,6 +181,7 @@ export async function verifyS3Sync(cfg: S3Config, secretKey: string): Promise<vo
     prefix: cfg.prefix.trim(),
     accessKey: cfg.accessKeyId.trim(),
     secretKey,
+    proxy: proxyForConnection('workspace') ?? null,
   });
 }
 
@@ -193,10 +200,17 @@ export async function syncWorkspace(root: string): Promise<FolderSyncReport> {
       prefix: cfg.prefix.trim(),
       accessKey: cfg.accessKeyId.trim(),
       secretKey,
+      proxy: proxyForConnection('workspace') ?? null,
     });
   }
   const { url, user } = loadWorkspaceSyncConfig();
   if (url === '') throw new Error('configure the sync server first');
   const pass = await getWorkspaceSyncPassword();
-  return invoke<FolderSyncReport>('folder_webdav_sync', { root, url, user, pass });
+  return invoke<FolderSyncReport>('folder_webdav_sync', {
+    root,
+    url,
+    user,
+    pass,
+    proxy: proxyForConnection('workspace') ?? null,
+  });
 }

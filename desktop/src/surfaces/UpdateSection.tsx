@@ -1,28 +1,13 @@
 import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api/core';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
+import { proxyForConnection } from '../state/proxy';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-const PROXY_KEY = 'termipod.update.proxy';
-// Cache of the last auto-detected system/env proxy, so it paints on the first
-// frame instead of flashing in after the async `system_proxy` invoke resolves
-// (director feedback: proxy line splashed in on every Settings open).
-const DETECTED_KEY = 'termipod.update.proxy.detected';
-
-function readCache(key: string): string | null {
-  try {
-    const v = localStorage.getItem(key);
-    return v !== null && v !== '' ? v : null;
-  } catch {
-    return null;
-  }
 }
 
 /** A "couldn't reach the server" transport failure (vs. an HTTP/parse error). */
@@ -37,75 +22,40 @@ type State =
   | { s: 'available'; update: Update }
   | { s: 'downloading'; pct: number | null }
   | { s: 'installing' }
-  | { s: 'error'; msg: string };
+  | { s: 'error'; msg: string; network: boolean };
 
 /// Settings → Software update (ADR-052 sibling; WS8). Uses the Tauri updater
 /// plugin to check the signed latest.json on the GitHub release, then
 /// download + install + relaunch. Desktop-only; the browser build renders
-/// nothing (no native core).
+/// nothing (no native core). The proxy is the shared Network-tab config
+/// (`proxyForConnection('update')`) — no longer configured inline here.
 export function UpdateSection(): JSX.Element | null {
   const t = useT();
   const [st, setSt] = useState<State>({ s: 'idle' });
   // Seed from the build-time version so it paints on the first frame (no splash);
   // the effect refreshes it from the Tauri runtime, which matches.
   const [current, setCurrent] = useState(__APP_VERSION__);
-  // Manual override the user typed (persisted); '' = auto-detect. Seeded
-  // synchronously from localStorage so a saved proxy paints on first frame
-  // (no flash-in after the effect runs).
-  const [proxyOverride, setProxyOverride] = useState<string>(() => readCache(PROXY_KEY) ?? '');
-  // What auto-detect (env vars / Windows system proxy) found, for display.
-  // Seeded synchronously from the last-detected cache so a known proxy paints on
-  // the first frame; the effect below refreshes it (usually the same value, so
-  // no visible change) and re-caches.
-  const [detected, setDetected] = useState<string | null>(() => readCache(DETECTED_KEY));
-  const [showProxy, setShowProxy] = useState(false);
 
   useEffect(() => {
     if (!isTauri()) return;
     void getVersion()
       .then(setCurrent)
       .catch(() => {});
-    void invoke<string | null>('system_proxy')
-      .then((p) => {
-        const val = p ?? null;
-        setDetected(val);
-        try {
-          if (val !== null && val !== '') localStorage.setItem(DETECTED_KEY, val);
-          else localStorage.removeItem(DETECTED_KEY);
-        } catch {
-          /* storage unavailable — display still works from state */
-        }
-      })
-      .catch(() => setDetected(null));
   }, []);
 
   if (!isTauri()) return null;
 
-  /** Manual override wins; otherwise the auto-detected system/env proxy. */
-  function effectiveProxy(): string | undefined {
-    const o = proxyOverride.trim();
-    if (o) return o;
-    return detected ?? undefined;
-  }
-
-  function saveOverride(v: string): void {
-    setProxyOverride(v);
-    if (v.trim()) localStorage.setItem(PROXY_KEY, v.trim());
-    else localStorage.removeItem(PROXY_KEY);
-  }
-
   async function checkNow(): Promise<void> {
     setSt({ s: 'checking' });
-    const proxy = effectiveProxy();
+    const proxy = proxyForConnection('update');
     try {
       const update = await check(proxy ? { proxy } : undefined);
       setSt(update === null ? { s: 'uptodate' } : { s: 'available', update });
     } catch (e) {
       const m = msg(e);
-      // A transport failure with no proxy in play on a corporate intranet is
-      // almost always the missing system-proxy route — surface the hint.
-      if (!proxy && looksLikeNetwork(m)) setShowProxy(true);
-      setSt({ s: 'error', msg: m });
+      // A transport failure with no proxy in play is often the missing proxy
+      // route on a corporate network — point at the Network tab.
+      setSt({ s: 'error', msg: m, network: !proxy && looksLikeNetwork(m) });
     }
   }
 
@@ -123,7 +73,7 @@ export function UpdateSection(): JSX.Element | null {
       });
       await relaunch();
     } catch (e) {
-      setSt({ s: 'error', msg: msg(e) });
+      setSt({ s: 'error', msg: msg(e), network: false });
     }
   }
 
@@ -171,31 +121,8 @@ export function UpdateSection(): JSX.Element | null {
           </button>
         </div>
       )}
-
-      <div className="setting-row">
-        <button className="link-btn" onClick={() => setShowProxy((v) => !v)}>
-          {showProxy ? t('update.proxy.hide') : t('update.proxy.show')}
-        </button>
-        {effectiveProxy() && <span className="muted">{effectiveProxy()}</span>}
-      </div>
-      {showProxy && (
-        <div className="update-proxy">
-          <p className="muted small">{t('update.proxy.help')}</p>
-          <div className="setting-row">
-            <input
-              type="text"
-              placeholder={detected ?? 'http://proxy.corp:8080'}
-              value={proxyOverride}
-              onChange={(e) => saveOverride(e.target.value)}
-              spellCheck={false}
-            />
-          </div>
-          <p className="muted small">
-            {detected
-              ? `${t('update.proxy.detected')} ${detected}`
-              : t('update.proxy.none')}
-          </p>
-        </div>
+      {st.s === 'error' && st.network && (
+        <p className="muted small">{t('update.proxy.networkHint')}</p>
       )}
     </section>
   );

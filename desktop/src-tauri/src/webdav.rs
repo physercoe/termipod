@@ -37,8 +37,8 @@ use serde::Serialize;
 
 const DAV_TIMEOUT_SECS: u64 = 90;
 
-pub(crate) fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+pub(crate) fn client(proxy: Option<&str>) -> Result<reqwest::Client, String> {
+    crate::net::client_builder(proxy)
         .user_agent("termipod-desktop")
         .timeout(std::time::Duration::from_secs(DAV_TIMEOUT_SECS))
         .build()
@@ -399,8 +399,13 @@ pub struct SyncReport {
 /// Verify connectivity + write access: ensure the `zotero/` collection exists and
 /// a probe file can be written. Surfaces auth failures distinctly.
 #[tauri::command]
-pub async fn webdav_verify(url: String, user: String, pass: String) -> Result<String, String> {
-    let c = client()?;
+pub async fn webdav_verify(
+    url: String,
+    user: String,
+    pass: String,
+    proxy: Option<String>,
+) -> Result<String, String> {
+    let c = client(proxy.as_deref())?;
     let dav = dav_dir(&url);
     mkcol(&c, &dav, &user, &pass).await?;
     put(
@@ -424,8 +429,9 @@ pub async fn webdav_sync(
     url: String,
     user: String,
     pass: String,
+    proxy: Option<String>,
 ) -> Result<SyncReport, String> {
-    let c = client()?;
+    let c = client(proxy.as_deref())?;
     let dav = dav_dir(&url);
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {

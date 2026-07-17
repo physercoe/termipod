@@ -1,5 +1,6 @@
 import { isTauri } from '../platform';
 import { activeAttachmentRoot, useAttachmentConfig } from './attachments';
+import { proxyForConnection } from './proxy';
 import { secretDelete, secretGet, secretSet } from './persist';
 import { useZoteroStorage } from './zoteroStorage';
 import type { S3Config, SyncBackend } from './workspaceSync';
@@ -91,7 +92,12 @@ export async function setWebdavPassword(pw: string): Promise<void> {
 /// server/auth error message.
 export async function verifyWebdav(url: string, user: string, pass: string): Promise<void> {
   if (!isTauri()) throw new Error('WebDAV sync requires the desktop app');
-  await invoke<string>('webdav_verify', { url: url.trim(), user, pass });
+  await invoke<string>('webdav_verify', {
+    url: url.trim(),
+    user,
+    pass,
+    proxy: proxyForConnection('attachments') ?? null,
+  });
 }
 
 // ── backend selection ────────────────────────────────────────────────────────
@@ -164,6 +170,7 @@ export async function verifyZoteroS3(cfg: S3Config, secretKey: string): Promise<
     prefix: cfg.prefix.trim(),
     accessKey: cfg.accessKeyId.trim(),
     secretKey,
+    proxy: proxyForConnection('attachments') ?? null,
   });
 }
 
@@ -193,12 +200,19 @@ export async function syncWebdav(): Promise<SyncReport> {
       prefix: cfg.prefix.trim(),
       accessKey: cfg.accessKeyId.trim(),
       secretKey,
+      proxy: proxyForConnection('attachments') ?? null,
     });
   } else {
     const { url, user } = loadWebdavConfig();
     if (url === '') throw new Error('configure the WebDAV server first');
     const pass = await getWebdavPassword();
-    report = await invoke<SyncReport>('webdav_sync', { root, url, user, pass });
+    report = await invoke<SyncReport>('webdav_sync', {
+      root,
+      url,
+      user,
+      pass,
+      proxy: proxyForConnection('attachments') ?? null,
+    });
   }
   // Downloaded files only become resolvable once the folder index is refreshed;
   // reindex() is a no-op when no Zotero folder is linked (managed attachments

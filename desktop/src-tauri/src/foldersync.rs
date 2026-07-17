@@ -482,9 +482,14 @@ pub(crate) fn decide_both(
 /// Verify connectivity + auth: PROPFIND the base collection. Distinguishes an
 /// auth failure from an unreachable/other error.
 #[tauri::command]
-pub async fn folder_webdav_verify(url: String, user: String, pass: String) -> Result<String, String> {
+pub async fn folder_webdav_verify(
+    url: String,
+    user: String,
+    pass: String,
+    proxy: Option<String>,
+) -> Result<String, String> {
     let base = base_url(&url)?;
-    let c = client_with_auth(&user, &pass)?;
+    let c = client_with_auth(&user, &pass, proxy.as_deref())?;
     let method = reqwest::Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
     let resp = c
         .request(method, base.as_str())
@@ -515,13 +520,14 @@ pub async fn folder_webdav_sync(
     url: String,
     user: String,
     pass: String,
+    proxy: Option<String>,
 ) -> Result<FolderSyncReport, String> {
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
         return Err("workspace root is not a directory".into());
     }
     let base = base_url(&url)?;
-    let c = client_with_auth(&user, &pass)?;
+    let c = client_with_auth(&user, &pass, proxy.as_deref())?;
 
     let locals = enumerate_local(&root_path);
     let remotes = enumerate_remote(&c, &base).await?;
@@ -575,14 +581,14 @@ pub async fn folder_webdav_sync(
 
 /// A client that carries Basic auth on every request (PROPFIND/GET/PUT/MKCOL all
 /// need it). Simpler than threading `.basic_auth()` through each call.
-fn client_with_auth(user: &str, pass: &str) -> Result<reqwest::Client, String> {
+fn client_with_auth(user: &str, pass: &str, proxy: Option<&str>) -> Result<reqwest::Client, String> {
     use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
     let token = data_encoding::BASE64.encode(format!("{user}:{pass}").as_bytes());
     let mut headers = HeaderMap::new();
     let mut val = HeaderValue::from_str(&format!("Basic {token}")).map_err(|e| e.to_string())?;
     val.set_sensitive(true);
     headers.insert(AUTHORIZATION, val);
-    reqwest::Client::builder()
+    crate::net::client_builder(proxy)
         .user_agent("termipod-desktop")
         .default_headers(headers)
         .timeout(std::time::Duration::from_secs(DAV_TIMEOUT_SECS))

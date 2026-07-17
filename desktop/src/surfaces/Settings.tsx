@@ -7,6 +7,7 @@ import { useSession } from '../state/session';
 import { useTheme, type ThemePref } from '../state/theme';
 import { getVoiceApiKey, getVoiceModel, setVoiceApiKey, setVoiceModel, VOICE_MODELS } from '../voice/settings';
 import { activeRootLabel, useAttachmentConfig } from '../state/attachments';
+import { PROXY_CONNS, useProxy, type ProxyConn } from '../state/proxy';
 import { Icon } from '../ui/Icon';
 import { UpdateSection } from './UpdateSection';
 import { VaultManager } from './VaultManager';
@@ -161,6 +162,67 @@ function AppearanceSettings(): JSX.Element {
   );
 }
 
+/// Network — the single HTTP-proxy config plus a per-connection toggle deciding
+/// which of TermiPod's outbound connections route through it (all default ON once
+/// a proxy is set). The proxy is a manual override, else the system/env proxy the
+/// Rust `system_proxy` command auto-detects (env vars, Windows registry, macOS
+/// `scutil`). Desktop-only. See `state/proxy.ts`.
+function NetworkSettings(): JSX.Element {
+  const t = useT();
+  const override = useProxy((s) => s.override);
+  const detected = useProxy((s) => s.detected);
+  const use = useProxy((s) => s.use);
+  const setOverride = useProxy((s) => s.setOverride);
+  const setUse = useProxy((s) => s.setUse);
+  const resolveDetected = useProxy((s) => s.resolveDetected);
+
+  useEffect(() => {
+    void resolveDetected();
+  }, [resolveDetected]);
+
+  const effective = override.trim() !== '' ? override.trim() : detected;
+  const connLabels: Record<ProxyConn, string> = {
+    hub: t('network.connHub'),
+    attachments: t('network.connAttachments'),
+    workspace: t('network.connWorkspace'),
+    discovery: t('network.connDiscovery'),
+    update: t('network.connUpdate'),
+    drawio: t('network.connDrawio'),
+  };
+
+  return (
+    <section className="setting-group">
+      <h3>{t('network.title')}</h3>
+      <p className="muted small">{t('network.blurb')}</p>
+      <div className="setting-row">
+        <label>{t('network.proxyUrl')}</label>
+        <input
+          className="network-proxy-input"
+          type="text"
+          spellCheck={false}
+          placeholder={detected ?? 'http://proxy.corp:8080'}
+          value={override}
+          onChange={(e) => setOverride(e.target.value)}
+        />
+      </div>
+      <p className="muted small">{detected ? `${t('network.detected')} ${detected}` : t('network.noneDetected')}</p>
+
+      <h4 className="network-subhead">{t('network.useFor')}</h4>
+      {effective === null || effective === undefined || effective === '' ? (
+        <p className="muted small">{t('network.noProxyHint')}</p>
+      ) : null}
+      <div className="network-conns">
+        {PROXY_CONNS.map((c) => (
+          <label key={c} className="network-conn">
+            <input type="checkbox" checked={use[c]} onChange={(e) => setUse(c, e.target.checked)} />
+            <span>{connLabels[c]}</span>
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function CacheSettings(): JSX.Element {
   const t = useT();
   const [cacheKb, setCacheKb] = useState(() => Math.round(cacheSizeBytes() / 1024));
@@ -296,7 +358,7 @@ function AboutSettings(): JSX.Element {
   );
 }
 
-type CatId = 'account' | 'display' | 'input' | 'data' | 'vault' | 'about';
+type CatId = 'account' | 'display' | 'input' | 'data' | 'network' | 'vault' | 'about';
 const CAT_LS_KEY = 'termipod.settings.cat';
 
 /// The Settings job surface (pinned to the bottom of the activity bar). Where the
@@ -325,6 +387,11 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
         </>
       ),
     },
+    // Network — proxy config for every outbound connection (desktop only; the
+    // browser build has no native HTTP core to route).
+    ...(tauri
+      ? [{ id: 'network' as const, label: t('settings.catNetwork'), render: () => <NetworkSettings /> }]
+      : []),
     // Vault — the home for sensitive credentials (SSH keys, and the connection
     // secrets the zero-knowledge vault seals) plus the cross-device sync.
     ...(tauri

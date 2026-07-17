@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../platform';
+import { proxyForConnection } from '../state/proxy';
 
 /// Shared HTTP for the discovery sources. Routed through the Rust core's
 /// `hub_request` (reqwest) under Tauri so it's CORS-free in the sandboxed webview
@@ -35,7 +36,9 @@ function delay(ms: number): Promise<void> {
 
 async function requestOnce(url: string, headers: Record<string, string>): Promise<Raw> {
   if (isTauri()) {
-    return invoke<Raw>('hub_request', { req: { method: 'GET', url, headers, body: null } });
+    return invoke<Raw>('hub_request', {
+      req: { method: 'GET', url, headers, body: null, proxy: proxyForConnection('discovery') ?? null },
+    });
   }
   const res = await fetch(url, { headers });
   return { status: res.status, body: await res.text() };

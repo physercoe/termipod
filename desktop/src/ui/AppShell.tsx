@@ -4,6 +4,7 @@ import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { useFocus } from '../state/focus';
 import { useOnline } from '../state/online';
+import { useProxy } from '../state/proxy';
 import { vaultStatus, vaultStatusKey } from '../vault/service';
 import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
@@ -60,8 +61,11 @@ export function AppShell(): JSX.Element {
   const [editProfile, setEditProfile] = useState<HubProfile | undefined>(undefined);
 
   // Auto-bind the active profile on launch; raise the connect overlay only if
-  // that leaves us disconnected (no profile / no stored token).
+  // that leaves us disconnected (no profile / no stored token). Resolve the
+  // system/env proxy first (seeded synchronously from cache; this refreshes it)
+  // so proxy-routed connections have it before the first hub call.
   useEffect(() => {
+    void useProxy.getState().resolveDetected();
     void init().finally(() => {
       if (useSession.getState().client === null) setConnectOpen(true);
     });

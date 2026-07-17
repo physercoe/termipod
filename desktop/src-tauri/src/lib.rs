@@ -12,6 +12,7 @@ mod foldersync;
 mod keychain;
 mod local_agent;
 mod localfs;
+mod net;
 mod pty;
 mod s3;
 mod script;
@@ -36,6 +37,10 @@ struct HubRequest {
     headers: HashMap<String, String>,
     #[serde(default)]
     body: Option<String>,
+    /// Proxy URL to route this request through (Network settings, `hub` toggle
+    /// on), or `None` for a direct connection. See `net::client_builder`.
+    #[serde(default)]
+    proxy: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -58,7 +63,7 @@ struct HubBytesResponse {
 #[tauri::command]
 async fn hub_request(req: HubRequest) -> Result<HubResponse, String> {
     let method = reqwest::Method::from_bytes(req.method.as_bytes()).map_err(|e| e.to_string())?;
-    let client = reqwest::Client::new();
+    let client = net::client_builder(req.proxy.as_deref()).build().map_err(|e| e.to_string())?;
     let mut builder = client.request(method, &req.url);
     for (key, value) in req.headers {
         builder = builder.header(key, value);
@@ -78,7 +83,7 @@ async fn hub_request(req: HubRequest) -> Result<HubResponse, String> {
 async fn hub_request_bytes(req: HubRequest) -> Result<HubBytesResponse, String> {
     use base64::Engine as _;
     let method = reqwest::Method::from_bytes(req.method.as_bytes()).map_err(|e| e.to_string())?;
-    let client = reqwest::Client::new();
+    let client = net::client_builder(req.proxy.as_deref()).build().map_err(|e| e.to_string())?;
     let mut builder = client.request(method, &req.url);
     for (key, value) in req.headers {
         builder = builder.header(key, value);
@@ -129,6 +134,46 @@ fn system_proxy() -> Option<String> {
         if let Some(p) = windows_system_proxy() {
             return Some(normalize_proxy(&p));
         }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(p) = macos_system_proxy() {
+            return Some(normalize_proxy(&p));
+        }
+    }
+    None
+}
+
+/// Read the active macOS system HTTP(S) proxy from `scutil --proxy` (the same
+/// config the System Settings → Network → Proxies panel writes). No new
+/// dependency — mirrors the Windows `reg` approach. Prefers HTTPS, falls back to
+/// HTTP; returns `host:port` (normalised to a URL by the caller). `None` when no
+/// proxy is enabled, or on any parse/spawn failure (best-effort).
+#[cfg(target_os = "macos")]
+fn macos_system_proxy() -> Option<String> {
+    use std::process::Command;
+    let out = Command::new("scutil").arg("--proxy").output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    // `scutil --proxy` prints a dictionary, one `Key : Value` per line, e.g.
+    //   HTTPSEnable : 1
+    //   HTTPSProxy : proxy.corp
+    //   HTTPSPort : 8080
+    let field = |key: &str| -> Option<String> {
+        text.lines()
+            .find_map(|l| l.trim().strip_prefix(key)?.trim().strip_prefix(':').map(|v| v.trim().to_string()))
+    };
+    for (enable, host_key, port_key) in [
+        ("HTTPSEnable", "HTTPSProxy", "HTTPSPort"),
+        ("HTTPEnable", "HTTPProxy", "HTTPPort"),
+    ] {
+        if field(enable).as_deref() != Some("1") {
+            continue;
+        }
+        let host = field(host_key).filter(|h| !h.is_empty())?;
+        return Some(match field(port_key).filter(|p| !p.is_empty()) {
+            Some(port) => format!("{host}:{port}"),
+            None => host,
+        });
     }
     None
 }
@@ -227,6 +272,9 @@ pub struct SseState {
 struct SseOpenReq {
     url: String,
     token: String,
+    /// Proxy URL (Network settings, `hub` toggle on), or `None` for direct.
+    #[serde(default)]
+    proxy: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -243,7 +291,7 @@ struct SseEnd {
 
 #[tauri::command]
 async fn hub_sse_open(app: AppHandle, state: State<'_, SseState>, req: SseOpenReq) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = net::client_builder(req.proxy.as_deref()).build().map_err(|e| e.to_string())?;
     let resp = client
         .get(&req.url)
         .header("authorization", format!("Bearer {}", req.token))

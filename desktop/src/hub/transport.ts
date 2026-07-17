@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../platform';
+import { proxyForConnection } from '../state/proxy';
 import type { HubConfig } from './config';
 import { HubApiError } from './errors';
 
@@ -60,7 +61,7 @@ export class HubTransport {
   ): Promise<RawResponse> {
     if (isTauri()) {
       return await invoke<RawResponse>('hub_request', {
-        req: { method, url, headers, body: bodyText ?? null },
+        req: { method, url, headers, body: bodyText ?? null, proxy: proxyForConnection('hub') ?? null },
       });
     }
     const res = await fetch(url, { method, headers, body: bodyText });
@@ -128,7 +129,7 @@ export class HubTransport {
     const headers = this.headers(true);
     if (isTauri()) {
       const res = await invoke<{ status: number; mime: string; base64: string }>('hub_request_bytes', {
-        req: { method: 'GET', url, headers, body: null },
+        req: { method: 'GET', url, headers, body: null, proxy: proxyForConnection('hub') ?? null },
       });
       if (res.status < 200 || res.status >= 300) throw new HubApiError(res.status, res.base64);
       return { mime: res.mime, base64: res.base64 };

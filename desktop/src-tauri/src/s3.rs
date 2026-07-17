@@ -86,8 +86,8 @@ fn make_cfg(
     })
 }
 
-fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+fn client(proxy: Option<&str>) -> Result<reqwest::Client, String> {
+    crate::net::client_builder(proxy)
         .user_agent("termipod-desktop")
         .timeout(Duration::from_secs(S3_TIMEOUT_SECS))
         .build()
@@ -384,9 +384,10 @@ pub async fn s3_sync_verify(
     prefix: String,
     access_key: String,
     secret_key: String,
+    proxy: Option<String>,
 ) -> Result<String, String> {
     let cfg = make_cfg(&endpoint, &region, &bucket, &prefix, &access_key, &secret_key)?;
-    let c = client()?;
+    let c = client(proxy.as_deref())?;
     let query = "list-type=2&max-keys=1";
     let raw = format!("{}://{}/{}?{}", cfg.scheme, cfg.host, uri_encode(&cfg.bucket, true), query);
     let url = Url::parse(&raw).map_err(|e| e.to_string())?;
@@ -418,13 +419,14 @@ pub async fn s3_sync(
     prefix: String,
     access_key: String,
     secret_key: String,
+    proxy: Option<String>,
 ) -> Result<FolderSyncReport, String> {
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
         return Err("workspace root is not a directory".into());
     }
     let cfg = make_cfg(&endpoint, &region, &bucket, &prefix, &access_key, &secret_key)?;
-    let c = client()?;
+    let c = client(proxy.as_deref())?;
 
     let locals = enumerate_local(&root_path);
     let remotes = list_objects(&c, &cfg).await?;
@@ -577,13 +579,14 @@ pub async fn s3_zotero_sync(
     prefix: String,
     access_key: String,
     secret_key: String,
+    proxy: Option<String>,
 ) -> Result<crate::webdav::SyncReport, String> {
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
         return Err("storage root is not a directory".into());
     }
     let cfg = make_cfg(&endpoint, &region, &bucket, &prefix, &access_key, &secret_key)?;
-    let c = client()?;
+    let c = client(proxy.as_deref())?;
 
     let mut report = crate::webdav::SyncReport::default();
     let locals = crate::webdav::enumerate_local(&root_path);

@@ -93,6 +93,38 @@
 .setting-row label {
   color: var(--text-secondary);
 }
+/* Network → proxy config + per-connection toggles. */
+.network-proxy-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 60%;
+}
+.network-subhead {
+  margin: var(--spacing-s16) 0 var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.network-conns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.network-conn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.network-conn input[type='checkbox'] {
+  width: auto;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
 /* Account → hub-profile management. */
 .profile-list {
   display: flex;

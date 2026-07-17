@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { isTauri } from '../platform';
+import { proxyForConnection } from '../state/proxy';
 import type { HubConfig } from './config';
 
 export interface SseHandle {
@@ -83,7 +84,9 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
 
   async function readViaTauri(): Promise<void> {
     buf = '';
-    const id = await invoke<string>('hub_sse_open', { req: { url: buildUrl(), token: cfg.token } });
+    const id = await invoke<string>('hub_sse_open', {
+      req: { url: buildUrl(), token: cfg.token, proxy: proxyForConnection('hub') ?? null },
+    });
     if (closed) {
       void invoke('hub_sse_close', { id });
       return;

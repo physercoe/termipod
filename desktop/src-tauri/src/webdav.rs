@@ -210,20 +210,20 @@ async fn get_prop(
     Ok(Some((mtime, hash)))
 }
 
-fn build_prop(mtime_ms: i64, hash: &str) -> String {
+pub(crate) fn build_prop(mtime_ms: i64, hash: &str) -> String {
     format!("<properties version=\"1\"><mtime>{mtime_ms}</mtime><hash>{hash}</hash></properties>")
 }
 
 /// A Zotero attachment key is exactly 8 alphanumeric chars. Restricting to that
 /// shape keeps stray folders in the storage root out of the sync.
-fn is_key(k: &str) -> bool {
+pub(crate) fn is_key(k: &str) -> bool {
     k.len() == 8 && k.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
-struct LocalAtt {
-    files: Vec<PathBuf>,
-    mtime_ms: i64,
-    hash: String,
+pub(crate) struct LocalAtt {
+    pub(crate) files: Vec<PathBuf>,
+    pub(crate) mtime_ms: i64,
+    pub(crate) hash: String,
 }
 
 fn file_mtime_ms(p: &Path) -> i64 {
@@ -246,7 +246,7 @@ fn md5_file(p: &Path) -> Result<String, String> {
 /// Every `storage/<KEY>/` folder that holds at least one file, keyed by KEY. The
 /// hash + mtime come from the primary (alphabetically first) file — our
 /// attachments are single-file, matching Zotero's `imported_file` model.
-fn enumerate_local(root: &Path) -> BTreeMap<String, LocalAtt> {
+pub(crate) fn enumerate_local(root: &Path) -> BTreeMap<String, LocalAtt> {
     let mut out = BTreeMap::new();
     let Ok(rd) = std::fs::read_dir(root) else {
         return out;
@@ -288,7 +288,7 @@ fn enumerate_local(root: &Path) -> BTreeMap<String, LocalAtt> {
     out
 }
 
-fn zip_files(files: &[PathBuf]) -> Result<Vec<u8>, String> {
+pub(crate) fn zip_files(files: &[PathBuf]) -> Result<Vec<u8>, String> {
     let mut buf = Vec::new();
     {
         let mut zw = zip::ZipWriter::new(Cursor::new(&mut buf));
@@ -314,7 +314,7 @@ fn zip_files(files: &[PathBuf]) -> Result<Vec<u8>, String> {
 /// Extract a downloaded `<KEY>.zip` flat into `dest` (one folder per key). Entry
 /// names are reduced to their basename so a maliciously-crafted zip can't escape
 /// the folder (Zotero zips are flat anyway).
-fn unzip_into(bytes: &[u8], dest: &Path) -> Result<usize, String> {
+pub(crate) fn unzip_into(bytes: &[u8], dest: &Path) -> Result<usize, String> {
     let mut ar = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     let mut n = 0;
@@ -386,14 +386,14 @@ async fn download(
 
 #[derive(Serialize, Default)]
 pub struct SyncReport {
-    uploaded: usize,
-    downloaded: usize,
-    skipped: usize,
-    conflicts: usize,
+    pub(crate) uploaded: usize,
+    pub(crate) downloaded: usize,
+    pub(crate) skipped: usize,
+    pub(crate) conflicts: usize,
     /// Keys whose files were pulled down — the frontend re-indexes so they show.
     #[serde(rename = "downloadedKeys")]
-    downloaded_keys: Vec<String>,
-    errors: Vec<String>,
+    pub(crate) downloaded_keys: Vec<String>,
+    pub(crate) errors: Vec<String>,
 }
 
 /// Verify connectivity + write access: ensure the `zotero/` collection exists and

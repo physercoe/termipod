@@ -2,19 +2,32 @@ import { isTauri } from '../platform';
 import { activeAttachmentRoot, useAttachmentConfig } from './attachments';
 import { secretDelete, secretGet, secretSet } from './persist';
 import { useZoteroStorage } from './zoteroStorage';
+import type { S3Config, SyncBackend } from './workspaceSync';
 
-/// Zotero-compatible WebDAV file sync for the Read-surface storage root (Tauri
-/// only — the transfer + zip + hashing happen in the Rust core, `webdav.rs`).
+/// Zotero-compatible file sync for the Read-surface storage root (Tauri only — the
+/// transfer + zip + hashing happen in the Rust core). Two backends, both writing
+/// Zotero's own `zotero/<KEY>.zip` + `<KEY>.prop` layout:
+/// - **WebDAV** (`webdav.rs`) — interoperates with the real Zotero apps (same
+///   server, files appear in both).
+/// - **S3** (`s3.rs` `s3_zotero_sync`) — the same object layout in an S3 bucket.
+///   Zotero itself can't read S3, so this syncs attachments TermiPod-to-TermiPod
+///   only (director choice); it's the cheaper/faster option when Zotero-app
+///   interop isn't needed.
 ///
-/// Config: the base URL + username live in localStorage (non-secret), the
-/// password in the OS keychain (`keychain_set/get`). All three are passed to the
-/// Rust commands per call — nothing secret is cached in the webview. The server
-/// layout is Zotero's own (`zotero/<KEY>.zip` + `<KEY>.prop`), so the same server
-/// a user already syncs Zotero to works and files appear in both apps.
+/// Config: non-secret fields in localStorage; the password / S3 secret in the OS
+/// keychain (consolidated item, no extra macOS prompt). All are passed to the Rust
+/// commands per call — nothing secret is cached in the webview.
 
 const LS_URL = 'termipod.webdav.url';
 const LS_USER = 'termipod.webdav.user';
 const KC_PASS = 'termipod.webdav.password';
+const LS_BACKEND = 'termipod.webdav.backend';
+const LS_S3_ENDPOINT = 'termipod.webdav.s3.endpoint';
+const LS_S3_REGION = 'termipod.webdav.s3.region';
+const LS_S3_BUCKET = 'termipod.webdav.s3.bucket';
+const LS_S3_PREFIX = 'termipod.webdav.s3.prefix';
+const LS_S3_ACCESS = 'termipod.webdav.s3.accessKeyId';
+const KC_S3_SECRET = 'termipod.webdav.s3.secret';
 
 export interface WebdavConfig {
   url: string;
@@ -81,12 +94,84 @@ export async function verifyWebdav(url: string, user: string, pass: string): Pro
   await invoke<string>('webdav_verify', { url: url.trim(), user, pass });
 }
 
-/// Two-way sync the active storage root against the configured WebDAV server.
-/// Re-indexes a linked Zotero folder afterwards so freshly-downloaded files show.
+// ── backend selection ────────────────────────────────────────────────────────
+export function loadZoteroBackend(): SyncBackend {
+  try {
+    return localStorage.getItem(LS_BACKEND) === 's3' ? 's3' : 'webdav';
+  } catch {
+    return 'webdav';
+  }
+}
+
+export function saveZoteroBackend(backend: SyncBackend): void {
+  try {
+    localStorage.setItem(LS_BACKEND, backend);
+  } catch {
+    /* ignore */
+  }
+}
+
+// ── S3 backend (Zotero object layout in a bucket) ────────────────────────────
+export function loadZoteroS3Config(): S3Config {
+  try {
+    return {
+      endpoint: localStorage.getItem(LS_S3_ENDPOINT) ?? '',
+      region: localStorage.getItem(LS_S3_REGION) ?? '',
+      bucket: localStorage.getItem(LS_S3_BUCKET) ?? '',
+      prefix: localStorage.getItem(LS_S3_PREFIX) ?? '',
+      accessKeyId: localStorage.getItem(LS_S3_ACCESS) ?? '',
+    };
+  } catch {
+    return { endpoint: '', region: '', bucket: '', prefix: '', accessKeyId: '' };
+  }
+}
+
+export function saveZoteroS3Config(cfg: S3Config): void {
+  try {
+    localStorage.setItem(LS_S3_ENDPOINT, cfg.endpoint.trim());
+    localStorage.setItem(LS_S3_REGION, cfg.region.trim());
+    localStorage.setItem(LS_S3_BUCKET, cfg.bucket.trim());
+    localStorage.setItem(LS_S3_PREFIX, cfg.prefix.trim());
+    localStorage.setItem(LS_S3_ACCESS, cfg.accessKeyId.trim());
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function getZoteroS3Secret(): Promise<string> {
+  if (!isTauri()) return '';
+  try {
+    return (await secretGet(KC_S3_SECRET)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export async function setZoteroS3Secret(secret: string): Promise<void> {
+  if (!isTauri()) return;
+  if (secret === '') await secretDelete(KC_S3_SECRET);
+  else await secretSet(KC_S3_SECRET, secret);
+}
+
+/// Verify the S3 backend with the given form values (secret passed explicitly so
+/// the modal can verify before persisting). Reuses the workspace S3 verify command.
+export async function verifyZoteroS3(cfg: S3Config, secretKey: string): Promise<void> {
+  if (!isTauri()) throw new Error('sync requires the desktop app');
+  await invoke<string>('s3_sync_verify', {
+    endpoint: cfg.endpoint.trim(),
+    region: cfg.region.trim(),
+    bucket: cfg.bucket.trim(),
+    prefix: cfg.prefix.trim(),
+    accessKey: cfg.accessKeyId.trim(),
+    secretKey,
+  });
+}
+
+/// Two-way sync the active storage root against the configured backend (WebDAV or
+/// S3). Re-indexes a linked Zotero folder afterwards so freshly-downloaded files
+/// show.
 export async function syncWebdav(): Promise<SyncReport> {
-  if (!isTauri()) throw new Error('WebDAV sync requires the desktop app');
-  const { url, user } = loadWebdavConfig();
-  if (url === '') throw new Error('configure the WebDAV server first');
+  if (!isTauri()) throw new Error('sync requires the desktop app');
 
   let root = activeAttachmentRoot();
   if (root === null) {
@@ -95,8 +180,26 @@ export async function syncWebdav(): Promise<SyncReport> {
   }
   if (root === null) throw new Error('no storage location — link a Zotero folder or add an attachment first');
 
-  const pass = await getWebdavPassword();
-  const report = await invoke<SyncReport>('webdav_sync', { root, url, user, pass });
+  let report: SyncReport;
+  if (loadZoteroBackend() === 's3') {
+    const cfg = loadZoteroS3Config();
+    if (cfg.bucket === '') throw new Error('configure the S3 bucket first');
+    const secretKey = await getZoteroS3Secret();
+    report = await invoke<SyncReport>('s3_zotero_sync', {
+      root,
+      endpoint: cfg.endpoint.trim(),
+      region: cfg.region.trim(),
+      bucket: cfg.bucket.trim(),
+      prefix: cfg.prefix.trim(),
+      accessKey: cfg.accessKeyId.trim(),
+      secretKey,
+    });
+  } else {
+    const { url, user } = loadWebdavConfig();
+    if (url === '') throw new Error('configure the WebDAV server first');
+    const pass = await getWebdavPassword();
+    report = await invoke<SyncReport>('webdav_sync', { root, url, user, pass });
+  }
   // Downloaded files only become resolvable once the folder index is refreshed;
   // reindex() is a no-op when no Zotero folder is linked (managed attachments
   // resolve by absolute path and need no index).

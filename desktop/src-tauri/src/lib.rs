@@ -507,6 +507,7 @@ pub fn run() {
             foldersync::folder_webdav_sync,
             s3::s3_sync_verify,
             s3::s3_sync,
+            s3::s3_zotero_sync,
             docfile::doc_open,
             docfile::doc_read,
             docfile::doc_save,

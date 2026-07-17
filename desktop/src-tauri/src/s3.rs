@@ -473,3 +473,174 @@ pub async fn s3_sync(
     }
     Ok(report)
 }
+
+// ── Zotero-layout backend (Read surface) ─────────────────────────────────────
+// The Read surface's attachment store uses Zotero's OWN object layout
+// (`<KEY>.zip` + `<KEY>.prop`, MD5-hashed), not the workspace tree mirror above.
+// This backend reproduces that exact layout over S3 objects — under a `zotero/`
+// sub-prefix, mirroring how the WebDAV backend nests everything under `zotero/` —
+// reusing the Zotero zip/prop/hash helpers from `webdav.rs` and the S3 client in
+// this file. Caveat: only THIS app reads it; the real Zotero clients speak WebDAV,
+// not S3, so an S3 store syncs attachments TermiPod-to-TermiPod only.
+
+const ZOTERO_SUB: &str = "zotero/";
+
+/// PUT raw bytes at `<prefix>rel` (the zip / prop; the tree backend's put_object
+/// reads from a file path instead).
+async fn put_bytes(c: &reqwest::Client, cfg: &S3Cfg, rel: &str, bytes: Vec<u8>) -> Result<(), String> {
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err("file exceeds 100 MB sync cap".into());
+    }
+    let url = object_url(cfg, rel)?;
+    let resp = send_signed(c, cfg, reqwest::Method::PUT, url, "", Some(bytes)).await?;
+    let s = resp.status();
+    if s.is_success() {
+        Ok(())
+    } else {
+        Err(format!("PUT → HTTP {}", s.as_u16()))
+    }
+}
+
+/// GET raw object bytes; `Ok(None)` on 404 (object absent).
+async fn get_bytes_opt(c: &reqwest::Client, cfg: &S3Cfg, rel: &str) -> Result<Option<Vec<u8>>, String> {
+    let url = object_url(cfg, rel)?;
+    let resp = send_signed(c, cfg, reqwest::Method::GET, url, "", None).await?;
+    let s = resp.status().as_u16();
+    if s == 404 {
+        return Ok(None);
+    }
+    if !(200..300).contains(&s) {
+        return Err(format!("GET → HTTP {s}"));
+    }
+    Ok(Some(resp.bytes().await.map_err(|e| e.to_string())?.to_vec()))
+}
+
+fn parse_prop(bytes: &[u8]) -> (i64, String) {
+    let body = String::from_utf8_lossy(bytes);
+    let mtime = extract_all(&body, "mtime")
+        .into_iter()
+        .next()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .unwrap_or(0);
+    let hash = extract_all(&body, "hash").into_iter().next().unwrap_or_default();
+    (mtime, hash)
+}
+
+/// The attachment keys present remotely (those with a `zotero/<KEY>.prop`).
+async fn zotero_remote_keys(c: &reqwest::Client, cfg: &S3Cfg) -> Result<BTreeSet<String>, String> {
+    let mut keys = BTreeSet::new();
+    for rel in list_objects(c, cfg).await?.keys() {
+        if let Some(name) = rel.strip_prefix(ZOTERO_SUB) {
+            if let Some(k) = name.strip_suffix(".prop") {
+                if crate::webdav::is_key(k) {
+                    keys.insert(k.to_string());
+                }
+            }
+        }
+    }
+    Ok(keys)
+}
+
+async fn zotero_upload(
+    c: &reqwest::Client,
+    cfg: &S3Cfg,
+    key: &str,
+    local: &crate::webdav::LocalAtt,
+) -> Result<(), String> {
+    let zipped = crate::webdav::zip_files(&local.files)?;
+    put_bytes(c, cfg, &format!("{ZOTERO_SUB}{key}.zip"), zipped).await?;
+    // Prop last — its presence marks a completed upload (Zotero's rule).
+    let prop = crate::webdav::build_prop(local.mtime_ms, &local.hash).into_bytes();
+    put_bytes(c, cfg, &format!("{ZOTERO_SUB}{key}.prop"), prop).await?;
+    Ok(())
+}
+
+async fn zotero_download(c: &reqwest::Client, cfg: &S3Cfg, key: &str, root: &Path) -> Result<bool, String> {
+    match get_bytes_opt(c, cfg, &format!("{ZOTERO_SUB}{key}.zip")).await? {
+        None => Ok(false),
+        Some(bytes) => {
+            crate::webdav::unzip_into(&bytes, &root.join(key))?;
+            Ok(true)
+        }
+    }
+}
+
+/// Two-way Zotero-layout sync of the storage `root` against the S3 bucket/prefix.
+/// Same content-addressed rule as the WebDAV Zotero backend: equal hash → skip,
+/// else newest mtime wins, same-mtime/diff-hash → reported conflict.
+#[tauri::command]
+pub async fn s3_zotero_sync(
+    root: String,
+    endpoint: String,
+    region: String,
+    bucket: String,
+    prefix: String,
+    access_key: String,
+    secret_key: String,
+) -> Result<crate::webdav::SyncReport, String> {
+    let root_path = PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Err("storage root is not a directory".into());
+    }
+    let cfg = make_cfg(&endpoint, &region, &bucket, &prefix, &access_key, &secret_key)?;
+    let c = client()?;
+
+    let mut report = crate::webdav::SyncReport::default();
+    let locals = crate::webdav::enumerate_local(&root_path);
+    let remote_keys = zotero_remote_keys(&c, &cfg).await?;
+
+    let mut all: BTreeSet<String> = locals.keys().cloned().collect();
+    all.extend(remote_keys.iter().cloned());
+
+    for key in all {
+        let local = locals.get(&key);
+        let remote = remote_keys.contains(&key);
+        let step: Result<(), String> = async {
+            match (local, remote) {
+                (Some(l), false) => {
+                    zotero_upload(&c, &cfg, &key, l).await?;
+                    report.uploaded += 1;
+                }
+                (None, true) => {
+                    if zotero_download(&c, &cfg, &key, &root_path).await? {
+                        report.downloaded += 1;
+                        report.downloaded_keys.push(key.clone());
+                    } else {
+                        report.skipped += 1;
+                    }
+                }
+                (Some(l), true) => match get_bytes_opt(&c, &cfg, &format!("{ZOTERO_SUB}{key}.prop")).await? {
+                    None => {
+                        zotero_upload(&c, &cfg, &key, l).await?;
+                        report.uploaded += 1;
+                    }
+                    Some(pb) => {
+                        let (rmtime, rhash) = parse_prop(&pb);
+                        if !rhash.is_empty() && rhash.eq_ignore_ascii_case(&l.hash) {
+                            report.skipped += 1;
+                        } else if l.mtime_ms > rmtime {
+                            zotero_upload(&c, &cfg, &key, l).await?;
+                            report.uploaded += 1;
+                        } else if rmtime > l.mtime_ms {
+                            if zotero_download(&c, &cfg, &key, &root_path).await? {
+                                report.downloaded += 1;
+                                report.downloaded_keys.push(key.clone());
+                            } else {
+                                report.skipped += 1;
+                            }
+                        } else {
+                            report.conflicts += 1;
+                        }
+                    }
+                },
+                (None, false) => {}
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(e) = step {
+            report.errors.push(format!("{key}: {e}"));
+        }
+    }
+    Ok(report)
+}

@@ -348,7 +348,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
               className="feed-virt"
               data={liveData}
               computeItemKey={(_i, ev) => ev.id}
-              initialTopMostItemIndex={Math.max(0, liveData.length - 1)}
+              initialTopMostItemIndex={{ index: Math.max(0, liveData.length - 1), align: 'end' }}
               alignToBottom
               followOutput={(atBottom) => (atBottom ? 'auto' : false)}
               itemContent={(_i, ev) => feedItem(ev)}

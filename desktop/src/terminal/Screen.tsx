@@ -93,11 +93,10 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
     // window/panel resize, and — critically — when un-hidden after a tab switch:
     // while `display:none` the element is 0×0 and xterm can't lay out, so the
     // buffered prompt reads as a black screen until we re-fit and refresh).
-    let lastCols = 0; // last winsize we handed the PTY (SIGWINCH throttle target)
+    let lastCols = 0; // last geometry we applied (fit + PTY winsize)
     let lastRows = 0;
     let wasVisible = false;
-    let rafId = 0;
-    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    let fitTimer: ReturnType<typeof setTimeout> | undefined;
 
     const applyFit = (force: boolean): void => {
       if (disposed || el.clientWidth === 0 || el.clientHeight === 0) {
@@ -127,24 +126,10 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       }
       const changed = term.cols !== lastCols || term.rows !== lastRows;
       if (changed) {
-        // Debounce the PTY winsize: a full-screen TUI (kimi, vim) repaints on
-        // every SIGWINCH, so forwarding each intermediate size during a drag makes
-        // the pane flash repeatedly ("splash"). xterm reflows live off `fit.fit()`
-        // above; the shell only needs the final size once the resize settles.
-        const c = term.cols;
-        const r = term.rows;
-        if (resizeTimer !== undefined) clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-          resizeTimer = undefined;
-          if (disposed) return;
-          lastCols = c;
-          lastRows = r;
-          void sessionResize(kind, sessionId, c, r);
-        }, 140);
+        lastCols = term.cols;
+        lastRows = term.rows;
+        void sessionResize(kind, sessionId, term.cols, term.rows);
       }
-      // Only repaint when the geometry actually changed or the pane was just
-      // revealed — repainting on every no-op ResizeObserver tick is what turns a
-      // drag into a strobe.
       if (changed || !wasVisible) term.refresh(0, term.rows - 1);
       if (!wasVisible) {
         wasVisible = true;
@@ -152,18 +137,22 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       }
     };
 
-    // Coalesce bursts of ResizeObserver callbacks (a drag fires dozens per second)
-    // into at most one fit per frame; a pending force-remeasure sticks until it runs.
+    // Coalesce a BURST of ResizeObserver callbacks into ONE fit on the trailing
+    // edge. A window drag or a dock-side switch (bottom↔right) changes the box over
+    // many frames; fitting on each one re-wraps the entire scrollback every time,
+    // and for a busy TUI that turns a single resize into seconds of repeated reflow
+    // (the "3-4s movie"). Waiting for the size to settle, then fitting once, makes
+    // the switch snap into place. A pending force-remeasure sticks until it runs.
     let pendingForce = false;
     const scheduleFit = (force = false): void => {
       if (force) pendingForce = true;
-      if (rafId !== 0) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = 0;
+      if (fitTimer !== undefined) clearTimeout(fitTimer);
+      fitTimer = setTimeout(() => {
+        fitTimer = undefined;
         const f = pendingForce;
         pendingForce = false;
         applyFit(f);
-      });
+      }, 90);
     };
 
     applyFit(false);
@@ -195,8 +184,7 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       disposed = true;
       clearTimeout(settle1);
       clearTimeout(settle2);
-      if (resizeTimer !== undefined) clearTimeout(resizeTimer);
-      if (rafId !== 0) cancelAnimationFrame(rafId);
+      if (fitTimer !== undefined) clearTimeout(fitTimer);
       ro.disconnect();
       onData.dispose();
       void unlistenP.then((u) => u());

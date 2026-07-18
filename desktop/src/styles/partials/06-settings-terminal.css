@@ -476,26 +476,6 @@
   padding: var(--spacing-s4);
   overflow: hidden;
 }
-/* Give xterm's scroll gutter a fixed, space-consuming scrollbar. On macOS the
-   default is an overlay bar (0 layout width) that FitAddon can't reserve for, so
-   the rightmost column ends up drawn under it; a styled ::-webkit-scrollbar makes
-   the browser reserve a real, consistent gutter (thin + themed to match). */
-.term-screen .xterm-viewport::-webkit-scrollbar {
-  width: 10px;
-}
-.term-screen .xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
-}
-.term-screen .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
-  border-radius: 5px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-.term-screen .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
-  background-clip: padding-box;
-}
 .term-note {
   font-size: var(--font-size-caption);
   color: var(--text-muted);

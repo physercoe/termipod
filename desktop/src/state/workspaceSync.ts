@@ -1,6 +1,7 @@
 import { isTauri } from '../platform';
 import { proxyForConnection } from './proxy';
 import { secretDelete, secretGet, secretSet } from './persist';
+import { invokeWithProgress, type SyncProgress } from './syncProgress';
 
 /// WebDAV sync for the Author **workspace** folder — an Obsidian-vault–style
 /// recursive tree mirror (Tauri only; the transfer runs in the Rust core,
@@ -186,31 +187,43 @@ export async function verifyS3Sync(cfg: S3Config, secretKey: string): Promise<vo
 }
 
 /// Two-way, additive (never-delete) sync of `root` against the configured backend.
-export async function syncWorkspace(root: string): Promise<FolderSyncReport> {
+/// `onProgress` (optional) receives live N/M ticks for the status-bar chip.
+export async function syncWorkspace(
+  root: string,
+  onProgress?: (p: SyncProgress) => void,
+): Promise<FolderSyncReport> {
   if (!isTauri()) throw new Error('workspace sync requires the desktop app');
   if (loadSyncBackend() === 's3') {
     const cfg = loadS3Config();
     if (cfg.bucket === '') throw new Error('configure the S3 bucket first');
     const secretKey = await getS3Secret();
-    return invoke<FolderSyncReport>('s3_sync', {
-      root,
-      endpoint: cfg.endpoint.trim(),
-      region: cfg.region.trim(),
-      bucket: cfg.bucket.trim(),
-      prefix: cfg.prefix.trim(),
-      accessKey: cfg.accessKeyId.trim(),
-      secretKey,
-      proxy: proxyForConnection('workspace') ?? null,
-    });
+    return invokeWithProgress<FolderSyncReport>(
+      's3_sync',
+      {
+        root,
+        endpoint: cfg.endpoint.trim(),
+        region: cfg.region.trim(),
+        bucket: cfg.bucket.trim(),
+        prefix: cfg.prefix.trim(),
+        accessKey: cfg.accessKeyId.trim(),
+        secretKey,
+        proxy: proxyForConnection('workspace') ?? null,
+      },
+      onProgress,
+    );
   }
   const { url, user } = loadWorkspaceSyncConfig();
   if (url === '') throw new Error('configure the sync server first');
   const pass = await getWorkspaceSyncPassword();
-  return invoke<FolderSyncReport>('folder_webdav_sync', {
-    root,
-    url,
-    user,
-    pass,
-    proxy: proxyForConnection('workspace') ?? null,
-  });
+  return invokeWithProgress<FolderSyncReport>(
+    'folder_webdav_sync',
+    {
+      root,
+      url,
+      user,
+      pass,
+      proxy: proxyForConnection('workspace') ?? null,
+    },
+    onProgress,
+  );
 }

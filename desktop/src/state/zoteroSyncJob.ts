@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { loadZoteroBackend, syncWebdav, type SyncReport } from './webdav';
+import type { SyncProgress } from './syncProgress';
 import type { SyncBackend } from './workspaceSync';
 
 /// A single background Zotero-attachment-sync job (the Read surface's library
@@ -17,6 +18,8 @@ interface ZoteroSyncJobState {
   backend: SyncBackend | null;
   /// When the current/last run began (epoch ms).
   startedAt: number | null;
+  /// Live N/M progress while running (null before the first tick).
+  progress: SyncProgress | null;
   report: SyncReport | null;
   error: string | null;
   start: () => void;
@@ -27,17 +30,25 @@ export const useZoteroSyncJob = create<ZoteroSyncJobState>((set, get) => ({
   running: false,
   backend: null,
   startedAt: null,
+  progress: null,
   report: null,
   error: null,
   start: () => {
     if (get().running) return;
-    set({ running: true, backend: loadZoteroBackend(), startedAt: Date.now(), report: null, error: null });
+    set({
+      running: true,
+      backend: loadZoteroBackend(),
+      startedAt: Date.now(),
+      progress: null,
+      report: null,
+      error: null,
+    });
     void (async () => {
       try {
-        const report = await syncWebdav();
-        set({ running: false, report, error: null });
+        const report = await syncWebdav((p) => set({ progress: p }));
+        set({ running: false, progress: null, report, error: null });
       } catch (e) {
-        set({ running: false, error: e instanceof Error ? e.message : String(e) });
+        set({ running: false, progress: null, error: e instanceof Error ? e.message : String(e) });
       }
     })();
   },

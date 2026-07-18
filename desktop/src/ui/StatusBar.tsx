@@ -30,8 +30,10 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
 
   const wsRunning = useSyncJob((s) => s.running);
   const wsError = useSyncJob((s) => s.error);
+  const wsProgress = useSyncJob((s) => s.progress);
   const zoteroRunning = useZoteroSyncJob((s) => s.running);
   const zoteroError = useZoteroSyncJob((s) => s.error);
+  const zoteroProgress = useZoteroSyncJob((s) => s.progress);
 
   // Live terminal sessions + a toggle for the dock, so terminals are reachable
   // (and their count is visible) from any tab — not only the Terminal surface.
@@ -45,12 +47,16 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
   // distinguishable when they run at once, and each background failure — which
   // would otherwise be lost once its modal is closed — is surfaced and dismissed
   // independently. Running chip spins; failed chip is a dismissable red button.
+  // `N/M` when the running sync has reported progress (M = files to transfer for
+  // the workspace backends, keys processed for the Zotero ones — see SyncProgress).
+  const fmt = (p: { done: number; total: number } | null): string =>
+    p !== null && p.total > 0 ? ` ${p.done}/${p.total}` : '';
   const jobs = [
     {
       key: 'workspace',
       running: wsRunning,
       error: wsError,
-      runLabel: t('status.syncingWorkspace'),
+      runLabel: t('status.syncingWorkspace') + fmt(wsProgress),
       failLabel: t('status.syncFailedWorkspace'),
       dismiss: (): void => useSyncJob.getState().dismiss(),
     },
@@ -58,7 +64,7 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
       key: 'library',
       running: zoteroRunning,
       error: zoteroError,
-      runLabel: t('status.syncingLibrary'),
+      runLabel: t('status.syncingLibrary') + fmt(zoteroProgress),
       failLabel: t('status.syncFailedLibrary'),
       dismiss: (): void => useZoteroSyncJob.getState().dismiss(),
     },

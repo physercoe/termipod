@@ -28,6 +28,7 @@ use std::time::UNIX_EPOCH;
 
 use reqwest::Url;
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 use crate::webdav::extract_all;
 
@@ -478,6 +479,42 @@ pub(crate) fn decide_both(
     }
 }
 
+/// Whether a (local, remote) pair will actually move bytes (upload or download),
+/// used to pre-count the transfer total before the loop so the status-bar chip can
+/// show N/M. Mirrors the loop's own decision (`decide_both` plus the too-big skip);
+/// cheap — no I/O. Each side is `(size, mtime_ms)` or `None` when absent.
+pub(crate) fn will_transfer(
+    local: Option<(u64, Option<i64>)>,
+    remote: Option<(u64, Option<i64>)>,
+) -> bool {
+    match (local, remote) {
+        (Some(_), None) => true,
+        (None, Some((rsize, _))) => rsize <= MAX_FILE_BYTES,
+        (Some((ls, lm)), Some((rs, rm))) => {
+            matches!(decide_both(ls, lm, rs, rm), SyncAction::Upload | SyncAction::Download)
+        }
+        (None, None) => false,
+    }
+}
+
+/// One progress tick for a running sync, emitted to the frontend as `sync:progress`.
+/// `id` scopes it to a single job (workspace vs library) so two concurrent syncs
+/// don't cross-talk in the status bar.
+#[derive(Clone, Serialize)]
+pub(crate) struct SyncProgress {
+    pub(crate) id: String,
+    pub(crate) done: usize,
+    pub(crate) total: usize,
+}
+
+/// Emit a progress tick, keyed to `id`. Fire-and-forget: a no-op when the caller
+/// passed no id (progress not requested) or the window is gone.
+pub(crate) fn emit_progress(app: &AppHandle, id: &Option<String>, done: usize, total: usize) {
+    if let Some(id) = id {
+        let _ = app.emit("sync:progress", SyncProgress { id: id.clone(), done, total });
+    }
+}
+
 // ── commands ────────────────────────────────────────────────────────────────
 /// Verify connectivity + auth: PROPFIND the base collection. Distinguishes an
 /// auth failure from an unreachable/other error.
@@ -516,11 +553,13 @@ pub async fn folder_webdav_verify(
 /// WebDAV tree at `url`.
 #[tauri::command]
 pub async fn folder_webdav_sync(
+    app: AppHandle,
     root: String,
     url: String,
     user: String,
     pass: String,
     proxy: Option<String>,
+    progress_id: Option<String>,
 ) -> Result<FolderSyncReport, String> {
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
@@ -535,8 +574,23 @@ pub async fn folder_webdav_sync(
     let mut all: BTreeSet<String> = locals.keys().cloned().collect();
     all.extend(remotes.keys().cloned());
 
+    // Pre-count the files that will actually transfer so the chip shows N/M
+    // transfers (not N/M candidates — most are skipped on an incremental sync).
+    let total = all
+        .iter()
+        .filter(|rel| {
+            let key = rel.as_str();
+            will_transfer(
+                locals.get(key).map(|l| (l.size, l.mtime_ms)),
+                remotes.get(key).map(|r| (r.size, r.mtime_ms)),
+            )
+        })
+        .count();
+    emit_progress(&app, &progress_id, 0, total);
+
     let mut report = FolderSyncReport::default();
     let mut made: BTreeSet<String> = BTreeSet::new();
+    let mut emitted = 0usize;
 
     for rel in all {
         let local = locals.get(&rel);
@@ -574,6 +628,13 @@ pub async fn folder_webdav_sync(
         .await;
         if let Err(e) = step {
             report.errors.push(format!("{rel}: {e}"));
+        }
+        // Advance the chip only when a transfer actually completed (skips are fast
+        // and shouldn't move the bar), and only emit on change to avoid a flood.
+        let done = report.uploaded + report.downloaded;
+        if done != emitted {
+            emitted = done;
+            emit_progress(&app, &progress_id, done, total);
         }
     }
     Ok(report)

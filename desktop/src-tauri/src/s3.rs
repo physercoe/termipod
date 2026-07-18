@@ -25,10 +25,11 @@ use reqwest::Url;
 use sha2::{Digest, Sha256};
 
 use crate::foldersync::{
-    days_from_civil, decide_both, element_blocks, enumerate_local, FolderSyncReport, SyncAction,
-    MAX_ENTRIES, MAX_FILE_BYTES,
+    days_from_civil, decide_both, element_blocks, emit_progress, enumerate_local, will_transfer,
+    FolderSyncReport, SyncAction, MAX_ENTRIES, MAX_FILE_BYTES,
 };
 use crate::webdav::extract_all;
+use tauri::AppHandle;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -412,6 +413,7 @@ pub async fn s3_sync_verify(
 /// bucket/prefix. Same rule as the WebDAV backend (`decide_both`).
 #[tauri::command]
 pub async fn s3_sync(
+    app: AppHandle,
     root: String,
     endpoint: String,
     region: String,
@@ -420,6 +422,7 @@ pub async fn s3_sync(
     access_key: String,
     secret_key: String,
     proxy: Option<String>,
+    progress_id: Option<String>,
 ) -> Result<FolderSyncReport, String> {
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
@@ -434,7 +437,21 @@ pub async fn s3_sync(
     let mut all: BTreeSet<String> = locals.keys().cloned().collect();
     all.extend(remotes.keys().cloned());
 
+    // Pre-count actual transfers (skips excluded) for the N/M chip.
+    let total = all
+        .iter()
+        .filter(|rel| {
+            let key = rel.as_str();
+            will_transfer(
+                locals.get(key).map(|l| (l.size, l.mtime_ms)),
+                remotes.get(key).map(|r| (r.size, r.mtime_ms)),
+            )
+        })
+        .count();
+    emit_progress(&app, &progress_id, 0, total);
+
     let mut report = FolderSyncReport::default();
+    let mut emitted = 0usize;
     for rel in all {
         let local = locals.get(&rel);
         let remote = remotes.get(&rel);
@@ -471,6 +488,11 @@ pub async fn s3_sync(
         .await;
         if let Err(e) = step {
             report.errors.push(format!("{rel}: {e}"));
+        }
+        let done = report.uploaded + report.downloaded;
+        if done != emitted {
+            emitted = done;
+            emit_progress(&app, &progress_id, done, total);
         }
     }
     Ok(report)
@@ -572,6 +594,7 @@ async fn zotero_download(c: &reqwest::Client, cfg: &S3Cfg, key: &str, root: &Pat
 /// else newest mtime wins, same-mtime/diff-hash → reported conflict.
 #[tauri::command]
 pub async fn s3_zotero_sync(
+    app: AppHandle,
     root: String,
     endpoint: String,
     region: String,
@@ -580,6 +603,7 @@ pub async fn s3_zotero_sync(
     access_key: String,
     secret_key: String,
     proxy: Option<String>,
+    progress_id: Option<String>,
 ) -> Result<crate::webdav::SyncReport, String> {
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
@@ -594,6 +618,13 @@ pub async fn s3_zotero_sync(
 
     let mut all: BTreeSet<String> = locals.keys().cloned().collect();
     all.extend(remote_keys.iter().cloned());
+
+    // The Zotero decision needs a per-key network fetch (the .prop file), so the
+    // transfer count can't be known up front without doing the work — report
+    // items-processed / total-keys instead (still a real N/M bar).
+    let total = all.len();
+    emit_progress(&app, &progress_id, 0, total);
+    let mut done = 0usize;
 
     for key in all {
         let local = locals.get(&key);
@@ -644,6 +675,8 @@ pub async fn s3_zotero_sync(
         if let Err(e) = step {
             report.errors.push(format!("{key}: {e}"));
         }
+        done += 1;
+        emit_progress(&app, &progress_id, done, total);
     }
     Ok(report)
 }

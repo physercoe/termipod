@@ -34,6 +34,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use md5::{Digest, Md5};
 use serde::Serialize;
+use tauri::AppHandle;
 
 const DAV_TIMEOUT_SECS: u64 = 90;
 
@@ -425,11 +426,13 @@ pub async fn webdav_verify(
 /// collisions are reported, never clobbered.
 #[tauri::command]
 pub async fn webdav_sync(
+    app: AppHandle,
     root: String,
     url: String,
     user: String,
     pass: String,
     proxy: Option<String>,
+    progress_id: Option<String>,
 ) -> Result<SyncReport, String> {
     let c = client(proxy.as_deref())?;
     let dav = dav_dir(&url);
@@ -447,6 +450,12 @@ pub async fn webdav_sync(
 
     let mut all: BTreeSet<String> = locals.keys().cloned().collect();
     all.extend(remote_keys.iter().cloned());
+
+    // Zotero's per-key .prop fetch makes the transfer count unknowable up front —
+    // report items-processed / total-keys (still a real N/M bar).
+    let total = all.len();
+    crate::foldersync::emit_progress(&app, &progress_id, 0, total);
+    let mut done = 0usize;
 
     for key in all {
         let local = locals.get(&key);
@@ -498,6 +507,8 @@ pub async fn webdav_sync(
         if let Err(e) = step {
             report.errors.push(format!("{key}: {e}"));
         }
+        done += 1;
+        crate::foldersync::emit_progress(&app, &progress_id, done, total);
     }
     Ok(report)
 }

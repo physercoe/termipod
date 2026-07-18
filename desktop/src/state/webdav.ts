@@ -2,6 +2,7 @@ import { isTauri } from '../platform';
 import { activeAttachmentRoot, useAttachmentConfig } from './attachments';
 import { proxyForConnection } from './proxy';
 import { secretDelete, secretGet, secretSet } from './persist';
+import { invokeWithProgress, type SyncProgress } from './syncProgress';
 import { useZoteroStorage } from './zoteroStorage';
 import type { S3Config, SyncBackend } from './workspaceSync';
 
@@ -177,7 +178,7 @@ export async function verifyZoteroS3(cfg: S3Config, secretKey: string): Promise<
 /// Two-way sync the active storage root against the configured backend (WebDAV or
 /// S3). Re-indexes a linked Zotero folder afterwards so freshly-downloaded files
 /// show.
-export async function syncWebdav(): Promise<SyncReport> {
+export async function syncWebdav(onProgress?: (p: SyncProgress) => void): Promise<SyncReport> {
   if (!isTauri()) throw new Error('sync requires the desktop app');
 
   let root = activeAttachmentRoot();
@@ -192,27 +193,35 @@ export async function syncWebdav(): Promise<SyncReport> {
     const cfg = loadZoteroS3Config();
     if (cfg.bucket === '') throw new Error('configure the S3 bucket first');
     const secretKey = await getZoteroS3Secret();
-    report = await invoke<SyncReport>('s3_zotero_sync', {
-      root,
-      endpoint: cfg.endpoint.trim(),
-      region: cfg.region.trim(),
-      bucket: cfg.bucket.trim(),
-      prefix: cfg.prefix.trim(),
-      accessKey: cfg.accessKeyId.trim(),
-      secretKey,
-      proxy: proxyForConnection('attachments') ?? null,
-    });
+    report = await invokeWithProgress<SyncReport>(
+      's3_zotero_sync',
+      {
+        root,
+        endpoint: cfg.endpoint.trim(),
+        region: cfg.region.trim(),
+        bucket: cfg.bucket.trim(),
+        prefix: cfg.prefix.trim(),
+        accessKey: cfg.accessKeyId.trim(),
+        secretKey,
+        proxy: proxyForConnection('attachments') ?? null,
+      },
+      onProgress,
+    );
   } else {
     const { url, user } = loadWebdavConfig();
     if (url === '') throw new Error('configure the WebDAV server first');
     const pass = await getWebdavPassword();
-    report = await invoke<SyncReport>('webdav_sync', {
-      root,
-      url,
-      user,
-      pass,
-      proxy: proxyForConnection('attachments') ?? null,
-    });
+    report = await invokeWithProgress<SyncReport>(
+      'webdav_sync',
+      {
+        root,
+        url,
+        user,
+        pass,
+        proxy: proxyForConnection('attachments') ?? null,
+      },
+      onProgress,
+    );
   }
   // Downloaded files only become resolvable once the folder index is refreshed;
   // reindex() is a no-op when no Zotero folder is linked (managed attachments

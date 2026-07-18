@@ -93,42 +93,90 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
     // window/panel resize, and — critically — when un-hidden after a tab switch:
     // while `display:none` the element is 0×0 and xterm can't lay out, so the
     // buffered prompt reads as a black screen until we re-fit and refresh).
-    let lastCols = 0;
+    let lastCols = 0; // last winsize we handed the PTY (SIGWINCH throttle target)
     let lastRows = 0;
     let wasVisible = false;
-    const refit = (): void => {
+    let rafId = 0;
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const applyFit = (force: boolean): void => {
       if (disposed || el.clientWidth === 0 || el.clientHeight === 0) {
         wasVisible = false;
         return;
+      }
+      // `fit.fit()` only calls `term.resize()` when the proposed column count
+      // changes — and it's `resize()` that makes xterm re-measure the character
+      // cell. So when an async web font swaps in *wider* glyphs but the fallback
+      // metric happens to yield the same column count, xterm keeps the stale
+      // (narrower) cell width, over-counts columns, and the rightmost ones spill
+      // under the scrollbar (the kimi right-truncation). Force a re-measure via a
+      // fontFamily nudge (public API) so the next fit proposes honest columns.
+      if (force) {
+        try {
+          const ff = term.options.fontFamily;
+          term.options.fontFamily = `${ff}, monospace`;
+          term.options.fontFamily = ff;
+        } catch {
+          /* option setter unavailable — fall through to a plain fit */
+        }
       }
       try {
         fit.fit();
       } catch {
         return;
       }
-      if (term.cols !== lastCols || term.rows !== lastRows) {
-        lastCols = term.cols;
-        lastRows = term.rows;
-        void sessionResize(kind, sessionId, term.cols, term.rows);
+      const changed = term.cols !== lastCols || term.rows !== lastRows;
+      if (changed) {
+        // Debounce the PTY winsize: a full-screen TUI (kimi, vim) repaints on
+        // every SIGWINCH, so forwarding each intermediate size during a drag makes
+        // the pane flash repeatedly ("splash"). xterm reflows live off `fit.fit()`
+        // above; the shell only needs the final size once the resize settles.
+        const c = term.cols;
+        const r = term.rows;
+        if (resizeTimer !== undefined) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          resizeTimer = undefined;
+          if (disposed) return;
+          lastCols = c;
+          lastRows = r;
+          void sessionResize(kind, sessionId, c, r);
+        }, 140);
       }
-      term.refresh(0, term.rows - 1);
+      // Only repaint when the geometry actually changed or the pane was just
+      // revealed — repainting on every no-op ResizeObserver tick is what turns a
+      // drag into a strobe.
+      if (changed || !wasVisible) term.refresh(0, term.rows - 1);
       if (!wasVisible) {
         wasVisible = true;
         term.focus();
       }
     };
-    refit();
+
+    // Coalesce bursts of ResizeObserver callbacks (a drag fires dozens per second)
+    // into at most one fit per frame; a pending force-remeasure sticks until it runs.
+    let pendingForce = false;
+    const scheduleFit = (force = false): void => {
+      if (force) pendingForce = true;
+      if (rafId !== 0) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        const f = pendingForce;
+        pendingForce = false;
+        applyFit(f);
+      });
+    };
+
+    applyFit(false);
     // The terminal font (JetBrains Mono) is an async web font: the first fit runs
-    // with a fallback metric, so its wider cells later overflow the right edge and
-    // an agent TUI's rightmost columns get clipped (the kimi right-truncation).
-    // Re-fit once the real font is ready, plus a couple of delayed re-fits to catch
-    // late layout settling (dock open animation, first pane reveal).
-    void document.fonts?.ready.then(() => refit());
-    const settle1 = setTimeout(refit, 120);
-    const settle2 = setTimeout(refit, 450);
+    // with a fallback metric. Force a re-measure + re-fit once the real font is
+    // ready, plus a couple of delayed re-fits to catch late layout settling (dock
+    // open animation, first pane reveal).
+    void document.fonts?.ready.then(() => scheduleFit(true));
+    const settle1 = setTimeout(() => scheduleFit(true), 120);
+    const settle2 = setTimeout(() => scheduleFit(false), 450);
 
     const onData = term.onData((s) => void sessionWrite(kind, sessionId, s));
-    const ro = new ResizeObserver(() => refit());
+    const ro = new ResizeObserver(() => scheduleFit());
     ro.observe(el);
 
     const unlistenP = onSessionData(kind, sessionId, (b) => term.write(b));
@@ -147,6 +195,8 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       disposed = true;
       clearTimeout(settle1);
       clearTimeout(settle2);
+      if (resizeTimer !== undefined) clearTimeout(resizeTimer);
+      if (rafId !== 0) cancelAnimationFrame(rafId);
       ro.disconnect();
       onData.dispose();
       void unlistenP.then((u) => u());

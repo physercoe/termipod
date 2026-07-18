@@ -56,7 +56,13 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       fontWeight: 400,
       fontWeightBold: 600,
       lineHeight: 1.25,
-      letterSpacing: 0.2,
+      // letterSpacing MUST stay an integer. xterm's DOM renderer applies the raw
+      // value as real CSS `letter-spacing` per character, but computes the layout
+      // cell width with `Math.round(letterSpacing)`. A fractional value (e.g. 0.2)
+      // rounds to 0 for layout yet still nudges every glyph right, so the drift
+      // accumulates across a wide row and pushes the rightmost columns off the grid
+      // — the kimi right-edge truncation. 0 keeps render and layout in agreement.
+      letterSpacing: 0,
       cursorStyle: 'bar',
       theme: {
         background: '#0d1117',
@@ -93,10 +99,13 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
     // window/panel resize, and — critically — when un-hidden after a tab switch:
     // while `display:none` the element is 0×0 and xterm can't lay out, so the
     // buffered prompt reads as a black screen until we re-fit and refresh).
-    let lastCols = 0; // last geometry we applied (fit + PTY winsize)
+    let lastCols = 0; // last geometry we handed the PTY (SIGWINCH target)
     let lastRows = 0;
+    let lastW = -1; // last observed .term-screen size we fit to (loop guard)
+    let lastH = -1;
     let wasVisible = false;
-    let fitTimer: ReturnType<typeof setTimeout> | undefined;
+    let rafId = 0;
+    let ptyTimer: ReturnType<typeof setTimeout> | undefined;
 
     const applyFit = (force: boolean): void => {
       if (disposed || el.clientWidth === 0 || el.clientHeight === 0) {
@@ -108,8 +117,8 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       // cell. So when an async web font swaps in *wider* glyphs but the fallback
       // metric happens to yield the same column count, xterm keeps the stale
       // (narrower) cell width, over-counts columns, and the rightmost ones spill
-      // under the scrollbar (the kimi right-truncation). Force a re-measure via a
-      // fontFamily nudge (public API) so the next fit proposes honest columns.
+      // under the scrollbar. Force a re-measure via a fontFamily nudge (public API)
+      // so the next fit proposes honest columns.
       if (force) {
         try {
           const ff = term.options.fontFamily;
@@ -120,39 +129,46 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
         }
       }
       try {
-        fit.fit();
+        fit.fit(); // when the dimensions change this resizes + renders on its own
       } catch {
         return;
       }
-      const changed = term.cols !== lastCols || term.rows !== lastRows;
-      if (changed) {
-        lastCols = term.cols;
-        lastRows = term.rows;
-        void sessionResize(kind, sessionId, term.cols, term.rows);
+      if (term.cols !== lastCols || term.rows !== lastRows) {
+        const c = term.cols;
+        const r = term.rows;
+        lastCols = c;
+        lastRows = r;
+        // Debounce ONLY the PTY winsize: a full-screen TUI (kimi, vim) repaints on
+        // every SIGWINCH, so the shell should learn the final size once — xterm has
+        // already reflowed visually via fit.fit() above.
+        if (ptyTimer !== undefined) clearTimeout(ptyTimer);
+        ptyTimer = setTimeout(() => {
+          ptyTimer = undefined;
+          if (!disposed) void sessionResize(kind, sessionId, c, r);
+        }, 150);
       }
-      if (changed || !wasVisible) term.refresh(0, term.rows - 1);
+      // Full repaint ONLY when the pane was just revealed (0×0 while display:none →
+      // xterm can't lay out, so the buffered prompt reads as black until we refit +
+      // refresh). On a plain resize fit.fit() already re-rendered — an extra
+      // full-screen refresh here is what strobed the pane during a resize.
       if (!wasVisible) {
         wasVisible = true;
+        term.refresh(0, term.rows - 1);
         term.focus();
       }
     };
 
-    // Coalesce a BURST of ResizeObserver callbacks into ONE fit on the trailing
-    // edge. A window drag or a dock-side switch (bottom↔right) changes the box over
-    // many frames; fitting on each one re-wraps the entire scrollback every time,
-    // and for a busy TUI that turns a single resize into seconds of repeated reflow
-    // (the "3-4s movie"). Waiting for the size to settle, then fitting once, makes
-    // the switch snap into place. A pending force-remeasure sticks until it runs.
+    // Coalesce a burst of ResizeObserver callbacks into one fit per frame.
     let pendingForce = false;
     const scheduleFit = (force = false): void => {
       if (force) pendingForce = true;
-      if (fitTimer !== undefined) clearTimeout(fitTimer);
-      fitTimer = setTimeout(() => {
-        fitTimer = undefined;
+      if (rafId !== 0) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
         const f = pendingForce;
         pendingForce = false;
         applyFit(f);
-      }, 90);
+      });
     };
 
     applyFit(false);
@@ -165,7 +181,21 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
     const settle2 = setTimeout(() => scheduleFit(false), 450);
 
     const onData = term.onData((s) => void sessionWrite(kind, sessionId, s));
-    const ro = new ResizeObserver(() => scheduleFit());
+    // Loop guard: only refit when `.term-screen`'s rounded box ACTUALLY changed.
+    // xterm's resize mutates elements INSIDE this box, never the box itself, so any
+    // callback reporting the same size is spurious (sub-pixel jitter at fractional
+    // Windows display scaling, or a fit→observe echo) — refitting on it re-wraps the
+    // whole scrollback for nothing and can self-perpetuate into a multi-second
+    // redraw storm. Ignore it.
+    const ro = new ResizeObserver((entries) => {
+      const rect = entries[entries.length - 1].contentRect;
+      const w = Math.round(rect.width);
+      const h = Math.round(rect.height);
+      if (w === lastW && h === lastH) return;
+      lastW = w;
+      lastH = h;
+      scheduleFit();
+    });
     ro.observe(el);
 
     const unlistenP = onSessionData(kind, sessionId, (b) => term.write(b));
@@ -184,7 +214,8 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       disposed = true;
       clearTimeout(settle1);
       clearTimeout(settle2);
-      if (fitTimer !== undefined) clearTimeout(fitTimer);
+      if (ptyTimer !== undefined) clearTimeout(ptyTimer);
+      if (rafId !== 0) cancelAnimationFrame(rafId);
       ro.disconnect();
       onData.dispose();
       void unlistenP.then((u) => u());

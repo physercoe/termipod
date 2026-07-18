@@ -18,6 +18,36 @@ function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/// Locale-aware relative time ("3 minutes ago") for the last-sync line; the
+/// absolute local timestamp rides along as the title tooltip. Returns null on an
+/// unparseable value so the caller can fall back.
+function relTime(iso: string): { rel: string; abs: string } | null {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return null;
+  const abs = new Date(ms).toLocaleString();
+  const secs = Math.round((Date.now() - ms) / 1000);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  const steps: [number, Intl.RelativeTimeFormatUnit][] = [
+    [60, 'second'],
+    [60, 'minute'],
+    [24, 'hour'],
+    [30, 'day'],
+    [12, 'month'],
+  ];
+  let unit: Intl.RelativeTimeFormatUnit = 'year';
+  let value = secs;
+  for (const [span, u] of steps) {
+    if (Math.abs(value) < span) {
+      unit = u;
+      break;
+    }
+    value = Math.round(value / span);
+  }
+  // `value` is seconds-elapsed collapsed into `unit`; negate so a past time reads
+  // as "…ago" rather than "in …".
+  return { rel: rtf.format(-value, unit), abs };
+}
+
 /// Settings → Vault (parity Phase 2b, ADR-052 D-3/D-4). Joins the
 /// zero-knowledge vault so saved connections + keys sync with the phone:
 /// create, sync up/down, restore via a recovery code. Desktop-only (needs the
@@ -77,10 +107,34 @@ export function VaultPanel(): JSX.Element | null {
                   ? t('vault.checking')
                   : '—'
                 : st.exists
-                  ? `${t('vault.exists')} · v${st.version}${st.hasLocalKey ? ` · ${t('vault.unlocked')}` : ` · ${t('vault.locked')}`}`
+                  ? `${t('vault.exists')} · v${st.version} · ${st.hasLocalKey ? t('vault.unlocked') : t('vault.locked')}`
                   : t('vault.none')}
             </span>
           </div>
+
+          {st !== null && st.exists && (
+            <>
+              <div className="setting-row">
+                <label>{t('vault.lastSynced')}</label>
+                {(() => {
+                  const rt = st.updatedAt !== null ? relTime(st.updatedAt) : null;
+                  const from =
+                    st.lastDevice !== null && st.lastDevice !== ''
+                      ? ` · ${t('vault.syncedFrom').replace('{m}', st.lastDevice)}`
+                      : '';
+                  return (
+                    <span className="muted" title={rt?.abs}>
+                      {rt !== null ? `${rt.rel}${from}` : t('vault.neverSynced')}
+                    </span>
+                  );
+                })()}
+              </div>
+              <div className="setting-row">
+                <label>{t('vault.thisDevice')}</label>
+                <span className="muted">{st.thisDevice}</span>
+              </div>
+            </>
+          )}
 
           {code !== null && (
             <div className="vault-code">

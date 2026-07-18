@@ -1,6 +1,6 @@
 import type { IconName } from '../ui/Icon';
 import { secretGet, secretSet } from './persist';
-import { loadWebdavConfig } from './webdav';
+import { loadWebdavConfig, loadZoteroBackend, loadZoteroS3Config } from './webdav';
 import { loadS3Config, loadSyncBackend, loadWorkspaceSyncConfig } from './workspaceSync';
 import { getVoiceModel } from '../voice/settings';
 
@@ -22,6 +22,14 @@ import { getVoiceModel } from '../voice/settings';
 export const APP_CONFIG_KEYS = [
   'termipod.webdav.url',
   'termipod.webdav.user',
+  // Read-storage (Zotero) backend selection + S3 config — sealed so a new machine
+  // restores the Read S3 sync target too (secret in APP_SECRET_KEYS below).
+  'termipod.webdav.backend',
+  'termipod.webdav.s3.endpoint',
+  'termipod.webdav.s3.region',
+  'termipod.webdav.s3.bucket',
+  'termipod.webdav.s3.prefix',
+  'termipod.webdav.s3.accessKeyId',
   'termipod.workspacesync.backend',
   'termipod.workspacesync.url',
   'termipod.workspacesync.user',
@@ -36,6 +44,7 @@ export const APP_CONFIG_KEYS = [
 /// Keychain slots for the integration secrets.
 export const APP_SECRET_KEYS = [
   'termipod.webdav.password',
+  'termipod.webdav.s3.secret',
   'termipod.workspacesync.password',
   'termipod.workspacesync.s3.secret',
   'voice_dashscope_api_key',
@@ -62,6 +71,8 @@ export interface AppIntegration {
 /// non-empty info rows are shown by the renderer.
 export function listAppIntegrations(): AppIntegration[] {
   const wd = loadWebdavConfig();
+  const readBackend = loadZoteroBackend();
+  const readS3 = loadZoteroS3Config();
   const ws = loadWorkspaceSyncConfig();
   const s3 = loadS3Config();
   const backend = loadSyncBackend();
@@ -72,10 +83,24 @@ export function listAppIntegrations(): AppIntegration[] {
       titleKey: 'vault.tpReadWebdav',
       icon: 'cloud',
       info: [
+        { labelKey: 'vault.tpBackend', value: readBackend },
         { labelKey: 'read.webdavUrl', value: wd.url },
         { labelKey: 'read.webdavUser', value: wd.user },
       ],
       secrets: [{ slot: 'termipod.webdav.password', labelKey: 'read.webdavPass' }],
+    },
+    {
+      id: 'read-s3',
+      titleKey: 'vault.tpReadS3',
+      icon: 'cloud',
+      info: [
+        { labelKey: 'author.s3Endpoint', value: readS3.endpoint },
+        { labelKey: 'author.s3Region', value: readS3.region },
+        { labelKey: 'author.s3Bucket', value: readS3.bucket },
+        { labelKey: 'author.s3Prefix', value: readS3.prefix },
+        { labelKey: 'author.s3Access', value: readS3.accessKeyId },
+      ],
+      secrets: [{ slot: 'termipod.webdav.s3.secret', labelKey: 'author.s3Secret' }],
     },
     {
       id: 'workspace-webdav',

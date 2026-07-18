@@ -629,9 +629,12 @@ export class HubClient {
     return this.transport.get(this.transport.team('/vault')) as Promise<Entity>;
   }
   /** Push a sealed vault. `baseVersion` 0 creates; else optimistic-locks on the
-   * current version (409 on conflict). */
-  putVault(ciphertext: string, baseVersion: number): Promise<Entity> {
-    return this.transport.put(this.transport.team('/vault'), { ciphertext, base_version: baseVersion }) as Promise<Entity>;
+   * current version (409 on conflict). `deviceName` (optional) records which
+   * machine pushed, for the "last synced from <machine>" status. */
+  putVault(ciphertext: string, baseVersion: number, deviceName?: string): Promise<Entity> {
+    const body: Record<string, unknown> = { ciphertext, base_version: baseVersion };
+    if (deviceName !== undefined && deviceName !== '') body.device_name = deviceName;
+    return this.transport.put(this.transport.team('/vault'), body) as Promise<Entity>;
   }
   getVaultRecovery(): Promise<Entity> {
     return this.transport.get(this.transport.team('/vault/recovery')) as Promise<Entity>;

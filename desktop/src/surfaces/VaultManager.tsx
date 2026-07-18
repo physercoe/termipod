@@ -699,9 +699,9 @@ export function VaultManager(): JSX.Element {
     { id: 'note', label: t('vault.tabNotes') },
     { id: 'env', label: t('vault.tabEnv') },
     { id: 'script', label: t('vault.tabScripts') },
-    { id: 'termipod', label: t('vault.tabTermipod') },
     { id: 'sshkeys', label: t('vault.tabKeys') },
     { id: 'connections', label: t('vault.tabConns') },
+    { id: 'termipod', label: t('vault.tabTermipod') },
   ];
 
   const query = q.trim().toLowerCase();

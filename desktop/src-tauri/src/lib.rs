@@ -144,6 +144,51 @@ fn system_proxy() -> Option<String> {
     None
 }
 
+/// The machine's hostname, for the vault "last synced from <machine>" label.
+/// Dependency-free and best-effort: env first (`COMPUTERNAME` on Windows,
+/// `HOSTNAME` on unix), then `/etc/hostname`, then the `hostname` command. Trims
+/// a trailing DNS suffix so "mac-studio.local" reads as "mac-studio". `None` when
+/// nothing resolves (the caller falls back to the OS-platform label).
+#[tauri::command]
+fn system_hostname() -> Option<String> {
+    #[cfg(windows)]
+    let env_keys: [&str; 1] = ["COMPUTERNAME"];
+    #[cfg(not(windows))]
+    let env_keys: [&str; 2] = ["HOSTNAME", "HOST"];
+    for key in env_keys {
+        if let Ok(v) = std::env::var(key) {
+            if let Some(name) = clean_hostname(&v) {
+                return Some(name);
+            }
+        }
+    }
+    #[cfg(unix)]
+    {
+        if let Ok(v) = std::fs::read_to_string("/etc/hostname") {
+            if let Some(name) = clean_hostname(&v) {
+                return Some(name);
+            }
+        }
+        if let Ok(out) = std::process::Command::new("hostname").output() {
+            if let Some(name) = clean_hostname(&String::from_utf8_lossy(&out.stdout)) {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+/// Trim whitespace and any DNS suffix from a raw hostname; `None` when empty.
+fn clean_hostname(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    let short = s.split('.').next().unwrap_or(s).trim();
+    if short.is_empty() {
+        None
+    } else {
+        Some(short.to_string())
+    }
+}
+
 /// Read the active macOS system HTTP(S) proxy from `scutil --proxy` (the same
 /// config the System Settings → Network → Proxies panel writes). No new
 /// dependency — mirrors the Windows `reg` approach. Prefers HTTPS, falls back to
@@ -535,6 +580,7 @@ pub fn run() {
             hub_request,
             hub_request_bytes,
             system_proxy,
+            system_hostname,
             open_external,
             reveal_path,
             open_browser_window,

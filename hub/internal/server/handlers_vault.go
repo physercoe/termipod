@@ -30,12 +30,19 @@ const maxVaultBytes = 2 << 20
 type vaultPushIn struct {
 	Ciphertext  string `json:"ciphertext"`
 	BaseVersion int    `json:"base_version"`
+	// DeviceName is the human label of the machine doing the push, recorded so
+	// any device can show "last synced from <machine>". Optional: a client that
+	// omits it (older desktop, mobile) leaves the previously-recorded name intact.
+	DeviceName string `json:"device_name,omitempty"`
 }
 
 type vaultOut struct {
 	Ciphertext string `json:"ciphertext"`
 	Version    int    `json:"version"`
 	UpdatedAt  string `json:"updated_at"`
+	// LastDevice names the machine that last pushed this vault (empty if none has
+	// yet reported a name). Non-secret, like key_vault_devices.device_name.
+	LastDevice string `json:"last_device,omitempty"`
 }
 
 type vaultDeviceIn struct {
@@ -73,10 +80,11 @@ func (s *Server) handlePullVault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out vaultOut
+	var lastDev sql.NullString
 	err := s.db.QueryRowContext(r.Context(),
-		`SELECT ciphertext, version, updated_at
+		`SELECT ciphertext, version, updated_at, last_device_name
 		   FROM key_vaults WHERE team_id = ? AND handle = ?`,
-		team, owner).Scan(&out.Ciphertext, &out.Version, &out.UpdatedAt)
+		team, owner).Scan(&out.Ciphertext, &out.Version, &out.UpdatedAt, &lastDev)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "no vault for this principal")
 		return
@@ -85,6 +93,7 @@ func (s *Server) handlePullVault(w http.ResponseWriter, r *http.Request) {
 		s.writeDBErr(w, err)
 		return
 	}
+	out.LastDevice = lastDev.String // "" when NULL
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -119,9 +128,9 @@ func (s *Server) handlePushVault(w http.ResponseWriter, r *http.Request) {
 		// exists, i.e. base_version is stale — writeDBErr maps the constraint
 		// to 409, telling the client to pull and retry.
 		_, err := s.writeDB.ExecContext(r.Context(),
-			`INSERT INTO key_vaults (team_id, handle, ciphertext, version, created_at, updated_at)
-			 VALUES (?, ?, ?, 1, ?, ?)`,
-			team, owner, in.Ciphertext, now, now)
+			`INSERT INTO key_vaults (team_id, handle, ciphertext, version, last_device_name, created_at, updated_at)
+			 VALUES (?, ?, ?, 1, ?, ?, ?)`,
+			team, owner, in.Ciphertext, nullIfEmpty(in.DeviceName), now, now)
 		if err != nil {
 			s.writeDBErr(w, err)
 			return
@@ -133,9 +142,11 @@ func (s *Server) handlePushVault(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := s.writeDB.ExecContext(r.Context(),
-		`UPDATE key_vaults SET ciphertext = ?, version = version + 1, updated_at = ?
+		`UPDATE key_vaults
+		    SET ciphertext = ?, version = version + 1, updated_at = ?,
+		        last_device_name = COALESCE(?, last_device_name)
 		  WHERE team_id = ? AND handle = ? AND version = ?`,
-		in.Ciphertext, now, team, owner, in.BaseVersion)
+		in.Ciphertext, now, nullIfEmpty(in.DeviceName), team, owner, in.BaseVersion)
 	if err != nil {
 		s.writeDBErr(w, err)
 		return

@@ -49,6 +49,39 @@ func TestVault_PushPullRoundTrip(t *testing.T) {
 	}
 }
 
+func TestVault_LastDevice(t *testing.T) {
+	s, token := newA2ATestServer(t)
+
+	// Create carrying a device name — pull echoes it back.
+	doReq(t, s, token, http.MethodPut, vaultPath(""),
+		map[string]any{"ciphertext": "v1", "base_version": 0, "device_name": "mac-studio"})
+	_, body := doReq(t, s, token, http.MethodGet, vaultPath(""), nil)
+	var out vaultOut
+	_ = json.Unmarshal(body, &out)
+	if out.LastDevice != "mac-studio" {
+		t.Fatalf("create last_device: want mac-studio, got %q", out.LastDevice)
+	}
+
+	// A push from a different machine overwrites it.
+	doReq(t, s, token, http.MethodPut, vaultPath(""),
+		map[string]any{"ciphertext": "v2", "base_version": 1, "device_name": "macbook"})
+	_, body = doReq(t, s, token, http.MethodGet, vaultPath(""), nil)
+	_ = json.Unmarshal(body, &out)
+	if out.LastDevice != "macbook" {
+		t.Fatalf("update last_device: want macbook, got %q", out.LastDevice)
+	}
+
+	// A push that OMITS the name (older/mobile client) must not clobber it —
+	// COALESCE keeps the previously-recorded machine.
+	doReq(t, s, token, http.MethodPut, vaultPath(""),
+		map[string]any{"ciphertext": "v3", "base_version": 2})
+	_, body = doReq(t, s, token, http.MethodGet, vaultPath(""), nil)
+	_ = json.Unmarshal(body, &out)
+	if out.LastDevice != "macbook" {
+		t.Fatalf("omitted device_name should preserve: want macbook, got %q", out.LastDevice)
+	}
+}
+
 func TestVault_OptimisticConcurrency(t *testing.T) {
 	s, token := newA2ATestServer(t)
 

@@ -17,6 +17,17 @@
 .resize-handle:hover {
   background: var(--accent);
 }
+/* Horizontal divider between two stacked panes (drags vertically). */
+.resize-handle-v {
+  flex: 0 0 auto;
+  height: 6px;
+  background: var(--border);
+  cursor: row-resize;
+  touch-action: none;
+}
+.resize-handle-v:hover {
+  background: var(--accent);
+}
 .read-center {
   flex: 1;
   min-width: 0;

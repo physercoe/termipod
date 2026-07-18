@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
 import { sshConnect, type SshConnectReq } from '../ssh/tauri';
 import {
+  DEFAULT_GROUP,
   deleteConnection,
   getConnectionPassword,
   listConnections,
+  navGroups,
   setConnectionPassword,
   touchConnection,
   upsertConnection,
@@ -36,6 +38,7 @@ export function ConnectForm({
   const t = useT();
   const [id, setId] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const [group, setGroup] = useState(DEFAULT_GROUP);
   const [host, setHost] = useState('');
   const [port, setPort] = useState('22');
   const [user, setUser] = useState('');
@@ -62,6 +65,7 @@ export function ConnectForm({
   function resetForm(): void {
     setId(null);
     setName('');
+    setGroup(DEFAULT_GROUP);
     setHost('');
     setPort('22');
     setUser('');
@@ -76,6 +80,7 @@ export function ConnectForm({
   async function applyConnection(c: Connection): Promise<void> {
     setId(c.id);
     setName(c.name);
+    setGroup((c.group ?? '').trim() || DEFAULT_GROUP);
     setHost(c.host);
     setPort(String(c.port));
     setUser(c.username);
@@ -93,6 +98,7 @@ export function ConnectForm({
       const conn = upsertConnection({
         id: id ?? undefined,
         name: name.trim() || host.trim(),
+        group: group.trim() || DEFAULT_GROUP,
         host: host.trim(),
         port: Number(port) || 22,
         username: user.trim(),
@@ -160,6 +166,22 @@ export function ConnectForm({
         <label className="wide">
           {t('term.name')}
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('term.namePlaceholder')} />
+        </label>
+        <label className="wide">
+          {t('term.group')}
+          {/* Free-text with a datalist of existing groups: pick one or type a new
+              name (it materialises on save). */}
+          <input
+            value={group}
+            list="term-group-list"
+            onChange={(e) => setGroup(e.target.value)}
+            placeholder={DEFAULT_GROUP}
+          />
+          <datalist id="term-group-list">
+            {navGroups().map((g) => (
+              <option key={g} value={g} />
+            ))}
+          </datalist>
         </label>
         <label className="wide">
           {t('term.host')}

@@ -76,3 +76,40 @@ export function ResizeHandle({ onResize }: { onResize: (dx: number) => void }): 
     />
   );
 }
+
+/// A horizontal divider between two stacked panes — reports VERTICAL drag deltas
+/// (dy, positive = dragged down). The vertical twin of ResizeHandle; the parent
+/// owns the pane height so it can clamp + persist. Same window-listener gesture
+/// model (WebView2 pointer-capture is unreliable on a thin strip).
+export function VResizeHandle({ onResize }: { onResize: (dy: number) => void }): JSX.Element {
+  const onResizeRef = useRef(onResize);
+  onResizeRef.current = onResize;
+  return (
+    <div
+      className="resize-handle-v"
+      role="separator"
+      aria-orientation="horizontal"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        let lastY = e.clientY;
+        const move = (ev: PointerEvent): void => {
+          const dy = ev.clientY - lastY;
+          lastY = ev.clientY;
+          if (dy !== 0) onResizeRef.current(dy);
+        };
+        const end = (): void => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', end);
+          window.removeEventListener('pointercancel', end);
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', end);
+        window.addEventListener('pointercancel', end);
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+      }}
+    />
+  );
+}

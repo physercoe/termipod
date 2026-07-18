@@ -1,9 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 import { isTauri } from '../platform';
 import { useWorkbench } from '../state/workbench';
-import { listConnections, type Connection } from '../state/connections';
+import {
+  addGroup,
+  connectionGroup,
+  DEFAULT_GROUP,
+  deleteConnection,
+  listConnections,
+  navGroups,
+  removeGroup,
+  renameGroup,
+  setConnectionGroup,
+  type Connection,
+} from '../state/connections';
 import { importSshConfig } from '../ssh/config';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { ConnectForm } from './ConnectForm';
@@ -12,6 +23,10 @@ import { SessionView } from './SessionView';
 import { useTerminals } from './store';
 
 const NAV_FOLD_KEY = 'termipod.term.navFold';
+const GROUP_FOLD_KEY = 'termipod.term.groupFold';
+
+// A right-click target in the connections nav: a whole group, or one connection.
+type NavMenu = { x: number; y: number; target: { kind: 'group'; name: string } | { kind: 'conn'; id: string } };
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -67,6 +82,39 @@ export function TerminalPanel(): JSX.Element {
   // Left-nav width (persisted, clamped) + fold state.
   const [navW, onNavResize] = usePanelWidth('termipod.term.navW', 210, 150, 420);
   const [navFold, setNavFold] = useState(() => localStorage.getItem(NAV_FOLD_KEY) === '1');
+
+  // Group folding (keyed lowercase, matching the case-insensitive group identity)
+  // + a bump to recompute the derived group list after a group-only mutation (a
+  // new/renamed/deleted group that doesn't change `conns` on its own).
+  const [foldedGroups, setFoldedGroups] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(GROUP_FOLD_KEY) ?? '[]') as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const [groupBump, setGroupBump] = useState(0);
+  const [navMenu, setNavMenu] = useState<NavMenu | null>(null);
+  const groups = useMemo(() => (tauri ? navGroups(conns) : []), [conns, groupBump, tauri]);
+
+  function refreshConns(): void {
+    setConns(tauri ? listConnections() : []);
+    setGroupBump((v) => v + 1);
+  }
+  function toggleGroupFold(name: string): void {
+    setFoldedGroups((prev) => {
+      const next = new Set(prev);
+      const key = name.toLowerCase();
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem(GROUP_FOLD_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
   function toggleFold(): void {
     setNavFold((v) => {
       const n = !v;
@@ -99,6 +147,58 @@ export function TerminalPanel(): JSX.Element {
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
+
+  // Dismiss the nav context menu on any outside click, scroll, or Escape.
+  useEffect(() => {
+    if (navMenu === null) return;
+    const close = (): void => setNavMenu(null);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setNavMenu(null);
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [navMenu]);
+
+  // Nav context-menu actions. All refresh the local `conns` mirror afterwards.
+  function promptNewGroup(assignId?: string): void {
+    setNavMenu(null);
+    const name = window.prompt(t('term.newGroupPrompt'));
+    if (name === null || name.trim() === '') return;
+    addGroup(name.trim());
+    if (assignId !== undefined) setConnectionGroup(assignId, name.trim());
+    refreshConns();
+  }
+  function promptRenameGroup(from: string): void {
+    setNavMenu(null);
+    const to = window.prompt(t('term.renameGroupPrompt'), from);
+    if (to === null || to.trim() === '' || to.trim() === from) return;
+    renameGroup(from, to.trim());
+    refreshConns();
+  }
+  function doDeleteGroup(name: string): void {
+    setNavMenu(null);
+    removeGroup(name);
+    refreshConns();
+  }
+  function doMoveToGroup(id: string, group: string): void {
+    setNavMenu(null);
+    setConnectionGroup(id, group);
+    refreshConns();
+  }
+  async function doDeleteConnection(id: string): Promise<void> {
+    setNavMenu(null);
+    try {
+      await deleteConnection(id);
+    } finally {
+      refreshConns();
+    }
+  }
 
   // Seed / prune the split against the live session list. When nothing is tiled
   // yet, fall back to the active session so the surface is never blank with open
@@ -281,20 +381,60 @@ export function TerminalPanel(): JSX.Element {
         {notice !== null && <div className="muted small term-nav-notice">{notice}</div>}
         {error !== null && <div className="error small term-nav-notice">{error}</div>}
         <div className="term-nav-list">
-          {conns.length === 0 && <div className="muted small term-nav-empty">{t('term.noSaved')}</div>}
-          {conns.map((c) => (
-            <button
-              key={c.id}
-              className={`term-nav-item term-nav-conn${
-                connecting && initialConnId === c.id ? ' active' : ''
-              }`}
-              title={`${c.username}@${c.host}:${c.port}`}
-              onClick={() => openConnect(c.id)}
-            >
-              <span className="term-tab-kind ssh" />
-              {c.name}
-            </button>
-          ))}
+          {conns.length === 0 && groups.length <= 1 && (
+            <div className="muted small term-nav-empty">{t('term.noSaved')}</div>
+          )}
+          {/* With only the default group, list connections flat (no header noise).
+              Once a second group exists, show every group as a foldable section. */}
+          {groups.length <= 1
+            ? conns.map((c) => (
+                <ConnRow
+                  key={c.id}
+                  c={c}
+                  active={connecting && initialConnId === c.id}
+                  onOpen={() => openConnect(c.id)}
+                  onMenu={(e) => {
+                    e.preventDefault();
+                    setNavMenu({ x: e.clientX, y: e.clientY, target: { kind: 'conn', id: c.id } });
+                  }}
+                />
+              ))
+            : groups.map((g) => {
+                const gl = g.toLowerCase();
+                const gconns = conns.filter((c) => connectionGroup(c).toLowerCase() === gl);
+                const folded = foldedGroups.has(gl);
+                return (
+                  <div key={gl} className="term-nav-group">
+                    <button
+                      className="term-nav-group-head"
+                      onClick={() => toggleGroupFold(g)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setNavMenu({ x: e.clientX, y: e.clientY, target: { kind: 'group', name: g } });
+                      }}
+                    >
+                      <Icon name={folded ? 'chevron-right' : 'chevron-down'} size={12} />
+                      <span className="term-nav-group-name">{g}</span>
+                      <span className="spacer" />
+                      <span className="muted small">{gconns.length}</span>
+                    </button>
+                    {!folded &&
+                      gconns.map((c) => (
+                        <ConnRow
+                          key={c.id}
+                          grouped
+                          c={c}
+                          active={connecting && initialConnId === c.id}
+                          onOpen={() => openConnect(c.id)}
+                          onMenu={(e) => {
+                            e.preventDefault();
+                            setNavMenu({ x: e.clientX, y: e.clientY, target: { kind: 'conn', id: c.id } });
+                          }}
+                        />
+                      ))}
+                  </div>
+                );
+              })}
         </div>
       </aside>
       {mode === 'surface' && !navFold && <ResizeHandle onResize={onNavResize} />}
@@ -432,6 +572,132 @@ export function TerminalPanel(): JSX.Element {
           )}
         </div>
       </div>
+
+      {navMenu !== null && (
+        <NavContextMenu
+          menu={navMenu}
+          groups={groups}
+          conns={conns}
+          onNewGroup={promptNewGroup}
+          onRenameGroup={promptRenameGroup}
+          onDeleteGroup={doDeleteGroup}
+          onMoveToGroup={doMoveToGroup}
+          onEditConn={(id) => {
+            setNavMenu(null);
+            openConnect(id);
+          }}
+          onDeleteConn={(id) => void doDeleteConnection(id)}
+        />
+      )}
+    </div>
+  );
+}
+
+// One connection row in the nav. Extracted so the flat and grouped renderings
+// share it; `grouped` indents it under a group header.
+function ConnRow({
+  c,
+  active,
+  grouped,
+  onOpen,
+  onMenu,
+}: {
+  c: Connection;
+  active: boolean;
+  grouped?: boolean;
+  onOpen: () => void;
+  onMenu: (e: ReactMouseEvent) => void;
+}): JSX.Element {
+  return (
+    <button
+      className={`term-nav-item term-nav-conn${active ? ' active' : ''}${grouped ? ' grouped' : ''}`}
+      title={`${c.username}@${c.host}:${c.port}`}
+      onClick={onOpen}
+      onContextMenu={onMenu}
+    >
+      <span className="term-tab-kind ssh" />
+      {c.name}
+    </button>
+  );
+}
+
+// The nav right-click menu — a group header menu (new / rename / delete) or a
+// connection menu (edit / move-to-group / new group / delete).
+function NavContextMenu({
+  menu,
+  groups,
+  conns,
+  onNewGroup,
+  onRenameGroup,
+  onDeleteGroup,
+  onMoveToGroup,
+  onEditConn,
+  onDeleteConn,
+}: {
+  menu: NavMenu;
+  groups: string[];
+  conns: Connection[];
+  onNewGroup: (assignId?: string) => void;
+  onRenameGroup: (from: string) => void;
+  onDeleteGroup: (name: string) => void;
+  onMoveToGroup: (id: string, group: string) => void;
+  onEditConn: (id: string) => void;
+  onDeleteConn: (id: string) => void;
+}): JSX.Element {
+  const t = useT();
+  const { target } = menu;
+  const conn = target.kind === 'conn' ? conns.find((c) => c.id === target.id) : undefined;
+  const curGroup = conn !== undefined ? connectionGroup(conn) : DEFAULT_GROUP;
+  return (
+    <div
+      className="term-nav-ctxmenu"
+      style={{ left: menu.x, top: menu.y }}
+      onContextMenu={(e) => e.preventDefault()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {target.kind === 'group' ? (
+        <>
+          <button className="read-ctx-item" onClick={() => onNewGroup()}>
+            <Icon name="plus" size={14} /> {t('term.newGroup')}
+          </button>
+          {target.name.toLowerCase() !== DEFAULT_GROUP && (
+            <>
+              <button className="read-ctx-item" onClick={() => onRenameGroup(target.name)}>
+                <Icon name="pen" size={14} /> {t('term.renameGroup')}
+              </button>
+              <div className="read-ctx-sep" />
+              <button className="read-ctx-item danger" onClick={() => onDeleteGroup(target.name)}>
+                <Icon name="trash" size={14} /> {t('term.deleteGroup')}
+              </button>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <button className="read-ctx-item" onClick={() => onEditConn(target.id)}>
+            <Icon name="pen" size={14} /> {t('term.editConnection')}
+          </button>
+          <div className="read-ctx-sep" />
+          <div className="term-nav-ctx-label">{t('term.moveToGroup')}</div>
+          {groups.map((g) => (
+            <button
+              key={g}
+              className="read-ctx-item"
+              disabled={g.toLowerCase() === curGroup.toLowerCase()}
+              onClick={() => onMoveToGroup(target.id, g)}
+            >
+              <Icon name={g.toLowerCase() === curGroup.toLowerCase() ? 'check' : 'folder'} size={14} /> {g}
+            </button>
+          ))}
+          <button className="read-ctx-item" onClick={() => onNewGroup(target.id)}>
+            <Icon name="plus" size={14} /> {t('term.newGroup')}
+          </button>
+          <div className="read-ctx-sep" />
+          <button className="read-ctx-item danger" onClick={() => onDeleteConn(target.id)}>
+            <Icon name="trash" size={14} /> {t('term.delete')}
+          </button>
+        </>
+      )}
     </div>
   );
 }

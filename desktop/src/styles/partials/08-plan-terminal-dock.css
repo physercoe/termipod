@@ -469,6 +469,65 @@
   align-items: center;
   border-radius: var(--radius-sm);
 }
+/* --- connection groups --- */
+.term-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.term-nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  width: 100%;
+  padding: 4px 6px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.term-nav-group-head:hover {
+  background: var(--hover);
+  color: var(--text);
+  transform: none;
+  box-shadow: none;
+}
+.term-nav-group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A connection under a group header is indented so the tree reads clearly. */
+.term-nav-conn.grouped {
+  padding-left: var(--spacing-s16);
+}
+/* Nav right-click menu — shares the read-ctxmenu item look. */
+.term-nav-ctxmenu {
+  position: fixed;
+  z-index: 200;
+  min-width: 180px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--spacing-s4);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.term-nav-ctx-label {
+  padding: var(--spacing-s4) var(--spacing-s8) 2px;
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
 .term-nav-item.active {
   background: var(--accent-tint);
 }

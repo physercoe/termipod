@@ -1,12 +1,25 @@
 /* --- rail: collections + tags --- */
+/* The rail itself never scrolls; its two panes (collections, tags) each own a
+   scrollbar and a draggable horizontal divider reallocates height between them
+   (Zotero-style). See .read-rail-pane + .resize-handle-v. */
 .read-rail {
   flex: 0 0 auto;
   background: var(--canvas);
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-s12);
+}
+/* One scroll pane (collections OR tags). A fixed-height pane (collections, when
+   tags are present) carries an inline `height`; `.grow` fills the remaining rail
+   height (the tags pane, and the collections pane when there are no tags). */
+.read-rail-pane {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--spacing-s8) 0;
+}
+.read-rail-pane.grow {
+  flex: 1 1 auto;
 }
 .read-rail-group {
   display: flex;

@@ -1,6 +1,6 @@
 import initSqlJs, { type Database, type SqlValue } from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
-import { isInternalTag, type ImportItem, type RefType } from '../state/library';
+import { isInternalCollection, isInternalTag, type ImportItem, type RefType } from '../state/library';
 
 /// Parse a Zotero `zotero.sqlite` file into library `ImportItem`s — entirely in
 /// the WebView via sql.js (WASM SQLite), so importing needs no Rust and no
@@ -151,10 +151,13 @@ function extract(db: Database): ImportItem[] {
     creators.set(id, list);
   }
 
-  // collectionID → name; itemID → [collectionName]
+  // collectionID → name; itemID → [collectionName]. Skip internal buckets (a
+  // plugin's "Recently Read" etc.) so the import never materialises them as
+  // library collections — mirrors the internal-tag filter above.
   const colName = new Map<number, string>();
   for (const r of query(db, `SELECT collectionID, collectionName FROM collections`)) {
-    if (typeof r.collectionName === 'string') colName.set(r.collectionID as number, r.collectionName);
+    if (typeof r.collectionName === 'string' && !isInternalCollection(r.collectionName))
+      colName.set(r.collectionID as number, r.collectionName);
   }
   const itemCols = new Map<number, string[]>();
   for (const r of query(db, `SELECT collectionID, itemID FROM collectionItems`)) {

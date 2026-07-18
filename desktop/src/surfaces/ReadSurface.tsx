@@ -6,6 +6,7 @@ import {
   primaryAttachment,
   REF_TYPES,
   useLibrary,
+  visibleCollections,
   type Attachment,
   type Reference,
   type RefType,
@@ -995,11 +996,11 @@ function Inspector({
                 placeholder="transformers, rlhf"
               />
             </label>
-            {collections.length > 0 && (
+            {visibleCollections(collections).length > 0 && (
               <div className="wide">
                 <div className="muted small">{t('read.collections')}</div>
                 <div className="ref-col-checks">
-                  {collections.map((c) => {
+                  {visibleCollections(collections).map((c) => {
                     const on = ref.collectionIds.includes(c.id);
                     return (
                       <label key={c.id} className="ref-col-check">
@@ -1579,6 +1580,9 @@ export function ReadSurface(): JSX.Element {
   const addReference = useLibrary((s) => s.addReference);
   const addCollection = useLibrary((s) => s.addCollection);
   const removeCollection = useLibrary((s) => s.removeCollection);
+  const renameCollection = useLibrary((s) => s.renameCollection);
+  const renameTag = useLibrary((s) => s.renameTag);
+  const removeTag = useLibrary((s) => s.removeTag);
   const removeReference = useLibrary((s) => s.removeReference);
   const updateReference = useLibrary((s) => s.updateReference);
   const addAttachment = useLibrary((s) => s.addAttachment);
@@ -1606,6 +1610,10 @@ export function ReadSurface(): JSX.Element {
   // is two-step (`menuConfirm`) — `window.confirm` is unreliable in WebView2.
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [menuConfirm, setMenuConfirm] = useState(false);
+  // Right-click menus for the rail (Zotero-style): rename/delete a collection or a
+  // tag. Collections carry an id; tags are keyed by their (string) name.
+  const [colMenu, setColMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  const [tagMenu, setTagMenu] = useState<{ x: number; y: number; name: string } | null>(null);
   const [railW, setRailW] = useState(() => loadWidth('termipod.read.railW', 220));
   const [inspW, setInspW] = useState(() => loadWidth('termipod.read.inspW', 380));
   const [railCollapsed, setRailCollapsed] = useState(() => localStorage.getItem('termipod.read.railFold') === '1');
@@ -1679,12 +1687,18 @@ export function ReadSurface(): JSX.Element {
     setActiveTab((a) => (a === id ? null : a));
   }
 
-  // Dismiss the row context menu on any outside click, scroll, or Escape.
+  // Dismiss any open context menu (row / collection / tag) on an outside click,
+  // scroll, or Escape.
+  const anyMenuOpen = rowMenu !== null || colMenu !== null || tagMenu !== null;
   useEffect(() => {
-    if (rowMenu === null) return;
-    const close = (): void => setRowMenu(null);
+    if (!anyMenuOpen) return;
+    const close = (): void => {
+      setRowMenu(null);
+      setColMenu(null);
+      setTagMenu(null);
+    };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setRowMenu(null);
+      if (e.key === 'Escape') close();
     };
     window.addEventListener('click', close);
     window.addEventListener('scroll', close, true);
@@ -1694,7 +1708,7 @@ export function ReadSurface(): JSX.Element {
       window.removeEventListener('scroll', close, true);
       window.removeEventListener('keydown', onKey);
     };
-  }, [rowMenu]);
+  }, [anyMenuOpen]);
 
   // Pick a file and attach it to the item (managed copy). Mirrors the Inspector's
   // Add-file flow so an attachment can be added straight from the row menu.
@@ -2020,11 +2034,17 @@ export function ReadSurface(): JSX.Element {
               <span className="spacer" />
               <span className="muted small">{references.length}</span>
             </button>
-            {collections.map((c) => (
+            {visibleCollections(collections).map((c) => (
               <button
                 key={c.id}
                 className={`read-col${collection === c.id ? ' active' : ''}`}
                 onClick={() => setCollection(c.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setRowMenu(null);
+                  setTagMenu(null);
+                  setColMenu({ x: e.clientX, y: e.clientY, id: c.id });
+                }}
               >
                 {c.name}
                 <span className="spacer" />
@@ -2055,6 +2075,12 @@ export function ReadSurface(): JSX.Element {
                     key={tg}
                     className={`read-tag${tag === tg ? ' active' : ''}`}
                     onClick={() => setTag(tag === tg ? null : tg)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setRowMenu(null);
+                      setColMenu(null);
+                      setTagMenu({ x: e.clientX, y: e.clientY, name: tg });
+                    }}
                   >
                     {tg}
                   </button>
@@ -2359,6 +2385,90 @@ export function ReadSurface(): JSX.Element {
             </div>
           );
         })()}
+
+      {/* Collection context menu (right-click a collection in the rail). */}
+      {colMenu !== null &&
+        (() => {
+          const c = collections.find((x) => x.id === colMenu.id);
+          if (c === undefined) return null;
+          return (
+            <div
+              className="read-ctxmenu"
+              style={{ left: colMenu.x, top: colMenu.y }}
+              onContextMenu={(e) => e.preventDefault()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                className="read-ctx-item"
+                onClick={() => {
+                  setColMenu(null);
+                  const name = window.prompt(t('read.renameCollectionPrompt'), c.name);
+                  if (name !== null && name.trim() !== '') renameCollection(c.id, name.trim());
+                }}
+              >
+                <Icon name="pen" size={14} /> {t('read.renameCollection')}
+              </button>
+              <button
+                className="read-ctx-item"
+                onClick={() => {
+                  setColMenu(null);
+                  newCollection();
+                }}
+              >
+                <Icon name="plus" size={14} /> {t('read.newCollection')}
+              </button>
+              <div className="read-ctx-sep" />
+              <button
+                className="read-ctx-item danger"
+                onClick={() => {
+                  setColMenu(null);
+                  removeCollection(c.id);
+                  if (collection === c.id) setCollection(ALL);
+                }}
+              >
+                <Icon name="trash" size={14} /> {t('read.deleteCollection')}
+              </button>
+            </div>
+          );
+        })()}
+
+      {/* Tag context menu (right-click a tag in the rail). Rename/delete sweep the
+          whole library, since tags are plain strings on each reference. */}
+      {tagMenu !== null && (
+        <div
+          className="read-ctxmenu"
+          style={{ left: tagMenu.x, top: tagMenu.y }}
+          onContextMenu={(e) => e.preventDefault()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="read-ctx-item"
+            onClick={() => {
+              const name = tagMenu.name;
+              setTagMenu(null);
+              const next = window.prompt(t('read.renameTagPrompt'), name);
+              if (next !== null && next.trim() !== '' && next.trim() !== name) {
+                renameTag(name, next.trim());
+                if (tag === name) setTag(next.trim());
+              }
+            }}
+          >
+            <Icon name="pen" size={14} /> {t('read.renameTag')}
+          </button>
+          <div className="read-ctx-sep" />
+          <button
+            className="read-ctx-item danger"
+            onClick={() => {
+              const name = tagMenu.name;
+              setTagMenu(null);
+              removeTag(name);
+              if (tag === name) setTag(null);
+            }}
+          >
+            <Icon name="trash" size={14} /> {t('read.deleteTag')}
+          </button>
+        </div>
+      )}
       </OpenLinkContext.Provider>
     </WorkbenchSurface>
   );

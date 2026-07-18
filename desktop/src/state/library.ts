@@ -134,6 +134,31 @@ export function visibleTags(tags: string[]): string[] {
   return tags.filter((t) => !isInternalTag(t));
 }
 
+/// Zotero's special / virtual collections and common reading-plugin buckets that
+/// the director never curated — hidden from the Read rail the same way internal
+/// tags are. Zotero's own Trash / Duplicate Items / Unfiled Items / My Publications
+/// are virtual (not real `collections` rows) so they normally never import, but a
+/// plugin can materialise buckets like "Recently Read" as real collections; this
+/// denylist catches those by name at both import and display. Matched
+/// case-insensitively on the trimmed name.
+const INTERNAL_COLLECTIONS = new Set([
+  'trash',
+  'duplicate items',
+  'unfiled items',
+  'my publications',
+  'recently read',
+]);
+
+/// Whether a collection name is a Zotero/plugin internal bucket to hide.
+export function isInternalCollection(name: string): boolean {
+  return INTERNAL_COLLECTIONS.has(name.trim().toLowerCase());
+}
+
+/// Drop internal collections from a list, for display.
+export function visibleCollections(cols: Collection[]): Collection[] {
+  return cols.filter((c) => !isInternalCollection(c.name));
+}
+
 /// One parsed row from an external importer (e.g. Zotero). Carries collection
 /// **names** rather than ids; the store finds-or-creates a `Collection` per name
 /// so re-importing merges into the same collections instead of duplicating them.
@@ -159,6 +184,8 @@ interface LibraryState {
   addCollection: (name: string) => string;
   renameCollection: (id: string, name: string) => void;
   removeCollection: (id: string) => void;
+  renameTag: (from: string, to: string) => void;
+  removeTag: (name: string) => void;
   importReferences: (items: ImportItem[]) => ImportResult;
 }
 
@@ -310,6 +337,34 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     );
     set({ collections, references });
     save({ references, collections });
+  },
+
+  // Tags are plain strings on each reference (no tag entity), so a library-wide
+  // rename/delete is a sweep over every reference's `tags`. Rename de-dupes when
+  // the target already exists on an item and drops empties; an empty target is
+  // treated as a delete.
+  renameTag: (from, to) => {
+    const to2 = to.trim();
+    if (to2 === '' ) {
+      get().removeTag(from);
+      return;
+    }
+    if (to2 === from) return;
+    const references = get().references.map((r) =>
+      r.tags.includes(from)
+        ? { ...r, tags: [...new Set(r.tags.map((t) => (t === from ? to2 : t)))] }
+        : r,
+    );
+    set({ references });
+    save({ references, collections: get().collections });
+  },
+
+  removeTag: (name) => {
+    const references = get().references.map((r) =>
+      r.tags.includes(name) ? { ...r, tags: r.tags.filter((t) => t !== name) } : r,
+    );
+    set({ references });
+    save({ references, collections: get().collections });
   },
 
   importReferences: (items) => {

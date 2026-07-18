@@ -156,6 +156,15 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
         term.refresh(0, term.rows - 1);
         term.focus();
       }
+      // Record the box we just fit to, from EVERY path (initial call, settle
+      // timers, fonts.ready, and the observer). Without this a direct applyFit
+      // leaves lastW/lastH stale, so the next ResizeObserver callback for the same
+      // box slips past its guard and re-fits — one wasted full-scrollback reflow,
+      // and the seed of the multi-second "content slides right" redraw when a burst
+      // of them stacks up. Keeping the guard authoritative here collapses a
+      // dock-side switch to a single reflow.
+      lastW = Math.round(el.clientWidth);
+      lastH = Math.round(el.clientHeight);
     };
 
     // Coalesce a burst of ResizeObserver callbacks into one fit per frame.
@@ -187,13 +196,14 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
     // Windows display scaling, or a fit→observe echo) — refitting on it re-wraps the
     // whole scrollback for nothing and can self-perpetuate into a multi-second
     // redraw storm. Ignore it.
-    const ro = new ResizeObserver((entries) => {
-      const rect = entries[entries.length - 1].contentRect;
-      const w = Math.round(rect.width);
-      const h = Math.round(rect.height);
+    const ro = new ResizeObserver(() => {
+      // Compare against `clientWidth/Height` (the same metric applyFit records),
+      // NOT the entry's contentRect — contentRect excludes `.term-screen`'s padding
+      // while clientWidth includes it, so mixing the two would leave the guard
+      // permanently mismatched and defeat the loop suppression.
+      const w = Math.round(el.clientWidth);
+      const h = Math.round(el.clientHeight);
       if (w === lastW && h === lastH) return;
-      lastW = w;
-      lastH = h;
       scheduleFit();
     });
     ro.observe(el);

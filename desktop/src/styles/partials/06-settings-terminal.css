@@ -476,6 +476,34 @@
   padding: var(--spacing-s4);
   overflow: hidden;
 }
+/* Deterministic terminal scrollbar. xterm's FitAddon reserves a FIXED 15px for the
+   scrollbar when sizing columns (its Viewport measures 0 before any overflow and
+   falls back to `|| 15`). The platform's native scrollbar can be wider than that
+   (WebView2 defaults to ~17px) or an overlay that consumes 0 — either way the
+   reserved width and the real width disagree, so the rightmost column renders
+   under the scrollbar ("right margin overlaps the scrollbar"). Pinning a styled
+   10px scrollbar makes the real width < the reserved 15px on every platform, so
+   the last column always clears it (a ~5px gutter, never an overlap). */
+.term-screen .xterm-viewport {
+  scrollbar-width: thin;
+}
+.term-screen .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+.term-screen .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.term-screen .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  /* Inset the thumb from the track edge so it reads as a slim pill, not a bar. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.term-screen .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.38);
+  background-clip: padding-box;
+}
 .term-note {
   font-size: var(--font-size-caption);
   color: var(--text-muted);

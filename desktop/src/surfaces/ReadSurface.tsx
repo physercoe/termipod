@@ -1596,6 +1596,7 @@ export function ReadSurface(): JSX.Element {
   const [mode, setMode] = useState<Mode>('library');
   const [collection, setCollection] = useState<string>(ALL);
   const [tag, setTag] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('title');
@@ -1819,7 +1820,11 @@ export function ReadSurface(): JSX.Element {
     references.forEach((r) => r.tags.forEach((tg) => !isInternalTag(tg) && s.add(tg)));
     return [...s].sort();
   }, [references]);
-  const hasTags = allTags.length > 0;
+  // The tag pane's filter box (Zotero-style): narrows the shown tags by substring.
+  const shownTags = useMemo(() => {
+    const q = tagFilter.trim().toLowerCase();
+    return q === '' ? allTags : allTags.filter((tg) => tg.toLowerCase().includes(q));
+  }, [allTags, tagFilter]);
 
   const items = useMemo(() => {
     const ql = query.trim().toLowerCase();
@@ -2029,12 +2034,9 @@ export function ReadSurface(): JSX.Element {
           </div>
           {/* Collections and tags are separate scroll panes (Zotero-style): each
               has its own scrollbar, and the divider between them drags vertically
-              to reallocate height. When there are no tags the collections pane
-              fills the rail (no divider). */}
-          <div
-            className={`read-rail-pane${hasTags ? '' : ' grow'}`}
-            style={hasTags ? { height: colPaneH } : undefined}
-          >
+              to reallocate height. The tag pane is always present (with its filter
+              box), even when the library has no tags yet. */}
+          <div className="read-rail-pane" style={{ height: colPaneH }}>
             <div className="read-rail-group">
               <button
                 className={`read-col${collection === ALL ? ' active' : ''}`}
@@ -2080,44 +2082,61 @@ export function ReadSurface(): JSX.Element {
               </button>
             </div>
           </div>
-          {hasTags && (
-            <>
-              <VResizeHandle
-                onResize={(dy) => {
-                  const railH = railRef.current?.clientHeight ?? 0;
-                  // Keep both panes usable: collections ≥ 80px, tags ≥ ~120px.
-                  const max = railH > 0 ? Math.max(80, railH - 140) : 600;
-                  setColPaneH((h) => {
-                    const n = clamp(h + dy, 80, max);
-                    saveWidth('termipod.read.colPaneH', n);
-                    return n;
-                  });
-                }}
-              />
-              <div className="read-rail-pane read-rail-pane-tags grow">
-                <div className="read-rail-group">
-                  <div className="read-rail-label">{t('read.tags')}</div>
-                  <div className="read-tags">
-                    {allTags.map((tg) => (
-                      <button
-                        key={tg}
-                        className={`read-tag${tag === tg ? ' active' : ''}`}
-                        onClick={() => setTag(tag === tg ? null : tg)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setRowMenu(null);
-                          setColMenu(null);
-                          setTagMenu({ x: e.clientX, y: e.clientY, name: tg });
-                        }}
-                      >
-                        {tg}
-                      </button>
-                    ))}
-                  </div>
+          <VResizeHandle
+            onResize={(dy) => {
+              const railH = railRef.current?.clientHeight ?? 0;
+              // Keep both panes usable: collections ≥ 80px, tags ≥ ~140px.
+              const max = railH > 0 ? Math.max(80, railH - 140) : 600;
+              setColPaneH((h) => {
+                const n = clamp(h + dy, 80, max);
+                saveWidth('termipod.read.colPaneH', n);
+                return n;
+              });
+            }}
+          />
+          <div className="read-rail-pane read-rail-pane-tags grow">
+            <div className="read-tags-scroll">
+              <div className="read-rail-group">
+                <div className="read-rail-label">{t('read.tags')}</div>
+                <div className="read-tags">
+                  {shownTags.map((tg) => (
+                    <button
+                      key={tg}
+                      className={`read-tag${tag === tg ? ' active' : ''}`}
+                      onClick={() => setTag(tag === tg ? null : tg)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setRowMenu(null);
+                        setColMenu(null);
+                        setTagMenu({ x: e.clientX, y: e.clientY, name: tg });
+                      }}
+                    >
+                      {tg}
+                    </button>
+                  ))}
+                  {shownTags.length === 0 && (
+                    <div className="muted small read-tags-empty">
+                      {allTags.length === 0 ? t('read.noTags') : t('read.noTagMatch')}
+                    </div>
+                  )}
                 </div>
               </div>
-            </>
-          )}
+            </div>
+            {/* Filter box pinned to the bottom of the tag pane (Zotero-style). */}
+            <div className="read-tag-filter">
+              <input
+                value={tagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+                placeholder={t('read.filterTags')}
+                aria-label={t('read.filterTags')}
+              />
+              {tagFilter !== '' && (
+                <button className="read-tag-filter-x" title={t('common.cancel')} onClick={() => setTagFilter('')}>
+                  <Icon name="close" size={13} />
+                </button>
+              )}
+            </div>
+          </div>
         </aside>
 
         <ResizeHandle

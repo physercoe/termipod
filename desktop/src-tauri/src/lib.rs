@@ -22,6 +22,7 @@ mod vault;
 mod voice;
 mod webdav;
 mod workspace;
+mod workspacefs;
 
 /// A REST request proxied through the Rust core (WS2/WS8). This lets the desktop
 /// build keep the bearer token out of the webview JS AND sidestep CORS: the
@@ -608,6 +609,12 @@ pub fn run() {
             docfile::doc_write,
             workspace::workspace_pick_folder,
             workspace::workspace_list,
+            workspacefs::workspace_new_file,
+            workspacefs::workspace_new_folder,
+            workspacefs::workspace_rename,
+            workspacefs::workspace_delete,
+            workspacefs::workspace_move,
+            workspacefs::workspace_copy,
             local_agent::local_agent_run,
             script::script_run,
             localfs::localfs_home,

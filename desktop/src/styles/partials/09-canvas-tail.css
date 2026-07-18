@@ -364,17 +364,18 @@
   border: none;
   box-shadow: none;
   border-radius: var(--radius-sm);
+  /* Force the ink explicitly (`--text`, never inherited/muted) so the labels are
+     always legible against the sunken outline background. */
   color: var(--text);
   font-size: var(--font-size-body-small);
   line-height: 1.45;
-  /* Wrap up to two lines instead of truncating to a lone ellipsis ("…") — a
-     narrow outline that clips every label to a single dot is unreadable. The
-     panel is also resizable now, so long headings can be widened out. */
+  /* Wrap the full heading rather than clamp it. The previous `-webkit-line-clamp`
+     with `display: -webkit-box` rendered as an EMPTY row in the WebView (a
+     `-webkit-box` child inside a `display:flex; gap` column collapses to zero
+     visible line height on WebKit/WebView2 — the "outline text is invisible" bug).
+     Plain wrapping always shows the text; the panel is resizable for long labels. */
   white-space: normal;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 .mdreader-outline-item:hover {

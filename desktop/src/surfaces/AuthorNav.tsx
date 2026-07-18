@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useT } from '../i18n';
 import { docKindIcon, Icon } from '../ui/Icon';
-import { isTauri } from '../platform';
+import { isTauri, revealPath } from '../platform';
 import { fileToBody, kindForFile, useDocuments } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
 import { writeDocToWorkspace } from '../state/workspaceFiles';
@@ -38,8 +38,22 @@ function baseName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+// The containing directory of a path (native separator preserved).
+function parentDir(path: string): string {
+  const i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return i > 0 ? path.slice(0, i) : path;
+}
+
 function extOf(path: string): string {
   return path.split('.').pop()?.toLowerCase() ?? '';
+}
+
+// A right-click target in the on-disk file tree.
+interface FileMenu {
+  path: string;
+  dir: boolean;
+  x: number;
+  y: number;
 }
 
 export function AuthorNav(): JSX.Element {
@@ -63,6 +77,9 @@ export function AuthorNav(): JSX.Element {
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
   const [dropActive, setDropActive] = useState(false);
+  // On-disk file-tree right-click menu + its two-step delete confirm.
+  const [fileMenu, setFileMenu] = useState<FileMenu | null>(null);
+  const [fileConfirmDelete, setFileConfirmDelete] = useState(false);
   const tauri = isTauri();
 
   // Materialize an in-memory draft into the workspace folder (drag-to-folder or
@@ -130,6 +147,95 @@ export function AuthorNav(): JSX.Element {
       create(kind, { title: baseName(path), body: fileToBody(kind, res.content, ext, t('table.colName')), filePath: path });
     } catch {
       /* unreadable/binary — ignore */
+    }
+  }
+
+  // Dismiss the file-tree context menu on an outside click, scroll, or Escape.
+  useEffect(() => {
+    if (fileMenu === null) return;
+    const close = (): void => {
+      setFileMenu(null);
+      setFileConfirmDelete(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [fileMenu]);
+
+  // --- File-tree operations (Rust workspacefs commands). All refresh the tree
+  // (touch → re-list) and surface any error inline. Open documents whose file was
+  // renamed/moved are re-pointed so Save keeps round-tripping to the right path. ---
+  function opFailed(e: unknown): void {
+    setErr(t('author.fOpFailed').replace('{err}', e instanceof Error ? e.message : String(e)));
+  }
+  function repointDoc(oldPath: string, newPath: string): void {
+    const d = docs.find((x) => x.filePath === oldPath);
+    if (d !== undefined) update(d.id, { filePath: newPath, title: baseName(newPath) });
+  }
+  async function newInDir(dir: boolean, path: string, folderKind: boolean): Promise<void> {
+    setFileMenu(null);
+    const base = dir ? path : parentDir(path);
+    const name = window.prompt(folderKind ? t('author.fNewFolderPrompt') : t('author.fNewFilePrompt'));
+    if (name === null || name.trim() === '') return;
+    try {
+      const created = await invoke<string>(folderKind ? 'workspace_new_folder' : 'workspace_new_file', {
+        dir: base,
+        name: name.trim(),
+      });
+      touch();
+      if (!folderKind) void openFile(created);
+    } catch (e) {
+      opFailed(e);
+    }
+  }
+  async function renameEntry(path: string): Promise<void> {
+    setFileMenu(null);
+    const name = window.prompt(t('author.fRenamePrompt'), baseName(path));
+    if (name === null || name.trim() === '' || name.trim() === baseName(path)) return;
+    try {
+      const next = await invoke<string>('workspace_rename', { path, name: name.trim() });
+      repointDoc(path, next);
+      touch();
+    } catch (e) {
+      opFailed(e);
+    }
+  }
+  async function moveOrCopy(path: string, copy: boolean): Promise<void> {
+    setFileMenu(null);
+    try {
+      const destDir = await invoke<string | null>('workspace_pick_folder');
+      if (destDir === null) return;
+      const next = await invoke<string>(copy ? 'workspace_copy' : 'workspace_move', { src: path, destDir });
+      if (!copy) repointDoc(path, next);
+      touch();
+    } catch (e) {
+      opFailed(e);
+    }
+  }
+  async function deleteEntry(path: string): Promise<void> {
+    setFileMenu(null);
+    setFileConfirmDelete(false);
+    try {
+      await invoke('workspace_delete', { path });
+      touch();
+    } catch (e) {
+      opFailed(e);
+    }
+  }
+  function copyPath(path: string): void {
+    setFileMenu(null);
+    try {
+      void navigator.clipboard?.writeText(path);
+    } catch {
+      /* clipboard may be unavailable */
     }
   }
 
@@ -247,7 +353,17 @@ export function AuthorNav(): JSX.Element {
         {loading && <div className="muted small author-nav-empty">{t('author.navLoading')}</div>}
         {err !== null && <div className="error small author-nav-empty">{err}</div>}
         {nodes.map((n) => (
-          <TreeNode key={n.path} node={n} depth={0} onOpen={openFile} />
+          <TreeNode
+            key={n.path}
+            node={n}
+            depth={0}
+            onOpen={openFile}
+            onContext={(node, e) => {
+              e.preventDefault();
+              setFileConfirmDelete(false);
+              setFileMenu({ path: node.path, dir: node.dir, x: e.clientX, y: e.clientY });
+            }}
+          />
         ))}
       </div>
 
@@ -292,6 +408,50 @@ export function AuthorNav(): JSX.Element {
             </>
           );
         })()}
+
+      {fileMenu !== null && (
+        <>
+          <div
+            className="context-backdrop"
+            onMouseDown={() => {
+              setFileMenu(null);
+              setFileConfirmDelete(false);
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+          />
+          <div
+            className="context-menu"
+            style={{ left: fileMenu.x, top: fileMenu.y }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button onClick={() => void newInDir(fileMenu.dir, fileMenu.path, false)}>{t('author.fNewFile')}</button>
+            <button onClick={() => void newInDir(fileMenu.dir, fileMenu.path, true)}>{t('author.fNewFolder')}</button>
+            <div className="context-menu-sep" />
+            <button onClick={() => void renameEntry(fileMenu.path)}>{t('author.fRename')}</button>
+            <button onClick={() => void moveOrCopy(fileMenu.path, false)}>{t('author.fMove')}</button>
+            <button onClick={() => void moveOrCopy(fileMenu.path, true)}>{t('author.fCopy')}</button>
+            <div className="context-menu-sep" />
+            <button onClick={() => copyPath(fileMenu.path)}>{t('author.fCopyPath')}</button>
+            {tauri && <button onClick={() => { revealPath(fileMenu.path); setFileMenu(null); }}>{t('author.fReveal')}</button>}
+            <div className="context-menu-sep" />
+            {fileConfirmDelete ? (
+              <button className="danger" onClick={() => void deleteEntry(fileMenu.path)}>
+                {t('author.fDeleteConfirm')}
+              </button>
+            ) : (
+              <button
+                className="danger"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFileConfirmDelete(true);
+                }}
+              >
+                {t('author.fDelete')}
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -300,21 +460,31 @@ function TreeNode({
   node,
   depth,
   onOpen,
+  onContext,
 }: {
   node: FileNode;
   depth: number;
   onOpen: (path: string) => void;
+  onContext: (node: FileNode, e: ReactMouseEvent) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(depth < 1); // top-level dirs expanded by default
   const pad = { paddingLeft: 6 + depth * 12 };
   if (node.dir) {
     return (
       <div>
-        <button className="author-nav-item dir" style={pad} onClick={() => setOpen((o) => !o)}>
+        <button
+          className="author-nav-item dir"
+          style={pad}
+          onClick={() => setOpen((o) => !o)}
+          onContextMenu={(e) => onContext(node, e)}
+        >
           <Icon name={open ? 'chevron-down' : 'chevron-right'} size={13} className="author-nav-tw" />
           {node.name}
         </button>
-        {open && node.children.map((c) => <TreeNode key={c.path} node={c} depth={depth + 1} onOpen={onOpen} />)}
+        {open &&
+          node.children.map((c) => (
+            <TreeNode key={c.path} node={c} depth={depth + 1} onOpen={onOpen} onContext={onContext} />
+          ))}
       </div>
     );
   }
@@ -325,6 +495,7 @@ function TreeNode({
       style={pad}
       title={node.path}
       onClick={() => onOpen(node.path)}
+      onContextMenu={(e) => onContext(node, e)}
     >
       <span className="author-nav-tw" />
       {node.name}

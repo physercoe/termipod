@@ -21,6 +21,54 @@
 .read-rail-pane.grow {
   flex: 1 1 auto;
 }
+/* The tag pane holds a scrolling tag list ABOVE a pinned filter box, so it
+   manages its own inner scroll instead of scrolling as a whole. */
+.read-rail-pane-tags {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.read-tags-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-s8) 0;
+}
+.read-tags-empty {
+  padding: var(--spacing-s4) var(--spacing-s12);
+}
+.read-tag-filter {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-top: 1px solid var(--border);
+}
+.read-tag-filter input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: var(--font-size-body-small);
+}
+.read-tag-filter-x {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.read-tag-filter-x:hover {
+  color: var(--text);
+  background: none;
+  transform: none;
+  box-shadow: none;
+}
 .read-rail-group {
   display: flex;
   flex-direction: column;

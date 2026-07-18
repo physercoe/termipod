@@ -431,6 +431,17 @@ button.search-result-link:hover {
 .context-menu button:hover {
   background: var(--surface-hover, rgba(127, 127, 127, 0.1));
 }
+.context-menu button.danger {
+  color: var(--danger);
+}
+.context-menu button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.context-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
 .rename-modal {
   width: 420px;
   max-width: 92vw;

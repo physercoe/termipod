@@ -134,30 +134,6 @@ export function visibleTags(tags: string[]): string[] {
   return tags.filter((t) => !isInternalTag(t));
 }
 
-/// Zotero's special / virtual collections and common reading-plugin buckets that
-/// the director never curated — hidden from the Read rail the same way internal
-/// tags are. Zotero's own Trash / Duplicate Items / Unfiled Items / My Publications
-/// are virtual (not real `collections` rows) so they normally never import, but a
-/// plugin can materialise buckets like "Recently Read" as real collections; this
-/// denylist catches those by name at both import and display. Matched
-/// case-insensitively on the trimmed name.
-const INTERNAL_COLLECTIONS = new Set([
-  'trash',
-  'duplicate items',
-  'unfiled items',
-  'my publications',
-  'recently read',
-]);
-
-/// Whether a collection name is a Zotero/plugin internal bucket to hide.
-export function isInternalCollection(name: string): boolean {
-  return INTERNAL_COLLECTIONS.has(name.trim().toLowerCase());
-}
-
-/// Drop internal collections from a list, for display.
-export function visibleCollections(cols: Collection[]): Collection[] {
-  return cols.filter((c) => !isInternalCollection(c.name));
-}
 
 /// One parsed row from an external importer (e.g. Zotero). Carries collection
 /// **names** rather than ids; the store finds-or-creates a `Collection` per name

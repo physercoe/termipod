@@ -6,7 +6,6 @@ import {
   primaryAttachment,
   REF_TYPES,
   useLibrary,
-  visibleCollections,
   type Attachment,
   type Reference,
   type RefType,
@@ -996,11 +995,11 @@ function Inspector({
                 placeholder="transformers, rlhf"
               />
             </label>
-            {visibleCollections(collections).length > 0 && (
+            {collections.length > 0 && (
               <div className="wide">
                 <div className="muted small">{t('read.collections')}</div>
                 <div className="ref-col-checks">
-                  {visibleCollections(collections).map((c) => {
+                  {collections.map((c) => {
                     const on = ref.collectionIds.includes(c.id);
                     return (
                       <label key={c.id} className="ref-col-check">
@@ -2049,7 +2048,7 @@ export function ReadSurface(): JSX.Element {
                 <span className="spacer" />
                 <span className="muted small">{references.length}</span>
               </button>
-              {visibleCollections(collections).map((c) => (
+              {collections.map((c) => (
                 <button
                   key={c.id}
                   className={`read-col${collection === c.id ? ' active' : ''}`}

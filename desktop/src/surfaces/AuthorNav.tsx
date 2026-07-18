@@ -48,10 +48,12 @@ function extOf(path: string): string {
   return path.split('.').pop()?.toLowerCase() ?? '';
 }
 
-// A right-click target in the on-disk file tree.
+// A right-click target in the on-disk file tree. `root` = the blank area of the
+// workspace section (the folder root itself) — a reduced menu (create only).
 interface FileMenu {
   path: string;
   dir: boolean;
+  root?: boolean;
   x: number;
   y: number;
 }
@@ -314,6 +316,16 @@ export function AuthorNav(): JSX.Element {
             void saveDraftToWorkspace(id);
           }
         }}
+        onContextMenu={(e) => {
+          // Blank-space menu (new file/folder in the workspace root). Skip when the
+          // right-click landed on a tree row or a header control — those have their
+          // own handling (tree rows stopPropagation; headers should do nothing).
+          if (folder === null || !tauri) return;
+          if ((e.target as HTMLElement).closest('button, input, .author-nav-item') !== null) return;
+          e.preventDefault();
+          setFileConfirmDelete(false);
+          setFileMenu({ path: folder, dir: true, root: true, x: e.clientX, y: e.clientY });
+        }}
       >
         <div className="author-nav-head">
           {t('author.navFiles')}
@@ -360,6 +372,7 @@ export function AuthorNav(): JSX.Element {
             onOpen={openFile}
             onContext={(node, e) => {
               e.preventDefault();
+              e.stopPropagation(); // don't also trigger the section's blank-space menu
               setFileConfirmDelete(false);
               setFileMenu({ path: node.path, dir: node.dir, x: e.clientX, y: e.clientY });
             }}
@@ -427,27 +440,33 @@ export function AuthorNav(): JSX.Element {
             <button onClick={() => void newInDir(fileMenu.dir, fileMenu.path, false)}>{t('author.fNewFile')}</button>
             <button onClick={() => void newInDir(fileMenu.dir, fileMenu.path, true)}>{t('author.fNewFolder')}</button>
             <div className="context-menu-sep" />
-            <button onClick={() => void renameEntry(fileMenu.path)}>{t('author.fRename')}</button>
-            <button onClick={() => void moveOrCopy(fileMenu.path, false)}>{t('author.fMove')}</button>
-            <button onClick={() => void moveOrCopy(fileMenu.path, true)}>{t('author.fCopy')}</button>
-            <div className="context-menu-sep" />
             <button onClick={() => copyPath(fileMenu.path)}>{t('author.fCopyPath')}</button>
             {tauri && <button onClick={() => { revealPath(fileMenu.path); setFileMenu(null); }}>{t('author.fReveal')}</button>}
-            <div className="context-menu-sep" />
-            {fileConfirmDelete ? (
-              <button className="danger" onClick={() => void deleteEntry(fileMenu.path)}>
-                {t('author.fDeleteConfirm')}
-              </button>
-            ) : (
-              <button
-                className="danger"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setFileConfirmDelete(true);
-                }}
-              >
-                {t('author.fDelete')}
-              </button>
+            {/* The whole-workspace (blank-space) menu stops at "create + reveal" —
+                rename/move/copy/delete of the workspace root itself would be a foot-gun. */}
+            {fileMenu.root !== true && (
+              <>
+                <div className="context-menu-sep" />
+                <button onClick={() => void renameEntry(fileMenu.path)}>{t('author.fRename')}</button>
+                <button onClick={() => void moveOrCopy(fileMenu.path, false)}>{t('author.fMove')}</button>
+                <button onClick={() => void moveOrCopy(fileMenu.path, true)}>{t('author.fCopy')}</button>
+                <div className="context-menu-sep" />
+                {fileConfirmDelete ? (
+                  <button className="danger" onClick={() => void deleteEntry(fileMenu.path)}>
+                    {t('author.fDeleteConfirm')}
+                  </button>
+                ) : (
+                  <button
+                    className="danger"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFileConfirmDelete(true);
+                    }}
+                  >
+                    {t('author.fDelete')}
+                  </button>
+                )}
+              </>
             )}
           </div>
         </>

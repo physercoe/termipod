@@ -1,6 +1,6 @@
 import initSqlJs, { type Database, type SqlValue } from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
-import type { ImportItem, RefType } from '../state/library';
+import { isInternalTag, type ImportItem, type RefType } from '../state/library';
 
 /// Parse a Zotero `zotero.sqlite` file into library `ImportItem`s — entirely in
 /// the WebView via sql.js (WASM SQLite), so importing needs no Rust and no
@@ -191,13 +191,18 @@ function extract(db: Database): ImportItem[] {
     }
   }
 
-  // itemID → [tag]
+  // itemID → [tag]. Only USER tags: Zotero marks each item↔tag link with a `type`
+  // — 0 = added by the user, 1 = automatic (harvested by an import translator, the
+  // "many English keyword" tags the director never chose and Zotero de-emphasizes).
+  // Drop the automatics, plus reading-list plugin markers like "/unread" / "/read"
+  // (a leading slash), which are functional flags, not content tags.
   const itemTags = new Map<number, string[]>();
   for (const r of query(
     db,
-    `SELECT it.itemID AS itemID, t.name AS name FROM itemTags it JOIN tags t ON t.tagID = it.tagID`,
+    `SELECT it.itemID AS itemID, it.type AS tagType, t.name AS name FROM itemTags it JOIN tags t ON t.tagID = it.tagID`,
   )) {
     if (typeof r.name !== 'string') continue;
+    if (r.tagType === 1 || isInternalTag(r.name)) continue;
     const list = itemTags.get(r.itemID as number) ?? [];
     list.push(r.name);
     itemTags.set(r.itemID as number, list);

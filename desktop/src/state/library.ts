@@ -118,6 +118,22 @@ export interface Collection {
   name: string;
 }
 
+/// A tag TermiPod treats as "internal" and hides from the Read surface: a
+/// reading-list plugin marker like "/unread", "/read", "/reading" — a leading
+/// slash by convention, a functional flag rather than content the director
+/// curated. Used both at Zotero import (alongside the automatic-tag `type` filter,
+/// which display can't see once tags are flattened to strings) AND at display, so
+/// markers already sitting in an imported or hub-synced library are hidden too.
+/// Leading slash only — a tag like "AI/ML" is real content and kept.
+export function isInternalTag(name: string): boolean {
+  return name.startsWith('/');
+}
+
+/// Drop internal tags from a list, for display.
+export function visibleTags(tags: string[]): string[] {
+  return tags.filter((t) => !isInternalTag(t));
+}
+
 /// One parsed row from an external importer (e.g. Zotero). Carries collection
 /// **names** rather than ids; the store finds-or-creates a `Collection` per name
 /// so re-importing merges into the same collections instead of duplicating them.

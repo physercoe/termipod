@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import {
   hasAnyAttachment,
+  isInternalTag,
   primaryAttachment,
   REF_TYPES,
   useLibrary,
@@ -1794,7 +1795,10 @@ export function ReadSurface(): JSX.Element {
 
   const allTags = useMemo(() => {
     const s = new Set<string>();
-    references.forEach((r) => r.tags.forEach((tg) => s.add(tg)));
+    // Hide internal tags (e.g. "/unread") from the facet — including any already
+    // sitting in an imported/hub-synced library, where the automatic-tag type is
+    // no longer known so name is the only signal we have.
+    references.forEach((r) => r.tags.forEach((tg) => !isInternalTag(tg) && s.add(tg)));
     return [...s].sort();
   }, [references]);
 

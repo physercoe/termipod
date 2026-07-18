@@ -41,11 +41,13 @@ fn entry(key: &str) -> Result<Entry, String> {
     Entry::new(SERVICE, key).map_err(|e| e.to_string())
 }
 
-/// True on Windows, whose Credential Manager caps a single item at 2560 UTF-16
-/// chars. The webview consolidates all secrets into ONE keychain item (to avoid
-/// the per-item macOS auth prompt) and, on Windows only, splits that document
-/// across sibling items to stay under the cap. cfg! is compile-time exact, so the
-/// webview never guesses the platform (a wrong guess would silently drop data).
+/// True on Windows, whose Credential Manager caps a single item at 2560 BYTES of
+/// the UTF-16 encoding (~1280 BMP code units; keyring's "2560 chars" message
+/// compares `blob_u16.len() * 2`). The webview consolidates all secrets into ONE
+/// keychain item (to avoid the per-item macOS auth prompt) and, on Windows only,
+/// splits that document across sibling items — sized in bytes — to stay under the
+/// cap. cfg! is compile-time exact, so the webview never guesses the platform (a
+/// wrong guess would silently drop data).
 #[tauri::command]
 pub fn keychain_is_windows() -> bool {
     cfg!(target_os = "windows")

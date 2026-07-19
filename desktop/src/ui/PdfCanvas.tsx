@@ -438,22 +438,29 @@ function PageView({
   // Live preview for a drag-in-progress (image rect or ink path), in CSS px.
   const [draft, setDraft] = useState<{ rect?: number[]; pts?: number[] } | null>(null);
 
-  // Render pages within ~1000px of the viewport and UN-render those beyond, so a
-  // 500-page PDF keeps a bounded handful of live canvases/text layers instead of
-  // 500 (#311). A persistent observer toggles `visible` both ways; the generous
-  // rootMargin keeps a scroll from thrashing the boundary. The page's reserved
-  // footprint comes from the pre-measured `dim` while un-rendered, so geometry
-  // never shifts.
+  // Lazily render a page the first time it comes within ~1000px of the viewport,
+  // then LATCH it rendered — never un-render on scroll-away.
+  //
+  // v0.3.76 also un-rendered pages scrolled far away (clearing the canvas/text and
+  // reserving the pre-measured `dim` footprint) to cap memory on huge PDFs (#311).
+  // That churn was buggy in practice: scrolling left stale link boxes and
+  // annotation layers floating on blanked pages, and overlays drifted onto the
+  // wrong pages. Correctness beats the memory optimisation — keep the lazy first
+  // paint (a never-visited page still costs nothing) but drop the destructive
+  // un-render. A device-tested re-approach to offscreen eviction can come later.
   useEffect(() => {
+    if (visible) return; // already latched
     const el = wrapRef.current;
     if (el === null) return;
     const io = new IntersectionObserver(
-      (entries) => setVisible(entries[entries.length - 1].isIntersecting),
+      (entries) => {
+        if (entries[entries.length - 1].isIntersecting) setVisible(true);
+      },
       { rootMargin: '1000px 0px' },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, []);
+  }, [visible]);
 
   useEffect(() => {
     if (!visible) {

@@ -387,26 +387,28 @@
 .pdfjs-link {
   position: absolute;
   border: none;
-  /* A persistent faint tint + underline so links (refs, citations, figures) are
-     discoverable at a glance rather than only on hover — the ref token reads as
-     clickable. External links use the accent hue. */
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  /* Discoverable via a thin UNDERLINE only at rest — NOT a filled tint. A
+     persistent background fill blanketed link-dense pages (a references list or
+     table of contents where nearly every line is a link) into a wall of colour
+     that obscured the text. The underline marks a link without covering it; the
+     tint fill appears on hover, when a single link is the focus. External links
+     use the accent hue. */
+  background: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 40%, transparent);
   cursor: pointer;
   padding: 0;
   z-index: 2; /* above the text layer so link clicks win over text selection */
 }
 .pdfjs-link:hover {
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
-/* Internal links (refs / figures / ToC jumps) get a distinct green tint so they
-   read as in-document navigation, not an external link. */
+/* Internal links (refs / figures / ToC jumps) get a distinct green underline so
+   they read as in-document navigation, not an external link. */
 .pdfjs-link.internal {
-  background: color-mix(in srgb, #22c55e 10%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, #22c55e 50%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, #22c55e 45%, transparent);
 }
 .pdfjs-link.internal:hover {
-  background: color-mix(in srgb, #22c55e 24%, transparent);
+  background: color-mix(in srgb, #22c55e 22%, transparent);
 }
 .pdfjs-find {
   display: flex;
@@ -485,6 +487,10 @@
   position: absolute;
   inset: 0;
   z-index: 3;
+  /* Clip to the page. Annotations live in this page's coordinate space and must
+     never paint outside it — without this, a box positioned at/near an edge bled
+     onto the neighbouring page, so annotations appeared on pages that had none. */
+  overflow: hidden;
   /* The container spans the whole page (inset:0); if it captured pointer events
      it would swallow every click destined for the text layer (z1, selection) and
      link overlay (z2) across the entire page whenever any annotation exists —

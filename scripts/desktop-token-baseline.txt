@@ -1,6 +1,6 @@
 # desktop-token baseline (#318) — grandfathered off-token counts.
 # Regenerate with: scripts/lint-desktop-tokens.sh --update
 # One <category>\t<count> per line. Counts may only DECREASE.
-css_hex	25
+css_hex	24
 css_primitive_var	56
 tsx_hex	6

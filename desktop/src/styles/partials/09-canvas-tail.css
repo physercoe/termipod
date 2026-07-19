@@ -693,6 +693,11 @@
   overflow: auto;
   background: #fff;
 }
+/* epub.js paints stored highlights as SVG rects in its annotation layer; make
+   them obviously clickable (click → Remove in the toolbar). Fill is set inline. */
+.termipod-epub-hl {
+  cursor: pointer;
+}
 /* Loading / error placeholder centred over the (hidden) host. */
 .epub-state {
   position: absolute;

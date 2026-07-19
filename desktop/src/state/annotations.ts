@@ -13,15 +13,26 @@ import { backupCorrupt } from './persist';
 
 export type AnnotationType = 'highlight' | 'underline' | 'note' | 'text' | 'image' | 'ink';
 
-/// The geometry, kept in PDF user space (points, origin bottom-left, unscaled).
-/// Rect kinds carry `rects` ([xMin, yMin, xMax, yMax] each, possibly several for a
-/// multi-line highlight); ink carries `paths` (flattened [x1,y1,x2,y2,…] point
-/// runs) plus a stroke `width` in PDF points.
+/// The anchor for an annotation. Two shapes coexist:
+///
+/// - **Fixed-layout (PDF).** Geometry in PDF user space (points, origin
+///   bottom-left, unscaled): `rects` ([xMin, yMin, xMax, yMax] each, possibly
+///   several for a multi-line highlight); ink carries `paths` (flattened
+///   [x1,y1,x2,y2,…] runs) plus a stroke `width` in PDF points.
+/// - **Reflowable (EPUB).** A `cfi` (EPUB Canonical Fragment Identifier range) —
+///   stable across font size, theme, width and zoom, unlike page geometry. epub.js
+///   both produces it (on selection) and re-paints the highlight from it per
+///   section, so the reader needs no coordinate math. The reflowable html/markdown
+///   viewers will extend this with a W3C text-quote selector when they land.
+///
+/// `pageIndex` stays required (0 for reflowable) so the existing filters/sort keep
+/// working; the discriminator in practice is "has `cfi`" vs "has `rects`/`paths`".
 export interface AnnotationPosition {
-  pageIndex: number; // 0-based
+  pageIndex: number; // 0-based (0 for reflowable anchors)
   rects?: number[][];
   paths?: number[][];
   width?: number;
+  cfi?: string; // EPUB CFI range (reflowable anchor)
 }
 
 export interface Annotation {
@@ -106,6 +117,9 @@ function newId(): string {
 // horizontal. PDF y grows upward, so we sort on (maxPageY - yTop) to get top-down.
 // Good enough to order the annotation list without Zotero's exact string scheme.
 function computeSortIndex(pos: AnnotationPosition): string {
+  // Reflowable anchor: order by the CFI string itself (roughly document order
+  // within a book) — there is no page geometry to key on.
+  if (pos.cfi !== undefined && pos.rects === undefined && pos.paths === undefined) return pos.cfi;
   const rect = pos.rects?.[0] ?? (pos.paths?.[0] !== undefined ? bboxOfPath(pos.paths[0]) : undefined);
   const yTop = rect !== undefined ? rect[3] : 0;
   const xLeft = rect !== undefined ? rect[0] : 0;

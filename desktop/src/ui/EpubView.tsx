@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ePub, { type Rendition, type Contents, type NavItem, type Location } from 'epubjs';
 import { useT } from '../i18n';
 import { openExternal } from '../platform';
 import { Icon } from './Icon';
 import { ResizeHandle, usePanelWidth } from './ResizeHandle';
 import { EPUB_THEMES, epubThemeCss, type EpubTheme } from './epubThemes';
+import { ANNOTATION_COLORS, useAnnotations } from '../state/annotations';
 
 /// Offline EPUB reader for the Read surface. EPUB is a ZIP of XHTML; epub.js
 /// parses and renders it fully client-side (no network), so it works in the
@@ -36,10 +37,12 @@ const THEME_STYLE_MARK = 'epub-theme';
 
 export function EpubView({
   data,
+  referenceId,
   onSaveSelection,
 }: {
   data: ArrayBuffer;
   fileName: string;
+  referenceId?: string;
   onSaveSelection?: (text: string) => void;
 }): JSX.Element {
   const t = useT();
@@ -49,6 +52,22 @@ export function EpubView({
   const [showToc, setShowToc] = useState(false);
   const [tocW, resizeToc] = usePanelWidth('termipod.read.epubTocW', 260, 160, 480);
   const [sel, setSel] = useState('');
+  // The CFI range of the live selection, captured alongside its text so a
+  // "Highlight" turns the selection into a persisted, re-paintable annotation.
+  const [selCfi, setSelCfi] = useState('');
+  // The highlight the reader last clicked (offer a Remove action for it).
+  const [activeHl, setActiveHl] = useState<string | null>(null);
+  const annos = useAnnotations((s) => s.items);
+  const addAnno = useAnnotations((s) => s.add);
+  const removeAnno = useAnnotations((s) => s.remove);
+  // This reference's CFI-anchored highlights (the reflowable annotation set).
+  const myHls = useMemo(
+    () => annos.filter((a) => a.referenceId === referenceId && a.position.cfi !== undefined),
+    [annos, referenceId],
+  );
+  // What is currently painted on the epub.js annotation layer: cfi → annotation id.
+  // Reconciled against `myHls`; reset when the rendition is torn down.
+  const appliedRef = useRef<Map<string, string>>(new Map());
   // Loading / error lifecycle: a corrupt or unparseable EPUB used to hang on a
   // blank host with no feedback; surface both states explicitly.
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -203,8 +222,9 @@ export function EpubView({
       else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') void r.next();
     };
     r.on('keyup', onKey);
-    r.on('selected', (_cfiRange: string, contents: Contents) => {
+    r.on('selected', (cfiRange: string, contents: Contents) => {
       setSel(contents.window.getSelection()?.toString().trim() ?? '');
+      setSelCfi(cfiRange);
     });
     // epub.js snapshots the container width at render time and does NOT reflow on
     // its own — so the book stays narrow/fixed when the pane grows (details panel
@@ -238,8 +258,60 @@ export function EpubView({
       r.destroy();
       book.destroy();
       rendition.current = null;
+      appliedRef.current.clear(); // the annotation layer went with the rendition
     };
   }, [data]);
+
+  // Reconcile the epub.js annotation layer with the stored highlights: paint any
+  // that aren't yet on the layer, drop any that were removed. epub.js re-paints
+  // each highlight when its section (re)renders, so this only runs on set changes.
+  useEffect(() => {
+    const r = rendition.current;
+    if (r === null || status !== 'ready') return;
+    const applied = appliedRef.current;
+    for (const a of myHls) {
+      const cfi = a.position.cfi;
+      if (cfi === undefined || applied.has(cfi)) continue;
+      try {
+        r.annotations.add(
+          'highlight',
+          cfi,
+          {},
+          () => setActiveHl(a.id), // click a highlight → offer Remove in the toolbar
+          'termipod-epub-hl',
+          { fill: a.color ?? ANNOTATION_COLORS[0], 'fill-opacity': '0.35', 'mix-blend-mode': 'multiply' },
+        );
+        applied.set(cfi, a.id);
+      } catch {
+        /* unparseable/stale CFI (book changed) — skip */
+      }
+    }
+    for (const [cfi] of applied) {
+      if (myHls.some((a) => a.position.cfi === cfi)) continue;
+      try {
+        r.annotations.remove(cfi, 'highlight');
+      } catch {
+        /* already gone */
+      }
+      applied.delete(cfi);
+    }
+  }, [myHls, status]);
+
+  // Turn the live selection into a stored highlight (default palette color).
+  function highlightSelection(): void {
+    if (referenceId === undefined || selCfi === '') return;
+    addAnno({
+      referenceId,
+      type: 'highlight',
+      color: ANNOTATION_COLORS[0],
+      pageIndex: 0,
+      text: sel,
+      position: { pageIndex: 0, cfi: selCfi },
+      tags: [],
+    });
+    setSel('');
+    setSelCfi('');
+  }
 
   // Reactively apply font-size changes to the live rendition and persist.
   useEffect(() => {
@@ -337,12 +409,30 @@ export function EpubView({
           </span>
         )}
         <span className="spacer" />
+        {activeHl !== null && (
+          <button
+            className="small danger"
+            title={t('read.epubRemoveHl')}
+            onClick={() => {
+              removeAnno(activeHl);
+              setActiveHl(null);
+            }}
+          >
+            <Icon name="trash" size={14} /> {t('read.epubRemoveHl')}
+          </button>
+        )}
+        {referenceId !== undefined && sel !== '' && selCfi !== '' && (
+          <button className="small" title={t('read.epubHighlight')} onClick={highlightSelection}>
+            <Icon name="highlight" size={14} /> {t('read.epubHighlight')}
+          </button>
+        )}
         {onSaveSelection !== undefined && sel !== '' && (
           <button
             className="primary small"
             onClick={() => {
               onSaveSelection(sel);
               setSel('');
+              setSelCfi('');
             }}
           >
             {t('read.epubSaveSel')}

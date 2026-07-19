@@ -498,7 +498,7 @@ function AttachmentView({
   if (payload.t === 'buf' && payload.kind === 'epub')
     return (
       <Suspense fallback={<div className="muted region-pad">{t('read.loadingFile')}</div>}>
-        <EpubView data={payload.buf} fileName={att.file} onSaveSelection={onSaveSelection} />
+        <EpubView data={payload.buf} fileName={att.file} referenceId={referenceId} onSaveSelection={onSaveSelection} />
       </Suspense>
     );
   if (payload.t === 'text')

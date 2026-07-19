@@ -157,7 +157,18 @@ export function upsertConnection(input: Partial<Connection> & { name: string; ho
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     lastConnectedAt: input.lastConnectedAt ?? existing?.lastConnectedAt ?? null,
     deepLinkId: existing?.deepLinkId ?? null,
+    // Carry over the whole jump/proxy cluster — these are stored for vault parity
+    // (sync can populate them from a mobile bundle) and a form that doesn't touch
+    // them must not wipe them on save.
     jumpHost: input.jumpHost ?? existing?.jumpHost ?? null,
+    jumpPort: input.jumpPort ?? existing?.jumpPort ?? null,
+    jumpUsername: input.jumpUsername ?? existing?.jumpUsername ?? null,
+    jumpAuthMethod: input.jumpAuthMethod ?? existing?.jumpAuthMethod ?? null,
+    jumpKeyId: input.jumpKeyId ?? existing?.jumpKeyId ?? null,
+    proxyHost: input.proxyHost ?? existing?.proxyHost ?? null,
+    proxyPort: input.proxyPort ?? existing?.proxyPort ?? null,
+    proxyUsername: input.proxyUsername ?? existing?.proxyUsername ?? null,
+    proxyPassword: input.proxyPassword ?? existing?.proxyPassword ?? null,
   };
   const next = existing ? list.map((c) => (c.id === id ? conn : c)) : [...list, conn];
   persist(next);

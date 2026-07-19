@@ -122,18 +122,27 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
   }
 
   async function run(): Promise<void> {
-    let backoff = 1000;
+    const BASE = 1000;
+    let backoff = BASE;
     while (!closed) {
+      let errored = false;
       try {
         if (isTauri()) await readViaTauri();
         else await readViaFetch();
-        backoff = 1000;
       } catch (err) {
         if (closed) break;
+        errored = true;
         opts.onError?.(err);
-        await new Promise((r) => setTimeout(r, backoff));
-        backoff = Math.min(backoff * 2, 15000);
       }
+      if (closed) break;
+      // Pause before EVERY reconnect. A stream that ends cleanly (proxy
+      // idle-timeout, hub deploy) previously fell straight back into the loop
+      // with no delay → a hot reconnect loop against an accept-then-close
+      // endpoint. A clean end reconnects at the base delay; only errors escalate
+      // the backoff. Jitter avoids a thundering herd after a hub restart.
+      const wait = errored ? backoff : BASE;
+      await new Promise((r) => setTimeout(r, wait + Math.random() * 0.3 * wait));
+      backoff = errored ? Math.min(backoff * 2, 15000) : BASE;
     }
   }
 

@@ -64,7 +64,14 @@ export function ProfileSwitcher({
               <button
                 className="link-btn"
                 onClick={() => {
-                  void removeProfile(p.id).then(() => setProfiles(listProfiles()));
+                  // Tear down the live client too when the removed profile is the
+                  // active one — otherwise the app keeps driving a deleted hub
+                  // until relaunch.
+                  const wasActive = useSession.getState().activeProfileId === p.id;
+                  void removeProfile(p.id).then(() => {
+                    setProfiles(listProfiles());
+                    if (wasActive) useSession.getState().disconnect();
+                  });
                 }}
               >
                 {t('profile.remove')}

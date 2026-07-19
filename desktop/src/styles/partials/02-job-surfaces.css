@@ -26,7 +26,7 @@
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background var(--ease), color var(--ease);
+  transition: background 0.12s var(--ease), color 0.12s var(--ease);
 }
 .activity-tab:hover {
   background: var(--hover);

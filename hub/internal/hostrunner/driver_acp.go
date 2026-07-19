@@ -517,12 +517,12 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	}
 
 	// ADR-054 D6 / #334 — newer ACP daemons (kimi-code-ts) report per-session
-	// model/mode state via a `configOptions` select array instead of the legacy
+	// model/mode state via a `configOptions` select array instead of the older
 	// `modes`/`models` blocks. Translate it into the SAME sr.Modes/sr.Models
 	// lists so a single downstream (id-set caching + the synthetic initial-state
 	// event) handles both shapes. Shape-driven and engine-neutral: any future ACP
-	// adopter benefits. Fill PER CATEGORY and only when the legacy field is
-	// absent, so a legacy-shaped reply produces byte-identical output (no
+	// adopter benefits. Fill PER CATEGORY and only when the modes/models field is
+	// absent, so a modes/models-shaped reply produces byte-identical output (no
 	// regression for gemini-cli / Python kimi-code).
 	var thoughtLevel string
 	if coModes, coCurMode, coModels, coCurModel, coThought, ok := translateConfigOptions(sres); ok {
@@ -923,7 +923,7 @@ func (d *ACPDriver) emitAuthAttention(
 
 // translateConfigOptions maps the newer ACP `configOptions` select array (a
 // session/new or session/load reply from kimi-code-ts, and any future daemon that
-// adopts the same ACP revision) into the legacy availableModes/availableModels
+// adopts the same ACP revision) into the older availableModes/availableModels
 // list shape. Mode entries are keyed by `id`, model entries by `modelId` (both
 // carrying `name`), so the existing id-set caching + synthetic initial-state
 // event downstream in Start consumes either shape unchanged (#334, ADR-054 D6).
@@ -947,7 +947,7 @@ func translateConfigOptions(raw []byte) (modes []map[string]any, currentMode str
 	if err := json.Unmarshal(raw, &co); err != nil || len(co.ConfigOptions) == 0 {
 		return nil, "", nil, "", "", false
 	}
-	// Translate one option list into legacy-shaped entries under `idKey`
+	// Translate one option list into modes/models-shaped entries under `idKey`
 	// ("id" for modes, "modelId" for models), dropping entries with no value.
 	entriesFor := func(opts []map[string]any, idKey string) []map[string]any {
 		out := make([]map[string]any, 0, len(opts))

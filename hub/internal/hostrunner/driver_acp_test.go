@@ -53,7 +53,7 @@ type fakeACPAgent struct {
 
 	// #334 / ADR-054 D6: when set, session/new returns its mode/model state via
 	// the newer ACP `configOptions` select array (kimi-code-ts shape) instead of
-	// the legacy modes/models blocks. Drives ACPDriver.translateConfigOptions.
+	// the older modes/models blocks. Drives ACPDriver.translateConfigOptions.
 	configOptions []map[string]any
 
 	// W4.4 toggle: when set, initialize advertises
@@ -2825,7 +2825,7 @@ func TestACPDriver_EmitsInitialModeModelSystemEvent(t *testing.T) {
 }
 
 // TestTranslateConfigOptions unit-tests the #334 shape translation: the newer
-// ACP `configOptions` select array maps into legacy-shaped mode/model lists, with
+// ACP `configOptions` select array maps into modes/models-shaped lists, with
 // thought_level surfaced separately (no picker) and malformed / empty inputs
 // returning found=false.
 func TestTranslateConfigOptions(t *testing.T) {
@@ -2885,7 +2885,7 @@ func TestTranslateConfigOptions(t *testing.T) {
 
 // TestACPDriver_ConfigOptionsHydratesModeModelState — #334: a session/new reply
 // carrying the newer `configOptions` shape (kimi-code-ts) must synthesize the same
-// initial mode/model system event the legacy modes/models blocks do, so the mobile
+// initial mode/model system event the older modes/models blocks do, so the mobile
 // picker hydrates. Also asserts the current ids + thought-level forensics field,
 // and that the cached availableModels lets a set_model round-trip validate.
 func TestACPDriver_ConfigOptionsHydratesModeModelState(t *testing.T) {

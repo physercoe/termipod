@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
+import { PasswordInput } from './PasswordInput';
 import {
   getWebdavPassword,
   getZoteroS3Secret,
@@ -155,7 +156,7 @@ export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
             </label>
             <label className="webdav-field">
               <span className="webdav-label">{t('read.webdavPass')}</span>
-              <input type="password" value={pass} autoComplete="off" onChange={(e) => setPass(e.target.value)} />
+              <PasswordInput value={pass} autoComplete="off" onChange={(e) => setPass(e.target.value)} />
             </label>
           </>
         ) : (
@@ -182,7 +183,7 @@ export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
             </label>
             <label className="webdav-field">
               <span className="webdav-label">{t('author.s3Secret')}</span>
-              <input type="password" value={s3Secret} autoComplete="off" onChange={(e) => setS3SecretVal(e.target.value)} />
+              <PasswordInput value={s3Secret} autoComplete="off" onChange={(e) => setS3SecretVal(e.target.value)} />
             </label>
           </>
         )}

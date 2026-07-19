@@ -8,6 +8,7 @@ import { useTheme, type ThemePref } from '../state/theme';
 import { getVoiceApiKey, getVoiceModel, setVoiceApiKey, setVoiceModel, VOICE_MODELS } from '../voice/settings';
 import { activeRootLabel, useAttachmentConfig } from '../state/attachments';
 import { PROXY_CONNS, useProxy, type ProxyConn } from '../state/proxy';
+import { PasswordInput } from '../ui/PasswordInput';
 import { Icon } from '../ui/Icon';
 import { useConfirm } from '../ui/ConfirmModal';
 import { UpdateSection } from './UpdateSection';
@@ -97,8 +98,7 @@ function VoiceSettings(): JSX.Element {
       <p className="muted small">{t('settings.voiceBlurb')}</p>
       <div className="setting-row">
         <label>{t('settings.voiceKey')}</label>
-        <input
-          type="password"
+        <PasswordInput
           value={key}
           placeholder={hasKey ? t('settings.voiceKeySet') : t('settings.voiceKeyPlaceholder')}
           onChange={(e) => setKey(e.target.value)}

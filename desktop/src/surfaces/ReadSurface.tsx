@@ -43,6 +43,7 @@ import { MarkdownReader } from '../ui/MarkdownReader';
 import { NoteTab } from '../ui/NoteTab';
 import { MarkdownEditor } from '../ui/MarkdownEditor';
 import { Icon, type IconName } from '../ui/Icon';
+import { PasswordInput } from '../ui/PasswordInput';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
 import { useTextPrompt } from '../ui/PromptModal';
@@ -1595,9 +1596,8 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
       </div>
       {showKey && source.keyKey !== undefined && (
         <div className="discover-key">
-          <input
+          <PasswordInput
             className="discover-key-input"
-            type="password"
             value={key}
             placeholder={t('read.apiKeyPlaceholder')}
             onChange={(e) => {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
+import { PasswordInput } from '../ui/PasswordInput';
 import {
   getS3Secret,
   getWorkspaceSyncPassword,
@@ -161,7 +162,7 @@ export function WorkspaceSyncModal({
             </label>
             <label className="webdav-field">
               <span className="webdav-label">{t('read.webdavPass')}</span>
-              <input type="password" value={pass} autoComplete="off" onChange={(e) => setPass(e.target.value)} />
+              <PasswordInput value={pass} autoComplete="off" onChange={(e) => setPass(e.target.value)} />
             </label>
           </>
         ) : (
@@ -188,7 +189,7 @@ export function WorkspaceSyncModal({
             </label>
             <label className="webdav-field">
               <span className="webdav-label">{t('author.s3Secret')}</span>
-              <input type="password" value={s3Secret} autoComplete="off" onChange={(e) => setS3SecretVal(e.target.value)} />
+              <PasswordInput value={s3Secret} autoComplete="off" onChange={(e) => setS3SecretVal(e.target.value)} />
             </label>
           </>
         )}

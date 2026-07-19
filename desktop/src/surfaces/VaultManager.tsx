@@ -4,6 +4,7 @@ import { isTauri, openExternal } from '../platform';
 import { copySecret } from '../state/clipboard';
 import { DEFAULT_GEN, generatePassword, passwordStrength } from '../state/password';
 import { Icon, type IconName } from '../ui/Icon';
+import { PasswordInput } from '../ui/PasswordInput';
 import { listAppIntegrations, type AppIntegration } from '../state/appIntegrations';
 import { listConnections } from '../state/connections';
 import { secretDelete, secretGet, secretSet } from '../state/persist';
@@ -625,8 +626,7 @@ function AppSecretRow({ slot, label }: { slot: string; label: string }): JSX.Ele
         <div className="vault-field-blockhead">
           <span className="vault-field-label">{label}</span>
         </div>
-        <input
-          type="password"
+        <PasswordInput
           className="vault-app-edit"
           autoFocus
           value={draft}

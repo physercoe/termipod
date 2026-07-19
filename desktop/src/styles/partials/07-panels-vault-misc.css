@@ -921,3 +921,29 @@ button.search-result-link:hover {
   color: var(--text-muted);
   cursor: default;
 }
+
+/* Shared password input with an inline reveal eye (ui/PasswordInput). The eye
+   sits over the input's right edge; the input reserves room so text never runs
+   under it. */
+.pw-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.pw-field > input {
+  flex: 1;
+  min-width: 0;
+  padding-right: 32px;
+}
+.pw-field > .pw-field-eye {
+  position: absolute;
+  right: var(--spacing-s4);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px;
+  color: var(--text-muted);
+}
+.pw-field > .pw-field-eye:hover {
+  color: var(--text);
+}

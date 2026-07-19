@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { deleteKey, importKey, listKeys, type SshKeyMeta } from '../state/keys';
 import { ConfirmButton } from '../ui/ConfirmButton';
+import { PasswordInput } from '../ui/PasswordInput';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -85,9 +86,8 @@ export function SshKeysSettings(): JSX.Element {
           onChange={(e) => setPem(e.target.value)}
         />
         <div className="sshkey-import-row">
-          <input
-            type="password"
-            className="sshkey-pass"
+          <PasswordInput
+            wrapClassName="sshkey-pass"
             placeholder={t('term.passphrase')}
             value={passphrase}
             onChange={(e) => setPassphrase(e.target.value)}

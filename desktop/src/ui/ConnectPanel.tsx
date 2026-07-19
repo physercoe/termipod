@@ -3,6 +3,7 @@ import { HubClient } from '../hub/client';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { getToken, type HubProfile } from '../state/profiles';
+import { PasswordInput } from './PasswordInput';
 
 interface Form {
   name: string;
@@ -77,7 +78,7 @@ export function ConnectPanel({ onClose, edit }: { onClose?: () => void; edit?: H
         </label>
         <label>
           {t('connect.token')}
-          <input value={form.token} onChange={set('token')} type="password" placeholder="bearer token" />
+          <PasswordInput value={form.token} onChange={set('token')} placeholder="bearer token" />
         </label>
         {error !== null && <div className="error">{error}</div>}
         <button className="primary" type="submit" disabled={busy || !complete}>

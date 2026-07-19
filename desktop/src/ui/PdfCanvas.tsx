@@ -928,6 +928,26 @@ function ThumbList({
   );
 }
 
+// Persisted zoom level, shared across PDFs so the reader reopens at the level the
+// user last chose instead of always 1.2× (#321).
+const PDF_SCALE_KEY = 'termipod.pdf.scale';
+function loadPdfScale(): number {
+  try {
+    const n = Number(localStorage.getItem(PDF_SCALE_KEY));
+    if (Number.isFinite(n) && n >= 0.4 && n <= 3) return n;
+  } catch {
+    /* ignore */
+  }
+  return 1.2;
+}
+function savePdfScale(n: number): void {
+  try {
+    localStorage.setItem(PDF_SCALE_KEY, String(n));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function PdfCanvas({
   data,
   referenceId,
@@ -955,7 +975,7 @@ export function PdfCanvas({
   const pageTextRef = useRef<Map<number, string>>(new Map());
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [err, setErr] = useState(false);
-  const [scale, setScale] = useState(1.2);
+  const [scale, setScale] = useState(loadPdfScale);
   // Annotations for this reference, grouped by page (0-based). Only usable when a
   // referenceId is present (annotations attach to a reference).
   const allAnnos = useAnnotations((s) => s.items);
@@ -1202,6 +1222,11 @@ export function PdfCanvas({
       if (avail > 0) setScale(Math.max(0.4, Math.min(3, avail / base.width)));
     });
   }
+
+  // Remember the chosen zoom for the next PDF opened (#321).
+  useEffect(() => {
+    savePdfScale(scale);
+  }, [scale]);
 
   // Scroll so page `n`'s top (plus an optional in-page `yOffset`) sits just under
   // the toolbar. The target is an ABSOLUTE content offset (invariant to the current
@@ -1688,6 +1713,14 @@ export function PdfCanvas({
             tabIndex={0}
             role="region"
             aria-label={t('read.pdfDocument')}
+            onWheel={(e) => {
+              // Ctrl/Cmd+wheel zooms (trackpad pinch also emits ctrlKey), like a
+              // browser/PDF viewer; a plain wheel scrolls normally.
+              if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                setScale((s) => Math.max(0.4, Math.min(3, s - Math.sign(e.deltaY) * 0.1)));
+              }
+            }}
             onMouseUp={() => {
               // Selection-driven tools commit on mouse-up, once the drag-select ends.
               if (tool === 'highlight' || tool === 'underline') commitTextSelection(tool);

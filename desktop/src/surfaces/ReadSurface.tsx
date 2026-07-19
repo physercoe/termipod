@@ -325,40 +325,49 @@ function AttachmentView({
   const files = useZoteroStorage((s) => s.files);
   const path = useZoteroStorage((s) => s.path);
   const [payload, setPayload] = useState<Payload | null>(null);
-  const [err, setErr] = useState(false);
+  // null = loading; 'notfound' = not in the linked folder; 'error' = read/decode
+  // failure. These are distinct: only 'notfound' means "check the folder link".
+  const [err, setErr] = useState<null | 'notfound' | 'error'>(null);
   const kind = viewKindFor(att.file);
   useEffect(() => {
     let alive = true;
     let made: string | null = null;
     setPayload(null);
-    setErr(false);
-    void loadAttachmentBlob({ rels, files, path }, att).then(async (blob) => {
-      if (!alive) return;
-      if (blob === null) {
-        setErr(true);
-        return;
-      }
-      // Trust a declared PDF content-type even when the extension is unknown.
-      const eff: ViewKind = blob.type === 'application/pdf' ? 'pdf' : kind;
-      if (eff === 'pdf' || eff === 'epub') {
-        const buf = await blob.arrayBuffer();
-        if (alive) setPayload({ t: 'buf', kind: eff, buf });
-      } else if (eff === 'text') {
-        const text = await blob.text();
-        if (alive) setPayload({ t: 'text', text });
-      } else {
-        made = URL.createObjectURL(blob);
-        if (alive) setPayload({ t: 'url', kind: eff, url: made });
-        else URL.revokeObjectURL(made);
-      }
-    });
+    setErr(null);
+    void loadAttachmentBlob({ rels, files, path }, att)
+      .then(async (blob) => {
+        if (!alive) return;
+        if (blob === null) {
+          setErr('notfound');
+          return;
+        }
+        // Trust a declared PDF content-type even when the extension is unknown.
+        const eff: ViewKind = blob.type === 'application/pdf' ? 'pdf' : kind;
+        if (eff === 'pdf' || eff === 'epub') {
+          const buf = await blob.arrayBuffer();
+          if (alive) setPayload({ t: 'buf', kind: eff, buf });
+        } else if (eff === 'text') {
+          const text = await blob.text();
+          if (alive) setPayload({ t: 'text', text });
+        } else {
+          made = URL.createObjectURL(blob);
+          if (alive) setPayload({ t: 'url', kind: eff, url: made });
+          else URL.revokeObjectURL(made);
+        }
+      })
+      .catch(() => {
+        // A read/decode failure (corrupt file, permission) — NOT a missing file,
+        // and previously left the view stuck on "loading" forever.
+        if (alive) setErr('error');
+      });
     return () => {
       alive = false;
       if (made !== null) URL.revokeObjectURL(made);
     };
   }, [att.key, att.file, rels, files, path, kind]);
 
-  if (err) return <div className="muted region-pad">{t('read.pdfNotFound')}</div>;
+  if (err === 'notfound') return <div className="muted region-pad">{t('read.pdfNotFound')}</div>;
+  if (err === 'error') return <div className="error region-pad">{t('read.attachmentError')}</div>;
   if (payload === null) return <div className="muted region-pad">{t('read.loadingFile')}</div>;
   if (payload.t === 'buf' && payload.kind === 'pdf')
     return (

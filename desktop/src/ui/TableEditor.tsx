@@ -13,6 +13,9 @@ import {
 import { Icon } from './Icon';
 import { clipboardItems, useContextMenu } from './ContextMenu';
 
+/// Cap on the structural-undo history so a long editing session stays bounded.
+const UNDO_CAP = 50;
+
 /// The **table / database** document editor — a lightweight Notion/Obsidian-style
 /// grid: typed columns (text · number · checkbox · select · date) over rows of
 /// cells. It is one kind of Author document; on disk a table is a real `.csv`
@@ -26,11 +29,29 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
   const [data, setData] = useState<TableData>(() => parseTable(value, t('table.colName')));
   const dataRef = useRef(data);
   dataRef.current = data;
+  // Structural undo (#322): every mutation snapshots the prior table so add/remove
+  // row+column, rename, retype, and cell edits can be rolled back. Bounded so a
+  // long editing session doesn't grow the stack without limit. Cell text still has
+  // the input's own native undo while typing; this covers the structural ops the
+  // browser can't undo.
+  const [past, setPast] = useState<TableData[]>([]);
   function mutate(fn: (d: TableData) => TableData): void {
-    const next = fn(dataRef.current);
+    const prev = dataRef.current;
+    const next = fn(prev);
+    setPast((p) => [...p, prev].slice(-UNDO_CAP));
     dataRef.current = next;
     setData(next);
     onChange(serializeTable(next));
+  }
+  function undo(): void {
+    setPast((p) => {
+      if (p.length === 0) return p;
+      const prev = p[p.length - 1];
+      dataRef.current = prev;
+      setData(prev);
+      onChange(serializeTable(prev));
+      return p.slice(0, -1);
+    });
   }
 
   const { columns, rows } = data;
@@ -89,11 +110,22 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
   return (
     <div
       className="table-editor"
+      onKeyDown={(e) => {
+        // Cmd/Ctrl+Z undoes a structural change — but only when focus isn't in an
+        // editable cell, so typing keeps the input's own native undo.
+        const tag = (e.target as HTMLElement).tagName;
+        const editable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey && !editable) {
+          e.preventDefault();
+          undo();
+        }
+      }}
       onContextMenu={(e) =>
         menu.open(e, [
           ...clipboardItems(t),
           { label: t('table.addRow'), onClick: addRow },
           { label: t('table.addColumn'), onClick: addColumn },
+          { label: t('table.undo'), onClick: undo, disabled: past.length === 0 },
         ])
       }
     >
@@ -104,6 +136,9 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
         </button>
         <button className="import-btn" onClick={addColumn}>
           <Icon name="plus" size={13} /> {t('table.addColumn')}
+        </button>
+        <button className="import-btn" onClick={undo} disabled={past.length === 0} title={t('table.undo')}>
+          <Icon name="undo" size={13} /> {t('table.undo')}
         </button>
         <span className="spacer" />
         <span className="muted small">{t('table.count').replace('{r}', String(rows.length)).replace('{c}', String(columns.length))}</span>

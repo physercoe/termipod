@@ -63,6 +63,7 @@ export type IconName =
   | 'search'
   | 'lock'
   | 'unlock'
+  | 'undo'
   | 'terminal'
   | 'sliders'
   | 'canvas'
@@ -371,6 +372,12 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <rect x="4.5" y="10" width="15" height="10.5" rx="2" />
       <path d="M8 10V7a4 4 0 0 1 7.5-1.8" />
+    </>
+  ),
+  undo: (
+    <>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
     </>
   ),
   terminal: (

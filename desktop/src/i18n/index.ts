@@ -1121,6 +1121,7 @@ const en: Dict = {
   // Table / database document
   'table.addRow': 'Row',
   'table.addColumn': 'Column',
+  'table.undo': 'Undo',
   'table.deleteRow': 'Delete row',
   'table.deleteColumn': 'Delete column',
   'table.newColumn': 'Column',
@@ -2311,6 +2312,7 @@ const zh: Dict = {
   // 表格 / 数据库文档
   'table.addRow': '行',
   'table.addColumn': '列',
+  'table.undo': '撤销',
   'table.deleteRow': '删除行',
   'table.deleteColumn': '删除列',
   'table.newColumn': '列',

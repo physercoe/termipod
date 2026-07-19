@@ -24,7 +24,7 @@
   --border-strong: #31363f; /* interactive / focus border (step 8) */
   --text: #f4f6f8;        /* high-contrast ink */
   --text-secondary: #a7aeba;
-  --text-muted: #6a727f;
+  --text-muted: #8b939f;  /* WCAG AA: 4.5:1+ on --surface (was #6a727f ≈3.8:1) */
   /* accent — brand cyan, reserved for focus / selection / live data / one CTA */
   --accent: var(--color-primary);
   --accent-strong: var(--color-primary-dark);
@@ -61,16 +61,18 @@
   --canvas: #eef0f3;
   --surface: #ffffff;
   --raised: #ffffff;
-  --hover: #eef1f5;
+  --hover: #e4e9f0;  /* was #eef1f5 ≈1.1:1 on white — nearly invisible */
   --input: #f6f7f9;
   --border: #e6e9ee;
   --border-strong: #d4d9e1;
   --text: #0f141c;
   --text-secondary: #586173;
-  --text-muted: #8a93a3;
+  --text-muted: #6b7280;  /* WCAG AA: 4.66:1 on --bg (was #8a93a3 ≈2.91:1) */
   --accent: var(--color-primary-dark);
   --accent-strong: var(--color-primary-dark);
-  --accent-ink: #ffffff;
+  /* Dark ink on the solid accent fill — white was only 3.39:1 on the light
+   * accent; dark ink is ≈5:1 (mirrors the dark theme's dark-on-accent ink). */
+  --accent-ink: #00252b;
   --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 40%, transparent);
   --ok: var(--color-success-on-light);

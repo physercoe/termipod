@@ -137,6 +137,44 @@
   font-weight: 600;
 }
 
+/* Light-theme syntax palette. The colors above are GitHub-dark hues tuned for a
+   dark editor; on the light surface (#f6f7f9) they drop well below AA (a
+   #00C0D1 keyword is ≈1.9:1). Override with GitHub-light equivalents that clear
+   AA on the light background. */
+:root[data-theme='light'] .md .hljs-keyword,
+:root[data-theme='light'] .md .hljs-selector-tag,
+:root[data-theme='light'] .md .hljs-literal,
+:root[data-theme='light'] .md .hljs-doctag,
+:root[data-theme='light'] .md .hljs-name {
+  color: #cf222e;
+}
+:root[data-theme='light'] .md .hljs-string,
+:root[data-theme='light'] .md .hljs-regexp,
+:root[data-theme='light'] .md .hljs-meta .hljs-string {
+  color: #0a3069;
+}
+:root[data-theme='light'] .md .hljs-number,
+:root[data-theme='light'] .md .hljs-symbol,
+:root[data-theme='light'] .md .hljs-bullet,
+:root[data-theme='light'] .md .hljs-title,
+:root[data-theme='light'] .md .hljs-title.function_,
+:root[data-theme='light'] .md .hljs-section,
+:root[data-theme='light'] .md .hljs-selector-id {
+  color: #0550ae;
+}
+:root[data-theme='light'] .md .hljs-attr,
+:root[data-theme='light'] .md .hljs-attribute,
+:root[data-theme='light'] .md .hljs-variable,
+:root[data-theme='light'] .md .hljs-template-variable,
+:root[data-theme='light'] .md .hljs-property {
+  color: #953800;
+}
+:root[data-theme='light'] .md .hljs-type,
+:root[data-theme='light'] .md .hljs-class .hljs-title,
+:root[data-theme='light'] .md .hljs-built_in {
+  color: #116329;
+}
+
 /* KaTeX: keep math near the surrounding text size and let long display math
    scroll rather than widen the page. */
 .md .katex {
@@ -161,7 +199,9 @@
   padding: 2px var(--spacing-s8);
 }
 .md-link {
-  color: var(--color-primary);
+  /* Route through the semantic accent so it tracks the theme (raw
+     --color-primary is the bright dark-mode cyan → ≈1.9:1 on a light bg). */
+  color: var(--accent);
   text-decoration: underline;
   /* Rendered as a <button> so a click opens the OS browser (never navigates the
      SPA), but it must read like inline link text. */

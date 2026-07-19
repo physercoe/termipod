@@ -4,6 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TermiPod — Desktop Workbench</title>
+    <!-- Set the theme before first paint. CSS defaults to dark, so a
+         light-preference user would otherwise get a dark flash (FOUC) until the
+         React effect runs. Mirrors state/theme.ts (key + resolution). -->
+    <script>
+      (function () {
+        try {
+          var p = localStorage.getItem('termipod.theme') || 'dark';
+          var t =
+            p === 'system'
+              ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+              : p;
+          document.documentElement.dataset.theme = t;
+        } catch (e) {
+          /* ignore — falls back to the CSS default (dark) */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

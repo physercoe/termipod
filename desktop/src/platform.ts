@@ -54,3 +54,13 @@ export function openBrowserWindow(url: string): void {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
+
+/// The host (`example.com`) of a URL, or the raw string if it doesn't parse.
+/// Shared by the reader's web tabs + the in-app browser (was duplicated).
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}

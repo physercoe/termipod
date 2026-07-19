@@ -35,7 +35,7 @@ import {
   type ScrapePatch,
   type ScrapeSeed,
 } from '../discovery';
-import { isTauri, revealPath } from '../platform';
+import { hostOf, isTauri, revealPath } from '../platform';
 import { BrowserView } from './BrowserView';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
@@ -55,13 +55,6 @@ import { useContextMenu } from '../ui/ContextMenu';
 import { WebdavModal } from '../ui/WebdavModal';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host || url;
-  } catch {
-    return url;
-  }
-}
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 

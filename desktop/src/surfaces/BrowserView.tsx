@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { openBrowserWindow, openExternal } from '../platform';
+import { hostOf, openBrowserWindow, openExternal } from '../platform';
 
 /// A minimal in-app browser tab (director request: external links open in a
 /// dedicated tab *inside* the app with navigation buttons, not the OS browser).
@@ -23,13 +23,6 @@ function normalizeUrl(raw: string): string {
   return s;
 }
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host || url;
-  } catch {
-    return url;
-  }
-}
 
 export function BrowserView({ initialUrl }: { initialUrl: string }): JSX.Element {
   const t = useT();

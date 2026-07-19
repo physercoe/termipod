@@ -1047,6 +1047,7 @@ export function PdfCanvas({
   const addAnno = useAnnotations((s) => s.add);
   const updateAnno = useAnnotations((s) => s.update);
   const removeAnno = useAnnotations((s) => s.remove);
+  const undoAnno = useAnnotations((s) => s.undo);
   const [tool, setTool] = useState<Tool>(null);
   const [annoColor, setAnnoColor] = useState(ANNOTATION_COLORS[0]);
   const [selectedAnno, setSelectedAnno] = useState<string | null>(null);
@@ -1858,6 +1859,14 @@ export function PdfCanvas({
               } else if (e.key === '0') {
                 e.preventDefault();
                 fitWidth();
+              } else if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+                // Undo the last annotation change (#322) — but let a text field
+                // (a comment textarea) keep its own native undo.
+                const tag = (e.target as HTMLElement).tagName;
+                if (tag !== 'TEXTAREA' && tag !== 'INPUT') {
+                  e.preventDefault();
+                  undoAnno();
+                }
               }
             }}
             onMouseUp={() => {

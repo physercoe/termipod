@@ -103,7 +103,11 @@ export function MarkdownReader({ text }: { text: string }): JSX.Element {
           </button>
         ))}
       <div className="mdreader-body region-pad" ref={bodyRef}>
-        <Markdown text={text} singleDollarMath headingIds />
+        {text.trim() === '' ? (
+          <div className="muted mdreader-empty">{t('read.mdEmpty')}</div>
+        ) : (
+          <Markdown text={text} singleDollarMath headingIds />
+        )}
       </div>
     </div>
   );

@@ -56,9 +56,19 @@ export const ANNOTATION_COLORS: string[] = [
 
 interface AnnotationState {
   items: Annotation[];
+  // Undo history — a bounded stack of prior `items` snapshots (#322). A mis-drawn
+  // highlight, a deleted comment-bearing annotation, etc. is otherwise permanent.
+  past: Annotation[][];
   add: (a: Omit<Annotation, 'id' | 'createdAt' | 'updatedAt'>) => string;
   update: (id: string, patch: Partial<Omit<Annotation, 'id'>>) => void;
   remove: (id: string) => void;
+  undo: () => void;
+}
+
+const UNDO_CAP = 50;
+function pushPast(past: Annotation[][], snapshot: Annotation[]): Annotation[][] {
+  const next = [...past, snapshot];
+  return next.length > UNDO_CAP ? next.slice(next.length - UNDO_CAP) : next;
 }
 
 const LS_KEY = 'termipod.annotations.v1';
@@ -122,6 +132,7 @@ function bboxOfPath(flat: number[]): number[] {
 
 export const useAnnotations = create<AnnotationState>((set, get) => ({
   items: load(),
+  past: [],
 
   add: (a) => {
     const id = newId();
@@ -133,21 +144,32 @@ export const useAnnotations = create<AnnotationState>((set, get) => ({
       updatedAt: now,
       sortIndex: a.sortIndex ?? computeSortIndex(a.position),
     };
-    const items = [...get().items, anno];
-    set({ items });
+    const prev = get().items;
+    const items = [...prev, anno];
+    set({ items, past: pushPast(get().past, prev) });
     save(items);
     return id;
   },
 
   update: (id, patch) => {
-    const items = get().items.map((a) => (a.id === id ? { ...a, ...patch, id, updatedAt: Date.now() } : a));
-    set({ items });
+    const prev = get().items;
+    const items = prev.map((a) => (a.id === id ? { ...a, ...patch, id, updatedAt: Date.now() } : a));
+    set({ items, past: pushPast(get().past, prev) });
     save(items);
   },
 
   remove: (id) => {
-    const items = get().items.filter((a) => a.id !== id);
-    set({ items });
+    const prev = get().items;
+    const items = prev.filter((a) => a.id !== id);
+    set({ items, past: pushPast(get().past, prev) });
     save(items);
+  },
+
+  undo: () => {
+    const past = get().past;
+    if (past.length === 0) return;
+    const restored = past[past.length - 1];
+    set({ items: restored, past: past.slice(0, -1) });
+    save(restored);
   },
 }));

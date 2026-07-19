@@ -63,10 +63,25 @@ PRIMVAR_ALLOW = {"01-base-shell.css"}
 # Custom properties set at runtime from JS (never defined in CSS) — not phantoms.
 PHANTOM_ALLOW = {"--scale-factor"}
 
-re_hex = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+# Only 6/8-digit hex (real colours). 3/4-digit is skipped: a bare `#319`-style
+# issue reference in a comment is indistinguishable from a 3-digit hex colour, and
+# 3-digit colour shorthand is not used in this tree. Comments are stripped first
+# regardless, so issue refs never reach the matcher.
+re_hex = re.compile(r"#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\b")
 re_primvar = re.compile(r"var\(\s*--color-[a-z0-9-]+")
 re_var = re.compile(r"var\(\s*(--[a-z0-9-]+)")
 re_def = re.compile(r"(--[a-z0-9-]+)\s*:")
+# Comment strippers: /* … */ (CSS + TS) and // to end-of-line (TS only, and only
+# when not part of a `://` URL, guarded by requiring a non-colon before it).
+re_block_comment = re.compile(r"/\*.*?\*/", re.DOTALL)
+re_line_comment = re.compile(r"(^|[^:])//[^\n]*")
+
+
+def strip_comments(text, is_tsx):
+    text = re_block_comment.sub(" ", text)
+    if is_tsx:
+        text = re_line_comment.sub(lambda m: m.group(1), text)
+    return text
 
 CATS = ["css_hex", "css_primitive_var", "tsx_hex"]
 
@@ -86,7 +101,7 @@ def scan():
     for fn in sorted(os.listdir(PARTIALS)):
         if not fn.endswith(".css"):
             continue
-        text = read(os.path.join(PARTIALS, fn))
+        text = strip_comments(read(os.path.join(PARTIALS, fn)), False)
         if fn not in HEX_ALLOW:
             counts["css_hex"] += len(re_hex.findall(text))
         if fn not in PRIMVAR_ALLOW:
@@ -101,7 +116,7 @@ def scan():
     for dirpath, _dirs, files in os.walk(SRC):
         for fn in files:
             if fn.endswith(".tsx"):
-                text = read(os.path.join(dirpath, fn))
+                text = strip_comments(read(os.path.join(dirpath, fn)), True)
                 counts["tsx_hex"] += len(re_hex.findall(text))
                 refs.update(re_var.findall(text))
     phantom = sorted(r for r in refs if r not in defs and r not in PHANTOM_ALLOW)

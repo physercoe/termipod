@@ -44,7 +44,8 @@ export function Sparkline({
   sampleOrdinalX?: boolean;
 }): JSX.Element {
   const vals = points.map((p) => p.value ?? 0);
-  if (vals.length === 0) return <svg width={width} height={height} className="sparkline" />;
+  if (vals.length === 0)
+    return <svg width={width} height={height} className="sparkline" role="img" aria-label="No data" />;
   const xs = sampleOrdinalX ? points.map((_, i) => i) : points.map((p, i) => p.step ?? i);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
@@ -58,8 +59,17 @@ export function Sparkline({
     const y = height - pad - (((p.value ?? 0) - minY) / spanY) * (height - 2 * pad);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
+  const last = vals[vals.length - 1];
+  const trend = last >= vals[0] ? 'up' : 'down';
   return (
-    <svg width={width} height={height} className="sparkline" preserveAspectRatio="none">
+    <svg
+      width={width}
+      height={height}
+      className="sparkline"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label={`Trend ${trend}, latest ${last}, range ${minY}–${maxY}`}
+    >
       <polyline points={coords.join(' ')} fill="none" strokeWidth={1.5} />
     </svg>
   );

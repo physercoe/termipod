@@ -173,9 +173,22 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
   const labels = chart.series[0]?.points.map((p) => p.label);
   const showXLabels = labels !== undefined && labels.some((l) => l !== undefined) && nPts <= 12;
 
+  // A screen-reader summary: a chart is opaque without it (#316).
+  const seriesNames = chart.series.map((s) => s.name).filter((n): n is string => n !== undefined);
+  const chartLabel =
+    `${multi ? `${chart.series.length}-series ` : ''}${chart.categorical ? 'bar' : 'line'} chart, ${nPts} point${nPts === 1 ? '' : 's'}` +
+    (seriesNames.length > 0 ? `: ${seriesNames.join(', ')}` : '');
+
   return (
     <div className="chart-view">
-      <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="xMidYMid meet" role="img">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="chart-svg"
+        preserveAspectRatio="xMidYMid meet"
+        role="img"
+        aria-label={chartLabel}
+      >
+        <title>{chartLabel}</title>
         {/* y grid + labels */}
         {ticks.map((tv, i) => {
           const y = yToPx(tv);

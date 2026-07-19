@@ -236,7 +236,7 @@ export function Composer({
               <span className="att-kind">{p.kind}</span>
               <span className="att-name">{p.name}</span>
               <span className="att-size muted">{humanSize(p.size)}</span>
-              <button className="att-x" onClick={() => removeAt(p.id)} aria-label="remove">
+              <button className="att-x" onClick={() => removeAt(p.id)} aria-label={t('common.remove')}>
                 ×
               </button>
             </span>

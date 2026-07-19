@@ -10,6 +10,7 @@ import { useOpenLink } from './OpenLinkContext';
 import { ResizeHandle } from './ResizeHandle';
 import { useAnnotations, ANNOTATION_COLORS } from '../state/annotations';
 import type { Annotation } from '../state/annotations';
+import { TabStrip } from './TabStrip';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
@@ -1763,30 +1764,17 @@ export function PdfCanvas({
         {showToc && pdf !== null && (
           <>
             <div className="pdfjs-toc" style={{ width: tocW }}>
-              <div className="pdfjs-panel-tabs">
-                {canAnnotate && (
-                  <button
-                    className={panelTab === 'annos' ? 'active' : ''}
-                    onClick={() => setPanelTab('annos')}
-                  >
-                    {t('read.pdfAnnotations')}
-                  </button>
-                )}
-                {outline.length > 0 && (
-                  <button
-                    className={panelTab === 'outline' ? 'active' : ''}
-                    onClick={() => setPanelTab('outline')}
-                  >
-                    {t('read.pdfOutline')}
-                  </button>
-                )}
-                <button
-                  className={panelTab === 'thumbs' ? 'active' : ''}
-                  onClick={() => setPanelTab('thumbs')}
-                >
-                  {t('read.pdfThumbs')}
-                </button>
-              </div>
+              <TabStrip
+                className="pdfjs-panel-tabs"
+                ariaLabel={t('read.pdfDocument')}
+                active={panelTab}
+                onSelect={(id) => setPanelTab(id as 'outline' | 'thumbs' | 'annos')}
+                tabs={[
+                  ...(canAnnotate ? [{ id: 'annos', label: t('read.pdfAnnotations') }] : []),
+                  ...(outline.length > 0 ? [{ id: 'outline', label: t('read.pdfOutline') }] : []),
+                  { id: 'thumbs', label: t('read.pdfThumbs') },
+                ]}
+              />
               <div className="pdfjs-panel-body scroll">
                 {panelTab === 'annos' && canAnnotate ? (
                   <AnnotationList annos={refAnnos} selectedId={selectedAnno} onGo={goToAnnotation} t={t} />
@@ -1834,6 +1822,21 @@ export function PdfCanvas({
               if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 setScale((s) => Math.max(0.4, Math.min(3, s - Math.sign(e.deltaY) * 0.1)));
+              }
+            }}
+            onKeyDown={(e) => {
+              // Zoom keys (#316): Ctrl/Cmd +/-/0, matching browsers + the terminal.
+              // Arrow/PageUp/Down/Home/End scroll natively (focusable scroll region).
+              if (!(e.ctrlKey || e.metaKey)) return;
+              if (e.key === '=' || e.key === '+') {
+                e.preventDefault();
+                setScale((s) => Math.min(3, s + 0.1));
+              } else if (e.key === '-') {
+                e.preventDefault();
+                setScale((s) => Math.max(0.4, s - 0.1));
+              } else if (e.key === '0') {
+                e.preventDefault();
+                fitWidth();
               }
             }}
             onMouseUp={() => {

@@ -71,7 +71,7 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
   ];
 
   return (
-    <div className="statusbar">
+    <div className="statusbar" role="status" aria-live="polite">
       <span>{running} {t('status.running')}</span>
       <span>{paused} {t('status.paused')}</span>
       <span>{attention.length} {t('status.needYou')}</span>

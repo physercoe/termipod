@@ -1016,8 +1016,28 @@
 .read-table thead th.sorted {
   color: var(--accent-text);
 }
+/* The header's sort control is now a real <button> (keyboard-operable, #316) —
+   strip the native chrome so it reads exactly like the old <th> label. */
+.read-th-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
 .read-th-arrow {
   font-size: 0.7em;
+}
+.read-table tbody tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .read-table tbody tr {
   cursor: pointer;

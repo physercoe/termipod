@@ -851,7 +851,13 @@ function Inspector({
           </button>
         )}
         {tabs.map((tb) => (
-          <button key={tb.id} className={tab === tb.id ? 'ref-tab active' : 'ref-tab'} onClick={() => setTab(tb.id)}>
+          <button
+            key={tb.id}
+            role="tab"
+            aria-selected={tab === tb.id}
+            className={tab === tb.id ? 'ref-tab active' : 'ref-tab'}
+            onClick={() => setTab(tb.id)}
+          >
             {tb.label}
           </button>
         ))}
@@ -1997,16 +2003,26 @@ export function ReadSurface(): JSX.Element {
         </div>
       )}
       {tabs.length > 0 && (
-        <div className="read-tabstrip">
+        <div className="read-tabstrip" role="tablist" aria-label={t('read.tabLibrary')}>
           <button
+            role="tab"
+            aria-selected={activeTab === null}
+            tabIndex={activeTab === null ? 0 : -1}
             className={`read-tabitem${activeTab === null ? ' active' : ''}`}
             onClick={() => setActiveTab(null)}
           >
             {t('read.tabLibrary')}
           </button>
           {tabs.map((tb) => (
-            <span key={tb.id} className={`read-tabitem${activeTab === tb.id ? ' active' : ''}`}>
-              <button className="read-tabitem-label" title={tb.title} onClick={() => setActiveTab(tb.id)}>
+            <span key={tb.id} role="presentation" className={`read-tabitem${activeTab === tb.id ? ' active' : ''}`}>
+              <button
+                role="tab"
+                aria-selected={activeTab === tb.id}
+                tabIndex={activeTab === tb.id ? 0 : -1}
+                className="read-tabitem-label"
+                title={tb.title}
+                onClick={() => setActiveTab(tb.id)}
+              >
                 <Icon
                   name={tb.kind === 'web' ? 'globe' : tb.kind === 'note' ? 'note' : 'file-text'}
                   size={13}
@@ -2226,12 +2242,23 @@ export function ReadSurface(): JSX.Element {
                           <th
                             key={c.key}
                             className={`read-th${sortKey === c.key ? ' sorted' : ''}`}
-                            onClick={() => toggleSort(c.key)}
+                            aria-sort={
+                              sortKey === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
+                            }
                           >
-                            {t(c.labelKey)}
-                            <span className="read-th-arrow">
-                              {sortKey === c.key && <Icon name={sortDir === 'asc' ? 'chevron-up' : 'chevron-down'} size={12} />}
-                            </span>
+                            <button
+                              type="button"
+                              className="read-th-btn"
+                              aria-label={t('a11y.sortBy').replace('{col}', t(c.labelKey))}
+                              onClick={() => toggleSort(c.key)}
+                            >
+                              {t(c.labelKey)}
+                              <span className="read-th-arrow">
+                                {sortKey === c.key && (
+                                  <Icon name={sortDir === 'asc' ? 'chevron-up' : 'chevron-down'} size={12} />
+                                )}
+                              </span>
+                            </button>
                           </th>
                         ))}
                       </tr>
@@ -2245,9 +2272,23 @@ export function ReadSurface(): JSX.Element {
                           <tr
                             key={r.id}
                             className={selected === r.id ? 'active' : ''}
+                            tabIndex={0}
+                            aria-selected={selected === r.id}
                             onClick={() => setSelected(r.id)}
                             onDoubleClick={() => {
                               if (hasPdf) openPdfTab(r.id);
+                            }}
+                            onKeyDown={(e) => {
+                              // Enter opens (the double-click action) when there's a
+                              // viewable attachment, else just selects; Space selects.
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (hasPdf) openPdfTab(r.id);
+                                else setSelected(r.id);
+                              } else if (e.key === ' ') {
+                                e.preventDefault();
+                                setSelected(r.id);
+                              }
                             }}
                             onContextMenu={(e) => {
                               e.preventDefault();

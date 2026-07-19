@@ -317,7 +317,7 @@ export function AgentCompanion({
               <span className="att-name">@{f.rel}</span>
               <button
                 className="att-x"
-                aria-label="remove"
+                aria-label={t('common.remove')}
                 onClick={() => setMentioned((m) => m.filter((x) => x.rel !== f.rel))}
               >
                 ×

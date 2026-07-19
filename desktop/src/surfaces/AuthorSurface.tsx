@@ -381,10 +381,17 @@ export function AuthorSurface(): JSX.Element {
       )}
       <div className="author-main">
       {docs.length > 0 && (
-        <div className="read-tabstrip">
+        <div className="read-tabstrip" role="tablist" aria-label={t('author.docTabs')}>
           {docs.map((d) => (
-            <span key={d.id} className={`read-tabitem${activeId === d.id ? ' active' : ''}`}>
-              <button className="read-tabitem-label" title={d.filePath ?? d.title} onClick={() => setActive(d.id)}>
+            <span key={d.id} role="presentation" className={`read-tabitem${activeId === d.id ? ' active' : ''}`}>
+              <button
+                role="tab"
+                aria-selected={activeId === d.id}
+                tabIndex={activeId === d.id ? 0 : -1}
+                className="read-tabitem-label"
+                title={d.filePath ?? d.title}
+                onClick={() => setActive(d.id)}
+              >
                 <Icon name={docKindIcon(d.kind)} size={13} className="read-tabitem-kind" />
                 {d.dirty === true ? '● ' : ''}
                 {d.title !== '' ? d.title : t('author.untitled')}

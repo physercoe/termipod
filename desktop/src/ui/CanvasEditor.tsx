@@ -357,8 +357,21 @@ export function CanvasEditor({ value, onChange }: { value: string; onChange: (ne
                     connectFrom === card.id ? ' connect-src' : ''
                   }`}
                   style={{ left: card.x, top: card.y, width: CARD_W }}
+                  // Focusable + keyboard-selectable (#316). Not role="button" — the
+                  // card holds interactive children (textarea/buttons), so a button
+                  // role would be an ARIA violation; a focusable group with an
+                  // Enter/Space handler gated to the card itself is the right shape.
+                  tabIndex={0}
+                  aria-label={cardTitle(card)}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => onCardClick(card)}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return; // child (textarea/button) owns its keys
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onCardClick(card);
+                    }
+                  }}
                 >
                   <div className="canvas-card-head" onPointerDown={(e) => onCardHeadDown(e, card)}>
                     <span className="canvas-card-kind">{card.kind === 'ref' ? '❋' : '▤'}</span>

@@ -9,6 +9,8 @@ export type Lang = 'en' | 'zh';
 type Dict = Record<string, string>;
 
 const en: Dict = {
+  'a11y.resizePanel': 'Resize panel (arrow keys)',
+  'a11y.sortBy': 'Sort by {col}',
   'connect.title': 'Add a hub',
   'connect.editTitle': 'Edit hub profile',
   'connect.name': 'Name',
@@ -196,6 +198,8 @@ const en: Dict = {
   'common.loading': 'Loading…',
   'common.ok': 'OK',
   'common.cancel': 'Cancel',
+  'common.remove': 'Remove',
+  'attention.principalOverride': 'Principal override',
   'ctx.cut': 'Cut',
   'ctx.copy': 'Copy',
   'ctx.paste': 'Paste',
@@ -1019,6 +1023,7 @@ const en: Dict = {
   'read.showSidebar': 'Show collections',
   'read.showDetails': 'Show details',
 
+  'author.docTabs': 'Open documents',
   'author.words': '{n} words',
   'author.placeholder': 'Write in Markdown — $math$ and ```code``` supported…',
   'author.empty': 'Nothing to preview yet.',
@@ -1192,6 +1197,8 @@ const en: Dict = {
 };
 
 const zh: Dict = {
+  'a11y.resizePanel': '调整面板大小（方向键）',
+  'a11y.sortBy': '按 {col} 排序',
   'connect.title': '添加 Hub',
   'connect.editTitle': '编辑 Hub 配置',
   'connect.name': '名称',
@@ -1379,6 +1386,8 @@ const zh: Dict = {
   'common.loading': '加载中…',
   'common.ok': '确定',
   'common.cancel': '取消',
+  'common.remove': '移除',
+  'attention.principalOverride': '主理人覆盖',
   'ctx.cut': '剪切',
   'ctx.copy': '复制',
   'ctx.paste': '粘贴',
@@ -2194,6 +2203,7 @@ const zh: Dict = {
   'read.showSidebar': '显示分组',
   'read.showDetails': '显示详情',
 
+  'author.docTabs': '打开的文档',
   'author.words': '{n} 词',
   'author.placeholder': '用 Markdown 撰写 — 支持 $数学$ 与 ```代码```…',
   'author.empty': '暂无可预览内容。',

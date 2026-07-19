@@ -111,7 +111,7 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
           {changeKind !== undefined && (
             <button
               disabled={busy}
-              title="Principal override (ADR-030 W9)"
+              title={t('attention.principalOverride')}
               onClick={() => void decide('override', { override: true })}
             >
               {t('att.override')}

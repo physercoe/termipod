@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { useT } from '../i18n';
 
 /// A localStorage-backed, clamped pane width + its `onResize(dx)` handler, for a
 /// left panel whose ResizeHandle sits on its RIGHT edge (dragging right widens it
@@ -52,6 +53,7 @@ export function usePanelWidth(
 /// (director report). Window listeners keep the drag alive no matter where the
 /// cursor goes, on every platform.
 export function ResizeHandle({ onResize }: { onResize: (dx: number) => void }): JSX.Element {
+  const t = useT();
   const onResizeRef = useRef(onResize);
   onResizeRef.current = onResize;
   return (
@@ -59,6 +61,21 @@ export function ResizeHandle({ onResize }: { onResize: (dx: number) => void }): 
       className="resize-handle"
       role="separator"
       aria-orientation="vertical"
+      // Keyboard-operable (#316): focus the divider and nudge with arrows (Shift =
+      // larger step). aria-valuenow needs the live width, which the parent owns —
+      // the arrow deltas go through the same onResize as the drag.
+      tabIndex={0}
+      aria-label={t('a11y.resizePanel')}
+      onKeyDown={(e) => {
+        const step = e.shiftKey ? 96 : 24;
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          onResizeRef.current(-step);
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          onResizeRef.current(step);
+        }
+      }}
       onPointerDown={(e) => {
         e.preventDefault();
         let lastX = e.clientX;
@@ -90,6 +107,7 @@ export function ResizeHandle({ onResize }: { onResize: (dx: number) => void }): 
 /// owns the pane height so it can clamp + persist. Same window-listener gesture
 /// model (WebView2 pointer-capture is unreliable on a thin strip).
 export function VResizeHandle({ onResize }: { onResize: (dy: number) => void }): JSX.Element {
+  const t = useT();
   const onResizeRef = useRef(onResize);
   onResizeRef.current = onResize;
   return (
@@ -97,6 +115,18 @@ export function VResizeHandle({ onResize }: { onResize: (dy: number) => void }):
       className="resize-handle-v"
       role="separator"
       aria-orientation="horizontal"
+      tabIndex={0}
+      aria-label={t('a11y.resizePanel')}
+      onKeyDown={(e) => {
+        const step = e.shiftKey ? 96 : 24;
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          onResizeRef.current(-step);
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          onResizeRef.current(step);
+        }
+      }}
       onPointerDown={(e) => {
         e.preventDefault();
         let lastY = e.clientY;

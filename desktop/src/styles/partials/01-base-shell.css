@@ -154,6 +154,10 @@ pre {
   * {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+    /* Without this, an `infinite` spinner at 0.01ms restarts ~100k×/s and
+     * strobes (a photosensitivity hazard); cap it to a single, static frame. */
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
 }
 

@@ -635,7 +635,14 @@ function PageView({
   }
 
   return (
-    <div ref={wrapRef} className="pdfjs-page" data-page={pageNum} style={style}>
+    <div
+      ref={wrapRef}
+      className="pdfjs-page"
+      data-page={pageNum}
+      role="img"
+      aria-label={`Page ${pageNum}`}
+      style={style}
+    >
       <canvas ref={canvasRef} className="pdfjs-canvas" style={size !== null ? { width: size.w, height: size.h } : undefined} />
       <div ref={textRef} className="textLayer" />
       {links.map((l, i) => (
@@ -1678,6 +1685,9 @@ export function PdfCanvas({
           <div
             ref={scrollRef}
             className={`pdfjs-scroll scroll${tool !== null ? ` tool-${tool}` : ''}`}
+            tabIndex={0}
+            role="region"
+            aria-label={t('read.pdfDocument')}
             onMouseUp={() => {
               // Selection-driven tools commit on mouse-up, once the drag-select ends.
               if (tool === 'highlight' || tool === 'underline') commitTextSelection(tool);

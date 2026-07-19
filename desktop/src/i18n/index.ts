@@ -922,6 +922,7 @@ const en: Dict = {
   'read.openExternal': 'Open in browser',
   'read.noPdf': 'No PDF attachment for this item.',
   'read.loadingPdf': 'Loading PDF…',
+  'read.pdfDocument': 'PDF document',
   'read.loadingFile': 'Loading…',
   'read.epubToc': 'Contents',
   'read.epubPrev': 'Previous',
@@ -2068,6 +2069,7 @@ const zh: Dict = {
   'read.openExternal': '在浏览器中打开',
   'read.noPdf': '此条目没有 PDF 附件。',
   'read.loadingPdf': '正在加载 PDF…',
+  'read.pdfDocument': 'PDF 文档',
   'read.loadingFile': '正在加载…',
   'read.epubToc': '目录',
   'read.epubPrev': '上一章',
@@ -2326,6 +2328,13 @@ interface LangState {
   setLang: (l: Lang) => void;
 }
 
+/// Keep the document's `lang` attribute in sync with the chosen language so
+/// assistive tech announces content in the right language and CSS `:lang()` works
+/// (index.html only hardcodes the initial `en`) — #316.
+function applyDocLang(lang: Lang): void {
+  if (typeof document !== 'undefined') document.documentElement.lang = lang;
+}
+
 export const useLang = create<LangState>((set) => ({
   lang: initialLang(),
   setLang: (lang) => {
@@ -2334,9 +2343,13 @@ export const useLang = create<LangState>((set) => ({
     } catch {
       /* ignore */
     }
+    applyDocLang(lang);
     set({ lang });
   },
 }));
+
+// Reflect the persisted language onto <html lang> at startup.
+applyDocLang(initialLang());
 
 /// Returns `t(key)` bound to the current language, with English fallback.
 export function useT(): (key: string) => string {

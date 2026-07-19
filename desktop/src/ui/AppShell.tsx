@@ -187,7 +187,11 @@ export function AppShell(): JSX.Element {
 
   return (
     <div className="shell">
-      {client !== null && !online && <div className="offline-banner">{t('shell.offlineBanner')}</div>}
+      {client !== null && !online && (
+        <div className="offline-banner" role="status" aria-live="polite">
+          {t('shell.offlineBanner')}
+        </div>
+      )}
 
       <div className="workbench-row">
         <ActivityBar chrome={hubChrome} />

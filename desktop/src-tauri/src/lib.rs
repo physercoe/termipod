@@ -192,6 +192,17 @@ fn system_hostname() -> Option<String> {
     None
 }
 
+/// The OS this build is running on, as a stable lowercase token
+/// ("windows" | "macos" | "linux" | …). `std::env::consts::OS` is resolved at
+/// COMPILE time from the target triple, so it can't be spoofed the way the
+/// webview's navigator.userAgent can — the frontend uses it to gate the terminal
+/// GPU renderer, whose only known failure is a black screen on Windows WebView2
+/// (#333), so the gate must be exact.
+#[tauri::command]
+fn platform_os() -> String {
+    std::env::consts::OS.to_string()
+}
+
 /// Trim whitespace and any DNS suffix from a raw hostname; `None` when empty.
 fn clean_hostname(raw: &str) -> Option<String> {
     let s = raw.trim();
@@ -601,6 +612,7 @@ pub fn run() {
             hub_request_bytes,
             system_proxy,
             system_hostname,
+            platform_os,
             open_external,
             reveal_path,
             open_browser_window,

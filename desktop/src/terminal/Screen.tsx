@@ -6,7 +6,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { openExternal } from '../platform';
+import { isWindows, openExternal } from '../platform';
 
 // Persisted terminal font size (Ctrl/Cmd +/-/0 zoom, #319). Shared across all
 // screens so zoom is a global preference, clamped to a sane, legible range.
@@ -129,6 +129,48 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
     // would strand the single-page shell), matching openExternal everywhere else.
     term.loadAddon(new WebLinksAddon((_e, uri) => openExternal(uri)));
     term.open(el);
+
+    // GPU renderer ladder (#333). xterm's default DOM renderer paints every row as
+    // <div>/<span> — the slowest path, and costly for full-screen TUIs (vim/htop),
+    // output bursts, and 10k-scrollback resize reflows. Upgrade per platform, best
+    // effort, with self-healing fall-back and lazy imports (addons stay out of the
+    // main chunk):
+    //   • macOS / Linux → WebGL (GPU texture-atlas glyphs); on context loss, drop
+    //     to canvas so a lost GPU context never freezes on a blank canvas.
+    //   • Windows        → canvas only (2D, GPU-composited). WebGL is NEVER tried:
+    //     on WebView2/ANGLE it black-screened and could wedge the GPU process
+    //     (v0.3.11). The gate is the Rust `platform_os` (compile-time exact), not a
+    //     spoofable navigator.userAgent.
+    //   • any failure    → the DOM renderer remains (xterm's default) — always works.
+    // Renderer choice is renderer-agnostic to selection/find/links/fit/scrollbar and
+    // to the integer-letterSpacing note below (0 is correct in every renderer).
+    const loadCanvas = async (): Promise<void> => {
+      if (disposed) return;
+      try {
+        const { CanvasAddon } = await import('@xterm/addon-canvas');
+        if (!disposed) term.loadAddon(new CanvasAddon());
+      } catch {
+        /* DOM renderer stays */
+      }
+    };
+    void (async () => {
+      if (!(await isWindows())) {
+        try {
+          const { WebglAddon } = await import('@xterm/addon-webgl');
+          if (disposed) return;
+          const webgl = new WebglAddon();
+          webgl.onContextLoss(() => {
+            webgl.dispose();
+            void loadCanvas();
+          });
+          term.loadAddon(webgl);
+          return;
+        } catch {
+          /* WebGL unavailable (driver/GPU) — fall through to canvas */
+        }
+      }
+      await loadCanvas();
+    })();
     // Apply the current font size (Ctrl/Cmd +/-/0), refit, and persist.
     const zoom = (next: number): void => {
       const size = Math.max(FONT_MIN, Math.min(FONT_MAX, next));
@@ -161,11 +203,9 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
       }
       return true;
     });
-    // NOTE: intentionally NO WebGL renderer. @xterm/addon-webgl on Windows
-    // WebView2 (ANGLE/GL backend) renders a black screen and can wedge the GPU
-    // process, freezing the app (director report, v0.3.11 Windows). xterm's
-    // default DOM renderer is reliable across all WebView backends; GPU raster
-    // waits for a WebView2-safe path.
+    // (Renderer selection happens right after term.open above — WebGL on
+    // macOS/Linux, canvas on Windows, DOM fallback everywhere. WebGL is gated OFF
+    // Windows because it black-screened WebView2/ANGLE in v0.3.11.)
     termRef.current = term;
     searchRef.current = search;
 

@@ -8,6 +8,33 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+/// The host OS, from the Rust `platform_os` command ("windows" | "macos" |
+/// "linux" | …). Compile-time exact (target triple) — unlike navigator.userAgent,
+/// which the webview can present inconsistently and which a wrong read would turn
+/// into a black-screen renderer choice (#333). Cached; `''` in the browser build.
+let osCache: string | null = null;
+export async function platformOs(): Promise<string> {
+  if (osCache !== null) return osCache;
+  if (!isTauri()) {
+    osCache = '';
+    return osCache;
+  }
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    osCache = await invoke<string>('platform_os');
+  } catch {
+    osCache = '';
+  }
+  return osCache;
+}
+
+/// True on Windows — where xterm's WebGL renderer on WebView2/ANGLE rendered a
+/// black screen and could wedge the GPU process (v0.3.11), so WebGL is skipped
+/// there (#333). Resolves false in the browser build.
+export async function isWindows(): Promise<boolean> {
+  return (await platformOs()) === 'windows';
+}
+
 /// Open an external URL in the OS default browser — never in the app webview.
 /// Under Tauri a raw navigation replaces the single-webview SPA and strands the
 /// user (director report: a link inside a PDF "jumped the whole app" with no way

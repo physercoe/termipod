@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { isTauri, openExternal } from '../platform';
+import { copySecret } from '../state/clipboard';
+import { DEFAULT_GEN, generatePassword, passwordStrength } from '../state/password';
 import { Icon, type IconName } from '../ui/Icon';
 import { listAppIntegrations, type AppIntegration } from '../state/appIntegrations';
 import { listConnections } from '../state/connections';
@@ -121,6 +123,16 @@ function SecretRow({
   const [val, setVal] = useState<string | null>(null);
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Auto-hide a revealed secret after 20s so it doesn't linger on-screen (#320).
+  useEffect(() => {
+    if (!show) return;
+    hideTimer.current = setTimeout(() => setShow(false), 20_000);
+    return () => {
+      if (hideTimer.current !== undefined) clearTimeout(hideTimer.current);
+    };
+  }, [show]);
 
   async function load(): Promise<string> {
     if (val !== null) return val;
@@ -134,12 +146,9 @@ function SecretRow({
   }
   async function copy(): Promise<void> {
     const v = await load();
-    try {
-      await navigator.clipboard.writeText(v);
+    if (await copySecret(v)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
-    } catch {
-      /* clipboard blocked */
     }
   }
 
@@ -311,6 +320,39 @@ function ItemDetail({
   );
 }
 
+/// Password input with a reveal toggle, a one-click generator, and a live
+/// strength meter (#320).
+function PasswordField({ value, onChange }: { value: string; onChange: (v: string) => void }): JSX.Element {
+  const t = useT();
+  const [show, setShow] = useState(false);
+  const s = passwordStrength(value);
+  return (
+    <div className="vault-pw">
+      <div className="vault-pw-row">
+        <input
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <button type="button" className="icon-btn" title={show ? t('vault.hide') : t('vault.reveal')} onClick={() => setShow((v) => !v)}>
+          <Icon name={show ? 'eye-off' : 'eye'} size={15} />
+        </button>
+        <button type="button" className="icon-btn" title={t('vault.generate')} onClick={() => { onChange(generatePassword(DEFAULT_GEN)); setShow(true); }}>
+          <Icon name="refresh" size={15} />
+        </button>
+      </div>
+      {value !== '' && (
+        <div className="vault-pw-meter" title={`${s.bits} bits`}>
+          <div className={`vault-pw-bar strength-${s.label}`} style={{ width: `${Math.round(s.fraction * 100)}%` }} />
+          <span className="vault-pw-label muted small">{t(`vault.strength.${s.label}`)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Editor ──────────────────────────────────────────────────────────────────
 
 function ItemEditor({
@@ -424,7 +466,7 @@ function ItemEditor({
           </label>
           <label className="vault-lbl">
             {t('vault.fPassword')}
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <PasswordField value={password} onChange={setPassword} />
           </label>
         </>
       )}
@@ -554,12 +596,9 @@ function AppSecretRow({ slot, label }: { slot: string; label: string }): JSX.Ele
   }
   async function copy(): Promise<void> {
     const v = await load();
-    try {
-      await navigator.clipboard.writeText(v);
+    if (await copySecret(v)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
-    } catch {
-      /* clipboard blocked */
     }
   }
   async function startEdit(): Promise<void> {

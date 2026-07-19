@@ -1479,3 +1479,47 @@
   color: var(--text);
   border-color: var(--accent);
 }
+
+/* ---- vault password field: reveal + generate + strength meter (#320) ---- */
+.vault-pw {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+}
+.vault-pw-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.vault-pw-row input {
+  flex: 1;
+  min-width: 0;
+}
+.vault-pw-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  height: 6px;
+  position: relative;
+}
+.vault-pw-bar {
+  height: 4px;
+  border-radius: 2px;
+  transition: width 0.16s var(--ease), background 0.16s var(--ease);
+  min-width: 3%;
+}
+.vault-pw-bar.strength-weak {
+  background: var(--danger);
+}
+.vault-pw-bar.strength-fair {
+  background: var(--warn);
+}
+.vault-pw-bar.strength-good {
+  background: var(--accent);
+}
+.vault-pw-bar.strength-strong {
+  background: var(--ok);
+}
+.vault-pw-label {
+  flex: 0 0 auto;
+}

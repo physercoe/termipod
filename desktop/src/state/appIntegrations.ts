@@ -1,5 +1,5 @@
 import type { IconName } from '../ui/Icon';
-import { secretGet, secretSet } from './persist';
+import { secretGet, secretSetMany } from './persist';
 import { loadWebdavConfig, loadZoteroBackend, loadZoteroS3Config } from './webdav';
 import { loadS3Config, loadSyncBackend, loadWorkspaceSyncConfig } from './workspaceSync';
 import { getVoiceModel } from '../voice/settings';
@@ -160,13 +160,15 @@ export async function exportAppIntegrations(): Promise<AppIntegrationsExport> {
   return { config, secrets };
 }
 
-/// Restore integration config + secrets pulled from the vault. Only keys the
-/// bundle carries are touched, so an older/mobile bundle that omits them leaves
-/// the local config intact.
-export async function importAppIntegrations(
+/// Restore the integration CONFIG (non-secret) side of a pull and return the
+/// integration secrets flattened to keychain-key → value WITHOUT writing them, so
+/// importBundle can fold them into one keychain flush (one macOS prompt). Only
+/// keys the bundle carries are touched, so an older/mobile bundle that omits them
+/// leaves the local config intact.
+export function collectAppIntegrationSecrets(
   config: Record<string, string> | undefined,
   secrets: Record<string, string> | undefined,
-): Promise<void> {
+): Record<string, string> {
   for (const [k, v] of Object.entries(config ?? {})) {
     if ((APP_CONFIG_KEYS as readonly string[]).includes(k)) {
       try {
@@ -176,7 +178,18 @@ export async function importAppIntegrations(
       }
     }
   }
+  const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(secrets ?? {})) {
-    if ((APP_SECRET_KEYS as readonly string[]).includes(k)) await secretSet(k, v);
+    if ((APP_SECRET_KEYS as readonly string[]).includes(k)) out[k] = v;
   }
+  return out;
+}
+
+/// Restore integration config + secrets pulled from the vault, secrets in a
+/// single keychain flush. Only keys the bundle carries are touched.
+export async function importAppIntegrations(
+  config: Record<string, string> | undefined,
+  secrets: Record<string, string> | undefined,
+): Promise<void> {
+  await secretSetMany(collectAppIntegrationSecrets(config, secrets));
 }

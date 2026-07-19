@@ -1,4 +1,4 @@
-import { loadJson, newId, saveJson, secretDelete, secretDeleteMany, secretGet, secretSet } from './persist';
+import { loadJson, newId, saveJson, secretDelete, secretDeleteMany, secretGet, secretSet, secretSetMany } from './persist';
 
 /// Generic vault items — the "mini-1Password" store that sits alongside the
 /// specialised SSH-key and connection stores. Modelled on 1Password / Bitwarden
@@ -171,14 +171,28 @@ export async function exportItems(): Promise<VaultItemsExport> {
   return { items, itemSecrets };
 }
 
+/** Overwrite the item metadata list (the vault is source-of-truth on a pull) and
+ * return the item secrets flattened to keychain-key → value, WITHOUT writing them
+ * — so importBundle can batch every secret into one keychain flush (one macOS
+ * prompt) instead of one per slot. */
+export function collectItemSecrets(
+  items: VaultItemMeta[],
+  itemSecrets: Record<string, Record<string, string>>,
+): Record<string, string> {
+  saveJson(STORAGE_KEY, items);
+  const out: Record<string, string> = {};
+  for (const [id, slots] of Object.entries(itemSecrets ?? {})) {
+    for (const [slot, val] of Object.entries(slots)) out[slotKey(id, slot)] = val;
+  }
+  return out;
+}
+
 /** Restore items pulled from the vault: overwrite the metadata list and scatter
- * the secrets back into the keychain. The vault is source-of-truth on a pull. */
+ * the secrets back into the keychain in a single flush. The vault is
+ * source-of-truth on a pull. */
 export async function importItems(
   items: VaultItemMeta[],
   itemSecrets: Record<string, Record<string, string>>,
 ): Promise<void> {
-  saveJson(STORAGE_KEY, items);
-  for (const [id, slots] of Object.entries(itemSecrets ?? {})) {
-    for (const [slot, val] of Object.entries(slots)) await secretSet(slotKey(id, slot), val);
-  }
+  await secretSetMany(collectItemSecrets(items, itemSecrets));
 }

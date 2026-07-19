@@ -1,12 +1,12 @@
 import {
+  collectAppIntegrationSecrets,
   exportAppIntegrations,
-  importAppIntegrations,
   type AppIntegrationsExport,
 } from '../state/appIntegrations';
 import { listConnections, type Connection } from '../state/connections';
 import { listKeys, type SshKeyMeta } from '../state/keys';
-import { exportItems, importItems, type VaultItemMeta } from '../state/vaultItems';
-import { loadJson, saveJson, secretGet, secretSet } from '../state/persist';
+import { collectItemSecrets, exportItems, type VaultItemMeta } from '../state/vaultItems';
+import { loadJson, saveJson, secretGet, secretSetMany } from '../state/persist';
 
 /// The plaintext vault bundle (parity Phase 2b). The core shape matches the
 /// mobile `_assembleBundle` (vault_service.dart) so a desktop and a phone
@@ -68,22 +68,32 @@ export async function assembleBundle(): Promise<VaultBundle> {
  * source of truth on a pull. */
 export async function importBundle(bundle: VaultBundle): Promise<void> {
   if (Array.isArray(bundle.connections)) saveJson('connections', bundle.connections);
+  // Gather EVERY secret this bundle restores into one map and write it in a
+  // single keychain flush. `flush()` rewrites the whole consolidated document per
+  // call, so scattering secrets with one secretSet each cost one macOS password
+  // prompt apiece on an unsigned build (~20 for a full sync-down). Non-secret side
+  // effects (metadata lists, integration config) still happen inline via the
+  // collect* helpers.
+  const secrets: Record<string, string> = {};
   const ssh = bundle.sshKeys;
   if (ssh !== undefined && ssh !== null) {
     if (Array.isArray(ssh.meta)) saveJson('ssh_keys_meta', ssh.meta);
-    for (const [id, pem] of Object.entries(ssh.privateKeys ?? {})) await secretSet(`privatekey_${id}`, pem);
-    for (const [id, pass] of Object.entries(ssh.passphrases ?? {})) await secretSet(`passphrase_${id}`, pass);
+    for (const [id, pem] of Object.entries(ssh.privateKeys ?? {})) secrets[`privatekey_${id}`] = pem;
+    for (const [id, pass] of Object.entries(ssh.passphrases ?? {})) secrets[`passphrase_${id}`] = pass;
   }
-  for (const [k, v] of Object.entries(bundle.passwords ?? {})) await secretSet(`password_${k}`, v);
+  for (const [k, v] of Object.entries(bundle.passwords ?? {})) secrets[`password_${k}`] = v;
   // Only overwrite generic items when the bundle actually carries them — a
   // client that doesn't know `items` omits the field, and we must keep the
   // local items rather than wiping them to empty.
-  if (Array.isArray(bundle.items)) await importItems(bundle.items, bundle.itemSecrets ?? {});
+  if (Array.isArray(bundle.items)) {
+    Object.assign(secrets, collectItemSecrets(bundle.items, bundle.itemSecrets ?? {}));
+  }
   // Only restore app integrations when the bundle carries them (older/mobile
   // bundles omit the field — leave the local config/secrets untouched).
   if (bundle.app !== undefined && bundle.app !== null) {
-    await importAppIntegrations(bundle.app.config, bundle.app.secrets);
+    Object.assign(secrets, collectAppIntegrationSecrets(bundle.app.config, bundle.app.secrets));
   }
+  await secretSetMany(secrets);
 }
 
 export function readBundleJson(): Promise<string> {

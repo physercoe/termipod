@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { HubClient } from '../hub/client';
 import { emptyConfig, type HubConfig } from '../hub/config';
 import { clearCache } from './queryClient';
+import { clearSecrets } from './persist';
 import { getActiveProfile, getProfile, getToken, setActiveProfileId, setToken, upsertProfile } from './profiles';
 
 /// The active hub session (parity Phase 3a). A session is bound from a hub
@@ -43,6 +44,10 @@ export const useSession = create<SessionState>((set, get) => ({
     setActiveProfileId(profile.id);
     clearCache();
     get().bind({ baseUrl, teamId, token }, profile.id);
+    // The token is now held in the client config, so purge the decrypted secret
+    // cache — a new profile shouldn't inherit the previous context's secrets in
+    // memory (#329). The next secret actually needed re-reads the keychain.
+    clearSecrets();
   },
 
   switchProfile: async (profileId) => {
@@ -53,11 +58,15 @@ export const useSession = create<SessionState>((set, get) => ({
     setActiveProfileId(profileId);
     clearCache();
     get().bind({ baseUrl: profile.baseUrl, teamId: profile.teamId, token }, profileId);
+    // Purge the previous profile's secrets from memory now that the new token is
+    // captured in the client config (#329).
+    clearSecrets();
   },
 
   disconnect: () => {
     setActiveProfileId(null);
     clearCache();
+    clearSecrets(); // no session left to need them — don't leave secrets in memory (#329)
     set({ client: null, activeProfileId: null, config: emptyConfig });
   },
 

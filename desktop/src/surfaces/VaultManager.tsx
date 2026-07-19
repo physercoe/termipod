@@ -7,6 +7,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { listAppIntegrations, type AppIntegration } from '../state/appIntegrations';
 import { listConnections } from '../state/connections';
 import { secretDelete, secretGet, secretSet } from '../state/persist';
+import { useAutolock, useVaultLock } from '../state/vaultLock';
 import { runScript, type ScriptResult } from '../state/scriptRun';
 import { useWorkspace } from '../state/workspace';
 import {
@@ -721,6 +722,10 @@ function VaultConnections(): JSX.Element {
 
 export function VaultManager(): JSX.Element {
   const t = useT();
+  useAutolock();
+  const locked = useVaultLock((s) => s.locked);
+  const lock = useVaultLock((s) => s.lock);
+  const unlock = useVaultLock((s) => s.unlock);
   const [items, setItems] = useState<VaultItemMeta[]>(() => listItems());
   const [tab, setTab] = useState<Tab>('all');
   const [q, setQ] = useState('');
@@ -777,6 +782,21 @@ export function VaultManager(): JSX.Element {
 
   const showItems = tab !== 'sshkeys' && tab !== 'connections' && tab !== 'termipod';
 
+  if (locked) {
+    return (
+      <div className="vault-mgr">
+        <div className="vault-locked">
+          <Icon name="lock" size={28} />
+          <div className="vault-locked-title">{t('vault.sessionLocked')}</div>
+          <div className="muted small">{t('vault.lockedHint')}</div>
+          <button className="primary" onClick={unlock}>
+            <Icon name="unlock" size={14} /> {t('vault.unlock')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="vault-mgr">
       <div className="vault-tabs">
@@ -792,6 +812,10 @@ export function VaultManager(): JSX.Element {
             {tb.label}
           </button>
         ))}
+        <span className="spacer" />
+        <button className="vault-lock-btn" title={t('vault.lockNow')} onClick={lock}>
+          <Icon name="lock" size={14} /> {t('vault.lockNow')}
+        </button>
       </div>
 
       {tab === 'sshkeys' && <SshKeysSettings />}

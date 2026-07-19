@@ -629,11 +629,35 @@ button.search-result-link:hover {
   padding: var(--spacing-s8);
   margin: var(--spacing-s8) 0;
 }
+.vault-code-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
 .vault-code pre {
+  flex: 1;
+  min-width: 0;
   font-size: var(--font-size-body);
   letter-spacing: 0.05em;
   margin: var(--spacing-s4) 0;
   user-select: all;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.vault-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+}
+.vault-code-copy:hover {
+  background: var(--hover);
 }
 
 /* ---- software update ---- */

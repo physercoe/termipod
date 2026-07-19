@@ -928,9 +928,43 @@
 .vault-tabs {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--spacing-s4);
   border-bottom: 1px solid var(--border);
   padding-bottom: var(--spacing-s8);
+}
+.vault-tabs .spacer {
+  flex: 1;
+}
+.vault-lock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: 4px 10px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.vault-lock-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* Locked state — replaces the whole vault body until the user unlocks. */
+.vault-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s12);
+  text-align: center;
+  padding: var(--spacing-s32) var(--spacing-s16);
+  color: var(--text-secondary);
+}
+.vault-locked-title {
+  font-size: var(--font-size-subtitle);
+  color: var(--text);
 }
 .vault-tab {
   padding: 5px 12px;

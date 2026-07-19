@@ -62,6 +62,7 @@ export type IconName =
   | 'star'
   | 'search'
   | 'lock'
+  | 'unlock'
   | 'terminal'
   | 'sliders'
   | 'canvas'
@@ -364,6 +365,12 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <rect x="4.5" y="10" width="15" height="10.5" rx="2" />
       <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  unlock: (
+    <>
+      <rect x="4.5" y="10" width="15" height="10.5" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 7.5-1.8" />
     </>
   ),
   terminal: (

@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
+import { Icon } from '../ui/Icon';
+import { copySecret } from '../state/clipboard';
+import { useVaultLock } from '../state/vaultLock';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { useSession } from '../state/session';
 import {
@@ -57,10 +60,13 @@ export function VaultPanel(): JSX.Element | null {
   const t = useT();
   const client = useSession((s) => s.client);
   const qc = useQueryClient();
+  const autolockMin = useVaultLock((s) => s.autolockMin);
+  const setAutolockMin = useVaultLock((s) => s.setAutolockMin);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [code, setCode] = useState<string | null>(null); // one-time recovery code to show
+  const [copied, setCopied] = useState(false);
   const [restore, setRestore] = useState('');
   const [showRestore, setShowRestore] = useState(false);
 
@@ -99,6 +105,20 @@ export function VaultPanel(): JSX.Element | null {
         <div className="muted">{t('vault.needHub')}</div>
       ) : (
         <div className="vault-body">
+          <div className="setting-row">
+            <label>{t('vault.autolock')}</label>
+            <select
+              value={autolockMin}
+              onChange={(e) => setAutolockMin(Number(e.target.value))}
+            >
+              <option value={0}>{t('vault.autolockOff')}</option>
+              {[1, 5, 15, 30].map((m) => (
+                <option key={m} value={m}>
+                  {t('vault.autolockMin').replace('{n}', String(m))}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="setting-row">
             <label>{t('vault.status')}</label>
             <span className="muted">
@@ -139,7 +159,19 @@ export function VaultPanel(): JSX.Element | null {
           {code !== null && (
             <div className="vault-code">
               <div className="small">{t('vault.recoverySaved')}</div>
-              <pre className="mono">{code}</pre>
+              <div className="vault-code-row">
+                <pre className="mono">{code}</pre>
+                <button
+                  className="vault-code-copy"
+                  title={t('vault.copyRecovery')}
+                  aria-label={t('vault.copyRecovery')}
+                  onClick={() => {
+                    void copySecret(code).then((ok) => setCopied(ok));
+                  }}
+                >
+                  <Icon name={copied ? 'check' : 'copy'} size={14} /> {copied ? t('vault.copied') : t('vault.copy')}
+                </button>
+              </div>
               <button onClick={() => setCode(null)}>{t('admin.close')}</button>
             </div>
           )}

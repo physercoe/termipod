@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { loadSyncBackend, syncWorkspace, type FolderSyncReport, type SyncBackend } from './workspaceSync';
 import type { SyncProgress } from './syncProgress';
 import { useWorkspace } from './workspace';
+import { toast } from './toast';
 
 /// A single background workspace-sync job. The transfer (WebDAV/S3, `foldersync.rs`
 /// / `s3.rs`) can take a long time for a large vault, so it runs OFF the modal:
@@ -51,8 +52,11 @@ export const useSyncJob = create<SyncJobState>((set, get) => ({
         set({ running: false, progress: null, report, error: null });
         // Pulled files down → refresh the file tree wherever it's mounted.
         if (report.downloaded > 0) useWorkspace.getState().touch();
+        toast.success(`Workspace synced — ${report.uploaded} up, ${report.downloaded} down`);
       } catch (e) {
-        set({ running: false, progress: null, error: e instanceof Error ? e.message : String(e) });
+        const err = e instanceof Error ? e.message : String(e);
+        set({ running: false, progress: null, error: err });
+        toast.error(`Workspace sync failed: ${err}`);
       }
     })();
   },

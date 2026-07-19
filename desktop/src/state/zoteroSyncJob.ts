@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { loadZoteroBackend, syncWebdav, type SyncReport } from './webdav';
 import type { SyncProgress } from './syncProgress';
 import type { SyncBackend } from './workspaceSync';
+import { toast } from './toast';
 
 /// A single background Zotero-attachment-sync job (the Read surface's library
 /// storage). The transfer (WebDAV/S3, `webdav.rs` / `s3.rs` `s3_zotero_sync`) can
@@ -47,8 +48,11 @@ export const useZoteroSyncJob = create<ZoteroSyncJobState>((set, get) => ({
       try {
         const report = await syncWebdav((p) => set({ progress: p }));
         set({ running: false, progress: null, report, error: null });
+        toast.success(`Zotero synced — ${report.downloaded} down, ${report.uploaded} up`);
       } catch (e) {
-        set({ running: false, progress: null, error: e instanceof Error ? e.message : String(e) });
+        const err = e instanceof Error ? e.message : String(e);
+        set({ running: false, progress: null, error: err });
+        toast.error(`Zotero sync failed: ${err}`);
       }
     })();
   },

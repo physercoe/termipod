@@ -34,6 +34,7 @@ import { MissionLayout } from './MissionLayout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { StatusBar } from './StatusBar';
+import { ToastHost } from './ToastHost';
 
 /// The three-region mission-control frame (plan §4): titlebar · Navigator |
 /// Focus | Attention dock · status bar. WS3 wires the Navigator (fleet tree) and
@@ -244,6 +245,7 @@ export function AppShell(): JSX.Element {
           }}
         />
       )}
+      <ToastHost />
     </div>
   );
 }

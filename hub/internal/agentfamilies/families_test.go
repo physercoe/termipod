@@ -9,12 +9,12 @@ import (
 )
 
 // TestAll_ParsesEmbeddedYAML asserts the embedded YAML is well-formed
-// and contains the four families the blueprint pins down today
-// (claude-code / gemini-cli / codex / kimi-code — dominant-vendor
-// coverage; aider was retired 2026-04-29 per project decision to
-// track only major vendor products). If a future PR retires or
-// renames a family this test fails loudly — that failure is the
-// prompt to update callers (resolver/spawn_mode/probe).
+// and contains the core families the blueprint pins down today
+// (claude-code / gemini-cli / codex / kimi-code / kimi-code-ts —
+// dominant-vendor coverage; aider was retired 2026-04-29 per project
+// decision to track only major vendor products). If a future PR
+// retires or renames a family this test fails loudly — that failure
+// is the prompt to update callers (resolver/spawn_mode/probe).
 func TestAll_ParsesEmbeddedYAML(t *testing.T) {
 	got, err := All()
 	if err != nil {
@@ -25,7 +25,7 @@ func TestAll_ParsesEmbeddedYAML(t *testing.T) {
 	}
 	want := map[string]bool{
 		"claude-code": false, "gemini-cli": false,
-		"codex": false, "kimi-code": false,
+		"codex": false, "kimi-code": false, "kimi-code-ts": false,
 	}
 	for _, f := range got {
 		if _, ok := want[f.Family]; ok {
@@ -80,6 +80,46 @@ func TestKimiCode_FamilyShape(t *testing.T) {
 	}
 	if !f.PromptPDF["M1"] {
 		t.Errorf("kimi-code prompt_pdf[M1] = false; want true (assumed-true)")
+	}
+}
+
+// TestKimiCodeTS_FamilyShape asserts the kimi-code-ts row (the
+// TypeScript rewrite of Kimi Code CLI — ADR-054, ADR-026's successor
+// wedge) carries the on-host-verified ACP capability surface. Unlike
+// the Python line's assumed-true row, these values were verified
+// against kimi-code 0.27.0 (2026-07-19). If a future upstream release
+// flips one, this test failing is the prompt to update both the YAML
+// and docs/decisions/054-kimi-code-ts-engine.md in the same wedge.
+func TestKimiCodeTS_FamilyShape(t *testing.T) {
+	f, ok := ByName("kimi-code-ts")
+	if !ok {
+		t.Fatal("kimi-code-ts not in embedded registry")
+	}
+	if f.Bin != "kimi" {
+		t.Errorf("kimi-code-ts bin = %q; want kimi", f.Bin)
+	}
+	wantSupports := map[string]bool{"M1": false, "M4": false}
+	for _, m := range f.Supports {
+		if _, ok := wantSupports[m]; ok {
+			wantSupports[m] = true
+		}
+		if m == "M2" {
+			t.Errorf("kimi-code-ts should NOT declare M2 support (stream-json NDJSON schema unwired)")
+		}
+	}
+	for m, ok := range wantSupports {
+		if !ok {
+			t.Errorf("kimi-code-ts missing mode %q from supports", m)
+		}
+	}
+	if got := f.RuntimeModeSwitch["M1"]; got != "rpc" {
+		t.Errorf("kimi-code-ts runtime_mode_switch[M1] = %q; want rpc (verified)", got)
+	}
+	if !f.PromptImage["M1"] {
+		t.Errorf("kimi-code-ts prompt_image[M1] = false; want true (verified)")
+	}
+	if f.PromptPDF["M1"] {
+		t.Errorf("kimi-code-ts prompt_pdf[M1] = true; want false (no PDF capability advertised)")
 	}
 }
 

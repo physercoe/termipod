@@ -937,13 +937,15 @@ func (d *ACPDriver) emitAuthRequiredAttention(ctx context.Context, daemonMessage
 
 // authRequiredRemediation returns the operator-actionable hint to
 // emit alongside an AUTH_REQUIRED attention. Engine-specific because
-// the login command differs (`kimi login` for kimi-code, `gemini auth`
-// for gemini-cli without cached creds, etc.). Generic fallback when
-// EngineKind is empty or unknown — covers future engines with no Go
-// diff required.
+// the login command differs (`kimi login` for kimi-code / kimi-code-ts,
+// `gemini auth` for gemini-cli without cached creds, etc.). Generic
+// fallback when EngineKind is empty or unknown — covers future engines
+// with no Go diff required.
 func (d *ACPDriver) authRequiredRemediation() string {
 	switch d.EngineKind {
-	case "kimi-code":
+	case "kimi-code", "kimi-code-ts":
+		// Both kimi product lines authenticate via the same
+		// device-code `kimi login` flow (ADR-026 / ADR-054).
 		return "Run `kimi login` in your shell on the engine host to authenticate, then retry the spawn."
 	case "gemini-cli":
 		return "Run `gemini auth` on the engine host OR set GEMINI_API_KEY in the daemon's environment, then retry the spawn."

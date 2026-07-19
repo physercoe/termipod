@@ -576,7 +576,16 @@ follow-up once a real corpus exists; not on the W1–W5 critical path.
   upgrade, the engine is unusable until upstream ships a fix.
   Version floor (§7.3) lets us fail-fast at probe time.
 
-### 9.1. Watch: kimi-cli (Python) → kimi-code (TypeScript) tech-stack fork — HOLD (2026-06-07)
+### 9.1. Watch: kimi-cli (Python) → kimi-code (TypeScript) tech-stack fork — HOLD (2026-06-07), **LIFTED (2026-07-19)**
+
+> **Update (2026-07-19):** the HOLD is lifted. The TS build was
+> verified on-host (kimi-code 0.27.0): `kimi acp` survives,
+> `--mcp-config-file` is gone (replaced by project-level
+> `.kimi-code/mcp.json`), `--thinking` is gone, and `session/new`
+> speaks `configOptions`. The TS line ships as a separate
+> **`kimi-code-ts`** family — see
+> [kimi-code-ts-engine.md](kimi-code-ts-engine.md) and ADR-054. The
+> Python-line integration below is unchanged.
 
 Upstream is mid-fork and we should **not** adapt yet. Two parallel
 lines now exist:

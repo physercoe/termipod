@@ -58,7 +58,7 @@ func scaffoldToolFor(toolPrefix, dirName, ext string) toolDef {
 func scaffoldInputSchema(toolPrefix string) json.RawMessage {
 	switch toolPrefix {
 	case "agent":
-		return schema(`{"type":"object","properties":{"kind":{"type":"string","enum":["worker","steward"],"description":"steward = elevated MCP surface (allow_all role); worker = bounded role from roles.yaml worker.allow"},"engine":{"type":"string","enum":["claude-code","codex","gemini-cli","kimi-code"],"description":"backend engine (default claude-code). Picks the cmd line + permission flags."}}}`)
+		return schema(`{"type":"object","properties":{"kind":{"type":"string","enum":["worker","steward"],"description":"steward = elevated MCP surface (allow_all role); worker = bounded role from roles.yaml worker.allow"},"engine":{"type":"string","enum":["claude-code","codex","gemini-cli","kimi-code","kimi-code-ts"],"description":"backend engine (default claude-code). Picks the cmd line + permission flags."}}}`)
 	case "prompt":
 		return schema(`{"type":"object","properties":{"kind":{"type":"string","enum":["worker","steward"],"description":"shapes the section headings + opening line"}}}`)
 	case "plan":
@@ -142,6 +142,13 @@ func engineCmd(engine string) string {
   # --yolo bypasses the engine-layer gate; the hub's permission_prompt
   # MCP tool still wraps tool calls (ADR-026). Switch to the explicit
   # gate by removing --yolo.
+  cmd: "kimi --yolo acp"`
+	case "kimi-code-ts":
+		return `  # The TypeScript Kimi Code build (ADR-054) speaks the same ACP
+  # surface over its own acp subcommand. --yolo keeps the kimi steward's
+  # consent posture; remove it to route approvals through ACP's
+  # session/request_permission gate. MCP injection is file-based
+  # (<workdir>/.kimi-code/mcp.json) — no --mcp-config-file flag.
   cmd: "kimi --yolo acp"`
 	default: // claude-code
 		// The stream-json launch flags and the skip/prompt permission

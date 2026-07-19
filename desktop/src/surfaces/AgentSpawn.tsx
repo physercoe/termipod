@@ -5,9 +5,10 @@ import { str } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 
-// The five engine families (CLAUDE.md / ADR-035). gemini-cli is deprecated but
-// still spawnable until retirement; antigravity is its successor.
-const ENGINES = ['claude-code', 'codex', 'antigravity', 'kimi-code', 'gemini-cli'];
+// The engine families (CLAUDE.md / ADR-035 / ADR-054). gemini-cli is deprecated
+// but still spawnable until retirement; antigravity is its successor.
+// kimi-code-ts is the TypeScript Kimi Code line, alongside the Python kimi-code.
+const ENGINES = ['claude-code', 'codex', 'antigravity', 'kimi-code', 'kimi-code-ts', 'gemini-cli'];
 
 /// Spawn an agent (parity Phase 4 / F3). Direct `POST /agents/spawn`
 /// (self-governing): an immediate spawn returns `{agent_id}`; a policy-gated one

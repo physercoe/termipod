@@ -148,7 +148,7 @@ reads the file on every mtime change.
 Migration 0044 (handle normalization) <!-- verify file hub/migrations/0044_strip_handle_at_prefix.up.sql -->
 is occupied; migration 0099 is unused <!-- verify no-file hub/migrations/0099_*.up.sql -->.
 
-There are 10 bundled steward templates <!-- verify glob hub/templates/prompts/steward.*.md 10 -->.
+There are 11 bundled steward templates <!-- verify glob hub/templates/prompts/steward.*.md 11 -->.
 ```
 
 The markers are HTML comments — invisible in rendered Markdown,

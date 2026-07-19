@@ -482,7 +482,7 @@ func safeAgentTemplateName(n string) bool {
 // AGENTS.md name; agy honours it on startup.
 func contextFileNameForKind(kind string) string {
 	switch kind {
-	case "codex", "kimi-code", "antigravity":
+	case "codex", "kimi-code", "kimi-code-ts", "antigravity":
 		return "AGENTS.md"
 	case "gemini-cli":
 		return "GEMINI.md"

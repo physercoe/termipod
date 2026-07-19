@@ -262,7 +262,7 @@ Future<Set<String>> _collectEmittedKinds() async {
       // Drop obvious YAML scalars that aren't kind strings.
       if (k == 'profile' || k == 'family' || k == 'antigravity' ||
           k == 'claude-code' || k == 'codex' || k == 'gemini-cli' ||
-          k == 'kimi-code') {
+          k == 'kimi-code' || k == 'kimi-code-ts') {
         continue;
       }
       kinds.add(k);
@@ -283,6 +283,7 @@ bool _isObviousFalsePositive(String s) {
   const knownNonKinds = <String>{
     'profile', 'family', 'agent', 'engine',
     'antigravity', 'claude-code', 'codex', 'gemini-cli', 'kimi-code',
+    'kimi-code-ts',
     'command', 'never', 'always',
   };
   return knownNonKinds.contains(s);

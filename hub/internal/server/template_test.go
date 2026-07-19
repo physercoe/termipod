@@ -394,6 +394,7 @@ func TestResolveContextFiles_PerEngineMemoryFilename(t *testing.T) {
 		{"claude-code → CLAUDE.md", "claude-code", "CLAUDE.md"},
 		{"codex → AGENTS.md", "codex", "AGENTS.md"},
 		{"kimi-code → AGENTS.md", "kimi-code", "AGENTS.md"},
+		{"kimi-code-ts → AGENTS.md", "kimi-code-ts", "AGENTS.md"},
 		{"gemini-cli → GEMINI.md", "gemini-cli", "GEMINI.md"},
 		{"empty/unknown → CLAUDE.md (legacy default)", "", "CLAUDE.md"},
 		{"future-unknown → CLAUDE.md (legacy default)", "totally-new-engine", "CLAUDE.md"},
@@ -454,6 +455,7 @@ func TestContextFileNameForKind(t *testing.T) {
 		"claude-code":        "CLAUDE.md",
 		"codex":              "AGENTS.md",
 		"kimi-code":          "AGENTS.md",
+		"kimi-code-ts":       "AGENTS.md",
 		"gemini-cli":         "GEMINI.md",
 		// antigravity reads BOTH AGENTS.md and GEMINI.md (host-verified
 		// — both strings present in agy 1.0.1 binary). We hand it the

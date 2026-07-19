@@ -899,6 +899,68 @@ families:
     # SearchWeb tool calls to a typed `web_search` kind) would land a
     # profile here; deferred per docs/plans/kimi-code-engine.md §W6.
 
+  - family: kimi-code-ts
+    bin: kimi
+    version_flag: --version
+    # The TypeScript rewrite of Kimi Code CLI (Moonshot AI's `kimi`,
+    # repo MoonshotAI/kimi-code, single compiled binary, data root
+    # ~/.kimi-code) — a SEPARATE product line from the Python kimi-cli
+    # the `kimi-code` family above targets. Verified on-host against
+    # kimi-code 0.27.0 (2026-07-19); see
+    # docs/decisions/054-kimi-code-ts-engine.md and
+    # docs/plans/kimi-code-ts-engine.md.
+    #
+    # BIN-NAME COLLISION: both product lines install as `kimi`. The
+    # capability probe is bin-existence-based, so a host with either
+    # build reports BOTH families available. `kimi --version`
+    # disambiguates by eye: the Python build prints
+    # `kimi, version 1.x.y`; the TS build prints a bare `0.x.y`.
+    # Pick the template that matches the host's actual build — a
+    # mismatch fails loud at spawn (unknown flag), not silently.
+    #
+    # M1-only, same shape as the Python line: `kimi acp` survives the
+    # rewrite (protocolVersion 1, loadSession: true, prompt image —
+    # verified), so ACPDriver covers the path wholesale and M4 (tmux
+    # pane) is the sole fallback. A headless `-p --output-format
+    # stream-json` mode now exists upstream, but its NDJSON schema
+    # matches neither claude's nor gemini's; wiring it as M2 needs its
+    # own frame profile (deferred, see plan §2).
+    supports: [M1, M4]
+    # Authentication is out-of-band via `kimi login` (device-code
+    # flow), exactly like the Python line. The daemon advertises one
+    # ACP authMethod {id: "login", type: "terminal"}, but ACPDriver
+    # does not drive terminal-type auth — until the operator logs in,
+    # session/new fails and the driver surfaces the AUTH_REQUIRED
+    # remediation pointing at `kimi login`.
+    default_auth_method: ""
+    # session/set_model exists on the wire (verified: a bad session id
+    # draws -32602 Invalid params, not -32601 method-not-found), so
+    # the rpc route is correct in principle. INERT TODAY: the TS build
+    # reports model/mode via the newer `configOptions` shape in its
+    # session/new reply, which ACPDriver does not parse (it reads
+    # availableModes/availableModels), so the picker never hydrates.
+    # See ADR-054 D6 and the follow-up configOptions wedge.
+    runtime_mode_switch:
+      M1: rpc
+    # Verified from the initialize reply's promptCapabilities:
+    # image: true, audio: false; no PDF capability is advertised (the
+    # Python family's prompt_pdf: true was assumed-true and is NOT
+    # copied here). M4 (tmux pane) has no inline-multimodal affordance.
+    prompt_image:
+      M1: true
+      M4: false
+    prompt_pdf:
+      M1: false
+      M4: false
+    # No frame_profile / frame_translator — M1 ACPDriver speaks ACP
+    # natively (driver_acp.go), same as the Python kimi-code family.
+    #
+    # MCP injection needs NO argv here: the TS build removed
+    # --mcp-config-file and instead auto-discovers
+    # <workdir>/.kimi-code/mcp.json (project level, precedence over
+    # the operator's user-level ~/.kimi-code/mcp.json). launch_m2's
+    # writeKimiTSMCPConfig materializes that file per spawn.
+
   - family: antigravity
     bin: agy
     version_flag: --version

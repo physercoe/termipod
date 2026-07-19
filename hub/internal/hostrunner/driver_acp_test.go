@@ -51,6 +51,11 @@ type fakeACPAgent struct {
 	// rejected before they go on the wire.
 	modelEntriesUseModelIDOnly bool
 
+	// #334 / ADR-054 D6: when set, session/new returns its mode/model state via
+	// the newer ACP `configOptions` select array (kimi-code-ts shape) instead of
+	// the older modes/models blocks. Drives ACPDriver.translateConfigOptions.
+	configOptions []map[string]any
+
 	// W4.4 toggle: when set, initialize advertises
 	// promptCapabilities.image with this value. nil → field absent.
 	promptCapImage *bool
@@ -150,6 +155,9 @@ func (f *fakeACPAgent) serve() {
 					models = append(models, entry)
 				}
 				result["models"] = map[string]any{"availableModels": models}
+			}
+			if len(f.configOptions) > 0 {
+				result["configOptions"] = f.configOptions
 			}
 			f.respond(id, result)
 			close(f.initCh)
@@ -2814,6 +2822,164 @@ func TestACPDriver_EmitsInitialModeModelSystemEvent(t *testing.T) {
 		t.Errorf("availableModels len = %d; want 2; payload=%+v",
 			len(models), sys.Payload)
 	}
+}
+
+// TestTranslateConfigOptions unit-tests the #334 shape translation: the newer
+// ACP `configOptions` select array maps into modes/models-shaped lists, with
+// thought_level surfaced separately (no picker) and malformed / empty inputs
+// returning found=false.
+func TestTranslateConfigOptions(t *testing.T) {
+	// The live kimi-code 0.27.0 capture from #334.
+	kimiReply := []byte(`{
+		"sessionId": "session_x",
+		"configOptions": [
+			{"type":"select","id":"model","category":"model","currentValue":"kimi-code/k3",
+			 "options":[{"value":"kimi-code/kimi-for-coding","name":"K2.7 Coding"},
+			            {"value":"kimi-code/k3","name":"K3"}]},
+			{"type":"select","id":"thinking","category":"thought_level","currentValue":"on",
+			 "options":[{"value":"on","name":"Thinking On"}]},
+			{"type":"select","id":"mode","category":"mode","currentValue":"default",
+			 "options":[{"value":"default"},{"value":"plan"},{"value":"yolo"}]}
+		]
+	}`)
+	modes, curMode, models, curModel, thought, found := translateConfigOptions(kimiReply)
+	if !found {
+		t.Fatal("found = false; want true for a configOptions reply")
+	}
+	if curMode != "default" || curModel != "kimi-code/k3" || thought != "on" {
+		t.Errorf("current values: mode=%q model=%q thought=%q; want default/kimi-code/k3/on",
+			curMode, curModel, thought)
+	}
+	if len(modes) != 3 {
+		t.Errorf("modes len = %d; want 3 (%+v)", len(modes), modes)
+	}
+	// Mode entries keyed by `id`; an option with no name carries no name key.
+	if modes[0]["id"] != "default" {
+		t.Errorf("modes[0].id = %v; want default", modes[0]["id"])
+	}
+	if _, hasName := modes[0]["name"]; hasName {
+		t.Errorf("modes[0] should have no name key (option had none); got %+v", modes[0])
+	}
+	if len(models) != 2 {
+		t.Fatalf("models len = %d; want 2 (%+v)", len(models), models)
+	}
+	// Model entries keyed by `modelId` (what the driver's set_model validation reads).
+	if models[1]["modelId"] != "kimi-code/k3" || models[1]["name"] != "K3" {
+		t.Errorf("models[1] = %+v; want modelId=kimi-code/k3 name=K3", models[1])
+	}
+
+	// Malformed JSON and no-configOptions both yield found=false.
+	if _, _, _, _, _, ok := translateConfigOptions([]byte(`{not json`)); ok {
+		t.Error("malformed JSON should return found=false")
+	}
+	if _, _, _, _, _, ok := translateConfigOptions([]byte(`{"sessionId":"s"}`)); ok {
+		t.Error("reply without configOptions should return found=false")
+	}
+	// An option whose value is empty is dropped.
+	dropped, _, _, _, _, _ := translateConfigOptions([]byte(
+		`{"configOptions":[{"category":"mode","currentValue":"a","options":[{"value":""},{"value":"a"}]}]}`))
+	if len(dropped) != 1 || dropped[0]["id"] != "a" {
+		t.Errorf("empty-value option should be dropped; got %+v", dropped)
+	}
+}
+
+// TestACPDriver_ConfigOptionsHydratesModeModelState — #334: a session/new reply
+// carrying the newer `configOptions` shape (kimi-code-ts) must synthesize the same
+// initial mode/model system event the older modes/models blocks do, so the mobile
+// picker hydrates. Also asserts the current ids + thought-level forensics field,
+// and that the cached availableModels lets a set_model round-trip validate.
+func TestACPDriver_ConfigOptionsHydratesModeModelState(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-cfgopt")
+	fake.configOptions = []map[string]any{
+		{"type": "select", "id": "model", "category": "model", "currentValue": "kimi-code/k3",
+			"options": []map[string]any{
+				{"value": "kimi-code/kimi-for-coding", "name": "K2.7 Coding"},
+				{"value": "kimi-code/k3", "name": "K3"},
+			}},
+		{"type": "select", "id": "thinking", "category": "thought_level", "currentValue": "on",
+			"options": []map[string]any{{"value": "on", "name": "Thinking On"}}},
+		{"type": "select", "id": "mode", "category": "mode", "currentValue": "default",
+			"options": []map[string]any{{"value": "default"}, {"value": "plan"}, {"value": "yolo"}}},
+	}
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-cfgopt",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	deadline := time.Now().Add(2 * time.Second)
+	var sys *postedEvent
+	for time.Now().Before(deadline) && sys == nil {
+		for i := range poster.snapshot() {
+			ev := poster.snapshot()[i]
+			if ev.Kind == "system" && ev.Payload["availableModes"] != nil {
+				e := ev
+				sys = &e
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if sys == nil {
+		t.Fatalf("expected initial system event synthesized from configOptions; kinds=%v",
+			eventKinds(poster.snapshot()))
+	}
+	if sys.Payload["currentModeId"] != "default" {
+		t.Errorf("currentModeId = %v; want default", sys.Payload["currentModeId"])
+	}
+	if sys.Payload["currentModelId"] != "kimi-code/k3" {
+		t.Errorf("currentModelId = %v; want kimi-code/k3", sys.Payload["currentModelId"])
+	}
+	// thought_level rides along as forensics only (no picker).
+	if sys.Payload["thoughtLevel"] != "on" {
+		t.Errorf("thoughtLevel = %v; want on", sys.Payload["thoughtLevel"])
+	}
+	modes := coerceMapList(sys.Payload["availableModes"])
+	models := coerceMapList(sys.Payload["availableModels"])
+	if len(modes) != 3 {
+		t.Errorf("availableModes len = %d; want 3 (%+v)", len(modes), sys.Payload)
+	}
+	if len(models) != 2 {
+		t.Errorf("availableModels len = %d; want 2 (%+v)", len(models), sys.Payload)
+	}
+
+	// The cached availableModels (from configOptions) must let a set_model
+	// validate + dispatch without an "unknown model_id" rejection.
+	if err := drv.Input(context.Background(), "set_model", map[string]any{"model_id": "kimi-code/k3"}); err != nil {
+		t.Errorf("set_model for a configOptions-advertised model failed: %v", err)
+	}
+}
+
+// coerceMapList normalizes an availableModes/availableModels payload to
+// []map[string]any regardless of whether it survived as the typed slice or a
+// JSON-decoded []any (both shapes occur depending on post-parse mutation).
+func coerceMapList(v any) []map[string]any {
+	if typed, ok := v.([]map[string]any); ok {
+		return typed
+	}
+	if list, ok := v.([]any); ok {
+		out := make([]map[string]any, 0, len(list))
+		for _, m := range list {
+			if mm, ok := m.(map[string]any); ok {
+				out = append(out, mm)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // TestACPDriver_SetModeDispatch — W2.2: Input("set_mode") validates the

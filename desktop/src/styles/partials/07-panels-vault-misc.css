@@ -909,6 +909,11 @@ button.search-result-link:hover {
 .app-ctxmenu button[role='menuitem']:hover:not(:disabled) {
   background: var(--hover);
 }
+.app-ctxmenu button[role='menuitem']:focus-visible {
+  background: var(--hover);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .app-ctxmenu button[role='menuitem'].danger {
   color: var(--danger);
 }

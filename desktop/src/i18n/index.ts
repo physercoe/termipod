@@ -11,6 +11,7 @@ type Dict = Record<string, string>;
 const en: Dict = {
   'a11y.resizePanel': 'Resize panel (arrow keys)',
   'a11y.sortBy': 'Sort by {col}',
+  'a11y.contextMenu': 'Context menu',
   'connect.title': 'Add a hub',
   'connect.editTitle': 'Edit hub profile',
   'connect.name': 'Name',
@@ -1208,6 +1209,7 @@ const en: Dict = {
 const zh: Dict = {
   'a11y.resizePanel': '调整面板大小（方向键）',
   'a11y.sortBy': '按 {col} 排序',
+  'a11y.contextMenu': '上下文菜单',
   'connect.title': '添加 Hub',
   'connect.editTitle': '编辑 Hub 配置',
   'connect.name': '名称',

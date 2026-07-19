@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n';
 
 /// App-wide right-click menu primitive. Tauri disables the native webview context
 /// menu in release builds, so any surface that wants Copy/Paste or create actions
@@ -30,6 +31,49 @@ export function useContextMenu(): {
   node: JSX.Element | null;
 } {
   const [st, setSt] = useState<MenuState | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const t = useT();
+
+  // On open, move focus to the first enabled item so the menu is keyboard-operable
+  // (and a screen reader announces it). Items are real <button>s, so focus is real.
+  useEffect(() => {
+    if (st === null) return;
+    const first = menuRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])');
+    first?.focus();
+  }, [st]);
+
+  // Roving keyboard navigation within the menu. Arrow/Home/End move focus between
+  // enabled items; Escape closes; Enter/Space activates (via the button's native
+  // click). Clipboard items lose the editor's selection under keyboard activation
+  // (focus already left the editor) — the mouse path preserves it; keyboard is
+  // best-effort, which is acceptable for the rare keyboard-driven context menu.
+  const onMenuKey = useCallback((e: React.KeyboardEvent<HTMLDivElement>): void => {
+    const menu = menuRef.current;
+    if (menu === null) return;
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not([disabled])'));
+    if (items.length === 0) return;
+    const cur = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(cur + 1 + items.length) % items.length]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(cur - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      items[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setSt(null);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      (document.activeElement as HTMLButtonElement | null)?.click();
+    }
+  }, []);
 
   const open = useCallback(
     (e: { clientX: number; clientY: number; preventDefault: () => void }, items: MenuItem[]): void => {
@@ -55,17 +99,33 @@ export function useContextMenu(): {
             setSt(null);
           }}
         />
-        <div className="app-ctxmenu" style={{ left: st.x, top: st.y, width: MENU_W }} role="menu">
+        <div
+          ref={menuRef}
+          className="app-ctxmenu"
+          style={{ left: st.x, top: st.y, width: MENU_W }}
+          role="menu"
+          aria-label={t('a11y.contextMenu')}
+          onKeyDown={onMenuKey}
+        >
           {st.items.map((it, i) => (
             <button
               key={i}
               role="menuitem"
+              tabIndex={-1}
               className={it.danger === true ? 'danger' : undefined}
               disabled={it.disabled}
               // mousedown, not click: preventDefault keeps the editor's selection
-              // and focus so clipboard execCommands act on it.
+              // and focus so clipboard execCommands act on it. (Mouse path — the
+              // menu unmounts before any click fires, so onClick never doubles it.)
               onMouseDown={(e) => {
                 e.preventDefault();
+                if (it.disabled === true) return;
+                setSt(null);
+                it.onClick();
+              }}
+              // Keyboard path: onMenuKey synthesizes a .click() for Enter/Space,
+              // which lands here (a real mouse click can't, per the note above).
+              onClick={() => {
                 if (it.disabled === true) return;
                 setSt(null);
                 it.onClick();

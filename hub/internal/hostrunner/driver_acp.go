@@ -515,6 +515,28 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	if sr.SessionID == "" && usedLoad {
 		sr.SessionID = d.ResumeSessionID
 	}
+
+	// ADR-054 D6 / #334 — newer ACP daemons (kimi-code-ts) report per-session
+	// model/mode state via a `configOptions` select array instead of the legacy
+	// `modes`/`models` blocks. Translate it into the SAME sr.Modes/sr.Models
+	// lists so a single downstream (id-set caching + the synthetic initial-state
+	// event) handles both shapes. Shape-driven and engine-neutral: any future ACP
+	// adopter benefits. Fill PER CATEGORY and only when the legacy field is
+	// absent, so a legacy-shaped reply produces byte-identical output (no
+	// regression for gemini-cli / Python kimi-code).
+	var thoughtLevel string
+	if coModes, coCurMode, coModels, coCurModel, coThought, ok := translateConfigOptions(sres); ok {
+		if len(sr.Modes.AvailableModes) == 0 && sr.Modes.CurrentModeID == "" {
+			sr.Modes.AvailableModes = coModes
+			sr.Modes.CurrentModeID = coCurMode
+		}
+		if len(sr.Models.AvailableModels) == 0 && sr.Models.CurrentModelID == "" {
+			sr.Models.AvailableModels = coModels
+			sr.Models.CurrentModelID = coCurModel
+		}
+		thoughtLevel = coThought
+	}
+
 	d.mu.Lock()
 	d.sessionID = sr.SessionID
 	d.mu.Unlock()
@@ -556,7 +578,8 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	// currentModeId/availableModes/currentModelId/availableModels) so
 	// the same mobile reducer handles both.
 	if len(sr.Modes.AvailableModes) > 0 || sr.Modes.CurrentModeID != "" ||
-		len(sr.Models.AvailableModels) > 0 || sr.Models.CurrentModelID != "" {
+		len(sr.Models.AvailableModels) > 0 || sr.Models.CurrentModelID != "" ||
+		thoughtLevel != "" {
 		initialState := map[string]any{}
 		if sr.Modes.CurrentModeID != "" {
 			initialState["currentModeId"] = sr.Modes.CurrentModeID
@@ -569,6 +592,12 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		}
 		if len(sr.Models.AvailableModels) > 0 {
 			initialState["availableModels"] = sr.Models.AvailableModels
+		}
+		// thought_level (thinking effort) has no mobile picker yet — carry the
+		// current value for forensics only, under a distinct key so it never
+		// collides with the mode/model reducer (#334, ADR-054 D6 out-of-scope).
+		if thoughtLevel != "" {
+			initialState["thoughtLevel"] = thoughtLevel
 		}
 		_ = d.Poster.PostAgentEvent(parent, d.AgentID, "system", "system", initialState)
 	}
@@ -890,6 +919,67 @@ func (d *ACPDriver) emitAuthAttention(
 				"OR set GEMINI_API_KEY in the daemon's environment " +
 				"OR override `auth_method:` in the steward template.",
 		})
+}
+
+// translateConfigOptions maps the newer ACP `configOptions` select array (a
+// session/new or session/load reply from kimi-code-ts, and any future daemon that
+// adopts the same ACP revision) into the legacy availableModes/availableModels
+// list shape. Mode entries are keyed by `id`, model entries by `modelId` (both
+// carrying `name`), so the existing id-set caching + synthetic initial-state
+// event downstream in Start consumes either shape unchanged (#334, ADR-054 D6).
+//
+// Shape mapping (per the on-host kimi-code 0.27.0 capture in #334):
+//   - category "mode"          → modes (each option `value`→id, `name`→name), currentValue→currentMode
+//   - category "model"         → models (option `value`→modelId, `name`→name), currentValue→currentModel
+//   - category "thought_level" → thoughtLevel only (no mobile picker yet; forensics)
+//
+// `found` is true when a `configOptions` array with at least one recognised
+// category was present, so the caller can distinguish "no configOptions" from
+// "configOptions with only empty lists". Malformed JSON yields found=false.
+func translateConfigOptions(raw []byte) (modes []map[string]any, currentMode string, models []map[string]any, currentModel string, thoughtLevel string, found bool) {
+	var co struct {
+		ConfigOptions []struct {
+			Category     string           `json:"category"`
+			CurrentValue string           `json:"currentValue"`
+			Options      []map[string]any `json:"options"`
+		} `json:"configOptions"`
+	}
+	if err := json.Unmarshal(raw, &co); err != nil || len(co.ConfigOptions) == 0 {
+		return nil, "", nil, "", "", false
+	}
+	// Translate one option list into legacy-shaped entries under `idKey`
+	// ("id" for modes, "modelId" for models), dropping entries with no value.
+	entriesFor := func(opts []map[string]any, idKey string) []map[string]any {
+		out := make([]map[string]any, 0, len(opts))
+		for _, o := range opts {
+			val, _ := o["value"].(string)
+			if val == "" {
+				continue
+			}
+			entry := map[string]any{idKey: val}
+			if name, ok := o["name"].(string); ok && name != "" {
+				entry["name"] = name
+			}
+			out = append(out, entry)
+		}
+		return out
+	}
+	for _, opt := range co.ConfigOptions {
+		switch opt.Category {
+		case "mode":
+			found = true
+			currentMode = opt.CurrentValue
+			modes = entriesFor(opt.Options, "id")
+		case "model":
+			found = true
+			currentModel = opt.CurrentValue
+			models = entriesFor(opt.Options, "modelId")
+		case "thought_level":
+			found = true
+			thoughtLevel = opt.CurrentValue
+		}
+	}
+	return modes, currentMode, models, currentModel, thoughtLevel, found
 }
 
 // isAuthRequiredError detects "agent requires out-of-band login"
@@ -1453,7 +1543,7 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 	case "user_message_chunk":
 		// Our own input being echoed back — drop to avoid a loop.
 		return
-	case "available_commands_update", "current_mode_update", "current_model_update":
+	case "available_commands_update", "current_mode_update", "current_model_update", "config_option_update":
 		// Capability-state announcements gemini emits after session/new
 		// (slash-command catalog, current approval mode, current model).
 		// They're informational, not turn activity — mobile's

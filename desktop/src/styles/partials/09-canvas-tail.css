@@ -328,6 +328,8 @@
   display: flex;
   height: 100%;
   min-height: 0;
+  /* Anchor for the floating zoom pill so it stays put while the body scrolls. */
+  position: relative;
 }
 .mdreader-outline {
   flex: 0 0 auto;
@@ -432,8 +434,6 @@
   min-height: 0;
 }
 .att-text {
-  height: 100%;
-  overflow: auto;
   margin: 0;
   padding: 16px;
   white-space: pre-wrap;
@@ -441,6 +441,80 @@
   font-family: var(--font-mono, monospace);
   font-size: var(--font-size-caption);
   line-height: 1.5;
+}
+
+/* ── Shared reader zoom (markdown / text / html) — ui/ZoomBar + ui/useDocZoom ──
+   Flat/reflowable viewers get a floating zoom pill; the PDF + EPUB readers own
+   their own scale controls. The pill sits over a non-scrolling wrapper so it
+   stays pinned while the body scrolls; `zoom` is applied to the content only. */
+.doc-zoombar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+.doc-zoombar-float {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 5;
+  /* Never inherit the body zoom the pill controls. */
+  zoom: 1;
+}
+.doc-zoom-btn,
+.doc-zoom-pct {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border: none;
+  background: none;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+.doc-zoom-btn {
+  width: 24px;
+  padding: 0;
+}
+.doc-zoom-pct {
+  min-width: 46px;
+  padding: 0 6px;
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.doc-zoom-btn:hover,
+.doc-zoom-pct:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+  transform: none;
+  box-shadow: none;
+  border: none;
+}
+/* Plain-text + html viewers: a non-scrolling wrap (pill anchor) over an inner
+   scroll area (text) or the iframe (html). */
+.att-text-wrap,
+.att-html-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.att-text-wrap {
+  overflow: hidden;
+}
+.att-text-scroll {
+  height: 100%;
+  overflow: auto;
+}
+.att-html-wrap {
+  display: flex;
 }
 /* Info-tab attachment summary card (type / location / preview). */
 .ref-attach-info {

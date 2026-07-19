@@ -3,6 +3,8 @@ import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { Markdown, slugify } from './Markdown';
 import { ResizeHandle, usePanelWidth } from './ResizeHandle';
+import { useDocZoom } from './useDocZoom';
+import { ZoomBar, wheelZoom } from './ZoomBar';
 
 /// Document reader for a markdown attachment (`.md`/`.markdown`): the rendered
 /// prose plus a left outline/nav rail built from the document's headings (parity
@@ -59,6 +61,7 @@ export function MarkdownReader({ text }: { text: string }): JSX.Element {
   const headings = useMemo(() => extractHeadings(text), [text]);
   const [open, setOpen] = useState(true);
   const [outlineW, resizeOutline] = usePanelWidth('termipod.read.mdOutlineW', 240, 160, 460);
+  const zoom = useDocZoom('md');
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const minDepth = useMemo(() => Math.min(6, ...headings.map((h) => h.depth)), [headings]);
 
@@ -102,13 +105,35 @@ export function MarkdownReader({ text }: { text: string }): JSX.Element {
             <Icon name="list" />
           </button>
         ))}
-      <div className="mdreader-body region-pad" ref={bodyRef}>
+      <div
+        className="mdreader-body region-pad"
+        ref={bodyRef}
+        tabIndex={0}
+        onWheel={wheelZoom(zoom)}
+        onKeyDown={(e) => {
+          if (!(e.ctrlKey || e.metaKey)) return;
+          if (e.key === '=' || e.key === '+') {
+            e.preventDefault();
+            zoom.zoomIn();
+          } else if (e.key === '-') {
+            e.preventDefault();
+            zoom.zoomOut();
+          } else if (e.key === '0') {
+            e.preventDefault();
+            zoom.reset();
+          }
+        }}
+      >
         {text.trim() === '' ? (
           <div className="muted mdreader-empty">{t('read.mdEmpty')}</div>
         ) : (
-          <Markdown text={text} singleDollarMath headingIds />
+          <div className="mdreader-zoom" style={{ zoom: zoom.zoom }}>
+            <Markdown text={text} singleDollarMath headingIds />
+          </div>
         )}
       </div>
+      {/* Pinned to the non-scrolling reader row so it stays put while the body scrolls. */}
+      <ZoomBar z={zoom} className="doc-zoombar-float" />
     </div>
   );
 }

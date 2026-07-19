@@ -46,6 +46,8 @@ import { Icon, type IconName } from '../ui/Icon';
 import { PasswordInput } from '../ui/PasswordInput';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
+import { useDocZoom } from '../ui/useDocZoom';
+import { ZoomBar, wheelZoom } from '../ui/ZoomBar';
 import { useTextPrompt } from '../ui/PromptModal';
 // epub.js is heavy and epub is a rare path — lazy-load it into its own chunk.
 const EpubView = lazy(() => import('../ui/EpubView').then((m) => ({ default: m.EpubView })));
@@ -357,6 +359,54 @@ type Payload =
   | { t: 'url'; kind: 'image' | 'video' | 'audio' | 'html'; url: string }
   | { t: 'text'; text: string };
 
+// A zoomable plain-text viewer (`.txt`/`.csv`/`.json`/`.log`/…). CSS `zoom`
+// scales the monospace body; the pill floats top-right, Ctrl/Cmd+wheel zooms.
+function TextDoc({ text }: { text: string }): JSX.Element {
+  const zoom = useDocZoom('text');
+  return (
+    <div className="att-text-wrap" onWheel={wheelZoom(zoom)}>
+      <ZoomBar z={zoom} className="doc-zoombar-float" />
+      <div className="att-text-scroll">
+        <pre className="att-text region-pad" style={{ zoom: zoom.zoom }}>
+          {text}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+// A zoomable html/mime viewer. The document renders in an iframe from a same-origin
+// blob URL, so the zoom is applied inside the frame (documentElement `zoom`) on load
+// and whenever the level changes — a reflow, not a scaled bitmap. If the frame is
+// unexpectedly cross-origin (contentDocument throws), fall back to element `zoom`.
+function HtmlDoc({ url, title }: { url: string; title: string }): JSX.Element {
+  const zoom = useDocZoom('html');
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const apply = (): void => {
+    const f = frameRef.current;
+    if (f === null) return;
+    try {
+      const doc = f.contentDocument;
+      if (doc?.documentElement != null) {
+        (doc.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = String(zoom.zoom);
+        f.style.zoom = '';
+        return;
+      }
+    } catch {
+      /* cross-origin — fall through to element zoom */
+    }
+    (f.style as CSSStyleDeclaration & { zoom: string }).zoom = String(zoom.zoom);
+  };
+  // Re-apply whenever the level changes (the frame keeps its content across zooms).
+  useEffect(apply, [zoom.zoom, url]);
+  return (
+    <div className="att-html-wrap">
+      <ZoomBar z={zoom} className="doc-zoombar-float" />
+      <iframe ref={frameRef} className="pdf-frame" title={title} src={url} onLoad={apply} />
+    </div>
+  );
+}
+
 // Viewer for a local attachment. Bytes are resolved from the linked storage
 // folder (a live File in the browser build, or read through the Rust core under
 // Tauri), then dispatched by type: PDFs render via bundled pdf.js (PdfCanvas) and
@@ -460,7 +510,7 @@ function AttachmentView({
         <MarkdownReader text={payload.text} />
       </div>
     ) : (
-      <pre className="att-text region-pad">{payload.text}</pre>
+      <TextDoc text={payload.text} />
     );
   if (payload.t === 'url' && payload.kind === 'image')
     return (
@@ -476,7 +526,7 @@ function AttachmentView({
         <audio src={payload.url} controls />
       </div>
     );
-  if (payload.t === 'url') return <iframe className="pdf-frame" title={att.file} src={payload.url} />;
+  if (payload.t === 'url') return <HtmlDoc url={payload.url} title={att.file} />;
   return <div className="muted region-pad">{t('read.loadingFile')}</div>;
 }
 

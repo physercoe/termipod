@@ -46,6 +46,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { PasswordInput } from '../ui/PasswordInput';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
+import { ImageView } from '../ui/ImageView';
 import { useDocZoom } from '../ui/useDocZoom';
 import { ZoomBar, wheelZoom } from '../ui/ZoomBar';
 import { useTextPrompt } from '../ui/PromptModal';
@@ -513,11 +514,7 @@ function AttachmentView({
       <TextDoc text={payload.text} />
     );
   if (payload.t === 'url' && payload.kind === 'image')
-    return (
-      <div className="att-image-wrap">
-        <img className="att-image" src={payload.url} alt={att.file} />
-      </div>
-    );
+    return <ImageView url={payload.url} fileName={att.file} referenceId={referenceId} attId={att.id} />;
   if (payload.t === 'url' && payload.kind === 'video')
     return <video className="att-media" src={payload.url} controls />;
   if (payload.t === 'url' && payload.kind === 'audio')

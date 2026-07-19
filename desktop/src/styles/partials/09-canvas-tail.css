@@ -739,6 +739,69 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Image freeform annotations (ui/ImageView): a pinned tool/editor bar over a
+   scrolling image stage; the SVG overlay tracks the image box 1:1 (unit viewBox,
+   non-scaling strokes), so boxes/ink stay put at any rendered size. */
+.img-anno {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.img-anno .att-image-wrap {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.img-anno-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+.img-anno-stage .att-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.img-anno-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.img-anno-shape {
+  cursor: pointer;
+}
+.img-anno-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+.img-anno-colors {
+  display: inline-flex;
+  gap: 3px;
+}
+.img-anno-comment {
+  flex: 1;
+  min-width: 120px;
+}
 /* Loading / error placeholder centred over the (hidden) host. */
 .epub-state {
   position: absolute;

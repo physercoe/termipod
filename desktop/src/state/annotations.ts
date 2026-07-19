@@ -33,11 +33,19 @@ export interface AnnotationPosition {
   paths?: number[][];
   width?: number;
   cfi?: string; // EPUB CFI range (reflowable anchor)
+  // Coordinate space for rects/paths. 'pdf' (default) = PDF user points, origin
+  // bottom-left. 'image' = fractions [0..1] of the rendered image box, origin
+  // top-left — zoom/size-independent freeform on a fixed-geometry image.
+  space?: 'pdf' | 'image';
 }
 
 export interface Annotation {
   id: string;
   referenceId: string; // the desktop Reference id this annotation belongs to
+  // Which attachment of the reference this annotation is on. Undefined = the
+  // reference's PDF (the original single-attachment case); set for image/EPUB
+  // annotations so a reference with several attachments keeps them separate.
+  attId?: string;
   type: AnnotationType;
   color?: string; // hex, e.g. #ffd400
   pageIndex: number; // 0-based; mirrors position.pageIndex (for filtering)

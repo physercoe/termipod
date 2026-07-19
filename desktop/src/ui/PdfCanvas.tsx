@@ -1077,11 +1077,14 @@ export function PdfCanvas({
   const [menu, setMenu] = useState<{ x: number; y: number; onSel: boolean; text: string } | null>(null);
   const viewRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // Only PDF-geometry annotations belong here — exclude EPUB (CFI) and image
+  // (normalized-space) annotations that may share the same reference.
+  const isPdfAnno = (a: Annotation): boolean => a.position.cfi === undefined && a.position.space !== 'image';
   const annosByPage = useMemo(() => {
     const m = new Map<number, Annotation[]>();
     if (referenceId === undefined) return m;
     for (const a of allAnnos) {
-      if (a.referenceId !== referenceId) continue;
+      if (a.referenceId !== referenceId || !isPdfAnno(a)) continue;
       const list = m.get(a.pageIndex) ?? [];
       list.push(a);
       m.set(a.pageIndex, list);
@@ -1092,7 +1095,7 @@ export function PdfCanvas({
   const refAnnos = useMemo(() => {
     if (referenceId === undefined) return [];
     return allAnnos
-      .filter((a) => a.referenceId === referenceId)
+      .filter((a) => a.referenceId === referenceId && isPdfAnno(a))
       .sort((x, y) => x.pageIndex - y.pageIndex || (x.sortIndex ?? '').localeCompare(y.sortIndex ?? ''));
   }, [allAnnos, referenceId]);
   const [term, setTerm] = useState(''); // the live input value

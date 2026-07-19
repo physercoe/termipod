@@ -459,9 +459,14 @@
   position: absolute;
   inset: 0;
   z-index: 3;
-}
-.pdfjs-anno-layer.tooling {
-  pointer-events: none; /* let a new selection / drag pass through to the page */
+  /* The container spans the whole page (inset:0); if it captured pointer events
+     it would swallow every click destined for the text layer (z1, selection) and
+     link overlay (z2) across the entire page whenever any annotation exists —
+     not just over a highlight. So the container is inert; individual overlay
+     boxes opt back in with pointer-events:auto (inline `pe`) only when
+     interactive. This is what lets text selection + link clicks keep working on
+     an annotated page. */
+  pointer-events: none;
 }
 .pdfjs-anno {
   position: absolute;

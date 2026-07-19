@@ -562,6 +562,12 @@
 .term-nav-conn {
   width: 100%;
   border-radius: var(--radius-sm);
+  /* A row is a direct child of the (now flex:1) column list; without this it
+     inherits flex-grow from the shared .term-nav-pick rule and stretches
+     vertically to divide the rail. Pin to natural height — width:100% already
+     fills the cross axis, so the extra space stays as blank list area (whose
+     right-click opens the New-connection menu). */
+  flex: 0 0 auto;
 }
 .term-nav-item:hover {
   background: var(--hover);

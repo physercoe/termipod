@@ -1725,9 +1725,13 @@ export function PdfCanvas({
               // Selection-driven tools commit on mouse-up, once the drag-select ends.
               if (tool === 'highlight' || tool === 'underline') commitTextSelection(tool);
             }}
-            onClick={(e) => {
-              // A bare click on empty page area deselects the current annotation.
-              if (tool === null && e.target === e.currentTarget) setSelectedAnno(null);
+            onClick={() => {
+              // A click anywhere on the page (text/canvas) deselects the current
+              // annotation, so its editor popover dismisses — matching "click
+              // elsewhere to close". Annotation overlay boxes and the editor both
+              // stopPropagation, so a click that selects/edits an annotation never
+              // reaches here; only true empty-area clicks do.
+              if (tool === null) setSelectedAnno(null);
             }}
           >
             {pdf === null && !err && <div className="muted region-pad">{t('read.loadingPdf')}</div>}

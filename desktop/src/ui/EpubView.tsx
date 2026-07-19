@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import ePub, { type Rendition, type Contents, type NavItem } from 'epubjs';
+import ePub, { type Rendition, type Contents, type NavItem, type Location } from 'epubjs';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { ResizeHandle, usePanelWidth } from './ResizeHandle';
@@ -9,6 +9,18 @@ import { ResizeHandle, usePanelWidth } from './ResizeHandle';
 /// webview offline like the pdf.js path. Scrolled-doc flow renders one chapter at
 /// a time; prev/next and a TOC move between them. Text selection can be saved to
 /// notes (parity with the PDF reader's onSaveSelection).
+
+// Reader font scale (percent of the EPUB's own base size), persisted so a chosen
+// size survives reopen. Clamped to a sane range.
+const FONT_KEY = 'termipod.read.epubFontPct';
+const FONT_MIN = 70;
+const FONT_MAX = 200;
+const FONT_STEP = 10;
+function loadFontPct(): number {
+  const raw = Number(localStorage.getItem(FONT_KEY));
+  if (!Number.isFinite(raw) || raw < FONT_MIN || raw > FONT_MAX) return 100;
+  return raw;
+}
 
 export function EpubView({
   data,
@@ -25,13 +37,29 @@ export function EpubView({
   const [showToc, setShowToc] = useState(false);
   const [tocW, resizeToc] = usePanelWidth('termipod.read.epubTocW', 260, 160, 480);
   const [sel, setSel] = useState('');
+  // Loading / error lifecycle: a corrupt or unparseable EPUB used to hang on a
+  // blank host with no feedback; surface both states explicitly.
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  // Reading progress (0–100), populated once locations are generated in the
+  // background; 0 means "not yet available" and the indicator stays hidden.
+  const [pct, setPct] = useState(0);
+  const [fontPct, setFontPct] = useState(loadFontPct);
 
   useEffect(() => {
     const host = hostRef.current;
     if (host === null) return;
-    // epub.js mutates the ArrayBuffer's view; hand it a copy so re-mounts (or a
-    // concurrent PDF arrayBuffer reader) never see a detached/consumed buffer.
-    const book = ePub(data.slice(0));
+    setStatus('loading');
+    setPct(0);
+    let book: ReturnType<typeof ePub>;
+    let r: Rendition;
+    try {
+      // epub.js mutates the ArrayBuffer's view; hand it a copy so re-mounts (or a
+      // concurrent PDF arrayBuffer reader) never see a detached/consumed buffer.
+      book = ePub(data.slice(0));
+    } catch {
+      setStatus('error');
+      return;
+    }
     // epub.js mishandles a `'100%'` width string in scrolled-doc: it snapshots a
     // pixel width for the inner container at render time and a later `resize`
     // treats the config as already-100% and no-ops, so the book stays pinned at
@@ -39,7 +67,7 @@ export function EpubView({
     // from the host and drive every subsequent width through `resize()` below.
     const w0 = host.clientWidth || 800;
     const h0 = host.clientHeight || 600;
-    const r = book.renderTo(host, { width: w0, height: h0, flow: 'scrolled-doc', spread: 'none' });
+    r = book.renderTo(host, { width: w0, height: h0, flow: 'scrolled-doc', spread: 'none' });
     rendition.current = r;
     // WIDTH FIX (3rd pass). In scrolled flow the iframe IS full stage width
     // (verified in epub.js: iframe locks to the stage; `contents.size()` sets
@@ -88,10 +116,36 @@ export function EpubView({
         /* section torn down / cross-origin — ignore */
       }
     });
-    void r.display();
-    void book.loaded.navigation.then((nav) => {
-      setToc(nav.toc.map((i: NavItem) => ({ label: i.label.trim(), href: i.href })));
+    // Apply the persisted font size to every section (current + future). themes
+    // registers an override that the content hook re-applies per chapter.
+    try {
+      r.themes.fontSize(`${loadFontPct()}%`);
+    } catch {
+      /* pre-render */
+    }
+    r.display()
+      .then(() => setStatus('ready'))
+      .catch(() => setStatus('error'));
+    // TOC is best-effort — a book can render fine with an unparseable nav.
+    book.loaded.navigation
+      .then((nav) => setToc(nav.toc.map((i: NavItem) => ({ label: i.label.trim(), href: i.href }))))
+      .catch(() => setToc([]));
+    // Generate coarse locations in the background so a reading-progress percent is
+    // available; skip silently if it fails (huge/edge-case books).
+    book.ready
+      .then(() => book.locations.generate(1200))
+      .catch(() => undefined);
+    r.on('relocated', (loc: Location) => {
+      const p = loc?.start?.percentage;
+      if (typeof p === 'number' && p > 0) setPct(Math.round(p * 100));
     });
+    // Keyboard nav inside the rendered chapter (iframe has focus): epub.js
+    // forwards keyup from the section document.
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') void r.prev();
+      else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') void r.next();
+    };
+    r.on('keyup', onKey);
     r.on('selected', (_cfiRange: string, contents: Contents) => {
       setSel(contents.window.getSelection()?.toString().trim() ?? '');
     });
@@ -119,14 +173,40 @@ export function EpubView({
     ro.observe(host);
     return () => {
       ro.disconnect();
+      try {
+        r.off('keyup', onKey);
+      } catch {
+        /* torn down */
+      }
       r.destroy();
       book.destroy();
       rendition.current = null;
     };
   }, [data]);
 
+  // Reactively apply font-size changes to the live rendition and persist.
+  useEffect(() => {
+    localStorage.setItem(FONT_KEY, String(fontPct));
+    const r = rendition.current;
+    if (r === null) return;
+    try {
+      r.themes.fontSize(`${fontPct}%`);
+    } catch {
+      /* pre-render */
+    }
+  }, [fontPct]);
+
+  const bumpFont = (delta: number): void =>
+    setFontPct((p) => Math.max(FONT_MIN, Math.min(FONT_MAX, p + delta)));
+
+  // Toolbar-level keyboard nav (when focus is on the toolbar, not the iframe).
+  const onHostKey = (e: React.KeyboardEvent): void => {
+    if (e.key === 'ArrowLeft') void rendition.current?.prev();
+    else if (e.key === 'ArrowRight') void rendition.current?.next();
+  };
+
   return (
-    <div className="epub-view">
+    <div className="epub-view" onKeyDown={onHostKey}>
       <div className="epub-toolbar">
         <button className="small" onClick={() => setShowToc((s) => !s)} disabled={toc.length === 0}>
           {t('read.epubToc')}
@@ -137,6 +217,32 @@ export function EpubView({
         <button className="small" title={t('read.epubNext')} onClick={() => void rendition.current?.next()}>
           <Icon name="chevron-right" />
         </button>
+        <span className="epub-font">
+          <button
+            className="small"
+            title={t('read.epubFontSmaller')}
+            disabled={fontPct <= FONT_MIN}
+            onClick={() => bumpFont(-FONT_STEP)}
+          >
+            A−
+          </button>
+          <span className="epub-font-pct" title={t('read.epubFontSize')}>
+            {fontPct}%
+          </span>
+          <button
+            className="small"
+            title={t('read.epubFontLarger')}
+            disabled={fontPct >= FONT_MAX}
+            onClick={() => bumpFont(FONT_STEP)}
+          >
+            A+
+          </button>
+        </span>
+        {pct > 0 && (
+          <span className="epub-progress muted small" title={t('read.epubProgress')}>
+            {pct}%
+          </span>
+        )}
         <span className="spacer" />
         {onSaveSelection !== undefined && sel !== '' && (
           <button
@@ -171,7 +277,11 @@ export function EpubView({
             <ResizeHandle onResize={resizeToc} />
           </>
         )}
-        <div className="epub-host" ref={hostRef} />
+        <div className="epub-stage">
+          {status === 'loading' && <div className="epub-state muted">{t('read.epubLoading')}</div>}
+          {status === 'error' && <div className="epub-state error">{t('read.epubError')}</div>}
+          <div className="epub-host" ref={hostRef} style={status === 'ready' ? undefined : { visibility: 'hidden' }} />
+        </div>
       </div>
     </div>
   );

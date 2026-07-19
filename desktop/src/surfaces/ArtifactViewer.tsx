@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
+import { PdfCanvas } from '../ui/PdfCanvas';
 import { chartFromJson, ChartView, type ChartData } from '../ui/ChartView';
 import {
   CANVAS_MIME,
@@ -121,6 +122,21 @@ export function ArtifactViewer({
     }
   }, [blobQ.data, base]);
 
+  // Decode PDF bytes for the canvas-based renderer (below). A `data:` iframe is
+  // the exact pattern this codebase documents as blocked by WebView2 (blank
+  // frame in the packaged app), so reuse the pdf.js PdfCanvas instead.
+  const pdfData = useMemo<ArrayBuffer | null>(() => {
+    if (base !== 'pdf' || blobQ.data === undefined) return null;
+    try {
+      const bin = atob(blobQ.data.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      return bytes.buffer;
+    } catch {
+      return null;
+    }
+  }, [base, blobQ.data]);
+
   // Final renderer: artifact `kind` and vendor mimes win, then mime/ext, then a
   // content sniff for mis-typed HTML.
   const view: View = useMemo(() => {
@@ -171,7 +187,13 @@ export function ArtifactViewer({
       case 'image':
         return <img className="artifact-img" src={dataUrl} alt={name} />;
       case 'pdf':
-        return <iframe className="artifact-frame" src={dataUrl} title={name} />;
+        return pdfData !== null ? (
+          <div className="artifact-pdf">
+            <PdfCanvas data={pdfData} fileName={name} />
+          </div>
+        ) : (
+          <div className="muted">{t('common.loading')}</div>
+        );
       case 'canvas':
         // Inlined single-doc HTML in an isolated iframe (`allow-scripts`, NOT
         // allow-same-origin) — the canvas app runs but can't reach the app origin.

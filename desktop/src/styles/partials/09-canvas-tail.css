@@ -607,11 +607,43 @@
   box-shadow: none;
   transform: none;
 }
+.epub-stage {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+}
 .epub-host {
   flex: 1;
   min-width: 0;
   overflow: auto;
   background: #fff;
+}
+/* Loading / error placeholder centred over the (hidden) host. */
+.epub-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--spacing-s16);
+}
+/* Font-size stepper group in the toolbar. */
+.epub-font {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.epub-font-pct {
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+}
+.epub-progress {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Author (J2) left file/workspace tree — surfaces/AuthorNav.tsx. Sits left of the

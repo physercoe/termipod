@@ -373,6 +373,12 @@
   background: color-mix(in srgb, #ffd21e 70%, transparent);
   border-radius: 2px;
 }
+/* The active match in match-granular search — a stronger orange so it stands out
+   from the other (yellow) matches, like Chrome/Zotero's current-match emphasis. */
+.textLayer mark.pdfjs-mark.current {
+  background: color-mix(in srgb, #ff8a00 78%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ff8a00 60%, transparent);
+}
 .textLayer ::selection {
   background: color-mix(in srgb, var(--accent) 32%, transparent);
 }
@@ -419,6 +425,26 @@
   font-variant-numeric: tabular-nums;
   min-width: 30px;
   text-align: center;
+}
+/* Loading state with an optional determinate progress bar (large files). */
+.pdfjs-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.pdfjs-loadbar {
+  display: block;
+  width: 180px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.pdfjs-loadbar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s linear;
 }
 .pdfjs-tonotes {
   white-space: nowrap;

@@ -115,6 +115,16 @@ button.search-result-link:hover {
   background: #fff;
   border-radius: var(--radius-sm);
 }
+/* PDF preview via pdf.js (not a data: iframe — blocked by WebView2). Cancels the
+   body padding so the reader chrome sits flush, and fills the remaining height. */
+.artifact-pdf {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  margin: calc(var(--spacing-s16) * -1);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
 .artifact-text {
   flex: 1;
   min-height: 0;

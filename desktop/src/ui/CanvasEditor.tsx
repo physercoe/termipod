@@ -120,7 +120,13 @@ export function CanvasEditor({ value, onChange }: { value: string; onChange: (ne
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
       setView((v) => {
-        const f = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+        // Scale the zoom factor by the wheel delta so a trackpad's many small
+        // events don't compound into an explosive zoom (a fixed 1.1 per event
+        // over-zooms on high-resolution/inertial scroll). deltaMode 1 = lines,
+        // 2 = pages — normalise both to pixel-ish magnitudes, then clamp.
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+        const px = Math.max(-40, Math.min(40, e.deltaY * unit));
+        const f = Math.exp(-px * 0.005); // ~1.1 at a typical 20px notch; gentle on trackpads
         const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, v.scale * f));
         const k = scale / v.scale;
         return { scale, ox: cx - (cx - v.ox) * k, oy: cy - (cy - v.oy) * k };

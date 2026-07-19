@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -13,6 +13,29 @@ import type { Annotation } from '../state/annotations';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+}
+
+// Track the live devicePixelRatio. A `(resolution: Ndppx)` media query fires its
+// change event when the ratio shifts (window moved to a monitor of different
+// density); we then re-subscribe keyed to the new ratio.
+function useDevicePixelRatio(): number {
+  const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
+  useEffect(() => {
+    const mql = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    const update = (): void => setDpr(window.devicePixelRatio || 1);
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
+  }, [dpr]);
+  return dpr;
+}
+
+// Clamp a fixed/absolute overlay's [x, y] so its measured box stays within the
+// viewport — used by the annotation editor and the PDF context menu, which near
+// a page/screen edge would otherwise render partly off-screen.
+function clampToViewport(x: number, y: number, w: number, h: number, pad = 8): { x: number; y: number } {
+  const maxX = window.innerWidth - w - pad;
+  const maxY = window.innerHeight - h - pad;
+  return { x: Math.max(pad, Math.min(x, maxX)), y: Math.max(pad, Math.min(y, maxY)) };
 }
 
 // The active annotation tool, or null for read/select mode. highlight/underline
@@ -248,8 +271,26 @@ function AnnoEditor({
     return { left: 0, top: 0, width: 0, height: 0 };
   }, [a, footprintH, scale]);
 
+  // Keep the popover on-screen: near a page/viewport edge it would render partly
+  // off-screen, so measure and nudge it back with a transform.
+  const editRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = editRef.current;
+    if (el === null) return;
+    el.style.transform = '';
+    const r = el.getBoundingClientRect();
+    let dx = 0;
+    let dy = 0;
+    if (r.right > window.innerWidth - 8) dx = window.innerWidth - 8 - r.right;
+    if (r.bottom > window.innerHeight - 8) dy = window.innerHeight - 8 - r.bottom;
+    if (r.left + dx < 8) dx = 8 - r.left;
+    if (r.top + dy < 8) dy = 8 - r.top;
+    if (dx !== 0 || dy !== 0) el.style.transform = `translate(${dx}px, ${dy}px)`;
+  }, [anchor]);
+
   return (
     <div
+      ref={editRef}
       className="pdfjs-anno-editor"
       style={{ left: anchor.left, top: anchor.top + anchor.height + 4 }}
       onClick={(e) => e.stopPropagation()}
@@ -378,6 +419,10 @@ function PageView({
   const textDivsRef = useRef<HTMLElement[]>([]);
   const [visible, setVisible] = useState(pageNum === 1); // first page eagerly
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  // Live device-pixel-ratio: dragging the window across mixed-DPI monitors used
+  // to leave the canvas rasterised at the old ratio until zoom changed. Tracking
+  // it re-runs the render effect so the page re-rasterises crisply.
+  const dpr = useDevicePixelRatio();
   const [links, setLinks] = useState<LinkBox[]>([]);
   // Live preview for a drag-in-progress (image rect or ink path), in CSS px.
   const [draft, setDraft] = useState<{ rect?: number[]; pts?: number[] } | null>(null);
@@ -412,7 +457,7 @@ function PageView({
       if (canvas === null) return;
       const ctx = canvas.getContext('2d');
       if (ctx === null) return;
-      const ratio = window.devicePixelRatio || 1;
+      const ratio = dpr;
       canvas.width = Math.floor(viewport.width * ratio);
       canvas.height = Math.floor(viewport.height * ratio);
       setSize({ w: viewport.width, h: viewport.height });
@@ -471,7 +516,7 @@ function PageView({
       renderTask?.cancel();
       textLayer?.cancel();
     };
-  }, [pdf, pageNum, scale, visible]);
+  }, [pdf, pageNum, scale, visible, dpr]);
 
   // Highlight the actual matched substrings by wrapping them in <mark>. The text
   // layer's own text is transparent (the canvas shows the glyphs), so the mark's
@@ -972,9 +1017,14 @@ export function PdfCanvas({
   const t = useT();
   const openLink = useOpenLink();
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const pageTextRef = useRef<Map<number, string>>(new Map());
+  // Per-page cache of each text item's lowercased string. Counting occurrences
+  // per item (not over the whole joined page text) mirrors how the highlight
+  // <mark>s are produced — one span at a time — so the match counter and the
+  // rendered marks stay in lockstep (a cross-item match is invisible to both).
+  const pageItemsRef = useRef<Map<number, string[]>>(new Map());
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [err, setErr] = useState(false);
+  const [loadPct, setLoadPct] = useState(0); // 0–1 download/parse progress
   const [scale, setScale] = useState(loadPdfScale);
   // Annotations for this reference, grouped by page (0-based). Only usable when a
   // referenceId is present (annotations attach to a reference).
@@ -1014,8 +1064,12 @@ export function PdfCanvas({
   }, [allAnnos, referenceId]);
   const [term, setTerm] = useState(''); // the live input value
   const [query, setQuery] = useState(''); // the committed search term (drives highlight)
-  const [matches, setMatches] = useState<number[]>([]); // page numbers containing the term
+  // Flat, match-granular hit list: one entry per occurrence, with the page and
+  // that occurrence's index within the page (so stepping lands on the exact mark,
+  // not just the page). `matchPos` indexes into this list.
+  const [matches, setMatches] = useState<{ page: number; occ: number }[]>([]);
   const [matchPos, setMatchPos] = useState(0);
+  const searchSeq = useRef(0);
   const [saved, setSaved] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState('1');
@@ -1041,14 +1095,19 @@ export function PdfCanvas({
     let doc: PDFDocumentProxy | null = null;
     setPdf(null);
     setErr(false);
-    pageTextRef.current = new Map();
+    setLoadPct(0);
+    pageItemsRef.current = new Map();
     // Copy into a fresh buffer — pdf.js transfers/detaches the ArrayBuffer, which
     // would corrupt a caller that reuses it.
     const bytes = new Uint8Array(data.byteLength);
     bytes.set(new Uint8Array(data));
-    void pdfjsLib
-      .getDocument({ data: bytes })
-      .promise.then((d) => {
+    const task = pdfjsLib.getDocument({ data: bytes });
+    // Progress for large files — a 100 MB scan otherwise shows a static spinner.
+    task.onProgress = ({ loaded, total }: { loaded: number; total: number }) => {
+      if (!cancelled && total > 0) setLoadPct(Math.min(1, loaded / total));
+    };
+    void task.promise
+      .then((d) => {
         if (cancelled) {
           void d.destroy();
           return;
@@ -1228,6 +1287,16 @@ export function PdfCanvas({
     savePdfScale(scale);
   }, [scale]);
 
+  // Incremental search — debounce the input so the counter and highlight marks
+  // update as you type (Enter still triggers an immediate run via the input).
+  useEffect(() => {
+    if (pdf === null) return;
+    const id = window.setTimeout(() => void runSearch(), 300);
+    return () => window.clearTimeout(id);
+    // runSearch intentionally omitted (redefined each render); term/pdf drive it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [term, pdf]);
+
   // Scroll so page `n`'s top (plus an optional in-page `yOffset`) sits just under
   // the toolbar. The target is an ABSOLUTE content offset (invariant to the current
   // scroll position), computed from the page's rect within the container's scroll
@@ -1270,37 +1339,72 @@ export function PdfCanvas({
   }
 
   async function runSearch(): Promise<void> {
-    const q = term.trim().toLowerCase();
-    setQuery(term.trim());
+    const trimmed = term.trim();
+    const q = trimmed.toLowerCase();
+    setQuery(trimmed);
     if (pdf === null || q === '') {
       setMatches([]);
+      setMatchPos(0);
       return;
     }
-    // Extract + cache each page's plain text once, then match page-level.
-    const hits: number[] = [];
+    // A monotonically-increasing sequence lets an in-flight scan bail the moment a
+    // newer query supersedes it (incremental search fires this on every keystroke).
+    const seq = (searchSeq.current += 1);
+    const hits: { page: number; occ: number }[] = [];
     for (let n = 1; n <= pdf.numPages; n += 1) {
-      let text = pageTextRef.current.get(n);
-      if (text === undefined) {
+      let items = pageItemsRef.current.get(n);
+      if (items === undefined) {
         const page = await pdf.getPage(n);
         const content = await page.getTextContent();
-        text = content.items
-          .map((it) => ('str' in it ? it.str : ''))
-          .join(' ')
-          .toLowerCase();
-        pageTextRef.current.set(n, text);
+        items = content.items.map((it) => ('str' in it ? it.str.toLowerCase() : ''));
+        pageItemsRef.current.set(n, items);
       }
-      if (text.includes(q)) hits.push(n);
+      if (searchSeq.current !== seq) return; // superseded mid-scan
+      let occ = 0;
+      for (const s of items) {
+        let i = s.indexOf(q, 0);
+        while (i !== -1) {
+          hits.push({ page: n, occ });
+          occ += 1;
+          i = s.indexOf(q, i + q.length);
+        }
+      }
     }
+    if (searchSeq.current !== seq) return;
     setMatches(hits);
     setMatchPos(0);
-    if (hits.length > 0) scrollToPage(hits[0]);
+    if (hits.length > 0) goToMatch(hits[0]);
+  }
+
+  // Scroll to a specific occurrence: jump to its page, then once that page paints
+  // its highlight <mark>s, centre the occ-th one and flag it `.current` for a
+  // distinct active-match tint (Zotero/Chrome-style current vs. other matches).
+  function goToMatch(m: { page: number; occ: number }): void {
+    const container = scrollRef.current;
+    if (container === null) return;
+    scrollToPage(m.page);
+    let tries = 0;
+    const land = (): void => {
+      tries += 1;
+      const pageEl = container.querySelector(`[data-page="${m.page}"]`);
+      const marks = pageEl?.querySelectorAll<HTMLElement>('mark.pdfjs-mark');
+      if (marks !== undefined && marks.length > m.occ) {
+        container.querySelectorAll('mark.pdfjs-mark.current').forEach((el) => el.classList.remove('current'));
+        const mk = marks[m.occ];
+        mk.classList.add('current');
+        mk.scrollIntoView({ block: 'center', behavior: 'auto' });
+      } else if (tries < 12) {
+        window.setTimeout(land, 100);
+      }
+    };
+    window.setTimeout(land, 140);
   }
 
   function stepMatch(delta: number): void {
     if (matches.length === 0) return;
     const next = (matchPos + delta + matches.length) % matches.length;
     setMatchPos(next);
-    scrollToPage(matches[next]);
+    goToMatch(matches[next]);
   }
 
   function saveSelection(): void {
@@ -1449,6 +1553,17 @@ export function PdfCanvas({
       window.removeEventListener('pointerdown', onDown, { capture: true } as EventListenerOptions);
       sc?.removeEventListener('scroll', close);
     };
+  }, [menu]);
+
+  // Keep the context menu on-screen near a viewport edge (measure then clamp).
+  useLayoutEffect(() => {
+    if (menu === null) return;
+    const el = menuRef.current;
+    if (el === null) return;
+    const r = el.getBoundingClientRect();
+    const { x, y } = clampToViewport(menu.x, menu.y, r.width, r.height);
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
   }, [menu]);
 
   // The page list for one pane. The mirror pane passes readOnly so its overlays
@@ -1734,7 +1849,16 @@ export function PdfCanvas({
               if (tool === null) setSelectedAnno(null);
             }}
           >
-            {pdf === null && !err && <div className="muted region-pad">{t('read.loadingPdf')}</div>}
+            {pdf === null && !err && (
+              <div className="muted region-pad pdfjs-loading">
+                <span>{t('read.loadingPdf')}</span>
+                {loadPct > 0 && loadPct < 1 && (
+                  <span className="pdfjs-loadbar" aria-hidden>
+                    <span className="pdfjs-loadbar-fill" style={{ width: `${Math.round(loadPct * 100)}%` }} />
+                  </span>
+                )}
+              </div>
+            )}
             {pageList(false)}
           </div>
           {split !== 'none' && pdf !== null && (

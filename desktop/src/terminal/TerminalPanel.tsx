@@ -25,8 +25,13 @@ import { useTerminals } from './store';
 const NAV_FOLD_KEY = 'termipod.term.navFold';
 const GROUP_FOLD_KEY = 'termipod.term.groupFold';
 
-// A right-click target in the connections nav: a whole group, or one connection.
-type NavMenu = { x: number; y: number; target: { kind: 'group'; name: string } | { kind: 'conn'; id: string } };
+// A right-click target in the connections nav: a whole group, one connection, or
+// blank space in the list (below/around the rows).
+type NavMenu = {
+  x: number;
+  y: number;
+  target: { kind: 'group'; name: string } | { kind: 'conn'; id: string } | { kind: 'blank' };
+};
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -380,7 +385,17 @@ export function TerminalPanel(): JSX.Element {
         </div>
         {notice !== null && <div className="muted small term-nav-notice">{notice}</div>}
         {error !== null && <div className="error small term-nav-notice">{error}</div>}
-        <div className="term-nav-list">
+        <div
+          className="term-nav-list"
+          onContextMenu={(e) => {
+            // A row / group-header right-click sets its own menu first (bubbles up
+            // to here); guard so blank space is the only thing that opens the
+            // blank menu — never overwrite a more specific target.
+            if ((e.target as HTMLElement).closest('.term-nav-item, .term-nav-group-head') !== null) return;
+            e.preventDefault();
+            setNavMenu({ x: e.clientX, y: e.clientY, target: { kind: 'blank' } });
+          }}
+        >
           {conns.length === 0 && groups.length <= 1 && (
             <div className="muted small term-nav-empty">{t('term.noSaved')}</div>
           )}
@@ -578,6 +593,14 @@ export function TerminalPanel(): JSX.Element {
           menu={navMenu}
           groups={groups}
           conns={conns}
+          onNewConnection={() => {
+            setNavMenu(null);
+            openConnect();
+          }}
+          onImportConfig={() => {
+            setNavMenu(null);
+            cfgRef.current?.click();
+          }}
           onNewGroup={promptNewGroup}
           onRenameGroup={promptRenameGroup}
           onDeleteGroup={doDeleteGroup}
@@ -621,12 +644,15 @@ function ConnRow({
   );
 }
 
-// The nav right-click menu — a group header menu (new / rename / delete) or a
-// connection menu (edit / move-to-group / new group / delete).
+// The nav right-click menu — blank space (new connection / new group / import),
+// a group header menu (new / rename / delete), or a connection menu (edit /
+// move-to-group / new group / delete).
 function NavContextMenu({
   menu,
   groups,
   conns,
+  onNewConnection,
+  onImportConfig,
   onNewGroup,
   onRenameGroup,
   onDeleteGroup,
@@ -637,6 +663,8 @@ function NavContextMenu({
   menu: NavMenu;
   groups: string[];
   conns: Connection[];
+  onNewConnection: () => void;
+  onImportConfig: () => void;
   onNewGroup: (assignId?: string) => void;
   onRenameGroup: (from: string) => void;
   onDeleteGroup: (name: string) => void;
@@ -655,7 +683,20 @@ function NavContextMenu({
       onContextMenu={(e) => e.preventDefault()}
       onClick={(e) => e.stopPropagation()}
     >
-      {target.kind === 'group' ? (
+      {target.kind === 'blank' ? (
+        <>
+          <button className="read-ctx-item" onClick={onNewConnection}>
+            <Icon name="plus" size={14} /> {t('term.newConnection')}
+          </button>
+          <button className="read-ctx-item" onClick={() => onNewGroup()}>
+            <Icon name="folder" size={14} /> {t('term.newGroup')}
+          </button>
+          <div className="read-ctx-sep" />
+          <button className="read-ctx-item" onClick={onImportConfig}>
+            <Icon name="external" size={14} /> {t('term.importConfig')}
+          </button>
+        </>
+      ) : target.kind === 'group' ? (
         <>
           <button className="read-ctx-item" onClick={() => onNewGroup()}>
             <Icon name="plus" size={14} /> {t('term.newGroup')}

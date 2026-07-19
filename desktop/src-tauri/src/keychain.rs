@@ -41,6 +41,19 @@ fn entry(key: &str) -> Result<Entry, String> {
     Entry::new(SERVICE, key).map_err(|e| e.to_string())
 }
 
+/// Read a pinned value (e.g. an SSH host key) directly from the store — `None`
+/// when unset or unreadable. For in-process use by other modules (not a webview
+/// command); the value never crosses IPC.
+pub(crate) fn pin_get(key: &str) -> Option<String> {
+    entry(key).ok().and_then(|e| e.get_password().ok())
+}
+
+/// Pin a value in the store. Best-effort; the caller decides how to treat a
+/// write failure.
+pub(crate) fn pin_set(key: &str, value: &str) -> Result<(), String> {
+    entry(key)?.set_password(value).map_err(|e| e.to_string())
+}
+
 /// True on Windows, whose Credential Manager caps a single item at 2560 BYTES of
 /// the UTF-16 encoding (~1280 BMP code units; keyring's "2560 chars" message
 /// compares `blob_u16.len() * 2`). The webview consolidates all secrets into ONE

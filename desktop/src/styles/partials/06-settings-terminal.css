@@ -470,10 +470,14 @@
 }
 .term-screen {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   background: #000;
   border-radius: var(--radius-sm);
-  padding: var(--spacing-s4);
+  /* No padding here: FitAddon measures THIS element (the xterm's parent) and
+     can't subtract its padding, so any padding here makes it over-count columns
+     and slide the rightmost column under the scrollbar. The visual gutter lives
+     on .term-screen-wrap instead. */
   overflow: hidden;
 }
 /* Deterministic terminal scrollbar. xterm's FitAddon reserves a FIXED 15px for the

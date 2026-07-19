@@ -24,17 +24,41 @@ use tokio::sync::{mpsc, Mutex};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Handler for the client side of the connection. Breakglass MVP accepts any
-/// host key (trust-on-first-use, no known_hosts DB yet) — a deliberate,
-/// documented tradeoff for occasional-use direct SSH; host-key pinning is a
-/// follow-up that rides on the same vault sync as the keys (ADR-052).
-struct Client;
+/// Handler for the client side of the connection. Verifies the server's host key
+/// with **trust-on-first-use pinning**: the first key seen for a `host:port` is
+/// pinned to the OS keychain, and every later connection must present the same
+/// key. A changed key (an active MITM presenting its own key on a network the
+/// attacker controls) is **rejected**, not silently accepted as before.
+struct Client {
+    host: String,
+    port: u16,
+}
+
+impl Client {
+    fn pin_key(&self) -> String {
+        format!("sshhostkey_{}_{}", self.host, self.port)
+    }
+}
 
 impl client::Handler for Client {
     type Error = russh::Error;
 
-    async fn check_server_key(&mut self, _server_public_key: &PublicKey) -> Result<bool, Self::Error> {
-        Ok(true)
+    async fn check_server_key(&mut self, server_public_key: &PublicKey) -> Result<bool, Self::Error> {
+        // The key's OpenSSH string form (algorithm + base64), for comparison.
+        // Both the pinned and presented strings come from this same path, so the
+        // exact formatting only needs to be self-consistent, not canonical.
+        let presented = server_public_key.to_string();
+        match crate::keychain::pin_get(&self.pin_key()) {
+            // Known host: accept only if the key is byte-identical to the pin.
+            Some(pinned) => Ok(pinned == presented),
+            // First contact: pin it (TOFU) and accept. A keychain write failure
+            // still connects — parity with the prior accept-any behaviour — but
+            // the pin simply won't persist to catch a future change.
+            None => {
+                let _ = crate::keychain::pin_set(&self.pin_key(), &presented);
+                Ok(true)
+            }
+        }
     }
 }
 
@@ -86,6 +110,26 @@ struct ExitPayload {
     id: String,
 }
 
+/// Removes a session-map entry when dropped, so the entry can't leak if the actor
+/// task panics (the insert happens before the task is spawned; an in-task
+/// `.remove()` is skipped when the task unwinds). Removal needs the async lock,
+/// so Drop schedules it on the runtime. Ids are monotonic, so a deferred removal
+/// never races a new session onto the same key.
+struct SessionGuard {
+    sessions: Arc<Mutex<HashMap<String, Session>>>,
+    id: String,
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        let sessions = self.sessions.clone();
+        let id = std::mem::take(&mut self.id);
+        tauri::async_runtime::spawn(async move {
+            sessions.lock().await.remove(&id);
+        });
+    }
+}
+
 /// Open a direct SSH session + interactive shell PTY. Returns a session id the
 /// frontend uses for subsequent write/resize/close and to filter `ssh-data`.
 #[tauri::command]
@@ -95,7 +139,8 @@ pub async fn ssh_connect(
     req: SshConnectReq,
 ) -> Result<String, String> {
     let config = Arc::new(client::Config::default());
-    let mut session: Handle<Client> = client::connect(config, (req.host.as_str(), req.port), Client)
+    let handler = Client { host: req.host.clone(), port: req.port };
+    let mut session: Handle<Client> = client::connect(config, (req.host.as_str(), req.port), handler)
         .await
         .map_err(|e| format!("connect: {e}"))?;
 
@@ -156,6 +201,9 @@ pub async fn ssh_connect(
     tauri::async_runtime::spawn(async move {
         // A Handle clone is moved in and kept alive for the channel's life.
         let _keepalive = handle;
+        // Guarantees the session-map entry is removed on ANY exit, including an
+        // unwinding panic in the loop below (emit / russh channel ops).
+        let _guard = SessionGuard { sessions, id: task_id.clone() };
         loop {
             tokio::select! {
                 msg = channel.wait() => match msg {
@@ -175,7 +223,7 @@ pub async fn ssh_connect(
                 },
             }
         }
-        sessions.lock().await.remove(&task_id);
+        // `_guard` removes the map entry when this task returns (or unwinds).
         let _ = app.emit("ssh-exit", ExitPayload { id: task_id });
     });
 

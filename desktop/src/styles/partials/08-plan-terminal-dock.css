@@ -77,7 +77,12 @@
 }
 
 /* ---- per-session terminal sub-view (terminal / files) ---- */
-.term-view { display: flex; flex: 1 1 auto; min-height: 0; }
+/* min-width:0 is load-bearing (same reason as .session-view below): without it
+   this flex item's implicit min-width is `auto` = the wide terminal's content
+   width, so in the narrow right dock / a restored-down window it refuses to
+   shrink, overflows, and fit() over-counts columns until a manual resize. `1 1 0`
+   keeps the basis at 0 (not content width), matching .term-pane. */
+.term-view { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
 .term-view.hidden { display: none; }
 
 /* In-app text prompt (replaces window.prompt in the Tauri webview). */
@@ -881,6 +886,9 @@
   display: flex;
   flex-direction: column;
   background: #0d1117;
+  /* The terminal's visual gutter — moved here off .term-screen so the element
+     FitAddon measures (.term-screen) has zero padding (see 06-settings). */
+  padding: var(--spacing-s4);
 }
 /* Floating find bar. */
 .term-find {

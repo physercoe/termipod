@@ -71,6 +71,16 @@ pub struct PtyState {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>,
 }
 
+/// Lock a std `Mutex`, recovering the guard even if a previous holder panicked
+/// (poisoning). `std::sync::Mutex` poisons on a panic-while-held, and `.unwrap()`
+/// on the resulting `PoisonError` would panic again — so a single panic in the
+/// reader thread would crash the app on the *next* terminal op. The protected
+/// data (session map, writer, master) stays structurally valid across a panic, so
+/// `into_inner()` hands back a usable guard instead.
+fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[derive(Deserialize)]
 pub struct PtyOpenReq {
     /// Program to launch; defaults to `$SHELL` (unix) / `%COMSPEC%` (windows).
@@ -220,7 +230,7 @@ pub async fn pty_open(state: State<'_, PtyState>, req: PtyOpenReq) -> Result<Pty
     let writer = pair.master.take_writer().map_err(|e| format!("writer: {e}"))?;
 
     let id = format!("p{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
-    state.sessions.lock().unwrap().insert(
+    lock_recover(&state.sessions).insert(
         id.clone(),
         PtySession {
             master: Arc::new(Mutex::new(pair.master)),
@@ -240,9 +250,9 @@ pub async fn pty_open(state: State<'_, PtyState>, req: PtyOpenReq) -> Result<Pty
 #[tauri::command]
 pub async fn pty_start(app: AppHandle, state: State<'_, PtyState>, id: String) -> Result<(), String> {
     let pending = {
-        let map = state.sessions.lock().unwrap();
+        let map = lock_recover(&state.sessions);
         match map.get(&id) {
-            Some(s) => s.pending.lock().unwrap().take(),
+            Some(s) => lock_recover(&s.pending).take(),
             None => return Ok(()), // closed before it started
         }
     };
@@ -268,7 +278,7 @@ pub async fn pty_start(app: AppHandle, state: State<'_, PtyState>, id: String) -
             }
         }
         let _ = child.wait();
-        sessions.lock().unwrap().remove(&task_id);
+        lock_recover(&sessions).remove(&task_id);
         let _ = app.emit("pty-exit", ExitPayload { id: task_id });
     });
 
@@ -279,30 +289,24 @@ pub async fn pty_start(app: AppHandle, state: State<'_, PtyState>, id: String) -
 /// stdin) stalls only this session's worker, never the UI main thread.
 #[tauri::command]
 pub async fn pty_write(state: State<'_, PtyState>, id: String, data: String) -> Result<(), String> {
-    let writer = state
-        .sessions
-        .lock()
-        .unwrap()
+    let writer = lock_recover(&state.sessions)
         .get(&id)
         .map(|s| s.writer.clone())
         .ok_or_else(|| "no such session".to_string())?;
-    let mut w = writer.lock().unwrap();
+    let mut w = lock_recover(&writer);
     w.write_all(data.as_bytes()).map_err(|e| format!("write: {e}"))?;
     w.flush().map_err(|e| format!("flush: {e}"))
 }
 
 #[tauri::command]
 pub async fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let master = state
-        .sessions
-        .lock()
-        .unwrap()
+    let master = lock_recover(&state.sessions)
         .get(&id)
         .map(|s| s.master.clone())
         .ok_or_else(|| "no such session".to_string())?;
     // Bind the guard to a local so it drops before `master` (reverse declaration
     // order) — chaining it as the block's tail expression outlives `master`'s drop.
-    let guard = master.lock().unwrap();
+    let guard = lock_recover(&master);
     guard
         .resize(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("resize: {e}"))
@@ -313,7 +317,7 @@ pub async fn pty_close(state: State<'_, PtyState>, id: String) -> Result<(), Str
     // Remove + kill; the reader thread then hits EOF, removes its (now absent)
     // entry harmlessly, and emits `pty-exit`. Best-effort — a child that already
     // exited (or never started) is simply gone.
-    if let Some(mut session) = state.sessions.lock().unwrap().remove(&id) {
+    if let Some(mut session) = lock_recover(&state.sessions).remove(&id) {
         let _ = session.killer.kill();
     }
     Ok(())

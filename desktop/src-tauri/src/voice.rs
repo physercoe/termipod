@@ -52,6 +52,24 @@ pub struct VoiceState {
     sessions: Arc<Mutex<HashMap<String, mpsc::Sender<VoiceCmd>>>>,
 }
 
+/// Removes a session-map entry when dropped, so a panic in the actor task can't
+/// leak the entry (insert happens before spawn; an in-task `.remove()` is skipped
+/// on an unwinding panic). Removal needs the async lock, so Drop schedules it.
+struct SessionGuard {
+    sessions: Arc<Mutex<HashMap<String, mpsc::Sender<VoiceCmd>>>>,
+    id: String,
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        let sessions = self.sessions.clone();
+        let id = std::mem::take(&mut self.id);
+        tauri::async_runtime::spawn(async move {
+            sessions.lock().await.remove(&id);
+        });
+    }
+}
+
 /// A random 32-hex task id (DashScope requires a unique id per task). Uses the
 /// same getrandom-backed OsRng already pulled in for the vault crypto.
 fn task_id() -> String {
@@ -143,6 +161,9 @@ pub async fn voice_open(app: AppHandle, state: State<'_, VoiceState>, req: Voice
     let emit_id = id.clone();
     let finish_task = task.clone();
     tauri::async_runtime::spawn(async move {
+        // Guarantees the map entry is removed on ANY exit, incl. an unwinding
+        // panic in the loop below.
+        let _guard = SessionGuard { sessions, id: emit_id.clone() };
         let _ = app.emit("voice-event", VoiceEvent { id: emit_id.clone(), kind: "open".into(), text: String::new() });
         loop {
             tokio::select! {
@@ -165,7 +186,7 @@ pub async fn voice_open(app: AppHandle, state: State<'_, VoiceState>, req: Voice
                 },
             }
         }
-        sessions.lock().await.remove(&emit_id);
+        // `_guard` removes the map entry when this task returns (or unwinds).
     });
 
     Ok(id)

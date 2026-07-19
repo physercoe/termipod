@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 
 /// Lightweight i18n for the desktop shell (en + zh, mirroring the mobile app's
@@ -2438,7 +2439,14 @@ export const useLang = create<LangState>((set) => ({
 applyDocLang(initialLang());
 
 /// Returns `t(key)` bound to the current language, with English fallback.
+///
+/// The lookup is memoised per language so `t` keeps a STABLE identity across
+/// renders (it only changes when the language does). An unstable `t` — a fresh
+/// closure every render — silently defeats every `React.memo`/`useCallback`/
+/// `useEffect` that captures it, forcing re-render storms in large trees (the
+/// PDF page list, the library table). Stable-by-default is the correct contract
+/// for a context-like value (#311).
 export function useT(): (key: string) => string {
   const lang = useLang((s) => s.lang);
-  return (key) => DICTS[lang][key] ?? en[key] ?? key;
+  return useMemo(() => (key: string) => DICTS[lang][key] ?? en[key] ?? key, [lang]);
 }

@@ -196,6 +196,11 @@ const en: Dict = {
   'common.loading': 'Loading…',
   'common.ok': 'OK',
   'common.cancel': 'Cancel',
+  'ctx.cut': 'Cut',
+  'ctx.copy': 'Copy',
+  'ctx.paste': 'Paste',
+  'ctx.selectAll': 'Select all',
+  'ctx.addNote': 'Add note here',
 
   'audit.loading': 'Loading audit…',
   'audit.time': 'Time',
@@ -1365,6 +1370,11 @@ const zh: Dict = {
   'common.loading': '加载中…',
   'common.ok': '确定',
   'common.cancel': '取消',
+  'ctx.cut': '剪切',
+  'ctx.copy': '复制',
+  'ctx.paste': '粘贴',
+  'ctx.selectAll': '全选',
+  'ctx.addNote': '在此添加便签',
 
   'audit.loading': '加载审计…',
   'audit.time': '时间',

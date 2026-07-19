@@ -11,6 +11,7 @@ import {
   type TableData,
 } from '../state/table';
 import { Icon } from './Icon';
+import { clipboardItems, useContextMenu } from './ContextMenu';
 
 /// The **table / database** document editor — a lightweight Notion/Obsidian-style
 /// grid: typed columns (text · number · checkbox · select · date) over rows of
@@ -21,6 +22,7 @@ import { Icon } from './Icon';
 
 export function TableEditor({ value, onChange }: { value: string; onChange: (next: string) => void }): JSX.Element {
   const t = useT();
+  const menu = useContextMenu();
   const [data, setData] = useState<TableData>(() => parseTable(value, t('table.colName')));
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -85,7 +87,17 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
   }, [columns]);
 
   return (
-    <div className="table-editor">
+    <div
+      className="table-editor"
+      onContextMenu={(e) =>
+        menu.open(e, [
+          ...clipboardItems(t),
+          { label: t('table.addRow'), onClick: addRow },
+          { label: t('table.addColumn'), onClick: addColumn },
+        ])
+      }
+    >
+      {menu.node}
       <div className="author-doc-bar table-toolbar">
         <button className="import-btn" onClick={addRow}>
           <Icon name="plus" size={13} /> {t('table.addRow')}

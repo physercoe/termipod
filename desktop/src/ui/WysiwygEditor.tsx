@@ -4,6 +4,8 @@ import { replaceAll } from '@milkdown/kit/utils';
 import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/frame.css';
 import { loadNoteImage, NOTE_ATT_SCHEME, writeNoteImage } from '../state/attachments';
+import { useT } from '../i18n';
+import { clipboardItems, useContextMenu } from './ContextMenu';
 
 /// A WYSIWYG Markdown editor built on Milkdown's Crepe (ProseMirror + remark).
 /// Unlike TinyMCE it edits *Markdown* — the on-disk/hub format is unchanged, so
@@ -45,6 +47,8 @@ export function WysiwygEditor({
   onChange: (v: string) => void;
   placeholder?: string;
 }): JSX.Element {
+  const t = useT();
+  const menu = useContextMenu();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -142,5 +146,14 @@ export function WysiwygEditor({
     crepe.editor.action(replaceAll(value));
   }, [value]);
 
-  return <div className="milkdown-host" ref={hostRef} />;
+  return (
+    <>
+      <div
+        className="milkdown-host"
+        ref={hostRef}
+        onContextMenu={(e) => menu.open(e, clipboardItems(t))}
+      />
+      {menu.node}
+    </>
+  );
 }

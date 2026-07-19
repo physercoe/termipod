@@ -840,3 +840,45 @@ button.search-result-link:hover {
     transform: translateY(0);
   }
 }
+
+/* ---- shared right-click menu (ui/ContextMenu.tsx) ---- */
+.ctxmenu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-menu) - 1);
+}
+.app-ctxmenu {
+  position: fixed;
+  z-index: var(--z-menu);
+  padding: var(--spacing-s4);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--sh-3);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.app-ctxmenu button[role='menuitem'] {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: var(--font-size-caption);
+  text-align: left;
+  white-space: nowrap;
+  border-radius: var(--radius-xs);
+}
+.app-ctxmenu button[role='menuitem']:hover:not(:disabled) {
+  background: var(--hover);
+}
+.app-ctxmenu button[role='menuitem'].danger {
+  color: var(--danger);
+}
+.app-ctxmenu button[role='menuitem']:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}

@@ -97,10 +97,21 @@ export function EpubView({
     });
     // epub.js snapshots the container width at render time and does NOT reflow on
     // its own — so the book stays narrow/fixed when the pane grows (details panel
-    // toggled, window resized, or a 0-width initial mount). Re-measure on resize.
+    // toggled, window resized, or a 0-width initial mount). Re-measure on resize,
+    // but ONLY when the host's own box actually changed: a bare `resize()` on
+    // every RO tick can feed back through the iframe's content height and strobe
+    // ("splashing"), so guard on the rounded host dimensions.
+    let lastW = -1;
+    let lastH = -1;
     const ro = new ResizeObserver(() => {
+      const w = Math.round(host.clientWidth);
+      const h = Math.round(host.clientHeight);
+      if (w === lastW && h === lastH) return;
+      lastW = w;
+      lastH = h;
+      if (w === 0 || h === 0) return;
       try {
-        r.resize(host.clientWidth, host.clientHeight);
+        r.resize(w, h);
       } catch {
         /* rendition torn down mid-resize */
       }

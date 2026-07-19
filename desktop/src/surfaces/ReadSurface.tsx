@@ -50,6 +50,7 @@ const EpubView = lazy(() => import('../ui/EpubView').then((m) => ({ default: m.E
 // Milkdown (ProseMirror) is heavy — load it only when a WYSIWYG editor opens.
 const WysiwygEditor = lazy(() => import('../ui/WysiwygEditor').then((m) => ({ default: m.WysiwygEditor })));
 import { ResizeHandle, VResizeHandle } from '../ui/ResizeHandle';
+import { useContextMenu } from '../ui/ContextMenu';
 import { WebdavModal } from '../ui/WebdavModal';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
@@ -1621,6 +1622,9 @@ export function ReadSurface(): JSX.Element {
   // is two-step (`menuConfirm`) — `window.confirm` is unreliable in WebView2.
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [menuConfirm, setMenuConfirm] = useState(false);
+  // Right-click on the collections pane's blank space → New collection (the
+  // per-row rename/delete menus are the bespoke colMenu/tagMenu below).
+  const railBlankMenu = useContextMenu();
   // Right-click menus for the rail (Zotero-style): rename/delete a collection or a
   // tag. Collections carry an id; tags are keyed by their (string) name.
   const [colMenu, setColMenu] = useState<{ x: number; y: number; id: string } | null>(null);
@@ -2059,7 +2063,16 @@ export function ReadSurface(): JSX.Element {
               has its own scrollbar, and the divider between them drags vertically
               to reallocate height. The tag pane is always present (with its filter
               box), even when the library has no tags yet. */}
-          <div className="read-rail-pane" style={{ height: colPaneH }}>
+          <div
+            className="read-rail-pane"
+            style={{ height: colPaneH }}
+            onContextMenu={(e) => {
+              // Only the blank area — a right-click on a collection row keeps its
+              // own rename/delete menu (that handler runs first and preventDefaults).
+              if ((e.target as HTMLElement).closest('.read-col') !== null) return;
+              railBlankMenu.open(e, [{ label: t('read.newCollection'), onClick: () => void newCollection() }]);
+            }}
+          >
             <div className="read-rail-group">
               <button
                 className={`read-col${collection === ALL ? ' active' : ''}`}
@@ -2457,6 +2470,8 @@ export function ReadSurface(): JSX.Element {
             </div>
           );
         })()}
+
+      {railBlankMenu.node}
 
       {/* Collection context menu (right-click a collection in the rail). */}
       {colMenu !== null &&

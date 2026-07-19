@@ -12,6 +12,7 @@ import {
 } from '../state/canvas';
 import { useLibrary, type Reference } from '../state/library';
 import { ConfirmButton } from './ConfirmButton';
+import { useContextMenu } from './ContextMenu';
 
 /// The canvas document editor — note & reference cards on an infinite pan/zoom
 /// surface, joined by typed edges, wired to the J1 reference library. Drag a
@@ -45,6 +46,7 @@ function refTitle(r: Reference | undefined, fallback: string): string {
 
 export function CanvasEditor({ value, onChange }: { value: string; onChange: (next: string) => void }): JSX.Element {
   const t = useT();
+  const menu = useContextMenu();
   const references = useLibrary((s) => s.references);
 
   // The board is owned locally and mirrored into the document body on every
@@ -199,6 +201,15 @@ export function CanvasEditor({ value, onChange }: { value: string; onChange: (ne
     setSelected(addCard({ kind: 'note', x: p.x - CARD_W / 2, y: p.y - 30, text: '' }));
   }
 
+  // Add a note where the user right-clicked (map the client point to world
+  // coords through the current pan/zoom), for the canvas context menu.
+  function addNoteAt(clientX: number, clientY: number): void {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    const wx = ((clientX - (rect?.left ?? 0)) - view.ox) / view.scale;
+    const wy = ((clientY - (rect?.top ?? 0)) - view.oy) / view.scale;
+    setSelected(addCard({ kind: 'note', x: wx - CARD_W / 2, y: wy - 30, text: '' }));
+  }
+
   function addRefCard(refId: string): void {
     const p = viewCenterWorld();
     setSelected(addCard({ kind: 'ref', x: p.x - CARD_W / 2 + 16, y: p.y - 30 + 16, text: '', refId }));
@@ -214,6 +225,7 @@ export function CanvasEditor({ value, onChange }: { value: string; onChange: (ne
 
   return (
     <div className="canvas-editor">
+      {menu.node}
       <div className="author-doc-bar canvas-toolbar">
         <button className="import-btn" onClick={addNote}>
           + {t('canvas.addNote')}
@@ -256,6 +268,13 @@ export function CanvasEditor({ value, onChange }: { value: string; onChange: (ne
           onPointerDown={onViewportPointerDown}
           onPointerMove={onViewportPointerMove}
           onPointerUp={onViewportPointerUp}
+          onContextMenu={(e) => {
+            // A right-click on a card bubbles here too; only offer the canvas
+            // action on the empty board (a card's own text inputs get the native
+            // clipboard menu handling via WysiwygEditor/inputs).
+            if ((e.target as HTMLElement).closest('.canvas-card') !== null) return;
+            menu.open(e, [{ label: t('ctx.addNote'), onClick: () => addNoteAt(e.clientX, e.clientY) }]);
+          }}
         >
           {connectFrom !== null && <div className="canvas-hint">{t('canvas.connectHint')}</div>}
           {cards.length === 0 && <div className="canvas-empty">{t('canvas.empty')}</div>}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
+import { useModalA11y } from './useModalA11y';
 
 export interface Command {
   id: string;
@@ -24,6 +25,7 @@ export function CommandPalette({ open, commands, onClose }: Props): JSX.Element 
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const modalRef = useModalA11y<HTMLDivElement>(open);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -68,7 +70,7 @@ export function CommandPalette({ open, commands, onClose }: Props): JSX.Element 
 
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="palette" role="dialog" aria-modal="true" aria-label={t('cmd.palette')} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={modalRef} className="palette" role="dialog" aria-modal="true" aria-label={t('cmd.palette')} onMouseDown={(e) => e.stopPropagation()}>
         <input
           autoFocus
           value={query}

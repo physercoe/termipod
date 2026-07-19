@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useT } from '../i18n';
+import { useModalA11y } from './useModalA11y';
 
 /// In-app text prompt — a replacement for `window.prompt`, which in the Tauri
 /// WebView2 renders as a native "tauri.localhost says…" dialog (it stamps the
@@ -23,6 +24,7 @@ export function useTextPrompt(): {
 } {
   const t = useT();
   const [st, setSt] = useState<PromptState | null>(null);
+  const modalRef = useModalA11y<HTMLDivElement>(st !== null);
 
   const ask = useCallback(
     (label: string, initial = ''): Promise<string | null> =>
@@ -38,7 +40,14 @@ export function useTextPrompt(): {
   const node =
     st === null ? null : (
       <div className="palette-backdrop" onMouseDown={() => close(null)}>
-        <div className="prompt-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div
+          ref={modalRef}
+          className="prompt-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={st.label}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <label className="prompt-label">{st.label}</label>
           <input
             autoFocus

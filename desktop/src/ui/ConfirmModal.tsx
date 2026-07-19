@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useT } from '../i18n';
+import { useModalA11y } from './useModalA11y';
 
 /// In-app confirmation dialog — a replacement for `window.confirm`, which (like
 /// `window.prompt`) renders an unreliable native `tauri.localhost` dialog in the
@@ -25,6 +26,7 @@ export function useConfirm(): {
 } {
   const t = useT();
   const [st, setSt] = useState<ConfirmState | null>(null);
+  const modalRef = useModalA11y<HTMLDivElement>(st !== null);
 
   const ask = useCallback(
     (opts: ConfirmOpts): Promise<boolean> =>
@@ -41,7 +43,11 @@ export function useConfirm(): {
     st === null ? null : (
       <div className="palette-backdrop" onMouseDown={() => close(false)}>
         <div
+          ref={modalRef}
           className="prompt-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={st.message}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {

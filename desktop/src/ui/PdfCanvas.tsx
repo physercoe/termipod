@@ -293,8 +293,18 @@ function AnnoEditor({
     <div
       ref={editRef}
       className="pdfjs-anno-editor"
+      role="dialog"
+      aria-label={t('a11y.annotationEditor')}
       style={{ left: anchor.left, top: anchor.top + anchor.height + 4 }}
       onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        // Escape dismisses the popover (and stops there, so it doesn't also reach
+        // the page-scroller's own key handling).
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
     >
       <div className="pdfjs-anno-colors">
         {ANNOTATION_COLORS.map((c) => (

@@ -124,8 +124,8 @@ export function Navigator(): JSX.Element {
         tabIndex={0}
         aria-pressed={agentSelected(id)}
         className={`tree-agent${agentSelected(id) ? ' selected' : ''}`}
-        onClick={() => selectAgent('fleet', id)}
-        onKeyDown={activateOnKey(() => selectAgent('fleet', id))}
+        onClick={() => selectAgent('fleet', id, label)}
+        onKeyDown={activateOnKey(() => selectAgent('fleet', id, label))}
         title={kind}
       >
         <span className={`dot ${statusClass(str(a, 'status'))}`} />
@@ -206,8 +206,8 @@ export function Navigator(): JSX.Element {
                     aria-pressed={hostSelected(id)}
                     className={`tree-agent tree-host-row${hostSelected(id) ? ' selected' : ''}`}
                     title={str(h, 'hostname') ?? label}
-                    onClick={() => selectHost('fleet', id)}
-                    onKeyDown={activateOnKey(() => selectHost('fleet', id))}
+                    onClick={() => selectHost('fleet', id, str(h, 'hostname') ?? label)}
+                    onKeyDown={activateOnKey(() => selectHost('fleet', id, str(h, 'hostname') ?? label))}
                   >
                     <span className={`dot ${statusClass(str(h, 'status'))}`} />
                     <span className="tree-agent-label">{label}</span>

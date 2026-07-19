@@ -45,7 +45,12 @@ function AgentsTab({ projectId }: { projectId: string }): JSX.Element {
         {agents.map((a, i) => {
           const id = str(a, 'id') ?? String(i);
           return (
-            <tr key={id} role="button" className="clickable-row" onClick={() => selectAgent('projects', id)}>
+            <tr
+              key={id}
+              role="button"
+              className="clickable-row"
+              onClick={() => selectAgent('projects', id, str(a, 'handle') ?? undefined)}
+            >
               <td>{str(a, 'status') ?? ''}</td>
               <td>{str(a, 'handle') ?? id}</td>
               <td className="muted">{str(a, 'kind') ?? ''}</td>

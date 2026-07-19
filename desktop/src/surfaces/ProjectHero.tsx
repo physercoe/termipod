@@ -89,7 +89,11 @@ function ChildrenStatus({ projectId }: { projectId: string }): JSX.Element {
       {children.map((c) => {
         const id = str(c, 'id') ?? '';
         return (
-          <button key={id} className="admin-row clickable-row" onClick={() => id && selectProject('projects', id)}>
+          <button
+            key={id}
+            className="admin-row clickable-row"
+            onClick={() => id && selectProject('projects', id, str(c, 'name') ?? undefined)}
+          >
             <span>{str(c, 'name') ?? id}</span>
             <span className="spacer" />
             <span className="muted small">{str(c, 'kind') ?? ''}</span>

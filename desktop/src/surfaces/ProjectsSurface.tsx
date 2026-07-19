@@ -84,7 +84,7 @@ export function ProjectsSurface(): JSX.Element {
             <div
               key={id}
               className={`tree-agent${projectSelected(id) ? ' selected' : ''}`}
-              onClick={() => selectProject('projects', id)}
+              onClick={() => selectProject('projects', id, label)}
             >
               <span className="dot muted" />
               <span className="tree-agent-label">{label}</span>

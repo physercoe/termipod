@@ -48,7 +48,9 @@ export function FocusRegion({ scope }: { scope: FocusScope }): JSX.Element {
           </button>
         )}
         <span className="focus-header-title">
-          {selection !== null ? `${kindLabel(selection)} · ${selection.id}` : t('region.activity')}
+          {selection !== null
+            ? `${kindLabel(selection)} · ${selection.name ?? selection.id}`
+            : t('region.activity')}
         </span>
       </div>
       {selection?.type === 'agent' ? (

@@ -616,12 +616,27 @@ button.search-result-link:hover {
 }
 .vault-restore {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--spacing-s8);
   padding: var(--spacing-s4) 0;
 }
 .vault-restore input {
   flex: 1;
   font-family: var(--font-mono, monospace);
+}
+.vault-hint-shown {
+  flex-basis: 100%;
+}
+/* Create-with-hint: an optional recovery-hint input beside the Create button. */
+.vault-create-row {
+  display: flex;
+  gap: var(--spacing-s8);
+  align-items: center;
+  flex: 1;
+}
+.vault-hint-input {
+  flex: 1;
+  min-width: 0;
 }
 .vault-code {
   border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);

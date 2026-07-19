@@ -69,6 +69,7 @@ export function VaultPanel(): JSX.Element | null {
   const [copied, setCopied] = useState(false);
   const [restore, setRestore] = useState('');
   const [showRestore, setShowRestore] = useState(false);
+  const [hint, setHint] = useState(''); // optional recovery hint, asked at create time
 
   // Cached + prefetched (AppShell primes this on connect) so the status is
   // already resolved when Settings opens — no keychain-latency "splash".
@@ -79,6 +80,20 @@ export function VaultPanel(): JSX.Element | null {
     queryFn: () => vaultStatus(client as NonNullable<typeof client>),
   });
   const st = stQ.data ?? null;
+
+  // The recovery hint the vault creator left, shown on the restore screen to jog
+  // the user's memory of where they stored the code. Fetched only when restoring.
+  const showHintFetch = client !== null && showRestore && st?.exists === true && st?.hasLocalKey === false;
+  const hintQ = useQuery({
+    queryKey: ['vault-recovery-hint', client?.transport.teamId ?? 'none'],
+    enabled: showHintFetch,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const rec = await (client as NonNullable<typeof client>).getVaultRecovery();
+      const h = (rec as Record<string, unknown>).recovery_hint;
+      return typeof h === 'string' ? h : '';
+    },
+  });
 
   if (!isTauri()) return null;
 
@@ -178,9 +193,24 @@ export function VaultPanel(): JSX.Element | null {
 
           <div className="setting-row vault-actions">
             {st !== null && !st.exists && (
-              <button className="primary" disabled={busy} onClick={() => void run(async () => setCode(await createVault(client)))}>
-                {t('vault.create')}
-              </button>
+              <div className="vault-create-row">
+                <input
+                  className="vault-hint-input"
+                  placeholder={t('vault.hintPlaceholder')}
+                  value={hint}
+                  onChange={(e) => setHint(e.target.value)}
+                  spellCheck={false}
+                />
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => setCode(await createVault(client, hint.trim() === '' ? undefined : hint.trim())))
+                  }
+                >
+                  {t('vault.create')}
+                </button>
+              </div>
             )}
             {st !== null && st.exists && st.hasLocalKey && (
               <>
@@ -215,6 +245,11 @@ export function VaultPanel(): JSX.Element | null {
 
           {showRestore && st !== null && st.exists && !st.hasLocalKey && (
             <div className="vault-restore">
+              {hintQ.data !== undefined && hintQ.data !== '' && (
+                <div className="muted small vault-hint-shown">
+                  {t('vault.recoveryHintPrefix')}: {hintQ.data}
+                </div>
+              )}
               <input
                 placeholder={t('vault.recoveryPlaceholder')}
                 value={restore}

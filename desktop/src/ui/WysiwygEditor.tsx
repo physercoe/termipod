@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Crepe } from '@milkdown/crepe';
+import { replaceAll } from '@milkdown/kit/utils';
 import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/frame.css';
 import { loadNoteImage, NOTE_ATT_SCHEME, writeNoteImage } from '../state/attachments';
@@ -17,9 +18,13 @@ import { loadNoteImage, NOTE_ATT_SCHEME, writeNoteImage } from '../state/attachm
 /// So the Markdown that goes in and comes out carries the same refs as Layers
 /// 1–2; nothing is translated at the boundary.
 ///
-/// Uncontrolled after mount (feeding `value` back would fight the cursor): the
-/// parent remounts with `key` to load a different note/document; edits flow out
-/// through `onChange` (Crepe's markdownUpdated listener).
+/// Uncontrolled *for the user's own edits* (feeding those back would fight the
+/// cursor), but it DOES reconcile EXTERNAL writes: notes can be appended while
+/// the editor is open (PDF "+notes", area-image-to-note, assistant onInsert). We
+/// track the editor's last emission in `lastEmitted`; when `value` diverges from
+/// it (an external change, not the echo of our own edit) we `replaceAll` so the
+/// append isn't clobbered by the editor's next `markdownUpdated`. The parent
+/// still remounts with `key` to load a different note/document.
 
 // Chunked base64 so a multi-MB image doesn't blow the argument limit of btoa.
 function bytesToB64(bytes: Uint8Array): string {
@@ -43,6 +48,11 @@ export function WysiwygEditor({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  // The markdown the editor itself last emitted. An incoming `value` equal to
+  // this is the echo of our own edit (ignore); anything else is an external
+  // write to reconcile. Seeded with the mount value.
+  const lastEmitted = useRef(value);
+  const crepeRef = useRef<Crepe | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -95,7 +105,13 @@ export function WysiwygEditor({
         },
       });
       c.on((api) => {
-        api.markdownUpdated((_ctx, markdown) => onChangeRef.current(markdown));
+        api.markdownUpdated((_ctx, markdown) => {
+          // Record the actual emitted markdown (post remark round-trip) so the
+          // reconcile effect below treats the resulting `value` update as an echo
+          // and doesn't loop.
+          lastEmitted.current = markdown;
+          onChangeRef.current(markdown);
+        });
       });
       await c.create();
       if (destroyed) {
@@ -103,17 +119,28 @@ export function WysiwygEditor({
         return;
       }
       crepe = c;
+      crepeRef.current = c;
     };
     void build();
 
     return () => {
       destroyed = true;
+      crepeRef.current = null;
       if (crepe !== null) void crepe.destroy();
       objectUrls.forEach((u) => URL.revokeObjectURL(u));
     };
     // Create once; the parent remounts via key to swap documents.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reconcile an external write (append while open) into the live editor. The
+  // editor's own edits set value === lastEmitted, so this is a no-op then.
+  useEffect(() => {
+    const crepe = crepeRef.current;
+    if (crepe === null || value === lastEmitted.current) return;
+    lastEmitted.current = value;
+    crepe.editor.action(replaceAll(value));
+  }, [value]);
 
   return <div className="milkdown-host" ref={hostRef} />;
 }

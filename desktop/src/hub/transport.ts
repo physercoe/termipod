@@ -64,7 +64,9 @@ export class HubTransport {
         req: { method, url, headers, body: bodyText ?? null, proxy: proxyForConnection('hub') ?? null },
       });
     }
-    const res = await fetch(url, { method, headers, body: bodyText });
+    // Time out a hung request instead of pending forever (the Tauri path is
+    // bounded in the Rust core; this covers the plain-browser build).
+    const res = await fetch(url, { method, headers, body: bodyText, signal: AbortSignal.timeout(30000) });
     return { status: res.status, body: await res.text() };
   }
 
@@ -134,7 +136,7 @@ export class HubTransport {
       if (res.status < 200 || res.status >= 300) throw new HubApiError(res.status, res.base64);
       return { mime: res.mime, base64: res.base64 };
     }
-    const res = await fetch(url, { method: 'GET', headers });
+    const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(120000) });
     if (res.status < 200 || res.status >= 300) throw new HubApiError(res.status, await res.text());
     const mime = res.headers.get('content-type') ?? '';
     const buf = new Uint8Array(await res.arrayBuffer());

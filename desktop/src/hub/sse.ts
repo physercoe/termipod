@@ -13,6 +13,11 @@ export interface SseOptions {
   onError?: (err: unknown) => void;
   /** Backfill cursor: agent streams use integer `seq`, channels `received_ts`. */
   since?: string;
+  /** The event field the cursor advances off. MUST match what `since` keys on:
+   *  'seq' for agent streams (default), 'received_ts' for channels. Mismatching
+   *  it means the cursor never advances, so every reconnect replays from the
+   *  initial `since` — a flood of duplicate messages. */
+  cursorField?: string;
 }
 
 /// Reads a hub SSE stream (`…/agents/{id}/stream`, `…/channels/{ch}/stream`)
@@ -30,7 +35,10 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
   let since = opts.since;
   let tauriCleanup: (() => void) | null = null;
 
-  const decoder = new TextDecoder();
+  const cursorField = opts.cursorField ?? 'seq';
+  // Recreated per connection (see readVia*): a stream cut mid-codepoint would
+  // otherwise leave partial state that mangles the first character of the next.
+  let decoder = new TextDecoder();
   let buf = '';
 
   function buildUrl(): string {
@@ -46,8 +54,9 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
       if (payload === '') continue;
       try {
         const parsed: unknown = JSON.parse(payload);
-        if (parsed !== null && typeof parsed === 'object' && 'seq' in parsed) {
-          since = String((parsed as Record<string, unknown>).seq);
+        if (parsed !== null && typeof parsed === 'object' && cursorField in parsed) {
+          const v = (parsed as Record<string, unknown>)[cursorField];
+          if (v !== undefined && v !== null) since = String(v);
         }
         opts.onEvent(parsed);
       } catch {
@@ -69,6 +78,7 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
 
   async function readViaFetch(): Promise<void> {
     buf = '';
+    decoder = new TextDecoder();
     const res = await fetch(buildUrl(), {
       headers: { authorization: `Bearer ${cfg.token}`, accept: 'text/event-stream' },
       signal: controller.signal,
@@ -84,6 +94,7 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
 
   async function readViaTauri(): Promise<void> {
     buf = '';
+    decoder = new TextDecoder();
     const id = await invoke<string>('hub_sse_open', {
       req: { url: buildUrl(), token: cfg.token, proxy: proxyForConnection('hub') ?? null },
     });

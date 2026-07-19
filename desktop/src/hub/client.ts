@@ -681,6 +681,10 @@ export class HubClient {
     return streamSse(this.cfg, this.transport.team(`/agents/${agentId}/stream`), opts);
   }
   streamChannel(channel: string, opts: SseOptions): SseHandle {
-    return streamSse(this.cfg, this.transport.team(`/channels/${channel}/stream`), opts);
+    // Channel events key the backfill cursor on `received_ts`, not `seq`.
+    return streamSse(this.cfg, this.transport.team(`/channels/${channel}/stream`), {
+      cursorField: 'received_ts',
+      ...opts,
+    });
   }
 }

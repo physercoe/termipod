@@ -51,7 +51,14 @@ export function ChannelsPanel({ onClose }: { onClose: () => void }): JSX.Element
         const last = initial.length > 0 ? eventTs(initial[initial.length - 1]) : undefined;
         handle = client.streamChannel(selected, {
           since: last,
-          onEvent: (e) => setEvents((prev) => [...prev, e as Entity]),
+          onEvent: (e) =>
+            setEvents((prev) => {
+              // Dedupe by id — a reconnect can replay events already in view.
+              const ev = e as Entity;
+              const id = str(ev, 'id');
+              if (id !== undefined && prev.some((p) => str(p, 'id') === id)) return prev;
+              return [...prev, ev];
+            }),
           onError: (e) => setErr(e instanceof Error ? e.message : String(e)),
         });
       } catch (e) {

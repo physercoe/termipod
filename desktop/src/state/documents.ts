@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { backupCorrupt } from './persist';
 import { csvToTable, isTableBody, parseTable, serializeTable, tableToCsv } from './table';
 
 /// The J2 Author workspace — multiple open documents as tabs (director request:
@@ -158,11 +159,14 @@ function migrateCanvas(p: Persisted): Persisted {
 }
 
 function readDocs(): Persisted {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    raw = localStorage.getItem(LS_KEY);
     if (raw !== null) return JSON.parse(raw) as Persisted;
-  } catch {
-    /* ignore */
+  } catch (e) {
+    // Back up the corrupt blob before falling through to migration/empty, so a
+    // later save doesn't destroy the only (recoverable) copy of the user's docs.
+    if (raw !== null) backupCorrupt(LS_KEY, raw, e);
   }
   // Migrate the pre-multi-doc single draft, if any, into the first document so
   // an existing in-progress draft isn't lost.
@@ -191,8 +195,8 @@ function load(): Persisted {
 function save(p: Persisted): void {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(p));
-  } catch {
-    /* ignore */
+  } catch (e) {
+    console.error(`[documents] failed to persist "${LS_KEY}" (quota exceeded?)`, e);
   }
 }
 

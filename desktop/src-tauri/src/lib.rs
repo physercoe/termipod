@@ -64,7 +64,14 @@ struct HubBytesResponse {
 #[tauri::command]
 async fn hub_request(req: HubRequest) -> Result<HubResponse, String> {
     let method = reqwest::Method::from_bytes(req.method.as_bytes()).map_err(|e| e.to_string())?;
-    let client = net::client_builder(req.proxy.as_deref()).build().map_err(|e| e.to_string())?;
+    // Bound the request so a hung/unreachable hub fails instead of pending
+    // forever (the webview poller would otherwise stay "fetching" indefinitely).
+    // JSON API calls are small, so a 30s total cap is ample.
+    let client = net::client_builder(req.proxy.as_deref())
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
     let mut builder = client.request(method, &req.url);
     for (key, value) in req.headers {
         builder = builder.header(key, value);
@@ -84,7 +91,13 @@ async fn hub_request(req: HubRequest) -> Result<HubResponse, String> {
 async fn hub_request_bytes(req: HubRequest) -> Result<HubBytesResponse, String> {
     use base64::Engine as _;
     let method = reqwest::Method::from_bytes(req.method.as_bytes()).map_err(|e| e.to_string())?;
-    let client = net::client_builder(req.proxy.as_deref()).build().map_err(|e| e.to_string())?;
+    // Bound the connection, but allow a generous total window — blobs (images,
+    // PDFs) can be large and download slowly over a constrained link.
+    let client = net::client_builder(req.proxy.as_deref())
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
     let mut builder = client.request(method, &req.url);
     for (key, value) in req.headers {
         builder = builder.header(key, value);

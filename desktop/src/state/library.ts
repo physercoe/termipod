@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { backupCorrupt } from './persist';
 
 /// The reference library — a Zotero-shaped store of research references
 /// (papers, books, reports, notes) with collections and tags. Round-1 storage is
@@ -212,14 +213,16 @@ function migrateReference(r: Reference): Reference {
 }
 
 function load(): Persisted {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    raw = localStorage.getItem(LS_KEY);
     if (raw !== null) {
       const p = JSON.parse(raw) as Persisted;
       return { collections: p.collections ?? [], references: (p.references ?? []).map(migrateReference) };
     }
-  } catch {
-    /* ignore */
+  } catch (e) {
+    // Back up the corrupt blob so the next save doesn't overwrite the only copy.
+    if (raw !== null) backupCorrupt(LS_KEY, raw, e);
   }
   return { references: [], collections: [] };
 }
@@ -237,8 +240,8 @@ export function hasAnyAttachment(r: Pick<Reference, 'attachments'>): boolean {
 function save(p: Persisted): void {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(p));
-  } catch {
-    /* ignore */
+  } catch (e) {
+    console.error(`[library] failed to persist "${LS_KEY}" (quota exceeded?)`, e);
   }
 }
 

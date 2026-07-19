@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { backupCorrupt } from './persist';
 
 /// PDF annotations for the reference library — highlights, underlines, notes,
 /// area boxes and freehand ink drawn on a reference's PDF. Round-1 storage is
@@ -63,11 +64,14 @@ interface AnnotationState {
 const LS_KEY = 'termipod.annotations.v1';
 
 function load(): Annotation[] {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    raw = localStorage.getItem(LS_KEY);
     if (raw !== null) return JSON.parse(raw) as Annotation[];
-  } catch {
-    /* ignore */
+  } catch (e) {
+    // Back up the corrupt blob so the next save doesn't overwrite the only copy
+    // of the user's highlights/notes.
+    if (raw !== null) backupCorrupt(LS_KEY, raw, e);
   }
   return [];
 }
@@ -75,8 +79,8 @@ function load(): Annotation[] {
 function save(items: Annotation[]): void {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(items));
-  } catch {
-    /* ignore */
+  } catch (e) {
+    console.error(`[annotations] failed to persist "${LS_KEY}" (quota exceeded?)`, e);
   }
 }
 

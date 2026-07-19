@@ -130,7 +130,14 @@ export function AgentCompanion({
         const last = initial.length > 0 ? num(initial[initial.length - 1], 'seq') : undefined;
         handle = client.streamAgent(agentId, {
           since: last !== undefined ? String(last) : undefined,
-          onEvent: (e) => setEvents((prev) => [...prev, e as Entity]),
+          onEvent: (e) =>
+            setEvents((prev) => {
+              // Dedupe by seq — a reconnect can replay events already in view.
+              const ev = e as Entity;
+              const s = num(ev, 'seq');
+              if (s !== undefined && prev.some((p) => num(p, 'seq') === s)) return prev;
+              return [...prev, ev];
+            }),
           onError: (err) => setError(err instanceof Error ? err.message : String(err)),
         });
       } catch (err) {

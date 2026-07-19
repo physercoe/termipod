@@ -139,6 +139,9 @@ struct DataPayload {
 #[derive(Serialize, Clone)]
 struct ExitPayload {
     id: String,
+    /// The child's exit code, when it could be reaped — lets the UI show
+    /// `[exited: N]` and treat a non-zero exit as a recoverable dead session.
+    code: Option<u32>,
 }
 
 /// The user's real login-shell `PATH`, resolved once and cached.
@@ -277,9 +280,9 @@ pub async fn pty_start(app: AppHandle, state: State<'_, PtyState>, id: String) -
                 }
             }
         }
-        let _ = child.wait();
+        let code = child.wait().ok().map(|s| s.exit_code());
         lock_recover(&sessions).remove(&task_id);
-        let _ = app.emit("pty-exit", ExitPayload { id: task_id });
+        let _ = app.emit("pty-exit", ExitPayload { id: task_id, code });
     });
 
     Ok(())

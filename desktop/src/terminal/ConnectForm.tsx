@@ -30,7 +30,7 @@ export function ConnectForm({
   onCancel,
   initialConnId,
 }: {
-  onConnected: (sessionId: string, title: string) => void;
+  onConnected: (sessionId: string, title: string, connId?: string) => void;
   onCancel?: () => void;
   /** Preselect this saved connection on mount (nav click in the terminal). */
   initialConnId?: string;
@@ -141,7 +141,7 @@ export function ConnectForm({
       }
       const sid = await sshConnect(req);
       if (id !== null) touchConnection(id);
-      onConnected(sid, `${user.trim()}@${host.trim()}`);
+      onConnected(sid, `${user.trim()}@${host.trim()}`, id ?? undefined);
     } catch (e) {
       setError(msg(e));
     } finally {

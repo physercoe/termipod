@@ -22,6 +22,9 @@ export interface TermTab {
    *  a shell — its own TUI owns the screen, so OSC-133 shell integration must never
    *  be injected (it would type the integration script into the agent's prompt). */
   agent?: boolean;
+  /** For SSH tabs, the saved-connection id this session came from — lets a dead
+   *  session offer one-click reconnect (#319). Undefined for ad-hoc/local. */
+  connId?: string;
 }
 
 /** Where the dock (non-Terminal-surface mode) attaches. Persisted. */
@@ -47,6 +50,9 @@ interface TerminalState {
   addTab: (tab: Omit<TermTab, 'id'>) => string;
   /** Close a tab and tear its session down. */
   closeTab: (id: string) => void;
+  /** Point a tab at a freshly-opened backend session (reconnect, #319) — keeps the
+   *  tab's UI id + position so its <Screen> stays mounted and just rebinds. */
+  replaceSession: (id: string, sessionId: string, shell?: string) => void;
   setActive: (id: string) => void;
   rename: (id: string, title: string) => void;
 }
@@ -85,6 +91,10 @@ export const useTerminals = create<TerminalState>((set, get) => ({
       return { tabs, activeId };
     });
   },
+  replaceSession: (id, sessionId, shell) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id ? { ...t, sessionId, shell: shell ?? t.shell } : t)),
+    })),
   setActive: (id) => set({ activeId: id }),
   rename: (id, title) => set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, title } : t)) })),
 }));

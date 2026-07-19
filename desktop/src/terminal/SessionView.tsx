@@ -9,7 +9,7 @@ import type { TermTab } from './store';
 /// stays mounted across sub-view switches — hiding it (not unmounting) keeps the
 /// session alive. (tmux control was removed on desktop — redundant with native
 /// panes; the director drives shells directly.)
-export function SessionView({ tab }: { tab: TermTab }): JSX.Element {
+export function SessionView({ tab, onReconnect }: { tab: TermTab; onReconnect?: () => void }): JSX.Element {
   const t = useT();
   const [view, setView] = useState<'term' | 'files'>('term');
   const isSsh = tab.kind === 'ssh';
@@ -28,7 +28,7 @@ export function SessionView({ tab }: { tab: TermTab }): JSX.Element {
       )}
       <div className="session-body">
         <div className={view === 'term' ? 'term-view' : 'term-view hidden'}>
-          <Screen kind={tab.kind} sessionId={tab.sessionId} />
+          <Screen kind={tab.kind} sessionId={tab.sessionId} onReconnect={onReconnect} />
         </div>
         {isSsh && view === 'files' && <FileTransferPanel sessionId={tab.sessionId} />}
       </div>

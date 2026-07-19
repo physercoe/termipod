@@ -43,6 +43,8 @@ import {
 interface Props {
   kind: TermKind;
   sessionId: string;
+  /** Offer a Reconnect affordance when the session dies (#319). */
+  onReconnect?: () => void;
 }
 
 /// A live xterm.js screen bound to one session (SSH or local), with the fit +
@@ -57,7 +59,7 @@ interface Props {
 /// toolbar stealing vertical space. Find rides a floating bar toggled with
 /// Ctrl/Cmd+F (VS Code idiom). (Command-block tracking was removed in v0.3.49 —
 /// the OSC-133 integration was unreliable.)
-export function Screen({ kind, sessionId }: Props): JSX.Element {
+export function Screen({ kind, sessionId, onReconnect }: Props): JSX.Element {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -67,11 +69,17 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [matchInfo, setMatchInfo] = useState<{ index: number; count: number } | null>(null);
   const [query, setQuery] = useState('');
+  // Dead-session state: null while live; set (with the exit code, if any) once the
+  // shell/channel closes so a Reconnect banner can appear over the frozen buffer.
+  const [exited, setExited] = useState<{ code: number | null } | null>(null);
 
   useEffect(() => {
     const el = ref.current;
     if (el === null) return;
     let disposed = false;
+    // A reconnect rebinds this same <Screen> to a new sessionId — clear any dead
+    // banner from the prior session.
+    setExited(null);
     const term = new XTerm({
       cursorBlink: true,
       // Modern, professional monospace stack — prefer ligature-friendly coding
@@ -269,9 +277,20 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
     ro.observe(el);
 
     const unlistenP = onSessionData(kind, sessionId, (b) => term.write(b));
-    const exitP = onSessionExit(kind, sessionId, () => {
-      if (!disposed) term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n');
+    const exitP = onSessionExit(kind, sessionId, (code) => {
+      if (disposed) return;
+      const tag = code === null ? '[process exited]' : `[process exited: ${code}]`;
+      term.write(`\r\n\x1b[2m${tag}\x1b[0m\r\n`);
+      setExited({ code });
     });
+    // Copy-on-select (Termius/iTerm idiom): once a drag-selection settles, put it on
+    // the clipboard so a plain select is enough to copy (right-click paste / Ctrl+V
+    // then round-trips it). Only fires for a non-empty selection.
+    const onMouseUp = (): void => {
+      const sel = term.getSelection();
+      if (sel !== '') void navigator.clipboard.writeText(sel).catch(() => undefined);
+    };
+    el.addEventListener('mouseup', onMouseUp);
     // Only start streaming once BOTH listeners are registered — a local shell
     // prints its prompt within microseconds of spawning, and emitting before the
     // subscriber attaches drops it (the black-local-shell bug). SSH is a no-op.
@@ -287,6 +306,7 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       if (ptyTimer !== undefined) clearTimeout(ptyTimer);
       if (rafId !== 0) cancelAnimationFrame(rafId);
       ro.disconnect();
+      el.removeEventListener('mouseup', onMouseUp);
       onData.dispose();
       void unlistenP.then((u) => u());
       void exitP.then((u) => u());
@@ -384,6 +404,21 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
           setMenu({ x: e.clientX, y: e.clientY });
         }}
       />
+
+      {exited !== null && (
+        <div className="term-dead" role="status">
+          <span className="term-dead-msg">
+            {exited.code === null || exited.code === 0
+              ? t('term.sessionEnded')
+              : t('term.sessionEndedCode').replace('{code}', String(exited.code))}
+          </span>
+          {onReconnect !== undefined && (
+            <button className="term-dead-reconnect primary small" onClick={onReconnect}>
+              <Icon name="refresh" size={13} /> {t('term.reconnect')}
+            </button>
+          )}
+        </div>
+      )}
 
       {menu !== null && (
         <>

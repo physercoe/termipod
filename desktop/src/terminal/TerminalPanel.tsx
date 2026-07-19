@@ -22,7 +22,7 @@ import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { ConnectForm } from './ConnectForm';
 import { ptyOpen } from './pty';
 import { SessionView } from './SessionView';
-import { useTerminals } from './store';
+import { useTerminals, type TermTab } from './store';
 
 const NAV_FOLD_KEY = 'termipod.term.navFold';
 const GROUP_FOLD_KEY = 'termipod.term.groupFold';
@@ -37,6 +37,20 @@ type NavMenu = {
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// Persisted dock height/width (#319). Clamped loosely; the drag handler applies
+// the live viewport-relative bounds.
+function loadDockSize(key: string, fallback: number): number {
+  const v = Number(localStorage.getItem(key));
+  return Number.isFinite(v) && v >= 140 ? v : fallback;
+}
+function saveDockSize(key: string, n: number): void {
+  try {
+    localStorage.setItem(key, String(n));
+  } catch {
+    /* ignore */
+  }
 }
 
 /// The persistent terminal panel (professional-terminal, → ADR-053). Mounted once
@@ -62,6 +76,7 @@ export function TerminalPanel(): JSX.Element {
   const activeId = useTerminals((s) => s.activeId);
   const addTab = useTerminals((s) => s.addTab);
   const closeTab = useTerminals((s) => s.closeTab);
+  const replaceSession = useTerminals((s) => s.replaceSession);
   const setActive = useTerminals((s) => s.setActive);
   const setOpen = useTerminals((s) => s.setOpen);
   const dockSide = useTerminals((s) => s.dockSide);
@@ -73,8 +88,9 @@ export function TerminalPanel(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const cfgRef = useRef<HTMLInputElement>(null);
-  const [height, setHeight] = useState(340); // bottom-dock height
-  const [width, setWidth] = useState(480); // right-dock width
+  // Dock size persists across launches (#319) like the nav width + dock side do.
+  const [height, setHeight] = useState(() => loadDockSize('termipod.term.dockH', 340)); // bottom-dock height
+  const [width, setWidth] = useState(() => loadDockSize('termipod.term.dockW', 480)); // right-dock width
   // Drag state for the dock resize edge — `axis` follows the dock side (top edge
   // for the bottom dock, left edge for the right dock).
   const dragRef = useRef<{ axis: 'y' | 'x'; start: number; startSize: number } | null>(null);
@@ -270,9 +286,27 @@ export function TerminalPanel(): JSX.Element {
     }
   }
 
-  function onConnected(sessionId: string, title: string): void {
-    addTab({ kind: 'ssh', sessionId, title });
+  function onConnected(sessionId: string, title: string, connId?: string): void {
+    addTab({ kind: 'ssh', sessionId, title, connId });
     setConnecting(false);
+  }
+
+  // Reconnect a dead session (#319). A local shell rebinds in place (a fresh PTY
+  // into the same tab, so its <Screen> stays mounted and just re-streams). An SSH
+  // tab re-opens the connect flow for its saved connection (credentials may need
+  // re-entry), producing a fresh tab.
+  async function reconnect(tab: TermTab): Promise<void> {
+    if (tab.kind === 'local') {
+      try {
+        const { id, shell } = await ptyOpen({ cols: 80, rows: 24 });
+        replaceSession(tab.id, id, shell);
+      } catch (e) {
+        setError(msg(e));
+      }
+      return;
+    }
+    focusSession(tab.id);
+    openConnect(tab.connId);
   }
 
   // Split the current view: spawn a fresh local shell into a new tile in the
@@ -332,6 +366,16 @@ export function TerminalPanel(): JSX.Element {
       window.removeEventListener('mouseup', onUp);
     };
   }, []);
+
+  // Persist the dock size (debounced — the drag updates it on every mousemove).
+  useEffect(() => {
+    const id = setTimeout(() => saveDockSize('termipod.term.dockH', height), 250);
+    return () => clearTimeout(id);
+  }, [height]);
+  useEffect(() => {
+    const id = setTimeout(() => saveDockSize('termipod.term.dockW', width), 250);
+    return () => clearTimeout(id);
+  }, [width]);
 
   const visible = mode === 'surface' || open;
   const panelClass = `term-panel ${mode}${mode === 'dock' ? ` ${dockSide}` : ''}${visible ? '' : ' hidden'}`;
@@ -568,7 +612,7 @@ export function TerminalPanel(): JSX.Element {
                       </div>
                     )}
                     <div className="term-pane-body">
-                      <SessionView tab={tab} />
+                      <SessionView tab={tab} onReconnect={() => void reconnect(tab)} />
                     </div>
                   </div>
                 );

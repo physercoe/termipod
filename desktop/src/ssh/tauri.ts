@@ -75,6 +75,7 @@ interface DataPayload {
 }
 interface ExitPayload {
   id: string;
+  code: number | null;
 }
 
 /** Subscribe to PTY output for one session (bytes → xterm). */
@@ -83,9 +84,9 @@ export function onSshData(id: string, cb: (bytes: Uint8Array) => void): Promise<
     if (e.payload.id === id) cb(new Uint8Array(e.payload.bytes));
   });
 }
-/** Fired when the remote shell / channel closes. */
-export function onSshExit(id: string, cb: () => void): Promise<UnlistenFn> {
+/** Fired when the remote shell / channel closes; carries the exit code if sent. */
+export function onSshExit(id: string, cb: (code: number | null) => void): Promise<UnlistenFn> {
   return listen<ExitPayload>('ssh-exit', (e) => {
-    if (e.payload.id === id) cb();
+    if (e.payload.id === id) cb(e.payload.code ?? null);
   });
 }

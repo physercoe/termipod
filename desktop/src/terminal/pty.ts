@@ -54,6 +54,7 @@ interface DataPayload {
 }
 interface ExitPayload {
   id: string;
+  code: number | null;
 }
 
 /** Subscribe to PTY output for one local session (bytes → xterm). */
@@ -62,9 +63,9 @@ export function onPtyData(id: string, cb: (bytes: Uint8Array) => void): Promise<
     if (e.payload.id === id) cb(new Uint8Array(e.payload.bytes));
   });
 }
-/** Fired when the local shell exits. */
-export function onPtyExit(id: string, cb: () => void): Promise<UnlistenFn> {
+/** Fired when the local shell exits; carries the child exit code when reaped. */
+export function onPtyExit(id: string, cb: (code: number | null) => void): Promise<UnlistenFn> {
   return listen<ExitPayload>('pty-exit', (e) => {
-    if (e.payload.id === id) cb();
+    if (e.payload.id === id) cb(e.payload.code ?? null);
   });
 }

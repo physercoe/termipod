@@ -108,6 +108,9 @@ struct DataPayload {
 #[derive(Serialize, Clone)]
 struct ExitPayload {
     id: String,
+    /// The remote command's exit status, if the server sent one before closing —
+    /// lets the UI distinguish a clean logout from a dropped/failed session.
+    code: Option<u32>,
 }
 
 /// Removes a session-map entry when dropped, so the entry can't leak if the actor
@@ -204,6 +207,9 @@ pub async fn ssh_connect(
         // Guarantees the session-map entry is removed on ANY exit, including an
         // unwinding panic in the loop below (emit / russh channel ops).
         let _guard = SessionGuard { sessions, id: task_id.clone() };
+        // The server sends an ExitStatus message just before Eof/Close; capture it
+        // so the UI can tell a clean logout (0) from a failure.
+        let mut exit_code: Option<u32> = None;
         loop {
             tokio::select! {
                 msg = channel.wait() => match msg {
@@ -213,6 +219,7 @@ pub async fn ssh_connect(
                     Some(ChannelMsg::ExtendedData { ref data, .. }) => {
                         let _ = app.emit("ssh-data", DataPayload { id: task_id.clone(), bytes: data.to_vec() });
                     }
+                    Some(ChannelMsg::ExitStatus { exit_status }) => { exit_code = Some(exit_status); }
                     Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
                     _ => {}
                 },
@@ -224,7 +231,7 @@ pub async fn ssh_connect(
             }
         }
         // `_guard` removes the map entry when this task returns (or unwinds).
-        let _ = app.emit("ssh-exit", ExitPayload { id: task_id });
+        let _ = app.emit("ssh-exit", ExitPayload { id: task_id, code: exit_code });
     });
 
     Ok(id)

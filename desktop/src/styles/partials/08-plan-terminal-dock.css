@@ -901,6 +901,32 @@
      FitAddon measures (.term-screen) has zero padding (see 06-settings). */
   padding: var(--spacing-s4);
 }
+/* Dead-session banner — a Reconnect affordance floating over the frozen buffer
+   (#319). Non-blocking: it sits bottom-centre so the last output stays readable. */
+.term-dead {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+.term-dead-msg {
+  color: var(--text);
+  font-size: var(--font-size-caption);
+}
+.term-dead-reconnect {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
 /* Floating find bar. */
 .term-find {
   position: absolute;

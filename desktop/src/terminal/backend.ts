@@ -33,6 +33,10 @@ export function onSessionData(
 ): Promise<UnlistenFn> {
   return kind === 'ssh' ? onSshData(id, cb) : onPtyData(id, cb);
 }
-export function onSessionExit(kind: TermKind, id: string, cb: () => void): Promise<UnlistenFn> {
+export function onSessionExit(
+  kind: TermKind,
+  id: string,
+  cb: (code: number | null) => void,
+): Promise<UnlistenFn> {
   return kind === 'ssh' ? onSshExit(id, cb) : onPtyExit(id, cb);
 }

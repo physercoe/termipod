@@ -3,6 +3,7 @@ import { useAgents, useHosts } from '../hub/queries';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
+import { activateOnKey } from '../ui/a11y';
 import { useFocus } from '../state/focus';
 
 function statusClass(status: string | undefined): string {
@@ -119,8 +120,12 @@ export function Navigator(): JSX.Element {
     return (
       <div
         key={id}
+        role="button"
+        tabIndex={0}
+        aria-pressed={agentSelected(id)}
         className={`tree-agent${agentSelected(id) ? ' selected' : ''}`}
         onClick={() => selectAgent('fleet', id)}
+        onKeyDown={activateOnKey(() => selectAgent('fleet', id))}
         title={kind}
       >
         <span className={`dot ${statusClass(str(a, 'status'))}`} />
@@ -196,9 +201,13 @@ export function Navigator(): JSX.Element {
                 return (
                   <div
                     key={id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={hostSelected(id)}
                     className={`tree-agent tree-host-row${hostSelected(id) ? ' selected' : ''}`}
                     title={str(h, 'hostname') ?? label}
                     onClick={() => selectHost('fleet', id)}
+                    onKeyDown={activateOnKey(() => selectHost('fleet', id))}
                   >
                     <span className={`dot ${statusClass(str(h, 'status'))}`} />
                     <span className="tree-agent-label">{label}</span>

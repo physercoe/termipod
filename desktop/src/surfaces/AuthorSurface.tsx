@@ -1,6 +1,7 @@
-import { lazy, Suspense, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
+import { toast } from '../state/toast';
 import {
   bodyToFile,
   extForKind,
@@ -226,12 +227,31 @@ export function AuthorSurface(): JSX.Element {
         });
         if (path !== null) markSaved(active.id, path, baseName(path));
       }
-    } catch {
-      /* ignore — user can retry */
+      toast.success(t('author.saved'));
+    } catch (e) {
+      // Was silently swallowed — a failed disk write left the ● dirty dot with no
+      // explanation. Surface it (#312/#315); the doc stays dirty so a retry works.
+      toast.error(`${t('author.saveFailed')}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
   }
+
+  // Cmd/Ctrl+S saves the active document to its linked file (browser build / no
+  // active doc: a no-op, guarded inside onSave). A ref keeps the handler pointed
+  // at the latest closure without re-subscribing the listener each keystroke.
+  const saveRef = useRef(onSave);
+  saveRef.current = onSave;
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void saveRef.current();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Create a new document. With a workspace folder open (desktop), it's
   // materialized as a real file IN that folder — so it appears in the tree and

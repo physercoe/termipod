@@ -8,7 +8,7 @@ import { useProxy } from '../state/proxy';
 import { vaultStatus, vaultStatusKey } from '../vault/service';
 import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
-import { useWorkbench } from '../state/workbench';
+import { JOBS, SETTINGS_JOB, useWorkbench, type JobId } from '../state/workbench';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
 import { AgentSpawn } from '../surfaces/AgentSpawn';
 import { AuthorSurface } from '../surfaces/AuthorSurface';
@@ -99,15 +99,26 @@ export function AppShell(): JSX.Element {
   }
 
   useEffect(() => {
+    // The rail order (1-based) for Cmd/Ctrl+<n> job switching: the working jobs
+    // then the pinned Settings tab, matching the activity bar top-to-bottom.
+    const ordered: JobId[] = [...JOBS.map((j) => j.id), SETTINGS_JOB.id];
     function onKey(e: KeyboardEvent): void {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((o) => !o);
-      } else if ((e.metaKey || e.ctrlKey) && e.key === '`') {
+      } else if (mod && e.key === '`') {
         // VS Code's integrated-terminal toggle. The dock is persistent, so this
         // only shows/hides it — sessions keep running underneath.
         e.preventDefault();
         useTerminals.getState().toggle();
+      } else if (mod && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
+        // VS Code's Cmd/Ctrl+<n> tab jump — switch the active job by rail index.
+        const target = ordered[Number(e.key) - 1];
+        if (target !== undefined) {
+          e.preventDefault();
+          useWorkbench.getState().setJob(target);
+        }
       } else if (e.key === 'Escape') {
         closeOverlays();
       }
@@ -115,6 +126,9 @@ export function AppShell(): JSX.Element {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Platform-aware modifier glyph for the palette shortcut hints.
+  const modKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 
   const commands: Command[] = [
     // "Audit" drops the current tab's focus back to its activity console. Only the
@@ -138,8 +152,8 @@ export function AppShell(): JSX.Element {
     { id: 'me', label: t('cmd.history'), run: () => setMeOpen(true) },
     { id: 'spawn', label: t('spawn.title'), run: () => setSpawnOpen(true) },
     { id: 'search', label: t('cmd.search'), run: () => setSearchOpen(true) },
-    { id: 'terminal', label: t('cmd.terminal'), run: () => setJob('terminal') },
-    { id: 'settings', label: t('cmd.settings'), run: () => setJob('settings') },
+    { id: 'terminal', label: t('cmd.terminal'), run: () => setJob('terminal'), hint: `${modKey}8` },
+    { id: 'settings', label: t('cmd.settings'), run: () => setJob('settings'), hint: `${modKey}9` },
     client === null
       ? { id: 'connect', label: t('shell.connect'), run: () => openConnect() }
       : { id: 'disconnect', label: t('cmd.disconnect'), run: disconnect },

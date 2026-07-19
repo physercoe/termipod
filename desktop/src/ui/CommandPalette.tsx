@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 
 export interface Command {
   id: string;
   label: string;
   run: () => void;
+  /** Optional keyboard-shortcut hint shown right-aligned (e.g. "⌘K"). */
+  hint?: string;
 }
 
 interface Props {
@@ -14,11 +16,14 @@ interface Props {
 }
 
 /// Minimal ⌘K command palette — the keyboard spine (WS2 stub; grows as surfaces
-/// land). Filter, arrow-navigate, Enter to run, Esc to close.
+/// land). Filter, arrow-navigate, Enter to run, Esc to close. The list is a
+/// listbox (role/aria-selected) and keeps the active row scrolled into view
+/// (#312/#316).
 export function CommandPalette({ open, commands, onClose }: Props): JSX.Element | null {
   const t = useT();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -35,6 +40,12 @@ export function CommandPalette({ open, commands, onClose }: Props): JSX.Element 
   useEffect(() => {
     if (active >= filtered.length) setActive(0);
   }, [filtered, active]);
+
+  // Keep the highlighted row visible as arrow-navigation moves past the fold.
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>('.palette-item.active');
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [active, filtered]);
 
   if (!open) return null;
 
@@ -57,18 +68,21 @@ export function CommandPalette({ open, commands, onClose }: Props): JSX.Element 
 
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="palette" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="palette" role="dialog" aria-modal="true" aria-label={t('cmd.palette')} onMouseDown={(e) => e.stopPropagation()}>
         <input
           autoFocus
           value={query}
           placeholder={t('palette.placeholder')}
+          aria-label={t('palette.placeholder')}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        <div>
+        <div ref={listRef} role="listbox" aria-label={t('cmd.palette')}>
           {filtered.map((c, i) => (
             <div
               key={c.id}
+              role="option"
+              aria-selected={i === active}
               className={`palette-item${i === active ? ' active' : ''}`}
               onMouseEnter={() => setActive(i)}
               onMouseDown={() => {
@@ -76,7 +90,8 @@ export function CommandPalette({ open, commands, onClose }: Props): JSX.Element 
                 c.run();
               }}
             >
-              {c.label}
+              <span className="palette-item-label">{c.label}</span>
+              {c.hint !== undefined && <span className="palette-item-hint">{c.hint}</span>}
             </div>
           ))}
           {filtered.length === 0 && <div className="palette-item">{t('palette.noMatches')}</div>}

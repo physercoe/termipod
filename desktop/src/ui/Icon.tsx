@@ -48,6 +48,7 @@ export type IconName =
   | 'highlight'
   | 'underline'
   | 'square'
+  | 'mic'
   | 'pen'
   | 'cloud'
   | 'split-h'
@@ -279,6 +280,13 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   square: <rect x="4" y="4" width="16" height="16" rx="2" />,
+  mic: (
+    <>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0" />
+      <path d="M12 18v3" />
+    </>
+  ),
   cloud: <path d="M6.5 19a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 9.5 4.25 4.25 0 0 1 17.5 18H6.5z" />,
   // split-h — two panes side by side (a vertical divider): split right
   'split-h': (

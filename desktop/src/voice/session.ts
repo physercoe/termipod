@@ -13,6 +13,13 @@ export interface VoiceCallbacks {
   onError: (message: string) => void;
 }
 
+/// Localized copy for the two device-side error paths (no key / mic denied), so
+/// the messages aren't hardcoded English (#323). Optional — falls back to English.
+export interface VoiceStrings {
+  noApiKey?: string;
+  micDenied?: string;
+}
+
 export class VoiceSession {
   private mic: MicHandle | null = null;
   private wsId: string | null = null;
@@ -21,7 +28,10 @@ export class VoiceSession {
   private partial = '';
   private stopped = false;
 
-  constructor(private readonly cb: VoiceCallbacks) {}
+  constructor(
+    private readonly cb: VoiceCallbacks,
+    private readonly strings: VoiceStrings = {},
+  ) {}
 
   private best(): string {
     return `${this.finals}${this.partial}`.trim();
@@ -30,7 +40,7 @@ export class VoiceSession {
   async start(): Promise<void> {
     const apiKey = await getVoiceApiKey();
     if (apiKey === null || apiKey === '') {
-      this.cb.onError('No DashScope API key set (Settings → Voice).');
+      this.cb.onError(this.strings.noApiKey ?? 'No DashScope API key set (Settings → Voice).');
       return;
     }
     try {
@@ -71,7 +81,7 @@ export class VoiceSession {
         }
       });
     } catch {
-      this.cb.onError('Microphone permission denied.');
+      this.cb.onError(this.strings.micDenied ?? 'Microphone permission denied.');
       void this.dispose();
     }
   }
@@ -82,6 +92,12 @@ export class VoiceSession {
     this.mic?.stop();
     this.mic = null;
     if (this.wsId !== null) await voiceFinish(this.wsId);
+  }
+
+  /** Discard the recording: tear everything down WITHOUT flushing a final, so
+   *  onDone never fires and the draft keeps whatever it had before (#323). */
+  async cancel(): Promise<void> {
+    await this.dispose();
   }
 
   async dispose(): Promise<void> {

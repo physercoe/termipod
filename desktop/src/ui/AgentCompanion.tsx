@@ -328,6 +328,7 @@ export function AgentCompanion({
       )}
       <Composer
         onSend={send}
+        draftKey={agentId !== '' ? `companion.${agentId}` : undefined}
         mention={
           folder !== null && wsFiles.length > 0
             ? { items: wsFiles.map((f) => ({ label: f.rel, value: f.rel })), onPick: (it) => addMention(it.value) }

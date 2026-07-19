@@ -1,9 +1,16 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { VoiceSession } from '../voice/session';
+import { Icon } from './Icon';
 import { checkAddable, classify, compose, stage, type Pending } from './attach';
+
+function mmss(total: number): string {
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 /// A `@`-mention candidate (a workspace file). `label` is shown + inserted as
 /// `@label`; the consumer resolves the pick (e.g. reads the file as context).
@@ -24,25 +31,71 @@ function humanSize(bytes: number): string {
 export function Composer({
   onSend,
   mention,
+  draftKey,
 }: {
   onSend: (body: string, att: InputAttachments) => Promise<void>;
   /// When set, typing `@` opens a file picker over `items`; a pick inserts
   /// `@value` and calls `onPick` (the consumer attaches the file as context).
   mention?: { items: MentionItem[]; onPick: (item: MentionItem) => void };
+  /// When set, the draft text persists per-key across remounts / tab switches
+  /// (localStorage), so switching agents/surfaces doesn't lose an in-progress
+  /// message. Omit for an ephemeral composer.
+  draftKey?: string;
 }): JSX.Element {
   const t = useT();
-  const [draft, setDraft] = useState('');
+  const [draft, setDraftRaw] = useState('');
   const [staged, setStaged] = useState<Pending[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [recSeconds, setRecSeconds] = useState(0);
   const [atOpen, setAtOpen] = useState(false);
   const [atQuery, setAtQuery] = useState('');
   const [atIdx, setAtIdx] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
-  const textRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
   const voiceRef = useRef<VoiceSession | null>(null);
   const draftBaseRef = useRef('');
+
+  const lsKey = draftKey !== undefined ? `termipod.draft.${draftKey}` : null;
+  // Hydrate a persisted draft when the key changes (switching agents).
+  useEffect(() => {
+    if (lsKey === null) return;
+    try {
+      setDraftRaw(localStorage.getItem(lsKey) ?? '');
+    } catch {
+      /* ignore */
+    }
+  }, [lsKey]);
+  function setDraft(v: string): void {
+    setDraftRaw(v);
+    if (lsKey !== null) {
+      try {
+        localStorage.setItem(lsKey, v);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  // Auto-grow the textarea to fit its content (capped), so a multi-line message
+  // is visible while typing instead of scrolling a one-line field.
+  function autoGrow(el: HTMLTextAreaElement | null): void {
+    if (el === null) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }
+  useEffect(() => {
+    autoGrow(textRef.current);
+  }, [draft]);
+
+  // Recording elapsed-time HUD tick.
+  useEffect(() => {
+    if (!recording) return;
+    setRecSeconds(0);
+    const id = setInterval(() => setRecSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [recording]);
 
   // The active `@query` immediately before the caret, if any (start-of-input or
   // after whitespace, no spaces in the token).
@@ -93,23 +146,35 @@ export function Composer({
       return;
     }
     draftBaseRef.current = draft.trim() === '' ? '' : `${draft.trim()} `;
-    const session = new VoiceSession({
-      onTranscript: (text) => setDraft(`${draftBaseRef.current}${text}`),
-      onDone: (text) => {
-        if (text !== '') setDraft(`${draftBaseRef.current}${text} `);
-        setRecording(false);
-        voiceRef.current = null;
+    const session = new VoiceSession(
+      {
+        onTranscript: (text) => setDraft(`${draftBaseRef.current}${text}`),
+        onDone: (text) => {
+          if (text !== '') setDraft(`${draftBaseRef.current}${text} `);
+          setRecording(false);
+          voiceRef.current = null;
+        },
+        onError: (m) => {
+          setErr(m);
+          setRecording(false);
+          voiceRef.current = null;
+        },
       },
-      onError: (m) => {
-        setErr(m);
-        setRecording(false);
-        voiceRef.current = null;
-      },
-    });
+      { noApiKey: t('voice.noApiKey'), micDenied: t('voice.micDenied') },
+    );
     voiceRef.current = session;
     setRecording(true);
     setErr(null);
     await session.start();
+  }
+
+  // Discard the recording without committing any transcript (the draft reverts
+  // to whatever it held before recording started).
+  async function discardVoice(): Promise<void> {
+    await voiceRef.current?.cancel();
+    voiceRef.current = null;
+    setDraft(draftBaseRef.current.trimEnd());
+    setRecording(false);
   }
 
   async function addFiles(files: FileList | null): Promise<void> {
@@ -189,15 +254,28 @@ export function Composer({
         <button className="attach-btn" title={t('composer.attach')} onClick={() => fileRef.current?.click()} disabled={busy}>
           +
         </button>
-        {isTauri() && (
+        {isTauri() && !recording && (
           <button
-            className={recording ? 'mic-btn recording' : 'mic-btn'}
-            title={recording ? t('composer.stopVoice') : t('composer.voice')}
+            className="mic-btn"
+            title={t('composer.voice')}
+            aria-label={t('composer.voice')}
             onClick={() => void toggleVoice()}
             disabled={busy}
           >
-            {recording ? '■' : '🎤'}
+            <Icon name="mic" size={16} />
           </button>
+        )}
+        {isTauri() && recording && (
+          <div className="rec-hud" role="status" aria-live="polite">
+            <span className="rec-dot" aria-hidden="true" />
+            <span className="rec-time mono">{mmss(recSeconds)}</span>
+            <button className="rec-discard" title={t('composer.discardVoice')} aria-label={t('composer.discardVoice')} onClick={() => void discardVoice()}>
+              <Icon name="close" size={14} />
+            </button>
+            <button className="rec-stop" title={t('composer.stopVoice')} aria-label={t('composer.stopVoice')} onClick={() => void toggleVoice()}>
+              <Icon name="check" size={14} />
+            </button>
+          </div>
         )}
         {atOpen && atMatches.length > 0 && (
           <div className="mention-pop">
@@ -216,8 +294,10 @@ export function Composer({
             ))}
           </div>
         )}
-        <input
+        <textarea
           ref={textRef}
+          className="composer-input"
+          rows={1}
           value={draft}
           placeholder={t('tx.sendPlaceholder')}
           onChange={(e) => onDraftChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
@@ -244,7 +324,8 @@ export function Composer({
                 return;
               }
             }
-            if (e.key === 'Enter') {
+            // Enter sends; Shift+Enter inserts a newline (standard chat idiom).
+            if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               void send();
             }

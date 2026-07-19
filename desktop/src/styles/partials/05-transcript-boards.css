@@ -452,6 +452,63 @@
 .composer input:not([type]) {
   flex: 1;
 }
+/* Multiline auto-grow textarea (#323) — Enter sends, Shift+Enter newlines. */
+.composer .composer-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.4;
+  resize: none;
+  overflow-y: auto;
+  max-height: 160px;
+}
+/* Recording HUD — elapsed timer + discard/commit (#323). */
+.rec-hud {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: 2px var(--spacing-s8);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.rec-time {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-caption);
+}
+.rec-discard,
+.rec-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+.rec-discard:hover,
+.rec-stop:hover {
+  background: var(--hover);
+}
 .composer .attach-btn {
   flex: 0 0 auto;
   width: 32px;

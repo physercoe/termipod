@@ -6,6 +6,7 @@ import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { parsePoints, Sparkline } from '../ui/Sparkline';
+import { useConfirm } from '../ui/ConfirmModal';
 
 /// Run detail (parity — mobile _RunDetailScreen ViewSwitcher: Overview / Charts /
 /// Media / Outputs / Config). Charts renders scalar `/metrics` + `/system_metrics`
@@ -60,6 +61,7 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
   const client = useSession((s) => s.client);
   const selectAgent = useFocus((s) => s.selectAgent);
   const { run: act, busy } = useHubAction();
+  const { ask: confirmAsk, node: confirmNode } = useConfirm();
   const [view, setView] = useState<View>('overview');
 
   const runQ = useQuery({
@@ -117,7 +119,10 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
     { v: 'config', label: t('run.config') },
   ];
 
-  function setStatus(next: string): void {
+  async function setStatus(next: string): Promise<void> {
+    // Cancelling is a destructive terminal transition — one mis-select in the
+    // status dropdown would otherwise cancel a live run with no undo.
+    if (next === 'cancelled' && !(await confirmAsk({ message: t('run.confirmCancel'), danger: true }))) return;
     void act(() => client!.updateRun(runId, { status: next }), { invalidate: [['run', runId], ['runs']] });
   }
 
@@ -155,7 +160,7 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
         <div className="admin-tabs">
           <strong>{t('run.title')}</strong>
           <label className="inline-select">
-            <select value={status} disabled={busy} onChange={(e) => setStatus(e.target.value)}>
+            <select value={status} disabled={busy} onChange={(e) => void setStatus(e.target.value)}>
               {RUN_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -284,6 +289,7 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
           )}
         </div>
       </div>
+      {confirmNode}
     </div>
   );
 }

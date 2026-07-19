@@ -16,6 +16,7 @@ import {
   type Connection,
 } from '../state/connections';
 import { importSshConfig } from '../ssh/config';
+import { useConfirm } from '../ui/ConfirmModal';
 import { useTextPrompt } from '../ui/PromptModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { ConnectForm } from './ConnectForm';
@@ -102,6 +103,7 @@ export function TerminalPanel(): JSX.Element {
   const [groupBump, setGroupBump] = useState(0);
   const [navMenu, setNavMenu] = useState<NavMenu | null>(null);
   const { ask, node: promptNode } = useTextPrompt();
+  const { ask: confirmAsk, node: confirmNode } = useConfirm();
   const groups = useMemo(() => (tauri ? navGroups(conns) : []), [conns, groupBump, tauri]);
 
   function refreshConns(): void {
@@ -190,8 +192,10 @@ export function TerminalPanel(): JSX.Element {
     renameGroup(from, to.trim());
     refreshConns();
   }
-  function doDeleteGroup(name: string): void {
+  async function doDeleteGroup(name: string): Promise<void> {
     setNavMenu(null);
+    if (!(await confirmAsk({ message: t('term.confirmDeleteGroup').replace('{name}', name), danger: true })))
+      return;
     removeGroup(name);
     refreshConns();
   }
@@ -202,6 +206,9 @@ export function TerminalPanel(): JSX.Element {
   }
   async function doDeleteConnection(id: string): Promise<void> {
     setNavMenu(null);
+    const name = conns.find((c) => c.id === id)?.name ?? '';
+    if (!(await confirmAsk({ message: t('term.confirmDeleteConn').replace('{name}', name), danger: true })))
+      return;
     try {
       await deleteConnection(id);
     } finally {
@@ -289,7 +296,13 @@ export function TerminalPanel(): JSX.Element {
     setPanes((p) => p.filter((x) => x !== id));
   }
 
-  function close(id: string): void {
+  async function close(id: string): Promise<void> {
+    // A live SSH session ends a remote shell (and any running process) when its
+    // tab closes — confirm first. Local shells are cheap to respawn, so they
+    // close immediately.
+    const tab = tabs.find((tb) => tb.id === id);
+    if (tab?.kind === 'ssh' && !(await confirmAsk({ message: t('term.confirmCloseSession'), danger: true })))
+      return;
     setPanes((p) => p.filter((x) => x !== id));
     closeTab(id);
   }
@@ -478,7 +491,7 @@ export function TerminalPanel(): JSX.Element {
                   <span className={`term-tab-kind ${tab.kind}`} />
                   {tab.title}
                 </button>
-                <button className="term-tab-x" title={t('term.closeTab')} onClick={() => close(tab.id)}>
+                <button className="term-tab-x" title={t('term.closeTab')} onClick={() => void close(tab.id)}>
                   <Icon name="close" size={13} />
                 </button>
               </div>
@@ -617,6 +630,7 @@ export function TerminalPanel(): JSX.Element {
         />
       )}
       {promptNode}
+      {confirmNode}
     </div>
   );
 }

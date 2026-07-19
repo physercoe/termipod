@@ -7,6 +7,7 @@ import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import type { InputAttachments } from '../hub/client';
 import { Composer } from '../ui/Composer';
+import { ConfirmButton } from '../ui/ConfirmButton';
 import { Icon } from '../ui/Icon';
 import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
 import { errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, matchesLens, type FeedLens } from '../ui/feedLens';
@@ -343,8 +344,17 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
           <button disabled={busy} onClick={() => void lifecycle((id) => client!.pauseAgent(id))}>{t('tx.pause')}</button>
           <button disabled={busy} onClick={() => void lifecycle((id) => client!.resumeAgent(id))}>{t('tx.resume')}</button>
           <button disabled={busy} onClick={() => void lifecycle((id) => client!.stopAgent(id))}>{t('tx.stop')}</button>
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.terminateAgent(id))}>{t('tx.terminate')}</button>
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.archiveAgent(id))}>{t('tx.archive')}</button>
+          <ConfirmButton
+            label={t('tx.terminate')}
+            danger
+            disabled={busy}
+            onConfirm={() => void lifecycle((id) => client!.terminateAgent(id))}
+          />
+          <ConfirmButton
+            label={t('tx.archive')}
+            disabled={busy}
+            onConfirm={() => void lifecycle((id) => client!.archiveAgent(id))}
+          />
         </div>
       </div>
 

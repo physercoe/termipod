@@ -9,6 +9,7 @@ import { getVoiceApiKey, getVoiceModel, setVoiceApiKey, setVoiceModel, VOICE_MOD
 import { activeRootLabel, useAttachmentConfig } from '../state/attachments';
 import { PROXY_CONNS, useProxy, type ProxyConn } from '../state/proxy';
 import { Icon } from '../ui/Icon';
+import { useConfirm } from '../ui/ConfirmModal';
 import { UpdateSection } from './UpdateSection';
 import { VaultManager } from './VaultManager';
 import { VaultPanel } from './VaultPanel';
@@ -253,6 +254,7 @@ function CacheSettings(): JSX.Element {
 /// connect panel (`onConnect`); switching re-binds the client and drops the cache.
 function AccountSettings({ onConnect }: { onConnect?: (edit?: HubProfile) => void }): JSX.Element {
   const t = useT();
+  const { ask: confirmAsk, node: confirmNode } = useConfirm();
   const client = useSession((s) => s.client);
   const activeId = useSession((s) => s.activeProfileId);
   const switchProfile = useSession((s) => s.switchProfile);
@@ -262,8 +264,17 @@ function AccountSettings({ onConnect }: { onConnect?: (edit?: HubProfile) => voi
   const [profiles, setProfiles] = useState<HubProfile[]>(() => listProfiles());
 
   async function remove(id: string): Promise<void> {
+    const name = profiles.find((p) => p.id === id)?.name ?? '';
+    if (!(await confirmAsk({ message: t('profile.confirmRemove').replace('{name}', name), danger: true }))) return;
+    // Drop the live client too when removing the active profile (parity with the
+    // titlebar switcher) — otherwise the app keeps driving a deleted hub.
+    const wasActive = useSession.getState().activeProfileId === id;
     await removeProfile(id);
     setProfiles(listProfiles());
+    if (wasActive) disconnect();
+  }
+  async function onDisconnect(): Promise<void> {
+    if (await confirmAsk({ message: t('settings.confirmDisconnect') })) disconnect();
   }
 
   return (
@@ -290,7 +301,7 @@ function AccountSettings({ onConnect }: { onConnect?: (edit?: HubProfile) => voi
               {t('shell.connect')}
             </button>
           ) : (
-            <button className="danger" onClick={() => disconnect()}>
+            <button className="danger" onClick={() => void onDisconnect()}>
               {t('settings.disconnect')}
             </button>
           )}
@@ -328,6 +339,7 @@ function AccountSettings({ onConnect }: { onConnect?: (edit?: HubProfile) => voi
           <button onClick={() => onConnect?.()}>+ {t('profile.add')}</button>
         </div>
       </section>
+      {confirmNode}
     </>
   );
 }

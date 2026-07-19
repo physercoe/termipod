@@ -152,9 +152,12 @@ export function VaultPanel(): JSX.Element | null {
             )}
             {st !== null && st.exists && st.hasLocalKey && (
               <>
-                <button disabled={busy} onClick={() => void run(async () => { await syncUp(client); })}>
-                  {t('vault.syncUp')}
-                </button>
+                <ConfirmButton
+                  label={t('vault.syncUp')}
+                  danger
+                  disabled={busy}
+                  onConfirm={() => void run(async () => { await syncUp(client); })}
+                />
                 <ConfirmButton
                   label={t('vault.syncDown')}
                   danger

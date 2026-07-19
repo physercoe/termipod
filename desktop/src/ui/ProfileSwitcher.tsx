@@ -3,6 +3,7 @@ import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { listProfiles, removeProfile, type HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
+import { useConfirm } from './ConfirmModal';
 
 /// Titlebar hub switcher (parity Phase 3a). Shows the active profile as a pill;
 /// the dropdown lists saved profiles to switch between, plus add/edit/remove.
@@ -15,6 +16,7 @@ export function ProfileSwitcher({
   onEdit: (p: HubProfile) => void;
 }): JSX.Element {
   const t = useT();
+  const { ask: confirmAsk, node: confirmNode } = useConfirm();
   const activeId = useSession((s) => s.activeProfileId);
   const teamId = useSession((s) => s.config.teamId);
   const switchProfile = useSession((s) => s.switchProfile);
@@ -64,14 +66,17 @@ export function ProfileSwitcher({
               <button
                 className="link-btn"
                 onClick={() => {
-                  // Tear down the live client too when the removed profile is the
-                  // active one — otherwise the app keeps driving a deleted hub
-                  // until relaunch.
-                  const wasActive = useSession.getState().activeProfileId === p.id;
-                  void removeProfile(p.id).then(() => {
+                  void (async () => {
+                    if (!(await confirmAsk({ message: t('profile.confirmRemove').replace('{name}', p.name), danger: true })))
+                      return;
+                    // Tear down the live client too when the removed profile is
+                    // the active one — otherwise the app keeps driving a deleted
+                    // hub until relaunch.
+                    const wasActive = useSession.getState().activeProfileId === p.id;
+                    await removeProfile(p.id);
                     setProfiles(listProfiles());
                     if (wasActive) useSession.getState().disconnect();
-                  });
+                  })();
                 }}
               >
                 {t('profile.remove')}
@@ -84,6 +89,7 @@ export function ProfileSwitcher({
           </button>
         </div>
       )}
+      {confirmNode}
     </div>
   );
 }

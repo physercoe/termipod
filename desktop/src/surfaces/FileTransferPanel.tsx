@@ -3,6 +3,7 @@ import { onSftpProgress, sftpList, sftpRead, sftpWrite, type SftpEntry } from '.
 import { localHome, localList, localRead, localWrite, type LocalEntry, type LocalListing } from '../state/localfs';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
+import { useConfirm } from '../ui/ConfirmModal';
 
 /// Two-pane file transfer (FileZilla-style): the local machine on the left, the
 /// remote host (over the session's SFTP subsystem) on the right. Browse either
@@ -54,6 +55,7 @@ function parentPosix(dir: string): string {
 
 export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Element {
   const t = useT();
+  const confirm = useConfirm();
   // Remote (SFTP) pane.
   const [rdir, setRdir] = useState('.');
   const [rentries, setREntries] = useState<SftpEntry[]>([]);
@@ -125,9 +127,23 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
       .catch((e) => setErr(msg(e)));
   }, [loadLocal]);
 
+  // A transfer would clobber an existing file — confirm first. The destination
+  // directory is already listed in memory (what the user is looking at), so the
+  // existence check needs no extra round-trip and matches the visible pane.
+  async function confirmOverwrite(name: string, exists: boolean): Promise<boolean> {
+    if (!exists) return true;
+    return confirm.ask({
+      message: t('sftp.overwrite').replace('{name}', name),
+      confirmLabel: t('sftp.overwriteConfirm'),
+      danger: true,
+    });
+  }
+
   // Download: remote → the local pane's current directory.
   async function download(entry: SftpEntry): Promise<void> {
     if (local === null) return;
+    const exists = local.entries.some((e) => e.name === entry.name && !e.is_dir);
+    if (!(await confirmOverwrite(entry.name, exists))) return;
     setBusy(true);
     setErr(null);
     const tid = nextTransferId();
@@ -149,6 +165,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
 
   // Upload: a local file → the remote pane's current directory.
   async function upload(entry: LocalEntry): Promise<void> {
+    const exists = rentries.some((e) => e.name === entry.name && !e.is_dir);
+    if (!(await confirmOverwrite(entry.name, exists))) return;
     setBusy(true);
     setErr(null);
     const tid = nextTransferId();
@@ -170,6 +188,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
 
   return (
     <div className="sftp-panel">
+      {confirm.node}
       {err !== null && <div className="error sftp-err">{err}</div>}
       {transfer !== null && (
         <div className={`sftp-transfer ${transfer.status}`}>

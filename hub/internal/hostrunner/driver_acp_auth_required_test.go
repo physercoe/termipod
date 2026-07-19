@@ -87,6 +87,70 @@ func TestACPDriver_AuthRequired_EmitsAttentionAndWrapsError(t *testing.T) {
 	drv.Stop()
 }
 
+// TestACPDriver_AuthRequired_EmitsAttentionAndWrapsError_KimiCodeTS
+// pins the kimi-code-ts arm of authRequiredRemediation (ADR-054): the
+// TypeScript kimi build shares the Python line's device-code
+// `kimi login` flow, so an AUTH_REQUIRED from session/new must surface
+// the same remediation — tagged with engine_kind=kimi-code-ts so the
+// mobile card names the actual engine that failed.
+func TestACPDriver_AuthRequired_EmitsAttentionAndWrapsError_KimiCodeTS(t *testing.T) {
+	driverIn, agentOut := io.Pipe()
+	agentIn, driverOut := io.Pipe()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-kimi-ts-auth",
+		Poster:           poster,
+		Stdin:            driverOut,
+		Stdout:           driverIn,
+		Closer:           func() { _ = agentOut.Close(); _ = agentIn.Close() },
+		Log:              slog.Default(),
+		HandshakeTimeout: 2 * time.Second,
+		WriteTimeout:     1 * time.Second,
+		EngineKind:       "kimi-code-ts",
+	}
+
+	agent := newFakeACPAgent(t, agentIn, agentOut, "sess-unused")
+	agent.failSessionNewWithAuth = true
+	go agent.serve()
+
+	startErr := drv.Start(context.Background())
+	if startErr == nil {
+		t.Fatal("Start should have failed when session/new returns AUTH_REQUIRED")
+	}
+	msg := startErr.Error()
+	if !strings.Contains(msg, "authentication required") {
+		t.Errorf("error message should call out auth — got: %v", msg)
+	}
+	if !strings.Contains(msg, "kimi login") {
+		t.Errorf("error message should include the `kimi login` remediation — got: %v", msg)
+	}
+
+	var saw bool
+	for _, ev := range poster.snapshot() {
+		if ev.Kind != "attention_request" {
+			continue
+		}
+		kind, _ := ev.Payload["kind"].(string)
+		if kind != "auth_required" {
+			continue
+		}
+		saw = true
+		if engine, _ := ev.Payload["engine_kind"].(string); engine != "kimi-code-ts" {
+			t.Errorf("attention event engine_kind = %q; want kimi-code-ts", engine)
+		}
+		remed, _ := ev.Payload["remediation"].(string)
+		if !strings.Contains(remed, "kimi login") {
+			t.Errorf("attention remediation should mention `kimi login`: %v", remed)
+		}
+	}
+	if !saw {
+		t.Errorf("no attention_request/auth_required event posted; events = %+v", poster.snapshot())
+	}
+
+	drv.Stop()
+}
+
 // TestACPDriver_AuthRequired_EngineNeutralFallback ensures EngineKind=""
 // still gets a usable remediation string (post-auth wedge for engines
 // we add later without a Go change).

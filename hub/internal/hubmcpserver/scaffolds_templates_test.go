@@ -73,6 +73,7 @@ func TestScaffoldAgent_EngineSwapsCmdLine(t *testing.T) {
 		{"codex", `cmd: "codex"`},
 		{"gemini-cli", "gemini --acp"},
 		{"kimi-code", "kimi --yolo acp"},
+		{"kimi-code-ts", "kimi --yolo acp"},
 	}
 	for _, tc := range cases {
 		out, err := scaffoldContent("agent",

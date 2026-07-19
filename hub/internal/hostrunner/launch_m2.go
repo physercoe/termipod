@@ -602,7 +602,9 @@ func writeMCPConfig(workdir, hubURL, token string) error {
 // writeMCPConfigForFamily picks the right materializer by family.
 // Claude-code (the default) writes .mcp.json; codex writes
 // .codex/config.toml per ADR-012 D5; gemini writes
-// .gemini/settings.json per ADR-013 D5.
+// .gemini/settings.json per ADR-013 D5; kimi-code (Python) writes
+// .kimi/mcp.json per ADR-026 D5; kimi-code-ts writes
+// .kimi-code/mcp.json per ADR-054 D3.
 //
 // Spawn templates are responsible for pointing the engine at this
 // config. Codex picks up `.codex/config.toml` only from "trusted
@@ -611,6 +613,10 @@ func writeMCPConfig(workdir, hubURL, token string) error {
 // the trust-list and keeps each spawn's MCP scope isolated to its
 // own workdir. Gemini reads project-scoped `<workdir>/.gemini/
 // settings.json` automatically — no equivalent gate to bypass.
+// kimi-code-ts reads project-scoped `<workdir>/.kimi-code/mcp.json`
+// automatically too (precedence over the user-level
+// ~/.kimi-code/mcp.json), so unlike Python kimi it needs no
+// --mcp-config-file argv splice.
 func writeMCPConfigForFamily(family, workdir, hubURL, token string) error {
 	switch family {
 	case "codex":
@@ -619,6 +625,8 @@ func writeMCPConfigForFamily(family, workdir, hubURL, token string) error {
 		return writeGeminiMCPConfig(workdir, hubURL, token)
 	case "kimi-code":
 		return writeKimiMCPConfig(workdir, hubURL, token)
+	case "kimi-code-ts":
+		return writeKimiTSMCPConfig(workdir, hubURL, token)
 	default:
 		return writeMCPConfig(workdir, hubURL, token)
 	}
@@ -706,6 +714,82 @@ func writeKimiMCPConfig(workdir, hubURL, token string) error {
 	}
 	target := filepath.Join(dir, "mcp.json")
 	return os.WriteFile(target, body, 0o600)
+}
+
+// writeKimiTSMCPConfig emits kimi-code-ts's JSON form at
+// <workdir>/.kimi-code/mcp.json (ADR-054 D3). The TypeScript Kimi
+// Code build removed the Python line's `--mcp-config-file` flag and
+// instead auto-discovers mcp.json at two levels — user
+// ($KIMI_CODE_HOME/mcp.json or ~/.kimi-code/mcp.json) and project
+// (<cwd>/.kimi-code/mcp.json), with project entries winning on name
+// collision. The spawn cmd already `cd`s into the workdir, so
+// writing the project-level file per spawn is all the injection we
+// need — no argv splice, unlike the Python kimi-code path in
+// launch_m1.go.
+//
+// We do NOT merge the operator's user-level file: the engine loads it
+// itself underneath the project level, so operator-configured servers
+// keep working with zero copying (and zero secret duplication into
+// workdirs). We DO merge with an existing project-level file — the
+// workdir may be a real repo the operator pre-configured — and a
+// malformed one fails the spawn loud rather than being clobbered.
+//
+// Wire shape mirrors the other families:
+//
+//	{
+//	  "mcpServers": {
+//	    "termipod": {
+//	      "command": "hub-mcp-bridge",
+//	      "env": { "HUB_URL": "<url>", "HUB_TOKEN": "<token>" }
+//	    },
+//	    ...existing project-level entries pass through...
+//	  }
+//	}
+//
+// File mode 0o600; .kimi-code directory mode 0o700.
+func writeKimiTSMCPConfig(workdir, hubURL, token string) error {
+	dir := filepath.Join(workdir, ".kimi-code")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("mkdir .kimi-code: %w", err)
+	}
+
+	// Seed from any existing project-level mcp.json (missing → empty
+	// seed; parse failure → fail loud, same contract as the Python
+	// kimi writer's handling of the operator file).
+	cfg := map[string]any{"mcpServers": map[string]any{}}
+	projectPath := filepath.Join(dir, "mcp.json")
+	if data, rerr := os.ReadFile(projectPath); rerr == nil {
+		var existing map[string]any
+		if jerr := json.Unmarshal(data, &existing); jerr != nil {
+			return fmt.Errorf("parse %s: %w", projectPath, jerr)
+		}
+		for k, v := range existing {
+			cfg[k] = v
+		}
+		if existingServers, ok := existing["mcpServers"].(map[string]any); ok {
+			cfg["mcpServers"] = existingServers
+		} else {
+			cfg["mcpServers"] = map[string]any{}
+		}
+	}
+
+	// Splice in (or replace) the termipod entry — replace-not-skip so
+	// a stale HUB_TOKEN from an earlier spawn can't linger.
+	servers := cfg["mcpServers"].(map[string]any)
+	servers[hub.MCPServerName] = map[string]any{
+		"command": "hub-mcp-bridge",
+		"env": map[string]string{
+			"HUB_URL":   hubURL,
+			"HUB_TOKEN": token,
+		},
+	}
+	cfg["mcpServers"] = servers
+
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(projectPath, body, 0o600)
 }
 
 // writeGeminiMCPConfig emits gemini-cli's JSON form at

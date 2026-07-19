@@ -69,7 +69,7 @@ func TestIdleDetector_ResetOnChange(t *testing.T) {
 	_ = st
 }
 
-// All five registered engine families must short-circuit idle
+// All registered engine families must short-circuit idle
 // detection — they emit their own busy/idle signals via lifecycle /
 // turn.result / completion events, and the regex-based pane scrape
 // would false-positive on their always-on TUI prompt (the W11 smoke
@@ -77,7 +77,8 @@ func TestIdleDetector_ResetOnChange(t *testing.T) {
 // antigravity despite it behaving normally).
 func TestHasStructuredDriver_KnownEnginesSkipped(t *testing.T) {
 	for _, kind := range []string{
-		"claude-code", "codex", "gemini-cli", "kimi-code", "antigravity",
+		"claude-code", "codex", "gemini-cli", "kimi-code", "kimi-code-ts",
+		"antigravity",
 	} {
 		if !hasStructuredDriver(kind) {
 			t.Errorf("hasStructuredDriver(%q) = false; want true (registered family)", kind)

@@ -534,6 +534,9 @@ export function TerminalPanel(): JSX.Element {
                 <button className="term-tab-pick" title={tab.title} onClick={() => focusSession(tab.id)}>
                   <span className={`term-tab-kind ${tab.kind}`} />
                   {tab.title}
+                  {tab.unread === true && tab.id !== activeId && (
+                    <span className="term-tab-unread" title={t('term.unread')} aria-label={t('term.unread')} />
+                  )}
                 </button>
                 <button className="term-tab-x" title={t('term.closeTab')} onClick={() => void close(tab.id)}>
                   <Icon name="close" size={13} />

@@ -691,6 +691,14 @@
   background: var(--bg);
   border-color: var(--border);
 }
+/* Unread-activity dot: a background tab produced output while unfocused (#319). */
+.term-tab-unread {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
 .term-tab-pick {
   display: flex;
   align-items: center;

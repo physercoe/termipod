@@ -25,6 +25,9 @@ export interface TermTab {
   /** For SSH tabs, the saved-connection id this session came from — lets a dead
    *  session offer one-click reconnect (#319). Undefined for ad-hoc/local. */
   connId?: string;
+  /** Set when the session emitted output while this tab was NOT active — drives an
+   *  unread-activity dot on the tab, cleared when the tab is focused (#319). */
+  unread?: boolean;
 }
 
 /** Where the dock (non-Terminal-surface mode) attaches. Persisted. */
@@ -54,6 +57,8 @@ interface TerminalState {
    *  tab's UI id + position so its <Screen> stays mounted and just rebinds. */
   replaceSession: (id: string, sessionId: string, shell?: string) => void;
   setActive: (id: string) => void;
+  /** Flag a background tab as having new output (no-op for the active tab). */
+  markActivity: (id: string) => void;
   rename: (id: string, title: string) => void;
 }
 
@@ -95,6 +100,20 @@ export const useTerminals = create<TerminalState>((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, sessionId, shell: shell ?? t.shell } : t)),
     })),
-  setActive: (id) => set({ activeId: id }),
+  // Focusing a tab clears its unread flag.
+  setActive: (id) =>
+    set((s) => ({
+      activeId: id,
+      tabs: s.tabs.map((t) => (t.id === id && t.unread === true ? { ...t, unread: false } : t)),
+    })),
+  markActivity: (id) =>
+    set((s) => {
+      // The visible tab is never "unread"; skip the map when nothing changes so
+      // a chatty session doesn't churn the store on every byte.
+      if (s.activeId === id) return s;
+      const tab = s.tabs.find((t) => t.id === id);
+      if (tab === undefined || tab.unread === true) return s;
+      return { tabs: s.tabs.map((t) => (t.id === id ? { ...t, unread: true } : t)) };
+    }),
   rename: (id, title) => set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, title } : t)) })),
 }));

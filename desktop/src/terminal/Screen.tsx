@@ -45,6 +45,8 @@ interface Props {
   sessionId: string;
   /** Offer a Reconnect affordance when the session dies (#319). */
   onReconnect?: () => void;
+  /** Called when the session emits output — drives the tab unread dot (#319). */
+  onActivity?: () => void;
 }
 
 /// A live xterm.js screen bound to one session (SSH or local), with the fit +
@@ -59,9 +61,13 @@ interface Props {
 /// toolbar stealing vertical space. Find rides a floating bar toggled with
 /// Ctrl/Cmd+F (VS Code idiom). (Command-block tracking was removed in v0.3.49 —
 /// the OSC-133 integration was unreliable.)
-export function Screen({ kind, sessionId, onReconnect }: Props): JSX.Element {
+export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX.Element {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
+  // Latest onActivity, read from inside the session effect without adding it to
+  // the effect deps (which key on sessionId alone — see the effect note).
+  const onActivityRef = useRef(onActivity);
+  onActivityRef.current = onActivity;
   const termRef = useRef<XTerm | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
@@ -276,7 +282,10 @@ export function Screen({ kind, sessionId, onReconnect }: Props): JSX.Element {
     });
     ro.observe(el);
 
-    const unlistenP = onSessionData(kind, sessionId, (b) => term.write(b));
+    const unlistenP = onSessionData(kind, sessionId, (b) => {
+      term.write(b);
+      onActivityRef.current?.();
+    });
     const exitP = onSessionExit(kind, sessionId, (code) => {
       if (disposed) return;
       const tag = code === null ? '[process exited]' : `[process exited: ${code}]`;

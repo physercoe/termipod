@@ -693,10 +693,51 @@
   overflow: auto;
   background: #fff;
 }
-/* epub.js paints stored highlights as SVG rects in its annotation layer; make
-   them obviously clickable (click → Remove in the toolbar). Fill is set inline. */
+/* epub.js paints stored annotations as SVG in its annotation layer; make them
+   obviously clickable (click → the editor strip). Fill/stroke is set inline. */
 .termipod-epub-hl {
   cursor: pointer;
+}
+/* EPUB annotation tools: the color-swatch palette shown on a live selection, plus
+   the click-an-annotation editor strip (recolor / note / remove). */
+.epub-anno-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.epub-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: none;
+}
+.epub-swatch:hover {
+  transform: scale(1.12);
+  box-shadow: none;
+}
+.epub-swatch.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.epub-anno-editor {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken, var(--surface));
+}
+.epub-anno-colors {
+  display: inline-flex;
+  gap: 3px;
+}
+.epub-anno-comment {
+  flex: 1;
+  min-width: 0;
 }
 /* Loading / error placeholder centred over the (hidden) host. */
 .epub-state {

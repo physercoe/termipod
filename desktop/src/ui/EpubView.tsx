@@ -5,7 +5,7 @@ import { openExternal } from '../platform';
 import { Icon } from './Icon';
 import { ResizeHandle, usePanelWidth } from './ResizeHandle';
 import { EPUB_THEMES, epubThemeCss, type EpubTheme } from './epubThemes';
-import { ANNOTATION_COLORS, useAnnotations } from '../state/annotations';
+import { ANNOTATION_COLORS, useAnnotations, type Annotation } from '../state/annotations';
 
 /// Offline EPUB reader for the Read surface. EPUB is a ZIP of XHTML; epub.js
 /// parses and renders it fully client-side (no network), so it works in the
@@ -35,6 +35,25 @@ function loadTheme(): EpubTheme {
 // rewrite it per section instead of stacking styles.
 const THEME_STYLE_MARK = 'epub-theme';
 
+// The CFI-anchored annotation kinds epub.js can paint (text-anchored, reflow-safe).
+// Freeform kinds (image/ink) are pixel geometry and don't survive re-typeset, so
+// they stay on the PDF path — an EPUB annotation is highlight/underline/note.
+type EpubAnnoType = 'highlight' | 'underline';
+function epubType(a: Annotation): EpubAnnoType {
+  return a.type === 'underline' ? 'underline' : 'highlight';
+}
+// A signature that changes when anything the painted layer depends on changes, so
+// the reconcile re-paints on a recolor / type switch — not just add/remove.
+function annoSig(a: Annotation): string {
+  return `${epubType(a)}:${a.color ?? ''}`;
+}
+function annoStyles(a: Annotation): Record<string, string> {
+  const color = a.color ?? ANNOTATION_COLORS[0];
+  return epubType(a) === 'underline'
+    ? { stroke: color, 'stroke-width': '2', 'stroke-opacity': '0.9' }
+    : { fill: color, 'fill-opacity': '0.35', 'mix-blend-mode': 'multiply' };
+}
+
 export function EpubView({
   data,
   referenceId,
@@ -59,15 +78,17 @@ export function EpubView({
   const [activeHl, setActiveHl] = useState<string | null>(null);
   const annos = useAnnotations((s) => s.items);
   const addAnno = useAnnotations((s) => s.add);
+  const updateAnno = useAnnotations((s) => s.update);
   const removeAnno = useAnnotations((s) => s.remove);
-  // This reference's CFI-anchored highlights (the reflowable annotation set).
+  // This reference's CFI-anchored annotations (the reflowable set).
   const myHls = useMemo(
     () => annos.filter((a) => a.referenceId === referenceId && a.position.cfi !== undefined),
     [annos, referenceId],
   );
-  // What is currently painted on the epub.js annotation layer: cfi → annotation id.
-  // Reconciled against `myHls`; reset when the rendition is torn down.
-  const appliedRef = useRef<Map<string, string>>(new Map());
+  // What is currently painted on the epub.js annotation layer, keyed by CFI, with
+  // the epub.js type (needed to remove it) and a signature (to detect recolors /
+  // type switches). Reconciled against `myHls`; reset when the rendition is torn down.
+  const appliedRef = useRef<Map<string, { etype: EpubAnnoType; sig: string }>>(new Map());
   // Loading / error lifecycle: a corrupt or unparseable EPUB used to hang on a
   // blank host with no feedback; surface both states explicitly.
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -262,48 +283,46 @@ export function EpubView({
     };
   }, [data]);
 
-  // Reconcile the epub.js annotation layer with the stored highlights: paint any
-  // that aren't yet on the layer, drop any that were removed. epub.js re-paints
-  // each highlight when its section (re)renders, so this only runs on set changes.
+  // Reconcile the epub.js annotation layer with the stored set: paint new ones,
+  // re-paint recolored / retyped ones, drop removed ones. epub.js re-paints each
+  // annotation when its section (re)renders, so this only runs on set changes.
   useEffect(() => {
     const r = rendition.current;
     if (r === null || status !== 'ready') return;
     const applied = appliedRef.current;
-    for (const a of myHls) {
-      const cfi = a.position.cfi;
-      if (cfi === undefined || applied.has(cfi)) continue;
+    const wanted = new Map<string, Annotation>();
+    for (const a of myHls) if (a.position.cfi !== undefined) wanted.set(a.position.cfi, a);
+    // Remove stale or changed (a changed sig is removed here, re-added below).
+    for (const [cfi, rec] of [...applied]) {
+      const a = wanted.get(cfi);
+      if (a !== undefined && annoSig(a) === rec.sig) continue;
       try {
-        r.annotations.add(
-          'highlight',
-          cfi,
-          {},
-          () => setActiveHl(a.id), // click a highlight → offer Remove in the toolbar
-          'termipod-epub-hl',
-          { fill: a.color ?? ANNOTATION_COLORS[0], 'fill-opacity': '0.35', 'mix-blend-mode': 'multiply' },
-        );
-        applied.set(cfi, a.id);
-      } catch {
-        /* unparseable/stale CFI (book changed) — skip */
-      }
-    }
-    for (const [cfi] of applied) {
-      if (myHls.some((a) => a.position.cfi === cfi)) continue;
-      try {
-        r.annotations.remove(cfi, 'highlight');
+        r.annotations.remove(cfi, rec.etype);
       } catch {
         /* already gone */
       }
       applied.delete(cfi);
     }
+    // Add new / re-add changed.
+    for (const [cfi, a] of wanted) {
+      if (applied.has(cfi)) continue;
+      const etype = epubType(a);
+      try {
+        r.annotations.add(etype, cfi, {}, () => setActiveHl(a.id), 'termipod-epub-hl', annoStyles(a));
+        applied.set(cfi, { etype, sig: annoSig(a) });
+      } catch {
+        /* unparseable/stale CFI (book changed) — skip */
+      }
+    }
   }, [myHls, status]);
 
-  // Turn the live selection into a stored highlight (default palette color).
-  function highlightSelection(): void {
+  // Turn the live selection into a stored annotation of the given kind + color.
+  function createAnno(type: 'highlight' | 'underline', color: string): void {
     if (referenceId === undefined || selCfi === '') return;
     addAnno({
       referenceId,
-      type: 'highlight',
-      color: ANNOTATION_COLORS[0],
+      type,
+      color,
       pageIndex: 0,
       text: sel,
       position: { pageIndex: 0, cfi: selCfi },
@@ -312,6 +331,9 @@ export function EpubView({
     setSel('');
     setSelCfi('');
   }
+
+  // The annotation the reader last clicked (for the recolor / note / remove editor).
+  const active = activeHl !== null ? annos.find((a) => a.id === activeHl) : undefined;
 
   // Reactively apply font-size changes to the live rendition and persist.
   useEffect(() => {
@@ -409,22 +431,27 @@ export function EpubView({
           </span>
         )}
         <span className="spacer" />
-        {activeHl !== null && (
-          <button
-            className="small danger"
-            title={t('read.epubRemoveHl')}
-            onClick={() => {
-              removeAnno(activeHl);
-              setActiveHl(null);
-            }}
-          >
-            <Icon name="trash" size={14} /> {t('read.epubRemoveHl')}
-          </button>
-        )}
         {referenceId !== undefined && sel !== '' && selCfi !== '' && (
-          <button className="small" title={t('read.epubHighlight')} onClick={highlightSelection}>
-            <Icon name="highlight" size={14} /> {t('read.epubHighlight')}
-          </button>
+          <span className="epub-anno-tools" role="group" aria-label={t('read.epubHighlight')}>
+            {ANNOTATION_COLORS.map((c) => (
+              <button
+                key={c}
+                className="epub-swatch"
+                style={{ background: c }}
+                title={t('read.epubHighlight')}
+                aria-label={`${t('read.epubHighlight')} ${c}`}
+                onClick={() => createAnno('highlight', c)}
+              />
+            ))}
+            <button
+              className="small epub-anno-underline"
+              title={t('read.epubUnderline')}
+              aria-label={t('read.epubUnderline')}
+              onClick={() => createAnno('underline', ANNOTATION_COLORS[0])}
+            >
+              <Icon name="underline" size={14} />
+            </button>
+          </span>
         )}
         {onSaveSelection !== undefined && sel !== '' && (
           <button
@@ -439,6 +466,42 @@ export function EpubView({
           </button>
         )}
       </div>
+      {active !== undefined && (
+        // Editor for the clicked annotation: recolor, attach a note, or remove.
+        <div className="epub-anno-editor">
+          <span className="epub-anno-colors">
+            {ANNOTATION_COLORS.map((c) => (
+              <button
+                key={c}
+                className={`epub-swatch${(active.color ?? ANNOTATION_COLORS[0]) === c ? ' active' : ''}`}
+                style={{ background: c }}
+                aria-label={c}
+                onClick={() => updateAnno(active.id, { color: c })}
+              />
+            ))}
+          </span>
+          <input
+            className="epub-anno-comment"
+            placeholder={t('read.epubNotePlaceholder')}
+            value={active.comment ?? ''}
+            onChange={(e) => updateAnno(active.id, { comment: e.target.value })}
+          />
+          <button
+            className="small danger"
+            title={t('read.epubRemoveHl')}
+            aria-label={t('read.epubRemoveHl')}
+            onClick={() => {
+              removeAnno(active.id);
+              setActiveHl(null);
+            }}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+          <button className="small" title={t('common.close')} aria-label={t('common.close')} onClick={() => setActiveHl(null)}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
       <div className="epub-body">
         {showToc && (
           <>

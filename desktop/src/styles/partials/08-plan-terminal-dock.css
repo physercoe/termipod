@@ -927,3 +927,34 @@
   background: var(--hover);
   color: var(--text);
 }
+/* Terminal right-click menu (#319) — reuses .term-nav-ctxmenu positioning. */
+.term-ctxmenu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-menu) - 1);
+}
+.term-nav-ctxmenu button[role='menuitem'] {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 5px 8px;
+  font-size: var(--font-size-caption);
+  text-align: left;
+  white-space: nowrap;
+  border-radius: var(--radius-xs);
+}
+.term-nav-ctxmenu button[role='menuitem']:hover:not(:disabled) {
+  background: var(--hover);
+}
+.term-nav-ctxmenu button[role='menuitem']:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+.term-find-count {
+  flex: 0 0 auto;
+  padding: 0 var(--spacing-s4);
+  font-variant-numeric: tabular-nums;
+}

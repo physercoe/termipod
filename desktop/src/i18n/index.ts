@@ -738,6 +738,11 @@ const en: Dict = {
   'term.dockBottom': 'Dock to the bottom',
   'term.emptyHint': 'No open terminals. Start a local shell or connect over SSH.',
   'term.search': 'Search',
+  'term.noMatches': 'No matches',
+  'term.copy': 'Copy',
+  'term.paste': 'Paste',
+  'term.selectAll': 'Select all',
+  'term.clear': 'Clear',
   'term.searchPrev': 'Previous match',
   'term.searchNext': 'Next match',
 
@@ -1887,6 +1892,11 @@ const zh: Dict = {
   'term.dockBottom': '停靠到底部',
   'term.emptyHint': '暂无打开的终端。启动本地 shell 或通过 SSH 连接。',
   'term.search': '搜索',
+  'term.noMatches': '无匹配',
+  'term.copy': '复制',
+  'term.paste': '粘贴',
+  'term.selectAll': '全选',
+  'term.clear': '清屏',
   'term.searchPrev': '上一个匹配',
   'term.searchNext': '下一个匹配',
 

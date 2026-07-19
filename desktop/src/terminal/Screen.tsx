@@ -1,10 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
+import { openExternal } from '../platform';
+
+// Persisted terminal font size (Ctrl/Cmd +/-/0 zoom, #319). Shared across all
+// screens so zoom is a global preference, clamped to a sane, legible range.
+const FONT_KEY = 'termipod.term.fontSize';
+const FONT_MIN = 8;
+const FONT_MAX = 28;
+const FONT_DEFAULT = 13;
+function loadFontSize(): number {
+  try {
+    const n = Number(localStorage.getItem(FONT_KEY));
+    if (Number.isFinite(n) && n >= FONT_MIN && n <= FONT_MAX) return n;
+  } catch {
+    /* ignore */
+  }
+  return FONT_DEFAULT;
+}
+function saveFontSize(n: number): void {
+  try {
+    localStorage.setItem(FONT_KEY, String(n));
+  } catch {
+    /* ignore */
+  }
+}
 import {
   onSessionData,
   onSessionExit,
@@ -39,6 +64,8 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
   const searchRef = useRef<SearchAddon | null>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
   const [showFind, setShowFind] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [matchInfo, setMatchInfo] = useState<{ index: number; count: number } | null>(null);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -52,10 +79,13 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
       // xterm's defaults so long sessions read cleanly.
       fontFamily:
         '"JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "SF Mono", ui-monospace, "Menlo", "Consolas", "DejaVu Sans Mono", monospace',
-      fontSize: 13,
+      fontSize: loadFontSize(),
       fontWeight: 400,
       fontWeightBold: 600,
       lineHeight: 1.25,
+      // 10k lines of scrollback (xterm default is 1000) — long build logs and
+      // agent transcripts scroll back much further before the head is dropped.
+      scrollback: 10000,
       // letterSpacing MUST stay an integer. xterm's DOM renderer applies the raw
       // value as real CSS `letter-spacing` per character, but computes the layout
       // cell width with `Math.round(letterSpacing)`. A fractional value (e.g. 0.2)
@@ -76,13 +106,43 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
     const search = new SearchAddon();
     term.loadAddon(fit);
     term.loadAddon(search);
+    // Live match count for the find bar ("3 / 17"); resultIndex is -1 when there
+    // are no matches.
+    search.onDidChangeResults(({ resultIndex, resultCount }) => {
+      if (!disposed) setMatchInfo(resultCount > 0 ? { index: resultIndex + 1, count: resultCount } : { index: 0, count: 0 });
+    });
+    // Clickable URLs — opened in the OS browser (never the app webview, which
+    // would strand the single-page shell), matching openExternal everywhere else.
+    term.loadAddon(new WebLinksAddon((_e, uri) => openExternal(uri)));
     term.open(el);
+    // Apply the current font size (Ctrl/Cmd +/-/0), refit, and persist.
+    const zoom = (next: number): void => {
+      const size = Math.max(FONT_MIN, Math.min(FONT_MAX, next));
+      if (size === term.options.fontSize) return;
+      term.options.fontSize = size;
+      saveFontSize(size);
+      applyFit(true);
+    };
     // Ctrl/Cmd+F opens the floating find bar (VS Code terminal idiom) instead of
-    // passing to the shell's readline forward-char. Returning false stops xterm
-    // from forwarding the key to the pty.
+    // passing to the shell's readline forward-char. Ctrl/Cmd +/-/0 zoom the font.
+    // Returning false stops xterm from forwarding the key to the pty.
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') {
+      if (e.type !== 'keydown') return true;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.altKey && e.key.toLowerCase() === 'f') {
         if (!disposed) setShowFind(true);
+        return false;
+      }
+      if (mod && !e.altKey && (e.key === '=' || e.key === '+')) {
+        zoom((term.options.fontSize ?? FONT_DEFAULT) + 1);
+        return false;
+      }
+      if (mod && !e.altKey && (e.key === '-' || e.key === '_')) {
+        zoom((term.options.fontSize ?? FONT_DEFAULT) - 1);
+        return false;
+      }
+      if (mod && !e.altKey && e.key === '0') {
+        zoom(FONT_DEFAULT);
         return false;
       }
       return true;
@@ -246,6 +306,34 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
 
   function closeFind(): void {
     setShowFind(false);
+    setMatchInfo(null);
+    termRef.current?.focus();
+  }
+
+  // Right-click actions on the terminal screen (#319). Copy the selection, paste
+  // clipboard text into the pty, select the whole buffer, or clear scrollback.
+  function copySelection(): void {
+    const sel = termRef.current?.getSelection() ?? '';
+    if (sel !== '') void navigator.clipboard.writeText(sel).catch(() => {});
+    setMenu(null);
+  }
+  function pasteClipboard(): void {
+    void navigator.clipboard
+      .readText()
+      .then((text) => {
+        if (text !== '') void sessionWrite(kind, sessionId, text);
+      })
+      .catch(() => {});
+    setMenu(null);
+    termRef.current?.focus();
+  }
+  function selectAll(): void {
+    termRef.current?.selectAll();
+    setMenu(null);
+  }
+  function clearScreen(): void {
+    termRef.current?.clear();
+    setMenu(null);
     termRef.current?.focus();
   }
 
@@ -271,6 +359,11 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
               else if (e.key === 'Escape') closeFind();
             }}
           />
+          {matchInfo !== null && (
+            <span className="term-find-count muted small">
+              {matchInfo.count === 0 ? t('term.noMatches') : `${matchInfo.index}/${matchInfo.count}`}
+            </span>
+          )}
           <button className="term-find-btn" title={t('term.searchPrev')} onClick={() => runSearch(-1)}>
             <Icon name="chevron-up" size={14} />
           </button>
@@ -283,7 +376,34 @@ export function Screen({ kind, sessionId }: Props): JSX.Element {
         </div>
       )}
 
-      <div className="term-screen" ref={ref} />
+      <div
+        className="term-screen"
+        ref={ref}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
+      />
+
+      {menu !== null && (
+        <>
+          <div className="term-ctxmenu-backdrop" onMouseDown={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+          <div className="term-nav-ctxmenu" style={{ left: menu.x, top: menu.y }} role="menu">
+            <button role="menuitem" disabled={(termRef.current?.getSelection() ?? '') === ''} onClick={copySelection}>
+              {t('term.copy')}
+            </button>
+            <button role="menuitem" onClick={pasteClipboard}>
+              {t('term.paste')}
+            </button>
+            <button role="menuitem" onClick={selectAll}>
+              {t('term.selectAll')}
+            </button>
+            <button role="menuitem" onClick={clearScreen}>
+              {t('term.clear')}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

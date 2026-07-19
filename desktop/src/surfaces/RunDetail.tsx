@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Modal } from '../ui/Modal';
 import { useHubAction } from '../hub/action';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
@@ -155,8 +156,8 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
+    <>
+    <Modal onClose={onClose} className="sessions-panel" ariaLabel={t('run.title')}>
         <div className="admin-tabs">
           <strong>{t('run.title')}</strong>
           <label className="inline-select">
@@ -288,8 +289,8 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
             </section>
           )}
         </div>
-      </div>
-      {confirmNode}
-    </div>
+    </Modal>
+    {confirmNode}
+    </>
   );
 }

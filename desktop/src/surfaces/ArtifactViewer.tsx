@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
+import { Modal } from '../ui/Modal';
 import { PdfCanvas } from '../ui/PdfCanvas';
 import { chartFromJson, ChartView, type ChartData } from '../ui/ChartView';
 import {
@@ -271,21 +272,19 @@ export function ArtifactViewer({
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="artifact-view" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="admin-tabs">
-          <strong className="mono">{name || sha.slice(0, 12)}</strong>
-          <span className="muted small mono">{resolvedMime}</span>
-          <span className="spacer" />
-          {blobQ.data !== undefined && (
-            <a className="btn-like" href={dataUrl} download={name || sha}>
-              {t('artifact.download')}
-            </a>
-          )}
-          <button onClick={onClose}>{t('admin.close')}</button>
-        </div>
-        <div className="artifact-body">{body()}</div>
+    <Modal onClose={onClose} className="artifact-view" ariaLabel={name || sha.slice(0, 12)}>
+      <div className="admin-tabs">
+        <strong className="mono">{name || sha.slice(0, 12)}</strong>
+        <span className="muted small mono">{resolvedMime}</span>
+        <span className="spacer" />
+        {blobQ.data !== undefined && (
+          <a className="btn-like" href={dataUrl} download={name || sha}>
+            {t('artifact.download')}
+          </a>
+        )}
+        <button onClick={onClose}>{t('admin.close')}</button>
       </div>
-    </div>
+      <div className="artifact-body">{body()}</div>
+    </Modal>
   );
 }

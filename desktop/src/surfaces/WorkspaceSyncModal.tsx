@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
+import { Modal } from '../ui/Modal';
 import {
   getS3Secret,
   getWorkspaceSyncPassword,
@@ -115,8 +116,7 @@ export function WorkspaceSyncModal({
   const canSync = canAct && root !== null && !job.running;
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="webdav-modal" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="webdav-modal" ariaLabel={t('author.syncTitle')}>
         <div className="webdav-head">
           <Icon name="cloud" size={16} />
           <strong>{t('author.syncTitle')}</strong>
@@ -236,7 +236,6 @@ export function WorkspaceSyncModal({
           </button>
         </div>
         {job.running && <p className="muted small webdav-hint">{t('author.syncBackgroundHint')}</p>}
-      </div>
-    </div>
+    </Modal>
   );
 }

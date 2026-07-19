@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Modal } from '../ui/Modal';
 import { useHubAction } from '../hub/action';
 import { str } from '../hub/types';
 import { useT } from '../i18n';
@@ -44,8 +45,7 @@ export function ProjectCreate({
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="task-detail" ariaLabel={t('project.new')}>
         <div className="admin-tabs">
           <strong>{t('project.new')}</strong>
           <span className="spacer" />
@@ -88,7 +88,6 @@ export function ProjectCreate({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

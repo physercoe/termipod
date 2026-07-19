@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
+import { Modal } from './Modal';
 import {
   getWebdavPassword,
   getZoteroS3Secret,
@@ -109,8 +110,7 @@ export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
   const canSync = canAct && !job.running;
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="webdav-modal" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="webdav-modal" ariaLabel={t('read.webdavTitle')}>
         <div className="webdav-head">
           <Icon name="cloud" size={16} />
           <strong>{t('read.webdavTitle')}</strong>
@@ -230,7 +230,6 @@ export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
           </button>
         </div>
         {job.running && <p className="muted small webdav-hint">{t('author.syncBackgroundHint')}</p>}
-      </div>
-    </div>
+    </Modal>
   );
 }

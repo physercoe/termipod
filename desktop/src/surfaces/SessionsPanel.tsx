@@ -6,6 +6,7 @@ import { useSession } from '../state/session';
 import { useProjects } from '../hub/queries';
 import { RunReport } from '../ui/RunReport';
 import { Icon } from '../ui/Icon';
+import { Modal } from '../ui/Modal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { useFloatingBox, type Box } from '../ui/useFloatingBox';
 import { AgentTranscript } from './AgentTranscript';
@@ -377,28 +378,27 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
         <div className="fp-resize fp-se" onPointerDown={startResize('se')} />
       </div>
       {renaming !== null && (
-        <div className="palette-backdrop" onMouseDown={() => setRenaming(null)}>
-          <div className="rename-modal" onMouseDown={(e) => e.stopPropagation()}>
-            <strong>{t('sessions.renameTitle')}</strong>
-            <input
-              autoFocus
-              value={renaming.value}
-              placeholder={t('sessions.untitled')}
-              onChange={(e) => setRenaming({ id: renaming.id, value: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void saveRename();
-                if (e.key === 'Escape') setRenaming(null);
-              }}
-            />
-            {renameErr !== null && <div className="error small">{renameErr}</div>}
-            <div className="rename-actions">
-              <button onClick={() => setRenaming(null)}>{t('common.cancel')}</button>
-              <button className="primary" disabled={renameBusy} onClick={() => void saveRename()}>
-                {t('sessions.save')}
-              </button>
-            </div>
+        <Modal onClose={() => setRenaming(null)} className="rename-modal" ariaLabel={t('sessions.renameTitle')}>
+          <strong>{t('sessions.renameTitle')}</strong>
+          <input
+            autoFocus
+            value={renaming.value}
+            placeholder={t('sessions.untitled')}
+            onChange={(e) => setRenaming({ id: renaming.id, value: e.target.value })}
+            onKeyDown={(e) => {
+              // Enter saves; Escape is handled by the Modal (which stopPropagates
+              // it, so it no longer also closes the whole Sessions panel).
+              if (e.key === 'Enter') void saveRename();
+            }}
+          />
+          {renameErr !== null && <div className="error small">{renameErr}</div>}
+          <div className="rename-actions">
+            <button onClick={() => setRenaming(null)}>{t('common.cancel')}</button>
+            <button className="primary" disabled={renameBusy} onClick={() => void saveRename()}>
+              {t('sessions.save')}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

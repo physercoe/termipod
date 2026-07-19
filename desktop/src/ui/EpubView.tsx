@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ePub, { type Rendition, type Contents, type NavItem, type Location } from 'epubjs';
 import { useT } from '../i18n';
+import { openExternal } from '../platform';
 import { Icon } from './Icon';
 import { ResizeHandle, usePanelWidth } from './ResizeHandle';
 import { EPUB_THEMES, epubThemeCss, type EpubTheme } from './epubThemes';
@@ -134,6 +135,40 @@ export function EpubView({
             if (/^(DIV|SECTION|ARTICLE|MAIN|HEADER|FOOTER)$/.test(c.tagName)) clear(c as HTMLElement);
           });
         }
+
+        // Link handling. epub.js's own handling is broken for us on both fronts:
+        // external links get target="_blank", which the sandboxed iframe (no
+        // allow-popups) silently drops; internal links route through
+        // book.path.relative(href), and book.path is unresolved for a book loaded
+        // from a raw ArrayBuffer (our case), so display() gets a bad path. Take
+        // over with ONE delegated capture-phase listener per section document —
+        // capture + stopPropagation runs before (and preempts) epub.js's own
+        // link.onclick in the target phase.
+        doc.addEventListener(
+          'click',
+          (e) => {
+            const anchor = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+            if (anchor === null || anchor === undefined) return;
+            const href = anchor.getAttribute('href') ?? '';
+            if (href === '') return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (/^(https?:)?\/\//i.test(href) || /^mailto:/i.test(href)) {
+              openExternal(href); // out to the OS browser, never the reader iframe
+            } else if (href.startsWith('#')) {
+              // Same-section anchor (footnote / cross-ref): scroll within the doc.
+              const id = href.slice(1);
+              const target =
+                doc.getElementById(id) ?? doc.querySelector(`[name="${CSS.escape(id)}"]`);
+              target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+              // Cross-section link — hand the RAW href to display(), which resolves
+              // it against the spine (more reliable than epub.js's relative path).
+              void rendition.current?.display(href).catch(() => undefined);
+            }
+          },
+          true,
+        );
       } catch {
         /* section torn down / cross-origin — ignore */
       }

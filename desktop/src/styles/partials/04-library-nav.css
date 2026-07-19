@@ -133,7 +133,7 @@
 }
 .read-tag.active {
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent-line);
 }
 
@@ -225,14 +225,14 @@
 }
 .ref-tab.active {
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 /* Always-visible attachment affordance in the inspector header. */
 .ref-pdf-btn {
   border: 1px solid var(--accent);
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
   border-radius: var(--radius-sm);
   padding: var(--spacing-s2) var(--spacing-s8);
   font-size: var(--font-size-label);
@@ -314,7 +314,7 @@
   font-size: var(--font-size-label);
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: var(--accent);
+  color: var(--accent-text);
   margin-right: 6px;
 }
 .ref-pdf {
@@ -380,7 +380,7 @@
 }
 .ref-scrape-btn:hover:not(:disabled) {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .ref-scrape-btn:disabled {
   opacity: 0.6;
@@ -389,7 +389,7 @@
 .discover-addid {
   border: 1px solid var(--accent);
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
   border-radius: var(--radius-sm);
   padding: var(--spacing-s4) var(--spacing-s12);
   font-weight: 600;
@@ -449,7 +449,7 @@
   padding: var(--spacing-s2) var(--spacing-s8);
   border-radius: 999px;
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .ref-meta-sec {
   display: flex;
@@ -469,7 +469,7 @@
   border-bottom: 1px solid var(--border);
 }
 .ref-reslink:hover {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .ref-reslink-host {
   font-weight: 600;
@@ -506,7 +506,7 @@
   line-height: 1.4;
 }
 .ref-work-title:hover:not(:disabled) {
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: underline;
 }
 .ref-work-title:disabled {
@@ -799,7 +799,7 @@ button.small,
   padding: 2px var(--spacing-s8);
   border-radius: var(--radius-sm);
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: var(--font-size-label);
   font-family: var(--mono, ui-monospace, monospace);
 }

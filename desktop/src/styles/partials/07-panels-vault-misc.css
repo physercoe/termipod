@@ -404,11 +404,11 @@ button.search-result-link:hover {
 .context-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--z-overlay);
 }
 .context-menu {
   position: fixed;
-  z-index: 41;
+  z-index: calc(var(--z-overlay) + 1);
   min-width: 140px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -524,7 +524,7 @@ button.search-result-link:hover {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  z-index: 40;
+  z-index: var(--z-overlay);
   min-width: 260px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -688,7 +688,7 @@ button.search-result-link:hover {
    * z-index:1, or the PDF context menu, z-index:50) forms its own stacking
    * context and paints *above* an auto backdrop regardless of tree order, so
    * that row bleeds through the modal and steals its wheel/pointer events. */
-  z-index: 200;
+  z-index: var(--z-menu);
   background: rgba(6, 8, 12, 0.55);
   backdrop-filter: blur(3px) saturate(0.9);
   display: flex;

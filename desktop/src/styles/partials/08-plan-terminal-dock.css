@@ -34,7 +34,7 @@
   display: block;
   width: 100%;
   height: 48px;
-  color: var(--accent);
+  color: var(--accent-text);
   stroke: var(--accent);
 }
 .run-image-tile {
@@ -272,7 +272,7 @@
   background: var(--surface);
 }
 .sftp-transfer-head { display: flex; align-items: center; gap: var(--spacing-s8); min-width: 0; }
-.sftp-transfer-dir { color: var(--accent); flex: 0 0 auto; }
+.sftp-transfer-dir { color: var(--accent-text); flex: 0 0 auto; }
 .sftp-transfer-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -513,7 +513,7 @@
 /* Nav right-click menu — shares the read-ctxmenu item look. */
 .term-nav-ctxmenu {
   position: fixed;
-  z-index: 200;
+  z-index: var(--z-menu);
   min-width: 180px;
   max-height: 60vh;
   overflow-y: auto;
@@ -588,7 +588,7 @@
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  z-index: 30;
+  z-index: var(--z-nav);
   min-width: 168px;
   display: flex;
   flex-direction: column;
@@ -642,7 +642,7 @@
 }
 .term-split-ctl button.active {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .term-dock-resize {
   position: absolute;
@@ -723,7 +723,7 @@
 .term-dock-side:hover { color: var(--text); }
 .term-dock-add button.active {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 /* The pane area — a flex box whose direction is the split orientation. Every
    session's pane is a child; hidden ones are display:none (never unmounted), so
@@ -759,7 +759,7 @@
   border-top: 1px solid var(--border);
 }
 .term-pane.focused .term-pane-head {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .term-pane-head {
   display: flex;

@@ -22,7 +22,7 @@
   border-radius: var(--radius-md);
 }
 .ev--user .ev-from {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .ev-body {
   flex: 1;
@@ -201,7 +201,7 @@
 .md-link {
   /* Route through the semantic accent so it tracks the theme (raw
      --color-primary is the bright dark-mode cyan → ≈1.9:1 on a light bg). */
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: underline;
   /* Rendered as a <button> so a click opens the OS browser (never navigates the
      SPA), but it must read like inline link text. */
@@ -540,7 +540,7 @@
 }
 .card-kind {
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: var(--font-size-caption);
 }
 .card-summary {

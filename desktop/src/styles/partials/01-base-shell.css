@@ -29,6 +29,12 @@
   --accent: var(--color-primary);
   --accent-strong: var(--color-primary-dark);
   --accent-ink: #00252b;
+  /* accent used as TEXT — on dark surfaces the bright accent already clears AA,
+   * so it's the accent itself; the light theme overrides it to a darker teal
+   * (see below) because the light accent as text is only ~2.9:1 on white. Route
+   * accent-coloured text through this, NOT --accent (which is tuned for fills,
+   * borders and focus rings). */
+  --accent-text: var(--accent);
   --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
   /* semantic state — distinct from the accent hue */
@@ -42,6 +48,14 @@
   --sh-2: 0 6px 20px rgba(0, 0, 0, 0.38);
   --sh-3: 0 20px 48px rgba(0, 0, 0, 0.58), 0 2px 8px rgba(0, 0, 0, 0.45);
   --glow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  /* Stacking scale — the global overlay layers, so z-index isn't a scatter of
+   * bare magic numbers (#318). Intra-component z-indexes (a sticky row above its
+   * siblings) stay local; these name the app-wide layers only. Values match what
+   * the sheet already used, so introducing the scale reorders nothing. */
+  --z-nav: 30;
+  --z-overlay: 40;   /* backdrops + nav-anchored dropdowns */
+  --z-menu: 200;     /* floating context menus / command palette */
+  --z-toast: 400;    /* transient notifications — above everything */
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   /* Coding font — the transcript's code/tool/JSON blocks reference --font-mono
    * (which was previously undefined, so they fell back to a plain system
@@ -73,6 +87,9 @@
   /* Dark ink on the solid accent fill — white was only 3.39:1 on the light
    * accent; dark ink is ≈5:1 (mirrors the dark theme's dark-on-accent ink). */
   --accent-ink: #00252b;
+  /* Accent-as-text darkened for AA: the light accent (#009AA8) is ~2.9:1 on
+   * white; this teal is ~5:1, so links/labels/active tabs stay readable. */
+  --accent-text: #007a8a;
   --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 40%, transparent);
   --ok: var(--color-success-on-light);
@@ -250,7 +267,7 @@ pre {
 }
 .statusbar-term:hover,
 .statusbar-term.active {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* Background-sync indicator (Author workspace + Read/Zotero library jobs). Shown
@@ -260,7 +277,7 @@ pre {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-s4);
-  color: var(--accent);
+  color: var(--accent-text);
   font: inherit;
 }
 .statusbar-sync .ui-icon {
@@ -321,7 +338,7 @@ pre {
   align-items: center;
   gap: 2px;
   padding: 1px 6px 1px 3px;
-  color: var(--accent);
+  color: var(--accent-text);
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -331,7 +348,7 @@ pre {
 }
 .focus-back:hover {
   background: var(--surface);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .focus-header-title {
   min-width: 0;
@@ -356,7 +373,7 @@ pre {
   background: var(--surface);
 }
 .nav-fold-btn.active {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* Agents/Hosts and Projects/Workspaces subtab bar at the top of a nav. */

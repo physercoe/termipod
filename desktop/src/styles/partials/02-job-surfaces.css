@@ -34,7 +34,7 @@
 }
 .activity-tab.active {
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent-line);
 }
 .activity-icon {
@@ -67,7 +67,7 @@
   height: 30px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: var(--font-size-body);
 }
 /* Compact the relocated hub chrome to fit the 68px rail: full-width controls,
@@ -193,7 +193,7 @@ button > .ui-icon:not(:only-child):first-child,
 .surface-icon {
   display: flex;
   align-items: center;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .surface-titles {
   min-width: 0;
@@ -208,7 +208,7 @@ button > .ui-icon:not(:only-child):first-child,
 .surface-tag {
   font-size: var(--font-size-label);
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-tint);
   border-radius: var(--radius-xs);
   padding: 1px 6px;
@@ -239,7 +239,7 @@ button > .ui-icon:not(:only-child):first-child,
   font-size: var(--font-size-label);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--accent);
+  color: var(--accent-text);
   margin-bottom: var(--spacing-s12);
 }
 .surface-todo {
@@ -535,7 +535,7 @@ button > .ui-icon:not(:only-child):first-child,
   fill: var(--text);
 }
 .milkdown-host .milkdown .milkdown-toolbar .toolbar-item.active svg {
-  color: var(--accent);
+  color: var(--accent-text);
   fill: var(--accent);
 }
 .ref-notes-preview {

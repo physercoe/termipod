@@ -58,7 +58,7 @@
 }
 .settings-cat.active {
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .settings-content {
   flex: 1;
@@ -881,7 +881,7 @@ th {
   color: var(--text-secondary);
 }
 .feed-verbose.active {
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent-line);
   background: var(--accent-tint);
 }

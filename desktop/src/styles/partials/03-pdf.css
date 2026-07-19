@@ -82,7 +82,7 @@
   cursor: pointer;
 }
 .read-pane-expand:hover {
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--raised);
 }
 .ref-inspector-empty-wrap {
@@ -192,12 +192,12 @@
 }
 .pdfjs-zoom:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .pdfjs-zoom.active {
   border-color: var(--accent);
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .pdfjs-pagenav {
   display: flex;
@@ -250,7 +250,7 @@
   cursor: pointer;
 }
 .pdfjs-panel-tabs button.active {
-  color: var(--accent);
+  color: var(--accent-text);
   border-bottom-color: var(--accent);
 }
 .pdfjs-panel-body {
@@ -290,7 +290,7 @@
   color: var(--text-muted);
 }
 .pdfjs-thumb.active .pdfjs-thumb-n {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .pdfjs-toc-list {
   list-style: none;
@@ -314,7 +314,7 @@
 }
 .pdfjs-toc-item:hover:not(:disabled) {
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .pdfjs-toc-item:disabled {
   color: var(--text-muted);
@@ -617,7 +617,7 @@
 }
 .pdfjs-anno-done {
   padding: var(--spacing-s2) var(--spacing-s12);
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-tint);
   border: 1px solid var(--accent-line);
   border-radius: var(--radius-sm);
@@ -755,7 +755,7 @@
   background: var(--accent-tint);
 }
 .pdfjs-ctx-item.active {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .pdfjs-ctx-sep {
   height: 1px;
@@ -767,7 +767,7 @@
    Shares the look of the PDF context menu. */
 .read-ctxmenu {
   position: fixed;
-  z-index: 200;
+  z-index: var(--z-menu);
   min-width: 190px;
   padding: var(--spacing-s4);
   background: var(--raised);
@@ -837,7 +837,7 @@
   cursor: pointer;
 }
 .discover-src.active {
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-tint);
   border-color: var(--accent-line);
 }
@@ -894,7 +894,7 @@
   border-color: var(--accent-line);
 }
 .import-btn.attn {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* Reader / browser tab strip — sits above the tab content; the "Library" pseudo
@@ -983,7 +983,7 @@
   white-space: nowrap;
 }
 .read-table thead th.sorted {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .read-th-arrow {
   font-size: 0.7em;
@@ -1028,7 +1028,7 @@
 }
 .read-pdf-dot {
   margin-right: var(--spacing-s4);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .read-pdf-dot:hover {
   color: var(--accent-strong);

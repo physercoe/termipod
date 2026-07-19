@@ -108,7 +108,7 @@
   cursor: grabbing;
 }
 .canvas-card-kind {
-  color: var(--accent);
+  color: var(--accent-text);
   flex: 0 0 auto;
 }
 .canvas-card-title {
@@ -237,7 +237,7 @@
 .canvas-link-type {
   flex: 0 0 auto;
   font-size: var(--font-size-label);
-  color: var(--accent);
+  color: var(--accent-text);
   font-family: var(--mono, ui-monospace, monospace);
 }
 .canvas-link-target {
@@ -542,7 +542,7 @@
   padding: 2px;
 }
 .att-reveal:hover {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .att-actions {
   display: flex;
@@ -680,7 +680,7 @@
 }
 /* Background workspace-sync in progress — the cloud/refresh glyph spins. */
 .author-nav-icon.syncing {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .author-nav-icon.syncing .ui-icon {
   animation: author-sync-spin 1s linear infinite;
@@ -881,7 +881,7 @@
   color: var(--danger);
 }
 .icon-btn.fav-on {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .icon-btn.fav-on .ui-icon {
   fill: currentColor;
@@ -915,7 +915,7 @@
 }
 .vault-tab.active {
   background: var(--accent-tint);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .vault-toolbar {
@@ -1128,7 +1128,7 @@
   border: none;
   padding: 0;
   text-align: left;
-  color: var(--accent);
+  color: var(--accent-text);
   cursor: pointer;
   text-overflow: ellipsis;
   overflow: hidden;

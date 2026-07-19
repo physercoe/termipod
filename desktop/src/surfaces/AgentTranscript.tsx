@@ -228,15 +228,40 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const liveLenRef = useRef(0);
   liveLenRef.current = liveData.length;
   const stickBottomRef = useRef(true);
-  // Re-arm the pin on (re)mount, agent change, or return to the live tab.
+  // Open at the last page with ZERO visible scrolling (#331). The re-pin loop below
+  // lands the bottom, but on WebKit each correction during hydration (markdown,
+  // KaTeX, images) is a visible jump/creep. So the feed stays `visibility:hidden`
+  // (layout preserved → Virtuoso still measures) until heights settle, then reveals
+  // in one frame already at the bottom. Debounced on the height-change storm with a
+  // hard cap so a pathological transcript never stays hidden.
+  const [settled, setSettled] = useState(false);
+  const settleTimer = useRef<number | null>(null);
+  const capTimer = useRef<number | null>(null);
+  const clearSettleTimer = (): void => {
+    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    settleTimer.current = null;
+  };
+  // Re-arm the pin + re-hide on (re)mount, agent change, or return to the live tab.
   useEffect(() => {
     stickBottomRef.current = true;
+    setSettled(false);
+    clearSettleTimer();
+    if (capTimer.current !== null) window.clearTimeout(capTimer.current);
+    // Hard cap: reveal no later than 500ms after (re)mount, whatever hydration does.
+    capTimer.current = window.setTimeout(() => setSettled(true), 500);
+    return () => {
+      clearSettleTimer();
+      if (capTimer.current !== null) window.clearTimeout(capTimer.current);
+    };
   }, [agentId, loaded, mode]);
   function pinBottom(): void {
     const n = liveLenRef.current;
     if (stickBottomRef.current && n > 0) {
       virtuosoRef.current?.scrollToIndex({ index: n - 1, align: 'end' });
     }
+    // Reveal once the height-change storm goes quiet (last change > 80ms ago).
+    clearSettleTimer();
+    settleTimer.current = window.setTimeout(() => setSettled(true), 80);
   }
   // A real scroll gesture releases the pin so we never fight the user mid-settle;
   // returning to the bottom (`atBottomStateChange`) re-arms it. Listeners go on
@@ -400,10 +425,12 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
               key={agentId}
               ref={virtuosoRef}
               className="feed-virt"
+              style={settled ? undefined : { visibility: 'hidden' }}
               data={liveData}
               scrollerRef={(el) => setFeedScroller(el instanceof HTMLElement ? el : null)}
               computeItemKey={(_i, ev) => ev.id}
               initialTopMostItemIndex={{ index: Math.max(0, liveData.length - 1), align: 'end' }}
+              defaultItemHeight={120}
               alignToBottom
               followOutput={(atBottom) => (atBottom ? 'auto' : false)}
               atBottomStateChange={(atBottom) => {

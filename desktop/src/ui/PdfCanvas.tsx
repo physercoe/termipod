@@ -428,25 +428,39 @@ function PageView({
   // Live preview for a drag-in-progress (image rect or ink path), in CSS px.
   const [draft, setDraft] = useState<{ rect?: number[]; pts?: number[] } | null>(null);
 
-  // Reveal the page a little before it scrolls into view, then keep it rendered.
+  // Render pages within ~1000px of the viewport and UN-render those beyond, so a
+  // 500-page PDF keeps a bounded handful of live canvases/text layers instead of
+  // 500 (#311). A persistent observer toggles `visible` both ways; the generous
+  // rootMargin keeps a scroll from thrashing the boundary. The page's reserved
+  // footprint comes from the pre-measured `dim` while un-rendered, so geometry
+  // never shifts.
   useEffect(() => {
     const el = wrapRef.current;
-    if (el === null || visible) return;
+    if (el === null) return;
     const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setVisible(true);
-          io.disconnect();
-        }
-      },
-      { rootMargin: '400px 0px' },
+      (entries) => setVisible(entries[entries.length - 1].isIntersecting),
+      { rootMargin: '1000px 0px' },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [visible]);
+  }, []);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      // Freed offscreen: drop the canvas backing store + text layer to reclaim
+      // memory, and clear `size` so the footprint falls back to the scale-correct
+      // pre-measured `dim` (a stale `size` would reserve the wrong height across a
+      // zoom while un-rendered).
+      const canvas = canvasRef.current;
+      if (canvas !== null) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      textRef.current?.replaceChildren();
+      textDivsRef.current = [];
+      setSize(null);
+      return;
+    }
     let cancelled = false;
     let renderTask: ReturnType<PDFPageProxy['render']> | null = null;
     let textLayer: TextLayer | null = null;
@@ -1075,7 +1089,14 @@ export function PdfCanvas({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState('1');
   const [outline, setOutline] = useState<OutlineNode[]>([]);
-  const [pageDims, setPageDims] = useState<{ w: number; h: number }[]>([]);
+  // Base (scale-1) page footprints, measured ONCE per document. Aspect is
+  // scale-invariant, so the per-scale dims are a cheap synchronous multiply — no
+  // need to re-fetch every page on each zoom step (#311).
+  const [baseDims, setBaseDims] = useState<{ w: number; h: number }[]>([]);
+  const pageDims = useMemo(
+    () => baseDims.map((d) => ({ w: d.w * scale, h: d.h * scale })),
+    [baseDims, scale],
+  );
   const [showToc, setShowToc] = useState(false);
   const [panelTab, setPanelTab] = useState<'outline' | 'thumbs' | 'annos'>('thumbs');
   const [tocW, setTocW] = useState(() => {
@@ -1146,7 +1167,7 @@ export function PdfCanvas({
   // any page paints — the precondition for ToC/link jumps landing accurately.
   useEffect(() => {
     if (pdf === null) {
-      setPageDims([]);
+      setBaseDims([]);
       return;
     }
     let alive = true;
@@ -1155,15 +1176,15 @@ export function PdfCanvas({
       for (let n = 1; n <= pdf.numPages; n += 1) {
         const page = await pdf.getPage(n);
         if (!alive) return;
-        const vp = page.getViewport({ scale });
+        const vp = page.getViewport({ scale: 1 });
         dims.push({ w: vp.width, h: vp.height });
       }
-      if (alive) setPageDims(dims);
+      if (alive) setBaseDims(dims);
     })();
     return () => {
       alive = false;
     };
-  }, [pdf, scale]);
+  }, [pdf]);
 
   // Track the most-visible page as the user scrolls, to drive the page indicator.
   useEffect(() => {

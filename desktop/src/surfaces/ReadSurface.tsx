@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { TableVirtuoso, type ItemProps, type TableComponents } from 'react-virtuoso';
 import { useT } from '../i18n';
 import {
   hasAnyAttachment,
@@ -135,6 +136,73 @@ function splitList(s: string, sep: string): string[] {
     .map((x) => x.trim())
     .filter((x) => x !== '');
 }
+
+// ── Virtualized library table (#311) ────────────────────────────────────────
+// The Zotero-style table renders one <tr> per row; a 5–10k library stalled it.
+// TableVirtuoso keeps only the visible rows live. Row-level state/handlers reach
+// the (stable, module-level) row component through Virtuoso's `context`, so the
+// components never remount — the perf win. The cells come from `itemContent`.
+interface LibRowCtx {
+  selected: string | null;
+  onSelect: (id: string) => void;
+  onOpen: (id: string) => void; // open the reader (double-click / Enter with a viewable attachment)
+  onMenu: (id: string, x: number, y: number) => void;
+  hasPdf: (r: Reference) => boolean;
+}
+
+// Custom table wrapper so the column widths (colgroup) + class survive.
+const LibTable: TableComponents<Reference, LibRowCtx>['Table'] = (props) => (
+  <table {...props} className="read-table">
+    <colgroup>
+      <col style={{ width: '44%' }} />
+      <col style={{ width: '20%' }} />
+      <col style={{ width: '3.5rem' }} />
+      <col style={{ width: '22%' }} />
+      <col style={{ width: '6rem' }} />
+    </colgroup>
+    {props.children}
+  </table>
+);
+
+const LibTableRow = (props: ItemProps<Reference> & { context?: LibRowCtx }): JSX.Element => {
+  const { item: r, context, children, ...rest } = props;
+  const ctx = context as LibRowCtx;
+  const isSel = ctx.selected === r.id;
+  return (
+    <tr
+      {...rest}
+      className={isSel ? 'active' : ''}
+      tabIndex={0}
+      aria-selected={isSel}
+      onClick={() => ctx.onSelect(r.id)}
+      onDoubleClick={() => {
+        if (ctx.hasPdf(r)) ctx.onOpen(r.id);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (ctx.hasPdf(r)) ctx.onOpen(r.id);
+          else ctx.onSelect(r.id);
+        } else if (e.key === ' ') {
+          e.preventDefault();
+          ctx.onSelect(r.id);
+        }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        ctx.onMenu(r.id, e.clientX, e.clientY);
+      }}
+    >
+      {children}
+    </tr>
+  );
+};
+
+// Stable component map — an inline object would remount every row each render.
+const LIB_TABLE_COMPONENTS: TableComponents<Reference, LibRowCtx> = {
+  Table: LibTable,
+  TableRow: LibTableRow as TableComponents<Reference, LibRowCtx>['TableRow'],
+};
 
 // Human labels for the Zotero detail fields; unknown keys fall back to a
 // camelCase-split. Keeps acronym fields (ISBN/ISSN/DOI) intact.
@@ -1846,8 +1914,11 @@ export function ReadSurface(): JSX.Element {
     return q === '' ? allTags : allTags.filter((tg) => tg.toLowerCase().includes(q));
   }, [allTags, tagFilter]);
 
+  // Defer the filter term so typing stays responsive: React runs the (potentially
+  // large) re-filter/re-sort at a lower priority and can interrupt it (#311).
+  const deferredQuery = useDeferredValue(query);
   const items = useMemo(() => {
-    const ql = query.trim().toLowerCase();
+    const ql = deferredQuery.trim().toLowerCase();
     const filtered = references.filter((r) => {
       if (collection !== ALL && !r.collectionIds.includes(collection)) return false;
       if (tag !== null && !r.tags.includes(tag)) return false;
@@ -1862,7 +1933,26 @@ export function ReadSurface(): JSX.Element {
       if (av > bv) return dir;
       return a.title.toLowerCase() < b.title.toLowerCase() ? -1 : 1;
     });
-  }, [references, collection, tag, query, sortKey, sortDir]);
+  }, [references, collection, tag, deferredQuery, sortKey, sortDir]);
+
+  // Stable-ish context for the virtualized rows (changes only when selection or
+  // the openers change, which is exactly when visible rows must re-render).
+  const libRowCtx = useMemo<LibRowCtx>(
+    () => ({
+      selected,
+      onSelect: (id) => setSelected(id),
+      onOpen: (id) => openPdfTab(id),
+      onMenu: (id, x, y) => {
+        setSelected(id);
+        setMenuConfirm(false);
+        setRowMenu({ x, y, id });
+      },
+      hasPdf: (r) => hasAnyAttachment(r),
+    }),
+    // openPdfTab is a stable closure over refs/state setters; selection drives re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selected],
+  );
 
   function toggleSort(key: SortKey): void {
     if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -2228,15 +2318,13 @@ export function ReadSurface(): JSX.Element {
                     {references.length === 0 ? t('read.emptyLibrary') : t('read.noMatch')}
                   </div>
                 ) : (
-                  <table className="read-table">
-                    <colgroup>
-                      <col style={{ width: '44%' }} />
-                      <col style={{ width: '20%' }} />
-                      <col style={{ width: '3.5rem' }} />
-                      <col style={{ width: '22%' }} />
-                      <col style={{ width: '6rem' }} />
-                    </colgroup>
-                    <thead>
+                  <TableVirtuoso
+                    data={items}
+                    context={libRowCtx}
+                    style={{ height: '100%' }}
+                    components={LIB_TABLE_COMPONENTS}
+                    computeItemKey={(_i, r) => r.id}
+                    fixedHeaderContent={() => (
                       <tr>
                         {SORT_COLS.map((c) => (
                           <th
@@ -2262,68 +2350,38 @@ export function ReadSurface(): JSX.Element {
                           </th>
                         ))}
                       </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((r) => {
-                        const hasPdf = hasAnyAttachment(r);
-                        const rowPrimary = primaryAttachment(r);
-                        const rowKind = rowPrimary !== undefined ? viewKindFor(rowPrimary.file) : 'pdf';
-                        return (
-                          <tr
-                            key={r.id}
-                            className={selected === r.id ? 'active' : ''}
-                            tabIndex={0}
-                            aria-selected={selected === r.id}
-                            onClick={() => setSelected(r.id)}
-                            onDoubleClick={() => {
-                              if (hasPdf) openPdfTab(r.id);
-                            }}
-                            onKeyDown={(e) => {
-                              // Enter opens (the double-click action) when there's a
-                              // viewable attachment, else just selects; Space selects.
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                if (hasPdf) openPdfTab(r.id);
-                                else setSelected(r.id);
-                              } else if (e.key === ' ') {
-                                e.preventDefault();
-                                setSelected(r.id);
-                              }
-                            }}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              setSelected(r.id);
-                              setMenuConfirm(false);
-                              setRowMenu({ x: e.clientX, y: e.clientY, id: r.id });
-                            }}
-                          >
-                            <td className="read-td-title">
-                              {hasPdf && (
-                                <span
-                                  className="read-pdf-dot"
-                                  title={t('read.openInReader')}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openPdfTab(r.id);
-                                  }}
-                                >
-                                  <Icon name={KIND_ICON[rowKind]} size={13} />
-                                </span>
-                              )}
-                              {r.title !== '' ? r.title : t('read.untitled')}
-                            </td>
-                            <td>
-                              {r.authors[0] ?? ''}
-                              {r.authors.length > 1 ? ' et al.' : ''}
-                            </td>
-                            <td className="tnum">{r.year ?? ''}</td>
-                            <td className="read-td-venue">{r.venue ?? ''}</td>
-                            <td className="read-td-type">{r.type}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                    )}
+                    itemContent={(_i, r) => {
+                      const rowPrimary = primaryAttachment(r);
+                      const rowKind = rowPrimary !== undefined ? viewKindFor(rowPrimary.file) : 'pdf';
+                      return (
+                        <>
+                          <td className="read-td-title">
+                            {hasAnyAttachment(r) && (
+                              <span
+                                className="read-pdf-dot"
+                                title={t('read.openInReader')}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openPdfTab(r.id);
+                                }}
+                              >
+                                <Icon name={KIND_ICON[rowKind]} size={13} />
+                              </span>
+                            )}
+                            {r.title !== '' ? r.title : t('read.untitled')}
+                          </td>
+                          <td>
+                            {r.authors[0] ?? ''}
+                            {r.authors.length > 1 ? ' et al.' : ''}
+                          </td>
+                          <td className="tnum">{r.year ?? ''}</td>
+                          <td className="read-td-venue">{r.venue ?? ''}</td>
+                          <td className="read-td-type">{r.type}</td>
+                        </>
+                      );
+                    }}
+                  />
                 )}
               </div>
             </div>

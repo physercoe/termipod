@@ -192,12 +192,32 @@ function load(): Persisted {
   return migrateCanvas(readDocs());
 }
 
-function save(p: Persisted): void {
+// Persist is debounced: `update` runs on every keystroke while editing a doc,
+// and JSON.stringify-ing the whole document set + writing it synchronously on
+// each one is a main-thread stall on a large workspace (#311). Coalesce to a
+// trailing write ~400ms after typing pauses. A `beforeunload` flush guarantees
+// the last edits land even if the window closes inside the debounce window.
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let pending: Persisted | null = null;
+function writeNow(): void {
+  if (pending === null) return;
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(p));
+    localStorage.setItem(LS_KEY, JSON.stringify(pending));
   } catch (e) {
     console.error(`[documents] failed to persist "${LS_KEY}" (quota exceeded?)`, e);
   }
+  pending = null;
+}
+function save(p: Persisted): void {
+  pending = p;
+  if (saveTimer !== undefined) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = undefined;
+    writeNow();
+  }, 400);
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', writeNow);
 }
 
 export const useDocuments = create<DocsState>((set, get) => ({

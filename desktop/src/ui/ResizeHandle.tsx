@@ -16,15 +16,23 @@ export function usePanelWidth(
     const v = Number(localStorage.getItem(key));
     return Number.isFinite(v) && v > 0 ? Math.min(max, Math.max(min, v)) : fallback;
   });
+  // Persist is debounced: a drag fires onResize on every pointermove (dozens/s),
+  // and a synchronous localStorage.setItem each time is a main-thread stall
+  // (#311). The width state still updates live for smooth dragging; only the
+  // write to storage is deferred to ~250ms after the gesture settles.
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const onResize = useCallback(
     (dx: number) => {
       setW((cur) => {
         const n = Math.min(max, Math.max(min, cur + sign * dx));
-        try {
-          localStorage.setItem(key, String(n));
-        } catch {
-          /* ignore */
-        }
+        if (persistTimer.current !== undefined) clearTimeout(persistTimer.current);
+        persistTimer.current = setTimeout(() => {
+          try {
+            localStorage.setItem(key, String(n));
+          } catch {
+            /* ignore */
+          }
+        }, 250);
         return n;
       });
     },

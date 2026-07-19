@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/react-query';
+import { defaultShouldDehydrateQuery, QueryClient, type Query } from '@tanstack/react-query';
 import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client';
 import { HubApiError } from '../hub/errors';
 
@@ -33,12 +33,30 @@ export const queryClient = new QueryClient({
   },
 });
 
+// Throttle snapshot writes: the provider calls persistClient on every cache
+// mutation, and a burst of query settles (a fleet refresh) would otherwise
+// JSON.stringify + write the whole snapshot many times in a frame (#311). Write
+// at most once per second, trailing (so the latest state still lands).
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingClient: PersistedClient | null = null;
+function flushPersist(): void {
+  if (pendingClient === null) return;
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(pendingClient));
+  } catch {
+    /* quota / serialization — skip persisting this tick */
+  }
+  pendingClient = null;
+}
+
 export const localStoragePersister: Persister = {
   persistClient: async (client: PersistedClient) => {
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(client));
-    } catch {
-      /* quota / serialization — skip persisting this tick */
+    pendingClient = client;
+    if (persistTimer === undefined) {
+      persistTimer = setTimeout(() => {
+        persistTimer = undefined;
+        flushPersist();
+      }, 1000);
     }
   },
   restoreClient: async () => {
@@ -50,11 +68,43 @@ export const localStoragePersister: Persister = {
     }
   },
   removeClient: async () => {
+    // Cancel a pending throttled write so it can't resurrect the snapshot after
+    // a clear (profile switch / disconnect).
+    if (persistTimer !== undefined) {
+      clearTimeout(persistTimer);
+      persistTimer = undefined;
+    }
+    pendingClient = null;
     localStorage.removeItem(CACHE_KEY);
   },
 };
 
 export const persistMaxAge = WEEK_MS;
+
+// Query families whose payloads are large (raw blob bytes, full document/
+// transcript bodies) and not worth serializing into localStorage on every cache
+// write — persisting them bloats the snapshot and each JSON.stringify is a
+// main-thread stall (#311). The cache-first snapshot only needs the light
+// list/overview metadata that fills the shell on reload.
+const NO_PERSIST_KEYS = new Set([
+  'blob',
+  'document',
+  'documents',
+  'project-doc',
+  'project-docs',
+  'agent-turns',
+  'agent-digest',
+  'insights',
+  'audit',
+]);
+
+/// Decides which queries get written to the persisted snapshot: the TanStack
+/// default (successful only) minus the heavy payload families above.
+export function shouldPersistQuery(query: Query): boolean {
+  if (!defaultShouldDehydrateQuery(query)) return false;
+  const head = query.queryKey[0];
+  return !(typeof head === 'string' && NO_PERSIST_KEYS.has(head));
+}
 
 /// Drop all cached query data (in-memory + persisted). Called on profile switch
 /// and disconnect so a different hub/team starts clean, and from the cache

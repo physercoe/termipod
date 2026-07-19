@@ -38,6 +38,8 @@ jobs:
       - run: npm ci
       - name: Typecheck + build (also verifies shared tokens flow into the CSS)
         run: npm run build
+      - name: Design-token ratchet (#318 — no new hex / --color-* leaks, no phantom tokens)
+        run: bash ../scripts/lint-desktop-tokens.sh
 
   tauri:
     name: Tauri Rust compile

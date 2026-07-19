@@ -68,6 +68,31 @@
   --track-tight: -0.018em;
   --track-snug: -0.011em;
   --track-body: -0.006em;
+  /* Phantom-token aliases (#318). These names were referenced across the sheet
+   * through an inline var() fallback but never actually defined — so the fallback
+   * was silently load-bearing (and inconsistent: one fell back to a raw #fff).
+   * Define each ONCE here, mapping to its real semantic/scale token so the
+   * fallbacks are now redundant and a single edit governs the value. Values match
+   * the fallbacks that were in use, so nothing re-renders. */
+  --border-subtle: var(--border);
+  --color-on-primary: #fff; /* text on a solid accent fill (was the #fff fallback) */
+  --ev-accent: var(--border-strong);
+  --font-size-12: var(--font-size-caption); /* 12px */
+  --font-size-13: var(--font-size-body-small); /* 13px */
+  --font-size-body-large: var(--font-size-body);
+  --panel: var(--bg);
+  --radius-s: var(--radius-sm);
+  --radius-m: var(--radius-md);
+  --radius-pill: var(--radius-stadium);
+  --shadow-2: var(--sh-2);
+  --shadow-menu: var(--sh-3); /* menu/popover elevation — one consolidated shadow */
+  --spacing-s6: 6px;
+  --spacing-s20: 20px;
+  --success: var(--ok);
+  --warning: var(--warn);
+  --surface-2: var(--surface);
+  --surface-hover: var(--hover);
+  --surface-sunken: var(--surface);
 }
 :root[data-theme='light'] {
   color-scheme: light;

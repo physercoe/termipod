@@ -3,6 +3,7 @@ import ePub, { type Rendition, type Contents, type NavItem, type Location } from
 import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { ResizeHandle, usePanelWidth } from './ResizeHandle';
+import { EPUB_THEMES, epubThemeCss, type EpubTheme } from './epubThemes';
 
 /// Offline EPUB reader for the Read surface. EPUB is a ZIP of XHTML; epub.js
 /// parses and renders it fully client-side (no network), so it works in the
@@ -21,6 +22,16 @@ function loadFontPct(): number {
   if (!Number.isFinite(raw) || raw < FONT_MIN || raw > FONT_MAX) return 100;
   return raw;
 }
+
+// Reading-paper theme, persisted so a chosen theme survives reopen.
+const THEME_KEY = 'termipod.read.epubTheme';
+function loadTheme(): EpubTheme {
+  const raw = localStorage.getItem(THEME_KEY);
+  return raw === 'sepia' || raw === 'night' ? raw : 'default';
+}
+// The marker on the injected theme <style>, so a live theme change can find and
+// rewrite it per section instead of stacking styles.
+const THEME_STYLE_MARK = 'epub-theme';
 
 export function EpubView({
   data,
@@ -44,6 +55,11 @@ export function EpubView({
   // background; 0 means "not yet available" and the indicator stays hidden.
   const [pct, setPct] = useState(0);
   const [fontPct, setFontPct] = useState(loadFontPct);
+  const [theme, setTheme] = useState<EpubTheme>(loadTheme);
+  // Read the live theme from inside the once-registered content hook without
+  // re-running the render effect.
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -97,6 +113,12 @@ export function EpubView({
         style.setAttribute('data-termipod', 'epub-width');
         style.textContent = WIDTH_CSS;
         doc.head.appendChild(style);
+        // Reading-paper theme (#321). A separate <style> so a live theme switch can
+        // rewrite just this element per section. Appended after width so it wins.
+        const themeStyle = doc.createElement('style');
+        themeStyle.setAttribute('data-termipod', THEME_STYLE_MARK);
+        themeStyle.textContent = epubThemeCss(themeRef.current);
+        doc.head.appendChild(themeStyle);
         // Belt-and-suspenders: an INLINE `!important` beats any author stylesheet
         // rule regardless of specificity (a stylesheet rule can't, if the EPUB
         // caps width with an `!important` class selector). Clear the cap on the
@@ -199,6 +221,34 @@ export function EpubView({
   const bumpFont = (delta: number): void =>
     setFontPct((p) => Math.max(FONT_MIN, Math.min(FONT_MAX, p + delta)));
 
+  // Apply a theme change to every already-rendered section (the content hook covers
+  // future ones) and persist. Rewrites the marked <style> in place so themes don't
+  // stack.
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, theme);
+    const r = rendition.current;
+    if (r === null) return;
+    const css = epubThemeCss(theme);
+    try {
+      for (const c of r.getContents() as unknown as Contents[]) {
+        const doc = c.document;
+        if (doc?.head === undefined || doc.head === null) continue;
+        let el = doc.querySelector<HTMLStyleElement>(`style[data-termipod="${THEME_STYLE_MARK}"]`);
+        if (el === null) {
+          el = doc.createElement('style');
+          el.setAttribute('data-termipod', THEME_STYLE_MARK);
+          doc.head.appendChild(el);
+        }
+        el.textContent = css;
+      }
+    } catch {
+      /* section torn down mid-update — the content hook re-applies on next render */
+    }
+  }, [theme]);
+
+  const cycleTheme = (): void =>
+    setTheme((cur) => EPUB_THEMES[(EPUB_THEMES.indexOf(cur) + 1) % EPUB_THEMES.length]);
+
   // Toolbar-level keyboard nav (when focus is on the toolbar, not the iframe).
   const onHostKey = (e: React.KeyboardEvent): void => {
     if (e.key === 'ArrowLeft') void rendition.current?.prev();
@@ -238,6 +288,14 @@ export function EpubView({
             A+
           </button>
         </span>
+        <button
+          className="small"
+          title={t('read.epubTheme')}
+          aria-label={t(`read.epubTheme.${theme}`)}
+          onClick={cycleTheme}
+        >
+          <Icon name="book" /> {t(`read.epubTheme.${theme}`)}
+        </button>
         {pct > 0 && (
           <span className="epub-progress muted small" title={t('read.epubProgress')}>
             {pct}%

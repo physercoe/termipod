@@ -44,6 +44,7 @@ import { MarkdownEditor } from '../ui/MarkdownEditor';
 import { Icon, type IconName } from '../ui/Icon';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
 import { PdfCanvas } from '../ui/PdfCanvas';
+import { useTextPrompt } from '../ui/PromptModal';
 // epub.js is heavy and epub is a rare path — lazy-load it into its own chunk.
 const EpubView = lazy(() => import('../ui/EpubView').then((m) => ({ default: m.EpubView })));
 // Milkdown (ProseMirror) is heavy — load it only when a WYSIWYG editor opens.
@@ -1574,6 +1575,7 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
 
 export function ReadSurface(): JSX.Element {
   const t = useT();
+  const { ask, node: promptNode } = useTextPrompt();
   const references = useLibrary((s) => s.references);
   const collections = useLibrary((s) => s.collections);
   const addReference = useLibrary((s) => s.addReference);
@@ -1854,9 +1856,22 @@ export function ReadSurface(): JSX.Element {
   const activeTabObj = activeTab !== null ? tabs.find((tb) => tb.id === activeTab) : undefined;
   const selectedRef = selected !== null ? references.find((r) => r.id === selected) : undefined;
 
-  function newCollection(): void {
-    const name = window.prompt(t('read.newCollectionPrompt'));
+  // In-app prompts (window.prompt renders an unreliable native `tauri.localhost`
+  // dialog in the webview — see useTextPrompt).
+  async function newCollection(): Promise<void> {
+    const name = await ask(t('read.newCollectionPrompt'));
     if (name !== null && name.trim() !== '') setCollection(addCollection(name.trim()));
+  }
+  async function promptRenameCollection(id: string, curName: string): Promise<void> {
+    const name = await ask(t('read.renameCollectionPrompt'), curName);
+    if (name !== null && name.trim() !== '') renameCollection(id, name.trim());
+  }
+  async function promptRenameTag(name: string): Promise<void> {
+    const next = await ask(t('read.renameTagPrompt'), name);
+    if (next !== null && next.trim() !== '' && next.trim() !== name) {
+      renameTag(name, next.trim());
+      if (tag === name) setTag(next.trim());
+    }
   }
 
   async function onSync(): Promise<void> {
@@ -2450,8 +2465,7 @@ export function ReadSurface(): JSX.Element {
                 className="read-ctx-item"
                 onClick={() => {
                   setColMenu(null);
-                  const name = window.prompt(t('read.renameCollectionPrompt'), c.name);
-                  if (name !== null && name.trim() !== '') renameCollection(c.id, name.trim());
+                  void promptRenameCollection(c.id, c.name);
                 }}
               >
                 <Icon name="pen" size={14} /> {t('read.renameCollection')}
@@ -2460,7 +2474,7 @@ export function ReadSurface(): JSX.Element {
                 className="read-ctx-item"
                 onClick={() => {
                   setColMenu(null);
-                  newCollection();
+                  void newCollection();
                 }}
               >
                 <Icon name="plus" size={14} /> {t('read.newCollection')}
@@ -2494,11 +2508,7 @@ export function ReadSurface(): JSX.Element {
             onClick={() => {
               const name = tagMenu.name;
               setTagMenu(null);
-              const next = window.prompt(t('read.renameTagPrompt'), name);
-              if (next !== null && next.trim() !== '' && next.trim() !== name) {
-                renameTag(name, next.trim());
-                if (tag === name) setTag(next.trim());
-              }
+              void promptRenameTag(name);
             }}
           >
             <Icon name="pen" size={14} /> {t('read.renameTag')}
@@ -2517,6 +2527,7 @@ export function ReadSurface(): JSX.Element {
           </button>
         </div>
       )}
+      {promptNode}
       </OpenLinkContext.Provider>
     </WorkbenchSurface>
   );

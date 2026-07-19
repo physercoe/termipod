@@ -16,6 +16,7 @@ import {
   type Connection,
 } from '../state/connections';
 import { importSshConfig } from '../ssh/config';
+import { useTextPrompt } from '../ui/PromptModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { ConnectForm } from './ConnectForm';
 import { ptyOpen } from './pty';
@@ -100,6 +101,7 @@ export function TerminalPanel(): JSX.Element {
   });
   const [groupBump, setGroupBump] = useState(0);
   const [navMenu, setNavMenu] = useState<NavMenu | null>(null);
+  const { ask, node: promptNode } = useTextPrompt();
   const groups = useMemo(() => (tauri ? navGroups(conns) : []), [conns, groupBump, tauri]);
 
   function refreshConns(): void {
@@ -171,17 +173,19 @@ export function TerminalPanel(): JSX.Element {
   }, [navMenu]);
 
   // Nav context-menu actions. All refresh the local `conns` mirror afterwards.
-  function promptNewGroup(assignId?: string): void {
+  // `ask` is the in-app text prompt (window.prompt renders an unreliable native
+  // `tauri.localhost` dialog in the webview — see useTextPrompt).
+  async function promptNewGroup(assignId?: string): Promise<void> {
     setNavMenu(null);
-    const name = window.prompt(t('term.newGroupPrompt'));
+    const name = await ask(t('term.newGroupPrompt'));
     if (name === null || name.trim() === '') return;
     addGroup(name.trim());
     if (assignId !== undefined) setConnectionGroup(assignId, name.trim());
     refreshConns();
   }
-  function promptRenameGroup(from: string): void {
+  async function promptRenameGroup(from: string): Promise<void> {
     setNavMenu(null);
-    const to = window.prompt(t('term.renameGroupPrompt'), from);
+    const to = await ask(t('term.renameGroupPrompt'), from);
     if (to === null || to.trim() === '' || to.trim() === from) return;
     renameGroup(from, to.trim());
     refreshConns();
@@ -612,6 +616,7 @@ export function TerminalPanel(): JSX.Element {
           onDeleteConn={(id) => void doDeleteConnection(id)}
         />
       )}
+      {promptNode}
     </div>
   );
 }

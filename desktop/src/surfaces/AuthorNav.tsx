@@ -7,6 +7,7 @@ import { fileToBody, kindForFile, useDocuments } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
 import { writeDocToWorkspace } from '../state/workspaceFiles';
 import { useSyncJob } from '../state/syncJob';
+import { useTextPrompt } from '../ui/PromptModal';
 import { WorkspaceSyncModal } from './WorkspaceSyncModal';
 
 const DRAG_TYPE = 'application/x-termipod-doc';
@@ -60,6 +61,7 @@ interface FileMenu {
 
 export function AuthorNav(): JSX.Element {
   const t = useT();
+  const { ask, node: promptNode } = useTextPrompt();
   const docs = useDocuments((s) => s.docs);
   const activeId = useDocuments((s) => s.activeId);
   const setActive = useDocuments((s) => s.setActive);
@@ -185,7 +187,7 @@ export function AuthorNav(): JSX.Element {
   async function newInDir(dir: boolean, path: string, folderKind: boolean): Promise<void> {
     setFileMenu(null);
     const base = dir ? path : parentDir(path);
-    const name = window.prompt(folderKind ? t('author.fNewFolderPrompt') : t('author.fNewFilePrompt'));
+    const name = await ask(folderKind ? t('author.fNewFolderPrompt') : t('author.fNewFilePrompt'));
     if (name === null || name.trim() === '') return;
     try {
       const created = await invoke<string>(folderKind ? 'workspace_new_folder' : 'workspace_new_file', {
@@ -200,7 +202,7 @@ export function AuthorNav(): JSX.Element {
   }
   async function renameEntry(path: string): Promise<void> {
     setFileMenu(null);
-    const name = window.prompt(t('author.fRenamePrompt'), baseName(path));
+    const name = await ask(t('author.fRenamePrompt'), baseName(path));
     if (name === null || name.trim() === '' || name.trim() === baseName(path)) return;
     try {
       const next = await invoke<string>('workspace_rename', { path, name: name.trim() });
@@ -471,6 +473,7 @@ export function AuthorNav(): JSX.Element {
           </div>
         </>
       )}
+      {promptNode}
     </div>
   );
 }

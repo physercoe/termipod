@@ -46,8 +46,15 @@ export function useTextPrompt(): {
             spellCheck={false}
             onChange={(e) => setSt({ ...st, value: e.target.value })}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') close(st.value);
-              else if (e.key === 'Escape') close(null);
+              // Stop Enter/Escape from bubbling to a global shell listener that
+              // would also act on them (e.g. AppShell's window-level Escape).
+              if (e.key === 'Enter') {
+                e.stopPropagation();
+                close(st.value);
+              } else if (e.key === 'Escape') {
+                e.stopPropagation();
+                close(null);
+              }
             }}
           />
           <div className="prompt-actions">

@@ -339,7 +339,11 @@ struct SseOpenReq {
 #[derive(Serialize, Clone)]
 struct SseChunk {
     id: String,
-    bytes: Vec<u8>,
+    /// Base64 of the chunk bytes. A raw `Vec<u8>` crosses the Tauri IPC boundary
+    /// as a JSON array (`[104,105,…]`) — ~4–6 JSON characters per byte, so a
+    /// busy stream serializes/parses several times its own size on every frame.
+    /// Base64 is ~1.33× the byte length and decodes in one call on the JS side.
+    b64: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -377,7 +381,9 @@ async fn hub_sse_open(app: AppHandle, state: State<'_, SseState>, req: SseOpenRe
                 _ = cancel.notified() => break None,
                 chunk = resp.chunk() => match chunk {
                     Ok(Some(bytes)) => {
-                        let _ = app.emit("hub-sse", SseChunk { id: task_id.clone(), bytes: bytes.to_vec() });
+                        use base64::Engine as _;
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                        let _ = app.emit("hub-sse", SseChunk { id: task_id.clone(), b64 });
                     }
                     Ok(None) => break None,
                     Err(e) => break Some(e.to_string()),

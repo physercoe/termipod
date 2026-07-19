@@ -1,5 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client';
+import { HubApiError } from '../hub/errors';
 
 /// Cache-first / offline foundation (parity Phase 3b, ADR-006). The TanStack
 /// QueryClient's cache is persisted to localStorage, so on reload the last-known
@@ -21,7 +22,13 @@ export const queryClient = new QueryClient({
       // they can be restored — hold a week to match the mobile snapshot TTL.
       gcTime: WEEK_MS,
       refetchOnWindowFocus: false,
-      retry: 1,
+      // Retry once for transient failures (network/5xx), but never for a
+      // deterministic 4xx — a 400/401/403/404 will answer identically on a
+      // retry, so retrying just doubles latency before the error surfaces.
+      retry: (failureCount, error) => {
+        if (error instanceof HubApiError && error.status >= 400 && error.status < 500) return false;
+        return failureCount < 1;
+      },
     },
   },
 });

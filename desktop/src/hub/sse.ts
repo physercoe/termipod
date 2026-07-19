@@ -8,6 +8,16 @@ export interface SseHandle {
   close(): void;
 }
 
+/// Decode a base64 chunk (from the Rust `hub-sse` event) to bytes. The core
+/// base64-encodes each chunk so it doesn't cross IPC as a multi-KB JSON number
+/// array (see `SseChunk.b64` in lib.rs).
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 export interface SseOptions {
   onEvent: (data: unknown) => void;
   onError?: (err: unknown) => void;
@@ -115,8 +125,8 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
         void invoke('hub_sse_close', { id });
         resolve();
       };
-      void listen<{ id: string; bytes: number[] }>('hub-sse', (e) => {
-        if (e.payload.id === id && !closed) feed(new Uint8Array(e.payload.bytes));
+      void listen<{ id: string; b64: string }>('hub-sse', (e) => {
+        if (e.payload.id === id && !closed) feed(b64ToBytes(e.payload.b64));
       }).then((u) => {
         unData = u;
         if (closed) u();

@@ -2090,7 +2090,7 @@ export function ReadSurface(): JSX.Element {
             onClick={() => void onLinkStorage()}
           >
             {storageCount > 0
-              ? t('read.storageLinked').replace('{n}', String(storageCount))
+              ? t.plural('read.storageLinked', storageCount)
               : t('read.linkStorage')}
           </button>
           {isTauri() && (

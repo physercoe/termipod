@@ -1469,10 +1469,10 @@
   font-weight: 600;
 }
 .vault-run-code.ok {
-  color: var(--success, #3aa757);
+  color: var(--success);
 }
 .vault-run-code.bad {
-  color: var(--danger, #d9534f);
+  color: var(--danger);
 }
 .vault-run-pre {
   margin: 0;
@@ -1487,7 +1487,7 @@
   overflow-y: auto;
 }
 .vault-run-pre.err {
-  color: var(--danger, #d9534f);
+  color: var(--danger);
 }
 
 .vault-conns {

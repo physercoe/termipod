@@ -95,37 +95,37 @@
 .md .hljs-string,
 .md .hljs-regexp,
 .md .hljs-meta .hljs-string {
-  color: var(--color-terminal-green, #7ee787);
+  color: var(--color-terminal-green);
 }
 .md .hljs-number,
 .md .hljs-symbol,
 .md .hljs-bullet {
-  color: var(--color-terminal-cyan, #79c0ff);
+  color: var(--color-terminal-cyan);
 }
 .md .hljs-title,
 .md .hljs-title.function_,
 .md .hljs-section,
 .md .hljs-selector-id {
-  color: var(--color-terminal-blue, #79c0ff);
+  color: var(--color-terminal-blue);
 }
 .md .hljs-attr,
 .md .hljs-attribute,
 .md .hljs-variable,
 .md .hljs-template-variable,
 .md .hljs-property {
-  color: var(--color-terminal-yellow, #e3b341);
+  color: var(--color-terminal-yellow);
 }
 .md .hljs-type,
 .md .hljs-class .hljs-title,
 .md .hljs-built_in {
-  color: var(--color-secondary, #d2a8ff);
+  color: var(--color-secondary);
 }
 .md .hljs-tag,
 .md .hljs-punctuation {
   color: var(--text-muted);
 }
 .md .hljs-deletion {
-  color: var(--color-error);
+  color: var(--danger);
 }
 .md .hljs-addition {
   color: var(--color-success);
@@ -313,8 +313,8 @@
   border-color: color-mix(in srgb, var(--color-terminal-blue) 45%, transparent);
 }
 .ev-tag.err {
-  color: var(--color-error);
-  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 .ev-chip {
   display: inline-flex;
@@ -328,13 +328,13 @@
   color: var(--color-success);
 }
 .ev-chip.err {
-  color: var(--color-error);
+  color: var(--danger);
 }
 .ev-result {
   margin-top: var(--spacing-s4);
 }
 .ev-result.err .ev-mono {
-  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 .ev-diff-path {
   font-family: var(--font-mono, monospace);
@@ -342,7 +342,7 @@
   font-size: var(--font-size-label);
 }
 .diff-del {
-  color: var(--color-error);
+  color: var(--danger);
 }
 .diff-add {
   color: var(--color-success);
@@ -381,7 +381,7 @@
   font-family: var(--font-mono, monospace);
 }
 .ev-err-body {
-  color: var(--color-error);
+  color: var(--danger);
   white-space: pre-wrap;
 }
 .ev-kind-label {

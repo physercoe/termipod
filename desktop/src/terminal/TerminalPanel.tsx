@@ -277,9 +277,9 @@ export function TerminalPanel(): JSX.Element {
     try {
       const res = await importSshConfig(await file.text(), listConnections());
       setConns(listConnections());
-      const base = t('term.importedConfig').replace('{n}', String(res.count));
+      const base = t.plural('term.importedConfig', res.count);
       setNotice(
-        res.keysAdded > 0 ? `${base} · ${t('term.importedKeys').replace('{n}', String(res.keysAdded))}` : base,
+        res.keysAdded > 0 ? `${base} · ${t.plural('term.importedKeys', res.keysAdded)}` : base,
       );
       setTimeout(() => setNotice(null), 4000);
     } catch (ex) {

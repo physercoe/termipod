@@ -647,7 +647,7 @@
   align-items: center;
   gap: var(--spacing-s2);
   padding: var(--spacing-s2) var(--spacing-s4);
-  color: var(--danger, #e5484d);
+  color: var(--danger);
   background: transparent;
   border: none;
   cursor: pointer;

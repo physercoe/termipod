@@ -211,7 +211,7 @@ export function Navigator(): JSX.Element {
                   >
                     <span className={`dot ${statusClass(str(h, 'status'))}`} />
                     <span className="tree-agent-label">{label}</span>
-                    <span className="tree-agent-kind">{t('nav.hostAgents').replace('{n}', String(count))}</span>
+                    <span className="tree-agent-kind">{t.plural('nav.hostAgents', count)}</span>
                   </div>
                 );
               })}

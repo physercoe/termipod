@@ -122,7 +122,7 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
         )}
         <span className="spacer" />
         <span className="author-doc-meta muted small">
-          {t('author.words').replace('{n}', String(words))}
+          {t.plural('author.words', words)}
           {doc.filePath !== undefined ? (
             <span title={doc.filePath}>
               {' · '}

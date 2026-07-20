@@ -36,7 +36,7 @@ export function DebugSurface(): JSX.Element {
               </option>
             ))}
           </select>
-          <span className="surface-meta muted small">{t('debug.lines').replace('{n}', String(lines))}</span>
+          <span className="surface-meta muted small">{t.plural('debug.lines', lines)}</span>
         </>
       }
     >

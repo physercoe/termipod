@@ -312,7 +312,14 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     [visible, lens, resultById],
   );
   const liveData = useMemo(() => shown.filter((ev) => !isFolded(ev)), [shown, callIds]);
-  const insightData = useMemo(() => feed.filter((ev) => !isFolded(ev)), [feed, callIds]);
+  // Insight applies the SAME feed-noise filter as live (mobile parity —
+  // insight_transcript.dart:1377): turn.start / turn.result / usage / lifecycle
+  // ("started M2") etc. are telemetry, hidden unless Details (verbose) is on.
+  // Without this the sealed view showed rows the live feed hides.
+  const insightData = useMemo(
+    () => feed.filter((ev) => !isFolded(ev) && !isHiddenInFeed(ev, verbose)),
+    [feed, callIds, verbose],
+  );
   const matchSeqs = useMemo(() => liveData.map((ev) => ev.seq), [liveData]);
 
   // Keep the live feed pinned to the last message while it settles. On a tab
@@ -453,7 +460,25 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   // let Virtuoso scroll to it, then flash it once it's mounted.
   function scrollToSeq(seq: number): void {
     const list = mode === 'insight' ? insightData : liveData;
-    const index = list.findIndex((ev) => ev.seq === seq);
+    let index = list.findIndex((ev) => ev.seq === seq);
+    if (index < 0) {
+      // No exact row — a turn's `start_seq` anchors to a turn.start marker
+      // (ALWAYS_HIDDEN, so never a visible row) or an event outside the filtered
+      // set. Land on the nearest visible row AT OR AFTER the target, i.e. the
+      // turn's first rendered event (mobile parity — insight_transcript.dart:1404).
+      // Without this fallback every turn resolved to -1 and the view never moved
+      // ("jumps to the same position").
+      let best = Infinity;
+      for (let i = 0; i < list.length; i++) {
+        const s = list[i].seq;
+        if (s >= seq && s < best) {
+          best = s;
+          index = i;
+        }
+      }
+      // Nothing at or after (target past the tail) — fall back to the last row.
+      if (index < 0 && list.length > 0) index = list.length - 1;
+    }
     if (index < 0) return;
     // An explicit jump means "hold here" — release the bottom pin so a late
     // height change doesn't yank the view back down off the target.
@@ -469,8 +494,10 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     /// converging on the true offset; the 1.4s flash below gives the user the
     /// orientation the smooth animation was providing.
     virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'auto' });
-    setFlashSeq(seq);
-    window.setTimeout(() => setFlashSeq((s) => (s === seq ? null : s)), 1400);
+    // Flash the row we actually landed on (may differ from the requested seq).
+    const landedSeq = list[index].seq;
+    setFlashSeq(landedSeq);
+    window.setTimeout(() => setFlashSeq((s) => (s === landedSeq ? null : s)), 1400);
   }
 
   function step(delta: number): void {
@@ -735,14 +762,25 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
                 <Icon name="sidebar" size={15} />
               </button>
               {insightNavOpen && (
-                <div className="tabs">
-                  <button className={navTab === 'turns' ? 'tab active' : 'tab'} onClick={() => setNavTab('turns')}>
-                    {t('insight.turns')} <span className="pill">{turns.length}</span>
+                <>
+                  <div className="tabs">
+                    <button className={navTab === 'turns' ? 'tab active' : 'tab'} onClick={() => setNavTab('turns')}>
+                      {t('insight.turns')} <span className="pill">{turns.length}</span>
+                    </button>
+                    <button className={navTab === 'errors' ? 'tab active' : 'tab'} onClick={() => setNavTab('errors')}>
+                      {t('insight.errors')} <span className="pill">{errorRows.length}</span>
+                    </button>
+                  </div>
+                  <span className="spacer" />
+                  <button
+                    className={verbose ? 'feed-verbose active' : 'feed-verbose'}
+                    title={t('tx.verboseHint')}
+                    onClick={() => setVerbose((v) => !v)}
+                  >
+                    {verbose ? t('tx.hideNoise') : t('tx.showNoise')}
+                    {!verbose && verboseHidden > 0 && <span className="pill">{verboseHidden}</span>}
                   </button>
-                  <button className={navTab === 'errors' ? 'tab active' : 'tab'} onClick={() => setNavTab('errors')}>
-                    {t('insight.errors')} <span className="pill">{errorRows.length}</span>
-                  </button>
-                </div>
+                </>
               )}
             </div>
             {insightNavOpen && (

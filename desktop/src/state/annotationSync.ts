@@ -97,17 +97,21 @@ export async function syncAnnotations(client: HubClient): Promise<AnnotationSync
       deferred += 1; // parent reference has no hubId yet — sync the library first
       continue;
     }
+    // Dirty tracking (#311): a row already linked to the hub and untouched since
+    // its last successful push has nothing new to upload — skip the PUT and its
+    // write-back. A FAILED push leaves the row dirty so the next sync retries it.
+    if (a.hubId !== undefined && a.hubId !== '' && a.dirty !== true) continue;
     try {
       const body = annToHubBody(a);
       if (a.hubId !== undefined && a.hubId !== '') {
         await client.updateAnnotation(parentHub, a.hubId, body);
-        useAnnotations.getState().update(a.id, { syncedAt: Date.now() });
+        useAnnotations.getState().update(a.id, { syncedAt: Date.now(), dirty: false });
         pushed += 1;
       } else {
         const row = await client.createAnnotation(parentHub, body);
         const newId = str(row, 'id');
         if (newId !== undefined) {
-          useAnnotations.getState().update(a.id, { hubId: newId, syncedAt: Date.now() });
+          useAnnotations.getState().update(a.id, { hubId: newId, syncedAt: Date.now(), dirty: false });
           created += 1;
         }
       }

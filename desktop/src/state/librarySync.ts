@@ -175,18 +175,23 @@ export async function syncLibrary(client: HubClient): Promise<SyncResult> {
   let created = 0;
   let failed = 0;
   for (const r of locals) {
+    // Dirty tracking (#311): a row already linked to the hub and untouched since
+    // its last successful push has nothing new to upload — skip the PUT and its
+    // write-back. Rows without a hubId always attempt the push (create / link),
+    // and a FAILED push leaves the row dirty so the next sync retries it.
+    if (r.hubId !== undefined && r.dirty !== true) continue;
     try {
       const body = refToHubBody(r, collName);
       const linkId = r.hubId ?? matchHubId(r, byKey);
       if (linkId !== undefined) {
         await client.updateReference(linkId, body);
-        useLibrary.getState().updateReference(r.id, { hubId: linkId, syncedAt: Date.now() });
+        useLibrary.getState().updateReference(r.id, { hubId: linkId, syncedAt: Date.now(), dirty: false });
         pushed += 1;
       } else {
         const createdRow = await client.createReference(body);
         const newId = str(createdRow, 'id');
         if (newId !== undefined) {
-          useLibrary.getState().updateReference(r.id, { hubId: newId, syncedAt: Date.now() });
+          useLibrary.getState().updateReference(r.id, { hubId: newId, syncedAt: Date.now(), dirty: false });
           created += 1;
         }
       }

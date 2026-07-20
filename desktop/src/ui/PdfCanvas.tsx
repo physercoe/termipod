@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -58,6 +58,10 @@ const TOOL_SHORTCUTS: Partial<Record<string, Tool>> = {
 
 // The shape the parent hands to add() — id/timestamps/referenceId are injected there.
 type NewAnno = Omit<Annotation, 'id' | 'createdAt' | 'updatedAt' | 'referenceId'>;
+
+// Shared empty list for pages with no annotations — a fresh `[]` per page would
+// change identity on every render and defeat PageView's memo (#311).
+const NO_ANNOS: Annotation[] = [];
 
 // ---- PDF-point ⇄ CSS-px geometry -------------------------------------------
 // Annotations store geometry in unscaled PDF points, origin BOTTOM-LEFT (Zotero's
@@ -547,7 +551,16 @@ function AnnoEditor({
   );
 }
 
-function PageView({
+/// One rendered page. Memoised (#311): an annotation edit updates the store on
+/// every keystroke (comment typing) and the viewer itself re-renders on each
+/// scroll-driven page-indicator tick — without memo that re-rendered EVERY
+/// PageView, canvas/text-layer effects and all. Every prop is stabilised at the
+/// call site (callbacks via useCallback / a latest-ref trampoline, `annos` via
+/// structural sharing, `t` stable per language since 3389529a), so a page whose
+/// inputs didn't change now skips re-rendering entirely. Behavior is unchanged:
+/// selection, the editor popover, the lazy IntersectionObserver render, and the
+/// highlight marks all key off the same props as before.
+const PageView = memo(function PageView({
   pdf,
   pageNum,
   scale,
@@ -1023,7 +1036,7 @@ function PageView({
       )}
     </div>
   );
-}
+});
 
 // A node in the PDF's outline (table of contents / bookmarks).
 interface OutlineNode {
@@ -1339,15 +1352,30 @@ export function PdfCanvas({
   // Only PDF-geometry annotations belong here — exclude EPUB (CFI) and image
   // (normalized-space) annotations that may share the same reference.
   const isPdfAnno = (a: Annotation): boolean => a.position.cfi === undefined && a.position.space !== 'image';
+  // Structural sharing (#311): reuse the previous render's per-page array when
+  // its contents are unchanged, so editing one annotation doesn't change the
+  // `annos` prop identity of every OTHER annotated page — with PageView memoised,
+  // only the edited page re-renders. (The store keeps untouched Annotation
+  // objects reference-equal, so an element-wise compare is exact.)
+  const prevAnnosRef = useRef<Map<number, Annotation[]> | null>(null);
   const annosByPage = useMemo(() => {
     const m = new Map<number, Annotation[]>();
-    if (referenceId === undefined) return m;
-    for (const a of allAnnos) {
-      if (a.referenceId !== referenceId || !isPdfAnno(a)) continue;
-      const list = m.get(a.pageIndex) ?? [];
-      list.push(a);
-      m.set(a.pageIndex, list);
+    if (referenceId !== undefined) {
+      for (const a of allAnnos) {
+        if (a.referenceId !== referenceId || !isPdfAnno(a)) continue;
+        const list = m.get(a.pageIndex) ?? [];
+        list.push(a);
+        m.set(a.pageIndex, list);
+      }
     }
+    const prev = prevAnnosRef.current;
+    if (prev !== null) {
+      for (const [k, list] of m) {
+        const p = prev.get(k);
+        if (p !== undefined && p.length === list.length && list.every((a, i) => a === p[i])) m.set(k, p);
+      }
+    }
+    prevAnnosRef.current = m;
     return m;
   }, [allAnnos, referenceId]);
   // Flat, reading-order list for the Annotations panel tab.
@@ -1747,10 +1775,15 @@ export function PdfCanvas({
   }
 
   // Bind the reference id and hand to the store; returns the new annotation id.
-  function createAnnotation(a: NewAnno): string {
-    if (referenceId === undefined) return '';
-    return addAnno({ ...a, referenceId });
-  }
+  // A useCallback (not a plain function) so the memoised PageView gets a stable
+  // `onCreate` prop across viewer re-renders (#311).
+  const createAnnotation = useCallback(
+    (a: NewAnno): string => {
+      if (referenceId === undefined) return '';
+      return addAnno({ ...a, referenceId });
+    },
+    [referenceId, addAnno],
+  );
 
   // Turn the current text selection into a highlight/underline. The selection's
   // client rects (screen px) are grouped by the page they fall on, then each rect
@@ -1949,6 +1982,23 @@ export function PdfCanvas({
     el.style.top = `${y}px`;
   }, [menu]);
 
+  // Stabilised PageView props (#311): inline arrows here would change identity on
+  // every viewer render (each scroll-driven page-indicator tick, each annotation
+  // store update), silently defeating the memo. goToDest closes over pdf/scale
+  // and is redefined per render, so it gets a latest-ref trampoline — a fixed
+  // prop identity that always calls the current closure.
+  const destRef = useRef(goToDest);
+  destRef.current = goToDest;
+  const onDest = useCallback((d: string | unknown[]) => void destRef.current(d), []);
+  const onRemoveAnno = useCallback(
+    (id: string) => {
+      removeAnno(id);
+      setSelectedAnno(null);
+    },
+    [removeAnno],
+  );
+  const onToolDone = useCallback(() => setTool(null), []);
+
   // The page list for one pane. The mirror pane passes readOnly so its overlays
   // are visible but not editable (annotation happens in the primary pane).
   const pageList = (readOnly: boolean): JSX.Element[] =>
@@ -1964,19 +2014,16 @@ export function PdfCanvas({
             query={query}
             dim={pageDims[i]}
             onLink={openLink}
-            onDest={(d) => void goToDest(d)}
-            annos={annosByPage.get(i) ?? []}
+            onDest={onDest}
+            annos={annosByPage.get(i) ?? NO_ANNOS}
             tool={tool}
             color={annoColor}
             selectedId={selectedAnno}
             onCreate={createAnnotation}
             onSelect={setSelectedAnno}
             onUpdate={updateAnno}
-            onRemove={(id) => {
-              removeAnno(id);
-              setSelectedAnno(null);
-            }}
-            onToolDone={() => setTool(null)}
+            onRemove={onRemoveAnno}
+            onToolDone={onToolDone}
             onImageToNote={readOnly ? undefined : onImageToNote}
             readOnly={readOnly}
           />

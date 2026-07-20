@@ -17,6 +17,9 @@ export interface SshConnectReq {
   passphrase?: string;
   cols: number;
   rows: number;
+  /** Frontend-minted attempt id — echoed on the core's `ssh-connect-progress`
+   *  phase ticks so the form can match ticks to this attempt (#319). */
+  connect_id?: string;
 }
 
 /** Open a session + PTY; resolves to the session id used by the calls below. */
@@ -31,6 +34,11 @@ export function sshResize(id: string, cols: number, rows: number): Promise<void>
 }
 export function sshClose(id: string): Promise<void> {
   return invoke('ssh_close', { id });
+}
+/** Open a second interactive shell on an existing session's connection — the
+ *  split-duplicate path (#319): a fresh channel, no re-authentication. */
+export function sshDuplicate(id: string, cols: number, rows: number): Promise<string> {
+  return invoke<string>('ssh_duplicate', { id, cols, rows });
 }
 /** Run a one-shot command over a fresh exec channel on an existing session and
  * resolve its stdout (+stderr). General remote-exec substrate. */
@@ -88,5 +96,20 @@ export function onSshData(id: string, cb: (bytes: Uint8Array) => void): Promise<
 export function onSshExit(id: string, cb: (code: number | null) => void): Promise<UnlistenFn> {
   return listen<ExitPayload>('ssh-exit', (e) => {
     if (e.payload.id === id) cb(e.payload.code ?? null);
+  });
+}
+
+/** The handshake stages `ssh_connect` reports (#319): TCP connect + key
+ *  exchange, then authentication, then shell-channel open. */
+export type SshConnectPhase = 'tcp' | 'auth' | 'channel';
+
+interface ConnectProgressPayload {
+  connect_id: string;
+  phase: string;
+}
+/** Subscribe to phase ticks for one in-flight `ssh_connect` attempt (#319). */
+export function onSshConnectPhase(connectId: string, cb: (phase: SshConnectPhase) => void): Promise<UnlistenFn> {
+  return listen<ConnectProgressPayload>('ssh-connect-progress', (e) => {
+    if (e.payload.connect_id === connectId) cb(e.payload.phase as SshConnectPhase);
   });
 }

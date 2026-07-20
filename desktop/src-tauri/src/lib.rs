@@ -712,6 +712,7 @@ pub fn run() {
             keychain::keychain_delete,
             keychain::keychain_is_windows,
             ssh::ssh_connect,
+            ssh::ssh_duplicate,
             ssh::ssh_write,
             ssh::ssh_resize,
             ssh::ssh_close,

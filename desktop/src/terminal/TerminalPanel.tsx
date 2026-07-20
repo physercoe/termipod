@@ -16,6 +16,7 @@ import {
   type Connection,
 } from '../state/connections';
 import { importSshConfig } from '../ssh/config';
+import { sshDuplicate } from '../ssh/tauri';
 import { useConfirm } from '../ui/ConfirmModal';
 import { useTextPrompt } from '../ui/PromptModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
@@ -309,13 +310,30 @@ export function TerminalPanel(): JSX.Element {
     openConnect(tab.connId);
   }
 
-  // Split the current view: spawn a fresh local shell into a new tile in the
-  // chosen orientation (the whole group shares one orientation in this round; a
-  // nested split tree is a follow-up).
+  // Split the current view (#319): an SSH tab duplicates onto a FRESH channel
+  // of the same backend connection (no re-auth — ssh.rs `ssh_duplicate`);
+  // anything else spawns a new local shell. The whole group shares one
+  // orientation in this round; a nested split tree is a follow-up.
   async function split(o: 'row' | 'column'): Promise<void> {
     setOrientation(o);
-    const uiId = await newLocal();
+    const active = tabs.find((tb) => tb.id === activeId);
+    const uiId = active?.kind === 'ssh' ? await duplicateSsh(active) : await newLocal();
     if (uiId !== null) setPanes((p) => (p.includes(uiId) ? p : [...p, uiId]));
+  }
+
+  // Split-duplicate an SSH tab: a second interactive shell on the SAME
+  // connection, tiled beside the original and titled after it.
+  async function duplicateSsh(tab: TermTab): Promise<string | null> {
+    setError(null);
+    try {
+      const sessionId = await sshDuplicate(tab.sessionId, 80, 24);
+      const uiId = addTab({ kind: 'ssh', sessionId, title: tab.title, connId: tab.connId });
+      setConnecting(false);
+      return uiId;
+    } catch (e) {
+      setError(msg(e));
+      return null;
+    }
   }
 
   // Show a session as the sole tile (tab click) — or just focus it if it's

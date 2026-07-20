@@ -1,25 +1,50 @@
-/* ---- rich transcript event cards (parity Phase 1a) ---- */
+/* ---- rich transcript event cards (parity Phase 1a; visual redesign #332) ---- */
+
+/* The feed is a centered, readable column (#332) — long lines on a wide monitor
+   are unreadable full-bleed. Every row's content lives inside this measure, so
+   the director's input and the assistant's prose share one column and their
+   right edges align. */
+.feed-measure {
+  display: flex;
+  flex-direction: column;
+  max-width: 760px;
+  margin-inline: auto;
+}
 .ev {
   display: flex;
   align-self: stretch;
-  max-width: 92%;
+  min-width: 0;
+}
+/* Boxed cards — chrome only where action lives: tools, diffs, plans, errors, and
+   the director's own input. One neutral spine (error + user recolour it),
+   replacing the old 9-colour per-kind rainbow. */
+.ev--boxed {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--ev-accent, var(--border-strong));
+  border-left: 3px solid var(--border-strong);
   border-radius: var(--radius-md);
-  padding: var(--spacing-s12) var(--spacing-s16);
+  padding: var(--spacing-s8) var(--spacing-s12);
   box-shadow: var(--sh-1);
 }
-/* Director / user input reads as a distinct right-aligned bubble — the desktop
- * has horizontal room the phone doesn't, so we use it to separate the two
- * voices instead of stacking every card in one lane. */
+.ev--error.ev--boxed {
+  border-left-color: var(--danger);
+}
+/* Bare cards — assistant prose + telemetry lines render borderless; structure
+   comes from typography and whitespace, not boxes. */
+.ev--bare {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+/* Director / user input reads as a distinct right-aligned bubble within the
+   measure — the two voices read apart. */
 .ev--user {
   align-self: flex-end;
-  max-width: 68%;
+  max-width: 88%;
   background: var(--accent-tint);
   border-color: var(--accent-line);
-  border-left: 1px solid var(--accent-line);
-  border-radius: var(--radius-md);
+  border-left-color: var(--accent-line);
 }
 .ev--user .ev-from {
   color: var(--accent-text);
@@ -67,6 +92,50 @@
   background: var(--input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+}
+/* #332 fenced code block — a header strip with the language label + a copy
+   button, the cheapest chat-grade affordance. The framed block owns the border;
+   the inner <pre> drops its own so they don't double up. */
+.md-code {
+  margin: var(--spacing-s4) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px var(--spacing-s8);
+  background: var(--surface-sunken, var(--bg));
+  border-bottom: 1px solid var(--border);
+}
+.md-code-lang {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+  text-transform: lowercase;
+}
+.md-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  padding: 2px var(--spacing-s4);
+  border-radius: var(--radius-xs);
+}
+.md-code-copy:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.md-code pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
 }
 .md pre code,
 .md pre code.hljs {
@@ -301,7 +370,31 @@
 .ev-tool-head {
   display: flex;
   align-items: center;
-  gap: var(--spacing-s8);
+  gap: var(--spacing-s6, 6px);
+  min-width: 0;
+}
+/* #332 tool summary — icon + verb + the key argument inline; raw JSON hides
+   behind the "Arguments" disclosure below. */
+.ev-tool-ico {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+.ev-tool-verb {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--text);
+}
+.ev-tool-arg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  background: var(--input);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
 }
 .ev-tag {
   display: inline-flex;
@@ -348,11 +441,26 @@
   color: var(--text-secondary);
   font-size: var(--font-size-label);
 }
+/* #332 diff gutters — full-line background tints so hunks scan as blocks. */
+.diff-del,
+.diff-add {
+  display: block;
+  padding-right: var(--spacing-s4);
+}
 .diff-del {
   color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 .diff-add {
-  color: var(--color-success);
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.diff-gutter {
+  display: inline-block;
+  width: 1.3em;
+  text-align: center;
+  opacity: 0.75;
+  user-select: none;
 }
 .ev-plan {
   list-style: none;
@@ -360,14 +468,31 @@
   padding: 0;
 }
 .ev-plan li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s6, 6px);
   padding: 2px 0;
 }
 .ev-plan .plan-mark {
+  flex: 0 0 auto;
   color: var(--text-secondary);
+  transform: translateY(2px);
+}
+.ev-plan li.plan-in_progress .plan-mark {
+  color: var(--accent);
+}
+.ev-plan li.plan-completed .plan-mark,
+.ev-plan li.plan-done .plan-mark {
+  color: var(--ok);
 }
 .ev-plan li.plan-completed,
 .ev-plan li.plan-done {
   color: var(--text-muted);
+}
+/* #332 thinking lead-in — a muted italic marker, no uppercase tag. */
+.ev-think-lead {
+  color: var(--text-muted);
+  font-style: italic;
 }
 .ev-input .ev-from {
   display: inline-block;
@@ -400,7 +525,9 @@
 .composer-wrap {
   flex: 0 0 auto;
   border-top: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--bg), var(--canvas));
+  /* #332 — a flat surface + hairline; the old gradient read dated next to the
+     rest of the shell. */
+  background: var(--bg);
 }
 .composer {
   position: relative;
@@ -518,11 +645,24 @@
 }
 .composer .attach-btn {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 32px;
   height: 32px;
-  font-size: var(--font-size-body);
+  padding: 0;
   line-height: 1;
   border-radius: var(--radius-sm);
+}
+/* #332 — an icon send button (arrow) instead of a text label. */
+.composer .composer-send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
 }
 .composer-err {
   padding: var(--spacing-s4) var(--spacing-s8) 0;

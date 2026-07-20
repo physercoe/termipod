@@ -1,5 +1,6 @@
-import { memo, useEffect, useState } from 'react';
+import { isValidElement, memo, useEffect, useState, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
+import { Icon } from './Icon';
 import { useOpenLink } from './OpenLinkContext';
 import { loadNoteImage, NOTE_ATT_SCHEME } from '../state/attachments';
 import remarkGfm from 'remark-gfm';
@@ -82,6 +83,50 @@ export function slugify(s: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+/// Recursively flatten a React node tree to its text — used to recover the raw
+/// source of a fenced code block (rehype-highlight wraps tokens in nested spans)
+/// so the copy button copies the code, not the chrome.
+function nodeText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join('');
+  if (isValidElement(node)) return nodeText((node.props as { children?: ReactNode }).children);
+  return '';
+}
+
+/// A fenced code block with a header strip: the language label + a copy button
+/// (#332 — the cheapest, most-felt chat-grade affordance). The `<pre>`/`<code>`
+/// react-markdown emits is rendered inside the framed block; the language comes
+/// from rehype's `language-*` class and the copied text from `nodeText`.
+function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const codeEl = Array.isArray(children) ? children.find((c) => isValidElement(c)) : children;
+  const className = isValidElement(codeEl) ? String((codeEl.props as { className?: string }).className ?? '') : '';
+  const lang = /language-([\w-]+)/.exec(className)?.[1];
+  const raw = nodeText(children);
+  function copy(): void {
+    void navigator.clipboard?.writeText(raw).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      },
+      () => undefined,
+    );
+  }
+  return (
+    <div className="md-code">
+      <div className="md-code-head">
+        <span className="md-code-lang">{lang ?? 'text'}</span>
+        <button type="button" className="md-code-copy" onClick={copy} title="Copy code" aria-label="Copy code">
+          <Icon name={copied ? 'check' : 'copy'} size={13} />
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre>{children}</pre>
+    </div>
+  );
+}
+
 /// F1 primitive — safe GitHub-flavoured Markdown for transcript text/thought
 /// blocks and tool payloads. react-markdown renders to React elements (no
 /// `innerHTML`), so it is XSS-safe by construction. Links are rendered as
@@ -145,6 +190,7 @@ export const Markdown = memo(function Markdown({
           h5: heading('h5'),
           h6: heading('h6'),
           img: ({ src, alt }) => <AttachmentImage src={typeof src === 'string' ? src : undefined} alt={alt} />,
+          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
           a: ({ children, href }) => {
             const external = typeof href === 'string' && /^(https?:|mailto:)/.test(href);
             return (

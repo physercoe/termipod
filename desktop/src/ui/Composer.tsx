@@ -251,8 +251,14 @@ export function Composer({
           hidden
           onChange={(e) => void addFiles(e.target.files)}
         />
-        <button className="attach-btn" title={t('composer.attach')} onClick={() => fileRef.current?.click()} disabled={busy}>
-          +
+        <button
+          className="attach-btn"
+          title={t('composer.attach')}
+          aria-label={t('composer.attach')}
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+        >
+          <Icon name="plus" size={16} />
         </button>
         {isTauri() && !recording && (
           <button
@@ -331,8 +337,14 @@ export function Composer({
             }
           }}
         />
-        <button className="primary" onClick={() => void send()} disabled={!canSend}>
-          {t('tx.send')}
+        <button
+          className="primary composer-send"
+          onClick={() => void send()}
+          disabled={!canSend}
+          title={t('tx.send')}
+          aria-label={t('tx.send')}
+        >
+          <Icon name="send" size={16} />
         </button>
       </div>
     </div>

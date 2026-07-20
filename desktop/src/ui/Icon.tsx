@@ -71,7 +71,11 @@ export type IconName =
   | 'sliders'
   | 'canvas'
   | 'table'
-  | 'sidebar';
+  | 'sidebar'
+  | 'arrow-down'
+  | 'send'
+  | 'wrench'
+  | 'circle-half';
 
 const PATHS: Record<IconName, JSX.Element> = {
   // sidebar — a panel with a left column, for the nav fold toggle
@@ -437,6 +441,29 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M3 9h18" />
       <path d="M3 14.5h18" />
       <path d="M9 4v16" />
+    </>
+  ),
+  // arrow-down — the scroll-to-latest pill affordance.
+  'arrow-down': (
+    <>
+      <path d="M12 5v14" />
+      <path d="M6 13l6 6 6-6" />
+    </>
+  ),
+  // send — a paper-plane for the composer primary action.
+  send: (
+    <>
+      <path d="M22 2 11 13" />
+      <path d="M22 2l-7 20-4-9-9-4z" />
+    </>
+  ),
+  // wrench — a tool call / tool-count marker.
+  wrench: <path d="M14.5 5.6a4 4 0 0 0-5.3 5.1L3 17v4h4l6.3-6.2a4 4 0 0 0 5.1-5.3l-2.8 2.8-2.6-.6-.6-2.6z" />,
+  // circle-half — an in-progress plan mark (half-filled disc).
+  'circle-half': (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none" />
     </>
   ),
 };

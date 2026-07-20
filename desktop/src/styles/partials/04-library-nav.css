@@ -912,3 +912,78 @@ button.small,
 .feed-item {
   padding: var(--spacing-s6, 6px) var(--spacing-s20, 20px);
 }
+
+/* #332 status line — model · turns · tokens · elapsed, a quiet strip under the
+   mode bar. */
+.transcript-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s16);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+  background: var(--surface-sunken, var(--bg));
+}
+.transcript-status .ts-model {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.transcript-status .ts-sep {
+  opacity: 0.5;
+}
+.transcript-status .ts-tok {
+  font-family: var(--font-mono, monospace);
+}
+
+/* #332 scroll-to-latest pill — floats over the feed while the user is scrolled
+   up; clicking returns to the live tail. */
+.feed-wrap {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.feed-wrap > .feed-virt {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.scroll-latest {
+  position: absolute;
+  left: 50%;
+  bottom: var(--spacing-s12);
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border: none;
+  border-radius: var(--radius-stadium);
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--sh-2);
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  z-index: 5;
+}
+.scroll-latest:hover {
+  box-shadow: var(--sh-3);
+}
+
+/* #332 insight-row stats — icon glyphs, not raw unicode (⚒/✕). */
+.insight-row .small {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.ir-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.ir-stat.err {
+  color: var(--danger);
+}

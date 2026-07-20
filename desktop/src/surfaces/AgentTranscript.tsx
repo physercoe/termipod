@@ -17,6 +17,19 @@ function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function fmtTok(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return String(n);
+}
+
+function fmtElapsed(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
 // The deepest history the events endpoint serves in one call (tail = last N; it
 // has no older-than cursor). We load it once and let the virtual list render only
 // the visible slice — so there's no render storm, and the measured, bottom-
@@ -123,6 +136,11 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   // state and apply it when the row renders.
   const [flashSeq, setFlashSeq] = useState<number | null>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  // Scroll-to-latest pill (#332): while the user is scrolled up, count events
+  // that arrive off-screen and offer a jump back to the live tail.
+  const [atBottom, setAtBottom] = useState(true);
+  const [unread, setUnread] = useState(0);
+  const prevLiveLenRef = useRef(0);
 
   useEffect(() => {
     if (client === null) return;
@@ -175,6 +193,36 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
   const { resultById, nameById, callIds } = useToolMaps(feed);
 
+  // Persistent status line (#332): model, turn count, latest token snapshot, and
+  // elapsed wall-time — all reliably present in the session.init / usage / turn
+  // events and the row timestamps. (Live running-state + a composer Stop swap
+  // want the agent's lifecycle status, not just the feed — deferred.)
+  const stats = useMemo(() => {
+    let model: string | undefined;
+    let inTok = 0;
+    let outTok = 0;
+    let turns = 0;
+    let firstTs: number | undefined;
+    let lastTs: number | undefined;
+    for (const ev of feed) {
+      if (ev.ts !== undefined) {
+        const ts = Date.parse(ev.ts);
+        if (!Number.isNaN(ts)) {
+          if (firstTs === undefined) firstTs = ts;
+          lastTs = ts;
+        }
+      }
+      if (ev.kind === 'session.init') model = str(ev.payload, 'model') ?? model;
+      else if (ev.kind === 'usage') {
+        model = str(ev.payload, 'model') ?? model;
+        inTok = num(ev.payload, 'input_tokens') ?? inTok;
+        outTok = num(ev.payload, 'output_tokens') ?? outTok;
+      } else if (ev.kind === 'turn.result') turns += 1;
+    }
+    const elapsed = firstTs !== undefined && lastTs !== undefined && lastTs > firstTs ? lastTs - firstTs : undefined;
+    return { model, inTok, outTok, turns, elapsed };
+  }, [feed]);
+
   // A tool_result folded into its matching tool_call — not rendered on its own.
   const isFolded = (ev: FeedEvent): boolean => {
     if (ev.kind !== 'tool_result') return false;
@@ -200,7 +248,11 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   // The item wrapper for the virtual list: carries the transient jump flash and
   // the row spacing.
   function feedItem(ev: FeedEvent): JSX.Element {
-    return <div className={ev.seq === flashSeq ? 'feed-item ev-flash' : 'feed-item'}>{renderCard(ev)}</div>;
+    return (
+      <div className={ev.seq === flashSeq ? 'feed-item ev-flash' : 'feed-item'}>
+        <div className="feed-measure">{renderCard(ev)}</div>
+      </div>
+    );
   }
 
   // Live-mode filtering: first drop feed noise (mobile verbose model), then
@@ -267,6 +319,11 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     stickBottomRef.current = true;
     settledRef.current = false;
     setSettled(false);
+    // Reset the scroll-to-latest tracking so a backfill / agent switch doesn't
+    // arrive counted as unread (we open at the tail, i.e. atBottom).
+    setAtBottom(true);
+    setUnread(0);
+    prevLiveLenRef.current = 0;
     clearSettleTimer();
     clearBackstopTimer();
     // Backstop only: reveal no later than ~1.8s after (re)mount even if the
@@ -309,6 +366,19 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
       feedScroller.removeEventListener('keydown', release);
     };
   }, [feedScroller]);
+  // Count events that arrive while scrolled up as unread; clear when the user
+  // returns to the tail (`atBottomStateChange`, below).
+  useEffect(() => {
+    const delta = liveData.length - prevLiveLenRef.current;
+    prevLiveLenRef.current = liveData.length;
+    if (delta > 0 && !atBottom) setUnread((u) => u + delta);
+  }, [liveData.length, atBottom]);
+  function jumpToLatest(): void {
+    stickBottomRef.current = true;
+    setUnread(0);
+    const n = liveData.length;
+    if (n > 0) virtuosoRef.current?.scrollToIndex({ index: n - 1, align: 'end', behavior: 'smooth' });
+  }
   // How many low-signal rows the verbose toggle would reveal (for its badge).
   const verboseHidden = useMemo(
     () => (verbose ? 0 : feed.filter((ev) => isHiddenInFeed(ev, false) && !isHiddenInFeed(ev, true)).length),
@@ -421,6 +491,34 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
         </div>
       </div>
 
+      {mode !== 'digest' && stats.model !== undefined && (
+        <div className="transcript-status">
+          <span className="ts-model">{stats.model}</span>
+          {stats.turns > 0 && (
+            <>
+              <span className="ts-sep">·</span>
+              <span>
+                {stats.turns} {t('tx.turnsLabel')}
+              </span>
+            </>
+          )}
+          {(stats.inTok > 0 || stats.outTok > 0) && (
+            <>
+              <span className="ts-sep">·</span>
+              <span className="ts-tok">
+                {t('tx.tokIn')} {fmtTok(stats.inTok)} · {t('tx.tokOut')} {fmtTok(stats.outTok)}
+              </span>
+            </>
+          )}
+          {stats.elapsed !== undefined && (
+            <>
+              <span className="ts-sep">·</span>
+              <span>{fmtElapsed(stats.elapsed)}</span>
+            </>
+          )}
+        </div>
+      )}
+
       {error !== null && <div className="region-pad error">{error}</div>}
 
       {mode === 'live' && (
@@ -459,29 +557,41 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
             )}
           </div>
           {loaded ? (
-            <Virtuoso
-              key={agentId}
-              ref={virtuosoRef}
-              className="feed-virt"
-              style={settled ? undefined : { visibility: 'hidden' }}
-              data={liveData}
-              scrollerRef={(el) => setFeedScroller(el instanceof HTMLElement ? el : null)}
-              computeItemKey={(_i, ev) => ev.id}
-              initialTopMostItemIndex={{ index: Math.max(0, liveData.length - 1), align: 'end' }}
-              defaultItemHeight={120}
-              alignToBottom
-              followOutput={(atBottom) => (atBottom ? 'auto' : false)}
-              atBottomStateChange={(atBottom) => {
-                if (atBottom) stickBottomRef.current = true;
-              }}
-              totalListHeightChanged={pinBottom}
-              itemContent={(_i, ev) => feedItem(ev)}
-              components={{
-                EmptyPlaceholder: () => (
-                  <div className="region-pad muted">{lens === 'all' ? t('tx.noEvents') : t('tx.noMatches')}</div>
-                ),
-              }}
-            />
+            <div className="feed-wrap">
+              <Virtuoso
+                key={agentId}
+                ref={virtuosoRef}
+                className="feed-virt"
+                style={settled ? undefined : { visibility: 'hidden' }}
+                data={liveData}
+                scrollerRef={(el) => setFeedScroller(el instanceof HTMLElement ? el : null)}
+                computeItemKey={(_i, ev) => ev.id}
+                initialTopMostItemIndex={{ index: Math.max(0, liveData.length - 1), align: 'end' }}
+                defaultItemHeight={120}
+                alignToBottom
+                followOutput={(bottom) => (bottom ? 'auto' : false)}
+                atBottomStateChange={(bottom) => {
+                  setAtBottom(bottom);
+                  if (bottom) {
+                    stickBottomRef.current = true;
+                    setUnread(0);
+                  }
+                }}
+                totalListHeightChanged={pinBottom}
+                itemContent={(_i, ev) => feedItem(ev)}
+                components={{
+                  EmptyPlaceholder: () => (
+                    <div className="region-pad muted">{lens === 'all' ? t('tx.noEvents') : t('tx.noMatches')}</div>
+                  ),
+                }}
+              />
+              {settled && !atBottom && (
+                <button className="scroll-latest" onClick={jumpToLatest} aria-label={t('tx.latest')}>
+                  <Icon name="arrow-down" size={14} />
+                  {unread > 0 ? `${unread} ${t('tx.new')}` : t('tx.latest')}
+                </button>
+              )}
+            </div>
           ) : (
             <div className="feed muted region-pad">{t('common.loading')}</div>
           )}
@@ -539,9 +649,17 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
                         </span>
                         <span className="spacer" />
                         <span className="muted small">
-                          {toolN > 0 ? `⚒ ${toolN - toolF}/${toolN}` : ''}
-                          {errs > 0 ? ` · ✕${errs}` : ''}
-                          {dur !== undefined ? ` · ${Math.round(dur / 100) / 10}s` : ''}
+                          {toolN > 0 && (
+                            <span className="ir-stat">
+                              <Icon name="wrench" size={12} /> {toolN - toolF}/{toolN}
+                            </span>
+                          )}
+                          {errs > 0 && (
+                            <span className="ir-stat err">
+                              <Icon name="close" size={12} /> {errs}
+                            </span>
+                          )}
+                          {dur !== undefined && <span className="ir-stat">{Math.round(dur / 100) / 10}s</span>}
                         </span>
                       </button>
                     );

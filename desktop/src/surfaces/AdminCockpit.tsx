@@ -4,6 +4,8 @@ import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { ConfirmButton } from '../ui/ConfirmButton';
+import { useConfirm } from '../ui/ConfirmModal';
+import { Modal } from '../ui/Modal';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -383,12 +385,15 @@ function YamlEditor({
   const t = useT();
   const client = useSession((s) => s.client);
   const qc = useQueryClient();
+  const { ask: confirmAsk, node: confirmNode } = useConfirm();
   const creating = target.name === null;
   const [name, setName] = useState(target.name ?? '');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(creating);
+  // The text as last loaded — the baseline for the dirty-close guard.
+  const [savedText, setSavedText] = useState('');
 
   useEffect(() => {
     if (creating || client === null) return;
@@ -401,6 +406,7 @@ function YamlEditor({
             : await client.getAgentFamilyText(target.name as string);
         if (live) {
           setText(raw);
+          setSavedText(raw);
           setLoaded(true);
         }
       } catch (e) {
@@ -457,9 +463,16 @@ function YamlEditor({
       ? `${t('admin.template')} · ${target.category}`
       : t('admin.family');
 
+  // Dirty-close guard (#313): backdrop / Escape / Close used to discard unsaved
+  // edits silently — confirm before dropping them.
+  const dirty = name !== (target.name ?? '') || text !== savedText;
+  async function attemptClose(): Promise<void> {
+    if (!dirty || (await confirmAsk({ message: t('confirm.discardChanges'), danger: true }))) onClose();
+  }
+
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
+    <>
+    <Modal onClose={() => void attemptClose()} className="sessions-panel" ariaLabel={heading}>
         <div className="admin-tabs">
           <strong>{heading}</strong>
           <span className="spacer" />
@@ -467,7 +480,7 @@ function YamlEditor({
           <button className="primary" disabled={busy || name.trim() === '' || !loaded} onClick={() => void save()}>
             {t('admin.save')}
           </button>
-          <button onClick={onClose}>{t('admin.close')}</button>
+          <button onClick={() => void attemptClose()}>{t('admin.close')}</button>
         </div>
         <div className="region-pad scroll">
           <label className="wide">
@@ -487,8 +500,9 @@ function YamlEditor({
           )}
           {err !== null && <div className="error wide">{err}</div>}
         </div>
-      </div>
-    </div>
+    </Modal>
+    {confirmNode}
+    </>
   );
 }
 
@@ -622,8 +636,7 @@ export function AdminCockpit({ onClose }: { onClose: () => void }): JSX.Element 
     { v: 'upkeep', label: t('admin.upkeep') },
   ];
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="admin" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="admin" ariaLabel={t('admin.cockpit')}>
         <div className="admin-tabs">
           {tabs.map((x) => (
             <button key={x.v} className={tab === x.v ? 'tab active' : 'tab'} onClick={() => setTab(x.v)}>
@@ -642,7 +655,6 @@ export function AdminCockpit({ onClose }: { onClose: () => void }): JSX.Element 
           {tab === 'families' && <FamiliesTab />}
           {tab === 'upkeep' && <UpkeepTab />}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

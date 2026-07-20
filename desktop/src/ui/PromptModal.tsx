@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useT } from '../i18n';
-import { useModalA11y } from './useModalA11y';
+import { Modal } from './Modal';
 
 /// In-app text prompt — a replacement for `window.prompt`, which in the Tauri
 /// WebView2 renders as a native "tauri.localhost says…" dialog (it stamps the
@@ -24,7 +24,6 @@ export function useTextPrompt(): {
 } {
   const t = useT();
   const [st, setSt] = useState<PromptState | null>(null);
-  const modalRef = useModalA11y<HTMLDivElement>(st !== null);
 
   const ask = useCallback(
     (label: string, initial = ''): Promise<string | null> =>
@@ -39,42 +38,31 @@ export function useTextPrompt(): {
 
   const node =
     st === null ? null : (
-      <div className="palette-backdrop" onMouseDown={() => close(null)}>
-        <div
-          ref={modalRef}
-          className="prompt-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={st.label}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <label className="prompt-label">{st.label}</label>
-          <input
-            autoFocus
-            value={st.value}
-            spellCheck={false}
-            onChange={(e) => setSt({ ...st, value: e.target.value })}
-            onKeyDown={(e) => {
-              // Stop Enter/Escape from bubbling to a global shell listener that
-              // would also act on them (e.g. AppShell's window-level Escape).
-              if (e.key === 'Enter') {
-                e.stopPropagation();
-                close(st.value);
-              } else if (e.key === 'Escape') {
-                e.stopPropagation();
-                close(null);
-              }
-            }}
-          />
-          <div className="prompt-actions">
-            <button onClick={() => close(null)}>{t('common.cancel')}</button>
-            <span className="spacer" />
-            <button className="primary" onClick={() => close(st.value)}>
-              {t('common.ok')}
-            </button>
-          </div>
+      <Modal onClose={() => close(null)} className="prompt-modal" ariaLabel={st.label}>
+        <label className="prompt-label">{st.label}</label>
+        <input
+          autoFocus
+          value={st.value}
+          spellCheck={false}
+          onChange={(e) => setSt({ ...st, value: e.target.value })}
+          onKeyDown={(e) => {
+            // Stop Enter from bubbling to a global shell listener that would also
+            // act on it (e.g. AppShell's window-level handlers). Escape is the
+            // Modal's job — it stopPropagates at the capture phase.
+            if (e.key === 'Enter') {
+              e.stopPropagation();
+              close(st.value);
+            }
+          }}
+        />
+        <div className="prompt-actions">
+          <button onClick={() => close(null)}>{t('common.cancel')}</button>
+          <span className="spacer" />
+          <button className="primary" onClick={() => close(st.value)}>
+            {t('common.ok')}
+          </button>
         </div>
-      </div>
+      </Modal>
     );
 
   return { ask, node };

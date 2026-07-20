@@ -3,6 +3,7 @@ import { useHubAction } from '../hub/action';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { Modal } from '../ui/Modal';
 
 /// Plan detail + editor (parity — mobile plan_viewer_screen). Edits the plan's
 /// status (draft|ready|running|completed|failed|cancelled) and each step's status
@@ -56,8 +57,7 @@ export function PlanDetail({ planId, onClose }: { planId: string; onClose: () =>
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="sessions-panel" ariaLabel={t('plan.title')}>
         <div className="admin-tabs">
           <strong>{t('plan.title')}</strong>
           <span className={`sev${status === 'completed' ? ' sev-medium' : status === 'failed' ? ' sev-high' : ''}`}>{status}</span>
@@ -115,7 +115,6 @@ export function PlanDetail({ planId, onClose }: { planId: string; onClose: () =>
             </section>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

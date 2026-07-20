@@ -3,6 +3,7 @@ import { HubClient } from '../hub/client';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { getToken, type HubProfile } from '../state/profiles';
+import { Modal } from './Modal';
 import { PasswordInput } from './PasswordInput';
 
 interface Form {
@@ -53,8 +54,10 @@ export function ConnectPanel({ onClose, edit }: { onClose?: () => void; edit?: H
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={() => onClose?.()}>
-      <form className="connect" onMouseDown={(e) => e.stopPropagation()} onSubmit={submit}>
+    // The form keeps `connect` (flex-column layout + Enter-submits); the Modal
+    // supplies the backdrop + dialog wrapper around it (#313).
+    <Modal onClose={() => onClose?.()} ariaLabel={edit !== undefined ? t('connect.editTitle') : t('connect.title')}>
+      <form className="connect" onSubmit={submit}>
         <div className="connect-head">
           <h2>{edit !== undefined ? t('connect.editTitle') : t('connect.title')}</h2>
           <span className="spacer" />
@@ -85,6 +88,6 @@ export function ConnectPanel({ onClose, edit }: { onClose?: () => void; edit?: H
           {busy ? t('connect.connecting') : t('connect.connect')}
         </button>
       </form>
-    </div>
+    </Modal>
   );
 }

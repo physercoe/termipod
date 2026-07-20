@@ -4,6 +4,7 @@ import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
+import { Modal } from '../ui/Modal';
 
 const STATUSES = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'med', 'high', 'urgent'];
@@ -51,8 +52,7 @@ export function TaskDetail({
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="settings" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="settings" ariaLabel={t('task.detail')}>
         <div className="admin-tabs">
           <strong>{t('task.detail')}</strong>
           <span className="spacer" />
@@ -102,7 +102,6 @@ export function TaskDetail({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

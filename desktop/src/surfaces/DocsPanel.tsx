@@ -5,7 +5,9 @@ import { useProjects } from '../hub/queries';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { useConfirm } from '../ui/ConfirmModal';
 import { Markdown } from '../ui/Markdown';
+import { Modal } from '../ui/Modal';
 
 const DOC_KINDS = ['memo', 'draft', 'report', 'review'];
 
@@ -25,10 +27,14 @@ function DocumentCompose({
   const t = useT();
   const client = useSession((s) => s.client);
   const { run, busy, error } = useHubAction();
+  const { ask: confirmAsk, node: confirmNode } = useConfirm();
   const editing = base !== undefined;
-  const [kind, setKind] = useState(base !== undefined ? str(base, 'kind') ?? 'memo' : 'memo');
-  const [title, setTitle] = useState(base !== undefined ? str(base, 'title') ?? '' : '');
-  const [body, setBody] = useState(base !== undefined ? str(base, 'content_inline') ?? '' : '');
+  const initKind = base !== undefined ? str(base, 'kind') ?? 'memo' : 'memo';
+  const initTitle = base !== undefined ? str(base, 'title') ?? '' : '';
+  const initBody = base !== undefined ? str(base, 'content_inline') ?? '' : '';
+  const [kind, setKind] = useState(initKind);
+  const [title, setTitle] = useState(initTitle);
+  const [body, setBody] = useState(initBody);
 
   async function submit(): Promise<void> {
     if (client === null || title.trim() === '') return;
@@ -46,13 +52,20 @@ function DocumentCompose({
     if (created !== undefined) onDone(str(created, 'id'));
   }
 
+  // Dirty-close guard (#313): backdrop / Escape / Close used to discard an
+  // unsaved draft silently — confirm before dropping it.
+  const dirty = kind !== initKind || title !== initTitle || body !== initBody;
+  async function attemptClose(): Promise<void> {
+    if (!dirty || (await confirmAsk({ message: t('confirm.discardChanges'), danger: true }))) onDone();
+  }
+
   return (
-    <div className="palette-backdrop" onMouseDown={() => onDone()}>
-      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+    <>
+    <Modal onClose={() => void attemptClose()} className="task-detail" ariaLabel={editing ? t('docs.newVersion') : t('docs.new')}>
         <div className="admin-tabs">
           <strong>{editing ? t('docs.newVersion') : t('docs.new')}</strong>
           <span className="spacer" />
-          <button onClick={() => onDone()}>{t('admin.close')}</button>
+          <button onClick={() => void attemptClose()}>{t('admin.close')}</button>
         </div>
         <div className="task-form">
           <label className="wide">
@@ -80,8 +93,9 @@ function DocumentCompose({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
+    {confirmNode}
+    </>
   );
 }
 
@@ -127,8 +141,7 @@ export function DocsPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const artifactId = doc !== undefined ? str(doc, 'artifact_id') : undefined;
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="sessions-panel" ariaLabel={t('docs.title')}>
         <div className="admin-tabs">
           <strong>{t('docs.title')}</strong>
           <select
@@ -218,7 +231,6 @@ export function DocsPanel({ onClose }: { onClose: () => void }): JSX.Element {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

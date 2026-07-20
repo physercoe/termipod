@@ -5,6 +5,7 @@ import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
+import { Modal } from '../ui/Modal';
 import { ActivityTab, CriteriaTab, DeliverableDetail, DocumentsTab, FilesTab } from './ProjectPanels';
 import { ProjectHero } from './ProjectHero';
 import { PhaseSummary } from './PhaseSummary';
@@ -90,8 +91,7 @@ function NewTaskForm({ projectId, onDone }: { projectId: string; onDone: () => v
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onDone}>
-      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onDone} className="task-detail" ariaLabel={t('task.new')}>
         <div className="admin-tabs">
           <strong>{t('task.new')}</strong>
           <span className="spacer" />
@@ -133,8 +133,7 @@ function NewTaskForm({ projectId, onDone }: { projectId: string; onDone: () => v
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -184,8 +183,7 @@ function StewardBind({
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="task-detail" ariaLabel={t('project.bindStewardTitle')}>
         <div className="admin-tabs">
           <strong>{t('project.bindStewardTitle')}</strong>
           <span className="spacer" />
@@ -216,8 +214,7 @@ function StewardBind({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

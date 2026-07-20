@@ -56,6 +56,74 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
 
   const { columns, rows } = data;
   const [menuCol, setMenuCol] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Move focus to another cell's editor (grid keyboard navigation, #322).
+  function focusCell(r: number, c: number): void {
+    rootRef.current?.querySelector<HTMLElement>(`[data-r="${r}"][data-c="${c}"]`)?.focus();
+  }
+
+  // Keydown handler for the whole grid. Two behaviours, both guarded so in-cell
+  // editing keeps working: Cmd/Ctrl+Z structural undo (not while typing — the
+  // input keeps its native undo), and Notion-style navigation (#322) — Enter
+  // moves down (cells commit on every change, so there is nothing to "commit"
+  // first), Tab/Shift-Tab walk the cells row-major, arrows move between cells
+  // but only where they don't steal a native behaviour (text caret movement,
+  // number/date stepping, select option-cycling).
+  function onGridKeyDown(e: React.KeyboardEvent): void {
+    const tag = (e.target as HTMLElement).tagName;
+    const editable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey && !editable) {
+      e.preventDefault();
+      undo();
+      return;
+    }
+    const el = (e.target as HTMLElement).closest('[data-r]');
+    if (el === null || !(el instanceof HTMLElement)) return;
+    const r = Number(el.dataset.r);
+    const c = Number(el.dataset.c);
+    const lastRow = rows.length - 1;
+    const lastCol = columns.length - 1;
+    if (e.key === 'Enter' && tag !== 'SELECT') {
+      if (r < lastRow) {
+        e.preventDefault();
+        focusCell(r + 1, c);
+      }
+      return;
+    }
+    if (e.key === 'Tab') {
+      const next = c + (e.shiftKey ? -1 : 1);
+      // Row-major walk; at the grid edges let focus leave the table natively.
+      const [nr, nc] = next > lastCol ? [r + 1, 0] : next < 0 ? [r - 1, lastCol] : [r, next];
+      if (nr >= 0 && nr <= lastRow) {
+        e.preventDefault();
+        focusCell(nr, nc);
+      }
+      return;
+    }
+    if (e.key.startsWith('Arrow')) {
+      // Selects cycle options and number/date inputs step values with arrows —
+      // navigation must not steal those.
+      if (el instanceof HTMLSelectElement) return;
+      if (el instanceof HTMLInputElement && (el.type === 'number' || el.type === 'date')) return;
+      if (el instanceof HTMLInputElement && el.type === 'text') {
+        const s = el.selectionStart ?? 0;
+        const en = el.selectionEnd ?? 0;
+        // Leave the cell only when the caret is already at the edge in that
+        // direction; otherwise the arrow keeps moving the caret inside the text.
+        if (e.key === 'ArrowLeft' && (s > 0 || en > 0)) return;
+        if (e.key === 'ArrowRight' && (s < el.value.length || en < el.value.length)) return;
+      }
+      const [dr, dc] =
+        e.key === 'ArrowUp' ? [-1, 0] : e.key === 'ArrowDown' ? [1, 0] : e.key === 'ArrowLeft' ? [0, -1] : [0, 1];
+      const nr = r + dr;
+      const nc = c + dc;
+      if (nr >= 0 && nr <= lastRow && nc >= 0 && nc <= lastCol) {
+        e.preventDefault();
+        focusCell(nr, nc);
+      }
+    }
+  }
 
   // ---- mutations ----
   const addRow = (): void => mutate((d) => ({ ...d, rows: [...d.rows, { id: newId('row'), cells: {} }] }));
@@ -110,16 +178,8 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
   return (
     <div
       className="table-editor"
-      onKeyDown={(e) => {
-        // Cmd/Ctrl+Z undoes a structural change — but only when focus isn't in an
-        // editable cell, so typing keeps the input's own native undo.
-        const tag = (e.target as HTMLElement).tagName;
-        const editable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey && !editable) {
-          e.preventDefault();
-          undo();
-        }
-      }}
+      ref={rootRef}
+      onKeyDown={onGridKeyDown}
       onContextMenu={(e) =>
         menu.open(e, [
           ...clipboardItems(t),
@@ -224,9 +284,9 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
                     ×
                   </button>
                 </td>
-                {columns.map((c) => (
+                {columns.map((c, j) => (
                   <td key={c.id} className="db-td">
-                    <Cell col={colById.get(c.id) ?? c} value={r.cells[c.id]} onChange={(v) => setCell(r.id, c.id, v)} />
+                    <Cell col={colById.get(c.id) ?? c} value={r.cells[c.id]} onChange={(v) => setCell(r.id, c.id, v)} r={i} c={j} />
                   </td>
                 ))}
               </tr>
@@ -252,10 +312,15 @@ function Cell({
   col,
   value,
   onChange,
+  r,
+  c,
 }: {
   col: TableColumn;
   value: string | number | boolean | undefined;
   onChange: (v: string | number | boolean) => void;
+  // Grid coordinates — the container's keyboard navigation targets these (#322).
+  r: number;
+  c: number;
 }): JSX.Element {
   const t = useT();
   switch (col.type) {
@@ -266,6 +331,8 @@ function Cell({
           className="db-cell-check"
           checked={value === true}
           onChange={(e) => onChange(e.target.checked)}
+          data-r={r}
+          data-c={c}
         />
       );
     case 'number':
@@ -275,6 +342,8 @@ function Cell({
           className="db-cell db-cell-num"
           value={value === undefined ? '' : String(value)}
           onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+          data-r={r}
+          data-c={c}
         />
       );
     case 'date':
@@ -284,11 +353,19 @@ function Cell({
           className="db-cell db-cell-date"
           value={value === undefined ? '' : String(value)}
           onChange={(e) => onChange(e.target.value)}
+          data-r={r}
+          data-c={c}
         />
       );
     case 'select':
       return (
-        <select className="db-cell db-cell-select" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
+        <select
+          className="db-cell db-cell-select"
+          value={String(value ?? '')}
+          onChange={(e) => onChange(e.target.value)}
+          data-r={r}
+          data-c={c}
+        >
           <option value="">{t('table.empty_cell')}</option>
           {(col.options ?? []).map((o) => (
             <option key={o} value={o}>
@@ -303,6 +380,8 @@ function Cell({
           className="db-cell"
           value={value === undefined ? '' : String(value)}
           onChange={(e) => onChange(e.target.value)}
+          data-r={r}
+          data-c={c}
         />
       );
   }

@@ -576,6 +576,55 @@ async fn open_browser_window(app: AppHandle, url: String) -> Result<(), String> 
     Ok(())
 }
 
+/// Detect that a page REFUSES to be framed — `X-Frame-Options: DENY/SAMEORIGIN`,
+/// or a CSP `frame-ancestors` our custom tauri:// origin can't match — so the
+/// in-app browser tab can show an actionable error instead of a silently blank
+/// iframe (#322). The webview's own fetch can't read cross-origin headers
+/// (CORS), so the preflight runs here through reqwest. Best-effort: an
+/// unreachable site answers `false` (not refused) and the iframe gets its chance.
+#[tauri::command]
+async fn frame_check(url: String) -> Result<bool, String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("unsupported url scheme".into());
+    }
+    let client = net::client_builder(None)
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .timeout(std::time::Duration::from_secs(10))
+        // A browser-ish UA: some CDNs only emit the framing headers to those.
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+        .build()
+        .map_err(|e| e.to_string())?;
+    // Headers only — the response body is dropped unread, so this stays cheap.
+    let resp = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(_) => return Ok(false), // unreachable ≠ refused — let the iframe try
+    };
+    let headers = resp.headers();
+    if let Some(xfo) = headers.get("x-frame-options").and_then(|v| v.to_str().ok()) {
+        let v = xfo.trim();
+        // SAMEORIGIN never matches our tauri:// origin. ALLOW-FROM is obsolete
+        // and ignored by modern engines, so it is NOT a refusal.
+        if v.eq_ignore_ascii_case("deny") || v.eq_ignore_ascii_case("sameorigin") {
+            return Ok(true);
+        }
+    }
+    for value in headers.get_all("content-security-policy").iter() {
+        let Ok(csp) = value.to_str() else { continue };
+        for directive in csp.split(';') {
+            let mut parts = directive.trim().split_whitespace();
+            let Some(name) = parts.next() else { continue };
+            if !name.eq_ignore_ascii_case("frame-ancestors") {
+                continue;
+            }
+            // Only a bare `*` lets a tauri://localhost ancestor through.
+            if !parts.any(|s| s == "*") {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Register the OS credential store before any keychain command can run —
@@ -616,6 +665,7 @@ pub fn run() {
             open_external,
             reveal_path,
             open_browser_window,
+            frame_check,
             storage::storage_pick_folder,
             storage::storage_reindex,
             storage::storage_read,

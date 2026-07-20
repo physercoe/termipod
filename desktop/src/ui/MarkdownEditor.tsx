@@ -262,13 +262,25 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
 
   // Reconcile an external value change (agent insert, undo from elsewhere) into
   // the doc. The editor's own edits set value === current, so this is a no-op then.
+  // Dispatch only the minimal changed span (common prefix/suffix trimmed): a
+  // full-document replace maps the cursor to the doc end and records one giant
+  // inverse in the undo history (#322), while a targeted change lets CodeMirror
+  // map the selection across it and keeps undo granular.
   useEffect(() => {
     const view = viewRef.current;
     if (view === null) return;
     const cur = view.state.doc.toString();
-    if (value !== cur) {
-      view.dispatch({ changes: { from: 0, to: cur.length, insert: value } });
+    if (value === cur) return;
+    let from = 0;
+    const minLen = Math.min(cur.length, value.length);
+    while (from < minLen && cur[from] === value[from]) from++;
+    let toCur = cur.length;
+    let toNew = value.length;
+    while (toCur > from && toNew > from && cur[toCur - 1] === value[toNew - 1]) {
+      toCur--;
+      toNew--;
     }
+    view.dispatch({ changes: { from, to: toCur, insert: value.slice(from, toNew) } });
   }, [value]);
 
   return <div className="md-editor" ref={hostRef} />;

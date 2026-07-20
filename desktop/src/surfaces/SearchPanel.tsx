@@ -6,6 +6,7 @@ import { useHubAction } from '../hub/action';
 import { useSession } from '../state/session';
 import { useFocus } from '../state/focus';
 import { Icon } from '../ui/Icon';
+import { Modal } from '../ui/Modal';
 
 /// Search surface (parity Phase 4). The hub has no cross-entity search
 /// (grounded); `GET /v1/search?q=` is FTS5 over event **text parts** only
@@ -59,8 +60,7 @@ export function SearchPanel({ onClose }: { onClose: () => void }): JSX.Element {
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="sessions-panel" ariaLabel={t('search.title')}>
         <div className="admin-tabs">
           <strong>{t('search.title')}</strong>
           <span className="spacer" />
@@ -116,7 +116,6 @@ export function SearchPanel({ onClose }: { onClose: () => void }): JSX.Element {
             );
           })}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

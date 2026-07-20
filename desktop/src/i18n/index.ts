@@ -276,6 +276,7 @@ const en: Dict = {
   'admin.hosts': 'Hosts',
   'admin.agents': 'Agents',
   'admin.close': 'Close',
+  'admin.cockpit': 'Admin cockpit',
   'admin.members': 'Members',
   'admin.policy': 'Policy',
   'admin.noMembers': 'No members.',
@@ -291,6 +292,7 @@ const en: Dict = {
   'admin.noAgents': 'No agents (or token lacks operator scope).',
 
   'confirm.confirm': 'Confirm?',
+  'confirm.discardChanges': 'Discard unsaved changes?',
 
   'settings.title': 'Settings',
   'settings.catAppearance': 'Appearance',
@@ -1511,6 +1513,7 @@ const zh: Dict = {
   'admin.hosts': '主机',
   'admin.agents': '代理',
   'admin.close': '关闭',
+  'admin.cockpit': '管理驾驶舱',
   'admin.members': '成员',
   'admin.policy': '策略',
   'admin.noMembers': '暂无成员。',
@@ -1526,6 +1529,7 @@ const zh: Dict = {
   'admin.noAgents': '无代理（或令牌无操作员权限）。',
 
   'confirm.confirm': '确认？',
+  'confirm.discardChanges': '放弃未保存的更改？',
 
   'settings.title': '设置',
   'settings.catAppearance': '外观',

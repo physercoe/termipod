@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import { useModalA11y } from './useModalA11y';
 
 /// The one real modal primitive (#313). Wraps the app's `palette-backdrop` idiom
@@ -13,12 +13,16 @@ import { useModalA11y } from './useModalA11y';
 ///
 /// The caller mounts/unmounts the Modal (usually `{open && <Modal …/>}`), so it is
 /// always active while rendered. `onClose` fires for Escape or a backdrop click.
+
+/// Mounted modals, in mount order — see the Escape handler below for why (#313).
+const modalStack: symbol[] = [];
 export function Modal({
   onClose,
   className,
   ariaLabel,
   children,
   closeOnBackdrop = true,
+  onKeyDown,
 }: {
   onClose: () => void;
   className?: string;
@@ -26,20 +30,35 @@ export function Modal({
   children: ReactNode;
   /** Set false for editors that must confirm before discarding (dirty guards). */
   closeOnBackdrop?: boolean;
+  /** Dialog-level key handling (ConfirmModal's Enter-to-confirm); Escape stays Modal's own. */
+  onKeyDown?: (e: React.KeyboardEvent) => void;
 }): JSX.Element {
   const ref = useModalA11y<HTMLDivElement>(true);
+  // Dialogs can nest (e.g. the document composer opens inside the Docs panel),
+  // and every Modal listens at document capture — stopPropagation can't reach a
+  // *sibling* listener on the same node, so without this stack one Escape would
+  // close every layer at once. Only the topmost (last-mounted) Modal answers
+  // (#313).
+  const id = useRef(Symbol('modal')).current;
+  useEffect(() => {
+    modalStack.push(id);
+    return () => {
+      const i = modalStack.indexOf(id);
+      if (i !== -1) modalStack.splice(i, 1);
+    };
+  }, [id]);
   // Escape closes at the capture phase and stops there, so it never also trips a
   // window-level shell listener.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && modalStack[modalStack.length - 1] === id) {
         e.stopPropagation();
         onClose();
       }
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+  }, [onClose, id]);
 
   return (
     <div className="palette-backdrop" onMouseDown={closeOnBackdrop ? onClose : undefined}>
@@ -50,6 +69,7 @@ export function Modal({
         aria-modal="true"
         aria-label={ariaLabel}
         onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
       >
         {children}
       </div>

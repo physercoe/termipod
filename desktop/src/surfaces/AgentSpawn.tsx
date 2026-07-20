@@ -4,6 +4,7 @@ import { useHosts, useProjects } from '../hub/queries';
 import { str } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { Modal } from '../ui/Modal';
 
 // The engine families (CLAUDE.md / ADR-035 / ADR-054). gemini-cli is deprecated
 // but still spawnable until retirement; antigravity is its successor.
@@ -54,8 +55,7 @@ export function AgentSpawn({ onClose }: { onClose: () => void }): JSX.Element {
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="task-detail" ariaLabel={t('spawn.title')}>
         <div className="admin-tabs">
           <strong>{t('spawn.title')}</strong>
           <span className="spacer" />
@@ -122,7 +122,6 @@ export function AgentSpawn({ onClose }: { onClose: () => void }): JSX.Element {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

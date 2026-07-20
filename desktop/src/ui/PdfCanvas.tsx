@@ -556,10 +556,10 @@ function AnnoEditor({
 /// scroll-driven page-indicator tick — without memo that re-rendered EVERY
 /// PageView, canvas/text-layer effects and all. Every prop is stabilised at the
 /// call site (callbacks via useCallback / a latest-ref trampoline, `annos` via
-/// structural sharing, `t` stable per language since 3389529a), so a page whose
-/// inputs didn't change now skips re-rendering entirely. Behavior is unchanged:
-/// selection, the editor popover, the lazy IntersectionObserver render, and the
-/// highlight marks all key off the same props as before.
+/// structural sharing; `t` comes from a local useT(), stable per language), so a
+/// page whose inputs didn't change now skips re-rendering entirely. Behavior is
+/// unchanged: selection, the editor popover, the lazy IntersectionObserver
+/// render, and the highlight marks all key off the same inputs as before.
 const PageView = memo(function PageView({
   pdf,
   pageNum,

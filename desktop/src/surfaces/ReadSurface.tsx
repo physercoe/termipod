@@ -1,4 +1,4 @@
-import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { TableVirtuoso, type ItemProps, type TableComponents } from 'react-virtuoso';
 import { useT } from '../i18n';
 import {
@@ -1787,12 +1787,14 @@ export function ReadSurface(): JSX.Element {
     setActiveTab(id);
   }
 
-  function openWebTab(url: string): void {
+  // useCallback: this is the OpenLinkContext value — a fresh identity per render
+  // would re-render every consumer and defeat the memoised PDF PageViews (#311).
+  const openWebTab = useCallback((url: string): void => {
     if (url === '') return;
     const id = nextTabId();
     setTabs((ts) => [...ts, { id, kind: 'web', url, title: hostOf(url) }]);
     setActiveTab(id);
-  }
+  }, []);
 
   function openNoteTab(refId: string): void {
     const existing = tabs.find((tb) => tb.kind === 'note' && tb.refId === refId);

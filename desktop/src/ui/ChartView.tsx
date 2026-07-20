@@ -8,6 +8,8 @@
 /// line chart, or a bar chart for a single small categorical series), matching
 /// the design system's palette — no charting library ships on the desktop.
 
+import { useT } from '../i18n';
+
 export interface ChartPoint {
   x?: number;
   label?: string;
@@ -204,6 +206,7 @@ function downsample(points: ChartPoint[]): ChartPoint[] {
 }
 
 export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
+  const t = useT();
   // The aria summary reports the true point count; the RENDERED series are
   // capped by downsample (#311). Bucket min/max keeps the global extremes, so
   // the y-domain below is identical to the uncapped one.
@@ -240,7 +243,12 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
   const seriesNames = chart.series.map((s) => s.name).filter((n): n is string => n !== undefined);
   const chartLabel =
     `${multi ? `${chart.series.length}-series ` : ''}${chart.categorical ? 'bar' : 'line'} chart, ${nPts} point${nPts === 1 ? '' : 's'}` +
-    (seriesNames.length > 0 ? `: ${seriesNames.join(', ')}` : '');
+    (seriesNames.length > 0 ? `: ${seriesNames.join(', ')}` : '') +
+    // Signal the truncation when a series was capped (#311) — the envelope is
+    // preserved, but a silent cap would misrepresent the data.
+    (nPts > MAX_POINTS
+      ? ` (${t('chart.downsampled').replace('{m}', String(Math.max(...series.map((s) => s.points.length)))).replace('{n}', String(nPts))})`
+      : '');
 
   return (
     <div className="chart-view">

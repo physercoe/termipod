@@ -44,6 +44,18 @@ function clampToViewport(x: number, y: number, w: number, h: number, pad = 8): {
 // scroll view — a view tool, it creates no annotation (#321).
 type Tool = null | 'highlight' | 'underline' | 'note' | 'image' | 'ink' | 'hand';
 
+// Single-key tool shortcuts (#316) — handled by the window keydown effect in
+// the viewer. V (and Escape) return to select; the letters arm a tool. An
+// unmapped key reads as undefined, distinct from V's explicit null.
+const TOOL_SHORTCUTS: Partial<Record<string, Tool>> = {
+  v: null,
+  h: 'highlight',
+  u: 'underline',
+  n: 'note',
+  a: 'image',
+  i: 'ink',
+};
+
 // The shape the parent hands to add() — id/timestamps/referenceId are injected there.
 type NewAnno = Omit<Annotation, 'id' | 'createdAt' | 'updatedAt' | 'referenceId'>;
 
@@ -167,10 +179,13 @@ async function copyImageBlob(blob: Blob): Promise<void> {
 ///
 /// Each page renders to a canvas we own (works on every platform) plus a pdf.js
 /// **text layer** — invisible positioned spans over the canvas that make the text
-/// selectable, searchable, and copyable into notes. The link layer is built from
-/// `page.getAnnotations()` so a clicked link routes through `useOpenLink()` into
-/// the in-app browser tab instead of navigating the app. Pages render lazily
-/// (IntersectionObserver) so a long PDF doesn't rasterise every page up front.
+/// selectable, searchable, and copyable into notes. For tagged PDFs the page's
+/// **struct tree** is also mirrored into each canvas as fallback content, so the
+/// prose is exposed to screen readers in reading order (#316). The link layer is
+/// built from `page.getAnnotations()` so a clicked link routes through
+/// `useOpenLink()` into the in-app browser tab instead of navigating the app.
+/// Pages render lazily (IntersectionObserver) so a long PDF doesn't rasterise
+/// every page up front.
 
 // The worker ships as a bundled asset (Vite `?url`), never fetched remotely.
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -182,6 +197,113 @@ interface LinkBox {
   height: number;
   url?: string; // external link (routes to the in-app browser)
   dest?: string | unknown[]; // internal GoTo destination (jump within the PDF — refs, figures)
+}
+
+// ---- Struct tree → accessible prose (#316) -----------------------------------
+/// pdf.js 4.10's API-layer `TextLayer` has no struct-tree wiring — upstream that
+/// lives in the viewer's StructTreeLayerBuilder, which we don't bundle. We
+/// replicate its minimal core: stream the text WITH marked content (each struct
+/// element's run gets wrapped in a `span.markedContent` carrying its id), then
+/// mirror `page.getStructTree()` into a span tree whose nodes map PDF roles to
+/// ARIA roles and `aria-owns` the matching marked-content spans. Appended INSIDE
+/// the <canvas> as fallback content, the tree is never painted but is exposed to
+/// screen readers in reading order. Untagged PDFs resolve a null tree and keep
+/// their previous (no prose) behaviour — same as the upstream viewer.
+
+// PDF logical-structure role → ARIA role; null means "no role" (a plain span).
+// Faithful port of upstream's PDF_ROLE_TO_HTML_ROLE.
+const PDF_ROLE_TO_HTML_ROLE: Record<string, string | null> = {
+  Document: null,
+  DocumentFragment: null,
+  Part: 'group',
+  Sect: 'group',
+  Div: 'group',
+  Aside: 'note',
+  NonStruct: 'none',
+  P: null,
+  H: 'heading',
+  Title: null,
+  FENote: 'note',
+  Sub: 'group',
+  Lbl: null,
+  Span: null,
+  Em: null,
+  Strong: null,
+  Link: 'link',
+  Annot: 'note',
+  Form: 'form',
+  Ruby: null,
+  RB: null,
+  RT: null,
+  RP: null,
+  Warichu: null,
+  WT: null,
+  WP: null,
+  L: 'list',
+  LI: 'listitem',
+  LBody: null,
+  Table: 'table',
+  TR: 'row',
+  TH: 'columnheader',
+  TD: 'cell',
+  THead: 'columnheader',
+  TBody: null,
+  TFoot: null,
+  Caption: null,
+  Figure: 'figure',
+  Formula: null,
+  Artifact: null,
+};
+const HEADING_PATTERN = /^H(\d+)$/;
+
+// What a struct-tree node actually carries at runtime: the typed StructTreeNode
+// only declares role+children, but nodes also have id/alt/lang, and leaf
+// children are content pointers ({type:"content", id}) referencing the text
+// layer's markedContent spans.
+type StructNode = {
+  role?: string;
+  id?: string;
+  alt?: string;
+  lang?: string;
+  children?: StructNode[];
+};
+
+// alt → aria-label, id → aria-owns, lang → lang (upstream's #setAttributes).
+// Null characters are stripped — some producers embed them in strings.
+function setStructAttributes(node: StructNode, element: HTMLElement): void {
+  if (node.alt !== undefined) element.setAttribute('aria-label', node.alt.replace(/\0/g, ''));
+  if (node.id !== undefined) element.setAttribute('aria-owns', node.id);
+  if (node.lang !== undefined) element.setAttribute('lang', node.lang.replace(/\0/g, ''));
+}
+
+// Walk the struct tree into a hidden span DOM (upstream's #walk). A node whose
+// only child is a content pointer collapses: the content id is aria-owns'd
+// directly on the node's own span instead of nesting a leaf.
+function buildStructTreeDom(node: StructNode | null): HTMLSpanElement | null {
+  if (node === null) return null;
+  const element = document.createElement('span');
+  if (node.role !== undefined) {
+    const match = HEADING_PATTERN.exec(node.role);
+    if (match !== null) {
+      element.setAttribute('role', 'heading');
+      element.setAttribute('aria-level', match[1]);
+    } else {
+      const role = PDF_ROLE_TO_HTML_ROLE[node.role];
+      if (role != null) element.setAttribute('role', role);
+    }
+  }
+  setStructAttributes(node, element);
+  if (node.children !== undefined) {
+    if (node.children.length === 1 && node.children[0].id !== undefined) {
+      setStructAttributes(node.children[0], element);
+    } else {
+      for (const kid of node.children) {
+        const child = buildStructTreeDom(kid);
+        if (child !== null) element.append(child);
+      }
+    }
+  }
+  return element;
 }
 
 // Render one annotation's visual overlay, positioned in CSS px from its stored
@@ -466,6 +588,8 @@ function PageView({
   onImageToNote?: (dataUri: string) => void; // append an area screenshot to the notes
   readOnly?: boolean; // the split-view mirror pane: overlays visible but not editable
 }): JSX.Element {
+  // Local useT() (stable, #311) instead of a drilled `t` prop.
+  const t = useT();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -517,6 +641,7 @@ function PageView({
       if (canvas !== null) {
         canvas.width = 0;
         canvas.height = 0;
+        canvas.replaceChildren(); // struct-tree fallback content (#316)
       }
       textRef.current?.replaceChildren();
       textDivsRef.current = [];
@@ -552,16 +677,37 @@ function PageView({
       }
       if (cancelled) return;
 
-      // Text layer — selectable/searchable spans over the canvas.
+      // Text layer — selectable/searchable spans over the canvas. Streamed WITH
+      // marked content so each struct element's run is wrapped in an id'd
+      // span.markedContent the struct tree below can aria-owns (#316). The
+      // wrappers are zero-size anchors; layout/selection/copy are unchanged.
       const textDiv = textRef.current;
       if (textDiv !== null) {
         textDiv.replaceChildren();
-        textLayer = new TextLayer({ textContentSource: page.streamTextContent(), container: textDiv, viewport });
+        textLayer = new TextLayer({
+          textContentSource: page.streamTextContent({ includeMarkedContent: true }),
+          container: textDiv,
+          viewport,
+        });
         try {
           await textLayer.render();
           if (!cancelled) textDivsRef.current = textLayer.textDivs;
         } catch {
           /* text layer is best-effort */
+        }
+      }
+
+      // Struct tree → canvas fallback content (#316): invisible, but screen
+      // readers get the page prose in reading order. Untagged PDFs resolve a
+      // null tree — nothing appended. The split-view mirror pane skips it: its
+      // markedContent ids duplicate the primary pane's, and exposing the same
+      // prose twice is noise.
+      if (!cancelled && !readOnly) {
+        const tree = (await page.getStructTree().catch(() => null)) as StructNode | null;
+        const dom = buildStructTreeDom(tree);
+        if (!cancelled && dom !== null) {
+          dom.classList.add('structTree');
+          canvas.replaceChildren(dom);
         }
       }
 
@@ -594,6 +740,9 @@ function PageView({
       cancelled = true;
       renderTask?.cancel();
       textLayer?.cancel();
+      // Drop the struct-tree fallback so a stale tree (previous doc/scale) can't
+      // outlive its text layer — the re-run re-appends a fresh one (#316).
+      canvasRef.current?.replaceChildren();
     };
   }, [pdf, pageNum, scale, visible, dpr, rotation]);
 
@@ -796,12 +945,15 @@ function PageView({
   }
 
   return (
+    // role=region (like the upstream viewer), NOT img: img would mask all
+    // descendants as presentational, hiding the struct-tree prose inside the
+    // canvas from screen readers (#316).
     <div
       ref={wrapRef}
       className="pdfjs-page"
       data-page={pageNum}
-      role="img"
-      aria-label={`Page ${pageNum}`}
+      role="region"
+      aria-label={t('read.pdfPage').replace('{n}', String(pageNum))}
       style={style}
     >
       <canvas ref={canvasRef} className="pdfjs-canvas" style={size !== null ? { width: size.w, height: size.h } : undefined} />
@@ -1655,6 +1807,44 @@ export function PdfCanvas({
 
   const canAnnotate = referenceId !== undefined && pdf !== null;
 
+  // Tool button tooltip: localized label + its single-key shortcut (#316).
+  function toolTitle(labelKey: string, key: string): string {
+    return t('read.annToolTitle').replace('{label}', t(labelKey)).replace('{key}', key);
+  }
+
+  // Single-key tool switching (#316). Window-level so it works wherever focus
+  // sits in the viewer, but inert in text fields (find box, page input, comment
+  // textarea, contenteditable notes) and with modifiers held, so zoom/undo and
+  // native typing keep their keys. The refs (tocWRef pattern) let the listener
+  // bind once per canAnnotate instead of every render.
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  const pickToolRef = useRef(pickTool);
+  pickToolRef.current = pickTool;
+  useEffect(() => {
+    if (!canAnnotate) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      const el = e.target as HTMLElement;
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return;
+      if (e.key === 'Escape') {
+        // Back to select only when a tool is armed — otherwise the context menu
+        // / annotation editor consume their own Escape.
+        if (toolRef.current !== null) {
+          e.preventDefault();
+          setTool(null);
+        }
+        return;
+      }
+      const next = TOOL_SHORTCUTS[e.key.toLowerCase()];
+      if (next === undefined) return;
+      e.preventDefault();
+      pickToolRef.current(next);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canAnnotate]);
+
   // The annotation's anchor in unrotated PDF space: the top-left corner of its
   // first rect, or the highest point of its first ink path. Jump targeting maps
   // it through the current rotation (#321).
@@ -1843,19 +2033,19 @@ export function PdfCanvas({
                 (find/zoom) clusters — a spacer on each side. */}
             <span className="spacer" />
             <div className="pdfjs-anno-tools">
-            <button className={`pdfjs-zoom${tool === 'highlight' ? ' active' : ''}`} title={t('read.annHighlight')} onClick={() => pickTool('highlight')}>
+            <button className={`pdfjs-zoom${tool === 'highlight' ? ' active' : ''}`} title={toolTitle('read.annHighlight', 'H')} onClick={() => pickTool('highlight')}>
               <Icon name="highlight" />
             </button>
-            <button className={`pdfjs-zoom${tool === 'underline' ? ' active' : ''}`} title={t('read.annUnderline')} onClick={() => pickTool('underline')}>
+            <button className={`pdfjs-zoom${tool === 'underline' ? ' active' : ''}`} title={toolTitle('read.annUnderline', 'U')} onClick={() => pickTool('underline')}>
               <Icon name="underline" />
             </button>
-            <button className={`pdfjs-zoom${tool === 'note' ? ' active' : ''}`} title={t('read.annNote')} onClick={() => pickTool('note')}>
+            <button className={`pdfjs-zoom${tool === 'note' ? ' active' : ''}`} title={toolTitle('read.annNote', 'N')} onClick={() => pickTool('note')}>
               <Icon name="note" />
             </button>
-            <button className={`pdfjs-zoom${tool === 'image' ? ' active' : ''}`} title={t('read.annArea')} onClick={() => pickTool('image')}>
+            <button className={`pdfjs-zoom${tool === 'image' ? ' active' : ''}`} title={toolTitle('read.annArea', 'A')} onClick={() => pickTool('image')}>
               <Icon name="square" />
             </button>
-            <button className={`pdfjs-zoom${tool === 'ink' ? ' active' : ''}`} title={t('read.annDraw')} onClick={() => pickTool('ink')}>
+            <button className={`pdfjs-zoom${tool === 'ink' ? ' active' : ''}`} title={toolTitle('read.annDraw', 'I')} onClick={() => pickTool('ink')}>
               <Icon name="pen" />
             </button>
             {tool !== null && (

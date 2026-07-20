@@ -361,6 +361,19 @@
   cursor: text;
   transform-origin: 0% 0%;
 }
+/* Marked-content wrappers carry the struct-tree ids the canvas fallback tree
+   aria-owns (#316). Zero-size anchors at the layer origin — the text spans
+   inside stay absolutely positioned (mirrors pdf_viewer.css). */
+.textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+/* The struct tree lives INSIDE the canvas as fallback content: never painted
+   (canvas is a replaced element) but exposed to assistive tech in reading
+   order (#316). contain:strict keeps the hidden tree out of layout cost. */
+.pdfjs-canvas .structTree {
+  contain: strict;
+}
 .textLayer span.pdfjs-hl {
   background: color-mix(in srgb, #ffd21e 65%, transparent);
   border-radius: 2px;

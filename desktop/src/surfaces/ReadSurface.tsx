@@ -42,6 +42,7 @@ import { Markdown } from '../ui/Markdown';
 import { MarkdownReader } from '../ui/MarkdownReader';
 import { NoteTab } from '../ui/NoteTab';
 import { MarkdownEditor } from '../ui/MarkdownEditor';
+import { useNotesMode } from '../ui/useNotesMode';
 import { Icon, type IconName } from '../ui/Icon';
 import { PasswordInput } from '../ui/PasswordInput';
 import { OpenLinkContext, useOpenLink } from '../ui/OpenLinkContext';
@@ -820,17 +821,8 @@ function Inspector({
   const removeAttachmentFromRef = useLibrary((s) => s.removeAttachment);
   const [attBusy, setAttBusy] = useState(false);
   const [attErr, setAttErr] = useState<string | null>(null);
-  const [notesMode, setNotesMode] = useState<'wysiwyg' | 'source' | 'preview'>(
-    () => (localStorage.getItem('termipod.read.notesMode') as 'wysiwyg' | 'source' | 'preview') || 'wysiwyg',
-  );
-  function pickNotesMode(m: 'wysiwyg' | 'source' | 'preview'): void {
-    setNotesMode(m);
-    try {
-      localStorage.setItem('termipod.read.notesMode', m);
-    } catch {
-      /* ignore */
-    }
-  }
+  // Shared with the full-width note tab (single persisted `notesMode` key, #322).
+  const [notesMode, pickNotesMode] = useNotesMode();
 
   async function exportNotes(): Promise<void> {
     if (ref === undefined || !isTauri()) return;

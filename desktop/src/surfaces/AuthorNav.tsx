@@ -127,6 +127,27 @@ export function AuthorNav(): JSX.Element {
     void refresh(folder);
   }, [folder, rev, refresh]);
 
+  // Watch for EXTERNAL changes (a file added/edited outside the app never
+  // appeared until a manual refresh, #322). src-tauri exposes no fs-watch, so
+  // poll the same depth/entry-capped `workspace_list` on a slow interval and
+  // swap the tree only when it actually changed — cheap, quiet (no loading
+  // spinner), and expanded dirs keep their open state since rows key by path.
+  useEffect(() => {
+    if (folder === null || !tauri) return;
+    const id = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      void (async () => {
+        try {
+          const next = await invoke<FileNode[]>('workspace_list', { path: folder });
+          setNodes((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
+        } catch {
+          /* folder unplugged / transient error — keep showing the last tree */
+        }
+      })();
+    }, 4000);
+    return () => clearInterval(id);
+  }, [folder, tauri]);
+
   async function pick(): Promise<void> {
     if (!tauri) return;
     try {

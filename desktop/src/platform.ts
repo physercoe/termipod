@@ -113,3 +113,18 @@ export function hostOf(url: string): string {
     return url;
   }
 }
+
+/// Whether the page at `url` refuses to be embedded in an iframe
+/// (`X-Frame-Options` / CSP `frame-ancestors`) — the Rust `frame_check` command
+/// preflights the response headers, which the webview's own fetch can't read
+/// (CORS). Drives the in-app browser tab's refused-frame error (#322). The
+/// browser build has no way to check, so it answers false and lets the frame try.
+export async function frameCheck(url: string): Promise<boolean> {
+  if (url === '' || !isTauri()) return false;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<boolean>('frame_check', { url });
+  } catch {
+    return false; // unreachable / unsupported scheme — not a refusal
+  }
+}

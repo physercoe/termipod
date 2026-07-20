@@ -8,6 +8,8 @@
 /// line chart, or a bar chart for a single small categorical series), matching
 /// the design system's palette — no charting library ships on the desktop.
 
+import { useT } from '../i18n';
+
 export interface ChartPoint {
   x?: number;
   label?: string;
@@ -155,9 +157,62 @@ function fmt(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
+/// Cap on rendered points per series (#311). Live-polled charts (CompareSurface
+/// refetches metrics every 8 s) grow a series unboundedly — a long run becomes
+/// thousands of SVG segments per repaint.
+const MAX_POINTS = 600;
+
+// The x a line point plots at: its real `x` when present, else its index (an
+// index series is uniform in x by definition, so this IS index spacing then).
+function xOf(p: ChartPoint, i: number): number {
+  return p.x ?? i;
+}
+
+/// Thin a series to ≤ MAX_POINTS with x-position fidelity (#311): the renderer
+/// spaces points by their x, so naive every-Nth decimation would shift the kept
+/// points off their true positions and corrupt the curve horizontally. Instead
+/// bucket the x-domain into uniform intervals and keep each bucket's MIN and MAX
+/// point (plus the exact endpoints) — the envelope (peaks/dips) and both axes
+/// survive intact.
+function downsample(points: ChartPoint[]): ChartPoint[] {
+  if (points.length <= MAX_POINTS) return points;
+  const n = points.length;
+  const x0 = xOf(points[0], 0);
+  const x1 = xOf(points[n - 1], n - 1);
+  const buckets = Math.floor(MAX_POINTS / 2);
+  const span = x1 - x0 || 1;
+  const extrema = new Map<number, { minI: number; maxI: number }>();
+  points.forEach((p, i) => {
+    const b = Math.min(buckets - 1, Math.max(0, Math.floor(((xOf(p, i) - x0) / span) * buckets)));
+    const e = extrema.get(b);
+    if (e === undefined) extrema.set(b, { minI: i, maxI: i });
+    else {
+      if (p.y < points[e.minI].y) e.minI = i;
+      if (p.y > points[e.maxI].y) e.maxI = i;
+    }
+  });
+  const out: ChartPoint[] = [];
+  for (const b of [...extrema.keys()].sort((a, z) => a - z)) {
+    const e = extrema.get(b)!;
+    // Within a bucket, keep the extrema in their original draw order.
+    if (e.minI === e.maxI) out.push(points[e.minI]);
+    else if (e.minI < e.maxI) out.push(points[e.minI], points[e.maxI]);
+    else out.push(points[e.maxI], points[e.minI]);
+  }
+  // Pin the exact endpoints so the curve still starts/ends on the true bounds.
+  if (out[0] !== points[0]) out.unshift(points[0]);
+  if (out[out.length - 1] !== points[n - 1]) out.push(points[n - 1]);
+  return out;
+}
+
 export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
-  const allY = chart.series.flatMap((s) => s.points.map((p) => p.y));
+  const t = useT();
+  // The aria summary reports the true point count; the RENDERED series are
+  // capped by downsample (#311). Bucket min/max keeps the global extremes, so
+  // the y-domain below is identical to the uncapped one.
   const nPts = Math.max(...chart.series.map((s) => s.points.length));
+  const series = chart.series.map((s) => ({ ...s, points: downsample(s.points) }));
+  const allY = series.flatMap((s) => s.points.map((p) => p.y));
   const rawMin = Math.min(...allY);
   const rawMax = Math.max(...allY);
   // Bars are read against a zero baseline; lines get a little headroom.
@@ -168,7 +223,16 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
   const plotH = H - PAD.t - PAD.b;
 
   const yToPx = (y: number): number => PAD.t + plotH - ((y - yMin) / spanY) * plotH;
-  const idxToPx = (i: number, n: number): number => PAD.l + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  // Line points are positioned by their real x (see xOf) over ONE domain shared
+  // by every series, so overlaid curves stay x-aligned (#311). With uniform x
+  // (or no x at all) this reproduces the old per-series index spacing exactly;
+  // the difference only shows for non-uniform x and after downsampling, where
+  // index spacing would place kept points at the wrong x.
+  const allX = series.flatMap((s) => s.points.map((p, i) => xOf(p, i)));
+  const xMin = Math.min(...allX);
+  const xMax = Math.max(...allX);
+  const spanX = xMax - xMin;
+  const xToPx = (x: number): number => PAD.l + (spanX === 0 ? plotW / 2 : ((x - xMin) / spanX) * plotW);
 
   const ticks = niceTicks(yMin, yMax);
   const multi = chart.series.length > 1;
@@ -179,7 +243,12 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
   const seriesNames = chart.series.map((s) => s.name).filter((n): n is string => n !== undefined);
   const chartLabel =
     `${multi ? `${chart.series.length}-series ` : ''}${chart.categorical ? 'bar' : 'line'} chart, ${nPts} point${nPts === 1 ? '' : 's'}` +
-    (seriesNames.length > 0 ? `: ${seriesNames.join(', ')}` : '');
+    (seriesNames.length > 0 ? `: ${seriesNames.join(', ')}` : '') +
+    // Signal the truncation when a series was capped (#311) — the envelope is
+    // preserved, but a silent cap would misrepresent the data.
+    (nPts > MAX_POINTS
+      ? ` (${t('chart.downsampled').replace('{m}', String(Math.max(...series.map((s) => s.points.length)))).replace('{n}', String(nPts))})`
+      : '');
 
   return (
     <div className="chart-view">
@@ -224,17 +293,17 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
             );
           })
         ) : (
-          chart.series.map((s, si) => {
+          series.map((s, si) => {
             const color = CHART_PALETTE[si % CHART_PALETTE.length];
             const pts = s.points
-              .map((p, i) => `${idxToPx(i, s.points.length).toFixed(1)},${yToPx(p.y).toFixed(1)}`)
+              .map((p, i) => `${xToPx(xOf(p, i)).toFixed(1)},${yToPx(p.y).toFixed(1)}`)
               .join(' ');
             const last = s.points[s.points.length - 1];
             return (
               <g key={`s${si}`}>
                 <polyline points={pts} fill="none" stroke={color} strokeWidth={1.75} className="chart-line" />
                 {last !== undefined && (
-                  <circle cx={idxToPx(s.points.length - 1, s.points.length)} cy={yToPx(last.y)} r={2.5} fill={color} />
+                  <circle cx={xToPx(xOf(last, s.points.length - 1))} cy={yToPx(last.y)} r={2.5} fill={color} />
                 )}
               </g>
             );
@@ -246,7 +315,7 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
           labels!.map((l, i) => (
             <text
               key={`x${i}`}
-              x={chart.categorical ? PAD.l + (i + 0.5) * (plotW / labels!.length) : idxToPx(i, labels!.length)}
+              x={chart.categorical ? PAD.l + (i + 0.5) * (plotW / labels!.length) : xToPx(xOf(series[0].points[i], i))}
               y={H - PAD.b + 16}
               className="chart-axis"
               textAnchor="middle"

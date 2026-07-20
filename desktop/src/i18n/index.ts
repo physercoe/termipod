@@ -276,6 +276,7 @@ const en: Dict = {
   'admin.hosts': 'Hosts',
   'admin.agents': 'Agents',
   'admin.close': 'Close',
+  'admin.cockpit': 'Admin cockpit',
   'admin.members': 'Members',
   'admin.policy': 'Policy',
   'admin.noMembers': 'No members.',
@@ -291,6 +292,7 @@ const en: Dict = {
   'admin.noAgents': 'No agents (or token lacks operator scope).',
 
   'confirm.confirm': 'Confirm?',
+  'confirm.discardChanges': 'Discard unsaved changes?',
 
   'settings.title': 'Settings',
   'settings.catAppearance': 'Appearance',
@@ -1245,6 +1247,8 @@ const en: Dict = {
   'compare.metric': 'Metric',
   'compare.noMetrics': 'No scalar metrics for the selected runs.',
 
+  'chart.downsampled': 'showing {m} of {n} points',
+
   'record.recTitle': 'Title',
   'record.titlePlaceholder': 'What was decided / found?',
   'record.context': 'Context',
@@ -1519,6 +1523,7 @@ const zh: Dict = {
   'admin.hosts': '主机',
   'admin.agents': '代理',
   'admin.close': '关闭',
+  'admin.cockpit': '管理驾驶舱',
   'admin.members': '成员',
   'admin.policy': '策略',
   'admin.noMembers': '暂无成员。',
@@ -1534,6 +1539,7 @@ const zh: Dict = {
   'admin.noAgents': '无代理（或令牌无操作员权限）。',
 
   'confirm.confirm': '确认？',
+  'confirm.discardChanges': '放弃未保存的更改？',
 
   'settings.title': '设置',
   'settings.catAppearance': '外观',
@@ -2470,6 +2476,8 @@ const zh: Dict = {
   'compare.hint': '在左侧选择运行以叠加其指标。',
   'compare.metric': '指标',
   'compare.noMetrics': '所选运行没有标量指标。',
+
+  'chart.downsampled': '显示 {n} 点中的 {m} 点',
 
   'record.recTitle': '标题',
   'record.titlePlaceholder': '决定 / 发现了什么？',

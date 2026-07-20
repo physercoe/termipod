@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { Modal } from '../ui/Modal';
 
 /// "Me" surface (parity Phase 4). The hub has no `/me` route and no `/decisions`
 /// or `/notes` endpoints (grounded), so this composes what does exist: the
@@ -35,8 +36,7 @@ export function MePanel({ onClose }: { onClose: () => void }): JSX.Element {
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="sessions-panel" ariaLabel={t('me.title')}>
         <div className="admin-tabs">
           <strong>{t('me.title')}</strong>
           <span className="spacer" />
@@ -85,7 +85,6 @@ export function MePanel({ onClose }: { onClose: () => void }): JSX.Element {
             {!decisionsQ.isLoading && decisions.length === 0 && <div className="muted">{t('me.noDecisions')}</div>}
           </section>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

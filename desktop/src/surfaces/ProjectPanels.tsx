@@ -5,6 +5,7 @@ import { bool, num, obj, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
+import { Modal } from '../ui/Modal';
 import { ArtifactViewer } from './ArtifactViewer';
 
 // ---- Acceptance Criteria (parity — AcceptanceCriteriaScreen) ----------------
@@ -67,8 +68,7 @@ function NewCriterionForm({ projectId, phases, onDone }: { projectId: string; ph
   }
 
   return (
-    <div className="palette-backdrop" onMouseDown={onDone}>
-      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onDone} className="task-detail" ariaLabel={t('crit.new')}>
         <div className="admin-tabs">
           <strong>{t('crit.new')}</strong>
           <span className="spacer" />
@@ -128,8 +128,7 @@ function NewCriterionForm({ projectId, phases, onDone }: { projectId: string; ph
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -270,8 +269,7 @@ export function DeliverableDetail({
   ];
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="task-detail" ariaLabel={str(d, 'kind') ?? t('deliv.title')}>
         <div className="admin-tabs">
           <strong>{str(d, 'kind') ?? t('deliv.title')}</strong>
           <span className={`sev ${critStateClass(state === 'ratified' ? 'met' : 'pending')}`}>{state}</span>
@@ -370,7 +368,6 @@ export function DeliverableDetail({
             )}
           </section>
         </div>
-      </div>
       {openComp !== null && (
         <ComponentView
           projectId={projectId}
@@ -379,7 +376,7 @@ export function DeliverableDetail({
           onClose={() => setOpenComp(null)}
         />
       )}
-    </div>
+    </Modal>
   );
 }
 
@@ -464,8 +461,7 @@ function ComponentView({
   const title = (doc !== undefined ? str(doc, 'title') : undefined) ?? kind ?? t('deliv.component');
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="task-detail" ariaLabel={title}>
         <div className="admin-tabs">
           <strong>{title}</strong>
           <span className="spacer" />
@@ -482,8 +478,7 @@ function ComponentView({
             </div>
           ) : null}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -632,8 +627,7 @@ export function FilesTab({ projectId }: { projectId: string }): JSX.Element {
       </section>
 
       {openDoc !== null && (
-        <div className="palette-backdrop" onMouseDown={() => setOpenDoc(null)}>
-          <div className="task-detail" onMouseDown={(e) => e.stopPropagation()}>
+        <Modal onClose={() => setOpenDoc(null)} className="task-detail" ariaLabel={openDoc}>
             <div className="admin-tabs">
               <strong className="mono">{openDoc}</strong>
               <span className="spacer" />
@@ -649,8 +643,7 @@ export function FilesTab({ projectId }: { projectId: string }): JSX.Element {
                   <pre className="ev-mono">{contentQ.data}</pre>
                 ))}
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {openArt !== null && (

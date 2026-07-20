@@ -60,6 +60,9 @@ export interface Annotation {
   // --- Hub sync linkage (future state/librarySync.ts) ----------------------
   hubId?: string; // id of the linked hub reference_annotations row, once synced
   syncedAt?: number;
+  // Locally mutated since the last successful push (#311): the next sync
+  // re-uploads the row and clears the flag; a linked row without it is skipped.
+  dirty?: boolean;
 }
 
 /// The default highlight palette — Zotero's six annotation colors, so imports and
@@ -96,7 +99,12 @@ function load(): Annotation[] {
   let raw: string | null = null;
   try {
     raw = localStorage.getItem(LS_KEY);
-    if (raw !== null) return JSON.parse(raw) as Annotation[];
+    if (raw !== null) {
+      // Rows persisted before dirty tracking (#311) have an unknown sync state —
+      // treat them as dirty so the first sync after the upgrade re-pushes them
+      // once and establishes the clean baseline.
+      return (JSON.parse(raw) as Annotation[]).map((a) => ({ ...a, dirty: a.dirty ?? true }));
+    }
   } catch (e) {
     // Back up the corrupt blob so the next save doesn't overwrite the only copy
     // of the user's highlights/notes.
@@ -165,6 +173,9 @@ export const useAnnotations = create<AnnotationState>((set, get) => ({
       createdAt: now,
       updatedAt: now,
       sortIndex: a.sortIndex ?? computeSortIndex(a.position),
+      // A hub-pulled row (it carries `syncedAt`) arrives clean; a locally-drawn
+      // annotation still has to be pushed → dirty (#311).
+      dirty: a.syncedAt === undefined,
     };
     const prev = get().items;
     const items = [...prev, anno];
@@ -175,7 +186,11 @@ export const useAnnotations = create<AnnotationState>((set, get) => ({
 
   update: (id, patch) => {
     const prev = get().items;
-    const items = prev.map((a) => (a.id === id ? { ...a, ...patch, id, updatedAt: Date.now() } : a));
+    // A patch not explicitly carrying the flag is a LOCAL mutation → dirty
+    // (#311); the sync write-back passes `dirty: false` after a successful push.
+    const items = prev.map((a) =>
+      a.id === id ? { ...a, ...patch, id, updatedAt: Date.now(), dirty: patch.dirty ?? true } : a,
+    );
     set({ items, past: pushPast(get().past, prev) });
     save(items);
   },
@@ -190,7 +205,10 @@ export const useAnnotations = create<AnnotationState>((set, get) => ({
   undo: () => {
     const past = get().past;
     if (past.length === 0) return;
-    const restored = past[past.length - 1];
+    // The restored snapshot carries historical `dirty` flags that may predate a
+    // sync — mark every restored row dirty so an undone change is never lost to
+    // the hub on the next sync (#311).
+    const restored = past[past.length - 1].map((a) => ({ ...a, dirty: true }));
     set({ items: restored, past: past.slice(0, -1) });
     save(restored);
   },

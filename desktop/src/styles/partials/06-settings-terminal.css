@@ -659,6 +659,12 @@ th {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
+/* The Modal dialog div carries .connect (#313); the <form> inside keeps submit
+   semantics but melts into the card's flex layout (its children become the
+   flex items). */
+.connect > form {
+  display: contents;
+}
 .connect-head {
   display: flex;
   align-items: center;

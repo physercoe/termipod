@@ -85,6 +85,20 @@ export async function syncAnnotations(client: HubClient): Promise<AnnotationSync
     }
   }
 
+  // Write back the hub linkage after a successful push, clearing `dirty` ONLY
+  // when the row is unchanged since its push began. The store swaps the row
+  // object on any mutation, so object identity is the generation counter: an
+  // edit that lands during the in-flight PUT (comment typing fires update() per
+  // keystroke) keeps the row dirty and is re-pushed next sync — clearing it
+  // would silently lose that write (#311).
+  const writeBack = (a: Annotation, hubId: string): void => {
+    const cur = useAnnotations.getState().items.find((x) => x.id === a.id);
+    useAnnotations.getState().update(
+      a.id,
+      cur === a ? { hubId, syncedAt: Date.now(), dirty: false } : { hubId },
+    );
+  };
+
   // 1) PUSH — snapshot locals first; the loop mutates the store as it links ids.
   const locals = useAnnotations.getState().items;
   let pushed = 0;
@@ -97,17 +111,21 @@ export async function syncAnnotations(client: HubClient): Promise<AnnotationSync
       deferred += 1; // parent reference has no hubId yet — sync the library first
       continue;
     }
+    // Dirty tracking (#311): a row already linked to the hub and untouched since
+    // its last successful push has nothing new to upload — skip the PUT and its
+    // write-back. A FAILED push leaves the row dirty so the next sync retries it.
+    if (a.hubId !== undefined && a.hubId !== '' && a.dirty !== true) continue;
     try {
       const body = annToHubBody(a);
       if (a.hubId !== undefined && a.hubId !== '') {
         await client.updateAnnotation(parentHub, a.hubId, body);
-        useAnnotations.getState().update(a.id, { syncedAt: Date.now() });
+        writeBack(a, a.hubId);
         pushed += 1;
       } else {
         const row = await client.createAnnotation(parentHub, body);
         const newId = str(row, 'id');
         if (newId !== undefined) {
-          useAnnotations.getState().update(a.id, { hubId: newId, syncedAt: Date.now() });
+          writeBack(a, newId);
           created += 1;
         }
       }

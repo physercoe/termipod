@@ -4,6 +4,7 @@ import { useProjects } from '../hub/queries';
 import { num, obj, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { Modal } from '../ui/Modal';
 
 /// Insights surface (parity Phase 4, ADR-038/039/041). Reads the hub's insights
 /// aggregator (`GET /v1/insights`, token-scoped) for a chosen scope — the team
@@ -65,8 +66,7 @@ export function InsightsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const byAgent = Array.isArray(d['by_agent']) ? (d['by_agent'] as Entity[]) : [];
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="sessions-panel" ariaLabel={t('insights.title')}>
         <div className="admin-tabs">
           <strong>{t('insights.title')}</strong>
           <select value={scopeProject} onChange={(e) => setScopeProject(e.target.value)}>
@@ -210,7 +210,6 @@ export function InsightsPanel({ onClose }: { onClose: () => void }): JSX.Element
             </>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

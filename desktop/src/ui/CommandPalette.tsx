@@ -19,7 +19,9 @@ interface Props {
 /// Minimal ⌘K command palette — the keyboard spine (WS2 stub; grows as surfaces
 /// land). Filter, arrow-navigate, Enter to run, Esc to close. The list is a
 /// listbox (role/aria-selected) and keeps the active row scrolled into view
-/// (#312/#316).
+/// (#312/#316). The input follows the WAI-ARIA combobox pattern: focus stays in
+/// the textbox and `aria-activedescendant` points at the active option's stable
+/// id (#313).
 export function CommandPalette({ open, commands, onClose }: Props): JSX.Element | null {
   const t = useT();
   const [query, setQuery] = useState('');
@@ -73,16 +75,21 @@ export function CommandPalette({ open, commands, onClose }: Props): JSX.Element 
       <div ref={modalRef} className="palette" role="dialog" aria-modal="true" aria-label={t('cmd.palette')} onMouseDown={(e) => e.stopPropagation()}>
         <input
           autoFocus
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="palette-list"
+          aria-activedescendant={filtered[active] !== undefined ? `palette-opt-${filtered[active].id}` : undefined}
           value={query}
           placeholder={t('palette.placeholder')}
           aria-label={t('palette.placeholder')}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        <div ref={listRef} role="listbox" aria-label={t('cmd.palette')}>
+        <div ref={listRef} id="palette-list" role="listbox" aria-label={t('cmd.palette')}>
           {filtered.map((c, i) => (
             <div
               key={c.id}
+              id={`palette-opt-${c.id}`}
               role="option"
               aria-selected={i === active}
               className={`palette-item${i === active ? ' active' : ''}`}

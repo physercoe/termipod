@@ -91,6 +91,9 @@ export interface Reference {
   // --- Hub sync linkage (state/librarySync.ts) -----------------------------
   hubId?: string; // the id of the linked hub reference_items row, once synced
   syncedAt?: number; // when this row last reconciled with the hub
+  // Locally mutated since the last successful push (#311): the next sync
+  // re-uploads the row and clears the flag; a linked row without it is skipped.
+  dirty?: boolean;
   // Attachments (0..N). Bytes are NOT stored here — only coordinates. Two
   // provenances resolve differently (see state/zoteroStorage.ts):
   //   - 'zotero'  : imported; keyed `<key>/<file>` under the linked Zotero
@@ -218,7 +221,13 @@ function load(): Persisted {
     raw = localStorage.getItem(LS_KEY);
     if (raw !== null) {
       const p = JSON.parse(raw) as Persisted;
-      return { collections: p.collections ?? [], references: (p.references ?? []).map(migrateReference) };
+      return {
+        collections: p.collections ?? [],
+        // Rows persisted before dirty tracking (#311) have an unknown sync
+        // state — treat them as dirty so the first sync after the upgrade
+        // re-pushes them once and establishes the clean baseline.
+        references: (p.references ?? []).map((r) => ({ ...migrateReference(r), dirty: r.dirty ?? true })),
+      };
     }
   } catch (e) {
     // Back up the corrupt blob so the next save doesn't overwrite the only copy.
@@ -258,7 +267,9 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   addReference: (r) => {
     const id = newId('ref');
-    const ref: Reference = migrateReference({ ...r, id, addedAt: Date.now() });
+    // A locally-added row is dirty by definition — it still has to be created
+    // on the hub (#311).
+    const ref: Reference = migrateReference({ ...r, id, addedAt: Date.now(), dirty: r.dirty ?? true });
     const references = [ref, ...get().references];
     set({ references });
     save({ references, collections: get().collections });
@@ -266,7 +277,10 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   },
 
   updateReference: (id, patch) => {
-    const references = get().references.map((r) => (r.id === id ? { ...r, ...patch } : r));
+    // A patch not explicitly carrying the flag is a LOCAL mutation → mark the
+    // row dirty so the next sync re-pushes it (#311). The sync write-back passes
+    // `dirty: false` itself after a successful upload.
+    const references = get().references.map((r) => (r.id === id ? { ...r, ...patch, dirty: patch.dirty ?? true } : r));
     set({ references });
     save({ references, collections: get().collections });
   },
@@ -280,7 +294,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   addAttachment: (refId, att) => {
     const full: Attachment = { ...att, id: newId('att'), addedAt: Date.now() };
     const references = get().references.map((r) =>
-      r.id === refId ? { ...r, attachments: [...(r.attachments ?? []), full] } : r,
+      r.id === refId ? { ...r, attachments: [...(r.attachments ?? []), full], dirty: true } : r,
     );
     set({ references });
     save({ references, collections: get().collections });
@@ -288,7 +302,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   removeAttachment: (refId, attId) => {
     const references = get().references.map((r) =>
-      r.id === refId ? { ...r, attachments: (r.attachments ?? []).filter((a) => a.id !== attId) } : r,
+      r.id === refId ? { ...r, attachments: (r.attachments ?? []).filter((a) => a.id !== attId), dirty: true } : r,
     );
     set({ references });
     save({ references, collections: get().collections });
@@ -304,15 +318,18 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   renameCollection: (id, name) => {
     const collections = get().collections.map((c) => (c.id === id ? { ...c, name } : c));
-    set({ collections });
-    save({ references: get().references, collections });
+    // The collection's NAME syncs as part of each member reference's body —
+    // mark members dirty so the rename reaches the hub (#311).
+    const references = get().references.map((r) => (r.collectionIds.includes(id) ? { ...r, dirty: true } : r));
+    set({ collections, references });
+    save({ references, collections });
   },
 
   removeCollection: (id) => {
     const collections = get().collections.filter((c) => c.id !== id);
     // Drop the collection from every reference's membership, but keep the refs.
     const references = get().references.map((r) =>
-      r.collectionIds.includes(id) ? { ...r, collectionIds: r.collectionIds.filter((c) => c !== id) } : r,
+      r.collectionIds.includes(id) ? { ...r, collectionIds: r.collectionIds.filter((c) => c !== id), dirty: true } : r,
     );
     set({ collections, references });
     save({ references, collections });
@@ -331,7 +348,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     if (to2 === from) return;
     const references = get().references.map((r) =>
       r.tags.includes(from)
-        ? { ...r, tags: [...new Set(r.tags.map((t) => (t === from ? to2 : t)))] }
+        ? { ...r, tags: [...new Set(r.tags.map((t) => (t === from ? to2 : t)))], dirty: true }
         : r,
     );
     set({ references });
@@ -340,7 +357,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   removeTag: (name) => {
     const references = get().references.map((r) =>
-      r.tags.includes(name) ? { ...r, tags: r.tags.filter((t) => t !== name) } : r,
+      r.tags.includes(name) ? { ...r, tags: r.tags.filter((t) => t !== name), dirty: true } : r,
     );
     set({ references });
     save({ references, collections: get().collections });
@@ -414,11 +431,20 @@ export const useLibrary = create<LibraryState>((set, get) => ({
           attachments: [...zot, ...managed],
           zoteroStorage: undefined,
           details: it.ref.details ?? cur.details,
+          // Dirty tracking (#311): a hub-sourced item (it carries `syncedAt`)
+          // leaves the row's flag alone — a clean row stays clean; a row whose
+          // push FAILED stays dirty so its preserved local fields retry. Any
+          // other import (e.g. Zotero) is a local mutation → re-push.
+          dirty: it.ref.syncedAt !== undefined ? (cur.dirty ?? false) : true,
         });
         updatedIds.add(matchId);
       } else {
         const id = newId('ref');
-        added.push(migrateReference({ ...it.ref, collectionIds, id, addedAt: Date.now() }));
+        // A hub-pulled row arrives already linked → clean; an imported one is a
+        // local add still to be pushed → dirty (#311).
+        added.push(
+          migrateReference({ ...it.ref, collectionIds, id, addedAt: Date.now(), dirty: it.ref.syncedAt === undefined }),
+        );
         keys.forEach((k) => {
           if (!keyToId.has(k)) keyToId.set(k, id);
         });

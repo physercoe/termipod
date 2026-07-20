@@ -4,6 +4,7 @@ import type { SseHandle } from '../hub/sse';
 import { arr, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { Modal } from '../ui/Modal';
 
 function eventText(e: Entity): string {
   return arr(e, 'parts')
@@ -90,8 +91,7 @@ export function ChannelsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const channels = listQ.data ?? [];
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="sessions-panel" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} className="sessions-panel" ariaLabel={t('channels.title')}>
         <div className="admin-tabs">
           <strong>{t('channels.title')}</strong>
           <span className="spacer" />
@@ -160,7 +160,6 @@ export function ChannelsPanel({ onClose }: { onClose: () => void }): JSX.Element
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

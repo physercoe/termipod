@@ -21,6 +21,7 @@ import {
 } from '../state/connections';
 import { getKeyMaterial, listKeys, type SshKeyMeta } from '../state/keys';
 import { ConfirmButton } from '../ui/ConfirmButton';
+import { useConfirm } from '../ui/ConfirmModal';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -46,6 +47,33 @@ const CONNECT_TIMEOUT_MS = 20_000;
 /// Attempt ids for `ssh-connect-progress` subscription, minted per click.
 let connectSeq = 0;
 
+// Snapshot of the form fields, for the dirty-close guard (#313): cancelling
+// with unsaved edits used to drop them silently.
+interface FormSnapshot {
+  name: string;
+  group: string;
+  host: string;
+  port: string;
+  user: string;
+  auth: Auth;
+  password: string;
+  keyId: string;
+  privateKey: string;
+  passphrase: string;
+}
+const BLANK_FORM: FormSnapshot = {
+  name: '',
+  group: DEFAULT_GROUP,
+  host: '',
+  port: '22',
+  user: '',
+  auth: 'password',
+  password: '',
+  keyId: '',
+  privateKey: '',
+  passphrase: '',
+};
+
 /// The SSH connect surface (saved connections + key store over a connect form).
 /// Extracted from the old breakglass modal so the terminal dock can present it as
 /// a tab; on a successful connect it hands the new session id back up to the dock,
@@ -61,6 +89,7 @@ export function ConnectForm({
   initialConnId?: string;
 }): JSX.Element {
   const t = useT();
+  const { ask: confirmAsk, node: confirmNode } = useConfirm();
   const [id, setId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [group, setGroup] = useState(DEFAULT_GROUP);
@@ -79,6 +108,7 @@ export function ConnectForm({
   const attemptRef = useRef<{ cancelled: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [keys, setKeys] = useState<SshKeyMeta[]>([]);
+  const [base, setBase] = useState<FormSnapshot>(BLANK_FORM);
 
   useEffect(() => {
     setKeys(listKeys());
@@ -104,12 +134,15 @@ export function ConnectForm({
     setPrivateKey('');
     setPassphrase('');
     setError(null);
+    setBase(BLANK_FORM);
   }
 
   async function applyConnection(c: Connection): Promise<void> {
+    const pw = c.authMethod === 'password' ? ((await getConnectionPassword(c.id)) ?? '') : '';
+    const grp = (c.group ?? '').trim() || DEFAULT_GROUP;
     setId(c.id);
     setName(c.name);
-    setGroup((c.group ?? '').trim() || DEFAULT_GROUP);
+    setGroup(grp);
     setHost(c.host);
     setPort(String(c.port));
     setUser(c.username);
@@ -118,7 +151,19 @@ export function ConnectForm({
     setPrivateKey('');
     setPassphrase('');
     setError(null);
-    setPassword(c.authMethod === 'password' ? ((await getConnectionPassword(c.id)) ?? '') : '');
+    setPassword(pw);
+    setBase({
+      name: c.name,
+      group: grp,
+      host: c.host,
+      port: String(c.port),
+      user: c.username,
+      auth: c.authMethod,
+      password: pw,
+      keyId: c.keyId ?? '',
+      privateKey: '',
+      passphrase: '',
+    });
   }
 
   async function saveCurrent(): Promise<void> {
@@ -233,6 +278,23 @@ export function ConnectForm({
     user.trim() !== '' &&
     (auth === 'password' ? password !== '' : keyId !== '' || privateKey.trim() !== '');
 
+  // Dirty-close guard (#313): cancelling with unsaved edits used to drop them
+  // silently — confirm before dropping them.
+  const dirty =
+    name !== base.name ||
+    group !== base.group ||
+    host !== base.host ||
+    port !== base.port ||
+    user !== base.user ||
+    auth !== base.auth ||
+    password !== base.password ||
+    keyId !== base.keyId ||
+    privateKey !== base.privateKey ||
+    passphrase !== base.passphrase;
+  async function attemptCancel(): Promise<void> {
+    if (!dirty || (await confirmAsk({ message: t('confirm.discardChanges'), danger: true }))) onCancel?.();
+  }
+
   return (
     <div className="term-body term-connect">
       <div className="term-form">
@@ -328,10 +390,11 @@ export function ConnectForm({
             {id !== null ? t('term.update') : t('term.save')}
           </button>
           {id !== null && <ConfirmButton label={t('term.delete')} danger onConfirm={() => void removeCurrent()} />}
-          {/* One Cancel button at all times: idle it closes the form; while
-              connecting it abandons the attempt (the form stays open for a
-              retry) — the connect button shows the handshake phase (#319). */}
-          {onCancel !== undefined && !busy && <button onClick={onCancel}>{t('common.cancel')}</button>}
+          {/* One Cancel button at all times: idle it closes the form (guarded
+              against unsaved edits, #313); while connecting it abandons the
+              attempt (the form stays open for a retry) — the connect button
+              shows the handshake phase (#319). */}
+          {onCancel !== undefined && !busy && <button onClick={() => void attemptCancel()}>{t('common.cancel')}</button>}
           {busy && <button onClick={cancelConnect}>{t('common.cancel')}</button>}
           <span className="spacer" />
           <button className="primary" disabled={!canConnect || busy} onClick={() => void connect()}>
@@ -339,6 +402,7 @@ export function ConnectForm({
           </button>
         </div>
         <div className="term-note wide">{t('term.personalNote')}</div>
+        {confirmNode}
       </div>
     </div>
   );

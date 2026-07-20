@@ -5,6 +5,7 @@ import { copySecret } from '../state/clipboard';
 import { DEFAULT_GEN, generatePassword, passwordStrength } from '../state/password';
 import { parseSeed, secondsRemaining, totpCode, type TotpParams } from '../state/totp';
 import { Icon, type IconName } from '../ui/Icon';
+import { useConfirm } from '../ui/ConfirmModal';
 import { PasswordInput } from '../ui/PasswordInput';
 import { listAppIntegrations, type AppIntegration } from '../state/appIntegrations';
 import { listConnections } from '../state/connections';
@@ -462,15 +463,16 @@ function ItemEditor({
   onCancel: () => void;
 }): JSX.Element {
   const t = useT();
+  const { ask: confirmAsk, node: confirmNode } = useConfirm();
   const [title, setTitle] = useState(item?.title ?? '');
   const [favorite, setFavorite] = useState(item?.favorite ?? false);
   const [username, setUsername] = useState(item?.username ?? '');
   const [url, setUrl] = useState(item?.url ?? '');
   const [endpoint, setEndpoint] = useState(item?.endpoint ?? '');
-  const [format, setFormat] = useState(item?.format !== undefined && item.format !== '' ? item.format : 'dotenv');
-  const [interpreter, setInterpreter] = useState(
-    item?.interpreter !== undefined && item.interpreter !== '' ? item.interpreter : 'bash',
-  );
+  const initFormat = item?.format !== undefined && item.format !== '' ? item.format : 'dotenv';
+  const initInterpreter = item?.interpreter !== undefined && item.interpreter !== '' ? item.interpreter : 'bash';
+  const [format, setFormat] = useState(initFormat);
+  const [interpreter, setInterpreter] = useState(initInterpreter);
   const [password, setPassword] = useState('');
   const [totp, setTotp] = useState('');
   const [token, setToken] = useState('');
@@ -481,21 +483,48 @@ function ItemEditor({
   // Gate Save until existing secrets have loaded — otherwise saving before the
   // async preload resolves would write empty strings and wipe the real values.
   const [loading, setLoading] = useState(item !== null);
+  // The secrets as preloaded — the baseline for the dirty-close guard below.
+  const [baseSecrets, setBaseSecrets] = useState({ password: '', totp: '', token: '', content: '', notes: '' });
 
   // Preload existing secrets for edit (blank for a brand-new item).
   useEffect(() => {
     if (item === null) return;
     void (async () => {
-      if (item.secretSlots.includes('password')) setPassword(await getItemSecret(item.id, 'password'));
-      if (item.secretSlots.includes('totp')) setTotp(await getItemSecret(item.id, 'totp'));
-      if (item.secretSlots.includes('token')) setToken(await getItemSecret(item.id, 'token'));
-      if (item.secretSlots.includes('content')) setContent(await getItemSecret(item.id, 'content'));
-      if (item.secretSlots.includes('notes')) setNotes(await getItemSecret(item.id, 'notes'));
+      const pw = item.secretSlots.includes('password') ? await getItemSecret(item.id, 'password') : '';
+      const tp = item.secretSlots.includes('totp') ? await getItemSecret(item.id, 'totp') : '';
+      const tk = item.secretSlots.includes('token') ? await getItemSecret(item.id, 'token') : '';
+      const ct = item.secretSlots.includes('content') ? await getItemSecret(item.id, 'content') : '';
+      const nt = item.secretSlots.includes('notes') ? await getItemSecret(item.id, 'notes') : '';
+      setPassword(pw);
+      setTotp(tp);
+      setToken(tk);
+      setContent(ct);
+      setNotes(nt);
+      setBaseSecrets({ password: pw, totp: tp, token: tk, content: ct, notes: nt });
       setLoading(false);
     })();
     // Preload runs once — the editor is keyed per open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Dirty-close guard (#313): Cancel used to discard unsaved edits silently —
+  // confirm before dropping them.
+  const dirty =
+    title !== (item?.title ?? '') ||
+    favorite !== (item?.favorite ?? false) ||
+    username !== (item?.username ?? '') ||
+    url !== (item?.url ?? '') ||
+    endpoint !== (item?.endpoint ?? '') ||
+    format !== initFormat ||
+    interpreter !== initInterpreter ||
+    password !== baseSecrets.password ||
+    totp !== baseSecrets.totp ||
+    token !== baseSecrets.token ||
+    content !== baseSecrets.content ||
+    notes !== baseSecrets.notes;
+  async function attemptCancel(): Promise<void> {
+    if (!dirty || (await confirmAsk({ message: t('confirm.discardChanges'), danger: true }))) onCancel();
+  }
 
   async function save(): Promise<void> {
     if (title.trim() === '') {
@@ -533,6 +562,7 @@ function ItemEditor({
   }
 
   return (
+    <>
     <div className="vault-editor">
       <div className="vault-detail-head">
         <Icon name={typeIcon(type)} size={18} className="vault-detail-icon" />
@@ -668,9 +698,11 @@ function ItemEditor({
         <button className="primary" disabled={busy || loading} onClick={() => void save()}>
           {t('vault.save')}
         </button>
-        <button onClick={onCancel}>{t('vault.cancel')}</button>
+        <button onClick={() => void attemptCancel()}>{t('vault.cancel')}</button>
       </div>
     </div>
+    {confirmNode}
+    </>
   );
 }
 

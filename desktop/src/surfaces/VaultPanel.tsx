@@ -129,7 +129,7 @@ export function VaultPanel(): JSX.Element | null {
               <option value={0}>{t('vault.autolockOff')}</option>
               {[1, 5, 15, 30].map((m) => (
                 <option key={m} value={m}>
-                  {t('vault.autolockMin').replace('{n}', String(m))}
+                  {t.plural('vault.autolockMin', m)}
                 </option>
               ))}
             </select>

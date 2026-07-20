@@ -60,9 +60,12 @@ const en: Dict = {
   'host.agentsHere': 'Agents on this host',
   'host.noAgentsHere': 'No agents running here.',
   'host.justNow': 'just now',
-  'host.minsAgo': '{n} min ago',
-  'host.hoursAgo': '{n} h ago',
-  'host.daysAgo': '{n} d ago',
+  'host.minsAgo_one': '{n} min ago',
+  'host.minsAgo_other': '{n} min ago',
+  'host.hoursAgo_one': '{n} h ago',
+  'host.hoursAgo_other': '{n} h ago',
+  'host.daysAgo_one': '{n} d ago',
+  'host.daysAgo_other': '{n} d ago',
 
   'cmd.audit': 'Show activity / audit console',
   'cmd.refreshFleet': 'Refresh fleet',
@@ -92,7 +95,8 @@ const en: Dict = {
   'nav.stewards': 'Stewards',
   'nav.agents': 'Agents',
   'nav.hosts': 'Hosts',
-  'nav.hostAgents': '{n} agents',
+  'nav.hostAgents_one': '{n} agent',
+  'nav.hostAgents_other': '{n} agents',
   'nav.unassigned': 'unassigned',
   'nav.noWorkspaces': 'No workspaces.',
   'nav.collapse': 'Collapse panel',
@@ -425,7 +429,8 @@ const en: Dict = {
   'vault.lockedHint': 'Secrets are hidden. Unlock to view or copy.',
   'vault.autolock': 'Auto-lock the vault after',
   'vault.autolockOff': 'Never',
-  'vault.autolockMin': '{n} min',
+  'vault.autolockMin_one': '{n} min',
+  'vault.autolockMin_other': '{n} min',
   'vault.titleRequired': 'A title is required.',
   'vault.sizeWarn':
     'Large item — every vault secret loads into memory together and re-seals into each sync bundle, so keep bodies to snippets, not multi-MB files.',
@@ -705,6 +710,10 @@ const en: Dict = {
   'term.keyPlaceholder': 'Paste an OpenSSH private key…',
   'term.connect': 'Connect',
   'term.connecting': 'Connecting…',
+  'term.phaseTcp': 'Connecting to host…',
+  'term.phaseAuth': 'Authenticating…',
+  'term.phaseChannel': 'Opening channel…',
+  'term.connectTimeout': 'Connection timed out — the host may be unreachable, or the handshake is stuck.',
   'term.disconnect': 'Disconnect',
   'term.connected': 'Connected',
   'term.newConnection': 'New connection',
@@ -712,8 +721,10 @@ const en: Dict = {
   'term.foldNav': 'Toggle sidebar',
   'term.importConfig': 'Import SSH config',
   'term.importConfigHint': 'Load hosts from an OpenSSH ~/.ssh/config file',
-  'term.importedConfig': 'Imported {n} connection(s)',
-  'term.importedKeys': '{n} key(s) loaded',
+  'term.importedConfig_one': 'Imported {n} connection',
+  'term.importedConfig_other': 'Imported {n} connections',
+  'term.importedKeys_one': '{n} key loaded',
+  'term.importedKeys_other': '{n} keys loaded',
   'term.editConnection': 'Edit connection',
   'term.saved': 'Saved',
   'term.noSaved': 'No saved connections yet.',
@@ -811,7 +822,8 @@ const en: Dict = {
   'read.importFailed': 'Import failed — is this a Zotero zotero.sqlite file?',
   'read.linkStorage': 'Link storage',
   'read.linkStorageHint': 'Point at your Zotero storage/ folder to open attached PDFs — read locally, nothing uploaded.',
-  'read.storageLinked': 'Storage · {n} files',
+  'read.storageLinked_one': 'Storage · {n} file',
+  'read.storageLinked_other': 'Storage · {n} files',
   'read.webdav': 'WebDAV',
   'read.syncFiles': 'Sync files…',
   'read.webdavHint': 'Sync attachment files to a WebDAV server or S3 bucket, Zotero-compatible (zotero/<key>.zip).',
@@ -828,7 +840,8 @@ const en: Dict = {
   'read.webdavSync': 'Sync files',
   'read.webdavSyncing': 'Syncing files…',
   'read.webdavDone': 'Synced · {up} uploaded, {down} downloaded, {skip} unchanged.',
-  'read.webdavConflicts': '{n} conflict(s) left untouched (same time, different content).',
+  'read.webdavConflicts_one': '{n} conflict left untouched (same time, different content).',
+  'read.webdavConflicts_other': '{n} conflicts left untouched (same time, different content).',
   'read.openPdf': 'Open PDF',
   'read.hidePdf': 'Hide PDF',
   'read.pdfNotFound': 'Attachment not in the linked folder:',
@@ -987,7 +1000,8 @@ const en: Dict = {
   'read.epubLoading': 'Loading book…',
   'read.epubError': 'Couldn’t open this EPUB — the file may be corrupt.',
   'read.pdfRenderFailed': 'Couldn’t render this PDF.',
-  'read.pdfPages': '{n} pages',
+  'read.pdfPages_one': '{n} page',
+  'read.pdfPages_other': '{n} pages',
   'read.pdfPage': 'Page {n}',
   'read.zoomIn': 'Zoom in',
   'read.zoomOut': 'Zoom out',
@@ -1048,13 +1062,14 @@ const en: Dict = {
   'read.browserForward': 'Forward',
   'read.browserReload': 'Reload',
   'read.openInWindow': 'Open in browser window (loads any site)',
-  'read.browserFrameHint': 'Some sites (arXiv, Google Scholar, publishers) block embedding — use ⤢ to open them in a real browser window.',
+  'read.browserFrameRefused': '{host} refuses to load in an embedded frame (X-Frame-Options / frame-ancestors).',
   'read.collapse': 'Collapse',
   'read.showSidebar': 'Show collections',
   'read.showDetails': 'Show details',
 
   'author.docTabs': 'Open documents',
-  'author.words': '{n} words',
+  'author.words_one': '{n} word',
+  'author.words_other': '{n} words',
   'author.placeholder': 'Write in Markdown — $math$ and ```code``` supported…',
   'author.empty': 'Nothing to preview yet.',
   'author.loadingEditor': 'Loading editor…',
@@ -1180,7 +1195,8 @@ const en: Dict = {
   'companion.localDesktopOnly': 'The local agent is desktop-only.',
   'companion.localNoFolder': 'No workspace folder open — the agent runs in the default directory. Open a folder to scope it to your workspace.',
 
-  'debug.lines': '{n} lines',
+  'debug.lines_one': '{n} line',
+  'debug.lines_other': '{n} lines',
   'debug.placeholder': 'Paste code, a diff, a stack trace or a log…',
   'debug.empty': 'Paste code or logs to highlight.',
 
@@ -1919,6 +1935,10 @@ const zh: Dict = {
   'term.keyPlaceholder': '粘贴 OpenSSH 私钥…',
   'term.connect': '连接',
   'term.connecting': '连接中…',
+  'term.phaseTcp': '正在连接主机…',
+  'term.phaseAuth': '正在认证…',
+  'term.phaseChannel': '正在打开通道…',
+  'term.connectTimeout': '连接超时 — 主机可能不可达，或握手过程卡住。',
   'term.disconnect': '断开',
   'term.connected': '已连接',
   'term.newConnection': '新连接',
@@ -2258,7 +2278,7 @@ const zh: Dict = {
   'read.browserForward': '前进',
   'read.browserReload': '重新加载',
   'read.openInWindow': '在浏览器窗口中打开（可加载任何网站）',
-  'read.browserFrameHint': '部分网站（arXiv、Google Scholar、出版商）禁止内嵌 — 用 ⤢ 在真正的浏览器窗口中打开。',
+  'read.browserFrameRefused': '{host} 拒绝在内嵌框架中加载（X-Frame-Options / frame-ancestors）。',
   'read.collapse': '折叠',
   'read.showSidebar': '显示分组',
   'read.showDetails': '显示详情',
@@ -2478,6 +2498,20 @@ export const useLang = create<LangState>((set) => ({
 // Reflect the persisted language onto <html lang> at startup.
 applyDocLang(initialLang());
 
+/// What `useT` returns: the `t(key)` lookup plus the bound plural helper, as
+/// one memoised value (the stability contract below covers both).
+export interface TLookup {
+  (key: string): string;
+  /// Minimal plural helper for the `{n}` count phrases (#318) — NOT an
+  /// i18next/ICU migration (explicitly deferred). English count nouns inflect,
+  /// so en stores a `<key>_one` / `<key>_other` pair per phrase (the two forms
+  /// coincide for invariant abbreviations like `min`); zh uses a single form
+  /// for all counts (the unsuffixed `<key>`). Picks the form for `n` and
+  /// interpolates `{n}` into it. Non-count `{n}` placeholders (exit codes,
+  /// bare counts like `Cited by {n}`) keep plain `t(key).replace('{n}', …)`.
+  plural(key: string, n: number): string;
+}
+
 /// Returns `t(key)` bound to the current language, with English fallback.
 ///
 /// The lookup is memoised per language so `t` keeps a STABLE identity across
@@ -2486,7 +2520,14 @@ applyDocLang(initialLang());
 /// `useEffect` that captures it, forcing re-render storms in large trees (the
 /// PDF page list, the library table). Stable-by-default is the correct contract
 /// for a context-like value (#311).
-export function useT(): (key: string) => string {
+export function useT(): TLookup {
   const lang = useLang((s) => s.lang);
-  return useMemo(() => (key: string) => DICTS[lang][key] ?? en[key] ?? key, [lang]);
+  return useMemo(() => {
+    const t = ((key: string) => DICTS[lang][key] ?? en[key] ?? key) as TLookup;
+    t.plural = (key: string, n: number) => {
+      const form = lang === 'en' ? `${key}_${n === 1 ? 'one' : 'other'}` : key;
+      return t(form).replace('{n}', String(n));
+    };
+    return t;
+  }, [lang]);
 }

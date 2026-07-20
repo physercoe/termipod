@@ -299,6 +299,20 @@ button.search-result-link:hover {
   display: flex;
   flex-direction: column;
 }
+/* Narrow-window collapse (#318): the centred panel caps at 96vw, so below
+   ~1000px the fixed 300px list starves the detail pane — stack list above
+   detail. The floating variant is user-sized via inline styles; leave it. */
+@media (max-width: 1000px) {
+  .sessions-panel:not(.floating) .sessions-body {
+    flex-direction: column;
+  }
+  .sessions-panel:not(.floating) .sessions-list {
+    flex: 0 0 auto;
+    max-height: 40%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
 /* Thin edge / corner grips for the floating dialog. Window-tracked drag
  * (useFloatingBox) — the visible strip is only a hit target. */
 .fp-resize {
@@ -722,7 +736,7 @@ button.search-result-link:hover {
   color: var(--text-secondary);
 }
 .error {
-  color: var(--color-error);
+  color: var(--danger);
   font-size: var(--font-size-caption);
 }
 

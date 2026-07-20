@@ -362,7 +362,6 @@ function AnnoEditor({
   a,
   footprintH,
   scale,
-  t,
   onUpdate,
   onRemove,
   onClose,
@@ -373,7 +372,6 @@ function AnnoEditor({
   a: Annotation;
   footprintH: number;
   scale: number;
-  t: (k: string) => string;
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
   onRemove: (id: string) => void;
   onClose: () => void;
@@ -381,6 +379,9 @@ function AnnoEditor({
   onSaveImage?: () => void;
   onAddToNote?: () => void;
 }): JSX.Element {
+  // useT() is memoised/stable (#311), so children call it locally instead of
+  // receiving `t` drilled as a prop (#322).
+  const t = useT();
   // Anchor under the annotation's first rect (or its ink bbox).
   const anchor = useMemo(() => {
     const r = a.position.rects?.[0];
@@ -517,7 +518,6 @@ function PageView({
   tool,
   color,
   selectedId,
-  t,
   onCreate,
   onSelect,
   onUpdate,
@@ -537,7 +537,6 @@ function PageView({
   tool: Tool;
   color: string;
   selectedId: string | null;
-  t: (k: string) => string;
   onCreate: (a: NewAnno) => string;
   onSelect: (id: string | null) => void;
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
@@ -546,6 +545,8 @@ function PageView({
   onImageToNote?: (dataUri: string) => void; // append an area screenshot to the notes
   readOnly?: boolean; // the split-view mirror pane: overlays visible but not editable
 }): JSX.Element {
+  // Local useT() (stable, #311) instead of a drilled `t` prop.
+  const t = useT();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -927,7 +928,6 @@ function PageView({
           a={selected}
           footprintH={fh}
           scale={scale}
-          t={t}
           onUpdate={onUpdate}
           onRemove={onRemove}
           onClose={() => onSelect(null)}
@@ -1015,13 +1015,13 @@ function AnnotationList({
   annos,
   selectedId,
   onGo,
-  t,
 }: {
   annos: Annotation[];
   selectedId: string | null;
   onGo: (a: Annotation) => void;
-  t: (k: string) => string;
 }): JSX.Element {
+  // Local useT() (stable, #311) instead of a drilled `t` prop (#322).
+  const t = useT();
   if (annos.length === 0) {
     return <div className="pdfjs-anno-empty muted small">{t('read.annEmpty')}</div>;
   }
@@ -1816,7 +1816,6 @@ export function PdfCanvas({
             tool={tool}
             color={annoColor}
             selectedId={selectedAnno}
-            t={t}
             onCreate={createAnnotation}
             onSelect={setSelectedAnno}
             onUpdate={updateAnno}
@@ -2007,7 +2006,7 @@ export function PdfCanvas({
               />
               <div className="pdfjs-panel-body scroll">
                 {panelTab === 'annos' && canAnnotate ? (
-                  <AnnotationList annos={refAnnos} selectedId={selectedAnno} onGo={goToAnnotation} t={t} />
+                  <AnnotationList annos={refAnnos} selectedId={selectedAnno} onGo={goToAnnotation} />
                 ) : panelTab === 'outline' && outline.length > 0 ? (
                   <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
                 ) : (

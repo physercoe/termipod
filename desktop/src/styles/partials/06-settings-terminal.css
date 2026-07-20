@@ -60,6 +60,28 @@
   background: var(--accent-tint);
   color: var(--accent-text);
 }
+/* Narrow-window collapse (#318): below ~1000px the fixed 200px category rail
+   eats a quarter of the min-width (900px) window — flatten it to a horizontal
+   strip above the content. */
+@media (max-width: 1000px) {
+  .settings-surface {
+    flex-direction: column;
+  }
+  .settings-cats {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-cats-head {
+    display: none;
+  }
+  .settings-cat {
+    white-space: nowrap;
+  }
+}
 .settings-content {
   flex: 1;
   min-width: 0;
@@ -668,8 +690,8 @@ th {
   border-color: color-mix(in srgb, var(--color-success) 45%, transparent);
 }
 .rr-outcome.err {
-  color: var(--color-error);
-  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 .rr-outcome.live {
   color: var(--color-primary);
@@ -737,7 +759,7 @@ th {
 }
 .rr-err-class {
   font-family: var(--font-mono, monospace);
-  color: var(--color-error);
+  color: var(--danger);
 }
 .rr-err-count {
   margin-left: var(--spacing-s8);

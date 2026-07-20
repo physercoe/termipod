@@ -605,6 +605,15 @@ button > .ui-icon:not(:only-child):first-child,
   background: var(--bg);
   overflow: auto;
 }
+/* Narrow-window collapse (#318): the window floor is 900px, so below ~1000px
+   the fixed 360px form column starves the log pane — stack the two panes and
+   let each scroll its own half. */
+@media (max-width: 1000px) {
+  .record-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
 .record-card {
   margin: var(--spacing-s12);
   border: 1px solid var(--border);
@@ -664,6 +673,18 @@ button > .ui-icon:not(:only-child):first-child,
 .compare-wall {
   background: var(--bg);
   padding: var(--spacing-s16);
+}
+/* Narrow-window collapse (#318): below ~1000px the fixed 240px runs rail
+   squeezes the comparison wall — stack rail above wall, each scrolling its
+   own half. */
+@media (max-width: 1000px) {
+  .compare-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .compare-wall {
+    overflow: auto;
+  }
 }
 .compare-table {
   width: 100%;

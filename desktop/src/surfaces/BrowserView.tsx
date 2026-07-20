@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { hostOf, openBrowserWindow, openExternal } from '../platform';
+import { frameCheck, hostOf, openBrowserWindow, openExternal } from '../platform';
 
 /// A minimal in-app browser tab (director request: external links open in a
 /// dedicated tab *inside* the app with navigation buttons, not the OS browser).
@@ -11,9 +11,11 @@ import { hostOf, openBrowserWindow, openExternal } from '../platform';
 /// read its own `history`. That covers app-initiated navigations (a clicked
 /// reference URL, a typed address) — which is what the reading workflow needs.
 ///
-/// A caveat we surface rather than hide: some sites refuse to be framed
-/// (`X-Frame-Options` / `frame-ancestors`) and render blank. The toolbar always
-/// offers "open in system browser" as the escape hatch for those.
+/// Some sites refuse to be framed (`X-Frame-Options` / `frame-ancestors`) and
+/// render blank. Instead of a static caveat, each navigation preflights the
+/// page's framing headers (`frameCheck`) and a refusal renders an actionable
+/// error with an "open in system browser" escape hatch (#322); the toolbar's
+/// browser-window button covers the sites that merely misbehave.
 
 function normalizeUrl(raw: string): string {
   const s = raw.trim();
@@ -31,10 +33,26 @@ export function BrowserView({ initialUrl }: { initialUrl: string }): JSX.Element
   const [idx, setIdx] = useState(0);
   const [nonce, setNonce] = useState(0);
   const [address, setAddress] = useState(initialUrl);
+  // The URL whose preflight reported a framing refusal (null = load the iframe).
+  const [refused, setRefused] = useState<string | null>(null);
 
   const current = history[idx] ?? '';
   // Reflect back/forward moves in the address bar (a typed edit stays until Enter).
   useEffect(() => setAddress(current), [current]);
+
+  // Preflight every navigation (and every manual reload, so a retry works):
+  // a refused frame is detected, not guessed (#322). Best-effort — a failed or
+  // unavailable check leaves the iframe to try.
+  useEffect(() => {
+    setRefused(null);
+    let dead = false;
+    void frameCheck(current).then((r) => {
+      if (!dead && r) setRefused(current);
+    });
+    return () => {
+      dead = true;
+    };
+  }, [current, nonce]);
 
   function navigate(url: string): void {
     const u = normalizeUrl(url);
@@ -85,16 +103,24 @@ export function BrowserView({ initialUrl }: { initialUrl: string }): JSX.Element
           <Icon name="external" />
         </button>
       </div>
-      <div className="browser-hint muted small">{t('read.browserFrameHint')}</div>
       <div className="browser-frame-wrap">
-        <iframe
-          key={`${idx}:${nonce}`}
-          className="browser-frame"
-          title={hostOf(current)}
-          src={current}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          referrerPolicy="no-referrer"
-        />
+        {refused !== null && refused === current ? (
+          <div className="browser-refused">
+            <p className="muted">{t('read.browserFrameRefused').replace('{host}', hostOf(current))}</p>
+            <button className="browser-nav" onClick={() => openExternal(current)}>
+              <Icon name="external" /> {t('read.openExternal')}
+            </button>
+          </div>
+        ) : (
+          <iframe
+            key={`${idx}:${nonce}`}
+            className="browser-frame"
+            title={hostOf(current)}
+            src={current}
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            referrerPolicy="no-referrer"
+          />
+        )}
       </div>
     </div>
   );

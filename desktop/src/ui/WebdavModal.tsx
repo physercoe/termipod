@@ -205,7 +205,7 @@ export function WebdavModal({ onClose }: { onClose: () => void }): JSX.Element {
             </div>
             {job.report.conflicts > 0 && (
               <div className="webdav-warn">
-                {t('read.webdavConflicts').replace('{n}', String(job.report.conflicts))}
+                {t.plural('read.webdavConflicts', job.report.conflicts)}
               </div>
             )}
             {job.report.errors.length > 0 && (

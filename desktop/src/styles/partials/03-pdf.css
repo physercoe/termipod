@@ -660,7 +660,7 @@
   align-items: center;
   gap: var(--spacing-s2);
   padding: var(--spacing-s2) var(--spacing-s4);
-  color: var(--danger, #e5484d);
+  color: var(--danger);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -1145,10 +1145,17 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
-.browser-hint {
-  padding: var(--spacing-s4) var(--spacing-s12);
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+/* Refused-frame error (#322): replaces the iframe when the page's framing
+   headers deny embedding; offers the system-browser escape hatch. */
+.browser-refused {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  text-align: center;
 }
 .browser-frame-wrap {
   flex: 1;

@@ -223,45 +223,73 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   // the last message leaves the viewport (director report: "the scrollbar creeps
   // up"). A fixed re-pin window can't cover an arbitrarily long hydration, so we
   // re-assert the end on EVERY measured height change (`totalListHeightChanged`)
-  // until the user takes control. `liveLenRef` feeds the current tail length in
+  // until the feed reveals. `liveLenRef` feeds the current tail length in
   // without making the pin logic a render dependency.
   const liveLenRef = useRef(0);
   liveLenRef.current = liveData.length;
   const stickBottomRef = useRef(true);
-  // Open at the last page with ZERO visible scrolling (#331). The re-pin loop below
-  // lands the bottom, but on WebKit each correction during hydration (markdown,
-  // KaTeX, images) is a visible jump/creep. So the feed stays `visibility:hidden`
-  // (layout preserved → Virtuoso still measures) until heights settle, then reveals
-  // in one frame already at the bottom. Debounced on the height-change storm with a
-  // hard cap so a pathological transcript never stays hidden.
+  /// Open at the last page with ZERO visible scrolling (#331). The re-pin loop
+  /// lands the bottom, but on WebKit each correction during hydration (markdown,
+  /// KaTeX, images) is a visible jump/creep. So the feed stays `visibility:hidden`
+  /// (layout preserved → Virtuoso still measures) until heights go quiet, then
+  /// reveals in one frame already at the bottom. The reveal is QUIESCENCE-based,
+  /// not capped: every measured height change pushes the reveal out by another
+  /// quiet window, so a heavy transcript stays hidden for its whole hydration
+  /// storm instead of popping in mid-storm (the old flat 500ms cap did exactly
+  /// that on long logs). Two guards bound the design: a generous backstop timer
+  /// so a pathological transcript never stays hidden forever, and `settledRef`
+  /// retiring the re-pin loop at reveal, so a LATE height change (font swap,
+  /// async image pop) can no longer scroll the view — post-reveal, sticking to
+  /// the bottom is covered by `followOutput` / `atBottomStateChange` alone.
   const [settled, setSettled] = useState(false);
+  const settledRef = useRef(false);
   const settleTimer = useRef<number | null>(null);
-  const capTimer = useRef<number | null>(null);
+  const backstopTimer = useRef<number | null>(null);
   const clearSettleTimer = (): void => {
     if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
     settleTimer.current = null;
   };
+  const clearBackstopTimer = (): void => {
+    if (backstopTimer.current !== null) window.clearTimeout(backstopTimer.current);
+    backstopTimer.current = null;
+  };
+  /// Reveal is one-way and idempotent (#331): flip the ref first (synchronously
+  /// retires pinBottom before the state render lands), then drop both timers so
+  /// nothing pending can fire afterwards.
+  const reveal = (): void => {
+    settledRef.current = true;
+    setSettled(true);
+    clearSettleTimer();
+    clearBackstopTimer();
+  };
   // Re-arm the pin + re-hide on (re)mount, agent change, or return to the live tab.
   useEffect(() => {
     stickBottomRef.current = true;
+    settledRef.current = false;
     setSettled(false);
     clearSettleTimer();
-    if (capTimer.current !== null) window.clearTimeout(capTimer.current);
-    // Hard cap: reveal no later than 500ms after (re)mount, whatever hydration does.
-    capTimer.current = window.setTimeout(() => setSettled(true), 500);
+    clearBackstopTimer();
+    // Backstop only: reveal no later than ~1.8s after (re)mount even if the
+    // height-change storm never goes quiet (#331). The quiet timer in pinBottom
+    // is the normal reveal path and fires long before this on a healthy log.
+    backstopTimer.current = window.setTimeout(reveal, 1800);
     return () => {
       clearSettleTimer();
-      if (capTimer.current !== null) window.clearTimeout(capTimer.current);
+      clearBackstopTimer();
     };
   }, [agentId, loaded, mode]);
   function pinBottom(): void {
+    // Retired once revealed (#331): a late height change after the reveal must
+    // neither scroll the view (a visible jump) nor re-arm a settled reveal.
+    if (settledRef.current) return;
     const n = liveLenRef.current;
     if (stickBottomRef.current && n > 0) {
       virtuosoRef.current?.scrollToIndex({ index: n - 1, align: 'end' });
     }
-    // Reveal once the height-change storm goes quiet (last change > 80ms ago).
+    // Quiescence reveal: un-hide only after the height-change storm has been
+    // quiet for a full window; each new change pushes the reveal out again.
     clearSettleTimer();
-    settleTimer.current = window.setTimeout(() => setSettled(true), 80);
+    settleTimer.current = window.setTimeout(reveal, 150);
   }
   // A real scroll gesture releases the pin so we never fight the user mid-settle;
   // returning to the bottom (`atBottomStateChange`) re-arms it. Listeners go on

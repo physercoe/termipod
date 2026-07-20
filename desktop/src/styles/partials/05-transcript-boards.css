@@ -40,16 +40,23 @@
 .md p {
   margin: var(--spacing-s4) 0;
 }
-/* Markdown images (incl. inline note-screenshot data-URIs) fit their column. */
+/* Markdown images (incl. inline note-screenshot data-URIs) fit their column.
+   max-height caps tall shots so the reserved placeholder box below stays a
+   near-exact preview of the final box (#331). */
 .md img {
   max-width: 100%;
+  max-height: 360px;
   height: auto;
 }
-/* Placeholder while a termipod-att:// note image resolves to a blob. */
+/* Placeholder while a termipod-att:// note image resolves to a blob. It reserves
+   ≈ the final image box (full column width, 16:10, capped at the img max-height),
+   so the blob swap is a geometric near-no-op instead of growing the row by
+   hundreds of px mid-hydration (#331). */
 .md-img-loading {
   display: block;
-  width: 120px;
-  height: 80px;
+  width: 100%;
+  aspect-ratio: 16/10;
+  max-height: 360px;
   border-radius: var(--radius-sm);
   background: var(--surface-sunken, var(--bg));
   border: 1px dashed var(--border);

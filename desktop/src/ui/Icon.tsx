@@ -19,6 +19,9 @@ export type IconName =
   | 'external'
   | 'window'
   | 'expand'
+  | 'fit-page'
+  | 'rotate-cw'
+  | 'hand'
   | 'close'
   | 'refresh'
   | 'menu'
@@ -101,6 +104,28 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M9 21H3v-6" />
       <path d="M21 3l-7 7" />
       <path d="M3 21l7-7" />
+    </>
+  ),
+  'fit-page': (
+    <>
+      <rect x="7" y="3" width="10" height="18" rx="1.5" />
+      <path d="M12 7.5v9" />
+      <path d="M9.8 9.8 12 7.5l2.2 2.3" />
+      <path d="M9.8 14.2 12 16.5l2.2-2.3" />
+    </>
+  ),
+  'rotate-cw': (
+    <>
+      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+    </>
+  ),
+  hand: (
+    <>
+      <path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2" />
+      <path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2" />
+      <path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8" />
+      <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
     </>
   ),
   close: (

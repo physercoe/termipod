@@ -32,6 +32,9 @@ export function Composer({
   onSend,
   mention,
   draftKey,
+  running,
+  onStop,
+  inject,
 }: {
   onSend: (body: string, att: InputAttachments) => Promise<void>;
   /// When set, typing `@` opens a file picker over `items`; a pick inserts
@@ -41,6 +44,13 @@ export function Composer({
   /// (localStorage), so switching agents/surfaces doesn't lose an in-progress
   /// message. Omit for an ephemeral composer.
   draftKey?: string;
+  /// The agent is running — with an empty draft, the primary action becomes Stop
+  /// (#332). Typing a message swaps it back to Send (you can still queue input).
+  running?: boolean;
+  onStop?: () => void;
+  /// Push text into the draft (e.g. a quoted message). The `id` bump lets the
+  /// same text re-inject; each new id appends once.
+  inject?: { text: string; id: number } | null;
 }): JSX.Element {
   const t = useT();
   const [draft, setDraftRaw] = useState('');
@@ -77,6 +87,23 @@ export function Composer({
       }
     }
   }
+
+  // Inject pushed text (a quoted message) into the draft, once per id bump. A ref
+  // mirrors the draft so the effect reads the current value without re-firing on
+  // every keystroke.
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  // Seed with the current signal id so an already-consumed quote isn't
+  // re-injected when the composer remounts (e.g. Insight → Live tab switch).
+  const lastInjectRef = useRef(inject?.id ?? 0);
+  useEffect(() => {
+    if (inject === null || inject === undefined || inject.id === lastInjectRef.current) return;
+    lastInjectRef.current = inject.id;
+    const cur = draftRef.current;
+    setDraft(cur.trim() === '' ? inject.text : `${cur}\n${inject.text}`);
+    requestAnimationFrame(() => textRef.current?.focus());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inject]);
 
   // Auto-grow the textarea to fit its content (capped), so a multi-line message
   // is visible while typing instead of scrolling a one-line field.
@@ -337,15 +364,26 @@ export function Composer({
             }
           }}
         />
-        <button
-          className="primary composer-send"
-          onClick={() => void send()}
-          disabled={!canSend}
-          title={t('tx.send')}
-          aria-label={t('tx.send')}
-        >
-          <Icon name="send" size={16} />
-        </button>
+        {running === true && draft.trim() === '' && staged.length === 0 ? (
+          <button
+            className="primary composer-send composer-stop"
+            onClick={() => onStop?.()}
+            title={t('tx.stop')}
+            aria-label={t('tx.stop')}
+          >
+            <Icon name="square" size={14} />
+          </button>
+        ) : (
+          <button
+            className="primary composer-send"
+            onClick={() => void send()}
+            disabled={!canSend}
+            title={t('tx.send')}
+            aria-label={t('tx.send')}
+          >
+            <Icon name="send" size={16} />
+          </button>
+        )}
       </div>
     </div>
   );

@@ -494,6 +494,155 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* #332 clamp long assistant text behind a fade + a Show more/less toggle
+   (rec 11). */
+.ev-clamp-body {
+  position: relative;
+}
+.ev-clamp:not(.expanded) .ev-clamp-body {
+  max-height: 15em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, black 72%, transparent);
+  mask-image: linear-gradient(to bottom, black 72%, transparent);
+}
+.ev-clamp-toggle {
+  margin-top: var(--spacing-s4);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent-text);
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  font-weight: 600;
+}
+.ev-clamp-toggle:hover {
+  text-decoration: underline;
+}
+
+/* #332 message footer — a relative timestamp (absolute on hover) + hover-revealed
+   actions (copy / quote). */
+.ev-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s4);
+  min-height: 18px;
+}
+.ev--user .ev-meta {
+  justify-content: flex-end;
+}
+.ev-time {
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ev-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  opacity: 0;
+  transition: opacity 0.12s var(--ease);
+}
+.ev:hover .ev-actions,
+.ev-actions:focus-within {
+  opacity: 1;
+}
+.ev-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+.ev-act:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* #332 lifecycle overflow menu — a dropdown off the ⋯ button. */
+.life-overflow {
+  position: relative;
+  display: inline-flex;
+}
+.life-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--sh-3);
+}
+.life-menu button {
+  text-align: left;
+  justify-content: flex-start;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  border-radius: var(--radius-sm);
+}
+.life-menu button:hover {
+  background: var(--hover);
+}
+
+/* #332 composer Stop-while-running — the primary action turns destructive. */
+.composer .composer-stop {
+  background: var(--danger);
+  color: var(--accent-ink);
+}
+
+/* #332 skeleton feed — shimmer cards instead of a "Loading…" line (rec 14). */
+.feed-skeleton {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: var(--spacing-s8);
+}
+.sk-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) 0;
+}
+.sk-line {
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--surface), var(--hover), var(--surface));
+  background-size: 200% 100%;
+  animation: sk-shimmer 1.3s ease-in-out infinite;
+}
+.sk-line.w40 {
+  width: 40%;
+}
+.sk-line.w60 {
+  width: 60%;
+}
+.sk-line.w90 {
+  width: 90%;
+}
+@keyframes sk-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
 .ev-input .ev-from {
   display: inline-block;
   color: var(--color-terminal-yellow);

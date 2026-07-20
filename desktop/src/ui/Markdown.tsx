@@ -1,6 +1,7 @@
 import { isValidElement, memo, useEffect, useState, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import { Icon } from './Icon';
+import { useT } from '../i18n';
 import { useOpenLink } from './OpenLinkContext';
 import { loadNoteImage, NOTE_ATT_SCHEME } from '../state/attachments';
 import remarkGfm from 'remark-gfm';
@@ -99,6 +100,7 @@ function nodeText(node: ReactNode): string {
 /// react-markdown emits is rendered inside the framed block; the language comes
 /// from rehype's `language-*` class and the copied text from `nodeText`.
 function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const codeEl = Array.isArray(children) ? children.find((c) => isValidElement(c)) : children;
   const className = isValidElement(codeEl) ? String((codeEl.props as { className?: string }).className ?? '') : '';
@@ -117,9 +119,9 @@ function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
     <div className="md-code">
       <div className="md-code-head">
         <span className="md-code-lang">{lang ?? 'text'}</span>
-        <button type="button" className="md-code-copy" onClick={copy} title="Copy code" aria-label="Copy code">
+        <button type="button" className="md-code-copy" onClick={copy} title={t('tx.copy')} aria-label={t('tx.copy')}>
           <Icon name={copied ? 'check' : 'copy'} size={13} />
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? t('tx.copied') : t('tx.copy')}
         </button>
       </div>
       <pre>{children}</pre>

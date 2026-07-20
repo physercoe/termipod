@@ -926,6 +926,12 @@ button.small,
   color: var(--text-muted);
   background: var(--surface-sunken, var(--bg));
 }
+.transcript-status .ts-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  text-transform: capitalize;
+}
 .transcript-status .ts-model {
   color: var(--text-secondary);
   font-weight: 600;

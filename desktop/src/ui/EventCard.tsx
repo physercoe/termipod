@@ -1,6 +1,7 @@
-import { memo, type ReactNode } from 'react';
+import { memo, useState, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 import { Markdown } from './Markdown';
+import { useT, type TLookup } from '../i18n';
 import { arr, bool, num, obj, str, type Entity } from '../hub/types';
 
 /// Rich transcript rendering (parity Phase 1a; visual redesign #332). The hub
@@ -16,10 +17,9 @@ import { arr, bool, num, obj, str, type Entity } from '../hub/types';
 /// (structure from typography + whitespace); a card box appears only where
 /// action lives — tools, diffs, plans, errors, and the director's own input.
 /// Chrome colour collapses to three semantics (accent = user, red = error,
-/// neutral = everything else) instead of a per-kind rainbow. NB the tool/verb
-/// affordance strings are English constants here (matching this file's existing
-/// hardcoded tags); routing the transcript chrome through i18n is part of the
-/// #318 sweep.
+/// neutral = everything else) instead of a per-kind rainbow. Long assistant text
+/// clamps with a "show more" fade; text/input rows carry a relative timestamp and
+/// hover actions (copy / quote).
 
 export interface FeedEvent {
   id: string;
@@ -79,6 +79,14 @@ function isBoxed(kind: string, tone: Tone): boolean {
   return !BARE_KINDS.has(kind);
 }
 
+/// The plain-text body of a message row (assistant text / director input) — used
+/// by the copy + quote hover actions.
+function messageText(ev: FeedEvent): string | undefined {
+  if (ev.kind === 'text') return str(ev.payload, 'text');
+  if (ev.kind === 'input.text') return str(ev.payload, 'text') ?? str(ev.payload, 'body');
+  return undefined;
+}
+
 function firstLine(s: string, max = 80): string {
   const line = s.split('\n', 1)[0] ?? '';
   return line.length > max ? `${line.slice(0, max)}…` : line || '(empty)';
@@ -99,6 +107,33 @@ function jsonText(v: unknown): string {
   }
 }
 
+function relTime(ts: string, t: TLookup): string {
+  const then = Date.parse(ts);
+  if (Number.isNaN(then)) return '';
+  const s = Math.round((Date.now() - then) / 1000);
+  if (s < 45) return t('tx.now');
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
+function absTime(ts: string): string {
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? ts : d.toLocaleString();
+}
+
+/// Relative timestamp with the absolute time on hover (#332 rec 5) — the row
+/// timestamps the hub already emits, finally rendered.
+function TimeStamp({ ts }: { ts: string }): JSX.Element {
+  const t = useT();
+  return (
+    <time className="ev-time" dateTime={ts} title={absTime(ts)}>
+      {relTime(ts, t)}
+    </time>
+  );
+}
+
 function Collapsible({ label, children, open }: { label: string; children: ReactNode; open?: boolean }): JSX.Element {
   return (
     <details className="ev-collapse" open={open}>
@@ -108,25 +143,19 @@ function Collapsible({ label, children, open }: { label: string; children: React
   );
 }
 
-/// A foldable text/thought block (director feedback: text and thinking cards
-/// should be foldable in the transcript). The `<summary>` preview stays visible
-/// in both states; `defaultOpen` decides the initial fold — assistant text opens
-/// (it's the thing you're reading), reasoning stays collapsed (it's context you
-/// expand on demand). Short blocks below the threshold render inline with no
-/// disclosure, so the transcript isn't littered with triangles.
+/// A foldable thought/reasoning block — collapsed by default (it's context you
+/// expand on demand). Short blocks render inline with no disclosure.
 function FoldBlock({
   preview,
-  defaultOpen,
   className,
   children,
 }: {
   preview: string;
-  defaultOpen: boolean;
   className?: string;
   children: ReactNode;
 }): JSX.Element {
   return (
-    <details className={`ev-fold${className !== undefined ? ` ${className}` : ''}`} open={defaultOpen}>
+    <details className={`ev-fold${className !== undefined ? ` ${className}` : ''}`}>
       <summary className="ev-fold-sum">
         <span className="ev-fold-preview">{preview}</span>
       </summary>
@@ -135,7 +164,23 @@ function FoldBlock({
   );
 }
 
-/// A text block is worth folding once it spans several lines / is long enough
+/// Long assistant text clamps to a few lines behind a gradient fade with a
+/// "Show more" toggle (#332 rec 11) — the chat idiom, replacing the old
+/// `<details>` with a redundant dimmed preview line.
+function ClampText({ children }: { children: ReactNode }): JSX.Element {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className={expanded ? 'ev-clamp expanded' : 'ev-clamp'}>
+      <div className="ev-clamp-body">{children}</div>
+      <button type="button" className="ev-clamp-toggle" onClick={() => setExpanded((e) => !e)}>
+        {expanded ? t('tx.showLess') : t('tx.showMore')}
+      </button>
+    </div>
+  );
+}
+
+/// A text block is worth clamping once it spans several lines / is long enough
 /// that collapsing it meaningfully shortens the transcript.
 function isFoldable(s: string): boolean {
   return s.length > 240 || s.split('\n').length > 4;
@@ -144,9 +189,9 @@ function isFoldable(s: string): boolean {
 /// A tool call's one-line, natural-language summary (#332): an icon, a verb, and
 /// the *key argument* inline (bash → the command, read/write/edit → the path,
 /// search → the pattern). The full JSON hides behind a single disclosure — this
-/// one change removes most of the feed's visual noise. Unknown tools fall back to
-/// the tool name + the first string argument.
-function toolMeta(name: string, input: unknown): { icon: IconName; verb: string; arg?: string } {
+/// one change removes most of the feed's visual noise. `verbKey` is a t-key for
+/// known tools; unknown tools fall back to the raw tool name + first argument.
+function toolMeta(name: string, input: unknown): { icon: IconName; verbKey?: string; verb: string; arg?: string } {
   const p = (input !== null && typeof input === 'object' ? input : {}) as Entity;
   const pick = (...keys: string[]): string | undefined => {
     for (const k of keys) {
@@ -157,25 +202,25 @@ function toolMeta(name: string, input: unknown): { icon: IconName; verb: string;
   };
   const n = name.toLowerCase();
   if (/\b(bash|shell|exec|run|command|terminal)\b/.test(n)) {
-    return { icon: 'terminal', verb: 'Ran', arg: pick('command', 'cmd', 'script') };
+    return { icon: 'terminal', verbKey: 'tx.verb.ran', verb: name, arg: pick('command', 'cmd', 'script') };
   }
   if (/(multi.?edit|edit|update|replace|patch)/.test(n)) {
-    return { icon: 'pen', verb: 'Edited', arg: pick('file_path', 'path', 'filepath', 'file') };
+    return { icon: 'pen', verbKey: 'tx.verb.edited', verb: name, arg: pick('file_path', 'path', 'filepath', 'file') };
   }
   if (/(write|create|save)/.test(n)) {
-    return { icon: 'pen', verb: 'Wrote', arg: pick('file_path', 'path', 'filepath', 'file') };
+    return { icon: 'pen', verbKey: 'tx.verb.wrote', verb: name, arg: pick('file_path', 'path', 'filepath', 'file') };
   }
   if (/(read|cat|view|open)/.test(n)) {
-    return { icon: 'file-text', verb: 'Read', arg: pick('file_path', 'path', 'filepath', 'file') };
+    return { icon: 'file-text', verbKey: 'tx.verb.read', verb: name, arg: pick('file_path', 'path', 'filepath', 'file') };
   }
   if (/(grep|search|glob|find|ripgrep)/.test(n)) {
-    return { icon: 'search', verb: 'Searched', arg: pick('pattern', 'query', 'glob', 'q', 'regex') };
+    return { icon: 'search', verbKey: 'tx.verb.searched', verb: name, arg: pick('pattern', 'query', 'glob', 'q', 'regex') };
   }
   if (/(ls|list|dir|tree)/.test(n)) {
-    return { icon: 'folder', verb: 'Listed', arg: pick('path', 'dir', 'directory') };
+    return { icon: 'folder', verbKey: 'tx.verb.listed', verb: name, arg: pick('path', 'dir', 'directory') };
   }
   if (/(web|fetch|http|url|browser|curl)/.test(n)) {
-    return { icon: 'globe', verb: 'Fetched', arg: pick('url', 'uri', 'query') };
+    return { icon: 'globe', verbKey: 'tx.verb.fetched', verb: name, arg: pick('url', 'uri', 'query') };
   }
   // Fallback: the tool name as the verb, first string-valued argument inline.
   const firstStr = Object.values(p).find((v): v is string => typeof v === 'string' && v !== '');
@@ -183,10 +228,11 @@ function toolMeta(name: string, input: unknown): { icon: IconName; verb: string;
 }
 
 function ToolResultBody({ result }: { result: Entity }): JSX.Element {
+  const t = useT();
   const isErr = bool(result, 'is_error') === true;
   const denied = bool(result, 'denied') === true;
   const content = str(result, 'content') ?? jsonText(result['content']);
-  const label = denied ? 'Denied' : isErr ? 'Error' : 'Result';
+  const label = denied ? t('tx.denied') : isErr ? t('tx.errorLabel') : t('tx.result');
   return (
     <div className={`ev-result${isErr ? ' err' : ''}`}>
       <Collapsible label={`${label} · ${firstLine(content)}`} open={isErr}>
@@ -197,6 +243,7 @@ function ToolResultBody({ result }: { result: Entity }): JSX.Element {
 }
 
 function ToolCallBody({ p, result }: { p: Entity; result?: Entity }): JSX.Element {
+  const t = useT();
   const name = str(p, 'name') ?? 'tool';
   const input = p['input'];
   const hasInput = input !== undefined && input !== null && input !== '';
@@ -206,7 +253,7 @@ function ToolCallBody({ p, result }: { p: Entity; result?: Entity }): JSX.Elemen
     <div className="ev-tool">
       <div className="ev-tool-head">
         <Icon name={meta.icon} size={15} className="ev-tool-ico" />
-        <span className="ev-tool-verb">{meta.verb}</span>
+        <span className="ev-tool-verb">{meta.verbKey !== undefined ? t(meta.verbKey) : meta.verb}</span>
         {meta.arg !== undefined && <code className="ev-tool-arg">{truncate(meta.arg)}</code>}
         {result !== undefined && (
           <span className={`ev-chip${errored ? ' err' : ' ok'}`} aria-hidden="true">
@@ -215,7 +262,7 @@ function ToolCallBody({ p, result }: { p: Entity; result?: Entity }): JSX.Elemen
         )}
       </div>
       {hasInput && (
-        <Collapsible label="Arguments">
+        <Collapsible label={t('tx.arguments')}>
           <pre className="ev-mono">{jsonText(input)}</pre>
         </Collapsible>
       )}
@@ -285,6 +332,7 @@ function PlanBody({ p }: { p: Entity }): JSX.Element {
 /// the real reasoning text under text/thinking/reasoning. Render it AS thinking
 /// (a muted italic block), never as a raw payload dump (director feedback).
 function ThoughtBody({ p }: { p: Entity }): JSX.Element {
+  const t = useT();
   const raw = (str(p, 'text') ?? str(p, 'thinking') ?? str(p, 'reasoning') ?? '').trim();
   const isMarker = bool(p, 'marker_only') === true || raw === '' || raw === 'Thinking…' || raw === 'Thinking';
   // Marker-only frames have nothing to expand — render the label inline. Real
@@ -292,13 +340,13 @@ function ThoughtBody({ p }: { p: Entity }): JSX.Element {
   if (isMarker) {
     return (
       <div className="ev-thought">
-        <span className="ev-think-lead">Thinking…</span>
+        <span className="ev-think-lead">{t('tx.thinking')}</span>
       </div>
     );
   }
   return (
     <div className="ev-thought">
-      <FoldBlock preview={`Thinking · ${firstLine(raw, 72)}`} defaultOpen={false} className="ev-fold-thought">
+      <FoldBlock preview={`${t('tx.thinking')} ${firstLine(raw, 72)}`} className="ev-fold-thought">
         <div className="ev-thought-text">{raw}</div>
       </FoldBlock>
     </div>
@@ -317,18 +365,16 @@ function InputTextBody({ p }: { p: Entity }): JSX.Element {
   );
 }
 
-function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
+function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string): ReactNode {
   const p = ev.payload;
   switch (ev.kind) {
     case 'text': {
       const body = str(p, 'text') ?? '';
       if (!isFoldable(body)) return <Markdown text={body} />;
-      // Assistant text folds but stays open — you can collapse a long answer,
-      // but you don't have to click to read it.
       return (
-        <FoldBlock preview={firstLine(body, 80)} defaultOpen className="ev-fold-text">
+        <ClampText>
           <Markdown text={body} />
-        </FoldBlock>
+        </ClampText>
       );
     }
     case 'thought':
@@ -342,7 +388,7 @@ function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
         <div className="ev-tool">
           <div className="ev-tool-head">
             <Icon name="wrench" size={15} className="ev-tool-ico" />
-            <span className="ev-tool-verb">{callName ?? 'Result'}</span>
+            <span className="ev-tool-verb">{callName ?? t('tx.result')}</span>
           </div>
           <ToolResultBody result={p} />
         </div>
@@ -361,7 +407,7 @@ function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
       const msgs = num(p, 'message_count');
       return (
         <div className="ev-turn">
-          Turn {status}
+          {t('insight.turn')} {status}
           {dur !== undefined && ` · ${dur} ms`}
           {msgs !== undefined && ` · ${msgs} msgs`}
         </div>
@@ -374,7 +420,8 @@ function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
       const cacheR = num(p, 'cache_read') ?? 0;
       return (
         <div className="ev-usage">
-          {model ? `${model} · ` : ''}in {inTok} · out {outTok}
+          {model ? `${model} · ` : ''}
+          {t('tx.tokIn')} {inTok} · {t('tx.tokOut')} {outTok}
           {cacheR > 0 && ` · cache ${cacheR}`}
         </div>
       );
@@ -382,7 +429,7 @@ function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
     case 'session.init':
       return (
         <div className="ev-kv">
-          Session
+          {t('tx.session')}
           {str(p, 'model') && <span> · {str(p, 'model')}</span>}
           {arr(p, 'tools').length > 0 && <span className="muted"> · {arr(p, 'tools').length} tools</span>}
         </div>
@@ -396,16 +443,12 @@ function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
     case 'completion':
       return (
         <div className="ev-line">
-          Done {str(p, 'subtype') ?? ''}
+          {t('tx.done')} {str(p, 'subtype') ?? ''}
           {num(p, 'duration_ms') !== undefined && ` · ${num(p, 'duration_ms')} ms`}
         </div>
       );
     case 'system':
-      return (
-        <div className="ev-line muted">
-          {str(p, 'subtype') ?? 'event'}
-        </div>
-      );
+      return <div className="ev-line muted">{str(p, 'subtype') ?? 'event'}</div>;
     default: {
       // Any unmapped frame that is thinking-ish (a thinking/reasoning payload
       // field, or a kind like `thinking`) renders as a thought, not a raw
@@ -427,19 +470,43 @@ function bodyFor(ev: FeedEvent, result?: Entity, callName?: string): ReactNode {
   }
 }
 
+/// A copy button that flips to a check for a beat after copying.
+function CopyBtn({ text }: { text: string }): JSX.Element {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  function copy(): void {
+    void navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      },
+      () => undefined,
+    );
+  }
+  return (
+    <button type="button" className="ev-act" onClick={copy} title={t('tx.copy')} aria-label={t('tx.copy')}>
+      <Icon name={copied ? 'check' : 'copy'} size={13} />
+    </button>
+  );
+}
+
 export const EventCard = memo(function EventCard({
   ev,
   result,
   callName,
+  onQuote,
 }: {
   ev: FeedEvent;
   result?: Entity;
   callName?: string;
+  /// Quote this message into the composer (assistant text only). Omitted where
+  /// there is no composer to quote into.
+  onQuote?: (text: string) => void;
 }): JSX.Element {
+  const t = useT();
   // #332: three tones (user / error / neutral); boxed only where action lives,
   // bare (borderless) for prose + telemetry. Director/user input reads as a
-  // distinct right-aligned bubble (the desktop has horizontal room the phone
-  // doesn't, so the two voices read apart).
+  // distinct right-aligned bubble.
   const tone = toneFor(ev.kind, ev.producer);
   const boxed = isBoxed(ev.kind, tone);
   const cls = [
@@ -449,9 +516,31 @@ export const EventCard = memo(function EventCard({
   ]
     .filter(Boolean)
     .join(' ');
+  // Message rows (assistant text / director input) carry a timestamp + hover
+  // actions; telemetry and tool cards don't.
+  const text = messageText(ev);
   return (
     <div className={cls} data-seq={ev.seq}>
-      <div className="ev-body">{bodyFor(ev, result, callName)}</div>
+      <div className="ev-body">{bodyFor(ev, t, result, callName)}</div>
+      {text !== undefined && (ev.ts !== undefined || text.trim() !== '') && (
+        <div className="ev-meta">
+          {ev.ts !== undefined && <TimeStamp ts={ev.ts} />}
+          <span className="ev-actions">
+            {ev.kind === 'text' && onQuote !== undefined && (
+              <button
+                type="button"
+                className="ev-act"
+                onClick={() => onQuote(text)}
+                title={t('tx.quote')}
+                aria-label={t('tx.quote')}
+              >
+                <Icon name="quote" size={13} />
+              </button>
+            )}
+            <CopyBtn text={text} />
+          </span>
+        </div>
+      )}
     </div>
   );
 });

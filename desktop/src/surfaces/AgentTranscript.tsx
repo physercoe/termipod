@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SseHandle } from '../hub/sse';
@@ -190,6 +190,52 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     queryFn: () => client!.listAgentTurns(agentId, { limit: 500 }),
   });
 
+  // The agent's lifecycle status — for the running indicator + the composer's
+  // Stop-while-running action (#332). Polled; it changes out-of-band of the feed.
+  const agentQ = useQuery({
+    queryKey: ['agent', agentId],
+    enabled: client !== null,
+    refetchInterval: 5000,
+    queryFn: () => client!.getAgent(agentId),
+  });
+  const agentStatus = agentQ.data !== undefined ? str(agentQ.data, 'status') : undefined;
+  const running = agentStatus === 'running' || agentStatus === 'pending';
+  const paused = agentStatus === 'paused';
+
+  // Lifecycle overflow menu (#332): one contextual primary action in the bar, the
+  // rest behind an overflow toggle.
+  const [lifeMenuOpen, setLifeMenuOpen] = useState(false);
+  const lifeMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!lifeMenuOpen) return;
+    const onDown = (e: MouseEvent): void => {
+      if (lifeMenuRef.current !== null && !lifeMenuRef.current.contains(e.target as Node)) setLifeMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setLifeMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [lifeMenuOpen]);
+
+  // Quote-into-composer (#332): a message's text, blockquote-prefixed, pushed to
+  // the composer as an injection signal (id bump so the same text re-injects).
+  const [quoteSignal, setQuoteSignal] = useState<{ text: string; id: number } | null>(null);
+  const quoteIdRef = useRef(0);
+  // Stable identity so it doesn't defeat EventCard's memo (#311).
+  const quoteToComposer = useCallback((text: string): void => {
+    quoteIdRef.current += 1;
+    const quoted = `${text
+      .split('\n')
+      .map((l) => `> ${l}`)
+      .join('\n')}\n\n`;
+    setQuoteSignal({ text: quoted, id: quoteIdRef.current });
+  }, []);
+
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
   const { resultById, nameById, callIds } = useToolMaps(feed);
 
@@ -242,7 +288,8 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
       const id = callToolId(ev.payload);
       return <EventCard ev={ev} result={id !== undefined ? resultById.get(id) : undefined} />;
     }
-    return <EventCard ev={ev} />;
+    // Quote-into-composer only where the composer lives (live mode).
+    return <EventCard ev={ev} onQuote={mode === 'live' ? quoteToComposer : undefined} />;
   }
 
   // The item wrapper for the virtual list: carries the transient jump flash and
@@ -444,6 +491,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     try {
       await action(agentId);
       await qc.invalidateQueries({ queryKey: ['agents'] });
+      await qc.invalidateQueries({ queryKey: ['agent', agentId] });
     } catch (err) {
       setError(msg(err));
     } finally {
@@ -474,26 +522,90 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
         </div>
         <span className="spacer" />
         <div className="lifecycle">
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.pauseAgent(id))}>{t('tx.pause')}</button>
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.resumeAgent(id))}>{t('tx.resume')}</button>
-          <button disabled={busy} onClick={() => void lifecycle((id) => client!.stopAgent(id))}>{t('tx.stop')}</button>
-          <ConfirmButton
-            label={t('tx.terminate')}
-            danger
-            disabled={busy}
-            onConfirm={() => void lifecycle((id) => client!.terminateAgent(id))}
-          />
-          <ConfirmButton
-            label={t('tx.archive')}
-            disabled={busy}
-            onConfirm={() => void lifecycle((id) => client!.archiveAgent(id))}
-          />
+          {running && (
+            <button className="primary" disabled={busy} onClick={() => void lifecycle((id) => client!.stopAgent(id))}>
+              {t('tx.stop')}
+            </button>
+          )}
+          {paused && (
+            <button disabled={busy} onClick={() => void lifecycle((id) => client!.resumeAgent(id))}>
+              {t('tx.resume')}
+            </button>
+          )}
+          <div className="life-overflow" ref={lifeMenuRef}>
+            <button
+              className="icon-btn"
+              title={t('tx.more')}
+              aria-label={t('tx.more')}
+              aria-haspopup="menu"
+              aria-expanded={lifeMenuOpen}
+              onClick={() => setLifeMenuOpen((o) => !o)}
+            >
+              <Icon name="menu" size={16} />
+            </button>
+            {lifeMenuOpen && (
+              <div className="life-menu" role="menu">
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setLifeMenuOpen(false);
+                    void lifecycle((id) => client!.pauseAgent(id));
+                  }}
+                >
+                  {t('tx.pause')}
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setLifeMenuOpen(false);
+                    void lifecycle((id) => client!.resumeAgent(id));
+                  }}
+                >
+                  {t('tx.resume')}
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setLifeMenuOpen(false);
+                    void lifecycle((id) => client!.stopAgent(id));
+                  }}
+                >
+                  {t('tx.stop')}
+                </button>
+                <ConfirmButton
+                  label={t('tx.terminate')}
+                  danger
+                  disabled={busy}
+                  onConfirm={() => {
+                    setLifeMenuOpen(false);
+                    void lifecycle((id) => client!.terminateAgent(id));
+                  }}
+                />
+                <ConfirmButton
+                  label={t('tx.archive')}
+                  disabled={busy}
+                  onConfirm={() => {
+                    setLifeMenuOpen(false);
+                    void lifecycle((id) => client!.archiveAgent(id));
+                  }}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {mode !== 'digest' && stats.model !== undefined && (
+      {mode !== 'digest' && (agentStatus !== undefined || stats.model !== undefined) && (
         <div className="transcript-status">
-          <span className="ts-model">{stats.model}</span>
+          {agentStatus !== undefined && (
+            <span className="ts-state">
+              <span
+                className={`dot ${running ? 'running' : agentStatus === 'failed' || agentStatus === 'crashed' ? 'stopped' : 'muted'}`}
+              />
+              {agentStatus}
+            </span>
+          )}
+          {stats.model !== undefined && <span className="ts-model">{stats.model}</span>}
           {stats.turns > 0 && (
             <>
               <span className="ts-sep">·</span>
@@ -593,9 +705,21 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
               )}
             </div>
           ) : (
-            <div className="feed muted region-pad">{t('common.loading')}</div>
+            <div className="feed-skeleton" aria-busy="true" aria-label={t('common.loading')}>
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="feed-item">
+                  <div className="feed-measure">
+                    <div className="sk-card">
+                      <div className="sk-line w60" />
+                      <div className="sk-line w90" />
+                      <div className="sk-line w40" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-          <Composer onSend={send} />
+          <Composer onSend={send} running={running} onStop={() => void lifecycle((id) => client!.stopAgent(id))} inject={quoteSignal} />
         </>
       )}
 

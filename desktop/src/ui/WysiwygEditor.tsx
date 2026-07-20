@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Crepe } from '@milkdown/crepe';
 import { replaceAll } from '@milkdown/kit/utils';
+import { editorViewCtx, parserCtx } from '@milkdown/kit/core';
+import type { Ctx } from '@milkdown/ctx';
 import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/frame.css';
 import { loadNoteImage, NOTE_ATT_SCHEME, writeNoteImage } from '../state/attachments';
@@ -24,9 +26,11 @@ import { clipboardItems, useContextMenu } from './ContextMenu';
 /// cursor), but it DOES reconcile EXTERNAL writes: notes can be appended while
 /// the editor is open (PDF "+notes", area-image-to-note, assistant onInsert). We
 /// track the editor's last emission in `lastEmitted`; when `value` diverges from
-/// it (an external change, not the echo of our own edit) we `replaceAll` so the
-/// append isn't clobbered by the editor's next `markdownUpdated`. The parent
-/// still remounts with `key` to load a different note/document.
+/// it (an external change, not the echo of our own edit) a pure append goes in
+/// as a minimal end-of-document transaction (cursor + undo survive, #322) and
+/// anything else is a `replaceAll`, so the write isn't clobbered by the editor's
+/// next `markdownUpdated`. The parent still remounts with `key` to load a
+/// different note/document.
 
 // Chunked base64 so a multi-MB image doesn't blow the argument limit of btoa.
 function bytesToB64(bytes: Uint8Array): string {
@@ -36,6 +40,21 @@ function bytesToB64(bytes: Uint8Array): string {
     bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
   return btoa(bin);
+}
+
+/// Insert markdown at the very end of the document as ONE minimal ProseMirror
+/// transaction — the reconcile path for an external append (agent onInsert,
+/// PDF "+notes"). Unlike `replaceAll`, the untouched head of the doc keeps its
+/// node identities, so the selection stays put and the undo history gains a
+/// small precise inverse instead of a whole-document swap (#322).
+function appendMarkdown(markdown: string) {
+  return (ctx: Ctx): void => {
+    const view = ctx.get(editorViewCtx);
+    const doc = ctx.get(parserCtx)(markdown);
+    if (!doc) return;
+    const { state } = view;
+    view.dispatch(state.tr.insert(state.doc.content.size, doc.content));
+  };
 }
 
 export function WysiwygEditor({
@@ -139,11 +158,17 @@ export function WysiwygEditor({
 
   // Reconcile an external write (append while open) into the live editor. The
   // editor's own edits set value === lastEmitted, so this is a no-op then.
+  // A pure append (the onInsert / "+notes" shape: prior body + blank-line-separated
+  // tail) goes in as a minimal end-of-document transaction that keeps cursor +
+  // undo (#322); anything else still falls back to a full replaceAll.
   useEffect(() => {
     const crepe = crepeRef.current;
     if (crepe === null || value === lastEmitted.current) return;
+    const prev = lastEmitted.current;
     lastEmitted.current = value;
-    crepe.editor.action(replaceAll(value));
+    const head = prev.trimEnd();
+    const appended = prev.trim() !== '' && value.startsWith(head) ? value.slice(head.length) : null;
+    crepe.editor.action(appended !== null && /^\s*\S/.test(appended) ? appendMarkdown(appended) : replaceAll(value));
   }, [value]);
 
   return (

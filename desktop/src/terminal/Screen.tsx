@@ -6,7 +6,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { isWindows, openExternal } from '../platform';
+import { isWindows, openExternal, windowsBuildNumber } from '../platform';
 
 // Persisted terminal font size (Ctrl/Cmd +/-/0 zoom, #319). Shared across all
 // screens so zoom is a global preference, clamped to a sane, legible range.
@@ -154,7 +154,9 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
       }
     };
     void (async () => {
-      if (!(await isWindows())) {
+      const win = await isWindows();
+      if (disposed) return;
+      if (!win) {
         try {
           const { WebglAddon } = await import('@xterm/addon-webgl');
           if (disposed) return;
@@ -168,6 +170,21 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
         } catch {
           /* WebGL unavailable (driver/GPU) — fall through to canvas */
         }
+      } else {
+        // Tell xterm the pty is ConPTY (the desktop terminal is portable-pty →
+        // ConPTY on Windows). ConPTY does its own line wrapping and, when the
+        // viewport grows, adds blank rows at the BOTTOM rather than pulling
+        // scrollback back into view — so without this flag xterm's own reflow
+        // fights ConPTY and a repainting TUI's intermediate frames pile up in the
+        // scrollback (director report: "scroll up to see the intermediate drawing
+        // content"). Passing the build number lets xterm keep native reflow on for
+        // builds ≥ 21376 (where ConPTY emits proper wrap sequences) and fall back
+        // to the heuristic below it; when the build is unknown, `{ backend }` alone
+        // still fixes the duplicate-scrollback bug (reflow off, as legacy
+        // windowsMode did).
+        const build = await windowsBuildNumber();
+        if (disposed) return;
+        term.options.windowsPty = build !== null ? { backend: 'conpty', buildNumber: build } : { backend: 'conpty' };
       }
       await loadCanvas();
     })();

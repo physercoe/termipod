@@ -5,7 +5,7 @@ import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { parsePoints } from '../ui/Sparkline';
-import { ChartView, type ChartSeries } from '../ui/ChartView';
+import { ChartView, CHART_PALETTE, type ChartSeries } from '../ui/ChartView';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
 /// J5 — Compare many runs. The headline BUILD from `research-tooling-landscape.md`
@@ -16,13 +16,9 @@ import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 /// is intrinsically wide-screen (the job the phone can't do). Next rounds add the
 /// config-diff panel and the optuna-dashboard sweep EMBED.
 
-const SWATCHES = [
-  'var(--color-primary)',
-  'var(--color-terminal-cyan)',
-  'var(--color-terminal-yellow)',
-  'var(--color-secondary)',
-  'var(--color-terminal-green)',
-];
+// Run swatches share the chart renderer's palette (single source, #322) so a
+// run's swatch always matches its overlay curve.
+const SWATCHES = CHART_PALETTE;
 
 function runLabel(r: Entity): string {
   const id = str(r, 'id') ?? '';

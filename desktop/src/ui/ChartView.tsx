@@ -129,7 +129,9 @@ export function chartFromJson(data: unknown): ChartData | null {
   return null;
 }
 
-const PALETTE = [
+// The one chart palette for the whole app — CompareSurface's run swatches use
+// the same source so an overlay curve and its table swatch never drift (#322).
+export const CHART_PALETTE = [
   'var(--color-primary)',
   'var(--color-terminal-cyan)',
   'var(--color-terminal-yellow)',
@@ -223,7 +225,7 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
           })
         ) : (
           chart.series.map((s, si) => {
-            const color = PALETTE[si % PALETTE.length];
+            const color = CHART_PALETTE[si % CHART_PALETTE.length];
             const pts = s.points
               .map((p, i) => `${idxToPx(i, s.points.length).toFixed(1)},${yToPx(p.y).toFixed(1)}`)
               .join(' ');
@@ -258,7 +260,7 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
         <div className="chart-legend">
           {chart.series.map((s, si) => (
             <span key={`l${si}`} className="chart-legend-item">
-              <span className="chart-swatch" style={{ background: PALETTE[si % PALETTE.length] }} />
+              <span className="chart-swatch" style={{ background: CHART_PALETTE[si % CHART_PALETTE.length] }} />
               {s.name ?? `series ${si + 1}`}
             </span>
           ))}

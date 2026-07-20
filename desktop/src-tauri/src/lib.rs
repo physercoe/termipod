@@ -203,6 +203,55 @@ fn platform_os() -> String {
     std::env::consts::OS.to_string()
 }
 
+/// The Windows OS build number (e.g. 22631), or `None` off Windows / on any
+/// failure. Read the same cheap `reg query` way `windows_system_proxy` reads the
+/// proxy — no extra crate. The desktop terminal hands it to xterm's `windowsPty`
+/// so xterm applies the ConPTY scrollback/reflow behaviour correct for THIS build
+/// (native line-wrap sequences landed in build 21376; reflow should stay on above
+/// it, off below). Without a build number xterm can't tell, disables reflow, and —
+/// worse — ConPTY grows the viewport by making empty rows at the bottom instead of
+/// pulling scrollback in, so a repainting TUI's intermediate frames pile up in the
+/// scrollback (director report, Windows: "scroll up to see the intermediate
+/// drawing content"). On `None` the frontend still passes `{ backend: 'conpty' }`,
+/// which fixes the duplicate-scrollback bug but loses the build-gated reflow.
+#[tauri::command]
+fn os_build_number() -> Option<u32> {
+    #[cfg(target_os = "windows")]
+    {
+        windows_build_number()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+/// Read `CurrentBuildNumber` (REG_SZ, e.g. "22631") from the Windows version key.
+#[cfg(target_os = "windows")]
+fn windows_build_number() -> Option<u32> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    // CREATE_NO_WINDOW so the child `reg` never flashes a console window (same
+    // reason as windows_system_proxy).
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let out = Command::new("reg")
+        .args([
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            "/v",
+            "CurrentBuildNumber",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    // A match line reads: "    CurrentBuildNumber    REG_SZ    22631".
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find(|l| l.contains("CurrentBuildNumber"))
+        .and_then(|l| l.split_whitespace().last())
+        .and_then(|v| v.parse::<u32>().ok())
+}
+
 /// Trim whitespace and any DNS suffix from a raw hostname; `None` when empty.
 fn clean_hostname(raw: &str) -> Option<String> {
     let s = raw.trim();
@@ -576,6 +625,55 @@ async fn open_browser_window(app: AppHandle, url: String) -> Result<(), String> 
     Ok(())
 }
 
+/// Detect that a page REFUSES to be framed — `X-Frame-Options: DENY/SAMEORIGIN`,
+/// or a CSP `frame-ancestors` our custom tauri:// origin can't match — so the
+/// in-app browser tab can show an actionable error instead of a silently blank
+/// iframe (#322). The webview's own fetch can't read cross-origin headers
+/// (CORS), so the preflight runs here through reqwest. Best-effort: an
+/// unreachable site answers `false` (not refused) and the iframe gets its chance.
+#[tauri::command]
+async fn frame_check(url: String) -> Result<bool, String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("unsupported url scheme".into());
+    }
+    let client = net::client_builder(None)
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .timeout(std::time::Duration::from_secs(10))
+        // A browser-ish UA: some CDNs only emit the framing headers to those.
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")
+        .build()
+        .map_err(|e| e.to_string())?;
+    // Headers only — the response body is dropped unread, so this stays cheap.
+    let resp = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(_) => return Ok(false), // unreachable ≠ refused — let the iframe try
+    };
+    let headers = resp.headers();
+    if let Some(xfo) = headers.get("x-frame-options").and_then(|v| v.to_str().ok()) {
+        let v = xfo.trim();
+        // SAMEORIGIN never matches our tauri:// origin. ALLOW-FROM is obsolete
+        // and ignored by modern engines, so it is NOT a refusal.
+        if v.eq_ignore_ascii_case("deny") || v.eq_ignore_ascii_case("sameorigin") {
+            return Ok(true);
+        }
+    }
+    for value in headers.get_all("content-security-policy").iter() {
+        let Ok(csp) = value.to_str() else { continue };
+        for directive in csp.split(';') {
+            let mut parts = directive.trim().split_whitespace();
+            let Some(name) = parts.next() else { continue };
+            if !name.eq_ignore_ascii_case("frame-ancestors") {
+                continue;
+            }
+            // Only a bare `*` lets a tauri://localhost ancestor through.
+            if !parts.any(|s| s == "*") {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Register the OS credential store before any keychain command can run —
@@ -613,9 +711,11 @@ pub fn run() {
             system_proxy,
             system_hostname,
             platform_os,
+            os_build_number,
             open_external,
             reveal_path,
             open_browser_window,
+            frame_check,
             storage::storage_pick_folder,
             storage::storage_reindex,
             storage::storage_read,
@@ -662,6 +762,7 @@ pub fn run() {
             keychain::keychain_delete,
             keychain::keychain_is_windows,
             ssh::ssh_connect,
+            ssh::ssh_duplicate,
             ssh::ssh_write,
             ssh::ssh_resize,
             ssh::ssh_close,

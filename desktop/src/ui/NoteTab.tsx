@@ -1,12 +1,12 @@
-import { lazy, Suspense, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useMemo, useRef } from 'react';
 import { useT } from '../i18n';
 import { isTauri } from '../platform';
 import { useLibrary } from '../state/library';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import { MarkdownEditor } from './MarkdownEditor';
-import { extractHeadings } from './MarkdownReader';
-import { ResizeHandle, usePanelWidth } from './ResizeHandle';
+import { extractHeadings, MarkdownOutline } from './MarkdownOutline';
+import { useNotesMode } from './useNotesMode';
 
 const WysiwygEditor = lazy(() => import('./WysiwygEditor').then((m) => ({ default: m.WysiwygEditor })));
 
@@ -18,39 +18,18 @@ const WysiwygEditor = lazy(() => import('./WysiwygEditor').then((m) => ({ defaul
 ///
 /// The outline scroll-to targets stamped heading ids, which only Preview renders
 /// (`headingIds`); in Rich/Source it is a structural map (click is a best-effort
-/// no-op there). The panel mirrors MarkdownReader's outline exactly, so it's
-/// resizable (`usePanelWidth`) and collapsible like the md/epub readers.
-
-type NotesMode = 'wysiwyg' | 'source' | 'preview';
+/// no-op there). The rail is the shared `MarkdownOutline` (#322), so it's
+/// resizable and collapsible like the md/epub readers.
 
 export function NoteTab({ refId }: { refId: string }): JSX.Element {
   const t = useT();
   const ref = useLibrary((s) => s.references.find((r) => r.id === refId));
   const update = useLibrary((s) => s.updateReference);
-  const [mode, setMode] = useState<NotesMode>(
-    () => (localStorage.getItem('termipod.read.notesMode') as NotesMode) || 'wysiwyg',
-  );
-  const [open, setOpen] = useState(true);
-  const [outlineW, resizeOutline] = usePanelWidth('termipod.note.outlineW', 240, 160, 460);
+  const [mode, pick] = useNotesMode();
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const notes = ref?.notes ?? '';
   const headings = useMemo(() => extractHeadings(notes), [notes]);
-  const minDepth = useMemo(() => Math.min(6, ...headings.map((h) => h.depth)), [headings]);
-
-  function pick(m: NotesMode): void {
-    setMode(m);
-    try {
-      localStorage.setItem('termipod.read.notesMode', m);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function go(slug: string): void {
-    const sel = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(slug) : slug;
-    bodyRef.current?.querySelector(`#${sel}`)?.scrollIntoView({ behavior: 'auto', block: 'start' });
-  }
 
   async function exportNotes(): Promise<void> {
     if (ref === undefined || !isTauri()) return;
@@ -67,41 +46,9 @@ export function NoteTab({ refId }: { refId: string }): JSX.Element {
     return <div className="muted region-pad">{t('read.noteGone')}</div>;
   }
 
-  const hasOutline = headings.length > 1;
   return (
     <div className="notetab">
-      {hasOutline &&
-        (open ? (
-          <>
-            <div className="mdreader-outline" style={{ width: outlineW }}>
-              <div className="mdreader-outline-head">
-                <span className="muted small">{t('read.mdOutline')}</span>
-                <span className="spacer" />
-                <button className="read-fold" title={t('read.collapse')} onClick={() => setOpen(false)}>
-                  <Icon name="chevron-left" size={14} />
-                </button>
-              </div>
-              <div className="mdreader-outline-list">
-                {headings.map((h, i) => (
-                  <button
-                    key={`${h.slug}-${i}`}
-                    className="mdreader-outline-item"
-                    style={{ paddingLeft: `${8 + (h.depth - minDepth) * 12}px` }}
-                    title={h.text}
-                    onClick={() => go(h.slug)}
-                  >
-                    {h.text}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <ResizeHandle onResize={resizeOutline} />
-          </>
-        ) : (
-          <button className="mdreader-outline-show" title={t('read.mdOutline')} onClick={() => setOpen(true)}>
-            <Icon name="list" />
-          </button>
-        ))}
+      <MarkdownOutline headings={headings} bodyRef={bodyRef} widthKey="termipod.note.outlineW" />
       <div className="notetab-main">
         <div className="ref-notes-bar">
           <div className="seg">

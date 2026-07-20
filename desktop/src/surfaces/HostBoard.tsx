@@ -1,6 +1,6 @@
 import { useAgents, useHosts } from '../hub/queries';
 import { num, obj, str, type Entity } from '../hub/types';
-import { useT } from '../i18n';
+import { useT, type TLookup } from '../i18n';
 import { useFocus } from '../state/focus';
 
 /// Focus-region detail for a single host (the machine a host-runner is on).
@@ -50,15 +50,15 @@ function fmtBytes(n: number | undefined): string | undefined {
 }
 
 // Best-effort relative age from an ISO timestamp; falls back to the raw string.
-function ago(iso: string | undefined, t: (k: string) => string): string | undefined {
+function ago(iso: string | undefined, t: TLookup): string | undefined {
   if (iso === undefined || iso === '') return undefined;
   const ms = Date.parse(iso);
   if (Number.isNaN(ms)) return iso;
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return t('host.justNow');
-  if (s < 3600) return t('host.minsAgo').replace('{n}', String(Math.floor(s / 60)));
-  if (s < 86400) return t('host.hoursAgo').replace('{n}', String(Math.floor(s / 3600)));
-  return t('host.daysAgo').replace('{n}', String(Math.floor(s / 86400)));
+  if (s < 3600) return t.plural('host.minsAgo', Math.floor(s / 60));
+  if (s < 86400) return t.plural('host.hoursAgo', Math.floor(s / 3600));
+  return t.plural('host.daysAgo', Math.floor(s / 86400));
 }
 
 function Field({ label, value }: { label: string; value: string }): JSX.Element {

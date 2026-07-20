@@ -536,6 +536,20 @@
   z-index: 4;
   cursor: crosshair;
 }
+/* Hand/pan tool (#321): the whole scroll area becomes a grab surface. The child
+   override beats the text layer's cursor:text; .panning switches to the closed
+   hand for the drag's duration. */
+.pdfjs-scroll.tool-hand {
+  cursor: grab;
+  user-select: none;
+}
+.pdfjs-scroll.tool-hand * {
+  cursor: grab;
+}
+.pdfjs-scroll.tool-hand.panning,
+.pdfjs-scroll.tool-hand.panning * {
+  cursor: grabbing;
+}
 .pdfjs-draft-rect {
   position: absolute;
   border: 2px dashed var(--accent);

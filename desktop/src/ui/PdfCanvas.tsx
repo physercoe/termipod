@@ -39,46 +39,80 @@ function clampToViewport(x: number, y: number, w: number, h: number, pad = 8): {
   return { x: Math.max(pad, Math.min(x, maxX)), y: Math.max(pad, Math.min(y, maxY)) };
 }
 
-// The active annotation tool, or null for read/select mode. highlight/underline
-// are selection-driven; note is a click; image/ink are pointer drags.
-type Tool = null | 'highlight' | 'underline' | 'note' | 'image' | 'ink';
+// The active tool, or null for read/select mode. highlight/underline are
+// selection-driven; note is a click; image/ink are pointer drags; hand pans the
+// scroll view — a view tool, it creates no annotation (#321).
+type Tool = null | 'highlight' | 'underline' | 'note' | 'image' | 'ink' | 'hand';
 
 // The shape the parent hands to add() — id/timestamps/referenceId are injected there.
 type NewAnno = Omit<Annotation, 'id' | 'createdAt' | 'updatedAt' | 'referenceId'>;
 
 // ---- PDF-point ⇄ CSS-px geometry -------------------------------------------
 // Annotations store geometry in unscaled PDF points, origin BOTTOM-LEFT (Zotero's
-// convention). A page's rendered footprint height in CSS px is `footprintH`
-// (= pageHeightPdf * scale), so mapping is a pure multiply + y-flip — the whole
-// reason the format is scale-independent.
+// convention) in the page's UNROTATED user space. The rendered viewport can be
+// rotated in 90° steps (#321), so mapping goes through pdfPtToView with the
+// page's unrotated CSS-px footprint (uw/uh) — at rotation 0 it degenerates to a
+// pure multiply + y-flip, the whole reason the format is scale-independent.
 
-function rectPdfToPx(rect: number[], footprintH: number, scale: number): { left: number; top: number; width: number; height: number } {
+// Unrotated PDF point (pt) → rendered viewport point (CSS px, origin top-left).
+function pdfPtToView(x: number, y: number, uw: number, uh: number, scale: number, rot: number): [number, number] {
+  const px = x * scale;
+  const py = y * scale;
+  switch (rot) {
+    case 90:
+      return [py, px];
+    case 180:
+      return [uw - px, py];
+    case 270:
+      return [uh - py, uw - px];
+    default:
+      return [px, uh - py];
+  }
+}
+
+// Inverse of pdfPtToView: a rendered viewport point (CSS px) → unrotated PDF pt.
+function viewToPdfPt(vx: number, vy: number, uw: number, uh: number, scale: number, rot: number): [number, number] {
+  switch (rot) {
+    case 90:
+      return [vy / scale, vx / scale];
+    case 180:
+      return [(uw - vx) / scale, vy / scale];
+    case 270:
+      return [(uw - vy) / scale, (uh - vx) / scale];
+    default:
+      return [vx / scale, (uh - vy) / scale];
+  }
+}
+
+function rectPdfToPx(rect: number[], uw: number, uh: number, scale: number, rot: number): { left: number; top: number; width: number; height: number } {
+  // Map all four corners — a 90° step swaps the axes, so two diagonal corners
+  // alone don't bound the rotated box — and take the axis-aligned bounding box.
   const [x1, y1, x2, y2] = rect;
-  const left = Math.min(x1, x2) * scale;
-  const right = Math.max(x1, x2) * scale;
-  const top = footprintH - Math.max(y1, y2) * scale;
-  const bottom = footprintH - Math.min(y1, y2) * scale;
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const [cx, cy] of [
+    [x1, y1],
+    [x1, y2],
+    [x2, y1],
+    [x2, y2],
+  ] as [number, number][]) {
+    const [vx, vy] = pdfPtToView(cx, cy, uw, uh, scale, rot);
+    left = Math.min(left, vx);
+    right = Math.max(right, vx);
+    top = Math.min(top, vy);
+    bottom = Math.max(bottom, vy);
+  }
   return { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
-function pxToPdf(localX: number, localY: number, footprintH: number, scale: number): [number, number] {
-  return [localX / scale, (footprintH - localY) / scale];
-}
-
 // Flatten an ink path (PDF points) to an SVG polyline `points` string in CSS px.
-function pathToPoints(flat: number[], footprintH: number, scale: number): string {
+function pathToPoints(flat: number[], uw: number, uh: number, scale: number, rot: number): string {
   const parts: string[] = [];
   for (let i = 0; i + 1 < flat.length; i += 2) {
-    parts.push(`${(flat[i] * scale).toFixed(1)},${(footprintH - flat[i + 1] * scale).toFixed(1)}`);
-  }
-  return parts.join(' ');
-}
-
-// A flat [x0,y0,x1,y1,…] CSS-px point list → SVG polyline `points` (drag preview).
-function flatPxToPoints(flat: number[]): string {
-  const parts: string[] = [];
-  for (let i = 0; i + 1 < flat.length; i += 2) {
-    parts.push(`${flat[i]},${flat[i + 1]}`);
+    const [vx, vy] = pdfPtToView(flat[i], flat[i + 1], uw, uh, scale, rot);
+    parts.push(`${vx.toFixed(1)},${vy.toFixed(1)}`);
   }
   return parts.join(' ');
 }
@@ -87,11 +121,11 @@ function flatPxToPoints(flat: number[]): string {
 // a PNG blob (the "screenshot" of the selected region). The page canvas is at
 // devicePixelRatio × the CSS footprint, so map the annotation's CSS-px box up by
 // `ratio`. Returns null if the page isn't rendered or has no rect.
-function captureAnnoImage(canvas: HTMLCanvasElement | null, a: Annotation, footprintH: number, scale: number): Promise<Blob | null> {
+function captureAnnoImage(canvas: HTMLCanvasElement | null, a: Annotation, uw: number, uh: number, scale: number, rot: number): Promise<Blob | null> {
   const r = a.position.rects?.[0];
   if (canvas === null || r === undefined) return Promise.resolve(null);
   const ratio = window.devicePixelRatio || 1;
-  const box = rectPdfToPx(r, footprintH, scale);
+  const box = rectPdfToPx(r, uw, uh, scale, rot);
   const sx = Math.max(0, Math.round(box.left * ratio));
   const sy = Math.max(0, Math.round(box.top * ratio));
   const sw = Math.max(1, Math.round(box.width * ratio));
@@ -155,15 +189,19 @@ interface LinkBox {
 // selection/drag passes through) and ON otherwise, so a click selects it.
 function AnnoOverlay({
   a,
-  footprintH,
+  uw,
+  uh,
   scale,
+  rot,
   selected,
   interactive,
   onSelect,
 }: {
   a: Annotation;
-  footprintH: number;
+  uw: number; // unrotated page footprint (CSS px) — annotation geometry maps through it
+  uh: number;
   scale: number;
+  rot: number; // 90°-step view rotation (#321)
   selected: boolean;
   interactive: boolean;
   onSelect: (id: string) => void;
@@ -183,7 +221,7 @@ function AnnoOverlay({
         {(a.position.paths ?? []).map((p, i) => (
           <polyline
             key={i}
-            points={pathToPoints(p, footprintH, scale)}
+            points={pathToPoints(p, uw, uh, scale, rot)}
             fill="none"
             stroke={color}
             strokeWidth={w}
@@ -199,7 +237,7 @@ function AnnoOverlay({
 
   const rects = a.position.rects ?? [];
   if (a.type === 'note') {
-    const box = rects.length > 0 ? rectPdfToPx(rects[0], footprintH, scale) : { left: 0, top: 0, width: 16, height: 16 };
+    const box = rects.length > 0 ? rectPdfToPx(rects[0], uw, uh, scale, rot) : { left: 0, top: 0, width: 16, height: 16 };
     return (
       <button
         className={`${cls} note`}
@@ -216,7 +254,7 @@ function AnnoOverlay({
   return (
     <>
       {rects.map((r, i) => {
-        const b = rectPdfToPx(r, footprintH, scale);
+        const b = rectPdfToPx(r, uw, uh, scale, rot);
         const style: React.CSSProperties = { left: b.left, top: b.top, width: b.width, height: b.height, pointerEvents: pe };
         if (a.type === 'highlight') style.background = `color-mix(in srgb, ${color} 40%, transparent)`;
         else if (a.type === 'underline') style.borderBottom = `2px solid ${color}`;
@@ -238,8 +276,10 @@ function AnnoOverlay({
 // The floating editor for the selected annotation: recolor, comment, delete.
 function AnnoEditor({
   a,
-  footprintH,
+  uw,
+  uh,
   scale,
+  rot,
   t,
   onUpdate,
   onRemove,
@@ -249,8 +289,10 @@ function AnnoEditor({
   onAddToNote,
 }: {
   a: Annotation;
-  footprintH: number;
+  uw: number; // unrotated page footprint (CSS px) — see AnnoOverlay
+  uh: number;
   scale: number;
+  rot: number; // 90°-step view rotation (#321)
   t: (k: string) => string;
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
   onRemove: (id: string) => void;
@@ -262,15 +304,14 @@ function AnnoEditor({
   // Anchor under the annotation's first rect (or its ink bbox).
   const anchor = useMemo(() => {
     const r = a.position.rects?.[0];
-    if (r !== undefined) return rectPdfToPx(r, footprintH, scale);
+    if (r !== undefined) return rectPdfToPx(r, uw, uh, scale, rot);
     const p = a.position.paths?.[0];
     if (p !== undefined && p.length >= 2) {
-      const x = p[0] * scale;
-      const y = footprintH - p[1] * scale;
+      const [x, y] = pdfPtToView(p[0], p[1], uw, uh, scale, rot);
       return { left: x, top: y, width: 0, height: 0 };
     }
     return { left: 0, top: 0, width: 0, height: 0 };
-  }, [a, footprintH, scale]);
+  }, [a, uw, uh, scale, rot]);
 
   // Keep the popover on-screen: near a page/viewport edge it would render partly
   // off-screen, so measure and nudge it back with a transform.
@@ -387,6 +428,7 @@ function PageView({
   pdf,
   pageNum,
   scale,
+  rotation,
   query,
   dim,
   onLink,
@@ -407,6 +449,7 @@ function PageView({
   pdf: PDFDocumentProxy;
   pageNum: number;
   scale: number;
+  rotation: number; // 90°-step view rotation, added to the page's own (#321)
   query: string;
   dim?: { w: number; h: number };
   onLink: (url: string) => void;
@@ -435,8 +478,11 @@ function PageView({
   // it re-runs the render effect so the page re-rasterises crisply.
   const dpr = useDevicePixelRatio();
   const [links, setLinks] = useState<LinkBox[]>([]);
-  // Live preview for a drag-in-progress (image rect or ink path), in CSS px.
-  const [draft, setDraft] = useState<{ rect?: number[]; pts?: number[] } | null>(null);
+  // Live preview for a drag-in-progress area rect, in CSS px. The ink stroke
+  // preview draws into the `inkRef` canvas overlay instead — ref-only, so a
+  // pointermove doesn't re-render the whole page component (#321).
+  const [draft, setDraft] = useState<{ rect: number[] } | null>(null);
+  const inkRef = useRef<HTMLCanvasElement | null>(null);
 
   // Lazily render a page the first time it comes within ~1000px of the viewport,
   // then LATCH it rendered — never un-render on scroll-away.
@@ -484,7 +530,9 @@ function PageView({
     void (async () => {
       const page = await pdf.getPage(pageNum);
       if (cancelled) return;
-      const viewport = page.getViewport({ scale });
+      // pdf.js treats the viewport rotation as ABSOLUTE (it defaults to the
+      // page's own), so the user rotation stacks on top of `page.rotate` (#321).
+      const viewport = page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });
       const canvas = canvasRef.current;
       if (canvas === null) return;
       const ctx = canvas.getContext('2d');
@@ -548,7 +596,7 @@ function PageView({
       renderTask?.cancel();
       textLayer?.cancel();
     };
-  }, [pdf, pageNum, scale, visible, dpr]);
+  }, [pdf, pageNum, scale, visible, dpr, rotation]);
 
   // Highlight the actual matched substrings by wrapping them in <mark>. The text
   // layer's own text is transparent (the canvas shows the glyphs), so the mark's
@@ -598,6 +646,12 @@ function PageView({
     ['--scale-factor' as string]: String(scale),
   };
   const fh = footprint?.h ?? 0;
+  const fw = footprint?.w ?? 0;
+  // The footprint WITHOUT the user rotation (at 90°/270° the rendered box is the
+  // swapped unrotated one). Annotation geometry is stored in unrotated PDF
+  // points, so overlays and hit-mapping go through uw/uh + `rotation` (#321).
+  const uw = rotation % 180 !== 0 ? fh : fw;
+  const uh = rotation % 180 !== 0 ? fw : fh;
 
   // The point (local CSS px) of a pointer event within this page's box.
   const localPoint = (e: React.PointerEvent | PointerEvent): [number, number] => {
@@ -616,7 +670,7 @@ function PageView({
     const [x0, y0] = localPoint(e);
 
     if (tool === 'note') {
-      const [px, py] = pxToPdf(x0, y0, fh, scale);
+      const [px, py] = viewToPdfPt(x0, y0, uw, uh, scale, rotation);
       const s = 12 / scale; // ~12px marker box in PDF units
       const id = onCreate({
         type: 'note',
@@ -642,13 +696,16 @@ function PageView({
         const [x, y] = localPoint(ev);
         setDraft(null);
         if (Math.abs(x - x0) < 4 && Math.abs(y - y0) < 4) return; // ignore a stray click
-        const [ax, ay] = pxToPdf(Math.min(x0, x), Math.max(y0, y), fh, scale);
-        const [bx, by] = pxToPdf(Math.max(x0, x), Math.min(y0, y), fh, scale);
+        const [ax, ay] = viewToPdfPt(Math.min(x0, x), Math.max(y0, y), uw, uh, scale, rotation);
+        const [bx, by] = viewToPdfPt(Math.max(x0, x), Math.min(y0, y), uw, uh, scale, rotation);
         const id = onCreate({
           type: 'image',
           color,
           pageIndex: pageNum - 1,
-          position: { pageIndex: pageNum - 1, rects: [[ax, ay, bx, by]] },
+          position: {
+            pageIndex: pageNum - 1,
+            rects: [[Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)]],
+          },
           tags: [],
         });
         onSelect(id);
@@ -661,19 +718,47 @@ function PageView({
 
     if (tool === 'ink') {
       const pts: number[] = [x0, y0];
+      // The in-progress stroke draws into a lightweight canvas overlay (ref-only)
+      // instead of a draft state that re-rendered the whole page component — text
+      // layer, annotation overlays and all — on every pointermove (#321). React
+      // state (the annotation store) is touched once, on pointer-up. Segments
+      // draw incrementally so a move costs one lineTo, never a full repaint.
+      const pv = inkRef.current;
+      const pctx = pv?.getContext('2d') ?? null;
+      if (pv !== null && pctx !== null) {
+        pv.width = Math.max(1, Math.floor(fw * dpr));
+        pv.height = Math.max(1, Math.floor(fh * dpr));
+        pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        pctx.strokeStyle = color;
+        pctx.lineWidth = 1.5 * scale;
+        pctx.lineCap = 'round';
+        pctx.lineJoin = 'round';
+      }
+      let lastX = x0;
+      let lastY = y0;
       const move = (ev: PointerEvent): void => {
         const [x, y] = localPoint(ev);
         pts.push(x, y);
-        setDraft({ pts: [...pts] });
+        if (pctx !== null) {
+          pctx.beginPath();
+          pctx.moveTo(lastX, lastY);
+          pctx.lineTo(x, y);
+          pctx.stroke();
+        }
+        lastX = x;
+        lastY = y;
       };
       const up = (): void => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
-        setDraft(null);
+        if (pv !== null && pctx !== null) {
+          pctx.setTransform(1, 0, 0, 1, 0, 0);
+          pctx.clearRect(0, 0, pv.width, pv.height);
+        }
         if (pts.length < 4) return;
         const pdfPts: number[] = [];
         for (let i = 0; i + 1 < pts.length; i += 2) {
-          const [px, py] = pxToPdf(pts[i], pts[i + 1], fh, scale);
+          const [px, py] = viewToPdfPt(pts[i], pts[i + 1], uw, uh, scale, rotation);
           pdfPts.push(px, py);
         }
         onCreate({
@@ -695,17 +780,17 @@ function PageView({
   // Area-annotation screenshot: crop the region from this page's canvas, then
   // copy it to the clipboard or save it as a PNG (Zotero's area-tool actions).
   async function copyAreaImage(a: Annotation): Promise<void> {
-    const blob = await captureAnnoImage(canvasRef.current, a, fh, scale);
+    const blob = await captureAnnoImage(canvasRef.current, a, uw, uh, scale, rotation);
     if (blob !== null) await copyImageBlob(blob).catch(() => undefined);
   }
   async function saveAreaImage(a: Annotation): Promise<void> {
-    const blob = await captureAnnoImage(canvasRef.current, a, fh, scale);
+    const blob = await captureAnnoImage(canvasRef.current, a, uw, uh, scale, rotation);
     if (blob === null) return;
     const base64 = await blobToBase64(blob);
     await invokeTauri('save_image_as', { defaultName: `figure-p${a.pageIndex + 1}.png`, base64 }).catch(() => undefined);
   }
   async function addAreaToNote(a: Annotation): Promise<void> {
-    const blob = await captureAnnoImage(canvasRef.current, a, fh, scale);
+    const blob = await captureAnnoImage(canvasRef.current, a, uw, uh, scale, rotation);
     if (blob === null) return;
     const base64 = await blobToBase64(blob);
     onImageToNote?.(`data:image/png;base64,${base64}`);
@@ -741,8 +826,10 @@ function PageView({
             <AnnoOverlay
               key={a.id}
               a={a}
-              footprintH={fh}
+              uw={uw}
+              uh={uh}
               scale={scale}
+              rot={rotation}
               selected={a.id === selectedId}
               interactive={!readOnly && tool === null}
               onSelect={onSelect}
@@ -752,31 +839,27 @@ function PageView({
       )}
       {surfaceTool && footprint !== null && (
         <div className={`pdfjs-draw-surface ${tool}`} onPointerDown={onSurfaceDown}>
+          {tool === 'ink' && (
+            <canvas
+              ref={inkRef}
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+            />
+          )}
           {draft?.rect !== undefined && (
             <div
               className="pdfjs-draft-rect"
               style={{ left: draft.rect[0], top: draft.rect[1], width: draft.rect[2] - draft.rect[0], height: draft.rect[3] - draft.rect[1], borderColor: color }}
             />
           )}
-          {draft?.pts !== undefined && (
-            <svg className="pdfjs-draft-ink" style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
-              <polyline
-                points={flatPxToPoints(draft.pts)}
-                fill="none"
-                stroke={color}
-                strokeWidth={1.5 * scale}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          )}
         </div>
       )}
       {selected !== null && footprint !== null && (
         <AnnoEditor
           a={selected}
-          footprintH={fh}
+          uw={uw}
+          uh={uh}
           scale={scale}
+          rot={rotation}
           t={t}
           onUpdate={onUpdate}
           onRemove={onRemove}
@@ -916,11 +999,13 @@ function Thumb({
   pdf,
   pageNum,
   active,
+  rotation,
   onGo,
 }: {
   pdf: PDFDocumentProxy;
   pageNum: number;
   active: boolean;
+  rotation: number; // 90°-step view rotation — thumbs rotate with the pages (#321)
   onGo: (n: number) => void;
 }): JSX.Element {
   const btnRef = useRef<HTMLButtonElement | null>(null);
@@ -950,8 +1035,9 @@ function Thumb({
     void (async () => {
       const page = await pdf.getPage(pageNum);
       if (cancelled) return;
-      const base = page.getViewport({ scale: 1 });
-      const vp = page.getViewport({ scale: 132 / base.width });
+      const rot = (page.rotate + rotation) % 360;
+      const base = page.getViewport({ scale: 1, rotation: rot });
+      const vp = page.getViewport({ scale: 132 / base.width, rotation: rot });
       const canvas = canvasRef.current;
       if (canvas === null) return;
       const ctx = canvas.getContext('2d');
@@ -969,7 +1055,7 @@ function Thumb({
       cancelled = true;
       task?.cancel();
     };
-  }, [pdf, pageNum, visible]);
+  }, [pdf, pageNum, visible, rotation]);
 
   useEffect(() => {
     if (active) btnRef.current?.scrollIntoView({ block: 'nearest' });
@@ -990,16 +1076,18 @@ function Thumb({
 function ThumbList({
   pdf,
   current,
+  rotation,
   onGo,
 }: {
   pdf: PDFDocumentProxy;
   current: number;
+  rotation: number;
   onGo: (n: number) => void;
 }): JSX.Element {
   return (
     <div className="pdfjs-thumbs">
       {Array.from({ length: pdf.numPages }, (_, i) => (
-        <Thumb key={i + 1} pdf={pdf} pageNum={i + 1} active={current === i + 1} onGo={onGo} />
+        <Thumb key={i + 1} pdf={pdf} pageNum={i + 1} active={current === i + 1} rotation={rotation} onGo={onGo} />
       ))}
     </div>
   );
@@ -1020,6 +1108,26 @@ function loadPdfScale(): number {
 function savePdfScale(n: number): void {
   try {
     localStorage.setItem(PDF_SCALE_KEY, String(n));
+  } catch {
+    /* ignore */
+  }
+}
+
+// Persisted view rotation (90° steps), shared across PDFs like the zoom level —
+// a landscape scan stays rotated the way the user left it (#321).
+const PDF_ROTATION_KEY = 'termipod.pdf.rotation';
+function loadPdfRotation(): number {
+  try {
+    const n = Number(localStorage.getItem(PDF_ROTATION_KEY));
+    if (Number.isFinite(n) && n % 90 === 0) return ((n % 360) + 360) % 360;
+  } catch {
+    /* ignore */
+  }
+  return 0;
+}
+function savePdfRotation(n: number): void {
+  try {
+    localStorage.setItem(PDF_ROTATION_KEY, String(n));
   } catch {
     /* ignore */
   }
@@ -1058,6 +1166,7 @@ export function PdfCanvas({
   const [err, setErr] = useState(false);
   const [loadPct, setLoadPct] = useState(0); // 0–1 download/parse progress
   const [scale, setScale] = useState(loadPdfScale);
+  const [rotation, setRotation] = useState(loadPdfRotation); // 90° steps, persisted (#321)
   // Annotations for this reference, grouped by page (0-based). Only usable when a
   // referenceId is present (annotations attach to a reference).
   const allAnnos = useAnnotations((s) => s.items);
@@ -1112,11 +1221,17 @@ export function PdfCanvas({
   const [outline, setOutline] = useState<OutlineNode[]>([]);
   // Base (scale-1) page footprints, measured ONCE per document. Aspect is
   // scale-invariant, so the per-scale dims are a cheap synchronous multiply — no
-  // need to re-fetch every page on each zoom step (#311).
+  // need to re-fetch every page on each zoom step (#311). A 90°/270° rotation
+  // swaps the axes — the footprints stay correct without re-measuring (#321).
   const [baseDims, setBaseDims] = useState<{ w: number; h: number }[]>([]);
   const pageDims = useMemo(
-    () => baseDims.map((d) => ({ w: d.w * scale, h: d.h * scale })),
-    [baseDims, scale],
+    () =>
+      baseDims.map((d) => {
+        const w = d.w * scale;
+        const h = d.h * scale;
+        return rotation % 180 !== 0 ? { w: h, h: w } : { w, h };
+      }),
+    [baseDims, scale, rotation],
   );
   const [showToc, setShowToc] = useState(false);
   const [panelTab, setPanelTab] = useState<'outline' | 'thumbs' | 'annos'>('thumbs');
@@ -1300,7 +1415,7 @@ export function PdfCanvas({
       const top = destTop(explicit);
       if (top !== undefined) {
         const page = await pdf.getPage(pageNum);
-        const vp = page.getViewport({ scale });
+        const vp = page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });
         yOffset = Math.max(0, vp.convertToViewportPoint(0, top)[1]);
       }
       scrollToPage(pageNum, yOffset);
@@ -1319,9 +1434,25 @@ export function PdfCanvas({
     const el = scrollRef.current;
     if (el === null || pdf === null) return;
     void pdf.getPage(1).then((page) => {
-      const base = page.getViewport({ scale: 1 });
+      const base = page.getViewport({ scale: 1, rotation: (page.rotate + rotation) % 360 });
       const avail = el.clientWidth - 32;
       if (avail > 0) setScale(Math.max(0.4, Math.min(3, avail / base.width)));
+    });
+  }
+
+  // Fit the WHOLE page (both axes) into the scroll viewport — the counterpart of
+  // fit-width for reading a full page at a glance (#321). The resulting scale
+  // persists like any other zoom choice.
+  function fitPage(): void {
+    const el = scrollRef.current;
+    if (el === null || pdf === null) return;
+    void pdf.getPage(1).then((page) => {
+      const base = page.getViewport({ scale: 1, rotation: (page.rotate + rotation) % 360 });
+      const availW = el.clientWidth - 32;
+      const availH = el.clientHeight - 32;
+      if (availW > 0 && availH > 0) {
+        setScale(Math.max(0.4, Math.min(3, Math.min(availW / base.width, availH / base.height))));
+      }
     });
   }
 
@@ -1329,6 +1460,11 @@ export function PdfCanvas({
   useEffect(() => {
     savePdfScale(scale);
   }, [scale]);
+
+  // Remember the chosen view rotation the same way (#321).
+  useEffect(() => {
+    savePdfRotation(rotation);
+  }, [rotation]);
 
   // Incremental search — debounce the input so the counter and highlight marks
   // update as you type (Enter still triggers an immediate run via the input).
@@ -1491,8 +1627,11 @@ export function PdfCanvas({
         if (pageEl === undefined) continue;
         const pIdx = Number(pageEl.dataset.page) - 1;
         const b = pageEl.getBoundingClientRect();
-        const [x1, yTop] = pxToPdf(r.left - b.left, r.top - b.top, b.height, scale);
-        const [x2, yBot] = pxToPdf(r.right - b.left, r.bottom - b.top, b.height, scale);
+        // b is the ROTATED on-screen box; annotation geometry is unrotated (#321).
+        const uw = rotation % 180 !== 0 ? b.height : b.width;
+        const uh = rotation % 180 !== 0 ? b.width : b.height;
+        const [x1, yTop] = viewToPdfPt(r.left - b.left, r.top - b.top, uw, uh, scale, rotation);
+        const [x2, yBot] = viewToPdfPt(r.right - b.left, r.bottom - b.top, uw, uh, scale, rotation);
         const rect = [Math.min(x1, x2), Math.min(yTop, yBot), Math.max(x1, x2), Math.max(yTop, yBot)];
         const list = byPage.get(pIdx) ?? [];
         list.push(rect);
@@ -1518,15 +1657,23 @@ export function PdfCanvas({
 
   const canAnnotate = referenceId !== undefined && pdf !== null;
 
-  // The topmost PDF-y (bottom-left origin) of an annotation, for jump targeting.
-  function annoTopY(a: Annotation): number | undefined {
+  // The annotation's anchor in unrotated PDF space: the top-left corner of its
+  // first rect, or the highest point of its first ink path. Jump targeting maps
+  // it through the current rotation (#321).
+  function annoAnchor(a: Annotation): [number, number] | undefined {
     const r = a.position.rects?.[0];
-    if (r !== undefined) return Math.max(r[1], r[3]);
+    if (r !== undefined) return [Math.min(r[0], r[2]), Math.max(r[1], r[3])];
     const p = a.position.paths?.[0];
-    if (p !== undefined) {
-      let m = -Infinity;
-      for (let i = 1; i < p.length; i += 2) m = Math.max(m, p[i]);
-      return m > -Infinity ? m : undefined;
+    if (p !== undefined && p.length >= 2) {
+      let bx = p[0];
+      let by = p[1];
+      for (let i = 2; i + 1 < p.length; i += 2) {
+        if (p[i + 1] > by) {
+          by = p[i + 1];
+          bx = p[i];
+        }
+      }
+      return [bx, by];
     }
     return undefined;
   }
@@ -1535,10 +1682,15 @@ export function PdfCanvas({
   // into view and select it (opens its editor / highlights the row).
   function goToAnnotation(a: Annotation): void {
     setSelectedAnno(a.id);
-    const fpH = pageDims[a.pageIndex]?.h;
-    const topY = annoTopY(a);
+    const fp = pageDims[a.pageIndex];
+    const anchor = annoAnchor(a);
     let yOffset = 0;
-    if (fpH !== undefined && topY !== undefined) yOffset = Math.max(0, fpH - topY * scale - 40);
+    if (fp !== undefined && anchor !== undefined) {
+      // pageDims is the ROTATED footprint; the geometry mapping wants unrotated.
+      const uw = rotation % 180 !== 0 ? fp.h : fp.w;
+      const uh = rotation % 180 !== 0 ? fp.w : fp.h;
+      yOffset = Math.max(0, pdfPtToView(anchor[0], anchor[1], uw, uh, scale, rotation)[1] - 40);
+    }
     scrollToPage(a.pageIndex + 1, yOffset);
   }
 
@@ -1620,6 +1772,7 @@ export function PdfCanvas({
             pdf={pdf}
             pageNum={i + 1}
             scale={scale}
+            rotation={rotation}
             query={query}
             dim={pageDims[i]}
             onLink={openLink}
@@ -1763,6 +1916,13 @@ export function PdfCanvas({
             {saved ? t('read.copiedToNotes') : t('read.copyToNotes')}
           </button>
         )}
+        <button
+          className={`pdfjs-zoom${tool === 'hand' ? ' active' : ''}`}
+          title={t('read.panTool')}
+          onClick={() => pickTool('hand')}
+        >
+          <Icon name="hand" />
+        </button>
         <button className="pdfjs-zoom" title={t('read.zoomOut')} onClick={() => setScale((s) => Math.max(0.4, s - 0.2))}>
           <Icon name="minus" />
         </button>
@@ -1786,6 +1946,16 @@ export function PdfCanvas({
         </button>
         <button className="pdfjs-zoom" title={t('read.zoomFit')} onClick={fitWidth}>
           <Icon name="expand" />
+        </button>
+        <button className="pdfjs-zoom" title={t('read.zoomFitPage')} onClick={fitPage}>
+          <Icon name="fit-page" />
+        </button>
+        <button
+          className="pdfjs-zoom"
+          title={t('read.rotateCw')}
+          onClick={() => setRotation((r) => (r + 90) % 360)}
+        >
+          <Icon name="rotate-cw" />
         </button>
         {docUrl !== undefined && docUrl !== '' && (
           <button className="pdfjs-zoom" title={t('read.openUrl')} onClick={() => openLink(docUrl)}>
@@ -1823,7 +1993,7 @@ export function PdfCanvas({
                 ) : panelTab === 'outline' && outline.length > 0 ? (
                   <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
                 ) : (
-                  <ThumbList pdf={pdf} current={currentPage} onGo={(n) => scrollToPage(n)} />
+                  <ThumbList pdf={pdf} current={currentPage} rotation={rotation} onGo={(n) => scrollToPage(n)} />
                 )}
               </div>
             </div>
@@ -1858,6 +2028,43 @@ export function PdfCanvas({
             tabIndex={0}
             role="region"
             aria-label={t('read.pdfDocument')}
+            onPointerDown={(e) => {
+              // Hand tool: drag anywhere to pan the scroll view (Acrobat/Zotero).
+              // Window listeners, not setPointerCapture — unreliable on WebView2
+              // (same reason as the draw surface, feedback_pointer_capture_webview2).
+              if (tool !== 'hand' || e.button !== 0) return;
+              const el = scrollRef.current;
+              if (el === null) return;
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const startL = el.scrollLeft;
+              const startT = el.scrollTop;
+              let moved = false;
+              el.classList.add('panning');
+              const move = (ev: PointerEvent): void => {
+                if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 4) moved = true;
+                el.scrollLeft = startL - (ev.clientX - startX);
+                el.scrollTop = startT - (ev.clientY - startY);
+              };
+              const up = (): void => {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', up);
+                el.classList.remove('panning');
+                if (moved) {
+                  // A drag-pan still ends in a click event — swallow it so a pan
+                  // released over a link doesn't open it. The timeout drops the
+                  // listener when the release landed off-element (no click follows).
+                  const swallow = (ev: Event): void => {
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                  };
+                  el.addEventListener('click', swallow, { capture: true, once: true });
+                  window.setTimeout(() => el.removeEventListener('click', swallow, { capture: true }), 150);
+                }
+              };
+              window.addEventListener('pointermove', move);
+              window.addEventListener('pointerup', up);
+            }}
             onWheel={(e) => {
               // Ctrl/Cmd+wheel zooms (trackpad pinch also emits ctrlKey), like a
               // browser/PDF viewer; a plain wheel scrolls normally.

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../platform';
-import { loadJson, newId, saveJson, secretDeleteMany, secretGet, secretSet } from './persist';
+import { loadJson, newId, saveJson, secretDeleteMany, secretGet, secretSetMany } from './persist';
 
 /// SSH key store (parity Phase 2a). `SshKeyMeta` mirrors the mobile
 /// lib/providers/key_provider.dart key-for-key (vault-bundle parity). The
@@ -96,8 +96,10 @@ export async function importKey(opts: {
     comment: opts.comment ?? null,
     source: 'imported',
   };
-  await secretSet(pkKey(id), opts.pem);
-  if (passphrase !== '') await secretSet(passKey(id), passphrase);
+  // One batched write: the consolidated keychain store re-seals the whole
+  // document per flush, so two sequential secretSet calls would prompt twice
+  // on macOS (#320 review).
+  await secretSetMany({ [pkKey(id)]: opts.pem, ...(passphrase !== '' && { [passKey(id)]: passphrase }) });
   persist([...listKeys(), meta]);
   return meta;
 }
@@ -111,6 +113,7 @@ export async function generateKey(opts: {
   comment?: string;
 }): Promise<SshKeyMeta> {
   const passphrase = opts.passphrase ?? '';
+  if (!isTauri()) throw new Error('key generation requires the desktop app');
   const gen = await invoke<GeneratedKey>('ssh_generate_key', {
     passphrase: passphrase !== '' ? passphrase : null,
   });
@@ -126,8 +129,8 @@ export async function generateKey(opts: {
     comment: opts.comment ?? null,
     source: 'generated',
   };
-  await secretSet(pkKey(id), gen.pem);
-  if (passphrase !== '') await secretSet(passKey(id), passphrase);
+  // Batched like importKey above — one keychain flush, one prompt.
+  await secretSetMany({ [pkKey(id)]: gen.pem, ...(passphrase !== '' && { [passKey(id)]: passphrase }) });
   persist([...listKeys(), meta]);
   return meta;
 }

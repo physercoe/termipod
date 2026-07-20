@@ -3,7 +3,7 @@ import { useT } from '../i18n';
 import { isTauri, openExternal } from '../platform';
 import { copySecret } from '../state/clipboard';
 import { DEFAULT_GEN, generatePassword, passwordStrength } from '../state/password';
-import { parseSeed, secondsRemaining, totpCode } from '../state/totp';
+import { parseSeed, secondsRemaining, totpCode, type TotpParams } from '../state/totp';
 import { Icon, type IconName } from '../ui/Icon';
 import { PasswordInput } from '../ui/PasswordInput';
 import { listAppIntegrations, type AppIntegration } from '../state/appIntegrations';
@@ -188,22 +188,23 @@ function SecretRow({
 }
 
 /// A live RFC 6238 TOTP code for a login's stored seed (#320): recomputed on a
-/// 1s tick with a 30s countdown ring, and Copy routes through `copySecret` so
-/// the clipboard auto-clears like every other vault secret. The seed is fetched
-/// from the keychain once on mount — never shown, only its rolling code.
+/// 1s tick with a countdown ring sweeping the seed's period, and Copy routes
+/// through `copySecret` so the clipboard auto-clears like every other vault
+/// secret. The seed is fetched from the keychain once on mount — never shown,
+/// only its rolling code.
 function TotpRow({ itemId, label }: { itemId: string; label: string }): JSX.Element {
   const t = useT();
-  const [seed, setSeed] = useState<Uint8Array<ArrayBuffer> | null>(null);
+  const [params, setParams] = useState<TotpParams | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [code, setCode] = useState('');
-  const [remain, setRemain] = useState(30);
+  const [remain, setRemain] = useState(0);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let alive = true;
     void getItemSecret(itemId, 'totp').then((v) => {
       if (alive) {
-        setSeed(parseSeed(v));
+        setParams(parseSeed(v));
         setLoaded(true);
       }
     });
@@ -213,14 +214,14 @@ function TotpRow({ itemId, label }: { itemId: string; label: string }): JSX.Elem
   }, [itemId]);
 
   useEffect(() => {
-    if (seed === null) return;
-    const s = seed; // const alias so the narrowing holds inside the tick closure
+    if (params === null) return;
+    const p = params; // const alias so the narrowing holds inside the tick closure
     let alive = true;
     async function tick(): Promise<void> {
-      const c = await totpCode(s);
+      const c = await totpCode(p);
       if (alive) {
         setCode(c);
-        setRemain(secondsRemaining());
+        setRemain(secondsRemaining(p.period));
       }
     }
     void tick();
@@ -229,7 +230,7 @@ function TotpRow({ itemId, label }: { itemId: string; label: string }): JSX.Elem
       alive = false;
       clearInterval(iv);
     };
-  }, [seed]);
+  }, [params]);
 
   async function copy(): Promise<void> {
     if (code !== '' && (await copySecret(code))) {
@@ -238,36 +239,38 @@ function TotpRow({ itemId, label }: { itemId: string; label: string }): JSX.Elem
     }
   }
 
-  // Countdown ring: dash-offset sweeps with the seconds left in the 30s step.
+  // Countdown ring: dash-offset sweeps with the seconds left in the period.
   const R = 7;
   const C = 2 * Math.PI * R;
   return (
     <div className="vault-field">
       <span className="vault-field-label">{label}</span>
-      {loaded && seed === null ? (
+      {loaded && params === null ? (
         <span className="vault-field-val muted small">{t('vault.totpInvalid')}</span>
       ) : (
         <span className="vault-field-val mono vault-totp-code">{code}</span>
       )}
-      <svg
-        className="vault-totp-ring"
-        width="18"
-        height="18"
-        viewBox="0 0 18 18"
-        role="img"
-        aria-label={t('vault.totpNext').replace('{n}', String(remain))}
-      >
-        <circle className="vault-totp-ring-bg" cx="9" cy="9" r={R} />
-        <circle
-          className="vault-totp-ring-fg"
-          cx="9"
-          cy="9"
-          r={R}
-          strokeDasharray={C}
-          strokeDashoffset={C * (1 - remain / 30)}
-          transform="rotate(-90 9 9)"
-        />
-      </svg>
+      {params !== null && (
+        <svg
+          className="vault-totp-ring"
+          width="18"
+          height="18"
+          viewBox="0 0 18 18"
+          role="img"
+          aria-label={t('vault.totpNext').replace('{n}', String(remain))}
+        >
+          <circle className="vault-totp-ring-bg" cx="9" cy="9" r={R} />
+          <circle
+            className="vault-totp-ring-fg"
+            cx="9"
+            cy="9"
+            r={R}
+            strokeDasharray={C}
+            strokeDashoffset={C * (1 - remain / params.period)}
+            transform="rotate(-90 9 9)"
+          />
+        </svg>
+      )}
       <button className="icon-btn" title={copied ? t('vault.copied') : t('vault.copy')} onClick={() => void copy()}>
         <Icon name={copied ? 'check' : 'copy'} size={15} />
       </button>

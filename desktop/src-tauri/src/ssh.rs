@@ -501,8 +501,11 @@ pub struct ParsedKey {
 /// key store can show it and offer the public half to copy onto servers. Uses
 /// the same `decode_secret_key` path the connect flow uses. The SHA-256
 /// fingerprint rides along so the key list can identify keys at a glance (#320).
+/// Async: decrypting an encrypted key runs bcrypt-pbkdf, a deliberately slow
+/// KDF — a sync `#[tauri::command]` runs on the main thread and would freeze
+/// the UI for tens–hundreds of ms (#320 review).
 #[tauri::command]
-pub fn ssh_parse_key(pem: String, passphrase: Option<String>) -> Result<ParsedKey, String> {
+pub async fn ssh_parse_key(pem: String, passphrase: Option<String>) -> Result<ParsedKey, String> {
     let pass = passphrase.as_deref().filter(|s| !s.is_empty());
     let key = decode_secret_key(&pem, pass).map_err(|e| format!("key parse: {e}"))?;
     Ok(ParsedKey {
@@ -550,9 +553,11 @@ pub struct GeneratedKey {
 /// Generate an ed25519 keypair in-app (#320), mirroring `ssh_parse_key`'s
 /// output: the OpenSSH private PEM (passphrase-encrypted when one is given, so
 /// the connect flow's `decode_secret_key` handles it unchanged), the public
-/// key, and the SHA-256 fingerprint for the key list.
+/// key, and the SHA-256 fingerprint for the key list. Async for the same reason
+/// as `ssh_parse_key`: `encrypt` runs bcrypt-pbkdf, which must not block the
+/// main thread (#320 review).
 #[tauri::command]
-pub fn ssh_generate_key(passphrase: Option<String>) -> Result<GeneratedKey, String> {
+pub async fn ssh_generate_key(passphrase: Option<String>) -> Result<GeneratedKey, String> {
     let key = ssh_key::PrivateKey::random(&mut SshOsRng, ssh_key::Algorithm::Ed25519)
         .map_err(|e| format!("keygen: {e}"))?;
     let public_openssh = key.public_key().to_openssh().map_err(|e| e.to_string())?;

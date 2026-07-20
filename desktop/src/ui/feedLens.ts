@@ -80,6 +80,35 @@ export function isHiddenInFeed(ev: FeedEvent, verbose: boolean): boolean {
   return false;
 }
 
+/// Turn-active kinds — the allowlist that decisively signals the agent is
+/// mid-turn (mobile `kAgentTurnActiveKinds`, feed_reducer.dart:145).
+const TURN_ACTIVE_KINDS = new Set(['text', 'tool_call', 'tool_call_update', 'thought', 'plan']);
+
+/// True when the latest non-user event signals an in-flight turn (mobile
+/// `agentIsBusy`, feed_reducer.dart:711). Walks newest-first: `turn.result` /
+/// `completion` / `session.init` and `exited`/`stopped` lifecycle short-circuit
+/// to idle; only TURN_ACTIVE_KINDS decisively signal busy; everything else is
+/// no-signal and the walk continues. Default = idle.
+///
+/// This is the composer's Stop-vs-Send signal — NOT the agent's lifecycle status
+/// (`agents.status`), which reads `running` for a live-but-idle agent and so
+/// would show Stop almost always. Only an actively-generating agent is "busy".
+export function agentIsBusy(feed: FeedEvent[]): boolean {
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const ev = feed[i];
+    if (ev.producer === 'user') continue; // user inputs don't move the state
+    const kind = ev.kind;
+    if (kind === 'turn.result' || kind === 'completion' || kind === 'session.init') return false;
+    if (kind === 'lifecycle') {
+      const phase = str(ev.payload, 'phase');
+      if (phase === 'exited' || phase === 'stopped') return false;
+      continue; // other lifecycle phases are ambiguous — keep scanning
+    }
+    if (TURN_ACTIVE_KINDS.has(kind)) return true;
+  }
+  return false;
+}
+
 /// A short human label for an error row in the Insight navigator — the failing
 /// tool's name where we can find it, else the kind.
 export function errorLabel(ev: FeedEvent, nameById: Map<string, string>): string {

@@ -10,7 +10,7 @@ import { Composer } from '../ui/Composer';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { Icon } from '../ui/Icon';
 import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
-import { errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, matchesLens, type FeedLens } from '../ui/feedLens';
+import { agentIsBusy, errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, matchesLens, type FeedLens } from '../ui/feedLens';
 import { RunReport } from '../ui/RunReport';
 
 function msg(err: unknown): string {
@@ -238,6 +238,10 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
   const { resultById, nameById, callIds } = useToolMaps(feed);
+  // The composer's Stop-vs-Send signal is whether the agent is mid-turn (derived
+  // from the feed), NOT the lifecycle status (a live-but-idle agent is still
+  // `running`, which would show Stop almost always — director-reported).
+  const generating = useMemo(() => agentIsBusy(feed), [feed]);
 
   // Persistent status line (#332): model, turn count, latest token snapshot, and
   // elapsed wall-time — all reliably present in the session.init / usage / turn
@@ -746,7 +750,12 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
               ))}
             </div>
           )}
-          <Composer onSend={send} running={running} onStop={() => void lifecycle((id) => client!.stopAgent(id))} inject={quoteSignal} />
+          <Composer
+            onSend={send}
+            generating={generating}
+            onStop={() => void lifecycle((id) => client!.stopAgent(id))}
+            inject={quoteSignal}
+          />
         </>
       )}
 

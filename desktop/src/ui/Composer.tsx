@@ -32,7 +32,7 @@ export function Composer({
   onSend,
   mention,
   draftKey,
-  running,
+  generating,
   onStop,
   inject,
 }: {
@@ -44,9 +44,10 @@ export function Composer({
   /// (localStorage), so switching agents/surfaces doesn't lose an in-progress
   /// message. Omit for an ephemeral composer.
   draftKey?: string;
-  /// The agent is running — with an empty draft, the primary action becomes Stop
-  /// (#332). Typing a message swaps it back to Send (you can still queue input).
-  running?: boolean;
+  /// The agent is actively generating a turn (feed-derived, not lifecycle status)
+  /// — with an empty draft, the primary action becomes Stop (#332). Typing a
+  /// message swaps it back to Send (you can still queue input).
+  generating?: boolean;
   onStop?: () => void;
   /// Push text into the draft (e.g. a quoted message). The `id` bump lets the
   /// same text re-inject; each new id appends once.
@@ -364,7 +365,7 @@ export function Composer({
             }
           }}
         />
-        {running === true && draft.trim() === '' && staged.length === 0 ? (
+        {generating === true && draft.trim() === '' && staged.length === 0 ? (
           <button
             className="primary composer-send composer-stop"
             onClick={() => onStop?.()}

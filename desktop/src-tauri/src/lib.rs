@@ -767,6 +767,7 @@ pub fn run() {
             ssh::ssh_resize,
             ssh::ssh_close,
             ssh::ssh_parse_key,
+            ssh::ssh_generate_key,
             ssh::ssh_exec,
             ssh::sftp_list,
             ssh::sftp_read,

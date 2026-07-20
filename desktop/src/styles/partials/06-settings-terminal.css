@@ -413,6 +413,13 @@
 .key-name {
   font-weight: 600;
 }
+/* SHA-256 fingerprint (#320) — long mono string, truncate rather than wrap. */
+.key-fp {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Settings → SSH Keys management. */
 .sshkey-import {
   display: flex;

@@ -1490,6 +1490,25 @@
   color: var(--danger);
 }
 
+/* TOTP row — live 6-digit code + 30s countdown ring (#320). */
+.vault-totp-code {
+  letter-spacing: 0.12em;
+}
+.vault-totp-ring {
+  flex: none;
+}
+.vault-totp-ring circle {
+  fill: none;
+  stroke-width: 2;
+}
+.vault-totp-ring-bg {
+  stroke: var(--border-strong);
+}
+.vault-totp-ring-fg {
+  stroke: var(--accent);
+  transition: stroke-dashoffset 1s linear;
+}
+
 .vault-conns {
   display: flex;
   flex-direction: column;

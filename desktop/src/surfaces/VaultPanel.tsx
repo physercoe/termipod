@@ -13,11 +13,16 @@ import {
   restoreWithRecovery,
   syncDown,
   syncUp,
+  VaultError,
   vaultStatus,
   vaultStatusKey,
 } from '../vault/service';
 
-function msg(e: unknown): string {
+/// Error → display text: the vault service throws coded VaultErrors (the
+/// service layer has no t()), so the codes resolve to localized copy here at
+/// the catch site (#320). Anything else falls back to its message.
+function msg(e: unknown, t: (key: string) => string): string {
+  if (e instanceof VaultError) return t(`vault.err.${e.code}`);
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -105,7 +110,7 @@ export function VaultPanel(): JSX.Element | null {
       await fn();
       await qc.invalidateQueries({ queryKey: vaultStatusKey(client) });
     } catch (e) {
-      setErr(msg(e));
+      setErr(msg(e, t));
     } finally {
       setBusy(false);
     }

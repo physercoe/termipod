@@ -3,6 +3,7 @@ import { useT } from '../i18n';
 import { isTauri, openExternal } from '../platform';
 import { copySecret } from '../state/clipboard';
 import { DEFAULT_GEN, generatePassword, passwordStrength } from '../state/password';
+import { parseSeed, secondsRemaining, totpCode } from '../state/totp';
 import { Icon, type IconName } from '../ui/Icon';
 import { PasswordInput } from '../ui/PasswordInput';
 import { listAppIntegrations, type AppIntegration } from '../state/appIntegrations';
@@ -186,6 +187,94 @@ function SecretRow({
   );
 }
 
+/// A live RFC 6238 TOTP code for a login's stored seed (#320): recomputed on a
+/// 1s tick with a 30s countdown ring, and Copy routes through `copySecret` so
+/// the clipboard auto-clears like every other vault secret. The seed is fetched
+/// from the keychain once on mount — never shown, only its rolling code.
+function TotpRow({ itemId, label }: { itemId: string; label: string }): JSX.Element {
+  const t = useT();
+  const [seed, setSeed] = useState<Uint8Array<ArrayBuffer> | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [code, setCode] = useState('');
+  const [remain, setRemain] = useState(30);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void getItemSecret(itemId, 'totp').then((v) => {
+      if (alive) {
+        setSeed(parseSeed(v));
+        setLoaded(true);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [itemId]);
+
+  useEffect(() => {
+    if (seed === null) return;
+    const s = seed; // const alias so the narrowing holds inside the tick closure
+    let alive = true;
+    async function tick(): Promise<void> {
+      const c = await totpCode(s);
+      if (alive) {
+        setCode(c);
+        setRemain(secondsRemaining());
+      }
+    }
+    void tick();
+    const iv = setInterval(() => void tick(), 1000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [seed]);
+
+  async function copy(): Promise<void> {
+    if (code !== '' && (await copySecret(code))) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }
+  }
+
+  // Countdown ring: dash-offset sweeps with the seconds left in the 30s step.
+  const R = 7;
+  const C = 2 * Math.PI * R;
+  return (
+    <div className="vault-field">
+      <span className="vault-field-label">{label}</span>
+      {loaded && seed === null ? (
+        <span className="vault-field-val muted small">{t('vault.totpInvalid')}</span>
+      ) : (
+        <span className="vault-field-val mono vault-totp-code">{code}</span>
+      )}
+      <svg
+        className="vault-totp-ring"
+        width="18"
+        height="18"
+        viewBox="0 0 18 18"
+        role="img"
+        aria-label={t('vault.totpNext').replace('{n}', String(remain))}
+      >
+        <circle className="vault-totp-ring-bg" cx="9" cy="9" r={R} />
+        <circle
+          className="vault-totp-ring-fg"
+          cx="9"
+          cy="9"
+          r={R}
+          strokeDasharray={C}
+          strokeDashoffset={C * (1 - remain / 30)}
+          transform="rotate(-90 9 9)"
+        />
+      </svg>
+      <button className="icon-btn" title={copied ? t('vault.copied') : t('vault.copy')} onClick={() => void copy()}>
+        <Icon name={copied ? 'check' : 'copy'} size={15} />
+      </button>
+    </div>
+  );
+}
+
 /// Quick-run a script item: a two-step armed Run (executing is consequential and
 /// `window.confirm` is unreliable in WebView2), then invoke the Rust runner and
 /// show stdout/stderr/exit inline. Runs in the open workspace folder when there
@@ -294,6 +383,7 @@ function ItemDetail({
           <PlainRow label={t('vault.fUsername')} value={item.username} />
           <PlainRow label={t('vault.fUrl')} value={item.url} link />
           <SecretRow itemId={item.id} slot="password" label={t('vault.fPassword')} />
+          {item.secretSlots.includes('totp') && <TotpRow itemId={item.id} label={t('vault.fTotp')} />}
         </>
       )}
       {item.type === 'api' && (
@@ -379,6 +469,7 @@ function ItemEditor({
     item?.interpreter !== undefined && item.interpreter !== '' ? item.interpreter : 'bash',
   );
   const [password, setPassword] = useState('');
+  const [totp, setTotp] = useState('');
   const [token, setToken] = useState('');
   const [content, setContent] = useState('');
   const [notes, setNotes] = useState('');
@@ -393,6 +484,7 @@ function ItemEditor({
     if (item === null) return;
     void (async () => {
       if (item.secretSlots.includes('password')) setPassword(await getItemSecret(item.id, 'password'));
+      if (item.secretSlots.includes('totp')) setTotp(await getItemSecret(item.id, 'totp'));
       if (item.secretSlots.includes('token')) setToken(await getItemSecret(item.id, 'token'));
       if (item.secretSlots.includes('content')) setContent(await getItemSecret(item.id, 'content'));
       if (item.secretSlots.includes('notes')) setNotes(await getItemSecret(item.id, 'notes'));
@@ -411,7 +503,10 @@ function ItemEditor({
     setErr(null);
     try {
       const secrets: Record<string, string> = { notes };
-      if (type === 'login') secrets.password = password;
+      if (type === 'login') {
+        secrets.password = password;
+        secrets.totp = totp;
+      }
       if (type === 'api') secrets.token = token;
       if (type === 'note' || type === 'env' || type === 'script') secrets.content = content;
       await saveItem({
@@ -469,6 +564,16 @@ function ItemEditor({
           <label className="vault-lbl">
             {t('vault.fPassword')}
             <PasswordField value={password} onChange={setPassword} />
+          </label>
+          <label className="vault-lbl">
+            {t('vault.fTotp')}
+            <PasswordInput
+              value={totp}
+              onChange={(e) => setTotp(e.target.value)}
+              placeholder={t('vault.totpPlaceholder')}
+              autoComplete="off"
+              spellCheck={false}
+            />
           </label>
         </>
       )}
@@ -548,7 +653,7 @@ function ItemEditor({
       {(() => {
         // Sum the item's secret-bearing fields — that's its footprint in the
         // shared keychain document. Non-blocking; big items still save.
-        const bytes = byteLen(password) + byteLen(token) + byteLen(content) + byteLen(notes);
+        const bytes = byteLen(password) + byteLen(totp) + byteLen(token) + byteLen(content) + byteLen(notes);
         if (bytes <= SOFT_MAX_BYTES) return null;
         return (
           <div className="vault-size-warn small">

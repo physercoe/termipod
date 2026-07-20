@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useHubAction } from '../hub/action';
 import { useProjects } from '../hub/queries';
@@ -53,15 +53,16 @@ function DocumentCompose({
   }
 
   // Dirty-close guard (#313): backdrop / Escape / Close used to discard an
-  // unsaved draft silently — confirm before dropping it.
+  // unsaved draft silently — confirm before dropping it. useCallback keeps
+  // Modal's keydown effect from re-registering every render.
   const dirty = kind !== initKind || title !== initTitle || body !== initBody;
-  async function attemptClose(): Promise<void> {
+  const attemptClose = useCallback(async (): Promise<void> => {
     if (!dirty || (await confirmAsk({ message: t('confirm.discardChanges'), danger: true }))) onDone();
-  }
+  }, [dirty, confirmAsk, onDone, t]);
 
   return (
     <>
-    <Modal onClose={() => void attemptClose()} className="task-detail" ariaLabel={editing ? t('docs.newVersion') : t('docs.new')}>
+    <Modal onClose={attemptClose} className="task-detail" ariaLabel={editing ? t('docs.newVersion') : t('docs.new')}>
         <div className="admin-tabs">
           <strong>{editing ? t('docs.newVersion') : t('docs.new')}</strong>
           <span className="spacer" />

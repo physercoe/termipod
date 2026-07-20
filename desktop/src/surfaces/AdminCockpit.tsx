@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
@@ -464,15 +464,16 @@ function YamlEditor({
       : t('admin.family');
 
   // Dirty-close guard (#313): backdrop / Escape / Close used to discard unsaved
-  // edits silently — confirm before dropping them.
+  // edits silently — confirm before dropping them. useCallback keeps Modal's
+  // keydown effect from re-registering every render.
   const dirty = name !== (target.name ?? '') || text !== savedText;
-  async function attemptClose(): Promise<void> {
+  const attemptClose = useCallback(async (): Promise<void> => {
     if (!dirty || (await confirmAsk({ message: t('confirm.discardChanges'), danger: true }))) onClose();
-  }
+  }, [dirty, confirmAsk, onClose, t]);
 
   return (
     <>
-    <Modal onClose={() => void attemptClose()} className="sessions-panel" ariaLabel={heading}>
+    <Modal onClose={attemptClose} className="sessions-panel" ariaLabel={heading}>
         <div className="admin-tabs">
           <strong>{heading}</strong>
           <span className="spacer" />

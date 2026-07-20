@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { HubClient } from '../hub/client';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
@@ -32,6 +32,9 @@ export function ConnectPanel({ onClose, edit }: { onClose?: () => void; edit?: H
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  // Stable identity for Modal's Escape/backdrop path (onClose is optional).
+  const dismiss = useCallback((): void => onClose?.(), [onClose]);
+
   // A new profile needs a token; editing may reuse the stored one if left blank.
   const complete = form.baseUrl.trim() !== '' && form.teamId.trim() !== '' && (edit !== undefined || form.token.trim() !== '');
 
@@ -54,10 +57,10 @@ export function ConnectPanel({ onClose, edit }: { onClose?: () => void; edit?: H
   }
 
   return (
-    // The form keeps `connect` (flex-column layout + Enter-submits); the Modal
-    // supplies the backdrop + dialog wrapper around it (#313).
-    <Modal onClose={() => onClose?.()} ariaLabel={edit !== undefined ? t('connect.editTitle') : t('connect.title')}>
-      <form className="connect" onSubmit={submit}>
+    // The dialog div carries `connect`; the <form> keeps submit semantics
+    // (Enter submits) and melts into the card's flex layout via CSS (#313).
+    <Modal onClose={dismiss} className="connect" ariaLabel={edit !== undefined ? t('connect.editTitle') : t('connect.title')}>
+      <form onSubmit={submit}>
         <div className="connect-head">
           <h2>{edit !== undefined ? t('connect.editTitle') : t('connect.title')}</h2>
           <span className="spacer" />

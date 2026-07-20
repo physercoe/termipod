@@ -22,6 +22,7 @@ export function Modal({
   ariaLabel,
   children,
   closeOnBackdrop = true,
+  onKeyDown,
 }: {
   onClose: () => void;
   className?: string;
@@ -29,6 +30,8 @@ export function Modal({
   children: ReactNode;
   /** Set false for editors that must confirm before discarding (dirty guards). */
   closeOnBackdrop?: boolean;
+  /** Dialog-level key handling (ConfirmModal's Enter-to-confirm); Escape stays Modal's own. */
+  onKeyDown?: (e: React.KeyboardEvent) => void;
 }): JSX.Element {
   const ref = useModalA11y<HTMLDivElement>(true);
   // Dialogs can nest (e.g. the document composer opens inside the Docs panel),
@@ -66,6 +69,7 @@ export function Modal({
         aria-modal="true"
         aria-label={ariaLabel}
         onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
       >
         {children}
       </div>

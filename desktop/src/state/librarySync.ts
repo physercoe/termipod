@@ -167,6 +167,20 @@ export async function syncLibrary(client: HubClient): Promise<SyncResult> {
   const lib = useLibrary.getState();
   const collName = new Map(lib.collections.map((c) => [c.id, c.name] as const));
 
+  // Write back the hub linkage after a successful push, clearing `dirty` ONLY
+  // when the row is unchanged since its push began. The store swaps the row
+  // object on any mutation, so object identity is the generation counter: an
+  // edit that lands during the in-flight PUT (typing a note fires update() per
+  // keystroke) keeps the row dirty and is re-pushed next sync — clearing it
+  // would silently lose that write (#311).
+  const writeBack = (r: Reference, hubId: string): void => {
+    const cur = useLibrary.getState().references.find((x) => x.id === r.id);
+    useLibrary.getState().updateReference(
+      r.id,
+      cur === r ? { hubId, syncedAt: Date.now(), dirty: false } : { hubId },
+    );
+  };
+
   // 1) PUSH — snapshot locals first; the loop mutates the store as it links ids.
   const locals = lib.references;
   const hubRefs = await client.listReferences();
@@ -175,18 +189,23 @@ export async function syncLibrary(client: HubClient): Promise<SyncResult> {
   let created = 0;
   let failed = 0;
   for (const r of locals) {
+    // Dirty tracking (#311): a row already linked to the hub and untouched since
+    // its last successful push has nothing new to upload — skip the PUT and its
+    // write-back. Rows without a hubId always attempt the push (create / link),
+    // and a FAILED push leaves the row dirty so the next sync retries it.
+    if (r.hubId !== undefined && r.dirty !== true) continue;
     try {
       const body = refToHubBody(r, collName);
       const linkId = r.hubId ?? matchHubId(r, byKey);
       if (linkId !== undefined) {
         await client.updateReference(linkId, body);
-        useLibrary.getState().updateReference(r.id, { hubId: linkId, syncedAt: Date.now() });
+        writeBack(r, linkId);
         pushed += 1;
       } else {
         const createdRow = await client.createReference(body);
         const newId = str(createdRow, 'id');
         if (newId !== undefined) {
-          useLibrary.getState().updateReference(r.id, { hubId: newId, syncedAt: Date.now() });
+          writeBack(r, newId);
           created += 1;
         }
       }

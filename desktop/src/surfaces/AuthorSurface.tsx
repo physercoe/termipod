@@ -35,6 +35,21 @@ function loadW(key: string, fallback: number): number {
   return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
+/// A trailing-debounced mirror of a value. The split/read Markdown preview
+/// re-parses the WHOLE document (react-markdown + rehype-highlight + KaTeX) on
+/// every editor keystroke — a main-thread stall on large docs (#311). Debouncing
+/// the preview's input coalesces a typing burst into one parse (~250ms, in step
+/// with the documents store's 400ms trailing persistence) while the editor
+/// itself keeps the live value.
+function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setV(value), ms);
+    return () => window.clearTimeout(id);
+  }, [value, ms]);
+  return v;
+}
+
 /// J2 — Author reports / slides / figures. A workspace of **multiple documents
 /// as tabs** (director request), each a split GFM+math+code Markdown editor
 /// (source ↔ live preview) over the shared `Markdown` renderer (KaTeX +
@@ -81,6 +96,8 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
     }
   }
   const words = doc.body.trim() ? doc.body.trim().split(/\s+/).length : 0;
+  // The preview renders the debounced body, not the per-keystroke one (#311).
+  const previewBody = useDebounced(doc.body, 250);
 
   // Formatting actions act on the live CodeMirror selection (mousedown-preventDefault
   // keeps that selection alive through the button click).
@@ -158,8 +175,8 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
             )}
             {mode !== 'edit' && (
               <div className="preview-pane">
-                {doc.body.trim() ? (
-                  <Markdown text={doc.body} />
+                {previewBody.trim() ? (
+                  <Markdown text={previewBody} />
                 ) : (
                   <div className="muted region-pad">{t('author.empty')}</div>
                 )}

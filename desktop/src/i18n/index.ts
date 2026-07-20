@@ -1235,6 +1235,8 @@ const en: Dict = {
   'compare.metric': 'Metric',
   'compare.noMetrics': 'No scalar metrics for the selected runs.',
 
+  'chart.downsampled': 'showing {m} of {n} points',
+
   'record.recTitle': 'Title',
   'record.titlePlaceholder': 'What was decided / found?',
   'record.context': 'Context',
@@ -2450,6 +2452,8 @@ const zh: Dict = {
   'compare.hint': '在左侧选择运行以叠加其指标。',
   'compare.metric': '指标',
   'compare.noMetrics': '所选运行没有标量指标。',
+
+  'chart.downsampled': '显示 {n} 点中的 {m} 点',
 
   'record.recTitle': '标题',
   'record.titlePlaceholder': '决定 / 发现了什么？',

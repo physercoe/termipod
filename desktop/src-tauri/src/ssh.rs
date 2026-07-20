@@ -15,7 +15,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use rand_core::{OsRng, RngCore};
 use russh::client::{self, Handle};
+use russh::keys::ssh_key;
 use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg, PublicKey};
 use russh::ChannelMsg;
 use serde::{Deserialize, Serialize};
@@ -491,19 +493,91 @@ pub async fn sftp_write(
 pub struct ParsedKey {
     algorithm: String,
     public_openssh: String,
+    fingerprint: String,
 }
 
 /// Validate + introspect a pasted private key: confirm it parses (with the
 /// passphrase if encrypted) and return its algorithm + OpenSSH public key so the
 /// key store can show it and offer the public half to copy onto servers. Uses
-/// the same `decode_secret_key` path the connect flow uses.
+/// the same `decode_secret_key` path the connect flow uses. The SHA-256
+/// fingerprint rides along so the key list can identify keys at a glance (#320).
+/// Async: decrypting an encrypted key runs bcrypt-pbkdf, a deliberately slow
+/// KDF — a sync `#[tauri::command]` runs on the main thread and would freeze
+/// the UI for tens–hundreds of ms (#320 review).
 #[tauri::command]
-pub fn ssh_parse_key(pem: String, passphrase: Option<String>) -> Result<ParsedKey, String> {
+pub async fn ssh_parse_key(pem: String, passphrase: Option<String>) -> Result<ParsedKey, String> {
     let pass = passphrase.as_deref().filter(|s| !s.is_empty());
     let key = decode_secret_key(&pem, pass).map_err(|e| format!("key parse: {e}"))?;
     Ok(ParsedKey {
         algorithm: key.algorithm().to_string(),
         public_openssh: key.public_key().to_openssh().map_err(|e| e.to_string())?,
+        fingerprint: key.fingerprint(ssh_key::HashAlg::Sha256).to_string(),
+    })
+}
+
+/// ssh-key 0.7's keygen/encrypt take rand_core 0.10 RNGs while the crate's own
+/// rand_core dep is pinned at 0.6 (vault crypto) — two incompatible trait
+/// versions. Bridge the OS RNG through ssh_key's own rand_core re-export rather
+/// than adding a second direct rand_core to the tree (#320).
+struct SshOsRng;
+
+impl ssh_key::rand_core::TryRng for SshOsRng {
+    type Error = ssh_key::rand_core::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(OsRng.next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(OsRng.next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+        OsRng.fill_bytes(dst);
+        Ok(())
+    }
+}
+
+impl ssh_key::rand_core::TryCryptoRng for SshOsRng {}
+
+/// A freshly generated keypair, handed back to the web layer so it can store
+/// the PEM in the OS keychain exactly like an imported key (#320).
+#[derive(Serialize)]
+pub struct GeneratedKey {
+    algorithm: String,
+    public_openssh: String,
+    fingerprint: String,
+    pem: String,
+}
+
+/// Generate an ed25519 keypair in-app (#320), mirroring `ssh_parse_key`'s
+/// output: the OpenSSH private PEM (passphrase-encrypted when one is given, so
+/// the connect flow's `decode_secret_key` handles it unchanged), the public
+/// key, and the SHA-256 fingerprint for the key list. Async for the same reason
+/// as `ssh_parse_key`: `encrypt` runs bcrypt-pbkdf, which must not block the
+/// main thread (#320 review).
+#[tauri::command]
+pub async fn ssh_generate_key(passphrase: Option<String>) -> Result<GeneratedKey, String> {
+    let key = ssh_key::PrivateKey::random(&mut SshOsRng, ssh_key::Algorithm::Ed25519)
+        .map_err(|e| format!("keygen: {e}"))?;
+    let public_openssh = key.public_key().to_openssh().map_err(|e| e.to_string())?;
+    let fingerprint = key.fingerprint(ssh_key::HashAlg::Sha256).to_string();
+    let pass = passphrase.as_deref().filter(|s| !s.is_empty());
+    let key = match pass {
+        Some(p) => key
+            .encrypt(&mut SshOsRng, p)
+            .map_err(|e| format!("key encrypt: {e}"))?,
+        None => key,
+    };
+    let pem = key
+        .to_openssh(ssh_key::LineEnding::LF)
+        .map_err(|e| e.to_string())?
+        .to_string();
+    Ok(GeneratedKey {
+        algorithm: key.algorithm().to_string(),
+        public_openssh,
+        fingerprint,
+        pem,
     })
 }
 

@@ -24,6 +24,18 @@ import {
 const KEY_VAULT = 'vault_key';
 const KEY_SEED = 'vault_device_seed';
 
+/// Stable error codes for the sync flows — the service layer has no t(), so it
+/// throws coded errors and the UI maps code → localized message at the catch
+/// site (#320). Keep the codes stable: they are the i18n key suffixes.
+export type VaultErrorCode = 'noKey' | 'conflict' | 'empty' | 'noRecovery';
+
+export class VaultError extends Error {
+  constructor(readonly code: VaultErrorCode) {
+    super(code);
+    this.name = 'VaultError';
+  }
+}
+
 function randomDeviceId(): string {
   const b = new Uint8Array(12);
   crypto.getRandomValues(b);
@@ -130,10 +142,10 @@ export async function createVault(client: HubClient, hint?: string): Promise<str
 }
 
 /** Seal the current local data and push it up (optimistic-locked on the known
- * version). Throws a friendly error on a 409 version conflict. */
+ * version). Throws a coded VaultError on a missing key or 409 version conflict. */
 export async function syncUp(client: HubClient): Promise<number> {
   const vaultKey = await secretGet(KEY_VAULT);
-  if (vaultKey === null) throw new Error('This device has no vault key — restore or create a vault first.');
+  if (vaultKey === null) throw new VaultError('noKey');
   const bundle = JSON.stringify(await assembleBundle());
   const ciphertext = await vaultSeal(vaultKey, bundle);
   const state = loadVaultState();
@@ -144,7 +156,7 @@ export async function syncUp(client: HubClient): Promise<number> {
     return version;
   } catch (e) {
     if (e instanceof HubApiError && e.status === 409) {
-      throw new Error('Vault changed on another device — sync down first, then push again.');
+      throw new VaultError('conflict');
     }
     throw e;
   }
@@ -153,10 +165,10 @@ export async function syncUp(client: HubClient): Promise<number> {
 /** Pull the hub vault and merge it locally using the locally-held vault key. */
 export async function syncDown(client: HubClient): Promise<number> {
   const vaultKey = await secretGet(KEY_VAULT);
-  if (vaultKey === null) throw new Error('This device has no vault key — restore via a recovery code first.');
+  if (vaultKey === null) throw new VaultError('noKey');
   const v = await client.getVault();
   const ciphertext = str(v, 'ciphertext');
-  if (ciphertext === undefined) throw new Error('Vault is empty.');
+  if (ciphertext === undefined) throw new VaultError('empty');
   const bundle = await vaultOpen(vaultKey, ciphertext);
   await importBundle(parseBundle(bundle));
   const version = num(v, 'version') ?? 0;
@@ -171,10 +183,10 @@ export async function syncDown(client: HubClient): Promise<number> {
 export async function restoreWithRecovery(client: HubClient, code: string): Promise<void> {
   const v = await client.getVault();
   const ciphertext = str(v, 'ciphertext');
-  if (ciphertext === undefined) throw new Error('Vault is empty.');
+  if (ciphertext === undefined) throw new VaultError('empty');
   const rec = await client.getVaultRecovery();
   const envelope = str(rec, 'recovery_envelope');
-  if (envelope === undefined) throw new Error('No recovery envelope is set for this vault.');
+  if (envelope === undefined) throw new VaultError('noRecovery');
 
   const vaultKey = await vaultUnwrapRecovery(code, envelope);
   const bundle = await vaultOpen(vaultKey, ciphertext);

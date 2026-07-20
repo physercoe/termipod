@@ -13,11 +13,12 @@ export interface VoiceCallbacks {
   onError: (message: string) => void;
 }
 
-/// Localized copy for the two device-side error paths (no key / mic denied), so
-/// the messages aren't hardcoded English (#323). Optional — falls back to English.
+/// Localized copy for the two device-side error paths (no key / mic denied).
+/// Required (#320): the session layer has no t(), so the messages must come
+/// from the i18n map at the construction site — never a hardcoded fallback.
 export interface VoiceStrings {
-  noApiKey?: string;
-  micDenied?: string;
+  noApiKey: string;
+  micDenied: string;
 }
 
 export class VoiceSession {
@@ -30,7 +31,7 @@ export class VoiceSession {
 
   constructor(
     private readonly cb: VoiceCallbacks,
-    private readonly strings: VoiceStrings = {},
+    private readonly strings: VoiceStrings,
   ) {}
 
   private best(): string {
@@ -40,7 +41,7 @@ export class VoiceSession {
   async start(): Promise<void> {
     const apiKey = await getVoiceApiKey();
     if (apiKey === null || apiKey === '') {
-      this.cb.onError(this.strings.noApiKey ?? 'No DashScope API key set (Settings → Voice).');
+      this.cb.onError(this.strings.noApiKey);
       return;
     }
     try {
@@ -81,7 +82,7 @@ export class VoiceSession {
         }
       });
     } catch {
-      this.cb.onError(this.strings.micDenied ?? 'Microphone permission denied.');
+      this.cb.onError(this.strings.micDenied);
       void this.dispose();
     }
   }

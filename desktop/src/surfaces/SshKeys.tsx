@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
-import { deleteKey, importKey, listKeys, type SshKeyMeta } from '../state/keys';
+import { deleteKey, generateKey, importKey, listKeys, type SshKeyMeta } from '../state/keys';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { PasswordInput } from '../ui/PasswordInput';
 
@@ -60,6 +60,24 @@ export function SshKeysSettings(): JSX.Element {
     }
   }
 
+  // In-app ed25519 keygen (#320): reuses the name + passphrase fields — the PEM
+  // is generated in Rust and lands in the keychain exactly like an import.
+  async function doGenerate(): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    try {
+      await generateKey({ name: name.trim() || 'key', passphrase });
+      setName('');
+      setPem('');
+      setPassphrase('');
+      setKeys(listKeys());
+    } catch (ex) {
+      setErr(msg(ex));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="setting-group">
       <h3>{t('term.keys')}</h3>
@@ -95,6 +113,9 @@ export function SshKeysSettings(): JSX.Element {
           <button className="primary" disabled={busy || pem.trim() === ''} onClick={() => void doImport()}>
             {t('term.importKey')}
           </button>
+          <button disabled={busy} title={t('term.generateKeyHint')} onClick={() => void doGenerate()}>
+            {t('term.generateKey')}
+          </button>
         </div>
         {err !== null && <div className="error">{err}</div>}
       </div>
@@ -106,6 +127,11 @@ export function SshKeysSettings(): JSX.Element {
             <span className="key-name">{k.name}</span>
             <span className="muted small">{k.type}</span>
             {k.source === 'imported' && <span className="muted small">· {t('term.keyImported')}</span>}
+            {k.fingerprint !== null && (
+              <span className="muted small mono key-fp" title={k.fingerprint}>
+                {k.fingerprint}
+              </span>
+            )}
             <span className="spacer" />
             <ConfirmButton
               label={t('term.delete')}

@@ -35,6 +35,28 @@ export async function isWindows(): Promise<boolean> {
   return (await platformOs()) === 'windows';
 }
 
+/// The Windows OS build number (e.g. 22631) from the Rust `os_build_number`
+/// command, or `null` off Windows / on any failure. The terminal passes it to
+/// xterm's `windowsPty` so xterm applies the ConPTY reflow behaviour correct for
+/// this build (native wrap sequences landed in build 21376). Cached; -1 sentinel
+/// distinguishes "not yet fetched" from a legitimate `null`.
+let buildCache: number | null | -1 = -1;
+export async function windowsBuildNumber(): Promise<number | null> {
+  if (buildCache !== -1) return buildCache;
+  if (!isTauri()) {
+    buildCache = null;
+    return buildCache;
+  }
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const n = await invoke<number | null>('os_build_number');
+    buildCache = typeof n === 'number' && Number.isFinite(n) ? n : null;
+  } catch {
+    buildCache = null;
+  }
+  return buildCache;
+}
+
 /// Open an external URL in the OS default browser — never in the app webview.
 /// Under Tauri a raw navigation replaces the single-webview SPA and strands the
 /// user (director report: a link inside a PDF "jumped the whole app" with no way

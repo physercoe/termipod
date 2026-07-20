@@ -97,6 +97,11 @@ pub struct SshConnectReq {
     passphrase: Option<String>,
     cols: u32,
     rows: u32,
+    /// Frontend-minted attempt id, echoed back on `ssh-connect-progress` phase
+    /// ticks so the connect form can match ticks to its in-flight attempt
+    /// (#319) — the same pattern as the SFTP `transfer_id`. Absent = no ticks.
+    #[serde(default)]
+    connect_id: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -111,6 +116,23 @@ struct ExitPayload {
     /// The remote command's exit status, if the server sent one before closing —
     /// lets the UI distinguish a clean logout from a dropped/failed session.
     code: Option<u32>,
+}
+
+/// A connect-phase tick, emitted on `ssh-connect-progress` as `ssh_connect`
+/// walks its handshake so the form can show which stage a slow connect is in
+/// (#319). `phase`: "tcp" (connect + key exchange), "auth", or "channel".
+#[derive(Serialize, Clone)]
+struct ConnectProgress {
+    connect_id: String,
+    phase: &'static str,
+}
+
+/// Best-effort phase tick for the connect form; a no-op when the caller didn't
+/// mint a `connect_id` (older callers simply get no ticks).
+fn emit_phase(app: &AppHandle, req: &SshConnectReq, phase: &'static str) {
+    if let Some(cid) = req.connect_id.as_ref() {
+        let _ = app.emit("ssh-connect-progress", ConnectProgress { connect_id: cid.clone(), phase });
+    }
 }
 
 /// Removes a session-map entry when dropped, so the entry can't leak if the actor
@@ -143,9 +165,11 @@ pub async fn ssh_connect(
 ) -> Result<String, String> {
     let config = Arc::new(client::Config::default());
     let handler = Client { host: req.host.clone(), port: req.port };
+    emit_phase(&app, &req, "tcp");
     let mut session: Handle<Client> = client::connect(config, (req.host.as_str(), req.port), handler)
         .await
         .map_err(|e| format!("connect: {e}"))?;
+    emit_phase(&app, &req, "auth");
 
     // Auth: a private key wins over a password when both are supplied.
     let authed = if let Some(pem) = req.private_key.as_ref().filter(|s| !s.trim().is_empty()) {
@@ -173,6 +197,7 @@ pub async fn ssh_connect(
     if !authed {
         return Err("authentication failed".into());
     }
+    emit_phase(&app, &req, "channel");
 
     // Share the session Handle so exec/SFTP channels can be opened later; the
     // actor keeps one clone alive for the interactive shell's lifetime.
@@ -191,6 +216,52 @@ pub async fn ssh_connect(
         .await
         .map_err(|e| format!("request shell: {e}"))?;
 
+    Ok(spawn_shell_session(&app, &state, channel, handle).await)
+}
+
+/// Open a second interactive shell on an existing session's connection — the
+/// split-duplicate path (#319). One TCP connect + auth handshake serves many
+/// shell channels, so duplicating never re-prompts for credentials.
+#[tauri::command]
+pub async fn ssh_duplicate(
+    app: AppHandle,
+    state: State<'_, SshState>,
+    id: String,
+    cols: u32,
+    rows: u32,
+) -> Result<String, String> {
+    let handle = {
+        let map = state.sessions.lock().await;
+        map.get(&id).map(|s| s.handle.clone())
+    }
+    .ok_or_else(|| "no such session".to_string())?;
+
+    let mut channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|e| format!("open channel: {e}"))?;
+    channel
+        .request_pty(false, "xterm-256color", cols, rows, 0, 0, &[])
+        .await
+        .map_err(|e| format!("request pty: {e}"))?;
+    channel
+        .request_shell(true)
+        .await
+        .map_err(|e| format!("request shell: {e}"))?;
+
+    Ok(spawn_shell_session(&app, &state, channel, handle).await)
+}
+
+/// Register a freshly-opened interactive shell channel as a new session and
+/// spawn the actor bridging it to the webview (`ssh-data` / `ssh-exit`).
+/// Shared by `ssh_connect` (a brand-new connection) and `ssh_duplicate` (a
+/// second shell channel on an existing connection, #319).
+async fn spawn_shell_session(
+    app: &AppHandle,
+    state: &State<'_, SshState>,
+    mut channel: russh::Channel<client::Msg>,
+    handle: Arc<Handle<Client>>,
+) -> String {
     let id = format!("s{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let (tx, mut rx) = mpsc::channel::<SshCmd>(64);
     state
@@ -201,6 +272,7 @@ pub async fn ssh_connect(
 
     let sessions = state.sessions.clone();
     let task_id = id.clone();
+    let app = app.clone();
     tauri::async_runtime::spawn(async move {
         // A Handle clone is moved in and kept alive for the channel's life.
         let _keepalive = handle;
@@ -234,7 +306,7 @@ pub async fn ssh_connect(
         let _ = app.emit("ssh-exit", ExitPayload { id: task_id, code: exit_code });
     });
 
-    Ok(id)
+    id
 }
 
 async fn send(state: &State<'_, SshState>, id: &str, cmd: SshCmd) -> Result<(), String> {

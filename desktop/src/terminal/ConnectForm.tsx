@@ -1,6 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import { useT } from '../i18n';
-import { sshConnect, type SshConnectReq } from '../ssh/tauri';
+import {
+  onSshConnectPhase,
+  sshClose,
+  sshConnect,
+  type SshConnectPhase,
+  type SshConnectReq,
+} from '../ssh/tauri';
 import {
   DEFAULT_GROUP,
   deleteConnection,
@@ -20,6 +27,24 @@ function msg(err: unknown): string {
 }
 
 type Auth = 'password' | 'key';
+
+/// Button labels for the handshake stages the core reports on
+/// `ssh-connect-progress` (ssh.rs) — the connect button follows them while an
+/// attempt is in flight so a slow handshake never looks frozen (#319).
+const PHASE_KEY: Record<SshConnectPhase, string> = {
+  tcp: 'term.phaseTcp',
+  auth: 'term.phaseAuth',
+  channel: 'term.phaseChannel',
+};
+
+/// Ceiling on one connect attempt (#319): a firewall that silently drops the
+/// SYN (or a stuck auth handshake) would otherwise leave the form busy
+/// forever. Past this the attempt is abandoned; if the core connects anyway,
+/// its orphaned session is closed (see connect()).
+const CONNECT_TIMEOUT_MS = 20_000;
+
+/// Attempt ids for `ssh-connect-progress` subscription, minted per click.
+let connectSeq = 0;
 
 /// The SSH connect surface (saved connections + key store over a connect form).
 /// Extracted from the old breakglass modal so the terminal dock can present it as
@@ -48,6 +73,10 @@ export function ConnectForm({
   const [privateKey, setPrivateKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<SshConnectPhase | null>(null);
+  // The in-flight attempt, flagged by Cancel/timeout — the invoke itself can't
+  // be cancelled, so a flagged attempt's late resolution is torn down instead.
+  const attemptRef = useRef<{ cancelled: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [keys, setKeys] = useState<SshKeyMeta[]>([]);
 
@@ -127,8 +156,32 @@ export function ConnectForm({
   async function connect(): Promise<void> {
     setBusy(true);
     setError(null);
+    setPhase(null);
+    const attempt = { cancelled: false };
+    attemptRef.current = attempt;
+    const timer = setTimeout(() => {
+      if (attempt.cancelled) return;
+      attempt.cancelled = true;
+      attemptRef.current = null;
+      setBusy(false);
+      setPhase(null);
+      setError(t('term.connectTimeout'));
+    }, CONNECT_TIMEOUT_MS);
+    // Minted per attempt and echoed on the core's phase ticks, so a stale
+    // attempt's ticks never update this attempt's display.
+    const attemptId = `c${++connectSeq}`;
+    let unlisten: UnlistenFn | null = null;
     try {
-      const base = { host: host.trim(), port: Number(port) || 22, user: user.trim(), cols: 80, rows: 24 };
+      // Attached before the invoke so no phase tick is missed.
+      unlisten = await onSshConnectPhase(attemptId, setPhase);
+      const base = {
+        host: host.trim(),
+        port: Number(port) || 22,
+        user: user.trim(),
+        cols: 80,
+        rows: 24,
+        connect_id: attemptId,
+      };
       let req: SshConnectReq;
       if (auth === 'password') {
         req = { ...base, password };
@@ -140,13 +193,39 @@ export function ConnectForm({
         req = { ...base, private_key: privateKey, passphrase };
       }
       const sid = await sshConnect(req);
+      if (attempt.cancelled) {
+        // Abandoned (Cancel/timeout) but the core connected anyway — close the
+        // orphaned session rather than leak a remote shell nobody renders.
+        void sshClose(sid);
+        return;
+      }
       if (id !== null) touchConnection(id);
       onConnected(sid, `${user.trim()}@${host.trim()}`, id ?? undefined);
     } catch (e) {
-      setError(msg(e));
+      if (!attempt.cancelled) setError(msg(e));
     } finally {
-      setBusy(false);
+      clearTimeout(timer);
+      unlisten?.();
+      // A newer attempt may already be running (this one timed out and the user
+      // retried) — only reset the UI when this attempt is still the current one.
+      if (attemptRef.current === attempt) {
+        attemptRef.current = null;
+        setBusy(false);
+        setPhase(null);
+      }
     }
+  }
+
+  /// Abandon the in-flight attempt (#319). The core-side handshake can't be
+  /// cancelled mid-await, so this flags it: connect() tears down a late
+  /// success instead of opening a tab for it.
+  function cancelConnect(): void {
+    const attempt = attemptRef.current;
+    if (attempt === null) return;
+    attempt.cancelled = true;
+    attemptRef.current = null;
+    setBusy(false);
+    setPhase(null);
   }
 
   const canConnect =
@@ -249,10 +328,14 @@ export function ConnectForm({
             {id !== null ? t('term.update') : t('term.save')}
           </button>
           {id !== null && <ConfirmButton label={t('term.delete')} danger onConfirm={() => void removeCurrent()} />}
-          {onCancel !== undefined && <button onClick={onCancel}>{t('common.cancel')}</button>}
+          {/* One Cancel button at all times: idle it closes the form; while
+              connecting it abandons the attempt (the form stays open for a
+              retry) — the connect button shows the handshake phase (#319). */}
+          {onCancel !== undefined && !busy && <button onClick={onCancel}>{t('common.cancel')}</button>}
+          {busy && <button onClick={cancelConnect}>{t('common.cancel')}</button>}
           <span className="spacer" />
           <button className="primary" disabled={!canConnect || busy} onClick={() => void connect()}>
-            {busy ? t('term.connecting') : t('term.connect')}
+            {busy ? (phase !== null ? t(PHASE_KEY[phase]) : t('term.connecting')) : t('term.connect')}
           </button>
         </div>
         <div className="term-note wide">{t('term.personalNote')}</div>

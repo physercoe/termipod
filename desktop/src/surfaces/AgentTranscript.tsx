@@ -313,7 +313,17 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     // An explicit jump means "hold here" — release the bottom pin so a late
     // height change doesn't yank the view back down off the target.
     stickBottomRef.current = false;
-    virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+    /// behavior 'auto', not 'smooth': rows off-screen are unmeasured, so
+    /// Virtuoso computes the target offset from *estimated* heights (running
+    /// average of measured rows). Transcript cards vary wildly in height, so
+    /// a smooth fling toward a distant index overshoots and the browser clamps
+    /// it at the bottom — different targets then land on the same position.
+    /// Worse, Virtuoso's smooth retry chain is hard-cut by a 1200ms cleanup
+    /// timer, leaving the list wherever the last fling stopped. 'auto'
+    /// re-asserts scrollToIndex on each list change until sizes stabilize,
+    /// converging on the true offset; the 1.4s flash below gives the user the
+    /// orientation the smooth animation was providing.
+    virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'auto' });
     setFlashSeq(seq);
     window.setTimeout(() => setFlashSeq((s) => (s === seq ? null : s)), 1400);
   }
@@ -531,6 +541,10 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
             computeItemKey={(_i, ev) => ev.id}
             itemContent={(_i, ev) => feedItem(ev)}
             components={{ EmptyPlaceholder: () => <div className="region-pad muted">{t('tx.noEvents')}</div> }}
+            /// Parity with the live list: a sane height estimate keeps
+            /// estimate-based scrollToIndex offsets from skewing toward the
+            /// first-measured rows, so jump retries converge faster.
+            defaultItemHeight={120}
           />
         </div>
       )}

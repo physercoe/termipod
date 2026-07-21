@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-14)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.821
+> **Last verified vs code:** v1.0.822
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,24 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.822-alpha — 2026-07-21
+
+**Terminal reconnect UX fixes.** The SSH/tmux breakglass terminal no longer
+traps the user behind an undismissable error banner.
+
+### Fixed
+- **Stuck connection-error overlay.** The full-screen error overlay could
+  linger over a live session after an auto-reconnect (or the overlay's own
+  "Retry Now"), blocking the on-screen keyboard with no way to dismiss it. The
+  screen-local error flag was reset only on the initial connect path, not on
+  the reconnect-success path both recoveries funnel through; it now clears once
+  the transport is back and the tmux/PTY backend is rebound.
+
+### Changed
+- **Connection-error SnackBar is swipe-dismissible.** It can be swiped away
+  horizontally rather than only waited out, and repeated connection failures
+  replace the current banner instead of stacking behind it.
 
 ## v1.0.821-alpha — 2026-07-05
 

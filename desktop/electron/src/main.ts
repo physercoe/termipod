@@ -23,9 +23,14 @@ import { disposeAllPtys } from './ipc/pty';
 import { disposeAllSsh } from './ipc/ssh';
 import { initEvents } from './events';
 
-// The frontend build. In dev (`electron .` from desktop/electron) this resolves
-// to desktop/dist; packaging (M3) will point it at the asar-embedded copy.
-const DIST = process.env.TERMIPOD_DIST ?? path.join(__dirname, '..', '..', 'dist');
+// The frontend build. In dev (`electron .` from desktop/electron) it resolves to
+// desktop/dist; in a packaged app electron-builder ships it as an `extraResource`
+// under `process.resourcesPath/dist` — a real on-disk dir, NOT inside the asar,
+// because the app:// handler serves it via `net.fetch(file://)` and Chromium's
+// file:// stack does not understand asar virtual paths (M3.1).
+const DIST =
+  process.env.TERMIPOD_DIST ??
+  (app.isPackaged ? path.join(process.resourcesPath, 'dist') : path.join(__dirname, '..', '..', 'dist'));
 // The app icon (copy of src-tauri/icons/icon.png — keep in sync). Under
 // `electron .` the dock/taskbar shows the Electron binary's default icon, not
 // ours: the BrowserWindow `icon` covers Windows/Linux, and on macOS the dock
@@ -98,6 +103,18 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
+    // Packaged: point the lazy vault WASM loader at the `extraResource` copy of
+    // `vault-wasm/pkg` (built by the vault-wasm CI job, shipped unpacked beside
+    // dist). `??=` respects an explicit operator override. Set before any
+    // `vault_*` invoke can fire (invokes only arrive after the renderer loads).
+    if (app.isPackaged) {
+      process.env.TERMIPOD_VAULT_WASM ??= path.join(
+        process.resourcesPath,
+        'vault-wasm',
+        'pkg',
+        'vault_wasm.js',
+      );
+    }
     initEvents();
     registerAppScheme(session.defaultSession, DIST);
     registerDrawioScheme(session.defaultSession);

@@ -155,15 +155,34 @@ npm start          # esbuild → out/, then `electron .`
       Remaining for M3: build the WASM in packaging + copy `pkg/` into the app
       resources (or set `TERMIPOD_VAULT_WASM`); device-test seal/open/wrap.
 
-**M2 COMPLETE.** M3 = electron-builder packaging (asarUnpack + ABI-rebuild the
-native addons; bundle the vault WASM), electron-updater, cutover.
+**M2 COMPLETE.**
 
-> **Native addons need an Electron-ABI rebuild for the dev shell.**
+## Status — M3 slices (packaging, updater, cutover)
+
+- [x] **M3.1** electron-builder packaging (`electron-builder.yml` +
+      `desktop-electron-release.yml`). `npx electron-builder --<os>` produces
+      dmg+zip / nsis / AppImage+deb. The native addons (`node-pty`,
+      `@napi-rs/keyring`) are ABI-rebuilt for Electron by the default
+      `npmRebuild` and **asarUnpacked** (a `.node` can't load from inside the
+      asar). The frontend `dist` and the vault-crypto `vault-wasm/pkg` ship as
+      **extraResources** (unpacked on disk under `Resources/`), because the
+      `app://` handler serves `dist` via `net.fetch(file://)` — Chromium's
+      `file://` stack can't read asar virtual paths — and the vault loader
+      `import()`s the wasm module by path. Packaged builds resolve both from
+      `process.resourcesPath` (`main.ts` `DIST` + `TERMIPOD_VAULT_WASM`,
+      `app.isPackaged`-gated). The vault WASM is built once (nodejs target, same
+      bytes on every OS) by the workflow's `wasm` job and shared to the three
+      `bundle` jobs as an artifact. Signing/notarization consume repo secrets
+      when present; absent, the build is unsigned (enough to gate the pipeline).
+- [ ] **M3.2** electron-updater — client wiring + the release feed (latest*.yml).
+- [ ] **M3.3** first-boot migration cutover — state-v1.json import + keychain
+      reader + draw.io re-fetch, verified against a packaged build.
+- [ ] **M3.4** signing/notarization certs (maintainer-supplied secrets) + the
+      handoff release; retire the Tauri lane after one overlap.
+
+> **Native addons need an Electron-ABI rebuild for the *dev* shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds
 > against the Node ABI on `npm install` and must be rebuilt for Electron before
 > `electron .` will load it: `npx @electron/rebuild -f -w node-pty` (or install
-> with `npm_config_runtime=electron npm_config_target=<electron ver>`). M3
-> packaging does this automatically and asarUnpacks both addons.
-
-M3 = electron-builder packaging (asarUnpack + ABI-rebuild the native addons),
-updater, cutover.
+> with `npm_config_runtime=electron npm_config_target=<electron ver>`).
+> Packaging (M3.1) does this automatically and asarUnpacks both addons.

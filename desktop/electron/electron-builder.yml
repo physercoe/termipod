@@ -1,0 +1,82 @@
+# electron-builder config (ADR-055 M3.1) — packages the Electron shell into
+# installers for the three desktop OSes. There is no local Electron/native
+# toolchain here, so CI (.github/workflows/desktop-electron-release.yml) is the
+# packaging gate, mirroring how desktop-release.yml gates the Tauri bundles.
+#
+# Inputs assembled by the workflow before this runs:
+#   - out/*.cjs         the esbuild'd main + preload (npm run build)
+#   - ../dist           the Vite frontend (npm run build in desktop/)
+#   - ../vault-wasm/pkg the wasm-pack crypto (vault-wasm CI job / wasm artifact)
+# Native addons (node-pty, @napi-rs/keyring) are ABI-rebuilt for Electron by
+# electron-builder's default npmRebuild and asarUnpacked so their .node loads.
+
+appId: app.termipod.desktop # matches the Tauri identifier — keychain service + migration source
+productName: TermiPod
+copyright: © TermiPod contributors
+
+directories:
+  output: release
+  buildResources: build
+
+# Default `**/*` (so production node_modules ship — the esbuild externals
+# node-pty/ssh2/ws/sshpk/jszip/@napi-rs/keyring/extract-zip require() from there
+# at runtime), minus the source/tooling the packaged app never loads.
+files:
+  - '**/*'
+  - '!src/**/*'
+  - '!*.md'
+  - '!tsconfig.json'
+  - '!esbuild.mjs'
+  - '!electron-builder.yml'
+
+# Native .node addons can't be loaded from inside the asar — unpack them.
+# @napi-rs/keyring is N-API (ABI-stable, prebuilt); node-pty is rebuilt for the
+# Electron ABI by npmRebuild before this packs.
+asarUnpack:
+  - node_modules/node-pty/**
+  - node_modules/@napi-rs/keyring/**
+
+# The frontend and the vault WASM live OUTSIDE the asar on disk: the app://
+# handler serves dist via net.fetch(file://) (Chromium's file:// stack can't read
+# asar paths), and the vault loader import()s the wasm-pack CJS module by path.
+extraResources:
+  - from: ../dist
+    to: dist
+  - from: ../vault-wasm/pkg
+    to: vault-wasm/pkg
+
+# electron-updater manifests (M3.2 wires the client); provider is GitHub Releases
+# on physercoe/termipod, same repo the Tauri updater reads.
+publish:
+  provider: github
+  owner: physercoe
+  repo: termipod
+
+mac:
+  category: public.app-category.developer-tools
+  icon: ../src-tauri/icons/icon.icns
+  target:
+    - dmg
+    - zip # electron-updater's mac feed needs the zip alongside the dmg
+  # Signing + notarization are supplied by CI env (CSC_LINK / CSC_KEY_PASSWORD /
+  # APPLE_* ) when the secrets are present; unsigned builds still produce a dmg.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+win:
+  icon: ../src-tauri/icons/icon.ico
+  target:
+    - nsis
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  icon: ../src-tauri/icons/icon.png
+  category: Development
+  maintainer: TermiPod contributors <noreply@users.noreply.github.com>
+  target:
+    - AppImage
+    - deb

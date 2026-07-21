@@ -30,13 +30,21 @@ interface VaultWasm {
   vault_generate_recovery_code(): string;
 }
 
-const WASM_PATH =
-  process.env.TERMIPOD_VAULT_WASM ?? path.join(__dirname, '..', '..', 'vault-wasm', 'pkg', 'vault_wasm.js');
+// Resolved lazily (not a module const) so a packaged build's
+// `TERMIPOD_VAULT_WASM`, which main.ts sets in `whenReady`, is honoured — a const
+// would capture the env before that runs. Dev falls back to the sibling crate's
+// wasm-pack output.
+function wasmPath(): string {
+  return (
+    process.env.TERMIPOD_VAULT_WASM ??
+    path.join(__dirname, '..', '..', 'vault-wasm', 'pkg', 'vault_wasm.js')
+  );
+}
 
 let wasmP: Promise<VaultWasm> | null = null;
 function loadVault(): Promise<VaultWasm> {
   // Computed-path dynamic import: opaque to esbuild, resolved at runtime.
-  if (wasmP === null) wasmP = import(WASM_PATH).then((m) => (m.default ?? m) as VaultWasm);
+  if (wasmP === null) wasmP = import(wasmPath()).then((m) => (m.default ?? m) as VaultWasm);
   return wasmP;
 }
 

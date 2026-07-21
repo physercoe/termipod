@@ -1,0 +1,118 @@
+name: Desktop Electron Release
+
+# ADR-055 M3.1 packaging gate. Builds the Electron shell into installers for the
+# three desktop OSes. There is no local Electron/native toolchain, so — like
+# desktop-release.yml does for Tauri — CI is the packaging gate. Run manually
+# (Actions ▸ Desktop Electron Release ▸ Run workflow) or by pushing an
+# `electron-v*` tag. Installers upload as run artifacts; a tag also publishes a
+# GitHub release (the electron-updater feed — M3.2).
+#
+# Signing/notarization are supplied by repo secrets when present (CSC_LINK /
+# CSC_KEY_PASSWORD for Windows+mac certs, APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD
+# / APPLE_TEAM_ID for notarization). Absent, the build still produces unsigned
+# installers — enough to gate the pipeline; signed builds are the cutover
+# prerequisite (plan §5, "start signing at M1").
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'electron-v*'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # The vault crypto WASM is a nodejs-target artifact — identical bytes on every
+  # OS — so build it once here and share it, rather than installing Rust +
+  # wasm-pack on all three packaging runners.
+  wasm:
+    name: Build vault WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build vault-wasm (nodejs target)
+        working-directory: desktop/vault-wasm
+        run: wasm-pack build --target nodejs --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vault-wasm-pkg
+          path: desktop/vault-wasm/pkg/
+          if-no-files-found: error
+
+  bundle:
+    name: Bundle (${{ matrix.label }})
+    needs: wasm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            label: linux
+            builder-flag: --linux
+          - platform: macos-latest
+            label: macos
+            builder-flag: --mac
+          - platform: windows-latest
+            label: windows
+            builder-flag: --win
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The vault WASM pkg, built once by the wasm job → the extraResource the
+      # electron-builder config ships under Resources/vault-wasm/pkg.
+      - uses: actions/download-artifact@v4
+        with:
+          name: vault-wasm-pkg
+          path: desktop/vault-wasm/pkg
+
+      # Frontend build (the app:// payload — extraResource under Resources/dist).
+      - name: Build frontend
+        working-directory: desktop
+        run: npm ci && npm run build
+
+      # Electron shell: install (WITH the electron binary — packaging needs it),
+      # esbuild main+preload, then package. electron-builder ABI-rebuilds the
+      # native addons (node-pty, @napi-rs/keyring) for the Electron runtime.
+      - name: Install Electron shell deps
+        working-directory: desktop/electron
+        run: npm ci
+
+      - name: Build shell bundle (esbuild)
+        working-directory: desktop/electron
+        run: npm run build
+
+      - name: Package (electron-builder, unsigned unless secrets present)
+        working-directory: desktop/electron
+        run: npx electron-builder ${{ matrix.builder-flag }} --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Present only when the maintainer has configured signing:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload installers as run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: termipod-electron-${{ matrix.label }}
+          if-no-files-found: warn
+          path: |
+            desktop/electron/release/*.AppImage
+            desktop/electron/release/*.deb
+            desktop/electron/release/*.dmg
+            desktop/electron/release/*.zip
+            desktop/electron/release/*.exe
+            desktop/electron/release/latest*.yml

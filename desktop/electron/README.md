@@ -44,6 +44,9 @@ npm start          # esbuild → out/, then `electron .`
 - [x] **M1.2** hub reachability — `session.webRequest` CORS bridging so the
       `app://` renderer's direct hub `fetch`/SSE works (bearer stays renderer-set
       for now; moving it into `onBeforeSendHeaders` is a plan §7 row-2 follow-up).
-- [ ] M1.3 keychain (spike: `@napi-rs/keyring` vs `safeStorage`).
-- [ ] M1.4 files / dialogs / docs / workspace / localfs / storage / attachments.
+- [x] **M1.4** files + dialogs — docfile / localfs / workspace(+fs) / storage +
+      attachments (26 commands), ported 1:1 from the Rust modules with matching
+      arg keys (camelCase) and return-field casing (`is_dir`, `folderName`,
+      `contentType`).
+- [ ] M1.3 keychain (spike: `@napi-rs/keyring` vs `safeStorage`) — device-gated.
 - [ ] M1.5 `drawio://` privileged protocol.

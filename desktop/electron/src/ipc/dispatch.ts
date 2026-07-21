@@ -14,6 +14,10 @@
 import type { BrowserWindow, WebContents } from 'electron';
 import { platformHandlers } from './platform';
 import { migrationHandlers } from './migration';
+import { docfileHandlers } from './docfile';
+import { localfsHandlers } from './localfs';
+import { workspaceHandlers } from './workspace';
+import { storageHandlers } from './storage';
 
 export interface Ctx {
   win: BrowserWindow | null;
@@ -25,6 +29,10 @@ export type Handler = (args: Record<string, unknown>, ctx: Ctx) => Promise<unkno
 const handlers: Record<string, Handler> = {
   ...platformHandlers,
   ...migrationHandlers,
+  ...docfileHandlers,
+  ...localfsHandlers,
+  ...workspaceHandlers,
+  ...storageHandlers,
 };
 
 export function isAllowed(cmd: string): boolean {

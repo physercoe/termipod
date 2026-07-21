@@ -80,13 +80,22 @@ export async function importStateIfFresh(): Promise<void> {
   }
 }
 
-/// Arm the ongoing export: one snapshot shortly after boot, then a debounced
+/// Arm the ongoing export: one snapshot shortly after boot, then an immediate
 /// flush whenever the app is backgrounded or closed (captures the freshest
 /// state for the next boot / the Electron cutover). Call once, after render.
+/// The flush must be direct, not debounced — a `setTimeout` scheduled during
+/// `pagehide` never fires in a closing webview, so a timer-based flush would
+/// silently drop the final snapshot on quit.
 export function armExport(): void {
   if (!isShell()) return;
   scheduleExport(1000);
-  const flush = (): void => scheduleExport(0);
+  const flush = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    void exportState();
+  };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flush();
   });

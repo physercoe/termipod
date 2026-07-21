@@ -38,25 +38,39 @@ function fmtElapsed(ms: number): string {
 // couldn't do on WebKit.
 const LOAD_TAIL = 500;
 
-/// Union two event batches by `seq` (unique + monotonic per agent), sorted
-/// ascending. Idempotent, so a streamed event that also appears in the history
-/// backfill (overlap around the cursor) collapses to one, and the background
-/// history merges under the already-streamed tail without duplicates.
+/// A stable, cross-agent-unique key for one event. The globally-unique row `id`
+/// is the true identity — `seq` is only per-agent, so it COLLIDES across the
+/// agents a resumed session spans (ADR-042). Dedup MUST key on `id`, or a
+/// session-scoped merge would silently drop one agent's event whenever another
+/// agent reused the same seq.
+function eventKey(e: Entity): string {
+  return str(e, 'id') ?? `seq:${num(e, 'seq') ?? 0}`;
+}
+
+/// Session-dense order key. In a session-scoped feed the hub stamps every row
+/// with `session_ordinal` — a gap-free, session-unique coordinate that orders
+/// correctly across a resume where `seq` collides. Per-agent feeds have no
+/// ordinal (0), so we fall back to `seq`; `ts` is the final tiebreak.
+function orderRank(e: Entity): [number, number, number] {
+  const ord = num(e, 'session_ordinal') ?? 0;
+  const seq = num(e, 'seq') ?? 0;
+  const ts = e['ts'] !== undefined ? Date.parse(String(e['ts'])) : 0;
+  return [ord, seq, Number.isNaN(ts) ? 0 : ts];
+}
+
+/// Union two event batches, deduped on the stable `id` and sorted by the
+/// session-dense order key. Idempotent, so a streamed event that also appears in
+/// the history backfill (overlap around the cursor) collapses to one, and the
+/// background history merges under the already-streamed tail without duplicates.
 function mergeEvents(a: Entity[], b: Entity[]): Entity[] {
-  const bySeq = new Map<number, Entity>();
-  const noSeq: Entity[] = [];
-  for (const e of a) {
-    const s = num(e, 'seq');
-    if (s === undefined) noSeq.push(e);
-    else bySeq.set(s, e);
-  }
-  for (const e of b) {
-    const s = num(e, 'seq');
-    if (s === undefined) noSeq.push(e);
-    else bySeq.set(s, e);
-  }
-  const merged = [...bySeq.values()].sort((x, y) => (num(x, 'seq') ?? 0) - (num(y, 'seq') ?? 0));
-  return noSeq.length > 0 ? [...merged, ...noSeq] : merged;
+  const byId = new Map<string, Entity>();
+  for (const e of a) byId.set(eventKey(e), e);
+  for (const e of b) byId.set(eventKey(e), e);
+  return [...byId.values()].sort((x, y) => {
+    const rx = orderRank(x);
+    const ry = orderRank(y);
+    return rx[0] - ry[0] || rx[1] - ry[1] || rx[2] - ry[2];
+  });
 }
 
 /// Build the tool-pairing maps over the flat event feed: a tool_call folds its
@@ -100,11 +114,22 @@ type Mode = 'live' | 'insight' | 'digest';
 /// - **Insight** — a Turns/Errors navigator that jumps the full feed to a
 ///   turn's `start_seq` or an error's `seq` (mobile InsightTranscript, ADR-041).
 /// - **Digest** — the `RunReport` dashboard (`GET /digest`, ADR-038).
-export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
+export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessionId?: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const qc = useQueryClient();
   const [events, setEvents] = useState<Entity[]>([]);
+  // The session this transcript is scoped to. Explicit when opened from the
+  // Sessions panel; otherwise resolved from the feed's newest `session_id` after
+  // the first (agent-scoped) load, then adopted so the view spans the whole
+  // session across respawns — the same session-anchoring mobile does
+  // (handlers_agent_events.go: "resolves an agent's run session from the newest
+  // event's session_id"). Scoping to the session is what makes a resumed
+  // transcript show its full history instead of just the current agent's slice.
+  const [scope, setScope] = useState<string | undefined>(sessionId);
+  useEffect(() => {
+    setScope(sessionId);
+  }, [sessionId, agentId]);
   const [mode, setMode] = useState<Mode>('live');
   const [lens, setLens] = useState<FeedLens>('all');
   const [verbose, setVerbose] = useState(false);
@@ -142,28 +167,57 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
   const [unread, setUnread] = useState(0);
   const prevLiveLenRef = useRef(0);
 
+  // Reset the feed only when the AGENT changes (a genuinely different transcript)
+  // — not when `scope` resolves from undefined → session, which reloads the same
+  // transcript as a superset. Clearing there would flash the feed empty between
+  // the agent-scoped first paint and the session-scoped reload.
+  useEffect(() => {
+    setEvents([]);
+    setError(null);
+    setLoaded(false);
+  }, [agentId]);
+
   useEffect(() => {
     if (client === null) return;
     let cancelled = false;
     let handle: SseHandle | null = null;
-    setEvents([]);
-    setError(null);
-    setLoaded(false);
     void (async () => {
       try {
         // One load of the deepest tail; the virtual list renders only the visible
-        // slice, so holding the full window is cheap.
-        const history = await client.listAgentEvents(agentId, { tail: LOAD_TAIL });
+        // slice, so holding the full window is cheap. `session` scopes the query
+        // across the session's respawned agents (empty per-agent slice after a
+        // resume otherwise).
+        const history = await client.listAgentEvents(agentId, { tail: LOAD_TAIL, session: scope });
         if (cancelled) return;
         const sorted = mergeEvents(history, []);
         setEvents(sorted);
         setLoaded(true);
-        const last = sorted.length > 0 ? num(sorted[sorted.length - 1], 'seq') : undefined;
-        // Live stream from the tail cursor (merge dedupes any overlap); appended
-        // events stick to the bottom via the list's followOutput when the user is
-        // there, and don't yank them if they've scrolled up.
+        // Adopt the session from the newest event when we weren't told one, so a
+        // live agent's transcript re-scopes to its whole session (surviving a
+        // future resume). Guarded to fire once (scope stays set), and only when
+        // the event actually carries a session — reloads the effect session-scoped.
+        if (scope === undefined) {
+          for (let i = sorted.length - 1; i >= 0; i -= 1) {
+            const sid = str(sorted[i], 'session_id');
+            if (sid !== undefined && sid !== '') {
+              setScope(sid);
+              return; // effect re-runs with the resolved scope; skip streaming here
+            }
+          }
+        }
+        // Live stream from the CURRENT agent's own max seq — the stream backfill
+        // is `agent_id = <this agent> AND seq > since`, so the cursor must be this
+        // agent's seq, not the session-wide tail (which may belong to an older
+        // agent with a higher, unrelated seq → live events silently skipped).
+        let cursor: number | undefined;
+        for (const e of sorted) {
+          if (str(e, 'agent_id') !== agentId) continue;
+          const s = num(e, 'seq');
+          if (s !== undefined && (cursor === undefined || s > cursor)) cursor = s;
+        }
         handle = client.streamAgent(agentId, {
-          since: last !== undefined ? String(last) : undefined,
+          since: cursor !== undefined ? String(cursor) : undefined,
+          query: scope !== undefined ? { session: scope } : undefined,
           onEvent: (e) => setEvents((prev) => mergeEvents(prev, [e as Entity])),
           onError: (err) => setError(msg(err)),
         });
@@ -175,7 +229,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
       cancelled = true;
       handle?.close();
     };
-  }, [agentId, client]);
+  }, [agentId, client, scope]);
 
   const digestQ = useQuery({
     queryKey: ['agent-digest', agentId],
@@ -535,6 +589,20 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
     await client.postAgentInput(agentId, body, att);
   }
 
+  /// Interrupt the in-flight turn (composer Stop) — a `cancel` INPUT the driver
+  /// acts on, NOT the `/stop` lifecycle (that pauses the session and drops the
+  /// agent from the live list, which the director reads as "archived"). Parity
+  /// with mobile agent_compose `_cancel`. The cancel event flows back through the
+  /// feed; no manual refetch.
+  async function cancelTurn(): Promise<void> {
+    if (client === null) return;
+    try {
+      await client.cancelAgentInput(agentId, 'user requested cancel');
+    } catch (err) {
+      setError(msg(err));
+    }
+  }
+
   const modes: { v: Mode; label: string }[] = [
     { v: 'live', label: t('tx.live') },
     { v: 'insight', label: t('tx.insight') },
@@ -753,7 +821,7 @@ export function AgentTranscript({ agentId }: { agentId: string }): JSX.Element {
           <Composer
             onSend={send}
             generating={generating}
-            onStop={() => void lifecycle((id) => client!.stopAgent(id))}
+            onStop={() => void cancelTurn()}
             inject={quoteSignal}
           />
         </>

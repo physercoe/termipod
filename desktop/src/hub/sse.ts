@@ -28,6 +28,9 @@ export interface SseOptions {
    *  it means the cursor never advances, so every reconnect replays from the
    *  initial `since` — a flood of duplicate messages. */
   cursorField?: string;
+  /** Extra static query params on the stream URL (re-sent on every reconnect),
+   *  e.g. `{session}` to scope an agent stream to a whole session. */
+  query?: Record<string, string>;
 }
 
 /// Reads a hub SSE stream (`…/agents/{id}/stream`, `…/channels/{ch}/stream`)
@@ -53,6 +56,9 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
 
   function buildUrl(): string {
     const url = new URL(cfg.baseUrl.replace(/\/+$/, '') + path);
+    if (opts.query !== undefined) {
+      for (const [k, v] of Object.entries(opts.query)) url.searchParams.set(k, v);
+    }
     if (since !== undefined) url.searchParams.set('since', since);
     return url.toString();
   }

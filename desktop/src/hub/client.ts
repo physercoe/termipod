@@ -200,11 +200,17 @@ export class HubClient {
   }
 
   // --- transcript (WS4) ---
-  /** Backfill recent events (`tail` = last N, newest last after the hub's order). */
-  async listAgentEvents(id: string, opts: { tail?: number; since?: string } = {}): Promise<Entity[]> {
+  /** Backfill recent events (`tail` = last N, newest last after the hub's order).
+   * `session` scopes the query to a whole session across its respawned agents
+   * (handlers_agent_events.go: when set, the URL agent is ignored and the query
+   * runs by session_id, ordered on the dense `session_ordinal` — ADR-042). This
+   * is how a resumed session's full transcript resolves: the per-agent path only
+   * sees the current agent's slice (parity — mobile listAgentEvents `sessionId`). */
+  async listAgentEvents(id: string, opts: { tail?: number; since?: string; session?: string } = {}): Promise<Entity[]> {
     const out = await this.transport.get(this.transport.team(`/agents/${id}/events`), {
       tail: opts.tail !== undefined ? String(opts.tail) : undefined,
       since: opts.since,
+      session: opts.session,
     });
     return asArray(out);
   }
@@ -228,6 +234,18 @@ export class HubClient {
    * an engine doesn't support are strip-and-warned hub-side, not rejected. */
   postAgentInput(id: string, body: string, att?: InputAttachments): Promise<unknown> {
     return this.transport.post(this.transport.team(`/agents/${id}/input`), { kind: 'text', body, ...att });
+  }
+  /** Interrupt the agent's current turn (parity — mobile agents_api `_cancel`:
+   * `postAgentInput(kind:'cancel')`). Lands in agent_events as a `producer:'user'`
+   * cancel input the driver acts on — distinct from the `/stop` lifecycle, which
+   * is the RESUMABLE KILL: it pauses the session and drops the agent from the
+   * live list, which reads to the director as "archived", not "interrupt this
+   * turn". The composer's stop-while-generating must cancel, not kill. */
+  cancelAgentInput(id: string, reason?: string): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/input`), {
+      kind: 'cancel',
+      ...(reason !== undefined && reason !== '' ? { reason } : {}),
+    });
   }
 
   // --- projects / tasks (WS6) ---

@@ -204,11 +204,15 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
     }
   }
 
-  /// The transcript is per-agent (there is no session-level events endpoint), so
-  /// resolve the session's agent from the digest's `current_agent_id` /
-  /// `agent_ids` (handlers_agent_digest.go), falling back to the list row. This
-  /// is how a paused/terminated session reaches its full transcript — the
-  /// `/agents/{id}/events` feed is served from stored events, not a live process.
+  /// The events endpoint is keyed on an agent in its URL, but `?session=<id>`
+  /// re-scopes the query to the whole session across its respawned agents
+  /// (handlers_agent_events.go — ordered on the dense `session_ordinal`). So we
+  /// still resolve *an* agent for the URL path (+ the stream / lifecycle target)
+  /// from the digest's `current_agent_id` / `agent_ids`, but pass the session id
+  /// as the scope — that's how a resumed session shows its FULL transcript, not
+  /// just the current agent's slice (the mobile-parity fix; the old "there is no
+  /// session-level endpoint" note was wrong). Served from stored events, so a
+  /// paused/terminated session still resolves.
   function resolveAgentId(): string | undefined {
     const d = digestQ.data;
     if (d !== undefined) {
@@ -342,7 +346,7 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
                 </div>
                 {view === 'transcript' ? (
                   agentId !== undefined ? (
-                    <AgentTranscript key={agentId} agentId={agentId} />
+                    <AgentTranscript key={`${selected}:${agentId}`} agentId={agentId} sessionId={selected} />
                   ) : (
                     <div className="muted region-pad">
                       {digestQ.isLoading ? t('tx.loadingDigest') : t('sessions.noAgent')}

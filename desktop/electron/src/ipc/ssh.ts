@@ -33,14 +33,9 @@ import type { WebContents } from 'electron';
 import type { Client as Ssh2Client, ClientChannel, ConnectConfig, SFTPWrapper } from 'ssh2';
 import { emit } from '../events';
 import { pinGet, pinSet } from './keychain';
+import { loadSsh2 } from './ssh2mod';
+import type { Ssh2Module } from './ssh2mod';
 import type { Handler } from './dispatch';
-
-type Ssh2Module = typeof import('ssh2');
-let ssh2P: Promise<Ssh2Module> | null = null;
-function loadSsh2(): Promise<Ssh2Module> {
-  if (ssh2P === null) ssh2P = import('ssh2');
-  return ssh2P;
-}
 
 /// The chunk size for streamed SFTP transfers — big enough to keep the pipe busy,
 /// small enough that a per-chunk progress tick feels live (ssh.rs SFTP_CHUNK).

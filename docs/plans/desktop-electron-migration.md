@@ -175,7 +175,7 @@ Now-deletable per-engine debt, each with a verification:
 | custom confirm/prompt modals, two-step arm patterns | **keep** (better UX than native dialogs) — re-document rationale as house style, not engine bug | keep (house style) |
 | `setPointerCapture` avoidance, clipboard-image best-effort, `crypto.randomUUID` fallbacks | re-test on Chromium; delete guards that no longer trigger (randomUUID works if the renderer origin is secure — decide `app://` custom scheme vs `file://` here) | deferred (guard-delete + device verify) |
 | base64 IPC encodings (PTY/SSH/SFTP/blob/PCM) | switch to native `Uint8Array` transfer, family by family, behind the bridge | PTY **already bytes** (M2 authored it fresh: `pty-data` emits a `Buffer`, renderer wraps `new Uint8Array`); SSH/SFTP/blob/PCM deferred (shared renderer path — needs bridge byte-negotiation, family-by-family) |
-| OS file drag-drop (never worked under Tauri) | free win: wire Chromium file drops into Author/Read | deferred (net-new feature — needs device verify) |
+| OS file drag-drop (never worked under Tauri) | free win: wire Chromium file drops into Author/Read | **Author DONE** — image drop into the WYSIWYG editor (capture-phase, inserts once even if Crepe also handles it; inert under Tauri). Read (library/PDF drop targets) deferred — needs a product decision + device verify |
 
 **M4 execution status (2026-07-21).** M4 runs *after* the M3 cutover in the
 plan order, but the Windows-WebGL win (row 1) is a pure additive,

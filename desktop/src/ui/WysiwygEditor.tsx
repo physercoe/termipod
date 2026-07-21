@@ -101,6 +101,33 @@ export function WysiwygEditor({
       return obj;
     };
 
+    // OS file drag-drop of images (plan M4 §6 "wire Chromium file drops"). Under
+    // Tauri/WebView2 an OS drop never reached the DOM, so this is a Chromium-only
+    // "free win" that stays inert on the old shell. We handle it in the CAPTURE
+    // phase so the image is inserted EXACTLY once: Crepe's ImageBlock may also
+    // pick up the drop on Chromium, so intercepting first (preventDefault +
+    // stopPropagation) avoids a double insert while still routing through the same
+    // `uploadImage` (managed attachment ref, never inline base64). Non-image drops
+    // fall through untouched.
+    const onDragOver = (e: DragEvent): void => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); // signal a droppable target
+    };
+    const onDrop = (e: DragEvent): void => {
+      const images = e.dataTransfer ? Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/')) : [];
+      if (images.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void (async () => {
+        for (const file of images) {
+          const ref = await uploadImage(file);
+          const alt = (file.name || 'image').replace(/[[\]\r\n]/g, ' ').trim();
+          crepeRef.current?.editor.action(appendMarkdown(`\n\n![${alt}](${ref})\n`));
+        }
+      })();
+    };
+    host.addEventListener('dragover', onDragOver, true);
+    host.addEventListener('drop', onDrop, true);
+
     const build = async (): Promise<void> => {
       const c = new Crepe({
         root: host,
@@ -149,6 +176,8 @@ export function WysiwygEditor({
     return () => {
       destroyed = true;
       crepeRef.current = null;
+      host.removeEventListener('dragover', onDragOver, true);
+      host.removeEventListener('drop', onDrop, true);
       if (crepe !== null) void crepe.destroy();
       objectUrls.forEach((u) => URL.revokeObjectURL(u));
     };

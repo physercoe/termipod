@@ -1,5 +1,5 @@
 import { invoke } from '../bridge';
-import { isShell } from '../platform';
+import { shellKind } from '../platform';
 import { proxyForConnection } from '../state/proxy';
 import type { HubConfig } from './config';
 import { HubApiError } from './errors';
@@ -18,8 +18,10 @@ interface RawResponse {
 ///
 /// Under Tauri the request is routed through the Rust core's `hub_request`
 /// command (reqwest) — the webview's `fetch` would be a cross-origin call the
-/// hub rejects (no CORS) and also exposes the token to JS. The plain-browser
-/// build uses `fetch` directly.
+/// hub rejects (no CORS) and also exposes the token to JS. The browser and
+/// Electron builds `fetch` the hub directly (under Electron the bearer is
+/// injected by the main process via `session.webRequest`; ADR-055 plan §7),
+/// so only the Tauri shell takes the proxy path.
 export class HubTransport {
   constructor(private readonly cfg: HubConfig) {}
 
@@ -59,7 +61,7 @@ export class HubTransport {
     headers: Record<string, string>,
     bodyText?: string,
   ): Promise<RawResponse> {
-    if (isShell()) {
+    if (shellKind() === 'tauri') {
       return await invoke<RawResponse>('hub_request', {
         req: { method, url, headers, body: bodyText ?? null, proxy: proxyForConnection('hub') ?? null },
       });
@@ -125,11 +127,12 @@ export class HubTransport {
   /** GET raw binary bytes (e.g. `/v1/blobs/{sha}` image/pdf blobs) as base64 plus
    * the response content-type. The JSON/text transports would corrupt non-UTF-8
    * bytes, so under Tauri this routes through the Rust core's `hub_request_bytes`
-   * (reqwest → base64); the plain-browser build reads the ArrayBuffer directly. */
+   * (reqwest → base64); the browser and Electron builds read the ArrayBuffer
+   * directly. */
   async getBytes(path: string): Promise<{ mime: string; base64: string }> {
     const url = this.buildUrl(path);
     const headers = this.headers(true);
-    if (isShell()) {
+    if (shellKind() === 'tauri') {
       const res = await invoke<{ status: number; mime: string; base64: string }>('hub_request_bytes', {
         req: { method: 'GET', url, headers, body: null, proxy: proxyForConnection('hub') ?? null },
       });

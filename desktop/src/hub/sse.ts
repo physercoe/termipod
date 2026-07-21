@@ -1,5 +1,5 @@
 import { invoke, listen, type UnlistenFn } from '../bridge';
-import { isShell } from '../platform';
+import { shellKind } from '../platform';
 import { proxyForConnection } from '../state/proxy';
 import type { HubConfig } from './config';
 
@@ -153,7 +153,10 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
     while (!closed) {
       let errored = false;
       try {
-        if (isShell()) await readViaTauri();
+        // Only the Tauri shell needs the Rust `hub_sse_*` proxy (EventSource
+        // can't set an auth header). Electron and the browser read the stream
+        // directly in the renderer with headers (ADR-055 plan §7 row 1).
+        if (shellKind() === 'tauri') await readViaTauri();
         else await readViaFetch();
       } catch (err) {
         if (closed) break;

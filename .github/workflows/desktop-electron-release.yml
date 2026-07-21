@@ -176,6 +176,31 @@ jobs:
           node -e "const f='./desktop/electron/package.json',p=require(f);p.version='$V';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
           echo "packaged version = $V"
 
+      # Export the signing/notarization secrets to the job env ONLY when they are
+      # actually set. Passing `CSC_LINK: ${{ secrets.CSC_LINK }}` directly exports
+      # an EMPTY string when the secret is absent, and electron-builder then treats
+      # CSC_LINK as "defined" and resolves it as a cert path relative to the app
+      # dir → `⨯ desktop/electron not a file`, failing the macOS/Windows Package.
+      # Skipping empty vars leaves signing genuinely unconfigured, so unsigned
+      # installers build cleanly; a real cert flows through untouched.
+      - name: Configure signing (only when secrets present)
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!v}" ]; then
+              printf '%s<<__EOF__\n%s\n__EOF__\n' "$v" "${!v}" >> "$GITHUB_ENV"
+              echo "signing: $v is set"
+            fi
+          done
+
       # Publishing is done by the `release` job below (gh CLI on the pushed
       # tag), NEVER by electron-builder — its GitHub publisher would create a
       # `v<version>` tag, which is the mobile lanes' trigger namespace.
@@ -188,17 +213,9 @@ jobs:
           # Without a cert, DON'T let electron-builder probe the macOS keychain
           # for a signing identity — that probe hangs on a headless CI runner.
           # When CSC_LINK is set (a real cert), auto-discovery is irrelevant.
+          # The CSC_*/APPLE_* secrets arrive via $GITHUB_ENV from the step above,
+          # set only when non-empty (empty CSC_LINK breaks the mac/win packager).
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          # Present only when the maintainer has configured signing:
-          # CSC_LINK is the macOS cert; the Windows Authenticode cert is a
-          # different file, read from the WIN_-prefixed pair on the win runner.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload installers as run artifacts
         uses: actions/upload-artifact@v4

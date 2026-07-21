@@ -10,8 +10,9 @@
 /// `drawio_install_file`.
 import { app, net } from 'electron';
 import path from 'node:path';
+import os from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { mkdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import extract from 'extract-zip';
 import type { Ctx, Handler } from './ipc/dispatch';
@@ -31,8 +32,48 @@ function drawioRoot(): string {
   return path.join(app.getPath('userData'), 'drawio', DRAWIO_VERSION);
 }
 
+/// The Tauri install's drawio root — same version, under the Tauri app-data dir
+/// keyed by the bundle identifier (mirrors migration.ts's legacy handoff:
+/// macOS/Windows `appData/<id>`, Linux `${XDG_DATA_HOME:-~/.local/share}/<id>`).
+function legacyDrawioRoot(): string {
+  const id = 'app.termipod.desktop';
+  if (process.platform === 'linux') {
+    const dataHome = process.env.XDG_DATA_HOME ?? path.join(os.homedir(), '.local', 'share');
+    return path.join(dataHome, id, 'drawio', DRAWIO_VERSION);
+  }
+  return path.join(app.getPath('appData'), id, 'drawio', DRAWIO_VERSION);
+}
+
 async function isFile(p: string): Promise<boolean> {
   return (await stat(p).catch(() => null))?.isFile() ?? false;
+}
+
+/// One-time cross-install adoption (plan §5, cutover): if this Electron profile
+/// has no draw.io yet but the Tauri install already extracted the SAME version,
+/// copy it over (staging + atomic rename) instead of forcing a ~50 MB
+/// re-download. Returns whether the Electron root now has an `index.html`.
+/// Bounded to once: after adoption the root is installed, so this short-circuits.
+async function adoptLegacyIfPresent(root: string): Promise<boolean> {
+  if (await isFile(path.join(root, 'index.html'))) return true;
+  const legacy = legacyDrawioRoot();
+  if (path.resolve(legacy) === path.resolve(root)) return false; // same dir — nothing to adopt
+  if (!(await isFile(path.join(legacy, 'index.html')))) return false;
+  const staging = `${root}.part`;
+  await rm(staging, { recursive: true, force: true });
+  await mkdir(path.dirname(root), { recursive: true });
+  try {
+    await cp(legacy, staging, { recursive: true });
+  } catch {
+    await rm(staging, { recursive: true, force: true });
+    return false; // a copy failure just falls through to the normal download
+  }
+  if (!(await isFile(path.join(staging, 'index.html')))) {
+    await rm(staging, { recursive: true, force: true });
+    return false;
+  }
+  await rm(root, { recursive: true, force: true });
+  await rename(staging, root);
+  return true;
 }
 
 async function statusOf(root: string): Promise<DrawioStatus> {
@@ -114,11 +155,18 @@ export function registerDrawioScheme(sess: Electron.Session): void {
 }
 
 export const drawioHandlers: Record<string, Handler> = {
-  drawio_status: async (): Promise<DrawioStatus> => statusOf(drawioRoot()),
+  // Adopt the Tauri install's copy at cutover (one-time) so Author works with no
+  // download prompt; falls through to not-installed if there is nothing to adopt.
+  drawio_status: async (): Promise<DrawioStatus> => {
+    const root = drawioRoot();
+    await adoptLegacyIfPresent(root);
+    return statusOf(root);
+  },
 
   drawio_download: async (args): Promise<DrawioStatus> => {
     const root = drawioRoot();
-    if (await isFile(path.join(root, 'index.html'))) return statusOf(root);
+    // Already installed, or adoptable from the Tauri install → no download.
+    if (await adoptLegacyIfPresent(root)) return statusOf(root);
     const proxy = typeof args.proxy === 'string' && args.proxy !== '' ? args.proxy : undefined;
     // Node's fetch follows the GitHub release-asset redirect to the CDN; identify
     // a UA so no proxy rejects a header-less request. (Proxy support: M1.2/M4 —

@@ -174,9 +174,20 @@ npm start          # esbuild → out/, then `electron .`
       bytes on every OS) by the workflow's `wasm` job and shared to the three
       `bundle` jobs as an artifact. Signing/notarization consume repo secrets
       when present; absent, the build is unsigned (enough to gate the pipeline).
-- [ ] **M3.2** electron-updater — client wiring + the release feed (latest*.yml).
-- [ ] **M3.3** first-boot migration cutover — state-v1.json import + keychain
-      reader + draw.io re-fetch, verified against a packaged build.
+- [x] **M3.2** electron-updater — main-process `updater_check`/`_download`/
+      `_install` + `app_version` (`ipc/updater.ts`); `bridge/updater.ts`
+      synthesizes the Tauri `Update` shape (its `downloadAndInstall` translates
+      `updater:progress` events into the plugin's callback) so
+      `UpdateSection.tsx` is untouched. Feed = the electron-builder `publish`
+      config baked into `app-update.yml`; the workflow stamps the real product
+      version before packaging. No-ops off a packaged build.
+- [x] **M3.3** first-boot migration cutover. The state + secret handoffs were
+      pulled forward and are packaged-safe (they resolve via `app.getPath`):
+      `migration_read` falls back to the Tauri app-data dir (#353) and
+      `keychain_get` lazily reads Tauri keychain items (device-passed, M1.3).
+      This slice adds the draw.io leg — `drawio_status`/`_download` adopt the
+      Tauri install's already-extracted `drawio/<version>` (one-time
+      staging+rename copy) instead of forcing a ~50 MB re-download at cutover.
 - [ ] **M3.4** signing/notarization certs (maintainer-supplied secrets) + the
       handoff release; retire the Tauri lane after one overlap.
 

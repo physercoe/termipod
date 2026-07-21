@@ -83,11 +83,14 @@ New `desktop/electron/` (main + preload, TypeScript, esbuild):
 - `preload.ts` — exposes exactly `{ invoke, listen }` over
   `ipcMain.handle`/`webContents.send`, with an explicit command allowlist
   (the successor of `capabilities/default.json`).
-- Command families, in order: platform helpers → `hub_request`/
-  `hub_request_bytes`/`hub_sse_*` (same `hub-sse`/`hub-sse-end` events) →
-  keychain (spike result) → docs/workspace/localfs/storage/attachment
-  families + dialogs → `drawio://` privileged protocol → `open_browser_window`
-  as `BrowserWindow`+preload.
+- Command families, in order: platform helpers → **hub transport, renderer-
+  direct** (register §7 rows 1–2: the `hub_request*`/`hub_sse_*` proxies are
+  *not* ported — the bearer injects via `session.webRequest`, the renderer
+  `fetch`es the hub directly, and `hub/transport.ts`/`hub/sse.ts` take their
+  existing browser-build paths under Electron; the bridge keeps call sites
+  unchanged) → keychain (spike result) → docs/workspace/localfs/storage/
+  attachment families + dialogs → `drawio://` privileged protocol →
+  `open_browser_window` as `BrowserWindow`+preload.
 - CSP carried over from `tauri.conf.json` (swap `ipc:` origins for the
   preload; keep `frame-src … drawio:`).
 - `state-v1.json` import on first boot (before renderer load).
@@ -155,7 +158,36 @@ Now-deletable per-engine debt, each with a verification:
 | base64 IPC encodings (PTY/SSH/SFTP/blob/PCM) | switch to native `Uint8Array` transfer, family by family, behind the bridge |
 | OS file drag-drop (never worked under Tauri) | free win: wire Chromium file drops into Author/Read |
 
-## 7. Sequencing & risk
+## 7. Optimization register — what the engine swap makes cheaper
+
+Beyond the M4 workaround paydown (§6), the move unlocks structural
+optimizations. Each is tagged with the phase that should claim it; the two
+M1 rows shape the shell architecture and are folded into §3 above.
+
+| # | Opportunity | Today | Under Electron | Phase |
+|---|---|---|---|---|
+| 1 | **Delete the SSE proxy** | `hub_sse_*` + the `hub-sse` base64 chunk pump exist because `EventSource` can't set an auth header | the browser build's fetch-SSE reader works in the renderer *with* headers — it becomes the only path; the proxy, per-stream cancellation state, base64 re-encode, and two IPC hops per event are deleted | **M1** |
+| 2 | **Renderer-direct REST** | `hub_request`/`hub_request_bytes` proxy for CORS + bearer secrecy; every blob base64s through IPC twice | bearer injected via `session.webRequest.onBeforeSendHeaders` (the token never enters renderer JS — better than today); renderer `fetch`es the hub; blob inflation gone | **M1** |
+| 3 | System probes | `reg query` / `scutil` child processes for proxy + build number | `session.resolveProxy()`, `os.release()` | M1 |
+| 4 | Binary IPC | base64 on pty/ssh/sftp/storage/attachment channels | `Uint8Array` structured clone; `xterm.write` accepts bytes — felt in terminal throughput and file transfer | M2/M4 |
+| 5 | Voice PCM frames | base64 strings per 16 kHz frame | transferable `ArrayBuffer`s to the main-process `ws` (the socket stays in main — renderer WebSocket still can't set headers) | M2 |
+| 6 | Zotero import | `sql.js` WASM in the renderer (1–2 MB chunk, whole DB in memory, UI thread) | `better-sqlite3` in main, off-thread; the WASM chunk leaves the bundle | M2 |
+| 7 | Sync-engine streaming | whole zips buffered in memory (Rust) | Node streams (`yauzl`/`archiver` piped to HTTP) — matters at the 100 MB folder-sync cap | M2 |
+| 8 | Secret splitting | frontend splits secrets at CredMan's 2560-byte cap (`keychain_is_windows`) | if the keychain spike lands on `safeStorage`: cap, splitting, and probe all deleted | M2 (spike outcome) |
+| 9 | xterm renderer | canvas-only on Windows (#333) behind an OS-probe ladder | WebGL everywhere + context-loss fallback | M4 |
+| 10 | PDF export of figures/docs | deferred to the Phase E artifact pipeline ([figure-renderer-registry.md](figure-renderer-registry.md) OQ 2) | `webContents.printToPDF` — essentially free; answers that OQ platform-side | M4 |
+| 11 | Context-menu clipboard | `execCommand` shim (webview blocks paste; native menu disabled) | native context menus / grantable clipboard read; shim deleted | M4 |
+| 12 | `crypto.randomUUID` fallbacks | 5 call sites (non-secure `tauri://` context) | dead once the renderer serves from `app://` (OQ 1) | M4 |
+| 13 | Vite build target | conservative multi-engine target; 2.77 MB entry chunk | pin to the shipped Chromium version: modern syntax kept native, smaller output | M4 |
+| 14 | E2E coverage | not possible against Tauri webviews | Playwright drives Electron: terminal, draw.io embed, figure export in CI under xvfb | M4 → ongoing |
+| 15 | New OS affordances | file drop inert; in-app toasts only; SSE reconnects on-error | Chromium file drag-in (+ `startDrag` out), OS notifications for attention requests, `powerMonitor`-driven suspend/resume reconnect, multi-window surface detach | post-M3, opportunistic |
+
+**Deliberate non-goals:** the custom confirm/prompt modals and two-step arm
+patterns stay (better UX than native dialogs — house style, per §6); the
+canvas PDF *reading* pipeline stays; the vault crypto stays Rust-via-WASM and
+is deliberately *not* optimized (byte-compat, ADR-055 D-3).
+
+## 8. Sequencing & risk
 
 - **Order: M0 → M1 → M2 → M3 → M4.** M0 ships in the normal release train.
   M1/M2 develop on a branch with dual-shell capability (the bridge makes the
@@ -176,7 +208,7 @@ Now-deletable per-engine debt, each with a verification:
 - **Rough sizing:** M0 ~1 wk · M1 ~2 wk · M2 ~3–4 wk (sync engines dominate)
   · M3 ~2 wk elapsed (signing waits) · M4 ~1 wk. One contributor plus review.
 
-## 8. Open questions (not blockers)
+## 9. Open questions (not blockers)
 
 1. **Renderer origin:** `file://` vs a custom `app://` privileged scheme
    (secure context, cleaner CSP, service-worker option). Decide in M1;

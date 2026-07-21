@@ -15,8 +15,9 @@ const common = {
   // (.node) addons that can't be bundled (electron-builder asarUnpacks +
   // ABI-rebuilds them in M3); `ws` and `ssh2` are pure JS but pull optional
   // native deps (bufferutil/utf-8-validate, cpu-features) best left unbundled.
-  // All resolve from node_modules at runtime.
-  external: ['electron', '@napi-rs/keyring', 'node-pty', 'ws', 'ssh2'],
+  // `sshpk` is pure JS with an optional native (ecc-jsbn) similarly left
+  // external. All resolve from node_modules at runtime.
+  external: ['electron', '@napi-rs/keyring', 'node-pty', 'ws', 'ssh2', 'sshpk'],
   sourcemap: true,
   logLevel: 'info',
 };

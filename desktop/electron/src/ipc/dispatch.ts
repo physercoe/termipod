@@ -21,6 +21,7 @@ import { storageHandlers } from './storage';
 import { keychainHandlers } from './keychain';
 import { ptyHandlers } from './pty';
 import { sshHandlers } from './ssh';
+import { sshKeyHandlers } from './ssh_keys';
 import { voiceHandlers } from './voice';
 import { scriptHandlers } from './script';
 import { drawioHandlers } from '../drawio';
@@ -42,6 +43,7 @@ const handlers: Record<string, Handler> = {
   ...keychainHandlers,
   ...ptyHandlers,
   ...sshHandlers,
+  ...sshKeyHandlers,
   ...voiceHandlers,
   ...scriptHandlers,
   ...drawioHandlers,

@@ -28,6 +28,8 @@ src/ipc/pty.ts     local PTY (node-pty): pty_open/start/write/resize/close —
 src/ipc/ssh.ts     direct SSH + SFTP (ssh2): ssh_connect/duplicate/exec/write/
                    resize/close + sftp_list/read/write — TOFU host-key pinning,
                    shared-connection multiplexing, connect phases (M2.2a)
+src/ipc/ssh_keys.ts SSH key store (sshpk): ssh_parse_key + ssh_generate_key —
+                   ed25519 gen, encrypted OpenSSH PEM, SHA256 fingerprint (M2.2b)
 src/ipc/voice.ts   DashScope ASR WebSocket (ws): voice_open/send/finish/close (M2.3)
 src/ipc/script.ts  one-shot child runs (child_process): script_run +
                    local_agent_run — execFile, no shell (M2.4)
@@ -97,10 +99,13 @@ npm start          # esbuild → out/, then `electron .`
       spuriously rejecting a known host, so Electron re-TOFUs once per host at
       cutover). `ssh-data` carries raw channel Buffers. Device-gated: real
       handshake/auth/SFTP against a live server.
-- [ ] **M2.2b** SSH key store (`ssh_parse_key` / `ssh_generate_key`) — ed25519
-      OpenSSH-PEM keygen needs a vetted crypto lib · **M2.5** sync engines
-      (WebDAV/folder/S3, under a fixture test suite) · **M2.6** vault → WASM
-      (wasm-pack from `vault.rs`, byte-compat).
+- [x] **M2.2b** SSH key store (`sshpk`) — `ssh_parse_key` (parse/introspect an
+      imported key, encrypted or not) and `ssh_generate_key` (in-app ed25519).
+      Verified locally: sshpk's encrypted OpenSSH-PEM output round-trips through
+      ssh2's parser (so a generated key works with M2.2a's connect flow), its
+      `SHA256:` fingerprint matches OpenSSH's, and a wrong passphrase throws.
+- [ ] **M2.5** sync engines (WebDAV/folder/S3, under a fixture test suite) ·
+      **M2.6** vault → WASM (wasm-pack from `vault.rs`, byte-compat).
 
 > **Native addons need an Electron-ABI rebuild for the dev shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

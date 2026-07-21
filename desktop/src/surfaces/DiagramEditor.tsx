@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
-import { isShell } from '../platform';
+import { isShell, shellKind } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
 import { proxyForConnection } from '../state/proxy';
 
@@ -18,10 +18,14 @@ interface DrawioStatus {
   version: string;
 }
 
-// A custom URI scheme resolves differently per platform: `scheme://localhost/` on
-// macOS/Linux, `http://scheme.localhost/` on Windows (Tauri v2).
+// The `http://scheme.localhost/` form is how Tauri v2 maps a custom scheme on
+// Windows (WebView2); every other engine — including Electron on Windows —
+// resolves the scheme URL itself, so the mapping must key on the shell, not
+// the OS.
 function drawioBase(): string {
-  return /Windows/i.test(navigator.userAgent) ? 'http://drawio.localhost/' : 'drawio://localhost/';
+  return shellKind() === 'tauri' && /Windows/i.test(navigator.userAgent)
+    ? 'http://drawio.localhost/'
+    : 'drawio://localhost/';
 }
 
 export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {

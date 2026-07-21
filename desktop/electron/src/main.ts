@@ -10,13 +10,14 @@
 /// M1.1 wires the shell + the platform-helper and migration command families;
 /// the hub transport goes renderer-direct (plan §7 rows 1–2), keychain / files /
 /// dialogs / draw.io land in later M1 slices.
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
 import './schemes'; // registers privileged app:// + drawio:// before app ready
 import { APP_ORIGIN, registerAppScheme } from './appscheme';
 import { registerDrawioScheme } from './drawio';
 import { installHubCors } from './hubcors';
 import { dispatch, isAllowed } from './ipc/dispatch';
+import { isSafeExternal } from './ipc/platform';
 import { initEvents } from './events';
 
 // The frontend build. In dev (`electron .` from desktop/electron) this resolves
@@ -43,6 +44,20 @@ function createWindow(): void {
     },
   });
   mainWindow = win;
+  // The app embeds arbitrary external sites (in-app browser iframe, with
+  // `allow-popups`). A `window.open` from one would spawn a child window that
+  // INHERITS this window's webPreferences — preload included — handing
+  // `__ELECTRON_BRIDGE__` and the whole command allowlist to remote content.
+  // Deny every popup; safe http(s) links go to the OS browser instead.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternal(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  // And the top frame never leaves the app origin (the preload runs on
+  // whatever document this window navigates to).
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith(APP_ORIGIN)) e.preventDefault();
+  });
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;

@@ -37,7 +37,7 @@ function windowsBuildNumber(): number | null {
 
 /// Only hand safe schemes to the OS (matches the frontend's own guard); never
 /// let an arbitrary scheme reach `shell.openExternal`.
-function isSafeExternal(url: string): boolean {
+export function isSafeExternal(url: string): boolean {
   try {
     const scheme = new URL(url).protocol;
     return scheme === 'http:' || scheme === 'https:' || scheme === 'mailto:';
@@ -99,6 +99,12 @@ export const platformHandlers: Record<string, Handler> = {
       height: 800,
       title: 'TermiPod',
       webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+    });
+    // Popups from third-party pages go to the OS browser, never to another
+    // shell window this process owns.
+    win.webContents.setWindowOpenHandler(({ url: popup }) => {
+      if (isSafeExternal(popup)) void shell.openExternal(popup);
+      return { action: 'deny' };
     });
     void win.loadURL(url);
   },

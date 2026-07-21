@@ -1,17 +1,21 @@
 # Workbench agent companion + offline diagrams
 
 > **Type:** discussion
-> **Status:** Open (2026-07-12) — scopes the director asks around the research
-> workbench. **J2 Author multi-document tabs + on-disk file save/open shipped**
-> (`AuthorSurface.tsx` + `state/documents.ts` + Rust `docfile.rs`). A **cross-surface
-> agent companion panel** (Read J1 *and* Author J2) and **offline draw.io
-> diagrams** are designed here and deferred pending the decisions below — plus a
+> **Status:** Open (2026-07-12; status refreshed 2026-07-21) — scopes the
+> director asks around the research workbench. **J2 Author multi-document tabs +
+> on-disk file save/open shipped** (`AuthorSurface.tsx` + `state/documents.ts` +
+> Rust `docfile.rs`). The **cross-surface agent companion panel** designed here
+> has since **shipped** (`ui/AgentCompanion.tsx`, mounted from both Read J1 and
+> Author J2 with `onInsert`), as have **offline draw.io diagrams**
+> (`surfaces/DiagramEditor.tsx`) — shipped as **install-on-demand** (one-time
+> `draw.war` download into app-data, served offline via a `drawio://` scheme)
+> rather than the bundle-locally option discussed below. Still live here: the
 > concrete analysis of **how the POSIX-only host-runner could support Windows**.
 > Feeds [desktop-workbench-jobs.md](../plans/desktop-workbench-jobs.md); relates to
 > [research-tooling-landscape.md](research-tooling-landscape.md) (embed vs build)
 > and the host-runner in [../spine/agent-lifecycle.md](../spine/agent-lifecycle.md).
 > **Audience:** contributors · principal
-> **Last verified vs code:** desktop v0.3.25 (post-release, on main)
+> **Last verified vs code:** desktop v0.3.84 (on main; originally v0.3.25)
 
 **TL;DR.** The Author tab now holds **multiple documents as tabs**, each a
 Markdown split-editor, device-local by default and **saveable to a real file on

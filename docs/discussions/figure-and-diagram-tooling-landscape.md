@@ -12,10 +12,14 @@
 > (which shipped offline draw.io + the agent companion); relates to
 > [research-tooling-landscape.md](research-tooling-landscape.md) (embed vs build).
 > **Audience:** contributors · principal
-> **Last verified vs code:** desktop v0.3.28 (on main)
+> **Last verified vs code:** desktop v0.3.84 (on main, re-verified 2026-07-21;
+> external landscape facts in §3/§5 still carry the 2026-07-12 research date)
 
-**TL;DR.** We already ship two points on this map: **draw.io** (an interactive
-box-and-arrow editor, `DiagramEditor.tsx`) and **KaTeX** (inline/display math).
+**TL;DR.** We already ship two and a half points on this map: **draw.io** (an
+interactive box-and-arrow editor, `DiagramEditor.tsx` — installed on demand, not
+bundled), **KaTeX** (inline/display math), and a **dependency-free chart
+renderer** (`ui/ChartView.tsx`, JSON→SVG for run metrics and chart-shaped JSON
+artifacts — see §3.2, it constrains the charts pick).
 The director wants the whole map — the tools that actually produce the visuals in
 technical reports, academic papers, and slide decks. This doc surveys four
 families (diagram-as-code · charts/data-viz · freeform+slides · LaTeX/math),
@@ -44,12 +48,12 @@ hub=metadata / hosts=bytes / agent=executor law.
 | Visual class | Dominant real-world tools | We ship |
 |---|---|---|
 | Box-and-arrow / architecture | draw.io, Mermaid, Graphviz, PlantUML, D2 | draw.io ✅ |
-| Data charts / plots | matplotlib, Plotly, Vega/Vega-Lite, ECharts, Chart.js | — |
+| Data charts / plots | matplotlib, Plotly, Vega/Vega-Lite, ECharts, Chart.js | partial (`ui/ChartView.tsx` — dep-free JSON→SVG line/bar, §3.2) |
 | Graph / dependency / FSM | Graphviz (DOT) | — |
 | UML / sequence / BPMN | Mermaid, PlantUML, nomnoml, bpmn-js | partial (drawio manual) |
 | C4 architecture | Structurizr, LikeC4 | — |
 | Timing / hardware | WaveDrom | — |
-| Freeform sketch / whiteboard | Excalidraw, tldraw | our custom Canvas ✅ (different niche) |
+| Freeform sketch / whiteboard | Excalidraw, tldraw | our custom `canvas` doc kind ✅ (different niche) |
 | Slides | PowerPoint/Keynote, Reveal.js, Marp, Slidev | — |
 | Math | LaTeX math, MathJax | KaTeX ✅ |
 | TikZ / scientific vector | TikZ/PGF (LaTeX) | — |
@@ -64,11 +68,26 @@ The white space is large, but most of it is reachable with one architecture.
 The existing model already anticipates this:
 
 ```ts
-// state/documents.ts (today)
-export type DocKind = 'markdown' | 'diagram';
+// state/documents.ts (today, v0.3.84)
+export type DocKind = 'markdown' | 'diagram' | 'canvas' | 'table';
 export interface Doc { id; kind: DocKind; title; body; filePath?; dirty?; updatedAt }
-// body = markdown source, OR draw.io XML for a diagram
+// body = markdown source · draw.io XML · canvas JSON · table JSON (per kind)
 ```
+
+Two things happened in the code since this doc was first written (both
+2026-07-16, four days after v1 of this doc) that bear on the proposal:
+
+- **`canvas` and `table` landed as new first-class `DocKind`s** — each with a
+  seed body, an on-disk extension (`extForKind`), and extension/content sniffing
+  on open (`kindForFile`). The codebase's organic direction is thus
+  *kind-per-format*, the opposite of the single-`figure`-kind leaning below —
+  see open question 1, which now has a precedent to reconcile, including the
+  question of what file extension each figure spec round-trips as.
+- **`surfaces/ArtifactViewer.tsx` already ships a kind→renderer dispatch** for
+  agent-produced blobs (canvas-app / code-bundle / image / pdf / html / json /
+  text, with `chartFromJson` for chart-shaped JSON). It is in-repo precedent for
+  exactly the registry pattern proposed here — and it means the *embed* half of
+  the artifact shape (§ shape 3, Phase E) already exists.
 
 **Proposal.** Generalise `body` (already "source spec") and turn `kind` (or a new
 `spec:` discriminator on a `figure` kind) into a key into a **renderer registry**:
@@ -93,7 +112,11 @@ Consequences that make this the right shape:
   "behaviour is data" — the same principle that makes a new engine a YAML file.)
 - **Lazy-loaded weight.** Mermaid (~2.5–3 MB), Graphviz-WASM (~1–3 MB), Vega
   (~1 MB) never touch app boot; each renderer `import()`s on first use of its
-  `spec`. No regression to the shell's startup budget.
+  `spec`. No regression to the shell's startup budget. For anything heavier
+  still, the shipped draw.io integration sets a second precedent: it is **not
+  bundled** but downloaded once (~50 MB `draw.war` → app-data, served offline
+  via a `drawio://` scheme) — install-on-demand is available as an escape hatch
+  before a tool has to fall all the way to the artifact shape.
 - **Agent-native authorship.** The figure *is* its source text/JSON — an agent
   writes a Mermaid block or a Vega-Lite spec the same way it writes prose, and
   the AgentCompanion can `onInsert` a figure block into a document. Ship the
@@ -151,10 +174,22 @@ demand. The rest fill specific niches (timing, BPMN, C4, quick UML).
 | **Plotly.js** | **3D / scientific / geo** (matplotlib-adjacent breadth) | ★★★ trace+layout JSON | ✅ pure JS | MIT | ⚠️ 1.33 MB (use partial dist) |
 | Chart.js | Simple dashboard charts | ★★ config | ✅ | MIT | 67 KB — but **Canvas-only, no SVG export** |
 | D3 / Observable Plot / Recharts / Nivo | bespoke / React charts | ✗ imperative JS/JSX | ✅ | MIT/ISC | — (not "figure as data") |
+| **ChartView** (ours, `ui/ChartView.tsx`) | run metrics + chart-shaped JSON artifacts | ★★ sniffs common wire shapes | ✅ zero-dep inline SVG | — | ~0 (already shipped) |
 | **matplotlib** | **the actual source of most paper figures** | ✗ Python | ❌ client-side (Pyodide = ~25–30 MB) | — | **Artifact** |
 
+*What we already have:* **`ui/ChartView.tsx`** is a dependency-free JSON→SVG
+line/bar renderer (sniffs numeric arrays, `[x,y]` tuples, `{label,value}` rows,
+`{series:[{name,data}]}` bundles), used by `ArtifactViewer`, `RunDetail`,
+`CompareSurface`, and `ProjectHero`. Note the standing stance conflict:
+[../plans/desktop-workbench-jobs.md](../plans/desktop-workbench-jobs.md) (J5
+Compare) explicitly commits to ChartView with "**no charting library**". Adopting
+Vega-Lite therefore needs an explicit boundary decision, not just an add — see
+open question 6.
+
 *Pick:* **Vega-Lite** is the "paper figure authored as a declarative document"
-winner (one JSON → interactive on screen **and** static SVG/PNG export).
+winner (one JSON → interactive on screen **and** static SVG/PNG export) — for
+*authored* figures; **ChartView stays** for its niche (zero-weight ambient
+rendering of run metrics / chart-shaped agent JSON, where no one authors a spec).
 **ECharts** for interactive fleet/dashboards. **Plotly (partial dist)** only when
 3D/geo is needed. The "figure-as-data" filter eliminates D3/Recharts/Nivo (they
 need the agent to emit *code*, not a storable spec). matplotlib parity is the
@@ -222,7 +257,12 @@ SVG-export / `physics`; **node-tikzjax** (lazy, worker) for TikZ snippets. Add
 runs on a host and returns SVG/PNG/PDF: **matplotlib/seaborn**, **full LaTeX→PDF**,
 **PlantUML** (JVM). This unifies with the AgentCompanion + host-runner work and
 honours hub=metadata / hosts=bytes. The figure lands as a Deliverable/Artifact,
-not a client render.
+not a client render. **Half of this already ships:** agents already upload
+artifacts to hub blobs and `ArtifactViewer.tsx` already fetches
+(`GET /v1/blobs/{sha}`) and kind-dispatches them to renderers (image / pdf /
+html / …). What Phase E actually adds is the **"figure job" contract** on the
+producing side (a first-class way to ask an agent for a figure and get typed
+SVG/PNG/PDF back) — the embed side needs at most SVG-specific polish.
 
 ---
 
@@ -251,13 +291,25 @@ not a client render.
 1. **`kind` vs `spec` discriminator.** Do figures become new `DocKind`s
    (`figure-mermaid`, …) or a single `figure` kind with a `spec:` field? A single
    kind + `spec` keeps the tab/editor switch small and the registry central —
-   leaning that way.
+   leaning that way. **But note the code has since set the opposite precedent:**
+   `canvas` and `table` (2026-07-16) landed as first-class kinds, each wired
+   through the kind↔extension bridge (`extForKind` / `kindForFile` in
+   `state/documents.ts`). Whichever way this goes, the file round-trip must be
+   answered per spec: what extension does a figure doc save/open as (`.mmd`,
+   `.dot`, `.vl.json`, …), and how does `.json` sniffing disambiguate a
+   Vega-Lite spec from a table body?
 2. **Where do figures live in the UI?** As their own Author documents (like
    `diagram`), *and/or* as inline fenced blocks inside a Markdown document
    (```` ```mermaid ````), rendered in the split preview? The fenced-block path
-   is the most paper/report-native and the most agent-native (GitHub-identical),
-   but needs a Markdown-renderer plug-in point. Likely **both**: fenced blocks in
-   Markdown + standalone figure docs sharing the same registry.
+   is the most paper/report-native and the most agent-native (GitHub-identical).
+   The plug-in point largely **already exists**: `ui/Markdown.tsx` is
+   react-markdown with a remark/rehype chain and component overrides
+   (rehype-highlight already intercepts fenced code) — a figure renderer is a
+   `code` component override, not new infrastructure. The real cost is that
+   there are **two markdown paths** (the react-markdown preview *and* the
+   `@milkdown/crepe` WYSIWYG editor), and fenced figures must behave in both.
+   Likely **both**: fenced blocks in Markdown + standalone figure docs sharing
+   the same registry.
 3. **Export targets.** SVG is free everywhere; is PNG rasterisation enough, or do
    we need PDF/PGF (which pushes toward the artifact pipeline)?
 4. **Scope of Phase A.** Confirm Mermaid + Graphviz + Vega-Lite as the first three
@@ -265,6 +317,18 @@ not a client render.
 5. **Artifact pipeline dependency.** Phase E needs the host-runner + a
    "figure job" contract; it is gated on the Windows/host-runner decisions in
    [author-agent-assist-and-diagrams.md](author-agent-assist-and-diagrams.md).
+   (The embed half — hub blob → `ArtifactViewer` kind-dispatch — already ships.)
+6. **ChartView vs Vega-Lite boundary.** [desktop-workbench-jobs.md](../plans/desktop-workbench-jobs.md)
+   (J5) commits to the in-house `ChartView` with "no charting library". Decide
+   the boundary explicitly: ChartView for ambient run-metric/JSON-artifact
+   rendering, Vega-Lite for authored publication figures (recommended) — or
+   revisit the J5 stance and converge on one.
+7. **Mobile parity.** The Flutter app renders math only (`flutter_math_fork`);
+   none of the JS renderers port to Flutter. Figure documents authored on
+   desktop will surface in mobile document/artifact views with no renderer —
+   decide the mobile story (server-side/host-rendered SVG fallback? WebView
+   rendering? explicit desktop-only for now?) before Phase A ships a format
+   mobile cannot display.
 
 ---
 

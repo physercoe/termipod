@@ -7,12 +7,22 @@
 #   - out/*.cjs         the esbuild'd main + preload (npm run build)
 #   - ../dist           the Vite frontend (npm run build in desktop/)
 #   - ../vault-wasm/pkg the wasm-pack crypto (vault-wasm CI job / wasm artifact)
-# Native addons (node-pty, @napi-rs/keyring) are ABI-rebuilt for Electron by
-# electron-builder's default npmRebuild and asarUnpacked so their .node loads.
+# Native addons (node-pty, @napi-rs/keyring) are asarUnpacked so their .node
+# loads. node-pty is ABI-rebuilt for Electron by an EXPLICIT workflow step, not
+# electron-builder's own rebuild (npmRebuild:false below) — the built-in
+# @electron/rebuild pass hung ~29min in "preparing" on whichever native module
+# it reached first (cpu-features, then node-pty), swallowing node-gyp's output.
+# The isolated step rebuilds only node-pty (verbose, time-boxed) so a stall is
+# visible and bounded; @napi-rs/keyring is N-API (ABI-stable prebuilt, no rebuild).
 
 appId: app.termipod.desktop # matches the Tauri identifier — keychain service + migration source
 productName: TermiPod
 copyright: © TermiPod contributors
+
+# Do NOT let electron-builder run its own @electron/rebuild — it hangs opaquely
+# in "preparing" (see the note above). The workflow rebuilds node-pty explicitly
+# before this step; here we only pack the already-correct .node.
+npmRebuild: false
 
 directories:
   output: release

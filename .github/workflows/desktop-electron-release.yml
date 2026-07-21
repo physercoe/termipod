@@ -129,16 +129,29 @@ jobs:
         run: npm ci
 
       # Drop ssh2's OPTIONAL native dep `cpu-features` (+ its build helper
-      # `buildcheck`) before packaging. @electron/rebuild rebuilds every native
-      # module it finds and hangs ~30min "preparing cpu-features" — it's the
-      # first module, so node-pty (the addon we DO need) is never reached. ssh2
-      # try/catches the require, so removing it just disables a CPU
-      # cipher-preference optimization. NOT `--omit=optional` on npm ci —
+      # `buildcheck`). ssh2 try/catches the require, so removing it just disables
+      # a CPU cipher-preference optimization — and it keeps the rebuild set to the
+      # one module that actually needs it. NOT `--omit=optional` on npm ci —
       # @napi-rs/keyring's platform binaries are optionalDependencies we need.
-      - name: Strip cpu-features (hangs @electron/rebuild)
+      - name: Strip cpu-features (unneeded native dep)
         working-directory: desktop/electron
         shell: bash
         run: rm -rf node_modules/cpu-features node_modules/buildcheck
+
+      # ABI-rebuild node-pty for the Electron runtime EXPLICITLY, instead of
+      # letting electron-builder do it (npmRebuild:false in electron-builder.yml).
+      # electron-builder's built-in @electron/rebuild hung ~29min in "preparing"
+      # on whichever native module came first, swallowing node-gyp's output until
+      # the job timeout. This isolates the rebuild to node-pty (the only addon
+      # that needs it — @napi-rs/keyring is ABI-stable N-API), makes node-gyp
+      # verbose, and time-boxes it so a stall fails fast WITH a diagnostic trail.
+      - name: Rebuild node-pty for Electron ABI
+        working-directory: desktop/electron
+        shell: bash
+        timeout-minutes: 12
+        env:
+          DEBUG: '@electron/rebuild'
+        run: npx --no-install electron-rebuild -f -o node-pty
 
       - name: Build shell bundle (esbuild)
         working-directory: desktop/electron

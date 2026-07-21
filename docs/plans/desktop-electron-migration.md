@@ -167,15 +167,40 @@ vault, library, documents, and draw.io intact; auto-update round-trips
 
 Now-deletable per-engine debt, each with a verification:
 
-| Workaround | Action |
-|---|---|
-| xterm canvas-only on Windows (#333) | re-enable WebGL ladder behind `shellKind()==='electron'`, keep context-loss fallback |
-| PDF blob-iframe avoidance | keep canvas pipeline (it's better), delete the WebView2 comments/guards |
-| `sizedSvg` WebKit shim + mermaid foreignObject risk | verify on Chromium; simplify or annotate as belt-and-braces |
-| custom confirm/prompt modals, two-step arm patterns | **keep** (better UX than native dialogs) — re-document rationale as house style, not engine bug |
-| `setPointerCapture` avoidance, clipboard-image best-effort, `crypto.randomUUID` fallbacks | re-test on Chromium; delete guards that no longer trigger (randomUUID works if the renderer origin is secure — decide `app://` custom scheme vs `file://` here) |
-| base64 IPC encodings (PTY/SSH/SFTP/blob/PCM) | switch to native `Uint8Array` transfer, family by family, behind the bridge |
-| OS file drag-drop (never worked under Tauri) | free win: wire Chromium file drops into Author/Read |
+| Workaround | Action | Status |
+|---|---|---|
+| xterm canvas-only on Windows (#333) | re-enable WebGL ladder behind `shellKind()==='electron'`, keep context-loss fallback | **DONE** — `17c8c575` (additive, Electron-gated; Tauri/browser unchanged) |
+| PDF blob-iframe avoidance | keep canvas pipeline (it's better), delete the WebView2 comments/guards | deferred (guard-delete — see note) |
+| `sizedSvg` WebKit shim + mermaid foreignObject risk | verify on Chromium; simplify or annotate as belt-and-braces | deferred (needs device verify) |
+| custom confirm/prompt modals, two-step arm patterns | **keep** (better UX than native dialogs) — re-document rationale as house style, not engine bug | keep (house style) |
+| `setPointerCapture` avoidance, clipboard-image best-effort, `crypto.randomUUID` fallbacks | re-test on Chromium; delete guards that no longer trigger (randomUUID works if the renderer origin is secure — decide `app://` custom scheme vs `file://` here) | deferred (guard-delete + device verify) |
+| base64 IPC encodings (PTY/SSH/SFTP/blob/PCM) | switch to native `Uint8Array` transfer, family by family, behind the bridge | PTY **already bytes** (M2 authored it fresh: `pty-data` emits a `Buffer`, renderer wraps `new Uint8Array`); SSH/SFTP/blob/PCM deferred (shared renderer path — needs bridge byte-negotiation, family-by-family) |
+| OS file drag-drop (never worked under Tauri) | free win: wire Chromium file drops into Author/Read | deferred (net-new feature — needs device verify) |
+
+**M4 execution status (2026-07-21).** M4 runs *after* the M3 cutover in the
+plan order, but the Windows-WebGL win (row 1) is a pure additive,
+`shellKind()==='electron'`-gated change with a robust fallback ladder (WebGL →
+canvas → DOM), so it lands now without touching the still-shipping Tauri build.
+The remaining rows split into three buckets, none of which is safe to land
+before the two M4 preconditions hold — **(a) the Tauri lane has retired** (M3
+§5 handoff), and **(b) Chromium behaviour is verified on a real device build**
+(this repo's CI has no interactive Electron run yet):
+
+- **Guard-deletions** (PDF blob-iframe, `setPointerCapture`, clipboard
+  try/catch, WebView2 dialog shims): the guards they'd remove are load-bearing
+  for the Tauri/WebView2 shell that *still ships*. Deleting them now would
+  regress the live product and cannot be verified headless. Gated on (a)+(b).
+- **base64→bytes IPC** (SSH/SFTP/blob/PCM): the renderer call path is shared
+  across shells, so byte transfer needs the bridge to negotiate per-shell
+  encoding (§7 row 4) — a family-by-family refactor, not a flag flip. PTY is
+  already bytes end-to-end (no wire change was needed — it was authored under
+  Electron in M2). Gated on (b) for throughput verification.
+- **Net-new affordances** (OS file drag-drop, `printToPDF`, native context
+  menus): additive Chromium capabilities with no Tauri equivalent, but each
+  needs UX integration + a device build to prove out. Gated on (b).
+
+House-style keeps (custom confirm/prompt modals, two-step arm, canvas PDF
+reading) are settled per §7's non-goals and need no code change.
 
 ## 7. Optimization register — what the engine swap makes cheaper
 

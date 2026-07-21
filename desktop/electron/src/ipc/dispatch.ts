@@ -26,6 +26,7 @@ import { voiceHandlers } from './voice';
 import { scriptHandlers } from './script';
 import { folderWebdavHandlers } from './sync/webdav';
 import { webdavZoteroHandlers } from './sync/webdav_zotero';
+import { s3Handlers } from './sync/s3';
 import { drawioHandlers } from '../drawio';
 
 export interface Ctx {
@@ -50,6 +51,7 @@ const handlers: Record<string, Handler> = {
   ...scriptHandlers,
   ...folderWebdavHandlers,
   ...webdavZoteroHandlers,
+  ...s3Handlers,
   ...drawioHandlers,
 };
 

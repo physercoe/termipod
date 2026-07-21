@@ -40,6 +40,9 @@ src/ipc/sync/zotero.ts  shared Zotero content-addressing (jszip + md5): zip/unzi
                    buildProp/parseProp, KEY enumeration. Tested (M2.5c)
 src/ipc/sync/webdav_zotero.ts Zotero-flat WebDAV backend: webdav_verify +
                    webdav_sync (zotero/<KEY>.zip + .prop, MD5-addressed) (M2.5c)
+src/ipc/sync/sigv4.ts  pure AWS SigV4 signer — validated vs aws4 (M2.5d)
+src/ipc/sync/s3.ts  S3 backend: s3_sync/verify (tree) + s3_zotero_sync —
+                   ListObjectsV2, path-style, SigV4-signed fetch (M2.5d)
 src/ipc/voice.ts   DashScope ASR WebSocket (ws): voice_open/send/finish/close (M2.3)
 src/ipc/script.ts  one-shot child runs (child_process): script_run +
                    local_agent_run — execFile, no shell (M2.4)
@@ -134,8 +137,14 @@ npm start          # esbuild → out/, then `electron .`
       mtime/diff hash ⇒ conflict). Shared Zotero helpers (`zotero.ts`, `jszip` +
       node `crypto` md5) tested: MD5 vs RFC-1321 vectors, zip round-trip,
       basename-only extraction (no traversal), KEY enumeration.
-- [ ] **M2.5d** S3 backend (`s3_sync`/`verify` + `s3_zotero_sync`) — SigV4
-      **validated vs a published AWS vector** · **M2.6** vault → WASM.
+- [x] **M2.5d** S3 backend (`s3.rs` → `s3.ts`) — `s3_sync` + `s3_sync_verify`
+      (tree) and `s3_zotero_sync`, ListObjectsV2 (paginated), path-style. The
+      hand-rolled **SigV4 signer** (`sigv4.ts`) is validated in `sigv4.test.ts`
+      against **`aws4`** (the canonical Node SigV4 lib, proven against live AWS) —
+      matching GET / encoded-path / query / body-hash cases on the minimal signed
+      header set. Completes M2.5.
+- [ ] **M2.6** vault → WASM (wasm-pack from `vault.rs`, byte-compat vs the Dart
+      vectors).
 
 > **Native addons need an Electron-ABI rebuild for the dev shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

@@ -73,6 +73,14 @@ function mergeEvents(a: Entity[], b: Entity[]): Entity[] {
   });
 }
 
+/// The navigation coordinate of a rendered row: the dense `session_ordinal` when
+/// present (session-scoped feed), else the per-agent `seq`. Within one feed this
+/// space is homogeneous, so a "nearest at-or-after" search is well-defined —
+/// whereas raw `seq` collides across a resumed session's agents and mis-targets.
+function rowCoord(ev: FeedEvent): number {
+  return ev.ord > 0 ? ev.ord : ev.seq;
+}
+
 /// Build the tool-pairing maps over the flat event feed: a tool_call folds its
 /// matching tool_result inline (joined on `tool_use_id`), and a standalone
 /// tool_result borrows its tool name back. `callIds` lets us hide the results
@@ -156,10 +164,12 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  // Seq to flash briefly after a jump (Insight jump / live stepper). An off-screen
-  // row in a virtual list isn't in the DOM to take a class, so we track it in
-  // state and apply it when the row renders.
-  const [flashSeq, setFlashSeq] = useState<number | null>(null);
+  // The event id to flash briefly after a jump (Insight jump / live stepper). An
+  // off-screen row in a virtual list isn't in the DOM to take a class, so we track
+  // it in state and apply it when the row renders. Keyed on the stable `id`, not
+  // `seq` — seq collides across a resumed session's agents, so a seq flash could
+  // light the wrong row.
+  const [flashId, setFlashId] = useState<string | null>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   // Scroll-to-latest pill (#332): while the user is scrolled up, count events
   // that arrive off-screen and offer a jump back to the live tail.
@@ -237,11 +247,18 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     queryFn: () => client!.getAgentDigest(agentId),
   });
 
+  // The turn index backing the Insight navigator. Session-scoped when we know the
+  // session (the ts-ordered UNION of the session's agents' turns), so a resumed
+  // session lists EVERY turn — the per-agent list only sees the current agent's,
+  // which is the other half of the "insight nav is broken after a resume" bug.
   const turnsQ = useQuery({
-    queryKey: ['agent-turns', agentId],
+    queryKey: ['turns', scope ?? `agent:${agentId}`],
     enabled: client !== null && mode === 'insight',
     refetchInterval: 10000,
-    queryFn: () => client!.listAgentTurns(agentId, { limit: 500 }),
+    queryFn: () =>
+      scope !== undefined
+        ? client!.listSessionTurns(scope, { limit: 500 })
+        : client!.listAgentTurns(agentId, { limit: 500 }),
   });
 
   // The agent's lifecycle status — for the running indicator + the composer's
@@ -354,7 +371,7 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // the row spacing.
   function feedItem(ev: FeedEvent): JSX.Element {
     return (
-      <div className={ev.seq === flashSeq ? 'feed-item ev-flash' : 'feed-item'}>
+      <div className={ev.id === flashId ? 'feed-item ev-flash' : 'feed-item'}>
         <div className="feed-measure">{renderCard(ev)}</div>
       </div>
     );
@@ -378,7 +395,7 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     () => feed.filter((ev) => !isFolded(ev) && !isHiddenInFeed(ev, verbose)),
     [feed, callIds, verbose],
   );
-  const matchSeqs = useMemo(() => liveData.map((ev) => ev.seq), [liveData]);
+  const matchCoords = useMemo(() => liveData.map((ev) => rowCoord(ev)), [liveData]);
 
   // Keep the live feed pinned to the last message while it settles. On a tab
   // switch this view remounts and Virtuoso re-measures the whole log over many
@@ -513,14 +530,16 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
 
   const turns = turnsQ.data ?? [];
 
-  // Jump the virtual list to a seq (Insight jump / live stepper). Off-screen rows
-  // aren't in the DOM, so we resolve the seq to an index in the active list and
-  // let Virtuoso scroll to it, then flash it once it's mounted.
-  function scrollToSeq(seq: number): void {
+  // Jump the virtual list to a navigation coordinate (Insight turn/error jump,
+  // live stepper). The coordinate is the dense `session_ordinal` in a session-
+  // scoped feed, else the per-agent `seq` — see `rowCoord`. Off-screen rows aren't
+  // in the DOM, so we resolve the coordinate to an index in the active list, let
+  // Virtuoso scroll to it, then flash it once it's mounted.
+  function scrollToCoord(target: number): void {
     const list = mode === 'insight' ? insightData : liveData;
-    let index = list.findIndex((ev) => ev.seq === seq);
+    let index = list.findIndex((ev) => rowCoord(ev) === target);
     if (index < 0) {
-      // No exact row — a turn's `start_seq` anchors to a turn.start marker
+      // No exact row — a turn's start anchor is a turn.start marker
       // (ALWAYS_HIDDEN, so never a visible row) or an event outside the filtered
       // set. Land on the nearest visible row AT OR AFTER the target, i.e. the
       // turn's first rendered event (mobile parity — insight_transcript.dart:1404).
@@ -528,9 +547,9 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
       // ("jumps to the same position").
       let best = Infinity;
       for (let i = 0; i < list.length; i++) {
-        const s = list[i].seq;
-        if (s >= seq && s < best) {
-          best = s;
+        const c = rowCoord(list[i]);
+        if (c >= target && c < best) {
+          best = c;
           index = i;
         }
       }
@@ -552,17 +571,18 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     /// converging on the true offset; the 1.4s flash below gives the user the
     /// orientation the smooth animation was providing.
     virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'auto' });
-    // Flash the row we actually landed on (may differ from the requested seq).
-    const landedSeq = list[index].seq;
-    setFlashSeq(landedSeq);
-    window.setTimeout(() => setFlashSeq((s) => (s === landedSeq ? null : s)), 1400);
+    // Flash the row we actually landed on (may differ from the requested target),
+    // keyed on its stable id (seq collides across a resumed session).
+    const landedId = list[index].id;
+    setFlashId(landedId);
+    window.setTimeout(() => setFlashId((s) => (s === landedId ? null : s)), 1400);
   }
 
   function step(delta: number): void {
-    if (matchSeqs.length === 0) return;
-    const next = Math.max(0, Math.min(matchSeqs.length - 1, matchIndex + delta));
+    if (matchCoords.length === 0) return;
+    const next = Math.max(0, Math.min(matchCoords.length - 1, matchIndex + delta));
     setMatchIndex(next);
-    scrollToSeq(matchSeqs[next]);
+    scrollToCoord(matchCoords[next]);
   }
 
   function setLensReset(l: FeedLens): void {
@@ -753,12 +773,12 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
             {lens !== 'all' && (
               <span className="feed-stepper">
                 <span className="muted small">
-                  {matchSeqs.length === 0 ? '0' : `${matchIndex + 1}/${matchSeqs.length}`} {t('tx.matched')}
+                  {matchCoords.length === 0 ? '0' : `${matchIndex + 1}/${matchCoords.length}`} {t('tx.matched')}
                 </span>
-                <button disabled={matchSeqs.length === 0} title={t('tx.prev')} onClick={() => step(-1)}>
+                <button disabled={matchCoords.length === 0} title={t('tx.prev')} onClick={() => step(-1)}>
                   <Icon name="chevron-up" size={14} />
                 </button>
-                <button disabled={matchSeqs.length === 0} title={t('tx.next')} onClick={() => step(1)}>
+                <button disabled={matchCoords.length === 0} title={t('tx.next')} onClick={() => step(1)}>
                   <Icon name="chevron-down" size={14} />
                 </button>
                 <button title={t('tx.clear')} onClick={() => setLensReset('all')}>
@@ -869,7 +889,12 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
                   <div className="muted region-pad">{t('insight.noTurns')}</div>
                 ) : (
                   turns.map((tn, i) => {
+                    // Jump anchor: the dense `start_ordinal` (session_ordinal
+                    // space, ADR-042), falling back to the per-agent `start_seq`
+                    // for pre-migration digests (mobile insight_transcript.dart:753).
+                    const startOrd = num(tn, 'start_ordinal') ?? 0;
                     const startSeq = num(tn, 'start_seq');
+                    const anchor = startOrd > 0 ? startOrd : startSeq;
                     const status = str(tn, 'status') ?? (tn['open'] === true ? 'open' : 'done');
                     const errs = num(tn, 'error_count') ?? 0;
                     const toolN = num(tn, 'tool_count') ?? 0;
@@ -879,8 +904,8 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
                       <button
                         key={str(tn, 'turn_id') ?? String(i)}
                         className="insight-row"
-                        disabled={startSeq === undefined}
-                        onClick={() => startSeq !== undefined && scrollToSeq(startSeq)}
+                        disabled={anchor === undefined}
+                        onClick={() => anchor !== undefined && scrollToCoord(anchor)}
                       >
                         <span className={`dot ${errs > 0 ? 'stopped' : status === 'open' ? 'running' : 'muted'}`} />
                         <span className="insight-row-title">
@@ -908,11 +933,11 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
                 <div className="muted region-pad">{t('insight.noErrors')}</div>
               ) : (
                 errorRows.map((ev) => (
-                  <button key={ev.id} className="insight-row" onClick={() => scrollToSeq(ev.seq)}>
+                  <button key={ev.id} className="insight-row" onClick={() => scrollToCoord(rowCoord(ev))}>
                     <span className="dot stopped" />
                     <span className="insight-row-title">{errorLabel(ev, nameById)}</span>
                     <span className="spacer" />
-                    <span className="muted small mono">#{ev.seq}</span>
+                    <span className="muted small mono">#{ev.ord > 0 ? ev.ord : ev.seq}</span>
                   </button>
                 ))
               )}

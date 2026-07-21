@@ -24,6 +24,11 @@ import { arr, bool, num, obj, str, type Entity } from '../hub/types';
 export interface FeedEvent {
   id: string;
   seq: number;
+  /// The dense, session-unique position (`session_ordinal`, ADR-042). 0 for
+  /// per-agent / pre-migration rows. Unlike `seq` (per-agent, so it collides
+  /// across a resumed session's agents) this is the correct navigation anchor
+  /// for a session-scoped feed.
+  ord: number;
   kind: string;
   producer: string;
   ts?: string;
@@ -34,6 +39,7 @@ export function toFeedEvent(e: Entity, fallbackIdx: number): FeedEvent {
   return {
     id: str(e, 'id') ?? String(num(e, 'seq') ?? fallbackIdx),
     seq: num(e, 'seq') ?? 0,
+    ord: num(e, 'session_ordinal') ?? 0,
     kind: str(e, 'kind') ?? str(e, 'type') ?? 'event',
     producer: str(e, 'producer') ?? '',
     ts: str(e, 'ts'),

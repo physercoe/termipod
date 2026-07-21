@@ -45,9 +45,11 @@ export function Composer({
   /// message. Omit for an ephemeral composer.
   draftKey?: string;
   /// The agent is actively generating a turn (feed-derived, not lifecycle status)
-  /// — with an empty draft, the primary action becomes Stop (#332). Typing a
-  /// message swaps it back to Send (you can still queue input).
+  /// — with an empty draft, the primary action becomes Cancel (interrupts the
+  /// current turn; parity with mobile's compose Cancel, #332). Typing a message
+  /// swaps it back to Send (you can still queue input).
   generating?: boolean;
+  /// Interrupt the in-flight turn (the Cancel button). NOT a lifecycle stop.
   onStop?: () => void;
   /// Push text into the draft (e.g. a quoted message). The `id` bump lets the
   /// same text re-inject; each new id appends once.
@@ -369,8 +371,8 @@ export function Composer({
           <button
             className="primary composer-send composer-stop"
             onClick={() => onStop?.()}
-            title={t('tx.stop')}
-            aria-label={t('tx.stop')}
+            title={t('tx.cancel')}
+            aria-label={t('tx.cancel')}
           >
             <Icon name="square" size={14} />
           </button>

@@ -227,6 +227,19 @@ export class HubClient {
     })) as Entity;
     return asArray(out?.turns);
   }
+  /** Session-scoped turn index (`handleListSessionTurns` → `{session_id,
+   * agent_ids, turns}`) — the ts-ordered UNION of the session's agents' turns,
+   * so a resumed session's navigator shows every turn, not just the current
+   * agent's. Each row carries `start_ordinal` (the dense `session_ordinal`
+   * anchor), which the transcript jumps by (per-agent `start_seq` collides
+   * across the resume). Cursor is `after_ts`. */
+  async listSessionTurns(sessionId: string, opts: { afterTs?: string; limit?: number } = {}): Promise<Entity[]> {
+    const out = (await this.transport.get(this.transport.team(`/sessions/${sessionId}/turns`), {
+      after_ts: opts.afterTs,
+      limit: opts.limit !== undefined ? String(opts.limit) : undefined,
+    })) as Entity;
+    return asArray(out?.turns);
+  }
   /** Send director text (+ optional multimodal attachments) into an agent. Flat
    * `{kind:'text', body, images?, pdfs?, audios?, videos?}` per the hub
    * (handlers_agent_input.go). Each attachment's `data` is RAW base64 (no

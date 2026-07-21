@@ -25,6 +25,7 @@ import { sshKeyHandlers } from './ssh_keys';
 import { voiceHandlers } from './voice';
 import { scriptHandlers } from './script';
 import { folderWebdavHandlers } from './sync/webdav';
+import { webdavZoteroHandlers } from './sync/webdav_zotero';
 import { drawioHandlers } from '../drawio';
 
 export interface Ctx {
@@ -48,6 +49,7 @@ const handlers: Record<string, Handler> = {
   ...voiceHandlers,
   ...scriptHandlers,
   ...folderWebdavHandlers,
+  ...webdavZoteroHandlers,
   ...drawioHandlers,
 };
 

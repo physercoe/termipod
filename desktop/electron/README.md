@@ -36,6 +36,10 @@ src/ipc/sync/core.ts  shared sync decision core (no HTTP): decideBoth (never-
 src/ipc/sync/webdav.ts folder-tree WebDAV backend (fetch): folder_webdav_verify
                    + folder_webdav_sync — PROPFIND/MKCOL/PUT/GET (M2.5b).
                    webdav_url.ts holds the pure, tested URL helpers
+src/ipc/sync/zotero.ts  shared Zotero content-addressing (jszip + md5): zip/unzip,
+                   buildProp/parseProp, KEY enumeration. Tested (M2.5c)
+src/ipc/sync/webdav_zotero.ts Zotero-flat WebDAV backend: webdav_verify +
+                   webdav_sync (zotero/<KEY>.zip + .prop, MD5-addressed) (M2.5c)
 src/ipc/voice.ts   DashScope ASR WebSocket (ws): voice_open/send/finish/close (M2.3)
 src/ipc/script.ts  one-shot child runs (child_process): script_run +
                    local_agent_run — execFile, no shell (M2.4)
@@ -124,8 +128,14 @@ npm start          # esbuild → out/, then `electron .`
       download. Pure URL helpers split to `webdav_url.ts` + tested (percent-
       encoding is interop-critical). Proxy arg accepted but not yet applied
       (Node fetch has no per-request proxy — deferred, as M1.5 drawio).
-- [ ] **M2.5c** Zotero backends (WebDAV + S3, need zip + md5) · **M2.5d** S3 tree
-      backend (SigV4) · **M2.6** vault → WASM (wasm-pack from `vault.rs`).
+- [x] **M2.5c** Zotero-flat WebDAV backend (`webdav.rs` → `webdav_zotero.ts`) —
+      `webdav_verify` + `webdav_sync`, the `zotero/<KEY>.zip` + `.prop` layout,
+      MD5-content-addressed (equal hash ⇒ skip; else newest mtime; same
+      mtime/diff hash ⇒ conflict). Shared Zotero helpers (`zotero.ts`, `jszip` +
+      node `crypto` md5) tested: MD5 vs RFC-1321 vectors, zip round-trip,
+      basename-only extraction (no traversal), KEY enumeration.
+- [ ] **M2.5d** S3 backend (`s3_sync`/`verify` + `s3_zotero_sync`) — SigV4
+      **validated vs a published AWS vector** · **M2.6** vault → WASM.
 
 > **Native addons need an Electron-ABI rebuild for the dev shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

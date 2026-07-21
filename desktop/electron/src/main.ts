@@ -24,6 +24,12 @@ import { initEvents } from './events';
 // The frontend build. In dev (`electron .` from desktop/electron) this resolves
 // to desktop/dist; packaging (M3) will point it at the asar-embedded copy.
 const DIST = process.env.TERMIPOD_DIST ?? path.join(__dirname, '..', '..', 'dist');
+// The app icon (copy of src-tauri/icons/icon.png — keep in sync). Under
+// `electron .` the dock/taskbar shows the Electron binary's default icon, not
+// ours: the BrowserWindow `icon` covers Windows/Linux, and on macOS the dock
+// icon must be set at runtime via app.dock.setIcon (the window option is
+// ignored there). M3 packaging bakes the .icns/.ico into the bundle instead.
+const ICON = path.join(__dirname, '..', 'assets', 'icon.png');
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -34,6 +40,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: 'TermiPod — Desktop Workbench',
+    icon: ICON,
     backgroundColor: '#0b0b10',
     show: false, // paint-free first frame; reveal on ready-to-show
     webPreferences: {
@@ -99,6 +106,9 @@ if (!app.requestSingleInstanceLock()) {
     // store (ADR-055 M1.3). Fire-and-forget: the window paints now, the first
     // secret access awaits it.
     startKeychainMigration();
+    // macOS ignores the window icon; the dock icon is the app bundle's, which
+    // under `electron .` is Electron's default — override it at runtime.
+    if (process.platform === 'darwin') app.dock?.setIcon(ICON);
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -18,6 +18,7 @@ src/preload.ts     sandboxed bridge → window.__ELECTRON_BRIDGE__ {invoke, list
 src/appscheme.ts   app:// privileged scheme serving ../dist (secure origin + CSP)
 src/events.ts      main→renderer event fan-out + subscribe-gate bookkeeping
 src/ipc/dispatch.ts  command handler map = the allowlist (successor of capabilities/default.json)
+assets/icon.png    app icon for the dev dock/window (copy of src-tauri/icons/icon.png)
 src/ipc/platform.ts  platform_os / os_build_number / open_external / reveal_path / …
 src/ipc/migration.ts migration_read (own userData, falling back to the Tauri
                    app-data dir for the one-time cross-install handoff, #353) /

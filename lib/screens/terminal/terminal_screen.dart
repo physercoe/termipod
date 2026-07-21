@@ -618,8 +618,24 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (!mounted || _isDisposed) return;
 
     _lastSuccessfulPoll = DateTime.now();
-    if (_isConnectionStale) {
-      setState(() => _isConnectionStale = false);
+    // Transport is back and, when present, the backend is rebound — so clear
+    // the screen-local `_connectionError` that (alongside `sshState.hasError`)
+    // gates the blocking error overlay. The provider clears its own
+    // `error`/`hasError` on a successful `_doReconnect`, but `_connectionError`
+    // — set when the initial `_connectAndSetup` threw (e.g. a transient
+    // "client not found" while the tmux backend raced a disposed client) — is
+    // otherwise reset only inside `_connectAndSetup`, which the recovery paths
+    // landing here (auto-reconnect AND the overlay's own "Retry Now", both via
+    // `_doReconnect` → `onReconnectSuccess`) never call. Without this the opaque
+    // overlay lingers over a live session and blocks the keyboard, undismissable.
+    // Guard on a live backend so we never hide the overlay over a terminal whose
+    // backend genuinely failed to come up.
+    final clearError = _connectionError != null && backend != null;
+    if (_isConnectionStale || clearError) {
+      setState(() {
+        _isConnectionStale = false;
+        if (clearError) _connectionError = null;
+      });
     }
 
     backend?.resumePolling();

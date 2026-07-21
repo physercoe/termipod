@@ -12,6 +12,7 @@ mod foldersync;
 mod keychain;
 mod local_agent;
 mod localfs;
+mod migration;
 mod net;
 mod pty;
 mod s3;
@@ -716,6 +717,8 @@ pub fn run() {
             reveal_path,
             open_browser_window,
             frame_check,
+            migration::migration_export,
+            migration::migration_read,
             storage::storage_pick_folder,
             storage::storage_reindex,
             storage::storage_read,

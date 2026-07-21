@@ -41,6 +41,29 @@ jobs:
       - name: Design-token ratchet (#318 — no new hex / --color-* leaks, no phantom tokens)
         run: bash ../scripts/lint-desktop-tokens.sh
 
+  electron-shell:
+    # ADR-055 M1: the Electron shell is a self-contained package under
+    # desktop/electron/. Gate it (typecheck + esbuild bundle) without pulling the
+    # ~100 MB Electron binary — typecheck/build need only the bundled types.
+    name: Electron shell typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop/electron
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/electron/package-lock.json
+      - name: Install (skip Electron binary — typecheck/build only)
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run typecheck
+      - run: npm run build
+
   tauri:
     name: Tauri Rust compile
     runs-on: ubuntu-latest

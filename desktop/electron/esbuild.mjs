@@ -13,10 +13,10 @@ const common = {
   format: 'cjs',
   // `electron` is the runtime; `@napi-rs/keyring` and `node-pty` are native
   // (.node) addons that can't be bundled (electron-builder asarUnpacks +
-  // ABI-rebuilds them in M3); `ws` is pure JS but has optional native deps
-  // (bufferutil/utf-8-validate) best left unbundled. All resolve from
-  // node_modules at runtime.
-  external: ['electron', '@napi-rs/keyring', 'node-pty', 'ws'],
+  // ABI-rebuilds them in M3); `ws` and `ssh2` are pure JS but pull optional
+  // native deps (bufferutil/utf-8-validate, cpu-features) best left unbundled.
+  // All resolve from node_modules at runtime.
+  external: ['electron', '@napi-rs/keyring', 'node-pty', 'ws', 'ssh2'],
   sourcemap: true,
   logLevel: 'info',
 };

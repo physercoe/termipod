@@ -25,6 +25,9 @@ src/ipc/migration.ts migration_read (own userData, falling back to the Tauri
                    migration_export (state-v1.json)
 src/ipc/pty.ts     local PTY (node-pty): pty_open/start/write/resize/close —
                    JS-buffered subscribe-gate + login-shell PATH recovery (M2.1)
+src/ipc/ssh.ts     direct SSH + SFTP (ssh2): ssh_connect/duplicate/exec/write/
+                   resize/close + sftp_list/read/write — TOFU host-key pinning,
+                   shared-connection multiplexing, connect phases (M2.2a)
 src/ipc/voice.ts   DashScope ASR WebSocket (ws): voice_open/send/finish/close (M2.3)
 src/ipc/script.ts  one-shot child runs (child_process): script_run +
                    local_agent_run — execFile, no shell (M2.4)
@@ -85,9 +88,19 @@ npm start          # esbuild → out/, then `electron .`
       + interpreter, 120s cap, output clamp) and `local_agent_run` (argv-safe
       `claude -p`, **no** wall-clock cap, matching `local_agent.rs`). `execFile`
       (no shell) so nothing is interpolated.
-- [ ] **M2.2** SSH/SFTP (`ssh2`) · **M2.5** sync engines (WebDAV/folder/S3,
-      under a fixture test suite) · **M2.6** vault → WASM (wasm-pack from
-      `vault.rs`, byte-compat).
+- [x] **M2.2a** SSH transport + SFTP (`ssh2`) — `ssh_connect`/`duplicate`/`exec`/
+      `write`/`resize`/`close` + `sftp_list`/`read`/`write`, ported from `ssh.rs`.
+      One `ssh2.Client` (one handshake) backs many shell channels (duplicate/
+      exec/SFTP share it; ref-counted end). TOFU host-key pinning in the
+      safeStorage store — **not** migrated from the Tauri build (russh vs ssh2
+      serialize keys differently → a Tauri pin can't be compared without
+      spuriously rejecting a known host, so Electron re-TOFUs once per host at
+      cutover). `ssh-data` carries raw channel Buffers. Device-gated: real
+      handshake/auth/SFTP against a live server.
+- [ ] **M2.2b** SSH key store (`ssh_parse_key` / `ssh_generate_key`) — ed25519
+      OpenSSH-PEM keygen needs a vetted crypto lib · **M2.5** sync engines
+      (WebDAV/folder/S3, under a fixture test suite) · **M2.6** vault → WASM
+      (wasm-pack from `vault.rs`, byte-compat).
 
 > **Native addons need an Electron-ABI rebuild for the dev shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

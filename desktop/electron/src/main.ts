@@ -20,6 +20,7 @@ import { startKeychainMigration } from './ipc/keychain';
 import { dispatch, isAllowed } from './ipc/dispatch';
 import { isSafeExternal } from './ipc/platform';
 import { disposeAllPtys } from './ipc/pty';
+import { disposeAllSsh } from './ipc/ssh';
 import { initEvents } from './events';
 
 // The frontend build. In dev (`electron .` from desktop/electron) this resolves
@@ -116,8 +117,12 @@ if (!app.requestSingleInstanceLock()) {
     });
   });
 
-  // Kill any live local shells so quitting never orphans a child process.
-  app.on('before-quit', () => disposeAllPtys());
+  // Kill any live local shells / SSH connections so quitting never orphans a
+  // child process or leaves a dangling socket.
+  app.on('before-quit', () => {
+    disposeAllPtys();
+    disposeAllSsh();
+  });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

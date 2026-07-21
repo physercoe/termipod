@@ -129,6 +129,24 @@ async function ready(): Promise<Record<string, string>> {
   return loadStore();
 }
 
+/// Pinned-value storage for in-process use by ssh.ts's TOFU host-key check
+/// (ADR-055 M2.2) — the Electron analogue of keychain.rs `pin_get`/`pin_set`.
+/// Same safeStorage file store, but WITHOUT the lazy Tauri-migration fallback
+/// that `keychain_get` uses: a Tauri-era host-key pin is in russh's key-string
+/// format, which does not compare equal to ssh2's serialization, so migrating it
+/// would spuriously reject a legitimate known host. Electron therefore starts
+/// these pins fresh — a one-time TOFU re-pin per host at cutover (see ssh.ts).
+export async function pinGet(key: string): Promise<string | null> {
+  const s = await loadStore();
+  const b = s[key];
+  return b !== undefined ? decrypt(b) : null;
+}
+export async function pinSet(key: string, value: string): Promise<void> {
+  const s = await loadStore();
+  s[key] = encrypt(value);
+  await saveStore();
+}
+
 export const keychainHandlers: Record<string, Handler> = {
   // File store, no Credential Manager byte cap → persist.ts must not chunk.
   keychain_is_windows: () => false,

@@ -12,8 +12,11 @@
 ///   updater_install  → quitAndInstall (relaunches into the new version)
 ///   app_version      → the running app version (for the "current" label)
 ///
-/// The GitHub-release feed is baked into `app-update.yml` from electron-builder's
-/// `publish` config. Auto-download is off so the UI drives (and shows progress);
+/// The feed is baked into `app-update.yml` from electron-builder's `publish`
+/// config: a `generic` URL at the rolling `electron-latest` GitHub release
+/// (NOT the github provider — that resolves via `releases/latest`, which the
+/// mobile lane owns in this shared repo; see electron-builder.yml / the release
+/// workflow). Auto-download is off so the UI drives (and shows progress);
 /// checks/downloads are no-ops off a packaged build (electron-updater refuses to
 /// run unpacked, and dev has no feed).
 import { app } from 'electron';
@@ -40,10 +43,25 @@ async function autoUpdater(): Promise<AutoUpdater> {
       // the user confirms the restart — no silent background update.
       au.autoDownload = false;
       au.autoInstallOnAppQuit = false;
+      // The feed's assets live on GitHub's S3-backed release storage, which
+      // rejects the multi-range requests differential download needs — skip
+      // straight to full downloads instead of failing over noisily.
+      au.disableDifferentialDownload = true;
       return au;
     });
   }
   return auP;
+}
+
+/// Route updater traffic through the user's configured proxy (plan §5 —
+/// carried over from the Tauri plugin's `CheckOptions.proxy`; the renderer
+/// passes `proxyForConnection('update')`). electron-updater fetches through its
+/// own session (`netSession`), so the proxy is applied there; with no proxy
+/// configured, restore system proxy resolution (the session default) rather
+/// than leaving a previously-set proxy sticky.
+async function applyProxy(au: AutoUpdater, proxy: unknown): Promise<void> {
+  const rules = typeof proxy === 'string' && proxy !== '' ? proxy : null;
+  await au.netSession.setProxy(rules === null ? { mode: 'system' } : { proxyRules: rules });
 }
 
 /// electron-updater's `releaseNotes` is `string | {version,note}[] | null`.
@@ -61,9 +79,10 @@ function notesToString(notes: unknown): string {
 export const updaterHandlers: Record<string, Handler> = {
   app_version: (): string => app.getVersion(),
 
-  updater_check: async (): Promise<{ version: string; notes: string } | null> => {
+  updater_check: async (args): Promise<{ version: string; notes: string } | null> => {
     if (!app.isPackaged) return null; // electron-updater refuses to run unpacked
     const au = await autoUpdater();
+    await applyProxy(au, args.proxy);
     const result = await au.checkForUpdates();
     if (result === null || result === undefined) return null;
     const info = result.updateInfo;
@@ -80,9 +99,10 @@ export const updaterHandlers: Record<string, Handler> = {
   // Download the pending update, streaming progress to the renderer as
   // `updater:progress` {total, transferred, delta, percent}. Resolves once the
   // bytes are on disk (the renderer then calls updater_install).
-  updater_download: async (_args, ctx): Promise<boolean> => {
+  updater_download: async (args, ctx): Promise<boolean> => {
     if (!app.isPackaged) throw new Error('updater: not available in a dev build');
     const au = await autoUpdater();
+    await applyProxy(au, args.proxy);
     let last = 0;
     const onProgress = (p: any): void => {
       const transferred = Number(p?.transferred ?? 0);

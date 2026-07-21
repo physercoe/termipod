@@ -1,23 +1,51 @@
 name: Desktop Electron Release
 
-# ADR-055 M3.1 packaging gate. Builds the Electron shell into installers for the
-# three desktop OSes. There is no local Electron/native toolchain, so — like
-# desktop-release.yml does for Tauri — CI is the packaging gate. Run manually
-# (Actions ▸ Desktop Electron Release ▸ Run workflow) or by pushing an
-# `electron-v*` tag. Installers upload as run artifacts; a tag also publishes a
-# GitHub release (the electron-updater feed — M3.2).
+# ADR-055 M3.1/M3.4 packaging + release gate. Builds the Electron shell into
+# installers for the three desktop OSes. There is no local Electron/native
+# toolchain, so — like desktop-release.yml does for Tauri — CI is the packaging
+# gate.
+#
+# Release/tag scheme (M3.4 — this repo hosts THREE release lanes and GitHub's
+# `releases/latest` belongs to the mobile lane, whose in-app checker reads it):
+#   - mobile:  `v*` tags, published releases — own `releases/latest`.
+#   - Tauri:   `desktop-v*` tags (retiring after cutover).
+#   - Electron: `electron-v*` tags. The release is created ON the pushed tag
+#     (never a new tag — a new `v*` tag would fire the mobile workflows) and is
+#     marked PRERELEASE so it can never capture `releases/latest` from the
+#     mobile checker (or the Tauri updater during the overlap).
+# The auto-update feed is therefore NOT the GitHub provider (it resolves via
+# `releases/latest`): packaged apps poll the `generic` feed at
+# `releases/download/electron-latest/` — a rolling prerelease that the
+# `promote` dispatch below points at a verified version. Promotion IS the
+# go-live switch.
+#
+# Flows:
+#   - push `electron-v<version>` tag  → build all OSes, create/refresh the
+#     prerelease `electron-v<version>` with installers + latest*.yml.
+#   - Run workflow (no input)         → build only, artifacts on the run.
+#   - Run workflow, promote=<version> → copy that release's assets onto the
+#     rolling `electron-latest` feed release (go live; no rebuild).
 #
 # Signing/notarization are supplied by repo secrets when present (CSC_LINK /
-# CSC_KEY_PASSWORD for Windows+mac certs, APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD
+# CSC_KEY_PASSWORD for the macOS cert, WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD for
+# the — different — Windows cert, APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD
 # / APPLE_TEAM_ID for notarization). Absent, the build still produces unsigned
 # installers — enough to gate the pipeline; signed builds are the cutover
 # prerequisite (plan §5, "start signing at M1").
 
 on:
   workflow_dispatch:
+    inputs:
+      promote:
+        description: 'Version to promote to the electron-latest update feed (e.g. 0.3.87). Leave empty to just build.'
+        required: false
+        default: ''
   push:
     tags:
       - 'electron-v*'
+
+permissions:
+  contents: write # create releases + upload assets with GITHUB_TOKEN
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -28,6 +56,7 @@ jobs:
   # wasm-pack on all three packaging runners.
   wasm:
     name: Build vault WASM
+    if: inputs.promote == ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +77,7 @@ jobs:
   bundle:
     name: Bundle (${{ matrix.label }})
     needs: wasm
+    if: inputs.promote == ''
     strategy:
       fail-fast: false
       matrix:
@@ -112,15 +142,13 @@ jobs:
           node -e "const f='./desktop/electron/package.json',p=require(f);p.version='$V';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
           echo "packaged version = $V"
 
-      # On an electron-v* tag, publish to a DRAFT GitHub release (electron-builder
-      # default) — installers + the electron-updater feed (latest*.yml). The
-      # maintainer reviews + publishes, which is the cutover (plan §5). Manual
-      # dispatch just builds (--publish never).
+      # Publishing is done by the `release` job below (gh CLI on the pushed
+      # tag), NEVER by electron-builder — its GitHub publisher would create a
+      # `v<version>` tag, which is the mobile lanes' trigger namespace.
       - name: Package (electron-builder, unsigned unless secrets present)
         working-directory: desktop/electron
-        run: npx electron-builder ${{ matrix.builder-flag }} --publish ${{ startsWith(github.ref, 'refs/tags/electron-v') && 'always' || 'never' }}
+        run: npx electron-builder ${{ matrix.builder-flag }} --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Verbose so a hang leaves a diagnostic trail before the job timeout.
           DEBUG: electron-builder
           # Without a cert, DON'T let electron-builder probe the macOS keychain
@@ -128,8 +156,12 @@ jobs:
           # When CSC_LINK is set (a real cert), auto-discovery is irrelevant.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           # Present only when the maintainer has configured signing:
+          # CSC_LINK is the macOS cert; the Windows Authenticode cert is a
+          # different file, read from the WIN_-prefixed pair on the win runner.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -145,34 +177,60 @@ jobs:
             desktop/electron/release/*.dmg
             desktop/electron/release/*.zip
             desktop/electron/release/*.exe
+            desktop/electron/release/*.blockmap
             desktop/electron/release/latest*.yml
 
-  # The Tauri→Electron handoff manifest (M3.4): published beside the updater feed
-  # so the final Tauri build offers the Electron installer as a download. Tag
-  # builds only; best-effort attach to the release electron-builder created (the
-  # runbook covers manual attach if the draft isn't addressable yet).
-  handoff:
-    name: Handoff manifest
+  # On an electron-v* tag: gather the three OS bundles into a PRERELEASE GitHub
+  # release on the pushed tag. Prerelease + existing tag are both load-bearing —
+  # see the header comment. The maintainer verifies these installers, then runs
+  # the `promote` dispatch to go live.
+  release:
+    name: Create prerelease on the tag
     needs: bundle
     if: startsWith(github.ref, 'refs/tags/electron-v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 22
-      - name: Generate handoff.json
-        run: |
-          V=$(node -p "require('./desktop/package.json').version")
-          node desktop/electron/scripts/gen-handoff.mjs "$V" handoff.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: handoff-manifest
-          path: handoff.json
-      - name: Attach to the release (best-effort)
+          pattern: termipod-electron-*
+          path: assets
+          merge-multiple: true
+      - name: Create/refresh the prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TAG='${{ github.ref_name }}'
           V=$(node -p "require('./desktop/package.json').version")
-          gh release upload "v$V" handoff.json --clobber \
-            || echo "release v$V not addressable yet (likely still a draft) — attach handoff.json manually when publishing"
+          gh release create "$TAG" --prerelease --verify-tag \
+            --title "TermiPod Desktop (Electron) $V" \
+            --notes "Electron desktop build $V. Not the update feed — promote to \`electron-latest\` to go live (see desktop/electron/README.md)." \
+            || echo "release $TAG exists — refreshing assets"
+          gh release upload "$TAG" assets/* --clobber
+
+  # Manual go-live: copy a verified release's assets onto the rolling
+  # `electron-latest` feed release that packaged apps poll (the `generic`
+  # publish URL in electron-builder.yml). Old assets are removed first so the
+  # feed only ever holds one version.
+  promote:
+    name: Promote ${{ inputs.promote }} to the update feed
+    if: inputs.promote != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Promote to electron-latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          P='${{ inputs.promote }}'
+          gh release download "electron-v$P" --dir assets
+          ls -l assets
+          gh release create electron-latest --prerelease \
+            --title 'Electron update feed (rolling)' \
+            --notes 'Rolling electron-updater feed — assets are replaced by the promote job. Do not delete; packaged apps poll releases/download/electron-latest/.' \
+            || true
+          for a in $(gh release view electron-latest --json assets -q '.assets[].name'); do
+            gh release delete-asset electron-latest "$a" -y
+          done
+          gh release upload electron-latest assets/* --clobber
+          echo "electron-latest now serves $P"

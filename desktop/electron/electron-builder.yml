@@ -45,19 +45,26 @@ extraResources:
   - from: ../vault-wasm/pkg
     to: vault-wasm/pkg
 
-# electron-updater manifests (M3.2 wires the client); provider is GitHub Releases
-# on physercoe/termipod, same repo the Tauri updater reads.
+# electron-updater feed (M3.2/M3.4). NOT the GitHub provider: that resolves the
+# update via GitHub's `releases/latest`, which in this shared repo belongs to
+# the mobile lane (its in-app checker reads it; mobile `v*` releases own it).
+# Instead the client polls a fixed `generic` URL — a rolling prerelease named
+# `electron-latest` whose assets (latest*.yml + installers) the release
+# workflow's `promote` job points at a verified version. This block is baked
+# into the packaged app-update.yml, so it must match that workflow.
 publish:
-  provider: github
-  owner: physercoe
-  repo: termipod
+  provider: generic
+  url: https://github.com/physercoe/termipod/releases/download/electron-latest
 
 mac:
   category: public.app-category.developer-tools
   icon: ../src-tauri/icons/icon.icns
-  # Deterministic, space-free names so the handoff manifest + updater feed URLs
-  # are predictable (M3.4). Single-arch per OS today; revisit if arch coverage
-  # grows (a fixed name would collide across arches).
+  # Deterministic, space-free names so the updater feed URLs are predictable
+  # (M3.4). Single-arch per OS; macOS is arm64-only BY DECISION (2026-07-21):
+  # the Intel-Mac population is zero, so plan §5's universal dmg was dropped
+  # (universal would also need both arches of @napi-rs/keyring's per-arch
+  # optionalDependencies force-installed). Revisit only if an Intel user shows
+  # up (a fixed name would collide across arches).
   artifactName: ${productName}-${version}-mac.${ext}
   target:
     - dmg

@@ -144,6 +144,25 @@ vectors.
 vault, library, documents, and draw.io intact; auto-update round-trips
 (N → N+1) on all three OSes; old Tauri build updates into the Electron build.
 
+**Cutover decisions (2026-07-21, at M3 review):**
+
+- **Targets trimmed:** NSIS / dmg / AppImage+deb (msi and rpm dropped — no
+  known demand). **macOS is arm64-only**: the Intel-Mac population is zero, so
+  the universal dmg is dropped (universal would also require force-installing
+  both arches of `@napi-rs/keyring`'s per-arch optionalDependencies).
+- **Release/tag scheme:** the repo's `releases/latest` belongs to the mobile
+  lane (its in-app checker reads it via the GitHub API), so the Electron lane
+  avoids it entirely: releases are **prereleases on the pushed `electron-v*`
+  tag** (electron-builder's own GitHub publisher would create `v<version>`
+  tags — the mobile workflows' trigger namespace), and packaged apps poll an
+  electron-updater **`generic` feed** at the rolling `electron-latest`
+  release, advanced by the release workflow's `promote` dispatch. Promotion is
+  the go-live switch (replacing the draft-publish gate).
+- **Handoff prompt dropped:** `handoff.json`'s URL (shipped in Tauri builds
+  since M0.3) is baked to `releases/latest`, which mobile owns, so the prompt
+  can never fire; the Tauri install base is small enough to migrate by manual
+  download from the releases page. `checkHandoff()` stays dormant.
+
 ## 6. M4 — Chromium dividend (workaround paydown)
 
 Now-deletable per-engine debt, each with a verification:

@@ -34,7 +34,9 @@ export async function appVersion(): Promise<string> {
 /// Build the Electron-side `Update` — the same shape `UpdateSection` consumes
 /// from the Tauri plugin. `downloadAndInstall` drives the main-process download,
 /// forwards progress as the plugin's `DownloadEvent`s, then quits-and-installs.
-function electronUpdate(version: string, notes: string): Update {
+/// The proxy from check time rides along to the download, matching the Tauri
+/// plugin (its `Update` keeps the `CheckOptions` proxy for the download).
+function electronUpdate(version: string, notes: string, proxy: string | null): Update {
   const downloadAndInstall = async (onEvent?: (e: DownloadEvent) => void): Promise<void> => {
     let started = false;
     const un = await listen<{ total: number; delta: number }>('updater:progress', (e) => {
@@ -46,7 +48,7 @@ function electronUpdate(version: string, notes: string): Update {
       onEvent?.({ event: 'Progress', data: { chunkLength: p.delta } });
     });
     try {
-      await invoke('updater_download');
+      await invoke('updater_download', { proxy });
       onEvent?.({ event: 'Finished' });
     } finally {
       un();
@@ -66,8 +68,9 @@ export async function checkUpdate(options?: CheckOptions): Promise<Update | null
     case 'tauri':
       return (await import('@tauri-apps/plugin-updater')).check(options);
     case 'electron': {
-      const r = await invoke<{ version: string; notes: string } | null>('updater_check');
-      return r === null ? null : electronUpdate(r.version, r.notes);
+      const proxy = options?.proxy ?? null;
+      const r = await invoke<{ version: string; notes: string } | null>('updater_check', { proxy });
+      return r === null ? null : electronUpdate(r.version, r.notes, proxy);
     }
     default:
       return null;

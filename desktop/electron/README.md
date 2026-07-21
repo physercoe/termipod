@@ -189,13 +189,21 @@ npm start          # esbuild → out/, then `electron .`
       Tauri install's already-extracted `drawio/<version>` (one-time
       staging+rename copy) instead of forcing a ~50 MB re-download at cutover.
 - [~] **M3.4** cutover mechanics wired; execution is maintainer-gated (certs +
-      an explicit release). `desktop-electron-release.yml` publishes to a draft
-      GitHub release on an `electron-v*` tag (installers + the electron-updater
-      `latest*.yml` feed), and a `handoff` job generates `handoff.json`
-      (`scripts/gen-handoff.mjs`) so the final Tauri build offers the Electron
-      installer as a download. Signing/notarization consume repo secrets (below);
-      unsigned builds still package. Not done here: supplying the certs, cutting
-      the release, and retiring the Tauri lane — see the runbook.
+      an explicit release + promote). This repo hosts three release lanes, and
+      GitHub's `releases/latest` belongs to the **mobile** lane (its in-app
+      checker reads it), so the desktop feed avoids it entirely:
+      `desktop-electron-release.yml` builds on an `electron-v*` tag and creates
+      a **prerelease** on that same tag (never a new `v*` tag — that's the
+      mobile workflows' trigger namespace); packaged apps poll a `generic`
+      electron-updater feed at the rolling `electron-latest` release, which the
+      workflow's `promote` dispatch points at a verified version. The M0.3
+      `handoff.json` mechanism was dropped by decision (2026-07-21): its URL is
+      baked to `releases/latest`, which mobile owns, so it can never resolve —
+      and the Tauri install base is small enough to download manually from the
+      releases page (`checkHandoff()` in shipped Tauri builds stays dormant).
+      Signing/notarization consume repo secrets (below); unsigned builds still
+      package. Not done here: supplying the certs, cutting + promoting the
+      release, and retiring the Tauri lane — see the runbook.
 
 ## Cutover runbook (M3.4)
 
@@ -207,8 +215,10 @@ release workflow's env:
 
 | Secret | For | Notes |
 |---|---|---|
-| `CSC_LINK` | macOS + Windows | base64 (or URL) of the `.p12`/`.pfx` cert |
-| `CSC_KEY_PASSWORD` | macOS + Windows | the cert password |
+| `CSC_LINK` | macOS | base64 (or URL) of the Developer ID `.p12` cert |
+| `CSC_KEY_PASSWORD` | macOS | the cert password |
+| `WIN_CSC_LINK` | Windows | base64 (or URL) of the Authenticode `.pfx` cert |
+| `WIN_CSC_KEY_PASSWORD` | Windows | the cert password |
 | `APPLE_ID` | macOS notarization | Apple ID email |
 | `APPLE_APP_SPECIFIC_PASSWORD` | macOS notarization | app-specific password |
 | `APPLE_TEAM_ID` | macOS notarization | Apple Developer team id |
@@ -220,19 +230,23 @@ never hangs the macOS runner on the keychain.
 
 **2. Release.** Bump the product version (`desktop/package.json`; the workflow
 stamps it into the electron package) and push an `electron-v<version>` tag. The
-matrix builds + signs + publishes to a **draft** `v<version>` GitHub release
-(installers + `latest*.yml`); the `handoff` job attaches `handoff.json`.
+matrix builds + signs, then the `release` job creates a **prerelease** GitHub
+release on that tag holding the installers + `latest*.yml`. (Prerelease is
+deliberate — it keeps the release out of `releases/latest`, which the mobile
+in-app update checker and the still-overlapping Tauri updater both read.)
 
-**3. Verify, then publish.** Download the draft's installers; confirm
-auto-update round-trips (N→N+1) on each OS and that the old Tauri build shows
-the handoff Download prompt. Publish the release (makes it "latest", so
-`releases/latest/download/{latest*.yml,handoff.json}` resolve). If `handoff.json`
-wasn't auto-attached to the draft, upload it manually from the run's
-`handoff-manifest` artifact.
+**3. Verify, then promote.** Download the release's installers and smoke-test
+each OS. To go live, run the workflow with `promote=<version>`: it copies that
+release's assets onto the rolling `electron-latest` release — the fixed
+`generic` feed URL baked into packaged apps — replacing whatever was there.
+Auto-update N→N+1 verifies as: install version N, promote N+1, check for
+updates in Settings. Rollback = promote the previous version again.
 
 **4. Retire the Tauri lane** after one overlap release: stop cutting
 `desktop-v*` tags; `desktop-release.yml` can be removed once no supported Tauri
-build remains.
+build remains. Tauri users migrate by downloading an installer from the
+releases page (the automated `handoff.json` prompt was dropped — see M3.4
+above).
 
 > **Native addons need an Electron-ABI rebuild for the *dev* shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

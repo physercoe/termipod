@@ -12,6 +12,7 @@ import { Icon } from '../ui/Icon';
 import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
 import { agentIsBusy, errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, matchesLens, type FeedLens } from '../ui/feedLens';
 import { RunReport } from '../ui/RunReport';
+import { AgentInfo } from '../ui/AgentInfo';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -111,7 +112,7 @@ function useToolMaps(feed: FeedEvent[]): {
   }, [feed]);
 }
 
-type Mode = 'live' | 'insight' | 'digest';
+type Mode = 'live' | 'insight' | 'digest' | 'info';
 
 /// Focus region for a selected agent (WS4 + parity transcript work): a live
 /// transcript over the agent SSE stream (fetch-based, auth-header) with `tail`
@@ -246,10 +247,15 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     };
   }, [agentId, client, scope]);
 
+  // Session-scoped digest when we know the session (the ts-ordered rollup across
+  // the session's respawned agents), else per-agent. Mobile ALWAYS reads the
+  // session digest (session_digest_provider.dart) — a resumed session's current
+  // agent has a sparse/empty digest on its own, which is why the desktop's
+  // agent-scoped digest read looked empty.
   const digestQ = useQuery({
-    queryKey: ['agent-digest', agentId],
+    queryKey: ['digest', scope ?? `agent:${agentId}`],
     enabled: client !== null && mode === 'digest',
-    queryFn: () => client!.getAgentDigest(agentId),
+    queryFn: () => (scope !== undefined ? client!.getSessionDigest(scope) : client!.getAgentDigest(agentId)),
   });
 
   // The turn index backing the Insight navigator. Session-scoped when we know the
@@ -703,6 +709,7 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     { v: 'live', label: t('tx.live') },
     { v: 'insight', label: t('tx.insight') },
     { v: 'digest', label: t('tx.digest') },
+    { v: 'info', label: t('tx.info') },
   ];
 
   return (
@@ -790,7 +797,7 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
         </div>
       </div>
 
-      {mode !== 'digest' && (agentStatus !== undefined || stats.model !== undefined) && (
+      {mode !== 'digest' && mode !== 'info' && (agentStatus !== undefined || stats.model !== undefined) && (
         <div className="transcript-status">
           {agentStatus !== undefined && (
             <span className="ts-state">
@@ -1040,6 +1047,14 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
           {digestQ.isLoading && <div className="muted">{t('tx.loadingDigest')}</div>}
           {digestQ.isError && <div className="error">{msg(digestQ.error)}</div>}
           {digestQ.data !== undefined ? <RunReport digest={digestQ.data} stale={digestQ.isStale} /> : null}
+        </div>
+      )}
+
+      {mode === 'info' && (
+        <div className="region-pad info-scroll">
+          {agentQ.isLoading && agentQ.data === undefined && <div className="muted">{t('common.loading')}</div>}
+          {agentQ.isError && <div className="error">{msg(agentQ.error)}</div>}
+          {agentQ.data !== undefined ? <AgentInfo agent={agentQ.data} t={t} /> : null}
         </div>
       )}
     </div>

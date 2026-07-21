@@ -1077,3 +1077,81 @@ button.danger:hover {
   background: color-mix(in srgb, var(--danger) 16%, transparent);
   border-color: var(--danger);
 }
+
+/* Agent Info — config + runtime inspector (parity agent_config_sheet.dart). */
+.info-scroll {
+  overflow-y: auto;
+}
+.agent-info {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.ai-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ai-section-head {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.ai-spec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ai-kv {
+  display: flex;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.ai-key {
+  flex: 0 0 120px;
+  color: var(--text-muted);
+}
+.ai-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  word-break: break-word;
+}
+.ai-role-steward {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.ai-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.ai-copy:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-text);
+}
+.ai-yaml {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  background: var(--surface-sunken, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+  overflow-x: auto;
+}

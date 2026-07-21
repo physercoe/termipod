@@ -50,4 +50,11 @@ npm start          # esbuild → out/, then `electron .`
       `contentType`).
 - [x] **M1.5** `drawio://` privileged scheme + `drawio_status`/`download`/
       `install_file` (extract-zip; version-keyed app-data root; traversal guard).
-- [ ] M1.3 keychain (spike: `@napi-rs/keyring` vs `safeStorage`) — device-gated.
+- [x] **M1.3** keychain — `safeStorage`-encrypted file store as the engine;
+      `@napi-rs/keyring` reads the Tauri-written `secretstore.v1` once on first
+      boot (device-gated: whether a cross-app OS-keychain read succeeds).
+
+**M1 is feature-complete pending a real `electron .` device pass** (this repo has
+no Electron binary / desktop). M2 = heavy natives (pty/ssh/voice/sync) + vault
+WASM; M3 = electron-builder packaging (asarUnpack `@napi-rs/keyring`), updater,
+cutover.

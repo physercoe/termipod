@@ -16,6 +16,7 @@ import './schemes'; // registers privileged app:// + drawio:// before app ready
 import { APP_ORIGIN, registerAppScheme } from './appscheme';
 import { registerDrawioScheme } from './drawio';
 import { installHubCors } from './hubcors';
+import { startKeychainMigration } from './ipc/keychain';
 import { dispatch, isAllowed } from './ipc/dispatch';
 import { isSafeExternal } from './ipc/platform';
 import { initEvents } from './events';
@@ -94,6 +95,10 @@ if (!app.requestSingleInstanceLock()) {
     // Let the renderer's app:// origin reach the hub directly (renderer-direct
     // transport; plan §7 rows 1–2) — no Rust proxy.
     installHubCors(session.defaultSession);
+    // One-time read of the Tauri-written secret document into the safeStorage
+    // store (ADR-055 M1.3). Fire-and-forget: the window paints now, the first
+    // secret access awaits it.
+    startKeychainMigration();
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -37,10 +37,11 @@ async function req(
   url: string,
   method: string,
   auth: string,
-  init?: { body?: string | Uint8Array; contentType?: string },
+  init?: { body?: string | Uint8Array; contentType?: string; depth?: string },
 ): Promise<Response> {
   const headers: Record<string, string> = { Authorization: auth };
   if (init?.contentType !== undefined) headers['Content-Type'] = init.contentType;
+  if (init?.depth !== undefined) headers.Depth = init.depth;
   return fetch(url, { method, headers, body: init?.body, signal: AbortSignal.timeout(DAV_TIMEOUT_MS) });
 }
 
@@ -60,9 +61,13 @@ async function put(url: string, body: Uint8Array, contentType: string, auth: str
 /// The attachment keys present on the server (those with a `.prop` marker); empty
 /// on 404 (first sync just uploads). Mirrors webdav.rs `propfind_keys`.
 async function propfindKeys(dav: string, auth: string): Promise<Set<string>> {
+  // Depth: 1 (immediate children only) — a header-less PROPFIND is
+  // Depth: infinity per RFC 4918, which servers like Apache mod_dav refuse
+  // (403) by default. Mirrors webdav.rs `propfind_keys`.
   const resp = await req(dav, 'PROPFIND', auth, {
     body: '<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><getlastmodified/></prop></propfind>',
     contentType: 'application/xml; charset=utf-8',
+    depth: '1',
   });
   const s = resp.status;
   if (s === 404) return new Set();

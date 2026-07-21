@@ -79,6 +79,11 @@ function emitPhase(sender: WebContents, connectId: string | undefined, phase: st
 }
 
 /// TOFU: accept if unpinned (and pin it) or if the presented key matches the pin.
+/// A pin-store failure (safeStorage unavailable, corrupt entry) must never block
+/// the connection: an unreadable pin is treated as "no pin" and a failed pin
+/// write is ignored — the connection proceeds, the pin just doesn't persist.
+/// Mirrors keychain.rs `pin_get` (None when unset or unreadable) / the ignored
+/// `pin_set` error in ssh.rs.
 async function verifyHostKey(host: string, port: number, keyBuf: Buffer, ssh2: Ssh2Module): Promise<boolean> {
   const parsed = ssh2.utils.parseKey(keyBuf);
   const line =
@@ -88,9 +93,9 @@ async function verifyHostKey(host: string, port: number, keyBuf: Buffer, ssh2: S
           .getPublicSSH()
           .toString('base64')}`;
   const pinKey = `sshhostkey_${host}_${port}`;
-  const pinned = await pinGet(pinKey);
+  const pinned = await pinGet(pinKey).catch(() => null);
   if (pinned === null) {
-    await pinSet(pinKey, line); // first contact — pin and accept
+    await pinSet(pinKey, line).catch(() => undefined); // first contact — pin and accept
     return true;
   }
   return pinned === line;

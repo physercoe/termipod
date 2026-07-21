@@ -18,6 +18,16 @@
 /// / vault material with no re-auth. If the read fails (native module or store
 /// unavailable, or macOS denies a cross-app read), migration is skipped and the
 /// user re-enters secrets — a graceful degrade, not a crash.
+///
+/// LAZY PER-ITEM FALLBACK (#353): pre-consolidation Tauri builds wrote each
+/// secret as its OWN keychain item (e.g. `hub_token_<profileId>`), which the
+/// boot reader can't enumerate (keyring has no list API). persist.ts already
+/// migrates such items lazily on read ("a miss in the document falls back to
+/// the old per-key item"), but under Electron its `keychain_get` hits only this
+/// store. So a store miss here takes one napi read of the same account from the
+/// Tauri service and folds a hit into the store — the same lazy pattern, one
+/// layer down. This also covers persist.ts's legacy chunk siblings (`<key>#i`),
+/// which arrive as ordinary per-item reads.
 import { app, safeStorage } from 'electron';
 import path from 'node:path';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
@@ -74,20 +84,24 @@ export function startKeychainMigration(): void {
   if (migrationP === null) migrationP = migrateOnce();
 }
 
+/// One-off read of an account from the Tauri keychain service. Dynamic import
+/// so a native-module load failure degrades to null, never a crash. Reading an
+/// item another app created may trigger a one-time macOS ACL prompt on
+/// unsigned builds; a nonexistent account returns null without prompting.
+async function readTauriItem(account: string): Promise<string | null> {
+  try {
+    const { AsyncEntry } = await import('@napi-rs/keyring');
+    return (await new AsyncEntry(SERVICE, account).getPassword()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function migrateOnce(): Promise<void> {
   const s = await loadStore();
   if (s[CONSOLIDATED_KEY] !== undefined) return; // already migrated / has data
   try {
-    // Dynamic + external so a native-module load failure can't crash startup.
-    const { AsyncEntry } = await import('@napi-rs/keyring');
-    const read = async (account: string): Promise<string | null> => {
-      try {
-        return (await new AsyncEntry(SERVICE, account).getPassword()) ?? null;
-      } catch {
-        return null;
-      }
-    };
-    const head = await read(CONSOLIDATED_KEY);
+    const head = await readTauriItem(CONSOLIDATED_KEY);
     if (head === null) return; // nothing to migrate
 
     let doc = head;
@@ -97,7 +111,7 @@ async function migrateOnce(): Promise<void> {
       if (!Number.isFinite(n)) return;
       let out = '';
       for (let i = 0; i < n; i += 1) {
-        const part = await read(`${CONSOLIDATED_KEY}#${i}`);
+        const part = await readTauriItem(`${CONSOLIDATED_KEY}#${i}`);
         if (part === null) return; // partial — leave unmigrated
         out += part;
       }
@@ -123,7 +137,16 @@ export const keychainHandlers: Record<string, Handler> = {
     const key = String(args.key ?? '');
     const s = await ready();
     const b = s[key];
-    return b === undefined ? null : decrypt(b);
+    if (b !== undefined) return decrypt(b);
+    // Store miss — lazy per-item migration from the Tauri keychain service
+    // (see the header): covers pre-consolidation per-secret items the boot
+    // reader can't enumerate. Fold a hit into the store so later reads are
+    // local and the OS item is touched at most once.
+    const legacy = await readTauriItem(key);
+    if (legacy === null) return null;
+    s[key] = encrypt(legacy);
+    await saveStore();
+    return legacy;
   },
 
   keychain_set: async (args): Promise<void> => {

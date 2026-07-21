@@ -41,7 +41,9 @@ npm start          # esbuild → out/, then `electron .`
 
 - [x] **M1.1** shell scaffold: window, `app://`, preload bridge, IPC allowlist,
       platform + migration command families.
-- [ ] M1.2 hub reachability — `session.webRequest` bearer/CORS + `resolveProxy`.
+- [x] **M1.2** hub reachability — `session.webRequest` CORS bridging so the
+      `app://` renderer's direct hub `fetch`/SSE works (bearer stays renderer-set
+      for now; moving it into `onBeforeSendHeaders` is a plan §7 row-2 follow-up).
 - [ ] M1.3 keychain (spike: `@napi-rs/keyring` vs `safeStorage`).
 - [ ] M1.4 files / dialogs / docs / workspace / localfs / storage / attachments.
 - [ ] M1.5 `drawio://` privileged protocol.

@@ -30,6 +30,9 @@ src/ipc/ssh.ts     direct SSH + SFTP (ssh2): ssh_connect/duplicate/exec/write/
                    shared-connection multiplexing, connect phases (M2.2a)
 src/ipc/ssh_keys.ts SSH key store (sshpk): ssh_parse_key + ssh_generate_key —
                    ed25519 gen, encrypted OpenSSH PEM, SHA256 fingerprint (M2.2b)
+src/ipc/sync/core.ts  shared sync decision core (no HTTP): decideBoth (never-
+                   delete rule) + willTransfer + enumerateLocalTree + XML/date/
+                   encoding helpers. Tested by core.test.ts (node:test) (M2.5a)
 src/ipc/voice.ts   DashScope ASR WebSocket (ws): voice_open/send/finish/close (M2.3)
 src/ipc/script.ts  one-shot child runs (child_process): script_run +
                    local_agent_run — execFile, no shell (M2.4)
@@ -104,8 +107,15 @@ npm start          # esbuild → out/, then `electron .`
       Verified locally: sshpk's encrypted OpenSSH-PEM output round-trips through
       ssh2's parser (so a generated key works with M2.2a's connect flow), its
       `SHA256:` fingerprint matches OpenSSH's, and a wrong passphrase throws.
-- [ ] **M2.5** sync engines (WebDAV/folder/S3, under a fixture test suite) ·
-      **M2.6** vault → WASM (wasm-pack from `vault.rs`, byte-compat).
+- [x] **M2.5a** shared sync core + fixture tests (`sync/core.ts` +
+      `core.test.ts`) — the plan makes the decision logic, not the HTTP, the risk
+      of the sync port, so it lands first, isolated and tested: `decideBoth` (the
+      never-delete direction rule) + `willTransfer` + `enumerateLocalTree` + the
+      dependency-free XML scanners (`elementBlocks`/`extractAll`) + date parsing
+      (`daysFromCivil`/`parseHttpDateMs`/`iso8601ToMs`, checked vs `Date.UTC`).
+      16 `node:test` cases (Node 22 strips TS natively); `npm test` in CI.
+- [ ] **M2.5b** folder-WebDAV + Zotero-WebDAV backends · **M2.5c** S3 backend
+      (SigV4) · **M2.6** vault → WASM (wasm-pack from `vault.rs`, byte-compat).
 
 > **Native addons need an Electron-ABI rebuild for the dev shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

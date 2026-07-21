@@ -15,6 +15,7 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "typecheck": "tsc --noEmit",
+    "test": "node --test 'src/**/*.test.ts'",
     "start": "npm run build && electron ."
   },
   "devDependencies": {

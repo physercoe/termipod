@@ -4,6 +4,9 @@
   "version": "0.0.0-dev",
   "description": "TermiPod desktop Electron shell (ADR-055 M1). Wraps the same Vite build (../dist) the Tauri shell ships; the frontend talks to it through the runtime-agnostic src/bridge/. Self-contained package (own deps) so the Tauri release build never installs Electron.",
   "main": "out/main.cjs",
+  "dependencies": {
+    "extract-zip": "^2.0.1"
+  },
   "scripts": {
     "build": "node esbuild.mjs",
     "typecheck": "tsc --noEmit",

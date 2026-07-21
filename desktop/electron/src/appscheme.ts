@@ -11,14 +11,15 @@
 /// `registerSchemesAsPrivileged` MUST run before `app` is ready, so it fires at
 /// module load (this file is imported at the top of main.ts). The file handler
 /// is attached per-session after ready via `registerAppScheme`.
-import { protocol, net } from 'electron';
+import { net } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { stat } from 'node:fs/promises';
+import { APP_SCHEME } from './schemes';
 
-export const APP_SCHEME = 'app';
-export const APP_HOST = 'termipod';
-export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
+// APP_ORIGIN is re-exported so existing importers (main.ts, hubcors.ts) are
+// unchanged; the scheme registration itself now lives in schemes.ts.
+export { APP_ORIGIN } from './schemes';
 
 // Carried over from tauri.conf.json's CSP, with two deliberate changes for the
 // Electron shell: `script-src`/`style-src`/etc. are unchanged, but `connect-src`
@@ -29,7 +30,12 @@ export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 // is preserved for the embedded draw.io editor.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  // The figure renderers are local, trusted, bundled app code that need JS
+  // features `'self'` alone forbids: graphviz (@hpcc-js/wasm) instantiates
+  // WebAssembly → `'wasm-unsafe-eval'`; vega compiles expressions via the
+  // Function constructor → `'unsafe-eval'`. Without these the webview blocks
+  // them and the figure shows the CSP-violation text (the `sha256-…` lines).
+  "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline' blob:",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: blob:",
@@ -61,13 +67,6 @@ const MIME: Record<string, string> = {
   '.map': 'application/json',
   '.txt': 'text/plain; charset=utf-8',
 };
-
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: APP_SCHEME,
-    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
-  },
-]);
 
 async function isFile(p: string): Promise<boolean> {
   try {

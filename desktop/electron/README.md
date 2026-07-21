@@ -48,5 +48,6 @@ npm start          # esbuild → out/, then `electron .`
       attachments (26 commands), ported 1:1 from the Rust modules with matching
       arg keys (camelCase) and return-field casing (`is_dir`, `folderName`,
       `contentType`).
+- [x] **M1.5** `drawio://` privileged scheme + `drawio_status`/`download`/
+      `install_file` (extract-zip; version-keyed app-data root; traversal guard).
 - [ ] M1.3 keychain (spike: `@napi-rs/keyring` vs `safeStorage`) — device-gated.
-- [ ] M1.5 `drawio://` privileged protocol.

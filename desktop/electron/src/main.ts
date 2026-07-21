@@ -12,7 +12,9 @@
 /// dialogs / draw.io land in later M1 slices.
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
+import './schemes'; // registers privileged app:// + drawio:// before app ready
 import { APP_ORIGIN, registerAppScheme } from './appscheme';
+import { registerDrawioScheme } from './drawio';
 import { installHubCors } from './hubcors';
 import { dispatch, isAllowed } from './ipc/dispatch';
 import { initEvents } from './events';
@@ -73,6 +75,7 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     initEvents();
     registerAppScheme(session.defaultSession, DIST);
+    registerDrawioScheme(session.defaultSession);
     // Let the renderer's app:// origin reach the hub directly (renderer-direct
     // transport; plan §7 rows 1–2) — no Rust proxy.
     installHubCors(session.defaultSession);

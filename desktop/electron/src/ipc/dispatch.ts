@@ -18,6 +18,7 @@ import { docfileHandlers } from './docfile';
 import { localfsHandlers } from './localfs';
 import { workspaceHandlers } from './workspace';
 import { storageHandlers } from './storage';
+import { drawioHandlers } from '../drawio';
 
 export interface Ctx {
   win: BrowserWindow | null;
@@ -33,6 +34,7 @@ const handlers: Record<string, Handler> = {
   ...localfsHandlers,
   ...workspaceHandlers,
   ...storageHandlers,
+  ...drawioHandlers,
 };
 
 export function isAllowed(cmd: string): boolean {

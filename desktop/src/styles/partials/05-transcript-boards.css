@@ -1155,3 +1155,57 @@ button.danger:hover {
   color: var(--text-secondary);
   overflow-x: auto;
 }
+/* Risk/state value tints — approval-gated reads calm, auto-approve reads hot
+   (parity with mobile's session-details color signals). */
+.ai-val.ai-ok {
+  color: var(--ok);
+}
+.ai-val.ai-warn {
+  color: var(--warn);
+}
+.ai-val.ai-danger {
+  color: var(--danger);
+}
+/* Chip cloud for the string-list frames (tools / slash / agents / skills /
+   plugins). */
+.ai-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ai-chip {
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+/* MCP server rows: name left, status pill right. */
+.ai-mcp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.ai-mcp-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  word-break: break-word;
+}
+.ai-mcp-status {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ai-mcp-status.ai-ok {
+  color: var(--ok);
+}
+.ai-mcp-status.ai-warn {
+  color: var(--warn);
+}
+.ai-mcp-status.ai-danger {
+  color: var(--danger);
+}

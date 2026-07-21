@@ -12,7 +12,7 @@ import { Icon } from '../ui/Icon';
 import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
 import { agentIsBusy, errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, matchesLens, type FeedLens } from '../ui/feedLens';
 import { RunReport } from '../ui/RunReport';
-import { AgentInfo } from '../ui/AgentInfo';
+import { AgentInfo, latestStatusLine, mergeSessionInit } from '../ui/AgentInfo';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -320,6 +320,13 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
   const { resultById, nameById, callIds } = useToolMaps(feed);
+  // Feed-derived session config for the Info tab: the merged `session.init`
+  // frame (engine, model, workdir, tools, …) + the latest `status_line` (live
+  // effort / thinking / fast-mode). Computed here because these live in the
+  // event stream, not the agent record. Session-scoped, so a resumed session's
+  // config survives across the respawn boundary the same way its transcript does.
+  const sessionInit = useMemo(() => mergeSessionInit(events), [events]);
+  const statusLine = useMemo(() => latestStatusLine(events), [events]);
   // The composer's Stop-vs-Send signal is whether the agent is mid-turn (derived
   // from the feed), NOT the lifecycle status (a live-but-idle agent is still
   // `running`, which would show Stop almost always — director-reported).
@@ -1054,7 +1061,9 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
         <div className="region-pad info-scroll">
           {agentQ.isLoading && agentQ.data === undefined && <div className="muted">{t('common.loading')}</div>}
           {agentQ.isError && <div className="error">{msg(agentQ.error)}</div>}
-          {agentQ.data !== undefined ? <AgentInfo agent={agentQ.data} t={t} /> : null}
+          {agentQ.data !== undefined ? (
+            <AgentInfo agent={agentQ.data} init={sessionInit} status={statusLine} t={t} />
+          ) : null}
         </div>
       )}
     </div>

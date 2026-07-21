@@ -99,6 +99,16 @@ jobs:
         working-directory: desktop/electron
         run: npm run build
 
+      # Stamp the real product version (desktop/package.json) into the electron
+      # package so app.getVersion() and the electron-updater version comparison
+      # are correct; the committed value stays 0.0.0-dev (bumped only at release).
+      - name: Sync packaged version
+        shell: bash
+        run: |
+          V=$(node -p "require('./desktop/package.json').version")
+          node -e "const f='./desktop/electron/package.json',p=require(f);p.version='$V';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
+          echo "packaged version = $V"
+
       - name: Package (electron-builder, unsigned unless secrets present)
         working-directory: desktop/electron
         run: npx electron-builder ${{ matrix.builder-flag }} --publish never

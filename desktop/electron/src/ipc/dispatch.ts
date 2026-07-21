@@ -28,6 +28,7 @@ import { folderWebdavHandlers } from './sync/webdav';
 import { webdavZoteroHandlers } from './sync/webdav_zotero';
 import { s3Handlers } from './sync/s3';
 import { vaultHandlers } from './vault';
+import { updaterHandlers } from './updater';
 import { drawioHandlers } from '../drawio';
 
 export interface Ctx {
@@ -54,6 +55,7 @@ const handlers: Record<string, Handler> = {
   ...webdavZoteroHandlers,
   ...s3Handlers,
   ...vaultHandlers,
+  ...updaterHandlers,
   ...drawioHandlers,
 };
 

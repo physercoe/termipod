@@ -16,8 +16,9 @@ const common = {
   // ABI-rebuilds them in M3); `ws` and `ssh2` are pure JS but pull optional
   // native deps (bufferutil/utf-8-validate, cpu-features) best left unbundled.
   // `sshpk` (optional native ecc-jsbn) and `jszip` (pure JS) are similarly left
-  // external. All resolve from node_modules at runtime.
-  external: ['electron', '@napi-rs/keyring', 'node-pty', 'ws', 'ssh2', 'sshpk', 'jszip'],
+  // external. `electron-updater` (pure JS, but large + dynamic requires) too.
+  // All resolve from node_modules at runtime.
+  external: ['electron', '@napi-rs/keyring', 'node-pty', 'ws', 'ssh2', 'sshpk', 'jszip', 'electron-updater'],
   sourcemap: true,
   logLevel: 'info',
 };

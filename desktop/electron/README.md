@@ -43,6 +43,8 @@ src/ipc/sync/webdav_zotero.ts Zotero-flat WebDAV backend: webdav_verify +
 src/ipc/sync/sigv4.ts  pure AWS SigV4 signer — validated vs aws4 (M2.5d)
 src/ipc/sync/s3.ts  S3 backend: s3_sync/verify (tree) + s3_zotero_sync —
                    ListObjectsV2, path-style, SigV4-signed fetch (M2.5d)
+src/ipc/vault.ts   nine vault_* commands → the WASM build of vault-core
+                   (../../vault-wasm/pkg), lazy computed-path import (M2.6b)
 src/ipc/voice.ts   DashScope ASR WebSocket (ws): voice_open/send/finish/close (M2.3)
 src/ipc/script.ts  one-shot child runs (child_process): script_run +
                    local_agent_run — execFile, no shell (M2.4)
@@ -143,14 +145,18 @@ npm start          # esbuild → out/, then `electron .`
       against **`aws4`** (the canonical Node SigV4 lib, proven against live AWS) —
       matching GET / encoded-path / query / body-hash cases on the minimal signed
       header set. Completes M2.5.
-- [~] **M2.6** vault → WASM. **M2.6a (done):** the crypto is compiled, not
-      reimplemented — new `desktop/vault-core` crate (pure Rust, extracted
-      byte-identical from `vault.rs`) + `desktop/vault-wasm` (wasm-bindgen over
-      it). A `vault-wasm` CI job runs `vault-core`'s native tests (incl. NIST
-      AES-GCM KATs confirmed vs Node crypto) and builds + round-trip-smoke-tests
-      the nodejs-target WASM. **M2.6b (next):** wire `src/ipc/vault.ts` to load
-      the WASM and register the nine `vault_*` commands (needs the built artifact
-      in the bundle/packaging).
+- [x] **M2.6** vault → WASM (completes M2). **M2.6a:** `desktop/vault-core` (pure
+      Rust, byte-identical to `vault.rs`) + `desktop/vault-wasm` (wasm-bindgen); a
+      `vault-wasm` CI job runs the native crypto tests (incl. NIST AES-GCM KATs
+      confirmed vs Node crypto) and builds + round-trip-smoke-tests the WASM —
+      **green on the first run**. **M2.6b:** `src/ipc/vault.ts` registers the nine
+      `vault_*` commands, lazy-loading the wasm-pack module via a computed-path
+      import (opaque to esbuild; no build-time dependency on the artifact).
+      Remaining for M3: build the WASM in packaging + copy `pkg/` into the app
+      resources (or set `TERMIPOD_VAULT_WASM`); device-test seal/open/wrap.
+
+**M2 COMPLETE.** M3 = electron-builder packaging (asarUnpack + ABI-rebuild the
+native addons; bundle the vault WASM), electron-updater, cutover.
 
 > **Native addons need an Electron-ABI rebuild for the dev shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

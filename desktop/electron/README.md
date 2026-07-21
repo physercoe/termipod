@@ -143,8 +143,14 @@ npm start          # esbuild → out/, then `electron .`
       against **`aws4`** (the canonical Node SigV4 lib, proven against live AWS) —
       matching GET / encoded-path / query / body-hash cases on the minimal signed
       header set. Completes M2.5.
-- [ ] **M2.6** vault → WASM (wasm-pack from `vault.rs`, byte-compat vs the Dart
-      vectors).
+- [~] **M2.6** vault → WASM. **M2.6a (done):** the crypto is compiled, not
+      reimplemented — new `desktop/vault-core` crate (pure Rust, extracted
+      byte-identical from `vault.rs`) + `desktop/vault-wasm` (wasm-bindgen over
+      it). A `vault-wasm` CI job runs `vault-core`'s native tests (incl. NIST
+      AES-GCM KATs confirmed vs Node crypto) and builds + round-trip-smoke-tests
+      the nodejs-target WASM. **M2.6b (next):** wire `src/ipc/vault.ts` to load
+      the WASM and register the nine `vault_*` commands (needs the built artifact
+      in the bundle/packaging).
 
 > **Native addons need an Electron-ABI rebuild for the dev shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

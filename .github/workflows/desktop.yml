@@ -110,3 +110,40 @@ jobs:
       - name: Test Rust core (vault crypto round-trips)
         working-directory: desktop/src-tauri
         run: cargo test
+
+  vault-wasm:
+    # ADR-055 M2.6 (D-3): the vault crypto is COMPILED to WASM for the Electron
+    # shell, not reimplemented in TS (byte-compat with the Dart client + the
+    # Tauri build). This gate proves vault-core's crypto (native `cargo test`,
+    # incl. the NIST AES-GCM KATs) AND that it builds to a nodejs-target WASM
+    # whose round-trip works. No local Rust toolchain here — CI is the Rust gate.
+    name: Vault WASM build + crypto tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: vault-core crypto tests (native)
+        working-directory: desktop/vault-core
+        run: cargo test
+      - name: Build vault-wasm (nodejs target)
+        working-directory: desktop/vault-wasm
+        run: wasm-pack build --target nodejs --release
+      - name: WASM round-trip smoke test (seal→open, device + recovery wrap→unwrap)
+        working-directory: desktop/vault-wasm
+        run: |
+          node -e '
+            const v = require("./pkg/vault_wasm.js");
+            const k = v.vault_generate_key();
+            if (v.vault_open(k, v.vault_seal(k, "hi")) !== "hi") throw new Error("seal/open");
+            const dev = JSON.parse(v.vault_generate_device());
+            const de = v.vault_wrap_for_device(k, dev.public_key);
+            if (v.vault_unwrap_device(dev.seed, de) !== k) throw new Error("device wrap");
+            const code = v.vault_generate_recovery_code();
+            const re = v.vault_wrap_for_recovery(k, code);
+            if (v.vault_unwrap_recovery(code, re) !== k) throw new Error("recovery wrap");
+            console.log("vault WASM round-trips: ok");
+          '

@@ -180,8 +180,9 @@ export function FigureEditor({ doc }: { doc: Doc }): JSX.Element {
   async function exportSvg(): Promise<void> {
     if (svg === null || !isTauri()) return;
     try {
-      await invoke('doc_save', { content: svg, defaultName: `${baseName}.svg` });
-      toast.success(t('figure.exported'));
+      // `doc_save` returns null when the user cancels the dialog — no toast then.
+      const path = await invoke<string | null>('doc_save', { content: svg, defaultName: `${baseName}.svg` });
+      if (path !== null) toast.success(t('figure.exported'));
     } catch (e) {
       toast.error(`${t('figure.exportFailed')}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -191,8 +192,8 @@ export function FigureEditor({ doc }: { doc: Doc }): JSX.Element {
     if (svg === null || !isTauri()) return;
     try {
       const base64 = await svgToPngBase64(svg, 2);
-      await invoke('save_image_as', { defaultName: `${baseName}.png`, base64 });
-      toast.success(t('figure.exported'));
+      const path = await invoke<string | null>('save_image_as', { defaultName: `${baseName}.png`, base64 });
+      if (path !== null) toast.success(t('figure.exported'));
     } catch (e) {
       toast.error(`${t('figure.exportFailed')}: ${e instanceof Error ? e.message : String(e)}`);
     }

@@ -29,7 +29,8 @@ export class FigureRenderError extends Error {
 export interface FigureRenderer {
   spec: FigureSpec;
   labelKey: string; // i18n key (en + zh)
-  ext: string; // on-disk extension (plan decision §1.2)
+  ext: string; // on-disk extension for a NEW save (plan decision §1.2)
+  openExts?: string[]; // extra extensions recognized on open (graphviz: `.gv`)
   fence: string[]; // fenced-block languages that map to this spec
   sample: string; // seed body for a new doc (human + agent starter)
   /// `.json` disambiguation: true when a `.json` file's content is this spec.
@@ -115,6 +116,7 @@ export const FIGURES: FigureRenderer[] = [
     spec: 'graphviz',
     labelKey: 'figure.graphviz',
     ext: 'dot',
+    openExts: ['gv'],
     fence: ['dot', 'graphviz'],
     sample: GRAPHVIZ_SAMPLE,
     load: async () => {
@@ -187,7 +189,7 @@ export function specForFile(ext: string, content: string): FigureSpec | undefine
   // Longest-extension-first so `.vl.json` matches vega-lite before a bare `.json`
   // reaches the sniffers. (The caller passes the last dotted segment for a simple
   // ext, but also the compound tail for multi-dot names — see kindForFile.)
-  const byExt = FIGURES.find((f) => f.ext === e || e.endsWith(`.${f.ext}`));
+  const byExt = FIGURES.find((f) => f.ext === e || f.openExts?.includes(e) === true || e.endsWith(`.${f.ext}`));
   if (byExt !== undefined) return byExt.spec;
   if (e === 'json') {
     const sniffed = FIGURES.find((f) => f.sniffJson?.(content) === true);
@@ -207,6 +209,11 @@ export function getRenderer(spec: FigureSpec): Promise<(src: string) => Promise<
     if (row === undefined) return Promise.reject(new FigureRenderError(`unknown figure spec: ${spec}`));
     r = row.load();
     renderers.set(spec, r);
+    // A failed load (chunk fetch offline, WASM init) must not be cached, or the
+    // spec stays broken until app reload — evict so the next render retries.
+    r.catch(() => {
+      if (renderers.get(spec) === r) renderers.delete(spec);
+    });
   }
   return r;
 }

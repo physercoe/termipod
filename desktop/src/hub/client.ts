@@ -200,18 +200,34 @@ export class HubClient {
   }
 
   // --- transcript (WS4) ---
-  /** Backfill recent events (`tail` = last N, newest last after the hub's order).
-   * `session` scopes the query to a whole session across its respawned agents
-   * (handlers_agent_events.go: when set, the URL agent is ignored and the query
-   * runs by session_id, ordered on the dense `session_ordinal` — ADR-042). This
-   * is how a resumed session's full transcript resolves: the per-agent path only
-   * sees the current agent's slice (parity — mobile listAgentEvents `sessionId`). */
-  async listAgentEvents(id: string, opts: { tail?: number; since?: string; session?: string } = {}): Promise<Entity[]> {
-    const out = await this.transport.get(this.transport.team(`/agents/${id}/events`), {
-      tail: opts.tail !== undefined ? String(opts.tail) : undefined,
+  /** Backfill events (handlers_agent_events.go). `session` scopes the query to a
+   * whole session across its respawned agents (when set, the URL agent is ignored
+   * and the query runs by session_id, ordered on the dense `session_ordinal` —
+   * ADR-042; parity — mobile listAgentEvents `sessionId`). Cursors:
+   * - `tail` = the newest N. NB the hub gates newest-first on `tail=true` + a
+   *   `limit`; a bare `tail=<number>` reads as false and silently serves the
+   *   OLDEST page — so we send the flag + the count separately.
+   * - `beforeOrdinal`/`afterOrdinal` = the session-scoped random-access window
+   *   (`session_ordinal < / > n`) — the load-older / jump-around-anchor cursors
+   *   the Insight navigator uses to reach a turn outside the loaded tail.
+   * - `since` = incremental `seq > n` (per-agent); `limit` for the cursor pagers. */
+  async listAgentEvents(
+    id: string,
+    opts: { tail?: number; since?: string; session?: string; beforeOrdinal?: number; afterOrdinal?: number; limit?: number } = {},
+  ): Promise<Entity[]> {
+    const q: Record<string, string | undefined> = {
       since: opts.since,
       session: opts.session,
-    });
+      before_ordinal: opts.beforeOrdinal !== undefined ? String(opts.beforeOrdinal) : undefined,
+      after_ordinal: opts.afterOrdinal !== undefined ? String(opts.afterOrdinal) : undefined,
+    };
+    if (opts.tail !== undefined) {
+      q.tail = 'true';
+      q.limit = String(opts.tail);
+    } else if (opts.limit !== undefined) {
+      q.limit = String(opts.limit);
+    }
+    const out = await this.transport.get(this.transport.team(`/agents/${id}/events`), q);
     return asArray(out);
   }
   getAgentDigest(id: string): Promise<Entity> {

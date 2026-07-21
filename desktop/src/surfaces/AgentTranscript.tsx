@@ -170,6 +170,10 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // `seq` — seq collides across a resumed session's agents, so a seq flash could
   // light the wrong row.
   const [flashId, setFlashId] = useState<string | null>(null);
+  // A jump target (session_ordinal) whose content isn't loaded yet: we window-load
+  // around it, and the effect below re-runs the jump once the window merges in.
+  const [pendingJump, setPendingJump] = useState<number | null>(null);
+  const jumpLoadingRef = useRef(false);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   // Scroll-to-latest pill (#332): while the user is scrolled up, count events
   // that arrive off-screen and offer a jump back to the live tail.
@@ -185,6 +189,7 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     setEvents([]);
     setError(null);
     setLoaded(false);
+    setPendingJump(null);
   }, [agentId]);
 
   useEffect(() => {
@@ -530,12 +535,69 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
 
   const turns = turnsQ.data ?? [];
 
+  // The loaded ordinal window [min,max] over ALL loaded events (incl. hidden
+  // telemetry). session_ordinal is dense (gap-free, ADR-042), so a target inside
+  // this range is guaranteed loaded; one outside needs a window fetch first.
+  function loadedOrdRange(): { min: number; max: number } {
+    let min = Infinity;
+    let max = 0;
+    for (const ev of feed) {
+      if (ev.ord > 0) {
+        if (ev.ord < min) min = ev.ord;
+        if (ev.ord > max) max = ev.ord;
+      }
+    }
+    return { min, max };
+  }
+
+  // Random-access window fetch around a jump target (mobile _resetWindowAround):
+  // a backward half (session_ordinal < target, DESC) + a forward half (>= target,
+  // ASC), merged into the feed. Only meaningful with a session scope (ordinal
+  // cursors are session-keyed). The tail load only holds the newest window, so a
+  // jump to an older turn has no row to land on until this pulls its block in.
+  async function loadWindowAround(target: number): Promise<void> {
+    if (client === null || scope === undefined || jumpLoadingRef.current) return;
+    jumpLoadingRef.current = true;
+    try {
+      const half = 150;
+      const [back, fwd] = await Promise.all([
+        client.listAgentEvents(agentId, { session: scope, beforeOrdinal: target, limit: half }),
+        client.listAgentEvents(agentId, { session: scope, afterOrdinal: target - 1, limit: half }),
+      ]);
+      const rows = [...back, ...fwd];
+      if (rows.length === 0) {
+        // Anchor out of the real range — abandon the jump rather than leave it
+        // pending forever.
+        setPendingJump(null);
+        return;
+      }
+      setEvents((prev) => mergeEvents(prev, rows));
+    } catch (err) {
+      setError(msg(err));
+      setPendingJump(null);
+    } finally {
+      jumpLoadingRef.current = false;
+    }
+  }
+
   // Jump the virtual list to a navigation coordinate (Insight turn/error jump,
   // live stepper). The coordinate is the dense `session_ordinal` in a session-
   // scoped feed, else the per-agent `seq` — see `rowCoord`. Off-screen rows aren't
   // in the DOM, so we resolve the coordinate to an index in the active list, let
   // Virtuoso scroll to it, then flash it once it's mounted.
   function scrollToCoord(target: number): void {
+    // Content not loaded (target outside the loaded ordinal window): window-load
+    // around it, then the pendingJump effect re-runs this once it's merged in —
+    // mobile _jumpToOrdinal → _resetWindowAround. Without this the nearest-at-or-
+    // after fallback below lands on the loaded edge, not the requested turn.
+    if (scope !== undefined && target > 0) {
+      const { min, max } = loadedOrdRange();
+      if (target < min || target > max) {
+        setPendingJump(target);
+        void loadWindowAround(target);
+        return;
+      }
+    }
     const list = mode === 'insight' ? insightData : liveData;
     let index = list.findIndex((ev) => rowCoord(ev) === target);
     if (index < 0) {
@@ -584,6 +646,20 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     setMatchIndex(next);
     scrollToCoord(matchCoords[next]);
   }
+
+  // Once a window-load for a pending jump has merged the target's ordinal into the
+  // feed, re-run the jump (now it lands on the real row). Re-checks on every feed
+  // change so it fires exactly when the window arrives.
+  useEffect(() => {
+    if (pendingJump === null) return;
+    const { min, max } = loadedOrdRange();
+    if (pendingJump >= min && pendingJump <= max) {
+      const target = pendingJump;
+      setPendingJump(null);
+      scrollToCoord(target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feed, pendingJump]);
 
   function setLensReset(l: FeedLens): void {
     setLens(l);

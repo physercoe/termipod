@@ -138,20 +138,29 @@ jobs:
         shell: bash
         run: rm -rf node_modules/cpu-features node_modules/buildcheck
 
-      # ABI-rebuild node-pty for the Electron runtime EXPLICITLY, instead of
-      # letting electron-builder do it (npmRebuild:false in electron-builder.yml).
-      # electron-builder's built-in @electron/rebuild hung ~29min in "preparing"
-      # on whichever native module came first, swallowing node-gyp's output until
-      # the job timeout. This isolates the rebuild to node-pty (the only addon
-      # that needs it — @napi-rs/keyring is ABI-stable N-API), makes node-gyp
-      # verbose, and time-boxes it so a stall fails fast WITH a diagnostic trail.
-      - name: Rebuild node-pty for Electron ABI
+      # ABI-rebuild node-pty for the Electron runtime with PLAIN node-gyp, NOT
+      # @electron/rebuild (issue #358): electron-builder 25.1.8 pins
+      # @electron/rebuild 3.6.1, whose forked node-gyp worker deadlocks in its
+      # handshake — the worker parks in kevent waiting for a task message that
+      # never arrives, BEFORE any module compiles. That's why stripping
+      # cpu-features (merely the first module in the list) changed nothing, and
+      # why `electron-rebuild -o node-pty` hangs identically. Plain node-gyp on
+      # the same module builds in ~30s. npmRebuild:false (electron-builder.yml)
+      # keeps the packager from re-invoking the broken rebuilder; node-pty is the
+      # only native addon that needs a rebuild (@napi-rs/keyring is N-API prebuilt).
+      # --dist-url gives node-gyp the Electron 43.x headers + (on Windows) node.lib.
+      - name: Rebuild node-pty for Electron ABI (plain node-gyp)
         working-directory: desktop/electron
         shell: bash
         timeout-minutes: 12
-        env:
-          DEBUG: '@electron/rebuild'
-        run: npx --no-install electron-rebuild -f -o node-pty
+        run: |
+          npm install -g node-gyp@^10
+          EV=$(node -p "require('electron/package.json').version")
+          ARCH=$(node -p "process.arch")
+          echo "Rebuilding node-pty for Electron $EV ($ARCH)"
+          cd node_modules/node-pty
+          node-gyp rebuild --target="$EV" --arch="$ARCH" --dist-url=https://electronjs.org/headers
+          ls -la build/Release/*.node
 
       - name: Build shell bundle (esbuild)
         working-directory: desktop/electron

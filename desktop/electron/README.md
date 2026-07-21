@@ -23,6 +23,8 @@ src/ipc/platform.ts  platform_os / os_build_number / open_external / reveal_path
 src/ipc/migration.ts migration_read (own userData, falling back to the Tauri
                    app-data dir for the one-time cross-install handoff, #353) /
                    migration_export (state-v1.json)
+src/ipc/pty.ts     local PTY (node-pty): pty_open/start/write/resize/close —
+                   JS-buffered subscribe-gate + login-shell PATH recovery (M2.1)
 esbuild.mjs        bundles main + preload → out/*.cjs
 ```
 
@@ -59,7 +61,29 @@ npm start          # esbuild → out/, then `electron .`
       account (pre-consolidation secrets such as `hub_token_<id>`, #353) —
       both device-gated on macOS (whether a cross-app OS-keychain read succeeds).
 
-**M1 is feature-complete pending a real `electron .` device pass** (this repo has
-no Electron binary / desktop). M2 = heavy natives (pty/ssh/voice/sync) + vault
-WASM; M3 = electron-builder packaging (asarUnpack `@napi-rs/keyring`), updater,
-cutover.
+**M1 is feature-complete (device-passed on macOS).**
+
+## Status — M2 slices (heavy natives + vault WASM)
+
+- [x] **M2.1** local PTY (`node-pty`) — `pty_open`/`start`/`write`/`resize`/
+      `close` + `pty-data`/`pty-exit` events, ported from `pty.rs`. The
+      subscribe-gate that stops the shell banner racing the renderer is kept by
+      **buffering `onData` chunks in JS until `pty_start`** (node-pty auto-flows,
+      so there is no reader-thread to withhold as portable-pty had); a pre-start
+      exit is deferred to the same flush. Login-shell PATH recovery (`$SHELL
+      -ilc`, async, cached) so GUI-launched agent CLIs resolve. Windows `.cmd`
+      shims run through `cmd.exe /C`.
+- [ ] **M2.2** SSH/SFTP (`ssh2`) · **M2.3** voice (`ws`) · **M2.4** script +
+      local-agent (`child_process`) · **M2.5** sync engines (WebDAV/folder/S3,
+      under a fixture test suite) · **M2.6** vault → WASM (wasm-pack from
+      `vault.rs`, byte-compat).
+
+> **Native addons need an Electron-ABI rebuild for the dev shell.**
+> `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds
+> against the Node ABI on `npm install` and must be rebuilt for Electron before
+> `electron .` will load it: `npx @electron/rebuild -f -w node-pty` (or install
+> with `npm_config_runtime=electron npm_config_target=<electron ver>`). M3
+> packaging does this automatically and asarUnpacks both addons.
+
+M3 = electron-builder packaging (asarUnpack + ABI-rebuild the native addons),
+updater, cutover.

@@ -19,6 +19,7 @@ import { localfsHandlers } from './localfs';
 import { workspaceHandlers } from './workspace';
 import { storageHandlers } from './storage';
 import { keychainHandlers } from './keychain';
+import { ptyHandlers } from './pty';
 import { drawioHandlers } from '../drawio';
 
 export interface Ctx {
@@ -36,6 +37,7 @@ const handlers: Record<string, Handler> = {
   ...workspaceHandlers,
   ...storageHandlers,
   ...keychainHandlers,
+  ...ptyHandlers,
   ...drawioHandlers,
 };
 

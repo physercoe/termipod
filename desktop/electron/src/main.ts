@@ -19,6 +19,7 @@ import { installHubCors } from './hubcors';
 import { startKeychainMigration } from './ipc/keychain';
 import { dispatch, isAllowed } from './ipc/dispatch';
 import { isSafeExternal } from './ipc/platform';
+import { disposeAllPtys } from './ipc/pty';
 import { initEvents } from './events';
 
 // The frontend build. In dev (`electron .` from desktop/electron) this resolves
@@ -114,6 +115,9 @@ if (!app.requestSingleInstanceLock()) {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
   });
+
+  // Kill any live local shells so quitting never orphans a child process.
+  app.on('before-quit', () => disposeAllPtys());
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

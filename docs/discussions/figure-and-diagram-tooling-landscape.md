@@ -8,6 +8,8 @@
 > related tools/sdk/library used in report, paper, slides besides drawio — we
 > need integrate all the dominants."*
 > Feeds [../plans/desktop-workbench-jobs.md](../plans/desktop-workbench-jobs.md);
+> **Phases A–C are now planned** in
+> [../plans/figure-renderer-registry.md](../plans/figure-renderer-registry.md);
 > extends [author-agent-assist-and-diagrams.md](author-agent-assist-and-diagrams.md)
 > (which shipped offline draw.io + the agent companion); relates to
 > [research-tooling-landscape.md](research-tooling-landscape.md) (embed vs build).

@@ -1463,12 +1463,20 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
-  /// エラーSnackBar表示
+  /// Show an error SnackBar with a Retry action.
   void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    // Replace any queued/visible error so repeated connection failures don't
+    // stack up behind each other.
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: DesignColors.error,
+        // Let the user swipe the banner away in either direction rather than
+        // wait out the timeout — a persistent connection error otherwise reads
+        // as "stuck". (Default is a less-discoverable downward swipe only.)
+        dismissDirection: DismissDirection.horizontal,
         action: SnackBarAction(
           label: AppLocalizations.of(context)!.buttonRetry,
           textColor: Colors.white,

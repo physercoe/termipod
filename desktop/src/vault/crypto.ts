@@ -1,8 +1,8 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../bridge';
 
 /// Thin typed bridge to the Rust vault crypto (parity Phase 2b). Every call is
 /// desktop-only (the browser build has no native core); the Vault surface gates
-/// on isTauri(). Byte shapes match the mobile vault_crypto.dart — see
+/// on isShell(). Byte shapes match the mobile vault_crypto.dart — see
 /// src-tauri/src/vault.rs.
 
 export interface DeviceKeys {

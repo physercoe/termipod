@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLang, useT, type Lang } from '../i18n';
-import { isTauri, openExternal } from '../platform';
+import { isShell, openExternal } from '../platform';
 import { cacheSizeBytes, clearCache } from '../state/queryClient';
 import { listProfiles, removeProfile, type HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
@@ -380,7 +380,7 @@ const CAT_LS_KEY = 'termipod.settings.cat';
 /// *policy* still lives in the Admin cockpit, not here — this is device prefs.
 export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile) => void }): JSX.Element {
   const t = useT();
-  const tauri = isTauri();
+  const tauri = isShell();
 
   // Order (director spec): Account first · Display · Input · Data (local storage)
   // · Vault (sensitive credentials — keys + cross-device sync) · About last

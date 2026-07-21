@@ -1,7 +1,8 @@
 import type { HubClient } from '../hub/client';
+import { invoke } from '../bridge';
 import { HubApiError } from '../hub/errors';
 import { num, str } from '../hub/types';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { secretDeleteMany, secretGet, secretSet } from '../state/persist';
 import { assembleBundle, importBundle, loadVaultState, parseBundle, saveVaultState } from './bundle';
 import {
@@ -56,9 +57,8 @@ let cachedMachine: string | null = null;
 export async function machineName(): Promise<string> {
   if (cachedMachine !== null) return cachedMachine;
   let name = '';
-  if (isTauri()) {
+  if (isShell()) {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
       name = (await invoke<string | null>('system_hostname')) ?? '';
     } catch {
       /* fall through to the platform label */

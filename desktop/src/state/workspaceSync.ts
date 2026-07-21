@@ -1,4 +1,5 @@
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
+import { invoke } from '../bridge';
 import { proxyForConnection } from './proxy';
 import { secretDelete, secretGet, secretSet } from './persist';
 import { invokeWithProgress, type SyncProgress } from './syncProgress';
@@ -53,11 +54,6 @@ export interface FolderSyncReport {
   errors: string[];
 }
 
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: inv } = await import('@tauri-apps/api/core');
-  return inv<T>(cmd, args);
-}
-
 export function loadWorkspaceSyncConfig(): WorkspaceSyncConfig {
   try {
     return { url: localStorage.getItem(LS_URL) ?? '', user: localStorage.getItem(LS_USER) ?? '' };
@@ -81,7 +77,7 @@ export function workspaceSyncConfigured(): boolean {
 }
 
 export async function getWorkspaceSyncPassword(): Promise<string> {
-  if (!isTauri()) return '';
+  if (!isShell()) return '';
   try {
     return (await secretGet(KC_PASS)) ?? '';
   } catch {
@@ -90,7 +86,7 @@ export async function getWorkspaceSyncPassword(): Promise<string> {
 }
 
 export async function setWorkspaceSyncPassword(pw: string): Promise<void> {
-  if (!isTauri()) return;
+  if (!isShell()) return;
   if (pw === '') await secretDelete(KC_PASS);
   else await secretSet(KC_PASS, pw);
 }
@@ -98,7 +94,7 @@ export async function setWorkspaceSyncPassword(pw: string): Promise<void> {
 /// Verify connectivity + auth against the configured WebDAV server. Resolves on
 /// success; rejects with the server/auth error message.
 export async function verifyWorkspaceSync(url: string, user: string, pass: string): Promise<void> {
-  if (!isTauri()) throw new Error('workspace sync requires the desktop app');
+  if (!isShell()) throw new Error('workspace sync requires the desktop app');
   await invoke<string>('folder_webdav_verify', {
     url: url.trim(),
     user,
@@ -152,7 +148,7 @@ export function saveS3Config(cfg: S3Config): void {
 }
 
 export async function getS3Secret(): Promise<string> {
-  if (!isTauri()) return '';
+  if (!isShell()) return '';
   try {
     return (await secretGet(KC_S3_SECRET)) ?? '';
   } catch {
@@ -161,7 +157,7 @@ export async function getS3Secret(): Promise<string> {
 }
 
 export async function setS3Secret(secret: string): Promise<void> {
-  if (!isTauri()) return;
+  if (!isShell()) return;
   if (secret === '') await secretDelete(KC_S3_SECRET);
   else await secretSet(KC_S3_SECRET, secret);
 }
@@ -174,7 +170,7 @@ export function workspaceSyncConfiguredFor(backend: SyncBackend): boolean {
 /// Verify the S3 backend with the given form values (secret passed explicitly so
 /// the modal can verify before persisting).
 export async function verifyS3Sync(cfg: S3Config, secretKey: string): Promise<void> {
-  if (!isTauri()) throw new Error('workspace sync requires the desktop app');
+  if (!isShell()) throw new Error('workspace sync requires the desktop app');
   await invoke<string>('s3_sync_verify', {
     endpoint: cfg.endpoint.trim(),
     region: cfg.region.trim(),
@@ -192,7 +188,7 @@ export async function syncWorkspace(
   root: string,
   onProgress?: (p: SyncProgress) => void,
 ): Promise<FolderSyncReport> {
-  if (!isTauri()) throw new Error('workspace sync requires the desktop app');
+  if (!isShell()) throw new Error('workspace sync requires the desktop app');
   if (loadSyncBackend() === 's3') {
     const cfg = loadS3Config();
     if (cfg.bucket === '') throw new Error('configure the S3 bucket first');

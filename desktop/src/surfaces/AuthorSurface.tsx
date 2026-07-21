@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { invoke } from '../bridge';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { toast } from '../state/toast';
 import {
   bodyToFile,
@@ -67,11 +68,6 @@ function useDebounced<T>(value: T, ms: number): T {
 /// document kind lands once drawio is bundled offline (see the
 /// author-agent-assist-and-diagrams discussion). Agent-assisted writing (the
 /// side panel) is deferred pending the host-OS discussion.
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: inv } = await import('@tauri-apps/api/core');
-  return inv<T>(cmd, args);
-}
 
 function baseName(path: string): string {
   const parts = path.split(/[\\/]/);
@@ -229,7 +225,7 @@ export function AuthorSurface(): JSX.Element {
   const [figMenu, setFigMenu] = useState(false);
 
   const active = docs.find((d) => d.id === activeId);
-  const tauri = isTauri();
+  const tauri = isShell();
 
   function closeTab(id: string): void {
     const d = docs.find((x) => x.id === id);

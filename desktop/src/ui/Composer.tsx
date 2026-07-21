@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { VoiceSession } from '../voice/session';
 import { Icon } from './Icon';
 import { checkAddable, classify, compose, stage, type Pending } from './attach';
@@ -290,7 +290,7 @@ export function Composer({
         >
           <Icon name="plus" size={16} />
         </button>
-        {isTauri() && !recording && (
+        {isShell() && !recording && (
           <button
             className="mic-btn"
             title={t('composer.voice')}
@@ -301,7 +301,7 @@ export function Composer({
             <Icon name="mic" size={16} />
           </button>
         )}
-        {isTauri() && recording && (
+        {isShell() && recording && (
           <div className="rec-hud" role="status" aria-live="polite">
             <span className="rec-dot" aria-hidden="true" />
             <span className="rec-time mono">{mmss(recSeconds)}</span>

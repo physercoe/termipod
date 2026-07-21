@@ -3,7 +3,7 @@ import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
 import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { useSession } from '../state/session';
 import { useAgents } from '../hub/queries';
 import { useWorkspace } from '../state/workspace';
@@ -56,7 +56,7 @@ export function AgentCompanion({
   // Hub-attached (an agent on some host) vs a local agent running on THIS machine.
   // Local is desktop-only; the choice is persisted per mount point.
   const [source, setSource] = useState<'hub' | 'local'>(() =>
-    isTauri() && localStorage.getItem(`${storageKey}.src`) === 'local' ? 'local' : 'hub',
+    isShell() && localStorage.getItem(`${storageKey}.src`) === 'local' ? 'local' : 'hub',
   );
   const [events, setEvents] = useState<Entity[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +68,7 @@ export function AgentCompanion({
   const [wsFiles, setWsFiles] = useState<WorkspaceFile[]>([]);
   const [mentioned, setMentioned] = useState<WorkspaceFile[]>([]);
   useEffect(() => {
-    if (folder === null || !isTauri()) {
+    if (folder === null || !isShell()) {
       setWsFiles([]);
       return;
     }
@@ -230,7 +230,7 @@ export function AgentCompanion({
     <div className="companion-head">
       <span className="companion-title">{t('companion.title')}</span>
       <span className="spacer" />
-      {isTauri() && (
+      {isShell() && (
         <div className="companion-src" role="tablist">
           <button className={source === 'hub' ? 'active' : ''} onClick={() => pickSource('hub')}>
             {t('companion.srcHub')}

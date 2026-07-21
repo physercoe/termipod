@@ -1,14 +1,10 @@
 import { bodyToFile, extForDoc, type Doc, type DocKind } from './documents';
+import { invoke } from '../bridge';
 
 /// Shared helpers for materializing Author documents into the on-disk workspace
 /// folder and for enumerating that folder's files (the `@`-mention source). Tauri
 /// is reached through a lazy `invoke` so the plain-browser build never imports the
 /// native core at module load (mirrors AuthorSurface's helper).
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: inv } = await import('@tauri-apps/api/core');
-  return inv<T>(cmd, args);
-}
 
 interface RawNode {
   name: string;

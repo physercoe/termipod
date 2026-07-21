@@ -1,7 +1,7 @@
 import { startMic, type MicHandle } from './mic';
 import { onVoiceEvent, voiceClose, voiceFinish, voiceOpen, voiceSend } from './bridge';
 import { getVoiceApiKey, getVoiceModel } from './settings';
-import type { UnlistenFn } from '@tauri-apps/api/event';
+import type { UnlistenFn } from '../bridge';
 
 /// Orchestrates a dictation session: mic → PCM frames → Rust WS bridge →
 /// DashScope, accumulating finals + the current partial into a running

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useAgents, useAttention, useHosts } from '../hub/queries';
 import { str } from '../hub/types';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { useSyncJob } from '../state/syncJob';
 import { useTerminals } from '../terminal/store';
 import { useWorkbench } from '../state/workbench';
@@ -41,7 +41,7 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
   const termOpen = useTerminals((s) => s.open);
   const toggleTerm = useTerminals((s) => s.toggle);
   const onTerminalSurface = useWorkbench((s) => s.job === 'terminal');
-  const showTermChip = isTauri() && !onTerminalSurface;
+  const showTermChip = isShell() && !onTerminalSurface;
 
   // One chip PER job (Author workspace + Read/Zotero library) so both are
   // distinguishable when they run at once, and each background failure — which

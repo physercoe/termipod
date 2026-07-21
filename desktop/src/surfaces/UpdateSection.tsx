@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getVersion } from '@tauri-apps/api/app';
-import { relaunch } from '@tauri-apps/plugin-process';
-import { check, type Update } from '@tauri-apps/plugin-updater';
+import { appVersion, checkUpdate, relaunchApp, isShell, type Update } from '../bridge';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
 import { proxyForConnection } from '../state/proxy';
 
 function msg(err: unknown): string {
@@ -37,19 +34,19 @@ export function UpdateSection(): JSX.Element | null {
   const [current, setCurrent] = useState(__APP_VERSION__);
 
   useEffect(() => {
-    if (!isTauri()) return;
-    void getVersion()
+    if (!isShell()) return;
+    void appVersion()
       .then(setCurrent)
       .catch(() => {});
   }, []);
 
-  if (!isTauri()) return null;
+  if (!isShell()) return null;
 
   async function checkNow(): Promise<void> {
     setSt({ s: 'checking' });
     const proxy = proxyForConnection('update');
     try {
-      const update = await check(proxy ? { proxy } : undefined);
+      const update = await checkUpdate(proxy ? { proxy } : undefined);
       setSt(update === null ? { s: 'uptodate' } : { s: 'available', update });
     } catch (e) {
       const m = msg(e);
@@ -71,7 +68,7 @@ export function UpdateSection(): JSX.Element | null {
           setSt({ s: 'downloading', pct: total > 0 ? Math.round((got / total) * 100) : null });
         } else if (ev.event === 'Finished') setSt({ s: 'installing' });
       });
-      await relaunch();
+      await relaunchApp();
     } catch (e) {
       setSt({ s: 'error', msg: msg(e), network: false });
     }

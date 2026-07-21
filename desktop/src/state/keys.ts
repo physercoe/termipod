@@ -1,5 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
-import { isTauri } from '../platform';
+import { invoke } from '../bridge';
+import { isShell } from '../platform';
 import { loadJson, newId, saveJson, secretDeleteMany, secretGet, secretSetMany } from './persist';
 
 /// SSH key store (parity Phase 2a). `SshKeyMeta` mirrors the mobile
@@ -75,7 +75,7 @@ export async function importKey(opts: {
   let algorithm = 'unknown';
   let publicKey: string | null = null;
   let fingerprint: string | null = null;
-  if (isTauri()) {
+  if (isShell()) {
     const parsed = await invoke<ParsedKey>('ssh_parse_key', {
       pem: opts.pem,
       passphrase: passphrase !== '' ? passphrase : null,
@@ -113,7 +113,7 @@ export async function generateKey(opts: {
   comment?: string;
 }): Promise<SshKeyMeta> {
   const passphrase = opts.passphrase ?? '';
-  if (!isTauri()) throw new Error('key generation requires the desktop app');
+  if (!isShell()) throw new Error('key generation requires the desktop app');
   const gen = await invoke<GeneratedKey>('ssh_generate_key', {
     passphrase: passphrase !== '' ? passphrase : null,
   });

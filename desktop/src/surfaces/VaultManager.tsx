@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
-import { isTauri, openExternal } from '../platform';
+import { isShell, openExternal } from '../platform';
 import { copySecret } from '../state/clipboard';
 import { DEFAULT_GEN, generatePassword, passwordStrength } from '../state/password';
 import { parseSeed, secondsRemaining, totpCode, type TotpParams } from '../state/totp';
@@ -407,7 +407,7 @@ function ItemDetail({
         <>
           <PlainRow label={t('vault.fInterpreter')} value={item.interpreter} />
           <SecretRow itemId={item.id} slot="content" label={t('vault.fScript')} block />
-          {isTauri() && <ScriptRunner item={item} />}
+          {isShell() && <ScriptRunner item={item} />}
         </>
       )}
 

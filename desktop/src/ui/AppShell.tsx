@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { useFocus } from '../state/focus';
 import { useOnline } from '../state/online';
 import { useProxy } from '../state/proxy';
@@ -77,7 +77,7 @@ export function AppShell(): JSX.Element {
   // in a beat late reads as a "splash"). Tauri-only; the query is shared with
   // VaultPanel by key.
   useEffect(() => {
-    if (client === null || !isTauri()) return;
+    if (client === null || !isShell()) return;
     void qc.prefetchQuery({
       queryKey: vaultStatusKey(client),
       queryFn: () => vaultStatus(client),

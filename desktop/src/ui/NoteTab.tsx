@@ -1,6 +1,7 @@
 import { lazy, Suspense, useMemo, useRef } from 'react';
+import { invoke } from '../bridge';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { useLibrary } from '../state/library';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
@@ -32,10 +33,9 @@ export function NoteTab({ refId }: { refId: string }): JSX.Element {
   const headings = useMemo(() => extractHeadings(notes), [notes]);
 
   async function exportNotes(): Promise<void> {
-    if (ref === undefined || !isTauri()) return;
+    if (ref === undefined || !isShell()) return;
     const base = (ref.title !== '' ? ref.title : 'note').slice(0, 60).replace(/[^\w.-]+/g, '-');
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
       await invoke('doc_save', { content: notes, defaultName: `${base}.md` });
     } catch {
       /* cancelled / unavailable */
@@ -63,7 +63,7 @@ export function NoteTab({ refId }: { refId: string }): JSX.Element {
             </button>
           </div>
           <span className="spacer" />
-          {isTauri() && (
+          {isShell() && (
             <button className="link-btn" title={t('read.notesExport')} onClick={() => void exportNotes()}>
               <Icon name="download" size={14} /> {t('read.notesExport')}
             </button>

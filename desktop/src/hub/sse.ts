@@ -1,6 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { isTauri } from '../platform';
+import { invoke, listen, type UnlistenFn } from '../bridge';
+import { isShell } from '../platform';
 import { proxyForConnection } from '../state/proxy';
 import type { HubConfig } from './config';
 
@@ -154,7 +153,7 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
     while (!closed) {
       let errored = false;
       try {
-        if (isTauri()) await readViaTauri();
+        if (isShell()) await readViaTauri();
         else await readViaFetch();
       } catch (err) {
         if (closed) break;

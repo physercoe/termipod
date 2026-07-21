@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../bridge';
 import { useT } from '../i18n';
 import { docKindIcon, Icon } from '../ui/Icon';
-import { isTauri, revealPath } from '../platform';
+import { isShell, revealPath } from '../platform';
 import { fileToBody, kindForFile, useDocuments } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
 import { writeDocToWorkspace } from '../state/workspaceFiles';
@@ -85,7 +85,7 @@ export function AuthorNav(): JSX.Element {
   // On-disk file-tree right-click menu + its two-step delete confirm.
   const [fileMenu, setFileMenu] = useState<FileMenu | null>(null);
   const [fileConfirmDelete, setFileConfirmDelete] = useState(false);
-  const tauri = isTauri();
+  const tauri = isShell();
 
   // Materialize an in-memory draft into the workspace folder (drag-to-folder or
   // the "Save to workspace" menu item), then link it so Save round-trips to disk.

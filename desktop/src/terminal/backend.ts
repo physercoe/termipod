@@ -1,4 +1,4 @@
-import type { UnlistenFn } from '@tauri-apps/api/event';
+import type { UnlistenFn } from '../bridge';
 import { onPtyData, onPtyExit, ptyClose, ptyResize, ptyStart, ptyWrite } from './pty';
 import { onSshData, onSshExit, sshClose, sshResize, sshWrite } from '../ssh/tauri';
 

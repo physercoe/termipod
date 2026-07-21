@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { useWorkspace } from '../state/workspace';
 import { ptyOpen } from '../terminal/pty';
 import { useTerminals } from '../terminal/store';
@@ -57,7 +57,7 @@ export function LocalAgentLauncher(): JSX.Element {
     }
   }
 
-  if (!isTauri()) {
+  if (!isShell()) {
     return <div className="companion-empty muted">{t('companion.localDesktopOnly')}</div>;
   }
 

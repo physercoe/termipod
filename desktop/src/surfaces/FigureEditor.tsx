@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { invoke } from '../bridge';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap, drawSelection, highlightActiveLine, placeholder as cmPlaceholder } from '@codemirror/view';
 import { history, historyKeymap, defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { toast } from '../state/toast';
 import { useDocuments, type Doc } from '../state/documents';
 import { figureBySpec, FigureRenderError, renderFigure } from '../state/figures';
@@ -18,11 +19,6 @@ import { Icon } from '../ui/Icon';
 ///
 /// Export SVG / PNG mirror the affordance every figure spec shares: SVG is the
 /// renderer's own output; PNG rasterizes it at 2× via an offscreen canvas.
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: inv } = await import('@tauri-apps/api/core');
-  return inv<T>(cmd, args);
-}
 
 /// A trailing-debounced mirror (same pattern as the Markdown preview, #311): a
 /// typing burst coalesces into one render instead of re-parsing per keystroke.
@@ -178,7 +174,7 @@ export function FigureEditor({ doc }: { doc: Doc }): JSX.Element {
   }, [doc.spec, body]);
 
   async function exportSvg(): Promise<void> {
-    if (svg === null || !isTauri()) return;
+    if (svg === null || !isShell()) return;
     try {
       // `doc_save` returns null when the user cancels the dialog — no toast then.
       const path = await invoke<string | null>('doc_save', { content: svg, defaultName: `${baseName}.svg` });
@@ -189,7 +185,7 @@ export function FigureEditor({ doc }: { doc: Doc }): JSX.Element {
   }
 
   async function exportPng(): Promise<void> {
-    if (svg === null || !isTauri()) return;
+    if (svg === null || !isShell()) return;
     try {
       const base64 = await svgToPngBase64(svg, 2);
       const path = await invoke<string | null>('save_image_as', { defaultName: `${baseName}.png`, base64 });
@@ -208,7 +204,7 @@ export function FigureEditor({ doc }: { doc: Doc }): JSX.Element {
         </span>
         <span className="spacer" />
         {rendering && <span className="muted small">{t('figure.rendering')}</span>}
-        {isTauri() && (
+        {isShell() && (
           <>
             <button className="import-btn" disabled={svg === null} onClick={() => void exportSvg()}>
               {t('figure.exportSvg')}

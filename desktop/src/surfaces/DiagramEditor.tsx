@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../bridge';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
 import { proxyForConnection } from '../state/proxy';
 
@@ -33,7 +33,7 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isShell()) {
       setStatus({ installed: false, version: '' });
       return;
     }
@@ -103,7 +103,7 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
     return (
       <div className="diagram-install">
         <p className="muted">{t('author.diagramIntro')}</p>
-        {isTauri() ? (
+        {isShell() ? (
           <>
             <div className="diagram-install-actions">
               <button className="primary" disabled={downloading} onClick={() => void download()}>

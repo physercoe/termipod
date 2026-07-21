@@ -1,4 +1,5 @@
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
+import { invoke, listen } from '../bridge';
 
 /// Live progress for a running sync — N of M files. For the workspace backends
 /// (WebDAV/S3 folder) M is the count of files that will actually transfer (skips
@@ -20,13 +21,11 @@ export async function invokeWithProgress<T>(
   args: Record<string, unknown>,
   onProgress?: (p: SyncProgress) => void,
 ): Promise<T> {
-  const { invoke } = await import('@tauri-apps/api/core');
   // Always send progressId (null when unwatched) so the Rust `Option<String>` arg
   // is present — mirrors the sibling `proxy: … ?? null` convention.
-  if (onProgress === undefined || !isTauri()) return invoke<T>(cmd, { ...args, progressId: null });
+  if (onProgress === undefined || !isShell()) return invoke<T>(cmd, { ...args, progressId: null });
   seq += 1;
   const id = `${cmd}#${seq}`;
-  const { listen } = await import('@tauri-apps/api/event');
   const un = await listen<{ id: string; done: number; total: number }>('sync:progress', (e) => {
     if (e.payload.id === id) onProgress({ done: e.payload.done, total: e.payload.total });
   });

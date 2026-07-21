@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { invoke, listen, type UnlistenFn } from '../bridge';
 
 /// Typed bridge to the Tauri core's local-PTY commands (pty.rs, → ADR-053). The
 /// desktop analogue of `ssh/tauri.ts`: same shape, but the shell runs on the

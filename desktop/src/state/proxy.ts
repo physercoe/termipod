@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { isTauri } from '../platform';
+import { invoke } from '../bridge';
+import { isShell } from '../platform';
 
 /// Shared HTTP-proxy config for every outbound connection TermiPod makes under
 /// Tauri (Settings → Network). One proxy URL — a manual override, else the
@@ -26,11 +27,6 @@ export const PROXY_CONNS: ProxyConn[] = [
 const OVERRIDE_KEY = 'termipod.update.proxy'; // reused from the old About setting
 const DETECTED_KEY = 'termipod.update.proxy.detected'; // reused detected cache
 const useKey = (c: ProxyConn): string => `termipod.proxy.use.${c}`;
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: inv } = await import('@tauri-apps/api/core');
-  return inv<T>(cmd, args);
-}
 
 function readLS(key: string): string | null {
   try {
@@ -89,7 +85,7 @@ export const useProxy = create<ProxyState>((set, get) => ({
     set({ use: { ...get().use, [c]: on } });
   },
   resolveDetected: async () => {
-    if (!isTauri()) return;
+    if (!isShell()) return;
     try {
       const p = await invoke<string | null>('system_proxy');
       const val = p !== null && p !== '' ? p : null;

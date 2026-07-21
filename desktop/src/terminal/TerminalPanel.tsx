@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { useWorkbench } from '../state/workbench';
 import {
   addGroup,
@@ -83,7 +83,7 @@ export function TerminalPanel(): JSX.Element {
   const dockSide = useTerminals((s) => s.dockSide);
   const setDockSide = useTerminals((s) => s.setDockSide);
 
-  const tauri = isTauri();
+  const tauri = isShell();
   const [connecting, setConnecting] = useState(false);
   const [initialConnId, setInitialConnId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

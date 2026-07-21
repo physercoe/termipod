@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { isTauri } from '../platform';
+import { invoke } from '../bridge';
+import { isShell } from '../platform';
 import { useZoteroStorage } from './zoteroStorage';
 
 /// Where user-added attachments are written (Tauri only). Resolution, per the
@@ -29,11 +30,6 @@ interface AttachmentConfigState {
   clearCustom: () => void;
 }
 
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: inv } = await import('@tauri-apps/api/core');
-  return inv<T>(cmd, args);
-}
-
 function persist(p: string | null): void {
   try {
     if (p === null) localStorage.removeItem(LS_ROOT);
@@ -56,7 +52,7 @@ export const useAttachmentConfig = create<AttachmentConfigState>((set) => ({
   defaultRoot: null,
 
   resolveDefault: async () => {
-    if (!isTauri()) return;
+    if (!isShell()) return;
     try {
       const dir = await invoke<string>('attachment_default_dir');
       set({ defaultRoot: dir });
@@ -66,7 +62,7 @@ export const useAttachmentConfig = create<AttachmentConfigState>((set) => ({
   },
 
   pickCustom: async () => {
-    if (!isTauri()) return 'not supported';
+    if (!isShell()) return 'not supported';
     try {
       const dir = await invoke<string | null>('attachment_pick_dir');
       if (dir === null) return null; // cancelled
@@ -109,7 +105,7 @@ export function activeRootLabel(): { kind: 'zotero' | 'custom' | 'default' | 'no
 export async function pickAndCopyAttachment(): Promise<
   { file: string; contentType?: string; key: string; path: string } | null
 > {
-  if (!isTauri()) throw new Error('attachments require the desktop app');
+  if (!isShell()) throw new Error('attachments require the desktop app');
   const picked = await invoke<RustPicked | null>('attachment_pick_file');
   if (picked === null) return null; // cancelled
   // Ensure a root is resolved (default may not have been fetched yet).
@@ -146,7 +142,7 @@ interface RustFileB64 {
 /// `termipod-att://<key>/<file>` reference to embed in note markdown. Tauri only —
 /// callers fall back to an inline data-URI in the browser build.
 export async function writeNoteImage(base64: string, filename: string): Promise<string | null> {
-  if (!isTauri()) return null;
+  if (!isShell()) return null;
   let root = activeAttachmentRoot();
   if (root === null) {
     await useAttachmentConfig.getState().resolveDefault();
@@ -187,7 +183,7 @@ export async function loadNoteImage(ref: string): Promise<Blob | null> {
   // Browser build: the live File handle from the linked <input webkitdirectory>.
   const live = zs.files.get(k);
   if (live !== undefined) return live;
-  if (!isTauri()) return null;
+  if (!isShell()) return null;
 
   const tryRead = async (root: string, rel: string): Promise<Blob | null> => {
     try {
@@ -218,7 +214,7 @@ export async function loadNoteImage(ref: string): Promise<Blob | null> {
 /// Delete a managed attachment's bytes (its `<key>/` folder). No-op for Zotero
 /// attachments (we never touch the user's Zotero library) or the browser build.
 export async function deleteManagedAttachmentFile(path: string | undefined): Promise<void> {
-  if (!isTauri() || path === undefined || path === '') return;
+  if (!isShell() || path === undefined || path === '') return;
   try {
     await invoke('attachment_delete', { path });
   } catch {

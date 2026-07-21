@@ -1,4 +1,5 @@
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
+import { invoke } from '../bridge';
 import { activeAttachmentRoot, useAttachmentConfig } from './attachments';
 import { proxyForConnection } from './proxy';
 import { secretDelete, secretGet, secretSet } from './persist';
@@ -45,11 +46,6 @@ export interface SyncReport {
   errors: string[];
 }
 
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: inv } = await import('@tauri-apps/api/core');
-  return inv<T>(cmd, args);
-}
-
 export function loadWebdavConfig(): WebdavConfig {
   try {
     return { url: localStorage.getItem(LS_URL) ?? '', user: localStorage.getItem(LS_USER) ?? '' };
@@ -73,7 +69,7 @@ export function webdavConfigured(): boolean {
 }
 
 export async function getWebdavPassword(): Promise<string> {
-  if (!isTauri()) return '';
+  if (!isShell()) return '';
   try {
     // Routed through the consolidated secret store (single keychain item) so it
     // doesn't add its own macOS auth prompt.
@@ -84,7 +80,7 @@ export async function getWebdavPassword(): Promise<string> {
 }
 
 export async function setWebdavPassword(pw: string): Promise<void> {
-  if (!isTauri()) return;
+  if (!isShell()) return;
   if (pw === '') await secretDelete(KC_PASS);
   else await secretSet(KC_PASS, pw);
 }
@@ -92,7 +88,7 @@ export async function setWebdavPassword(pw: string): Promise<void> {
 /// Verify connectivity + write access. Resolves on success; rejects with the
 /// server/auth error message.
 export async function verifyWebdav(url: string, user: string, pass: string): Promise<void> {
-  if (!isTauri()) throw new Error('WebDAV sync requires the desktop app');
+  if (!isShell()) throw new Error('WebDAV sync requires the desktop app');
   await invoke<string>('webdav_verify', {
     url: url.trim(),
     user,
@@ -146,7 +142,7 @@ export function saveZoteroS3Config(cfg: S3Config): void {
 }
 
 export async function getZoteroS3Secret(): Promise<string> {
-  if (!isTauri()) return '';
+  if (!isShell()) return '';
   try {
     return (await secretGet(KC_S3_SECRET)) ?? '';
   } catch {
@@ -155,7 +151,7 @@ export async function getZoteroS3Secret(): Promise<string> {
 }
 
 export async function setZoteroS3Secret(secret: string): Promise<void> {
-  if (!isTauri()) return;
+  if (!isShell()) return;
   if (secret === '') await secretDelete(KC_S3_SECRET);
   else await secretSet(KC_S3_SECRET, secret);
 }
@@ -163,7 +159,7 @@ export async function setZoteroS3Secret(secret: string): Promise<void> {
 /// Verify the S3 backend with the given form values (secret passed explicitly so
 /// the modal can verify before persisting). Reuses the workspace S3 verify command.
 export async function verifyZoteroS3(cfg: S3Config, secretKey: string): Promise<void> {
-  if (!isTauri()) throw new Error('sync requires the desktop app');
+  if (!isShell()) throw new Error('sync requires the desktop app');
   await invoke<string>('s3_sync_verify', {
     endpoint: cfg.endpoint.trim(),
     region: cfg.region.trim(),
@@ -179,7 +175,7 @@ export async function verifyZoteroS3(cfg: S3Config, secretKey: string): Promise<
 /// S3). Re-indexes a linked Zotero folder afterwards so freshly-downloaded files
 /// show.
 export async function syncWebdav(onProgress?: (p: SyncProgress) => void): Promise<SyncReport> {
-  if (!isTauri()) throw new Error('sync requires the desktop app');
+  if (!isShell()) throw new Error('sync requires the desktop app');
 
   let root = activeAttachmentRoot();
   if (root === null) {

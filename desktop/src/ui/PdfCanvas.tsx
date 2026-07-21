@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { invoke } from '../bridge';
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { Icon } from './Icon';
 import { useOpenLink } from './OpenLinkContext';
 import { ResizeHandle } from './ResizeHandle';
@@ -163,7 +164,6 @@ async function blobToBase64(blob: Blob): Promise<string> {
 }
 
 async function invokeTauri<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import('@tauri-apps/api/core');
   return invoke<T>(cmd, args);
 }
 
@@ -1028,7 +1028,7 @@ const PageView = memo(function PageView({
           onRemove={onRemove}
           onClose={() => onSelect(null)}
           onCopyImage={selected.type === 'image' ? () => void copyAreaImage(selected) : undefined}
-          onSaveImage={selected.type === 'image' && isTauri() ? () => void saveAreaImage(selected) : undefined}
+          onSaveImage={selected.type === 'image' && isShell() ? () => void saveAreaImage(selected) : undefined}
           onAddToNote={
             selected.type === 'image' && onImageToNote !== undefined ? () => void addAreaToNote(selected) : undefined
           }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { isShell } from '../platform';
 import { Icon } from '../ui/Icon';
 import { copySecret } from '../state/clipboard';
 import { useVaultLock } from '../state/vaultLock';
@@ -100,7 +100,7 @@ export function VaultPanel(): JSX.Element | null {
     },
   });
 
-  if (!isTauri()) return null;
+  if (!isShell()) return null;
 
   async function run(fn: () => Promise<void>): Promise<void> {
     setBusy(true);

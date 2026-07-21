@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { isTauri } from '../platform';
+import { invoke } from '../bridge';
+import { isShell } from '../platform';
 
 /// Index of a user-linked Zotero `storage/` folder so the Read surface can open
 /// a reference's PDF locally — the bytes never leave the device.
@@ -54,11 +55,6 @@ interface ZoteroStorageState {
   /** Browser fallback — index a `<input webkitdirectory>` FileList (session-only). */
   linkFolder: (list: FileList) => void;
   clear: () => void;
-}
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: inv } = await import('@tauri-apps/api/core');
-  return inv<T>(cmd, args);
 }
 
 function persistPath(p: string | null): void {
@@ -165,7 +161,7 @@ function b64ToBytes(b64: string): Uint8Array {
 export async function loadAttachmentBlob(state: Resolvable, att: AttRef): Promise<Blob | null> {
   if (att === undefined) return null;
   // Managed attachment — read its absolute path through the Rust core (Tauri).
-  if (att.path !== undefined && att.path !== '' && isTauri()) {
+  if (att.path !== undefined && att.path !== '' && isShell()) {
     try {
       const f = await invoke<RustFile>('attachment_read', { path: att.path });
       const bytes = b64ToBytes(f.base64);
@@ -179,7 +175,7 @@ export async function loadAttachmentBlob(state: Resolvable, att: AttRef): Promis
   const file = state.files.get(k);
   if (file !== undefined) return file;
   const rel = state.rels.get(k);
-  if (rel !== undefined && state.path !== null && isTauri()) {
+  if (rel !== undefined && state.path !== null && isShell()) {
     try {
       const f = await invoke<RustFile>('storage_read', { path: state.path, rel });
       // `.buffer` is a plain ArrayBuffer here (the view is created full-size over

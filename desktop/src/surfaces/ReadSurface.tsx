@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { invoke } from '../bridge';
 import { TableVirtuoso, type ItemProps, type TableComponents } from 'react-virtuoso';
 import { useT } from '../i18n';
 import {
@@ -35,7 +36,7 @@ import {
   type ScrapePatch,
   type ScrapeSeed,
 } from '../discovery';
-import { hostOf, isTauri, revealPath } from '../platform';
+import { hostOf, isShell, revealPath } from '../platform';
 import { BrowserView } from './BrowserView';
 import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
@@ -825,10 +826,9 @@ function Inspector({
   const [notesMode, pickNotesMode] = useNotesMode();
 
   async function exportNotes(): Promise<void> {
-    if (ref === undefined || !isTauri()) return;
+    if (ref === undefined || !isShell()) return;
     const base = (ref.title !== '' ? ref.title : 'note').slice(0, 60).replace(/[^\w.-]+/g, '-');
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
       await invoke('doc_save', { content: ref.notes, defaultName: `${base}.md` });
     } catch {
       /* cancelled / unavailable */
@@ -1142,7 +1142,7 @@ function Inspector({
             <div className="wide ref-attach-info">
               <div className="att-head-row">
                 <span className="muted small">{t('read.attHead')}</span>
-                {isTauri() && (
+                {isShell() && (
                   <button className="link-btn att-add" disabled={attBusy} onClick={() => void onAddAttachment()}>
                     <Icon name="plus" size={14} /> {attBusy ? t('read.attAdding') : t('read.attAdd')}
                   </button>
@@ -1271,7 +1271,7 @@ function Inspector({
                   <Icon name="external" size={14} /> {t('read.openNoteTab')}
                 </button>
               )}
-              {isTauri() && (
+              {isShell() && (
                 <button className="link-btn" title={t('read.notesExport')} onClick={() => void exportNotes()}>
                   <Icon name="download" size={14} /> {t('read.notesExport')}
                 </button>
@@ -1861,7 +1861,7 @@ export function ReadSurface(): JSX.Element {
   // survives a restart instead of being lost (director report). Also resolve the
   // default attachment-store dir so "Add file" has a root even before Settings.
   useEffect(() => {
-    if (isTauri()) {
+    if (isShell()) {
       void reindex();
       void useAttachmentConfig.getState().resolveDefault();
     }
@@ -1880,7 +1880,7 @@ export function ReadSurface(): JSX.Element {
   // Native folder dialog under Tauri (persisted, survives restart); the browser
   // build falls back to the session-only webkitdirectory picker.
   async function onLinkStorage(): Promise<void> {
-    if (isTauri()) {
+    if (isShell()) {
       // Seed the picker at the real storage location — the currently-linked folder
       // if any, else the active attachment root — so it doesn't open at whatever
       // dir another tab/workspace last browsed.
@@ -2087,7 +2087,7 @@ export function ReadSurface(): JSX.Element {
               ? t.plural('read.storageLinked', storageCount)
               : t('read.linkStorage')}
           </button>
-          {isTauri() && (
+          {isShell() && (
             <button className="import-btn" title={t('read.webdavHint')} onClick={() => setShowWebdav(true)}>
               <Icon name="cloud" size={14} /> {t('read.syncFiles')}
             </button>
@@ -2528,7 +2528,7 @@ export function ReadSurface(): JSX.Element {
               >
                 <Icon name="note" size={14} /> {t('read.openNoteTab')}
               </button>
-              {isTauri() && (
+              {isShell() && (
                 <button className="read-ctx-item" onClick={() => void ctxAddAttachment(r.id)}>
                   <Icon name="plus" size={14} /> {t('read.ctxAddAttachment')}
                 </button>

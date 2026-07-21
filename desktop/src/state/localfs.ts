@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../bridge';
 
 /// Typed bridge to the Rust local-filesystem commands (localfs.rs) — the local
 /// side of the two-pane SFTP transfer. Desktop-only; the plain-browser build has

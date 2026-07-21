@@ -1,5 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
-import { isTauri } from '../platform';
+import { invoke } from '../bridge';
+import { isShell } from '../platform';
 import { proxyForConnection } from '../state/proxy';
 import type { HubConfig } from './config';
 import { HubApiError } from './errors';
@@ -59,7 +59,7 @@ export class HubTransport {
     headers: Record<string, string>,
     bodyText?: string,
   ): Promise<RawResponse> {
-    if (isTauri()) {
+    if (isShell()) {
       return await invoke<RawResponse>('hub_request', {
         req: { method, url, headers, body: bodyText ?? null, proxy: proxyForConnection('hub') ?? null },
       });
@@ -129,7 +129,7 @@ export class HubTransport {
   async getBytes(path: string): Promise<{ mime: string; base64: string }> {
     const url = this.buildUrl(path);
     const headers = this.headers(true);
-    if (isTauri()) {
+    if (isShell()) {
       const res = await invoke<{ status: number; mime: string; base64: string }>('hub_request_bytes', {
         req: { method: 'GET', url, headers, body: null, proxy: proxyForConnection('hub') ?? null },
       });

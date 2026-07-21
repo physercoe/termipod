@@ -19,7 +19,9 @@ src/appscheme.ts   app:// privileged scheme serving ../dist (secure origin + CSP
 src/events.ts      main→renderer event fan-out + subscribe-gate bookkeeping
 src/ipc/dispatch.ts  command handler map = the allowlist (successor of capabilities/default.json)
 src/ipc/platform.ts  platform_os / os_build_number / open_external / reveal_path / …
-src/ipc/migration.ts migration_read / migration_export (state-v1.json)
+src/ipc/migration.ts migration_read (own userData, falling back to the Tauri
+                   app-data dir for the one-time cross-install handoff, #353) /
+                   migration_export (state-v1.json)
 esbuild.mjs        bundles main + preload → out/*.cjs
 ```
 
@@ -52,7 +54,9 @@ npm start          # esbuild → out/, then `electron .`
       `install_file` (extract-zip; version-keyed app-data root; traversal guard).
 - [x] **M1.3** keychain — `safeStorage`-encrypted file store as the engine;
       `@napi-rs/keyring` reads the Tauri-written `secretstore.v1` once on first
-      boot (device-gated: whether a cross-app OS-keychain read succeeds).
+      boot, and a store miss lazily migrates the matching per-item Tauri
+      account (pre-consolidation secrets such as `hub_token_<id>`, #353) —
+      both device-gated on macOS (whether a cross-app OS-keychain read succeeds).
 
 **M1 is feature-complete pending a real `electron .` device pass** (this repo has
 no Electron binary / desktop). M2 = heavy natives (pty/ssh/voice/sync) + vault

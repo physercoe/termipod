@@ -4,13 +4,16 @@
 /// `src/migration/state.ts` drives them unchanged through the bridge.
 ///
 /// The renderer's boot flow (`importStateIfFresh` before render, then
-/// `armExport`) snapshots every `termipod.*` localStorage key to
-/// `<user-data>/migration/state-v1.json` and restores it into a fresh Chromium
-/// profile. Here that path is Electron's own `userData` — enough for dual-shell
-/// parity testing (plan §8). The one-time cross-install handoff (reading the
-/// **Tauri** app-data dir the old shell wrote to) is an M3 cutover concern
-/// (plan §5) and is deliberately not wired yet.
+/// `armExport`) snapshots the migration-covered localStorage keys to
+/// `<user-data>/migration/state-v1.json` and restores them into a fresh
+/// Chromium profile. `migration_read` first looks at Electron's own `userData`
+/// copy, then falls back to the **Tauri** install's app-data dir — the
+/// one-time cross-install handoff (plan §5), pulled forward from M3 because it
+/// is a read-only fallback and device-testable today (#353). The restore
+/// imports into localStorage and the next `migration_export` writes Electron's
+/// own copy, so the legacy path is consulted at most once.
 import { app } from 'electron';
+import os from 'node:os';
 import path from 'node:path';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import type { Handler } from './dispatch';
@@ -20,6 +23,20 @@ function stateDir(): string {
 }
 function statePath(): string {
   return path.join(stateDir(), 'state-v1.json');
+}
+
+/// Where the Tauri shell's egress (M0.2) writes, per platform — the Tauri
+/// app-data dir keyed by the bundle identifier (`tauri.conf.json`). Mirrors
+/// Tauri's `app_data_dir`: macOS `~/Library/Application Support/<id>`,
+/// Windows `%APPDATA%\<id>`, Linux `${XDG_DATA_HOME:-~/.local/share}/<id>`.
+/// (Electron's own `appData` would be wrong on Linux — it is XDG_CONFIG_HOME.)
+function legacyStatePaths(): string[] {
+  const id = 'app.termipod.desktop';
+  if (process.platform === 'linux') {
+    const dataHome = process.env.XDG_DATA_HOME ?? path.join(os.homedir(), '.local', 'share');
+    return [path.join(dataHome, id, 'migration', 'state-v1.json')];
+  }
+  return [path.join(app.getPath('appData'), id, 'migration', 'state-v1.json')];
 }
 
 /// Crash-safe write: temp file + atomic rename, matching the Rust command.
@@ -40,10 +57,13 @@ export const migrationHandlers: Record<string, Handler> = {
   },
 
   migration_read: async (): Promise<string | null> => {
-    try {
-      return await readFile(statePath(), 'utf8');
-    } catch {
-      return null; // absent on a first boot — the common case
+    for (const candidate of [statePath(), ...legacyStatePaths()]) {
+      try {
+        return await readFile(candidate, 'utf8');
+      } catch {
+        /* absent — try the next candidate */
+      }
     }
+    return null; // no snapshot anywhere — a genuine first boot
   },
 };

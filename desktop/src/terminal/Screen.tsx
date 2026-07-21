@@ -6,7 +6,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { isWindows, openExternal, windowsBuildNumber } from '../platform';
+import { isWindows, openExternal, shellKind, windowsBuildNumber } from '../platform';
 
 // Persisted terminal font size (Ctrl/Cmd +/-/0 zoom, #319). Shared across all
 // screens so zoom is a global preference, clamped to a sane, legible range.
@@ -137,10 +137,12 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
     // main chunk):
     //   • macOS / Linux → WebGL (GPU texture-atlas glyphs); on context loss, drop
     //     to canvas so a lost GPU context never freezes on a blank canvas.
-    //   • Windows        → canvas only (2D, GPU-composited). WebGL is NEVER tried:
-    //     on WebView2/ANGLE it black-screened and could wedge the GPU process
-    //     (v0.3.11). The gate is the Rust `platform_os` (compile-time exact), not a
-    //     spoofable navigator.userAgent.
+    //   • Windows        → WebGL under Electron (Chromium/ANGLE is fine), canvas
+    //     only under Tauri. WebView2's ANGLE black-screened WebGL and could wedge
+    //     the GPU process (v0.3.11), so the Tauri shell stays canvas-only; Electron
+    //     is a different Chromium and doesn't hit that bug (plan M4 §6/§7 #9). The
+    //     OS gate is the Rust `platform_os` (compile-time exact), not a spoofable
+    //     navigator.userAgent; the shell gate is the injected-globals `shellKind()`.
     //   • any failure    → the DOM renderer remains (xterm's default) — always works.
     // Renderer choice is renderer-agnostic to selection/find/links/fit/scrollbar and
     // to the integer-letterSpacing note below (0 is correct in every renderer).
@@ -156,7 +158,25 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
     void (async () => {
       const win = await isWindows();
       if (disposed) return;
-      if (!win) {
+      if (win) {
+        // Tell xterm the pty is ConPTY (the desktop terminal is portable-pty →
+        // ConPTY on Windows). ConPTY does its own line wrapping and, when the
+        // viewport grows, adds blank rows at the BOTTOM rather than pulling
+        // scrollback back into view — so without this flag xterm's own reflow
+        // fights ConPTY and a repainting TUI's intermediate frames pile up in the
+        // scrollback (director report: "scroll up to see the intermediate drawing
+        // content"). Passing the build number lets xterm keep native reflow on for
+        // builds ≥ 21376 (where ConPTY emits proper wrap sequences) and fall back
+        // to the heuristic below it; when the build is unknown, `{ backend }` alone
+        // still fixes the duplicate-scrollback bug (reflow off, as legacy
+        // windowsMode did). This is independent of the renderer choice below.
+        const build = await windowsBuildNumber();
+        if (disposed) return;
+        term.options.windowsPty = build !== null ? { backend: 'conpty', buildNumber: build } : { backend: 'conpty' };
+      }
+      // WebGL everywhere except Windows-under-Tauri (see the ladder note above).
+      const tryWebgl = !win || shellKind() === 'electron';
+      if (tryWebgl) {
         try {
           const { WebglAddon } = await import('@xterm/addon-webgl');
           if (disposed) return;
@@ -170,21 +190,6 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
         } catch {
           /* WebGL unavailable (driver/GPU) — fall through to canvas */
         }
-      } else {
-        // Tell xterm the pty is ConPTY (the desktop terminal is portable-pty →
-        // ConPTY on Windows). ConPTY does its own line wrapping and, when the
-        // viewport grows, adds blank rows at the BOTTOM rather than pulling
-        // scrollback back into view — so without this flag xterm's own reflow
-        // fights ConPTY and a repainting TUI's intermediate frames pile up in the
-        // scrollback (director report: "scroll up to see the intermediate drawing
-        // content"). Passing the build number lets xterm keep native reflow on for
-        // builds ≥ 21376 (where ConPTY emits proper wrap sequences) and fall back
-        // to the heuristic below it; when the build is unknown, `{ backend }` alone
-        // still fixes the duplicate-scrollback bug (reflow off, as legacy
-        // windowsMode did).
-        const build = await windowsBuildNumber();
-        if (disposed) return;
-        term.options.windowsPty = build !== null ? { backend: 'conpty', buildNumber: build } : { backend: 'conpty' };
       }
       await loadCanvas();
     })();

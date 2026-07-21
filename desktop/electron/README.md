@@ -33,6 +33,9 @@ src/ipc/ssh_keys.ts SSH key store (sshpk): ssh_parse_key + ssh_generate_key —
 src/ipc/sync/core.ts  shared sync decision core (no HTTP): decideBoth (never-
                    delete rule) + willTransfer + enumerateLocalTree + XML/date/
                    encoding helpers. Tested by core.test.ts (node:test) (M2.5a)
+src/ipc/sync/webdav.ts folder-tree WebDAV backend (fetch): folder_webdav_verify
+                   + folder_webdav_sync — PROPFIND/MKCOL/PUT/GET (M2.5b).
+                   webdav_url.ts holds the pure, tested URL helpers
 src/ipc/voice.ts   DashScope ASR WebSocket (ws): voice_open/send/finish/close (M2.3)
 src/ipc/script.ts  one-shot child runs (child_process): script_run +
                    local_agent_run — execFile, no shell (M2.4)
@@ -114,8 +117,15 @@ npm start          # esbuild → out/, then `electron .`
       dependency-free XML scanners (`elementBlocks`/`extractAll`) + date parsing
       (`daysFromCivil`/`parseHttpDateMs`/`iso8601ToMs`, checked vs `Date.UTC`).
       16 `node:test` cases (Node 22 strips TS natively); `npm test` in CI.
-- [ ] **M2.5b** folder-WebDAV + Zotero-WebDAV backends · **M2.5c** S3 backend
-      (SigV4) · **M2.6** vault → WASM (wasm-pack from `vault.rs`, byte-compat).
+- [x] **M2.5b** folder-tree WebDAV backend (`sync/webdav.ts`, `fetch`) —
+      `folder_webdav_verify` + `folder_webdav_sync`, the Obsidian-vault tree
+      mirror from `foldersync.rs`. Consumes the tested core; PROPFIND/MKCOL/PUT/
+      GET, Basic auth, BFS remote walk, MKCOL-parents, path-traversal-guarded
+      download. Pure URL helpers split to `webdav_url.ts` + tested (percent-
+      encoding is interop-critical). Proxy arg accepted but not yet applied
+      (Node fetch has no per-request proxy — deferred, as M1.5 drawio).
+- [ ] **M2.5c** Zotero backends (WebDAV + S3, need zip + md5) · **M2.5d** S3 tree
+      backend (SigV4) · **M2.6** vault → WASM (wasm-pack from `vault.rs`).
 
 > **Native addons need an Electron-ABI rebuild for the dev shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

@@ -9,6 +9,7 @@ use tokio::sync::{Mutex, Notify};
 mod docfile;
 mod drawio;
 mod foldersync;
+mod handoff;
 mod keychain;
 mod local_agent;
 mod localfs;
@@ -717,6 +718,7 @@ pub fn run() {
             reveal_path,
             open_browser_window,
             frame_check,
+            handoff::handoff_check,
             migration::migration_export,
             migration::migration_read,
             storage::storage_pick_folder,

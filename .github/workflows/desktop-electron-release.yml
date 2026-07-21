@@ -69,6 +69,13 @@ jobs:
         with:
           node-version: 22
 
+      # node-gyp (pinned to 10 via package overrides) needs Python for the
+      # node-pty Electron-ABI rebuild; pin 3.11 so it has distutils regardless of
+      # the runner default (3.12 removed it).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       # The vault WASM pkg, built once by the wasm job → the extraResource the
       # electron-builder config ships under Resources/vault-wasm/pkg.
       - uses: actions/download-artifact@v4

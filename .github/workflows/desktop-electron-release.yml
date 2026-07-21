@@ -88,7 +88,12 @@ jobs:
           - platform: macos-latest
             label: macos
             builder-flag: --mac
-          - platform: windows-latest
+          # Pinned to windows-2022 (VS 2022 = v17): windows-latest moved to a
+          # runner with Visual Studio 18, which node-gyp 10.3.1 can't parse
+          # ("unknown version undefined") and whose PowerShell VS probe overflows
+          # (ERR_CHILD_PROCESS_STDIO_MAXBUFFER) — the node-pty rebuild then fails
+          # to find a compiler. VS 2022 is node-gyp 10's supported toolchain.
+          - platform: windows-2022
             label: windows
             builder-flag: --win
     runs-on: ${{ matrix.platform }}

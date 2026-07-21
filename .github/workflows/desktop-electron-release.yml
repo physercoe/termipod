@@ -262,7 +262,15 @@ jobs:
             --title "TermiPod Desktop (Electron) $V" \
             --notes "Electron desktop build $V. Not the update feed — promote to \`electron-latest\` to go live (see desktop/electron/README.md)." \
             || echo "release $TAG exists — refreshing assets"
-          gh release upload "$TAG" assets/* --clobber
+          echo "downloaded assets:"; ls -R assets
+          # Upload only the installer files by extension — NOT `assets/*`, which
+          # also globs any stray directory a merged artifact leaves behind
+          # (`gh release upload` fails reading a directory, and because it aborts
+          # mid-list the alphabetically-later latest*.yml manifests never upload).
+          shopt -s nullglob
+          files=(assets/*.dmg assets/*.zip assets/*.AppImage assets/*.deb assets/*.exe assets/*.blockmap assets/*.yml)
+          echo "uploading ${#files[@]} assets: ${files[*]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
 
   # Manual go-live: copy a verified release's assets onto the rolling
   # `electron-latest` feed release that packaged apps poll (the `generic`

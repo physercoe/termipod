@@ -188,8 +188,51 @@ npm start          # esbuild → out/, then `electron .`
       This slice adds the draw.io leg — `drawio_status`/`_download` adopt the
       Tauri install's already-extracted `drawio/<version>` (one-time
       staging+rename copy) instead of forcing a ~50 MB re-download at cutover.
-- [ ] **M3.4** signing/notarization certs (maintainer-supplied secrets) + the
-      handoff release; retire the Tauri lane after one overlap.
+- [~] **M3.4** cutover mechanics wired; execution is maintainer-gated (certs +
+      an explicit release). `desktop-electron-release.yml` publishes to a draft
+      GitHub release on an `electron-v*` tag (installers + the electron-updater
+      `latest*.yml` feed), and a `handoff` job generates `handoff.json`
+      (`scripts/gen-handoff.mjs`) so the final Tauri build offers the Electron
+      installer as a download. Signing/notarization consume repo secrets (below);
+      unsigned builds still package. Not done here: supplying the certs, cutting
+      the release, and retiring the Tauri lane — see the runbook.
+
+## Cutover runbook (M3.4)
+
+Signing/notarization needs certs only the maintainer holds, and cutting a
+release is an explicit action, so this is a procedure, not an automated step.
+
+**1. Configure signing secrets** (once). electron-builder reads them from the
+release workflow's env:
+
+| Secret | For | Notes |
+|---|---|---|
+| `CSC_LINK` | macOS + Windows | base64 (or URL) of the `.p12`/`.pfx` cert |
+| `CSC_KEY_PASSWORD` | macOS + Windows | the cert password |
+| `APPLE_ID` | macOS notarization | Apple ID email |
+| `APPLE_APP_SPECIFIC_PASSWORD` | macOS notarization | app-specific password |
+| `APPLE_TEAM_ID` | macOS notarization | Apple Developer team id |
+
+`gh secret set CSC_LINK < cert.b64` etc. Absent, the workflow still builds
+**unsigned** installers (auto-update won't verify — signing is the cutover
+prerequisite). `CSC_IDENTITY_AUTO_DISCOVERY=false` is set so an absent cert
+never hangs the macOS runner on the keychain.
+
+**2. Release.** Bump the product version (`desktop/package.json`; the workflow
+stamps it into the electron package) and push an `electron-v<version>` tag. The
+matrix builds + signs + publishes to a **draft** `v<version>` GitHub release
+(installers + `latest*.yml`); the `handoff` job attaches `handoff.json`.
+
+**3. Verify, then publish.** Download the draft's installers; confirm
+auto-update round-trips (N→N+1) on each OS and that the old Tauri build shows
+the handoff Download prompt. Publish the release (makes it "latest", so
+`releases/latest/download/{latest*.yml,handoff.json}` resolve). If `handoff.json`
+wasn't auto-attached to the draft, upload it manually from the run's
+`handoff-manifest` artifact.
+
+**4. Retire the Tauri lane** after one overlap release: stop cutting
+`desktop-v*` tags; `desktop-release.yml` can be removed once no supported Tauri
+build remains.
 
 > **Native addons need an Electron-ABI rebuild for the *dev* shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

@@ -112,9 +112,13 @@ jobs:
           node -e "const f='./desktop/electron/package.json',p=require(f);p.version='$V';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
           echo "packaged version = $V"
 
+      # On an electron-v* tag, publish to a DRAFT GitHub release (electron-builder
+      # default) — installers + the electron-updater feed (latest*.yml). The
+      # maintainer reviews + publishes, which is the cutover (plan §5). Manual
+      # dispatch just builds (--publish never).
       - name: Package (electron-builder, unsigned unless secrets present)
         working-directory: desktop/electron
-        run: npx electron-builder ${{ matrix.builder-flag }} --publish never
+        run: npx electron-builder ${{ matrix.builder-flag }} --publish ${{ startsWith(github.ref, 'refs/tags/electron-v') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Verbose so a hang leaves a diagnostic trail before the job timeout.
@@ -142,3 +146,33 @@ jobs:
             desktop/electron/release/*.zip
             desktop/electron/release/*.exe
             desktop/electron/release/latest*.yml
+
+  # The Tauri→Electron handoff manifest (M3.4): published beside the updater feed
+  # so the final Tauri build offers the Electron installer as a download. Tag
+  # builds only; best-effort attach to the release electron-builder created (the
+  # runbook covers manual attach if the draft isn't addressable yet).
+  handoff:
+    name: Handoff manifest
+    needs: bundle
+    if: startsWith(github.ref, 'refs/tags/electron-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generate handoff.json
+        run: |
+          V=$(node -p "require('./desktop/package.json').version")
+          node desktop/electron/scripts/gen-handoff.mjs "$V" handoff.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: handoff-manifest
+          path: handoff.json
+      - name: Attach to the release (best-effort)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V=$(node -p "require('./desktop/package.json').version")
+          gh release upload "v$V" handoff.json --clobber \
+            || echo "release v$V not addressable yet (likely still a draft) — attach handoff.json manually when publishing"

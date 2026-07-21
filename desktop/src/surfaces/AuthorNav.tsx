@@ -32,7 +32,7 @@ const TEXT_EXT = new Set([
   'md', 'markdown', 'txt', 'xml', 'svg', 'drawio', 'canvas', 'json', 'csv', 'tsv', 'log',
   'yml', 'yaml', 'toml', 'ini', 'html', 'htm', 'css', 'js', 'ts', 'tsx', 'jsx',
   'py', 'go', 'rs', 'sh', 'c', 'h', 'cpp', 'hpp', 'java', 'rb', 'php', 'sql',
-  'mmd', 'dot', 'gv', // figure sources (mermaid / graphviz)
+  'mmd', 'dot', 'gv', 'nomnoml', // figure sources (mermaid / graphviz / nomnoml)
 ]);
 
 function baseName(path: string): string {

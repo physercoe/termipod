@@ -11,7 +11,7 @@
 /// the heavy libraries (mermaid, graphviz-wasm, vega) are code-split into their
 /// own chunks and only fetched when a figure of that spec is first rendered.
 
-export type FigureSpec = 'mermaid' | 'graphviz' | 'vega-lite'; // grows in Phase B
+export type FigureSpec = 'mermaid' | 'graphviz' | 'vega-lite' | 'nomnoml' | 'wavedrom' | 'echarts';
 
 /// A renderer failure surfaced inline by both the editor and the fenced-block
 /// renderer — message plus, when the tool reports one, the source line — so a bad
@@ -80,6 +80,33 @@ const VEGA_LITE_SAMPLE = JSON.stringify(
       x: { field: 'category', type: 'nominal' },
       y: { field: 'amount', type: 'quantitative' },
     },
+  },
+  null,
+  2,
+);
+
+const NOMNOML_SAMPLE = `[Director]->[Steward]
+[Steward]->[Worker]
+[Worker]->[Hub]
+[Hub]-:>[Director]`;
+
+const WAVEDROM_SAMPLE = JSON.stringify(
+  {
+    signal: [
+      { name: 'clk', wave: 'p......' },
+      { name: 'req', wave: '0.1..0.' },
+      { name: 'data', wave: 'x.34.5x', data: ['head', 'body', 'tail'] },
+    ],
+  },
+  null,
+  2,
+);
+
+const ECHARTS_SAMPLE = JSON.stringify(
+  {
+    xAxis: { type: 'category', data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] },
+    yAxis: { type: 'value' },
+    series: [{ type: 'bar', data: [120, 200, 150, 80, 170] }],
   },
   null,
   2,
@@ -164,6 +191,96 @@ export const FIGURES: FigureRenderer[] = [
           return await view.toSVG();
         } catch (e) {
           throw new FigureRenderError(e instanceof Error ? e.message : String(e));
+        }
+      };
+    },
+  },
+  // ── Phase B — niche renderers (rows on the registry, no new surfaces) ──────
+  {
+    spec: 'nomnoml',
+    labelKey: 'figure.nomnoml',
+    ext: 'nomnoml',
+    fence: ['nomnoml'],
+    sample: NOMNOML_SAMPLE,
+    load: async () => {
+      const nomnoml = await import('nomnoml');
+      return async (src: string) => {
+        try {
+          return nomnoml.renderSvg(src);
+        } catch (e) {
+          throw new FigureRenderError(e instanceof Error ? e.message : String(e));
+        }
+      };
+    },
+  },
+  {
+    spec: 'wavedrom',
+    labelKey: 'figure.wavedrom',
+    ext: 'wavedrom.json',
+    fence: ['wavedrom'],
+    sample: WAVEDROM_SAMPLE,
+    // A WaveJSON spec is a `{signal: [...]}` object; arbitrary JSON (and a
+    // Vega-Lite spec, sniffed earlier in the array) won't carry `signal`.
+    sniffJson: (body) => {
+      try {
+        const o = JSON.parse(body) as Record<string, unknown>;
+        return o !== null && typeof o === 'object' && Array.isArray(o.signal);
+      } catch {
+        return false;
+      }
+    },
+    load: async () => {
+      const mod = await import('wavedrom');
+      const wd = mod.default ?? mod;
+      let n = 0;
+      return async (src: string) => {
+        try {
+          const spec = JSON.parse(src);
+          // A distinct index per render keeps the SVG element ids unique when
+          // several WaveDrom figures render on the same page.
+          n += 1;
+          const tree = wd.renderAny(n, spec, wd.waveSkin);
+          return wd.onml.stringify(tree);
+        } catch (e) {
+          throw new FigureRenderError(e instanceof Error ? e.message : String(e));
+        }
+      };
+    },
+  },
+  {
+    spec: 'echarts',
+    labelKey: 'figure.echarts',
+    ext: 'echarts.json',
+    fence: ['echarts'],
+    sample: ECHARTS_SAMPLE,
+    // ECharts option objects have no single required key; disambiguate on the
+    // common chart-defining fields (`series`, or an axis). Sniffed AFTER
+    // vega-lite/wavedrom so their more specific markers win first (§1.4 — this
+    // serves AUTHORED figures only; ambient run-metric charts stay in ChartView).
+    sniffJson: (body) => {
+      try {
+        const o = JSON.parse(body) as Record<string, unknown>;
+        if (o === null || typeof o !== 'object') return false;
+        return 'series' in o || 'xAxis' in o || 'yAxis' in o || 'radar' in o;
+      } catch {
+        return false;
+      }
+    },
+    load: async () => {
+      const echarts = await import('echarts');
+      return async (src: string) => {
+        let chart: ReturnType<typeof echarts.init> | undefined;
+        try {
+          const option = JSON.parse(src);
+          // Headless SSR: `ssr:true` + the SVG renderer build the chart without a
+          // DOM node; `renderToSVGString` serializes it to the uniform SVG string.
+          chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 600, height: 400 });
+          chart.setOption(option);
+          return chart.renderToSVGString();
+        } catch (e) {
+          throw new FigureRenderError(e instanceof Error ? e.message : String(e));
+        } finally {
+          chart?.dispose();
         }
       };
     },

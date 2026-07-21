@@ -128,6 +128,18 @@ jobs:
         working-directory: desktop/electron
         run: npm ci
 
+      # Drop ssh2's OPTIONAL native dep `cpu-features` (+ its build helper
+      # `buildcheck`) before packaging. @electron/rebuild rebuilds every native
+      # module it finds and hangs ~30min "preparing cpu-features" — it's the
+      # first module, so node-pty (the addon we DO need) is never reached. ssh2
+      # try/catches the require, so removing it just disables a CPU
+      # cipher-preference optimization. NOT `--omit=optional` on npm ci —
+      # @napi-rs/keyring's platform binaries are optionalDependencies we need.
+      - name: Strip cpu-features (hangs @electron/rebuild)
+        working-directory: desktop/electron
+        shell: bash
+        run: rm -rf node_modules/cpu-features node_modules/buildcheck
+
       - name: Build shell bundle (esbuild)
         working-directory: desktop/electron
         run: npm run build

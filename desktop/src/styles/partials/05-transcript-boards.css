@@ -102,6 +102,41 @@
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
+/* A fenced figure block (```mermaid / ```dot / ```vega-lite) rendered to SVG. */
+.md-figure {
+  margin: var(--spacing-s4) 0;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken, var(--bg));
+  overflow-x: auto;
+}
+.md-figure svg {
+  max-width: 100%;
+  height: auto;
+}
+.md-figure-loading {
+  margin: var(--spacing-s4) 0;
+  padding: 12px;
+  font-size: 12px;
+}
+.md-figure-err {
+  margin: var(--spacing-s4) 0;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.md-figure-err-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px var(--spacing-s8);
+  font-size: 12px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+}
 .md-code-head {
   display: flex;
   align-items: center;

@@ -4,6 +4,7 @@ import { Icon } from './Icon';
 import { useT } from '../i18n';
 import { useOpenLink } from './OpenLinkContext';
 import { loadNoteImage, NOTE_ATT_SCHEME } from '../state/attachments';
+import { figureByFence, renderFigure, type FigureSpec } from '../state/figures';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -95,10 +96,50 @@ function nodeText(node: ReactNode): string {
   return '';
 }
 
+/// A fenced block whose language is a figure spec (```` ```mermaid ````,
+/// ```` ```dot ````, ```` ```vega-lite ````): lazy-render the source to SVG via
+/// the registry (plan §A6), so figures render in the Author preview, the Read
+/// surface, and agent transcripts alike. A render error shows the message and the
+/// original source — never a blank block.
+function FigureFence({ spec, source }: { spec: FigureSpec; source: string }): JSX.Element {
+  const t = useT();
+  const [svg, setSvg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setErr(null);
+    void renderFigure(spec, source).then(
+      (out) => {
+        if (alive) setSvg(out);
+      },
+      (e: unknown) => {
+        if (alive) setErr(e instanceof Error ? e.message : String(e));
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [spec, source]);
+  if (err !== null) {
+    return (
+      <div className="md-figure-err">
+        <div className="md-figure-err-head">
+          <Icon name="alert" size={13} />
+          {t('figure.renderError')}: {err}
+        </div>
+        <pre>{source}</pre>
+      </div>
+    );
+  }
+  if (svg === null) return <div className="md-figure-loading muted">{t('figure.rendering')}</div>;
+  return <div className="md-figure" dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
 /// A fenced code block with a header strip: the language label + a copy button
 /// (#332 — the cheapest, most-felt chat-grade affordance). The `<pre>`/`<code>`
 /// react-markdown emits is rendered inside the framed block; the language comes
-/// from rehype's `language-*` class and the copied text from `nodeText`.
+/// from rehype's `language-*` class and the copied text from `nodeText`. A fence
+/// whose language is a registry figure spec renders as the figure instead.
 function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -106,6 +147,8 @@ function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
   const className = isValidElement(codeEl) ? String((codeEl.props as { className?: string }).className ?? '') : '';
   const lang = /language-([\w-]+)/.exec(className)?.[1];
   const raw = nodeText(children);
+  const figure = lang !== undefined ? figureByFence(lang) : undefined;
+  if (figure !== undefined) return <FigureFence spec={figure.spec} source={raw.replace(/\n$/, '')} />;
   function copy(): void {
     void navigator.clipboard?.writeText(raw).then(
       () => {

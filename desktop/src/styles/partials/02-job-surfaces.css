@@ -266,9 +266,123 @@ button > .ui-icon:not(:only-child):first-child,
   min-height: 0;
   display: flex;
 }
-.author-split .author-doc {
+.author-split .author-doc,
+.author-split .figure-editor {
   flex: 1;
   min-width: 0;
+}
+
+/* J2 figure editor — split source ↔ live SVG preview (figure-renderer registry). */
+.figure-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.figure-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.figure-bar .spacer {
+  flex: 1;
+}
+.figure-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.figure-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.figure-source-pane {
+  flex: 1 1 45%;
+  min-width: 0;
+  display: flex;
+  border-right: 1px solid var(--border);
+}
+.figure-source-pane .figure-source {
+  flex: 1;
+  min-width: 0;
+}
+.figure-preview-pane {
+  flex: 1 1 55%;
+  min-width: 0;
+  position: relative;
+  overflow: auto;
+  background: var(--surface-sunken, var(--bg));
+}
+.figure-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 18px;
+}
+.figure-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+.figure-error {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: 6px;
+}
+/* The New-figure spec dropdown. */
+.author-figbtn {
+  position: relative;
+  display: inline-flex;
+}
+.author-figmenu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.author-figmenu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  z-index: 41;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+.author-figmenu-item {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.author-figmenu-item:hover {
+  background: var(--surface-sunken, var(--bg));
+  color: var(--accent-text);
 }
 .author-agent,
 .read-agent {

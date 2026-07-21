@@ -4,6 +4,7 @@ import { isTauri } from '../platform';
 import { toast } from '../state/toast';
 import {
   bodyToFile,
+  extForDoc,
   extForKind,
   fileToBody,
   kindForFile,
@@ -12,6 +13,7 @@ import {
   type Doc,
   type DocKind,
 } from '../state/documents';
+import { figureBySpec, FIGURES, type FigureSpec } from '../state/figures';
 import { useWorkspace } from '../state/workspace';
 import { NEW_BASE, uniqueWorkspacePath } from '../state/workspaceFiles';
 import { AgentCompanion } from '../ui/AgentCompanion';
@@ -22,6 +24,9 @@ import { CanvasEditor } from '../ui/CanvasEditor';
 import { Markdown } from '../ui/Markdown';
 // The table/database grid is only pulled in when a table doc is opened.
 const TableEditor = lazy(() => import('../ui/TableEditor').then((m) => ({ default: m.TableEditor })));
+// The figure editor pulls in a renderer library (mermaid/graphviz/vega) on first
+// use of a spec — split it (and them) out of the entry chunk.
+const FigureEditor = lazy(() => import('./FigureEditor').then((m) => ({ default: m.FigureEditor })));
 import type { MarkdownEditorHandle } from '../ui/MarkdownEditor';
 // CodeMirror is heavy (~500 KB) and Author isn't the landing tab — split it out.
 const MarkdownEditor = lazy(() => import('../ui/MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })));
@@ -75,6 +80,15 @@ function baseName(path: string): string {
 
 function extOf(path: string): string {
   return path.split('.').pop()?.toLowerCase() ?? '';
+}
+
+/// Strip a single enclosing ```` ``` ```` fence from an agent reply so a figure
+/// body stays raw source. Agents answer "a sequence diagram of X" with a fenced
+/// ```` ```mermaid … ``` ```` block; the figure renderer wants the inside only.
+/// A reply that isn't a lone fence passes through untouched.
+function unfence(text: string): string {
+  const m = /^\s*```[\w-]*\n([\s\S]*?)\n```\s*$/.exec(text.trim());
+  return m !== null ? m[1] : text;
 }
 
 type ViewMode = 'wysiwyg' | 'edit' | 'split' | 'read';
@@ -210,6 +224,9 @@ export function AuthorSurface(): JSX.Element {
   // Two-step close arm — `window.confirm` is unreliable in the Tauri webview, so
   // the first × click arms (turns into a confirm ×), the second closes.
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
+  // The New-figure spec dropdown (Mermaid · Graphviz · Vega-Lite, driven by the
+  // registry). Open/closed only; picking a spec creates the doc and closes it.
+  const [figMenu, setFigMenu] = useState(false);
 
   const active = docs.find((d) => d.id === activeId);
   const tauri = isTauri();
@@ -230,8 +247,9 @@ export function AuthorSurface(): JSX.Element {
     setBusy(true);
     try {
       // The disk format follows the target file's extension (a table re-saves as
-      // CSV if linked to a .csv, else the lossless .json default).
-      const ext = active.filePath !== undefined ? extOf(active.filePath) : extForKind(active.kind);
+      // CSV if linked to a .csv, else the lossless .json default). A figure saves
+      // as its spec's extension (`extForDoc`).
+      const ext = active.filePath !== undefined ? extOf(active.filePath) : extForDoc(active);
       const content = bodyToFile(active.kind, active.body, ext, t('table.colName'));
       if (active.filePath !== undefined) {
         await invoke('doc_write', { path: active.filePath, content });
@@ -240,7 +258,7 @@ export function AuthorSurface(): JSX.Element {
         const name = (active.title !== '' ? active.title : 'document').replace(/[^\w.-]+/g, '-');
         const path = await invoke<string | null>('doc_save', {
           content,
-          defaultName: `${name}.${extForKind(active.kind)}`,
+          defaultName: `${name}.${extForDoc(active)}`,
         });
         if (path !== null) markSaved(active.id, path, baseName(path));
       }
@@ -275,22 +293,26 @@ export function AuthorSurface(): JSX.Element {
   // round-trips on Save — instead of a device-local draft disconnected from the
   // workspace (director report: "the file is not added to the workspace"). With
   // no folder open, or in the browser build, it stays an in-memory draft.
-  async function createDoc(kind: DocKind): Promise<void> {
+  // A figure carries a `spec` (which renderer): its seed body and on-disk
+  // extension come from the registry row, not the bare kind.
+  async function createDoc(kind: DocKind, spec?: FigureSpec): Promise<void> {
+    const row = spec !== undefined ? figureBySpec(spec) : undefined;
+    const seed: Partial<Doc> = spec !== undefined ? { spec, body: row?.sample ?? '' } : {};
     if (!tauri || folder === null) {
-      create(kind);
+      create(kind, seed);
       return;
     }
     setBusy(true);
     try {
-      const ext = extForKind(kind);
-      const body = seedBody(kind);
+      const ext = row?.ext ?? extForKind(kind);
+      const body = seed.body ?? seedBody(kind);
       const path = await uniqueWorkspacePath(folder, NEW_BASE[kind], ext);
       await invoke('doc_write', { path, content: bodyToFile(kind, body, ext, t('table.colName')) });
-      create(kind, { title: baseName(path), body, filePath: path });
+      create(kind, { ...seed, title: baseName(path), body, filePath: path });
       touchWs();
     } catch {
       // Permissions / race — still give the user a document, just in-memory.
-      create(kind);
+      create(kind, seed);
     } finally {
       setBusy(false);
     }
@@ -303,11 +325,12 @@ export function AuthorSurface(): JSX.Element {
       const res = await invoke<{ path: string; content: string } | null>('doc_open');
       if (res !== null) {
         const ext = extOf(res.path);
-        const kind = kindForFile(ext, res.content);
+        const { kind, spec } = kindForFile(ext, res.content);
         create(kind, {
           title: baseName(res.path),
           body: fileToBody(kind, res.content, ext, t('table.colName')),
           filePath: res.path,
+          spec,
         });
       }
     } catch {
@@ -355,6 +378,39 @@ export function AuthorSurface(): JSX.Element {
             <Icon name="table" size={14} />
             {t('author.newTable')}
           </button>
+          <div className="author-figbtn">
+            <button
+              className="import-btn"
+              disabled={busy}
+              aria-haspopup="menu"
+              aria-expanded={figMenu}
+              onClick={() => setFigMenu((v) => !v)}
+            >
+              <Icon name="figure" size={14} />
+              {t('author.newFigure')}
+              <Icon name="chevron-down" size={12} />
+            </button>
+            {figMenu && (
+              <>
+                <div className="author-figmenu-scrim" onClick={() => setFigMenu(false)} />
+                <div className="author-figmenu" role="menu">
+                  {FIGURES.map((f) => (
+                    <button
+                      key={f.spec}
+                      role="menuitem"
+                      className="author-figmenu-item"
+                      onClick={() => {
+                        setFigMenu(false);
+                        void createDoc('figure', f.spec);
+                      }}
+                    >
+                      {t(f.labelKey)}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           {tauri && (
             <>
               <button className="import-btn" disabled={busy} onClick={() => void onOpen()}>
@@ -434,14 +490,19 @@ export function AuthorSurface(): JSX.Element {
             <Suspense fallback={<div className="muted region-pad">{t('author.loadingEditor')}</div>}>
               <TableEditor key={active.id} value={active.body} onChange={(v) => update(active.id, { body: v })} />
             </Suspense>
+          ) : active.kind === 'figure' ? (
+            <Suspense fallback={<div className="muted region-pad">{t('author.loadingEditor')}</div>}>
+              <FigureEditor key={active.id} doc={active} />
+            </Suspense>
           ) : (
             <Editor key={active.id} doc={active} />
           )}
           {/* The agent panel is available for every document kind. Its
-              "insert reply" affordance appends prose to the body, so it's wired
-              only for markdown — a diagram/canvas/table body is structured
-              (XML/JSON) and would be corrupted by an append; for those the panel
-              is read/assist-only. */}
+              "insert reply" affordance appends prose to a markdown body and
+              REPLACES a figure body (a figure is a single spec source, so an
+              append would corrupt it — the agent answers with the whole diagram).
+              A diagram/canvas/table body is structured (XML/JSON) and has no safe
+              text insert, so for those the panel is read/assist-only. */}
           {showAgent && (
             <>
               <ResizeHandle
@@ -465,9 +526,11 @@ export function AuthorSurface(): JSX.Element {
                     build: () =>
                       active.kind === 'markdown'
                         ? `I'm writing a document titled "${active.title}". Current draft:\n\n${active.body}`
-                        : `I'm editing a ${active.kind} document titled "${active.title}"${
-                            active.filePath !== undefined ? ` (file: ${active.filePath})` : ''
-                          }.`,
+                        : active.kind === 'figure'
+                          ? `I'm authoring a ${active.spec ?? 'figure'} diagram titled "${active.title}", rendered from the \`\`\`${active.spec ?? ''}\`\`\` fenced syntax. Reply with ONLY the ${active.spec ?? 'figure'} source (optionally in a fenced block). Current source:\n\n${active.body}`
+                          : `I'm editing a ${active.kind} document titled "${active.title}"${
+                              active.filePath !== undefined ? ` (file: ${active.filePath})` : ''
+                            }.`,
                   }}
                   onInsert={
                     active.kind === 'markdown'
@@ -475,7 +538,9 @@ export function AuthorSurface(): JSX.Element {
                           update(active.id, {
                             body: active.body.trimEnd() === '' ? text : `${active.body.trimEnd()}\n\n${text}`,
                           })
-                      : undefined
+                      : active.kind === 'figure'
+                        ? (text) => update(active.id, { body: unfence(text) })
+                        : undefined
                   }
                 />
               </div>

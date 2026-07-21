@@ -1,4 +1,4 @@
-import { bodyToFile, extForKind, type Doc, type DocKind } from './documents';
+import { bodyToFile, extForDoc, type Doc, type DocKind } from './documents';
 
 /// Shared helpers for materializing Author documents into the on-disk workspace
 /// folder and for enumerating that folder's files (the `@`-mention source). Tauri
@@ -23,6 +23,7 @@ export const NEW_BASE: Record<DocKind, string> = {
   diagram: 'diagram',
   canvas: 'canvas',
   table: 'table',
+  figure: 'figure',
 };
 
 function sep(dir: string): string {
@@ -60,8 +61,8 @@ function baseFromTitle(title: string, kind: DocKind): string {
 /// Write a document's current body into the workspace folder under a fresh name
 /// and return the path. Used to materialize an in-memory draft (drag-to-folder /
 /// "Save to workspace"); the caller links it via `markSaved`.
-export async function writeDocToWorkspace(dir: string, doc: Pick<Doc, 'kind' | 'title' | 'body'>): Promise<string> {
-  const ext = extForKind(doc.kind);
+export async function writeDocToWorkspace(dir: string, doc: Pick<Doc, 'kind' | 'title' | 'body' | 'spec'>): Promise<string> {
+  const ext = extForDoc(doc);
   const path = await uniqueWorkspacePath(dir, baseFromTitle(doc.title, doc.kind), ext);
   await invoke('doc_write', { path, content: bodyToFile(doc.kind, doc.body, ext, 'Name') });
   return path;

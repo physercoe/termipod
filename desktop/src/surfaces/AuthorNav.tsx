@@ -32,6 +32,7 @@ const TEXT_EXT = new Set([
   'md', 'markdown', 'txt', 'xml', 'svg', 'drawio', 'canvas', 'json', 'csv', 'tsv', 'log',
   'yml', 'yaml', 'toml', 'ini', 'html', 'htm', 'css', 'js', 'ts', 'tsx', 'jsx',
   'py', 'go', 'rs', 'sh', 'c', 'h', 'cpp', 'hpp', 'java', 'rb', 'php', 'sql',
+  'mmd', 'dot', 'gv', // figure sources (mermaid / graphviz)
 ]);
 
 function baseName(path: string): string {
@@ -167,9 +168,14 @@ export function AuthorNav(): JSX.Element {
     if (!TEXT_EXT.has(extOf(path))) return; // binary/unsupported — inert
     try {
       const res = await invoke<{ path: string; content: string }>('doc_read', { path });
-      const ext = extOf(path); // .canvas→canvas · .csv→table · .drawio→diagram · .json→sniff
-      const kind = kindForFile(ext, res.content);
-      create(kind, { title: baseName(path), body: fileToBody(kind, res.content, ext, t('table.colName')), filePath: path });
+      const ext = extOf(path); // .canvas→canvas · .csv→table · .drawio→diagram · .mmd/.dot/.json→figure/sniff
+      const { kind, spec } = kindForFile(ext, res.content);
+      create(kind, {
+        title: baseName(path),
+        body: fileToBody(kind, res.content, ext, t('table.colName')),
+        filePath: path,
+        spec,
+      });
     } catch {
       /* unreadable/binary — ignore */
     }

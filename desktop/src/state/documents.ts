@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { backupCorrupt } from './persist';
 import { csvToTable, isTableBody, parseTable, serializeTable, tableToCsv } from './table';
+import { figureBySpec, specForFile, type FigureSpec } from './figures';
 
 /// The J2 Author workspace — multiple open documents as tabs (director request:
 /// "the Author tab should support multiple tabs").
@@ -18,16 +19,21 @@ import { csvToTable, isTableBody, parseTable, serializeTable, tableToCsv } from 
 ///   • `diagram`  — draw.io XML;
 ///   • `canvas`   — a JSON spatial board (cards + typed edges, `state/canvas.ts`);
 ///   • `table`    — a JSON database grid (typed columns + rows, `ui/TableEditor`).
+///   • `figure`   — a text-to-figure source (mermaid/graphviz/vega-lite, …); the
+///     `spec` field selects the renderer via the `state/figures` registry.
 /// Canvas and table were formerly a separate top-level surface / are new — they
 /// now live here as document kinds so a workspace holds many of each as tabs.
 
-export type DocKind = 'markdown' | 'diagram' | 'canvas' | 'table';
+export type DocKind = 'markdown' | 'diagram' | 'canvas' | 'table' | 'figure';
 
 export interface Doc {
   id: string;
   kind: DocKind;
   title: string;
-  body: string; // markdown source · draw.io XML · canvas JSON · table JSON (per kind)
+  body: string; // markdown source · draw.io XML · canvas JSON · table JSON · figure source (per kind)
+  // For a `figure` doc: which renderer its `body` targets (registry discriminator).
+  // Additive — persisted `termipod.documents.v1` blobs without it are unaffected.
+  spec?: FigureSpec;
   filePath?: string; // linked on-disk file, if saved/opened via a native dialog
   dirty?: boolean; // unsaved changes relative to the linked file
   updatedAt: number;
@@ -64,6 +70,8 @@ export function seedBody(kind: DocKind): string {
 //   • markdown → `.md`; diagram → draw.io `.drawio` XML.
 
 /// Default extension for a NEW save of each kind (table → the lossless `.json`).
+/// Figures are spec-dependent — use `extForDoc`, which knows the spec; a bare
+/// figure kind here falls back to `.txt` (should never be reached for figures).
 export function extForKind(kind: DocKind): string {
   switch (kind) {
     case 'canvas':
@@ -72,26 +80,42 @@ export function extForKind(kind: DocKind): string {
       return 'json';
     case 'diagram':
       return 'drawio';
+    case 'figure':
+      return 'txt';
     default:
       return 'md';
   }
 }
 
-/// The document kind for a file being opened. Extension decides everything except
-/// `.json`, which is content-sniffed: a `{columns, rows}` doc is a table, any
-/// other JSON opens as plain text (markdown) so arbitrary JSON isn't hijacked.
-export function kindForFile(ext: string, content: string): DocKind {
+/// Doc-aware extension: a `figure` saves as its spec's registry extension
+/// (`.mmd`/`.dot`/`.vl.json`); every other kind defers to `extForKind`.
+export function extForDoc(doc: Pick<Doc, 'kind' | 'spec'>): string {
+  if (doc.kind === 'figure' && doc.spec !== undefined) return figureBySpec(doc.spec)?.ext ?? 'txt';
+  return extForKind(doc.kind);
+}
+
+/// The document kind (+ figure spec) for a file being opened. Extension decides
+/// everything except `.json`, which is content-sniffed in order: a `{columns,
+/// rows}` doc is a table → a Vega-Lite spec (registry sniff) → otherwise plain
+/// text (markdown), so arbitrary JSON is never hijacked. A registry figure
+/// extension (`.mmd`/`.dot`/`.vl.json`) resolves to `figure` + its spec.
+export function kindForFile(ext: string, content: string): { kind: DocKind; spec?: FigureSpec } {
   switch (ext.toLowerCase()) {
     case 'canvas':
-      return 'canvas';
+      return { kind: 'canvas' };
     case 'csv':
-      return 'table';
+      return { kind: 'table' };
     case 'drawio':
-      return 'diagram';
-    case 'json':
-      return isTableBody(content) ? 'table' : 'markdown';
-    default:
-      return 'markdown';
+      return { kind: 'diagram' };
+    case 'json': {
+      if (isTableBody(content)) return { kind: 'table' };
+      const spec = specForFile('json', content);
+      return spec !== undefined ? { kind: 'figure', spec } : { kind: 'markdown' };
+    }
+    default: {
+      const spec = specForFile(ext, content);
+      return spec !== undefined ? { kind: 'figure', spec } : { kind: 'markdown' };
+    }
   }
 }
 
@@ -230,6 +254,7 @@ export const useDocuments = create<DocsState>((set, get) => ({
       kind,
       title: seed?.title ?? 'Untitled',
       body: seed?.body ?? seedBody(kind),
+      spec: seed?.spec, // which renderer, for a figure doc (dropped for other kinds)
       filePath: seed?.filePath,
       updatedAt: Date.now(),
     };

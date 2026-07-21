@@ -38,6 +38,7 @@ export type IconName =
   | 'globe'
   | 'note'
   | 'diagram'
+  | 'figure'
   | 'copy'
   | 'check'
   | 'bold'
@@ -75,6 +76,7 @@ export type IconName =
   | 'arrow-down'
   | 'send'
   | 'wrench'
+  | 'alert'
   | 'circle-half';
 
 const PATHS: Record<IconName, JSX.Element> = {
@@ -227,6 +229,21 @@ const PATHS: Record<IconName, JSX.Element> = {
       <rect x="3" y="4" width="7" height="6" rx="1.2" />
       <rect x="14" y="14" width="7" height="6" rx="1.2" />
       <path d="M6.5 10v4a1 1 0 0 0 1 1H14" />
+    </>
+  ),
+  figure: (
+    <>
+      <path d="M3 3v18h18" />
+      <rect x="7" y="12" width="3" height="6" rx="0.6" />
+      <rect x="12" y="8" width="3" height="10" rx="0.6" />
+      <rect x="17" y="5" width="3" height="13" rx="0.6" />
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
     </>
   ),
   copy: (
@@ -505,6 +522,8 @@ export function docKindIcon(kind: DocKind): IconName {
       return 'canvas';
     case 'table':
       return 'table';
+    case 'figure':
+      return 'figure';
     default:
       return 'note';
   }

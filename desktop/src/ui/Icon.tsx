@@ -77,6 +77,7 @@ export type IconName =
   | 'send'
   | 'wrench'
   | 'alert'
+  | 'crosshair'
   | 'circle-half';
 
 const PATHS: Record<IconName, JSX.Element> = {
@@ -481,6 +482,14 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <circle cx="12" cy="12" r="8" />
       <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // crosshair — "locate / view in context", the target the transcript jump chip uses
+  crosshair: (
+    <>
+      <circle cx="12" cy="12" r="7" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
     </>
   ),
 };

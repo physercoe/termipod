@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SseHandle } from '../hub/sse';
@@ -31,13 +31,17 @@ function fmtElapsed(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-// The deepest history the events endpoint serves in one call (tail = last N; it
-// has no older-than cursor). We load it once and let the virtual list render only
-// the visible slice — so there's no render storm, and the measured, bottom-
-// anchored scroller keeps the view pinned to the latest message with no jump as
-// cards hydrate (markdown/KaTeX/images settling), which one-shot JS pinning
-// couldn't do on WebKit.
+// The newest window the events endpoint serves on cold open (tail = last N). The
+// virtual list renders only the visible slice — no render storm — and the
+// measured, bottom-anchored scroller keeps the view pinned to the latest message
+// with no jump as cards hydrate (markdown/KaTeX/images settling), which one-shot
+// JS pinning couldn't do on WebKit. Older history is NOT loaded here: scrolling
+// to the head pages it in by the `before_ordinal` cursor (`loadOlder`, #332
+// parity — mobile LiveFeed `_maybeLoadOlder`).
 const LOAD_TAIL = 500;
+// One page of older history, fetched when the user scrolls to the head (mobile
+// `_pageSize`). A short page (< this) proves the start of the transcript.
+const OLDER_PAGE = 200;
 
 /// A stable, cross-agent-unique key for one event. The globally-unique row `id`
 /// is the true identity — `seq` is only per-agent, so it COLLIDES across the
@@ -182,6 +186,22 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   const [unread, setUnread] = useState(0);
   const prevLiveLenRef = useRef(0);
 
+  // Load-older paging (#332 parity — mobile LiveFeed `_maybeLoadOlder`). The tail
+  // load holds only the newest LOAD_TAIL events; scrolling to the head pages the
+  // previous window in by the dense `session_ordinal` cursor. `atHead` latches
+  // once a short page proves the transcript's start is loaded. `prependAnchorRef`
+  // carries the pre-merge top row id so the reconcile effect can re-anchor the
+  // view to it (new rows grow upward without a jump).
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [atHead, setAtHead] = useState(false);
+  const loadingOlderRef = useRef(false);
+  const prependAnchorRef = useRef<string | null>(null);
+
+  // Context-jump target (mobile ContextJumpButton → `_jumpToContext`): a filtered
+  // match the user asked to see in the full log. We clear the lens to `all`, then
+  // this fires the jump once the unfiltered list has rebuilt.
+  const [pendingContext, setPendingContext] = useState<number | null>(null);
+
   // Reset the feed only when the AGENT changes (a genuinely different transcript)
   // — not when `scope` resolves from undefined → session, which reloads the same
   // transcript as a superset. Clearing there would flash the feed empty between
@@ -191,6 +211,11 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     setError(null);
     setLoaded(false);
     setPendingJump(null);
+    setAtHead(false);
+    setLoadingOlder(false);
+    loadingOlderRef.current = false;
+    prependAnchorRef.current = null;
+    setPendingContext(null);
   }, [agentId]);
 
   useEffect(() => {
@@ -388,9 +413,25 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // The item wrapper for the virtual list: carries the transient jump flash and
   // the row spacing.
   function feedItem(ev: FeedEvent): JSX.Element {
+    // On a filtered live feed, each match carries a jump chip to its spot in the
+    // full log (mobile ContextJumpButton). Hidden at lens `all` (already the full
+    // log) and outside live mode.
+    const showJump = mode === 'live' && lens !== 'all';
     return (
       <div className={ev.id === flashId ? 'feed-item ev-flash' : 'feed-item'}>
-        <div className="feed-measure">{renderCard(ev)}</div>
+        <div className="feed-measure">
+          {showJump && (
+            <button
+              className="feed-jump"
+              title={t('tx.viewInContext')}
+              aria-label={t('tx.viewInContext')}
+              onClick={() => jumpToContext(rowCoord(ev))}
+            >
+              <Icon name="crosshair" size={13} />
+            </button>
+          )}
+          {renderCard(ev)}
+        </div>
       </div>
     );
   }
@@ -593,6 +634,43 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     }
   }
 
+  // Page the previous window of history in when the user scrolls to the head
+  // (#332 parity — mobile LiveFeed `_maybeLoadOlder`). Session-scoped by the dense
+  // `session_ordinal` cursor (survives a resume — per-agent seq collides). We
+  // stash the current top row's id, merge the older page (mergeEvents sorts it to
+  // the front), then the reconcile effect re-anchors the view to that row so the
+  // new rows appear above without a jump. `atHead` latches on a short/empty page.
+  async function loadOlder(): Promise<void> {
+    if (client === null || scope === undefined) return; // ordinal cursor is session-keyed
+    if (loadingOlderRef.current || atHead || !settledRef.current) return;
+    const { min } = loadedOrdRange();
+    if (!Number.isFinite(min) || min <= 1) {
+      setAtHead(true); // ordinal 1 is the session's first event — nothing older
+      return;
+    }
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    prependAnchorRef.current = liveData.length > 0 ? liveData[0].id : null;
+    try {
+      const older = await client.listAgentEvents(agentId, { session: scope, beforeOrdinal: min, limit: OLDER_PAGE });
+      if (older.length < OLDER_PAGE) setAtHead(true);
+      if (older.length === 0) {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+        prependAnchorRef.current = null;
+        return;
+      }
+      // The reconcile effect clears the loading flags + re-anchors once the merged
+      // rows land in liveData.
+      setEvents((prev) => mergeEvents(prev, older));
+    } catch (err) {
+      setError(msg(err));
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+      prependAnchorRef.current = null;
+    }
+  }
+
   // Jump the virtual list to a navigation coordinate (Insight turn/error jump,
   // live stepper). The coordinate is the dense `session_ordinal` in a session-
   // scoped feed, else the per-agent `seq` — see `rowCoord`. Off-screen rows aren't
@@ -673,6 +751,43 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feed, pendingJump]);
+
+  // After a load-older merge, re-anchor the viewport to the row that was at the
+  // top before the prepend, so the newly-inserted older rows grow upward without
+  // yanking the view (mobile does a post-frame `jumpTo` height-delta; here the
+  // row's stable index + `align:'start'` is the Virtuoso-idiomatic equivalent).
+  // useLayoutEffect so the re-anchor lands before paint. Runs on `liveData` change
+  // so it fires exactly when the page merges in.
+  useLayoutEffect(() => {
+    const anchorId = prependAnchorRef.current;
+    if (anchorId === null) return;
+    const idx = liveData.findIndex((ev) => ev.id === anchorId);
+    if (idx > 0) virtuosoRef.current?.scrollToIndex({ index: idx, align: 'start' });
+    prependAnchorRef.current = null;
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveData]);
+
+  // Jump from a filtered match to its position in the FULL log (mobile
+  // ContextJumpButton → `_jumpToContext`): clear the lens to `all`, then once the
+  // unfiltered list rebuilds, scroll+flash the event at its own coordinate.
+  // scrollToCoord window-loads around a target outside the loaded range.
+  function jumpToContext(coord: number): void {
+    if (lens === 'all') {
+      scrollToCoord(coord);
+      return;
+    }
+    setLensReset('all');
+    setPendingContext(coord);
+  }
+  useEffect(() => {
+    if (pendingContext === null || lens !== 'all') return;
+    const target = pendingContext;
+    setPendingContext(null);
+    scrollToCoord(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingContext, lens, liveData]);
 
   function setLensReset(l: FeedLens): void {
     setLens(l);
@@ -898,9 +1013,18 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
                     setUnread(0);
                   }
                 }}
+                startReached={() => void loadOlder()}
                 totalListHeightChanged={pinBottom}
                 itemContent={(_i, ev) => feedItem(ev)}
                 components={{
+                  Header: () =>
+                    loadingOlder ? (
+                      <div className="feed-older muted" aria-busy="true">
+                        {t('tx.loadingOlder')}
+                      </div>
+                    ) : atHead ? (
+                      <div className="feed-older muted">{t('tx.historyStart')}</div>
+                    ) : null,
                   EmptyPlaceholder: () => (
                     <div className="region-pad muted">{lens === 'all' ? t('tx.noEvents') : t('tx.noMatches')}</div>
                   ),

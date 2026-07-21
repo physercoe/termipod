@@ -9,6 +9,46 @@
   flex-direction: column;
   max-width: 760px;
   margin-inline: auto;
+  position: relative; /* anchor for the filtered-row jump chip (.feed-jump) */
+}
+
+/* #332 context-jump chip — on a filtered live feed, each match shows this to jump
+   to its position in the full (unfiltered) log (mobile ContextJumpButton). Quiet
+   by default, tinting to accent on hover; sits top-right, clear of the card's
+   left accent spine. Revealed on row hover to keep the reading column clean. */
+.feed-jump {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-s2, 2px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.feed-measure:hover .feed-jump,
+.feed-jump:focus-visible {
+  opacity: 1;
+}
+.feed-jump:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Load-older / start-of-history hint — the virtual list Header, visible only when
+   scrolled to the head. */
+.feed-older {
+  padding: var(--spacing-s8, 8px) var(--spacing-s20, 20px);
+  text-align: center;
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
 }
 .ev {
   display: flex;

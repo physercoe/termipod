@@ -20,6 +20,8 @@ import { workspaceHandlers } from './workspace';
 import { storageHandlers } from './storage';
 import { keychainHandlers } from './keychain';
 import { ptyHandlers } from './pty';
+import { voiceHandlers } from './voice';
+import { scriptHandlers } from './script';
 import { drawioHandlers } from '../drawio';
 
 export interface Ctx {
@@ -38,6 +40,8 @@ const handlers: Record<string, Handler> = {
   ...storageHandlers,
   ...keychainHandlers,
   ...ptyHandlers,
+  ...voiceHandlers,
+  ...scriptHandlers,
   ...drawioHandlers,
 };
 

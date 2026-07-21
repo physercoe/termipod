@@ -25,6 +25,9 @@ src/ipc/migration.ts migration_read (own userData, falling back to the Tauri
                    migration_export (state-v1.json)
 src/ipc/pty.ts     local PTY (node-pty): pty_open/start/write/resize/close —
                    JS-buffered subscribe-gate + login-shell PATH recovery (M2.1)
+src/ipc/voice.ts   DashScope ASR WebSocket (ws): voice_open/send/finish/close (M2.3)
+src/ipc/script.ts  one-shot child runs (child_process): script_run +
+                   local_agent_run — execFile, no shell (M2.4)
 esbuild.mjs        bundles main + preload → out/*.cjs
 ```
 
@@ -73,8 +76,16 @@ npm start          # esbuild → out/, then `electron .`
       exit is deferred to the same flush. Login-shell PATH recovery (`$SHELL
       -ilc`, async, cached) so GUI-launched agent CLIs resolve. Windows `.cmd`
       shims run through `cmd.exe /C`.
-- [ ] **M2.2** SSH/SFTP (`ssh2`) · **M2.3** voice (`ws`) · **M2.4** script +
-      local-agent (`child_process`) · **M2.5** sync engines (WebDAV/folder/S3,
+- [x] **M2.3** voice (`ws`) — `voice_open`/`send`/`finish`/`close` +
+      `voice-event`, ported from `voice.rs`. `ws` sets the DashScope
+      `Authorization: bearer` header the renderer's WebSocket can't; `voice_open`
+      awaits open + run-task before returning so a later `voice_send` always
+      meets an open socket. Pure JS — no ABI concern.
+- [x] **M2.4** script + local-agent (`child_process`) — `script_run` (temp-file
+      + interpreter, 120s cap, output clamp) and `local_agent_run` (argv-safe
+      `claude -p`, **no** wall-clock cap, matching `local_agent.rs`). `execFile`
+      (no shell) so nothing is interpolated.
+- [ ] **M2.2** SSH/SFTP (`ssh2`) · **M2.5** sync engines (WebDAV/folder/S3,
       under a fixture test suite) · **M2.6** vault → WASM (wasm-pack from
       `vault.rs`, byte-compat).
 

@@ -12,9 +12,11 @@ const common = {
   target: 'node22', // Electron 43 bundles Node 22
   format: 'cjs',
   // `electron` is the runtime; `@napi-rs/keyring` and `node-pty` are native
-  // (.node) addons that can't be bundled — all resolve from node_modules at
-  // runtime (electron-builder asarUnpacks + ABI-rebuilds the native addons in M3).
-  external: ['electron', '@napi-rs/keyring', 'node-pty'],
+  // (.node) addons that can't be bundled (electron-builder asarUnpacks +
+  // ABI-rebuilds them in M3); `ws` is pure JS but has optional native deps
+  // (bufferutil/utf-8-validate) best left unbundled. All resolve from
+  // node_modules at runtime.
+  external: ['electron', '@napi-rs/keyring', 'node-pty', 'ws'],
   sourcemap: true,
   logLevel: 'info',
 };

@@ -279,15 +279,23 @@ test('bytes over IPC: attachment write→read round-trips raw bytes (no base64)'
 // fallback — which is the offline-first contract (full airplane-mode is
 // device-verified: fonts degrade gracefully to system fonts if absent).
 test('excalidraw: the sketch editor lazy-mounts and is configured for offline fonts', async () => {
-  await page.keyboard.press('Control+4'); // → Author (J2), rail index 4
-  // Same boot-modal guard as the terminal UI test — its backdrop can intercept
-  // the toolbar click. Conditional; it may already be dismissed by an earlier test.
-  const connectClose = page.locator('.connect-head button');
-  if (await connectClose.isVisible().catch(() => false)) {
-    await connectClose.click();
+  // The "Add a hub" modal auto-opens once on boot (no hub configured, AppShell.tsx)
+  // and its backdrop blocks the activity bar. It can pop up at any point during the
+  // earlier tests (`init()` resolves async), so close it deterministically here.
+  // `toPass` re-runs until the modal is gone, absorbing the open/animation race;
+  // it's also a no-op if the modal was never present (count 0 → the assertion holds).
+  await expect(async () => {
+    const closeBtn = page.locator('.connect .connect-head button');
+    if ((await closeBtn.count()) > 0) await closeBtn.click({ timeout: 2000 });
     await expect(page.locator('.connect')).toHaveCount(0);
-  }
-  await page.getByRole('button', { name: 'Sketch' }).first().click(); // "New Sketch" → in-memory sketch doc
+  }).toPass({ timeout: 15_000 });
+
+  // Navigate to Author by clicking its activity-bar button — a keyboard shortcut
+  // (Ctrl+4) is swallowed when a modal or the terminal xterm holds focus.
+  await page.getByRole('button', { name: 'Author', exact: true }).click();
+  // "New Sketch" → an in-memory sketch doc (no workspace folder in CI).
+  await page.getByRole('button', { name: 'Sketch', exact: true }).click();
+
   // The Excalidraw canvas mounted — the lazy chunk resolved and its React tree
   // painted without crashing on the `app://` origin.
   await expect(page.locator('.excalidraw-host .excalidraw').first()).toBeVisible({ timeout: 20_000 });

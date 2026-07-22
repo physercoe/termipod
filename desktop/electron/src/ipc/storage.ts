@@ -175,8 +175,11 @@ export const storageHandlers: Record<string, Handler> = {
     const md = await stat(p).catch(() => null);
     if (md?.isFile()) await rm(p, { force: true });
     // Remove the now-empty <key>/ dir (Zotero layout = one file per key folder).
+    // `recursive: true` is required to remove a directory at all — `fs.rm` with
+    // `recursive: false` throws EISDIR on a dir (empty or not); the emptiness is
+    // already guaranteed by the readdir check above.
     const parent = path.dirname(p);
     const rest = await readdir(parent).catch(() => null);
-    if (rest !== null && rest.length === 0) await rm(parent, { recursive: false, force: true });
+    if (rest !== null && rest.length === 0) await rm(parent, { recursive: true, force: true });
   },
 };

@@ -201,7 +201,7 @@ defaults (below) when omitted.
 
 | Value | Semantics | Lint behaviour |
 |---|---|---|
-| `contract` | Doc is a live mirror of code. Drift IS wrongness. | `lint-docs.sh` **fails CI** when the `Last verified` gap exceeds `STALE_THRESHOLD`. |
+| `contract` | Doc is a live mirror of code. Drift IS wrongness. | `lint-docs.sh` **fails CI** when the `Last verified` gap exceeds `STALE_DAYS`. |
 | `rolling` | Doc is the current statement, but drift is acceptable. | `lint-docs.sh` warns at threshold (current behaviour for all docs). |
 | `snapshot` | Doc captures a moment in time; later drift doesn't make it wrong. | `lint-docs.sh` skips the drift check. |
 
@@ -420,12 +420,16 @@ python3):
    resolves to an existing file relative to the source doc's
    location.
 4. **Stale-doc gate** (§6.1). Per-doc `Last verified vs code:`
-   compared to current `pubspec.yaml` version. Behaviour gated by
-   the doc's `Freshness:` field (or its per-primitive default when
+   compared to current `pubspec.yaml` version. Versions are CalVer
+   `YYYY.MMDD.HHMM`; both sides convert to a day number and the gap
+   is measured in **days** (`STALE_DAYS`, default 30). Behaviour gated
+   by the doc's `Freshness:` field (or its per-primitive default when
    absent):
-   - `contract` → drift > `STALE_THRESHOLD` **fails CI**
-   - `rolling` → drift > `STALE_THRESHOLD` warns (non-failing)
+   - `contract` → drift > `STALE_DAYS` **fails CI**
+   - `rolling` → drift > `STALE_DAYS` warns (non-failing)
    - `snapshot` → no drift check
+   - Legacy `v1.0.x` stamps predate CalVer and are grandfathered
+     (counted, never failed) until re-verified.
 
 **`scripts/lint-doc-anchors.sh`** — verifiable-claim rules from §6.2:
 

@@ -54,6 +54,13 @@ This complements:
   not by faith.
 
 ### Changed
+- **blob-iframe guard-deletion** (§6 row 2, test-first): corrected the stale
+  WebView2 rationale comments in the reader/artifact viewers to the real,
+  shell-agnostic reason (the pdf.js/epub.js canvas pipeline is kept because it
+  gives a text layer + reflow zoom, not because a retired shell refused
+  blob-iframes). An E2E test pins the capability those comments referenced — a
+  same-origin `blob:` iframe loads and stays scriptable (what the HTML reader's
+  zoom needs; what WebView2 refused).
 - **Unique ids now use `crypto.randomUUID`** (canvas boards, library items,
   annotations, file transfers) — the renderer serves from the secure `app://`
   origin, so the monotonic-counter fallbacks written for the non-secure

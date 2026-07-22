@@ -411,12 +411,14 @@ function HtmlDoc({ url, title }: { url: string; title: string }): JSX.Element {
 }
 
 // Viewer for a local attachment. Bytes are resolved from the linked storage
-// folder (a live File in the browser build, or read through the Rust core under
-// Tauri), then dispatched by type: PDFs render via bundled pdf.js (PdfCanvas) and
-// EPUBs via epub.js (EpubView) — canvas/DOM rendering works on every platform,
-// unlike the old `<iframe src=blob>` which WebView2 (Windows/Edge) refused
-// ("此页面已被 Microsoft Edge 阻止"). Images/video/audio/html render from an object
-// URL that is revoked on unmount so bytes aren't retained after the reader closes.
+// folder (a live File in the browser build, or through the native file bridge on
+// the desktop), then dispatched by type: PDFs render via bundled pdf.js
+// (PdfCanvas) and EPUBs via epub.js (EpubView) — the pdf.js/epub.js pipelines give
+// a real text layer, reflow-based zoom, and consistent chrome the browser's native
+// viewers don't (§7 row 2: the canvas pipeline is kept). Images/video/audio/html
+// render from a same-origin object (`blob:`) URL, revoked on unmount so bytes
+// aren't retained after the reader closes; the HTML viewer (`HtmlDoc`) loads that
+// blob URL in an iframe — pinned same-origin scriptable in electron/e2e/app.spec.ts.
 function AttachmentView({
   att,
   referenceId,

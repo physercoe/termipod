@@ -123,9 +123,10 @@ export function ArtifactViewer({
     }
   }, [blobQ.data, base]);
 
-  // Decode PDF bytes for the canvas-based renderer (below). A `data:` iframe is
-  // the exact pattern this codebase documents as blocked by WebView2 (blank
-  // frame in the packaged app), so reuse the pdf.js PdfCanvas instead.
+  // Decode PDF bytes for the canvas-based renderer (below). We render PDFs with
+  // pdf.js (PdfCanvas) rather than handing a `data:`/`blob:` URL to the browser's
+  // native PDF viewer: the canvas pipeline gives a real text layer, reflow zoom,
+  // and consistent chrome across platforms (§7 row 2 — the canvas pipeline is kept).
   const pdfData = useMemo<ArrayBuffer | null>(() => {
     if (base !== 'pdf' || blobQ.data === undefined) return null;
     try {

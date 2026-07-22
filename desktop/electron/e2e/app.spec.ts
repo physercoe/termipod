@@ -174,3 +174,39 @@ test('figure export: Chromium rasterizes an SVG to a PNG via canvas', async () =
   expect(png.startsWith('data:image/png;base64,')).toBe(true);
   expect(png.length).toBeGreaterThan(200); // real pixels, not a blank 1×1
 });
+
+// ── blob-URL iframe (§6 row 2 / §7 row 2 guard-deletion) ─────────────────────
+// The reader's HTML attachment viewer (`ReadSurface` → `HtmlDoc`) loads a
+// same-origin `blob:` URL in an iframe and drives zoom through its
+// `contentDocument`. WebView2 REFUSED `<iframe src=blob:>` outright ("此页面已被
+// Microsoft Edge 阻止") — the reason the codebase carried WebView2 avoidance
+// comments. Chromium loads it and keeps it same-origin scriptable; this test pins
+// that so those comments can be removed and the behaviour can't silently regress.
+test('blob-URL iframe loads and stays same-origin scriptable (the pattern WebView2 refused)', async () => {
+  const result = await page.evaluate(async () => {
+    const html = '<!doctype html><html><body><p id="marker">BLOB_IFRAME_OK</p></body></html>';
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+    const iframe = document.createElement('iframe');
+    document.body.appendChild(iframe);
+    await new Promise<void>((res, rej) => {
+      iframe.onload = () => res();
+      iframe.onerror = () => rej(new Error('blob iframe failed to load'));
+      iframe.src = url;
+    });
+    // Same-origin read (HtmlDoc reads the marker's document) …
+    const text = iframe.contentDocument?.getElementById('marker')?.textContent ?? '';
+    // … and same-origin WRITE (HtmlDoc applies zoom via documentElement.style.zoom).
+    let zoomable = false;
+    try {
+      (iframe.contentDocument!.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = '1.5';
+      zoomable = true;
+    } catch {
+      /* cross-origin — the WebView2 failure mode */
+    }
+    iframe.remove();
+    URL.revokeObjectURL(url);
+    return { text, zoomable };
+  });
+  expect(result.text).toBe('BLOB_IFRAME_OK');
+  expect(result.zoomable).toBe(true);
+});

@@ -18,7 +18,9 @@ const common = {
   // `sshpk` (optional native ecc-jsbn) and `jszip` (pure JS) are similarly left
   // external. `electron-updater` (pure JS, but large + dynamic requires) too.
   // All resolve from node_modules at runtime.
-  external: ['electron', '@napi-rs/keyring', 'node-pty', 'ws', 'ssh2', 'sshpk', 'jszip', 'electron-updater'],
+  // `undici` (proxy-aware fetch) ships a wasm blob (llhttp) + dynamic requires;
+  // leave it external so it loads from node_modules rather than being inlined.
+  external: ['electron', '@napi-rs/keyring', 'node-pty', 'ws', 'ssh2', 'sshpk', 'jszip', 'electron-updater', 'undici'],
   sourcemap: true,
   logLevel: 'info',
 };

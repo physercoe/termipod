@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import extract from 'extract-zip';
 import type { Ctx, Handler } from './ipc/dispatch';
 import { openDialog } from './ipc/dialogs';
+import { proxyFetch } from './ipc/net';
 import { DRAWIO_SCHEME } from './schemes';
 
 const DRAWIO_VERSION = 'v30.3.6';
@@ -168,13 +169,12 @@ export const drawioHandlers: Record<string, Handler> = {
     // Already installed, or adoptable from the Tauri install → no download.
     if (await adoptLegacyIfPresent(root)) return statusOf(root);
     const proxy = typeof args.proxy === 'string' && args.proxy !== '' ? args.proxy : undefined;
-    // Node's fetch follows the GitHub release-asset redirect to the CDN; identify
-    // a UA so no proxy rejects a header-less request. (Proxy support: M1.2/M4 —
-    // `session.resolveProxy`; the arg is accepted now for contract parity.)
-    void proxy;
+    // fetch follows the GitHub release-asset redirect to the CDN; identify a UA
+    // so no proxy rejects a header-less request. Routed through proxyFetch so a
+    // configured proxy is honoured (undici ProxyAgent), direct otherwise.
     let resp: Response;
     try {
-      resp = await fetch(DRAWIO_WAR_URL, { headers: { 'user-agent': 'termipod-desktop' }, redirect: 'follow' });
+      resp = await proxyFetch(DRAWIO_WAR_URL, { headers: { 'user-agent': 'termipod-desktop' }, redirect: 'follow' }, proxy);
     } catch (e) {
       throw new Error(
         `could not reach the draw.io download (${e instanceof Error ? e.message : String(e)}). Download draw.war manually and use "Install from file".`,

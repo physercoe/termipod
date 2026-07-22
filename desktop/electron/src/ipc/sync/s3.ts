@@ -6,12 +6,13 @@
 /// `aws4`). Path-style addressing throughout (most compatible across AWS / R2 /
 /// MinIO / B2 / Wasabi). The secret is passed per call, never cached.
 ///
-/// PROXY: accepted for contract parity but not applied (Node fetch has no
-/// per-request proxy without an undici agent — deferred, as M1.5 drawio / M2.5b).
+/// PROXY: the `proxy` arg is honoured — every signed request goes through
+/// `proxyFetch` (undici ProxyAgent when a proxy is set, direct fetch otherwise).
 import type { WebContents } from 'electron';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { emit } from '../../events';
+import { proxyFetch } from '../net';
 import type { Handler } from '../dispatch';
 import {
   decideBoth,
@@ -46,6 +47,7 @@ interface S3Cfg {
   region: string;
   access: string;
   secret: string;
+  proxy?: string; // outbound HTTP(S) proxy, when configured
 }
 
 interface FolderSyncReport {
@@ -110,7 +112,7 @@ async function sendSigned(cfg: S3Cfg, method: string, url: URL, query: string, b
     Authorization: authorization,
   };
   if (body !== undefined) headers['content-type'] = 'application/octet-stream';
-  return fetch(url.href, { method, headers, body, signal: AbortSignal.timeout(S3_TIMEOUT_MS) });
+  return proxyFetch(url.href, { method, headers, body, signal: AbortSignal.timeout(S3_TIMEOUT_MS) }, cfg.proxy);
 }
 
 interface RemoteObj {
@@ -227,7 +229,7 @@ function progress(sender: WebContents, id: string | null, done: number, total: n
 }
 
 function cfgFromArgs(args: Record<string, unknown>): S3Cfg {
-  return makeCfg(
+  const cfg = makeCfg(
     String(args.endpoint ?? ''),
     String(args.region ?? ''),
     String(args.bucket ?? ''),
@@ -235,6 +237,8 @@ function cfgFromArgs(args: Record<string, unknown>): S3Cfg {
     String(args.accessKey ?? ''),
     String(args.secretKey ?? ''),
   );
+  if (typeof args.proxy === 'string' && args.proxy !== '') cfg.proxy = args.proxy;
+  return cfg;
 }
 
 export const s3Handlers: Record<string, Handler> = {
